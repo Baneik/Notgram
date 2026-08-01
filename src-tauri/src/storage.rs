@@ -27,6 +27,13 @@ pub struct StorageSettings {
     pub default_download_path: String,
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadFileInfo {
+    pub path: String,
+    pub size: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountAvatar {
@@ -182,6 +189,11 @@ pub fn telegram_save_downloaded_file(
         )
     })?;
     Ok(destination.display().to_string())
+}
+
+#[tauri::command]
+pub fn telegram_prepare_upload(path: String) -> Result<UploadFileInfo, String> {
+    prepare_upload_file(Path::new(&path))
 }
 
 #[tauri::command]
@@ -663,6 +675,28 @@ fn available_download_path(directory: &Path, file_name: &str) -> PathBuf {
     directory.join(format!("{stem}-{}", std::process::id()))
 }
 
+fn prepare_upload_file(path: &Path) -> Result<UploadFileInfo, String> {
+    if !path.is_absolute() {
+        return Err("Selected upload path must be absolute".to_string());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "Selected upload file is unavailable".to_string())?;
+    let metadata = canonical
+        .metadata()
+        .map_err(|_| "Unable to read selected upload file".to_string())?;
+    if !metadata.is_file() {
+        return Err("Selected upload path is not a file".to_string());
+    }
+    let path = canonical
+        .to_str()
+        .ok_or_else(|| "Selected upload path contains unsupported characters".to_string())?;
+    Ok(UploadFileInfo {
+        path: path.to_string(),
+        size: metadata.len(),
+    })
+}
+
 fn program_directory() -> Result<PathBuf, String> {
     env::current_exe()
         .map_err(|error| format!("Unable to resolve executable path: {error}"))?
@@ -725,5 +759,25 @@ mod tests {
         assert!(validate_account_id("../account").is_err());
         assert!(validate_account_id("account/child").is_err());
         assert!(validate_account_id(&"a".repeat(81)).is_err());
+    }
+
+    #[test]
+    fn validates_and_canonicalizes_upload_files() {
+        let path = env::temp_dir().join(format!(
+            "notgram-upload-{}-{}.txt",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&path, b"upload").unwrap();
+
+        let info = prepare_upload_file(&path).unwrap();
+
+        assert_eq!(info.size, 6);
+        assert_eq!(PathBuf::from(info.path), path.canonicalize().unwrap());
+        fs::remove_file(path).unwrap();
+        assert!(prepare_upload_file(Path::new("relative.txt")).is_err());
     }
 }

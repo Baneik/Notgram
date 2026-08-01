@@ -161,6 +161,112 @@ describe("TauriTelegramTransport message operations", () => {
     ]);
   });
 
+  it("sends selected photos and documents with native local-file inputs", async () => {
+    const photoTransport = new TauriTelegramTransport(
+      async () => ({
+        path: "C:\\Users\\test\\Pictures\\holiday.jpg",
+        size: 2_000_000,
+      }),
+    );
+    const documentTransport = new TauriTelegramTransport(
+      async () => ({
+        path: "C:\\Users\\test\\Documents\\notes.pdf",
+        size: 500_000,
+      }),
+    );
+    const photoRequests: TdObject[] = [];
+    const documentRequests: TdObject[] = [];
+    (photoTransport as unknown as TestableTransport).request = async (request) => {
+      photoRequests.push(request);
+      return { "@type": "ok" };
+    };
+    (documentTransport as unknown as TestableTransport).request = async (request) => {
+      documentRequests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await expect(photoTransport.sendFile({ chatId: "7" })).resolves.toBe(true);
+    await expect(documentTransport.sendFile({ chatId: "7" })).resolves.toBe(true);
+
+    expect(photoRequests[0]).toMatchObject({
+      "@type": "sendMessage",
+      chat_id: 7,
+      input_message_content: {
+        "@type": "inputMessagePhoto",
+        photo: {
+          "@type": "inputPhoto",
+          photo: {
+            "@type": "inputFileLocal",
+            path: "C:\\Users\\test\\Pictures\\holiday.jpg",
+          },
+        },
+        caption: { "@type": "formattedText", text: "", entities: [] },
+        has_spoiler: false,
+      },
+    });
+    expect(documentRequests[0]).toMatchObject({
+      "@type": "sendMessage",
+      chat_id: 7,
+      input_message_content: {
+        "@type": "inputMessageDocument",
+        document: {
+          "@type": "inputDocument",
+          document: {
+            "@type": "inputFileLocal",
+            path: "C:\\Users\\test\\Documents\\notes.pdf",
+          },
+          disable_content_type_detection: false,
+        },
+      },
+    });
+  });
+
+  it("does not send when the native picker is cancelled and can cancel an active upload", async () => {
+    const cancelledPicker = new TauriTelegramTransport(async () => undefined);
+    const transport = new TauriTelegramTransport(async () => ({
+      path: "C:\\tmp\\large.zip",
+      size: 20_000_000,
+    }));
+    const pickerRequests: TdObject[] = [];
+    const requests: TdObject[] = [];
+    (cancelledPicker as unknown as TestableTransport).request = async (request) => {
+      pickerRequests.push(request);
+      return { "@type": "ok" };
+    };
+    (transport as unknown as TestableTransport).request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await expect(cancelledPicker.sendFile({ chatId: "7" })).resolves.toBe(false);
+    await transport.cancelFileUpload("7", "-91");
+
+    expect(pickerRequests).toEqual([]);
+    expect(requests).toEqual([{
+      "@type": "deleteMessages",
+      chat_id: 7,
+      message_ids: [-91],
+      revoke: true,
+    }]);
+  });
+
+  it("sends photos over TDLib's size limit as documents", async () => {
+    const transport = new TauriTelegramTransport(async () => ({
+      path: "C:\\tmp\\large-photo.jpg",
+      size: 10 * 1024 * 1024 + 1,
+    }));
+    const requests: TdObject[] = [];
+    (transport as unknown as TestableTransport).request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.sendFile({ chatId: "7" });
+
+    expect((requests[0].input_message_content as TdObject)["@type"])
+      .toBe("inputMessageDocument");
+  });
+
   it("merges separate edit and interaction updates into the known message", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

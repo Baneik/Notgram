@@ -306,7 +306,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .is-outgoing .message-bubble.is-photo:not(.has-caption) .message-meta,
 .is-outgoing .message-bubble.is-photo:not(.has-caption) .message-meta svg { color: #ffffff; }
-.media-progress { position: absolute; right: 8px; bottom: 8px; min-width: 34px; height: 24px; padding: 0 7px; display: inline-flex; align-items: center; justify-content: center; color: #ffffff; background: rgba(24, 37, 35, 0.7); border-radius: 12px; font-size: 10px; font-weight: 650; }
+.media-progress { position: absolute; left: 50%; top: 50%; min-width: 42px; height: 30px; padding: 0 5px 0 9px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; color: #ffffff; background: rgba(24, 37, 35, 0.74); border-radius: 15px; font-size: 10px; font-weight: 650; transform: translate(-50%, -50%); }
+.media-progress > span { min-width: 20px; display: inline-grid; place-items: center; }
+.media-progress button { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; color: #ffffff; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.media-progress button:hover { background: rgba(255, 255, 255, 0.16); }
 .messages-empty { width: fit-content; margin: 42px auto; padding: 5px 10px; color: #ffffff; background: rgba(92, 117, 112, 0.72); border-radius: 12px; font-size: 11px; }
 .composer-wrap { min-height: 71px; padding: 6px clamp(12px, 3vw, 38px) 13px; display: grid; align-content: end; background: transparent; }
 .composer-context {

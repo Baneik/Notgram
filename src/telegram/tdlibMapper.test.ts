@@ -191,6 +191,46 @@ describe("TDLib mapper", () => {
     expect(message).toMatchObject({ delivery: "failed", canRetry: true });
   });
 
+  it("maps outgoing file upload progress from TDLib remote state", () => {
+    const message = mapTdMessage({
+      id: -11,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      is_outgoing: true,
+      date: 1_700_000_000,
+      sending_state: { "@type": "messageSendingStatePending" },
+      content: {
+        "@type": "messageDocument",
+        caption: { "@type": "formattedText", text: "", entities: [] },
+        document: {
+          file_name: "archive.zip",
+          mime_type: "application/zip",
+          document: {
+            "@type": "file",
+            id: 91,
+            size: 4_000,
+            local: {},
+            remote: {
+              is_uploading_active: true,
+              uploaded_size: 1_000,
+            },
+          },
+        },
+      },
+    });
+
+    expect(message).toMatchObject({
+      delivery: "sending",
+      content: {
+        kind: "file",
+        fileId: 91,
+        isUploading: true,
+        uploadedSize: 1_000,
+        progress: 0.25,
+      },
+    });
+  });
+
   it("maps reply, forward, edit, and reaction metadata", () => {
     const message = mapTdMessage({
       id: 1004,

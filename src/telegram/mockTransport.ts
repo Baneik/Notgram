@@ -46,6 +46,16 @@ const readableFileSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const previewDataUrl = async (file: File) => {
+  if (!file.type.startsWith("image/") || file.size > 256 * 1024) return undefined;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return `data:${file.type};base64,${btoa(binary)}`;
+};
+
 export class MockTelegramTransport implements TelegramTransport {
   readonly kind = "mock" as const;
   readonly label = "演示数据";
@@ -316,6 +326,9 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async sendFile({ chatId, file }: SendFileInput) {
+    if (!file) return false;
+    const isPhoto = file.type.startsWith("image/");
+    const preview = isPhoto ? await previewDataUrl(file) : undefined;
     this.appendMessage({
       id: crypto.randomUUID(),
       chatId,
@@ -323,12 +336,25 @@ export class MockTelegramTransport implements TelegramTransport {
       outgoing: true,
       sentAt: new Date().toISOString(),
       delivery: "sent",
-      content: {
-        kind: "file",
-        fileName: file.name,
-        sizeLabel: readableFileSize(file.size),
-      },
+      content: isPhoto
+        ? {
+            kind: "media",
+            mediaType: "photo",
+            fileName: file.name,
+            sizeLabel: readableFileSize(file.size),
+            previewDataUrl: preview,
+          }
+        : {
+            kind: "file",
+            fileName: file.name,
+            sizeLabel: readableFileSize(file.size),
+          },
     });
+    return true;
+  }
+
+  async cancelFileUpload(chatId: string, messageId: string) {
+    await this.deleteMessage({ chatId, messageId, revoke: true });
   }
 
   async markChatRead(chatId: string) {

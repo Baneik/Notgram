@@ -32,6 +32,7 @@ export function App() {
   const messages = useTelegramStore((state) => state.messages);
   const histories = useTelegramStore((state) => state.histories);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
+  const transportKind = useTelegramStore((state) => state.transportKind);
   const authorization = useTelegramStore((state) => state.authorization);
   const authorizationPending = useTelegramStore((state) => state.authorizationPending);
   const authorizationError = useTelegramStore((state) => state.authorizationError);
@@ -46,6 +47,7 @@ export function App() {
   const downloadFile = useTelegramStore((state) => state.downloadFile);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
   const sendFile = useTelegramStore((state) => state.sendFile);
+  const cancelFileUpload = useTelegramStore((state) => state.cancelFileUpload);
   const loadMoreHistory = useTelegramStore((state) => state.loadMoreHistory);
   const clearError = useTelegramStore((state) => state.clearError);
   const authenticate = useTelegramStore((state) => state.authenticate);
@@ -128,6 +130,7 @@ export function App() {
           users={users}
           historyLoading={activeHistory.loading}
           hasOlderMessages={activeHistory.hasMore}
+          transportKind={transportKind}
           onSendMessage={sendMessage}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}
@@ -135,6 +138,7 @@ export function App() {
           onDownloadFile={downloadFile}
           onRetryMessage={retryMessage}
           onSendFile={sendFile}
+          onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onBack={() => setMobileChatOpen(false)}
         />

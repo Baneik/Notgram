@@ -395,6 +395,35 @@ describe("telegram store", () => {
     expect(store.getState().chats.get("chat-product")?.preview).toBe("新的媒体预览样式");
   });
 
+  it("sends and cancels a selected photo through the active chat", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+    const photo = new File(
+      [new Uint8Array([137, 80, 78, 71])],
+      "upload.png",
+      { type: "image/png" },
+    );
+
+    await expect(store.getState().sendFile(photo)).resolves.toBe(true);
+    const sent = store.getState().messages.get("chat-product")?.at(-1);
+    expect(sent).toMatchObject({
+      chatId: "chat-product",
+      outgoing: true,
+      content: {
+        kind: "media",
+        mediaType: "photo",
+        fileName: "upload.png",
+        previewDataUrl: "data:image/png;base64,iVBORw==",
+      },
+    });
+
+    await store.getState().cancelFileUpload(sent!.id);
+    expect(
+      store.getState().messages.get("chat-product")
+        ?.some((message) => message.id === sent!.id),
+    ).toBe(false);
+  });
+
   it("preserves message state when edit or delete is rejected", async () => {
     class FailingOperationsTransport extends MockTelegramTransport {
       override async editMessage() {

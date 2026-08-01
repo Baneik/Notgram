@@ -78,7 +78,8 @@ export interface TelegramState {
   deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
   downloadFile: (fileId: number, fileName: string) => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
-  sendFile: (file: File) => Promise<void>;
+  sendFile: (file?: File) => Promise<boolean>;
+  cancelFileUpload: (messageId: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -824,11 +825,31 @@ export const createTelegramStore = (
 
       sendFile: async (file) => {
         const chatId = get().activeChatId;
-        if (!chatId) return;
+        if (!chatId) return false;
         try {
-          await transport.sendFile({ chatId, file });
+          const sent = await transport.sendFile({ chatId, file });
+          if (sent) set({ error: undefined });
+          return sent;
         } catch (error) {
           set({ error: error instanceof Error ? error.message : "文件发送失败" });
+          return false;
+        }
+      },
+
+      cancelFileUpload: async (messageId) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return;
+        try {
+          await transport.cancelFileUpload(chatId, messageId);
+          const messages = new Map(get().messages);
+          messages.set(
+            chatId,
+            (messages.get(chatId) ?? []).filter((message) => message.id !== messageId),
+          );
+          set({ messages, error: undefined });
+          scheduleCacheWrite();
+        } catch (error) {
+          set({ error: error instanceof Error ? error.message : "取消上传失败" });
         }
       },
 

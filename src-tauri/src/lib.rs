@@ -15,6 +15,7 @@ fn load_environment() {
 pub fn run() {
     load_environment();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(telegram::TelegramRuntime::new())
         .invoke_handler(tauri::generate_handler![
             telegram::telegram_runtime_status,
@@ -23,6 +24,7 @@ pub fn run() {
             storage::telegram_storage_settings,
             storage::telegram_save_storage_settings,
             storage::telegram_save_downloaded_file,
+            storage::telegram_prepare_upload,
             storage::telegram_read_snapshot_cache,
             storage::telegram_write_snapshot_cache,
             storage::telegram_clear_snapshot_cache,

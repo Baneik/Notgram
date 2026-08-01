@@ -44,6 +44,7 @@ interface ConversationProps {
   users: Map<string, User>;
   historyLoading: boolean;
   hasOlderMessages: boolean;
+  transportKind: "mock" | "tauri";
   onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
@@ -53,7 +54,8 @@ interface ConversationProps {
   ) => Promise<MessagePermissions | undefined>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onRetryMessage: (messageId: string) => Promise<void>;
-  onSendFile: (file: File) => Promise<void>;
+  onSendFile: (file?: File) => Promise<boolean>;
+  onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onBack: () => void;
 }
@@ -64,6 +66,7 @@ export function Conversation({
   users,
   historyLoading,
   hasOlderMessages,
+  transportKind,
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
@@ -71,6 +74,7 @@ export function Conversation({
   onDownloadFile,
   onRetryMessage,
   onSendFile,
+  onCancelFileUpload,
   onLoadOlder,
   onBack,
 }: ConversationProps) {
@@ -78,6 +82,7 @@ export function Conversation({
   const [searchOpen, setSearchOpen] = useState(false);
   const [messageSearch, setMessageSearch] = useState("");
   const [sending, setSending] = useState(false);
+  const [attachmentPending, setAttachmentPending] = useState(false);
   const [actionMenu, setActionMenu] = useState<{
     messageId: string;
     left: number;
@@ -102,6 +107,16 @@ export function Conversation({
     scrollTop: number;
     distanceBottom: number;
   } | undefined>(undefined);
+
+  const sendAttachment = async (file?: File) => {
+    if (attachmentPending) return;
+    setAttachmentPending(true);
+    try {
+      await onSendFile(file);
+    } finally {
+      setAttachmentPending(false);
+    }
+  };
 
   const visibleMessages = useMemo(() => {
     const query = messageSearch.trim().toLocaleLowerCase();
@@ -429,6 +444,7 @@ export function Conversation({
                       onOpenActions={openActionMenu}
                       onDownload={onDownloadFile}
                       onRetry={onRetryMessage}
+                      onCancelUpload={onCancelFileUpload}
                     />
                   ))}
                 </div>
@@ -495,7 +511,7 @@ export function Conversation({
           type="file"
           onChange={async (event) => {
             const file = event.target.files?.[0];
-            if (file) await onSendFile(file);
+            if (file) await sendAttachment(file);
             event.target.value = "";
           }}
         />
@@ -529,11 +545,16 @@ export function Conversation({
             className="icon-button"
             type="button"
             aria-label="添加附件"
-            title={composerContextMessage ? "完成当前消息操作后添加附件" : "添加附件"}
-            disabled={Boolean(composerContextMessage)}
-            onClick={() => fileInputRef.current?.click()}
+            title={composerContextMessage ? "完成当前消息操作后添加附件" : attachmentPending ? "正在选择文件" : "添加附件"}
+            disabled={Boolean(composerContextMessage) || attachmentPending}
+            onClick={() => {
+              if (transportKind === "tauri") void sendAttachment();
+              else fileInputRef.current?.click();
+            }}
           >
-            <Paperclip size={20} strokeWidth={1.8} />
+            {attachmentPending
+              ? <LoaderCircle className="spin" size={19} strokeWidth={1.8} />
+              : <Paperclip size={20} strokeWidth={1.8} />}
           </button>
           <textarea
             ref={composerInputRef}
@@ -628,6 +649,7 @@ function MessageBubble({
   onOpenActions,
   onDownload,
   onRetry,
+  onCancelUpload,
 }: {
   message: Message;
   sender?: User;
@@ -637,6 +659,7 @@ function MessageBubble({
   onOpenActions: (message: Message, left: number, top: number) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onRetry: (messageId: string) => Promise<void>;
+  onCancelUpload: (messageId: string) => Promise<void>;
 }) {
   const isPhoto = message.content.kind === "media" && message.content.mediaType === "photo";
   const hasCaption = message.content.kind === "media" &&
@@ -658,6 +681,8 @@ function MessageBubble({
     message.content.canDownload !== false &&
     !message.content.isDownloaded &&
     !message.content.isDownloading;
+  const canCancelUpload = message.content.kind !== "text" &&
+    message.content.isUploading === true;
   return (
     <article className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"}`}>
       <div
@@ -692,11 +717,16 @@ function MessageBubble({
                     <ImageIcon size={28} strokeWidth={1.6} />
                   </span>
                 )}
-                {message.content.isDownloading && (
+                {(message.content.isDownloading || message.content.isUploading) && (
                   <span className="media-progress">
-                    {message.content.progress === undefined
+                    <span>{message.content.progress === undefined
                       ? <LoaderCircle className="spin" size={15} />
-                      : `${Math.round(message.content.progress * 100)}%`}
+                      : `${Math.round(message.content.progress * 100)}%`}</span>
+                    {canCancelUpload && (
+                      <button type="button" aria-label={`取消上传 ${downloadFileName}`} title="取消上传" onClick={() => void onCancelUpload(message.id)}>
+                        <X size={14} strokeWidth={2.2} />
+                      </button>
+                    )}
                   </span>
                 )}
               </div>
@@ -707,17 +737,17 @@ function MessageBubble({
               <span className="file-icon"><FileText size={19} strokeWidth={1.8} /></span>
               <span className="file-copy">
                 <strong>{message.content.fileName}</strong>
-                <small>{message.content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.content.isDownloaded ? `已缓存 · ${message.content.sizeLabel}` : message.content.sizeLabel}</small>
+                <small>{message.content.isUploading ? `上传中 ${fileProgress ?? ""}` : message.content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : message.content.isDownloaded ? `已缓存 · ${message.content.sizeLabel}` : message.content.sizeLabel}</small>
               </span>
-              {canDownload && (
+              {(canDownload || canCancelUpload) && (
                 <button
                   className="file-download"
                   type="button"
-                  aria-label={`下载 ${message.content.fileName}`}
-                  title="下载到 downloads"
-                  onClick={() => void onDownload(downloadFileId!, downloadFileName)}
+                  aria-label={canCancelUpload ? `取消上传 ${message.content.fileName}` : `下载 ${message.content.fileName}`}
+                  title={canCancelUpload ? "取消上传" : "下载到 downloads"}
+                  onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onDownload(downloadFileId!, downloadFileName)}
                 >
-                  <Download size={16} strokeWidth={2} />
+                  {canCancelUpload ? <X size={16} strokeWidth={2.2} /> : <Download size={16} strokeWidth={2} />}
                 </button>
               )}
             </div>

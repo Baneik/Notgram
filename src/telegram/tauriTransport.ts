@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   asTdObject,
   asTdObjects,
@@ -51,6 +52,25 @@ type PendingRequest = {
   timer: number;
 };
 
+interface NativeUploadFile {
+  path: string;
+  size: number;
+}
+
+type NativeUploadPicker = () => Promise<NativeUploadFile | undefined>;
+
+const pickNativeUpload: NativeUploadPicker = async () => {
+  const selected = await open({
+    title: "选择要发送的文件",
+    multiple: false,
+    directory: false,
+  });
+  const path = Array.isArray(selected) ? selected[0] : selected;
+  return typeof path === "string" && path
+    ? invoke<NativeUploadFile>("telegram_prepare_upload", { path })
+    : undefined;
+};
+
 const numericId = (id: string) => {
   const value = Number(id);
   if (!Number.isSafeInteger(value)) throw new Error(`无效的 Telegram 标识符：${id}`);
@@ -63,6 +83,49 @@ const inputMessageText = (text: string, clearDraft: boolean): TdObject => ({
   link_preview_options: null,
   clear_draft: clearDraft,
 });
+
+const emptyFormattedText = (): TdObject => ({
+  "@type": "formattedText",
+  text: "",
+  entities: [],
+});
+
+const localInputFile = (path: string): TdObject => ({
+  "@type": "inputFileLocal",
+  path,
+});
+
+const photoFilePattern = /\.(?:jpe?g|png)$/i;
+const maxPhotoSize = 10 * 1024 * 1024;
+
+const inputMessageFile = (file: NativeUploadFile): TdObject =>
+  photoFilePattern.test(file.path) && file.size <= maxPhotoSize
+  ? {
+      "@type": "inputMessagePhoto",
+      photo: {
+        "@type": "inputPhoto",
+        photo: localInputFile(file.path),
+        thumbnail: null,
+        video: null,
+        added_sticker_file_ids: [],
+        width: 0,
+        height: 0,
+      },
+      caption: emptyFormattedText(),
+      show_caption_above_media: false,
+      self_destruct_type: null,
+      has_spoiler: false,
+    }
+  : {
+      "@type": "inputMessageDocument",
+      document: {
+        "@type": "inputDocument",
+        document: localInputFile(file.path),
+        thumbnail: null,
+        disable_content_type_detection: false,
+      },
+      caption: emptyFormattedText(),
+    };
 
 const listObject = (type: "chatListMain" | "chatListArchive") => ({ "@type": type });
 
@@ -171,6 +234,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   private currentUserId?: string;
   private bootstrapPromise?: Promise<void>;
   private initialChatSyncPending = true;
+
+  constructor(private readonly nativeUploadPicker: NativeUploadPicker = pickNativeUpload) {}
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
     this.resetSessionState();
@@ -442,8 +507,29 @@ export class TauriTelegramTransport implements TelegramTransport {
     for (const message of asTdObjects(response.messages)) this.emitMessage(message);
   }
 
-  async sendFile(_input: SendFileInput) {
-    throw new Error("真实文件上传将在 TDLib 文件映射完成后启用。");
+  async sendFile(input: SendFileInput) {
+    const file = await this.nativeUploadPicker();
+    if (!file) return false;
+    const response = await this.request({
+      "@type": "sendMessage",
+      chat_id: numericId(input.chatId),
+      topic_id: null,
+      reply_to: null,
+      options: null,
+      reply_markup: null,
+      input_message_content: inputMessageFile(file),
+    });
+    if (response["@type"] === "message") this.emitMessage(response);
+    return true;
+  }
+
+  async cancelFileUpload(chatId: string, messageId: string) {
+    await this.request({
+      "@type": "deleteMessages",
+      chat_id: numericId(chatId),
+      message_ids: [numericId(messageId)],
+      revoke: true,
+    });
   }
 
   async markChatRead(chatId: string) {

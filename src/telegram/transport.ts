@@ -43,6 +43,7 @@ export interface TelegramTransport {
   deleteMessage(input: DeleteMessageInput): Promise<void>;
   downloadFile(fileId: number, fileName: string): Promise<void>;
   retryMessage(chatId: string, messageId: string): Promise<void>;
-  sendFile(input: SendFileInput): Promise<void>;
+  sendFile(input: SendFileInput): Promise<boolean>;
+  cancelFileUpload(chatId: string, messageId: string): Promise<void>;
   markChatRead(chatId: string): Promise<void>;
 }

@@ -219,7 +219,7 @@ export interface DeleteMessageInput {
 
 export interface SendFileInput {
   chatId: string;
-  file: File;
+  file?: File;
 }
 
 export interface ChatHistoryPage {
