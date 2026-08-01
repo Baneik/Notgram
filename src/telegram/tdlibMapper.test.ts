@@ -42,6 +42,15 @@ describe("TDLib mapper", () => {
       first_name: "Lin",
       last_name: "Ran",
       status: { "@type": "userStatusOnline", expires: 1_800_000_000 },
+      profile_photo: {
+        small: {
+          id: 44,
+          local: {
+            is_downloading_completed: true,
+            path: "C:\\avatars\\lin.jpg",
+          },
+        },
+      },
     });
     const message = mapTdMessage({
       id: 1001,
@@ -55,7 +64,12 @@ describe("TDLib mapper", () => {
       },
     });
 
-    expect(user).toMatchObject({ id: "7", displayName: "Lin Ran", presence: "online" });
+    expect(user).toMatchObject({
+      id: "7",
+      displayName: "Lin Ran",
+      presence: "online",
+      avatar: { imagePath: "C:\\avatars\\lin.jpg" },
+    });
     expect(message).toMatchObject({
       id: "1001",
       chatId: "99",
@@ -65,7 +79,7 @@ describe("TDLib mapper", () => {
     });
   });
 
-  it("maps documents with file metadata", () => {
+  it("keeps image documents as downloadable files", () => {
     const message = mapTdMessage({
       id: 1002,
       chat_id: 99,
@@ -75,7 +89,8 @@ describe("TDLib mapper", () => {
       content: {
         "@type": "messageDocument",
         document: {
-          file_name: "notes.pdf",
+          file_name: "diagram.png",
+          mime_type: "image/png",
           document: { size: 2048, expected_size: 2048 },
         },
         caption: { "@type": "formattedText", text: "", entities: [] },
@@ -84,8 +99,8 @@ describe("TDLib mapper", () => {
 
     expect(message?.content).toMatchObject({
       kind: "file",
-      mediaKind: "document",
-      fileName: "notes.pdf",
+      fileName: "diagram.png",
+      mimeType: "image/png",
       sizeLabel: "2 KB",
       size: 2048,
     });
@@ -102,6 +117,7 @@ describe("TDLib mapper", () => {
         "@type": "messagePhoto",
         caption: { "@type": "formattedText", text: "preview", entities: [] },
         photo: {
+          minithumbnail: { width: 40, height: 22, data: "aGVsbG8=" },
           sizes: [
             {
               width: 90,
@@ -136,13 +152,14 @@ describe("TDLib mapper", () => {
     });
 
     expect(message?.content).toMatchObject({
-      kind: "file",
-      mediaKind: "photo",
+      kind: "media",
+      mediaType: "photo",
       fileId: 9,
       size: 4000,
       isDownloading: true,
       progress: 0.25,
       thumbnailPath: "C:\\cache\\thumb.jpg",
+      previewDataUrl: "data:image/jpeg;base64,aGVsbG8=",
       width: 1280,
       height: 720,
     });
@@ -192,7 +209,7 @@ describe("TDLib mapper", () => {
       },
     });
 
-    expect(folders.map((folder) => folder.id)).toEqual(["folder:12", "main", "archive"]);
+    expect(folders.map((folder) => folder.id)).toEqual(["folder:12", "main"]);
     expect(chat?.folderIds).toEqual(["folder:12"]);
     expect(chat?.avatar.imagePath).toBe("C:\\avatars\\group.jpg");
   });

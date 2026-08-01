@@ -7,8 +7,8 @@ interface AvatarProps {
 }
 
 export function Avatar({ avatar, size = "medium" }: AvatarProps) {
-  const imageSource = avatar.imagePath && isTauri()
-    ? convertFileSrc(avatar.imagePath)
+  const imageSource = avatar.imagePath
+    ? isTauri() ? convertFileSrc(avatar.imagePath) : avatar.imagePath
     : undefined;
   return (
     <span
@@ -19,6 +19,7 @@ export function Avatar({ avatar, size = "medium" }: AvatarProps) {
       <span>{avatar.label}</span>
       {imageSource && (
         <img
+          key={imageSource}
           src={imageSource}
           alt=""
           onError={(event) => { event.currentTarget.hidden = true; }}

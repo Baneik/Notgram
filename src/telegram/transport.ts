@@ -2,6 +2,7 @@ import type {
   SendFileInput,
   SendMessageInput,
   ChatHistoryPage,
+  CachedTelegramSnapshot,
   TelegramEvent,
   TelegramSnapshot,
   ProxySettings,
@@ -16,6 +17,9 @@ export interface TelegramTransport {
   readonly label: string;
   connect(listener: TelegramEventListener): Promise<TelegramSnapshot>;
   disconnect(): Promise<void>;
+  loadCachedSnapshot(): Promise<CachedTelegramSnapshot | undefined>;
+  saveCachedSnapshot(snapshot: CachedTelegramSnapshot): Promise<void>;
+  clearCachedSnapshot(): Promise<void>;
   authenticate(action: AuthorizationAction): Promise<void>;
   getProxySettings(): Promise<ProxySettings>;
   saveProxySettings(settings: ProxySettings): Promise<void>;

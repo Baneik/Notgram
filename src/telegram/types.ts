@@ -49,29 +49,34 @@ export interface Chat {
   muted: boolean;
 }
 
+interface TransferableMessageContent {
+  fileName: string;
+  sizeLabel: string;
+  caption?: string;
+  mimeType?: string;
+  fileId?: number;
+  size?: number;
+  localPath?: string;
+  thumbnailPath?: string;
+  canDownload?: boolean;
+  isDownloading?: boolean;
+  isDownloaded?: boolean;
+  isUploading?: boolean;
+  downloadedSize?: number;
+  uploadedSize?: number;
+  progress?: number;
+  width?: number;
+  height?: number;
+}
+
 export type MessageContent =
   | { kind: "text"; text: string }
-  | {
-      kind: "file";
-      fileName: string;
-      sizeLabel: string;
-      mediaKind?: "document" | "photo" | "video" | "audio" | "voice" | "animation" | "sticker";
-      caption?: string;
-      mimeType?: string;
-      fileId?: number;
-      size?: number;
-      localPath?: string;
-      thumbnailPath?: string;
-      canDownload?: boolean;
-      isDownloading?: boolean;
-      isDownloaded?: boolean;
-      isUploading?: boolean;
-      downloadedSize?: number;
-      uploadedSize?: number;
-      progress?: number;
-      width?: number;
-      height?: number;
-    };
+  | ({ kind: "file" } & TransferableMessageContent)
+  | ({
+      kind: "media";
+      mediaType: "photo" | "video" | "audio" | "voice" | "animation" | "sticker";
+      previewDataUrl?: string;
+    } & TransferableMessageContent);
 
 export interface Message {
   id: string;
@@ -91,6 +96,18 @@ export interface TelegramSnapshot {
   folders: ChatFolder[];
   chats: Chat[];
   messages: Message[];
+}
+
+export interface CachedTelegramSnapshot {
+  version: 1;
+  savedAt: string;
+  currentUserId: string;
+  users: User[];
+  folders: ChatFolder[];
+  chats: Chat[];
+  messages: Message[];
+  activeChatId?: string;
+  chatFilter?: string;
 }
 
 export type TelegramEvent =
@@ -116,6 +133,7 @@ export interface SendFileInput {
 export interface ChatHistoryPage {
   loadedCount: number;
   hasMore: boolean;
+  messageIds: string[];
 }
 
 export type ProxyMode = "system" | "direct" | "custom";

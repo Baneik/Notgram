@@ -103,7 +103,6 @@ const thumbnailPath = (value: unknown) => {
 };
 
 const fileContent = (
-  mediaKind: "document" | "photo" | "video" | "audio" | "voice" | "animation" | "sticker",
   fileName: string,
   file: unknown,
   options: {
@@ -115,11 +114,37 @@ const fileContent = (
   } = {},
 ): MessageContent => ({
   kind: "file",
-  mediaKind,
   fileName,
   ...fileDetails(file),
   ...options,
 });
+
+const mediaContent = (
+  mediaType: "photo" | "video" | "audio" | "voice" | "animation" | "sticker",
+  fileName: string,
+  file: unknown,
+  options: {
+    caption?: string;
+    mimeType?: string;
+    thumbnailPath?: string;
+    previewDataUrl?: string;
+    width?: number;
+    height?: number;
+  } = {},
+): MessageContent => ({
+  kind: "media",
+  mediaType,
+  fileName,
+  ...fileDetails(file),
+  ...options,
+});
+
+const minithumbnailDataUrl = (value: unknown) => {
+  const minithumbnail = asTdObject(value);
+  return typeof minithumbnail?.data === "string" && minithumbnail.data
+    ? `data:image/jpeg;base64,${minithumbnail.data}`
+    : undefined;
+};
 
 export const mapTdMessageContent = (value: unknown): MessageContent => {
   const content = asTdObject(value);
@@ -133,7 +158,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         typeof document?.file_name === "string" && document.file_name
           ? document.file_name
           : caption || "文档";
-      return fileContent("document", fileName, document?.document, {
+      return fileContent(fileName, document?.document, {
         caption: caption || undefined,
         mimeType: typeof document?.mime_type === "string" ? document.mime_type : undefined,
         thumbnailPath: thumbnailPath(document?.thumbnail),
@@ -153,16 +178,17 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
           (tdNumber(best?.height) ?? Number.POSITIVE_INFINITY);
         return area <= bestArea ? candidate : best;
       }, undefined);
-      return fileContent("photo", "图片", largest?.photo, {
+      return mediaContent("photo", "图片", largest?.photo, {
         caption: formattedText(content.caption) || undefined,
         thumbnailPath: localImagePath(smallest?.photo),
+        previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
         width: tdNumber(largest?.width),
         height: tdNumber(largest?.height),
       });
     }
     case "messageVideo": {
       const video = asTdObject(content.video);
-      return fileContent(
+      return mediaContent(
         "video",
         typeof video?.file_name === "string" && video.file_name ? video.file_name : "视频",
         video?.video,
@@ -177,7 +203,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
     }
     case "messageAnimation": {
       const animation = asTdObject(content.animation);
-      return fileContent(
+      return mediaContent(
         "animation",
         typeof animation?.file_name === "string" && animation.file_name ? animation.file_name : "动图",
         animation?.animation,
@@ -192,7 +218,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
     }
     case "messageAudio": {
       const audio = asTdObject(content.audio);
-      return fileContent(
+      return mediaContent(
         "audio",
         typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : "音频",
         audio?.audio,
@@ -205,7 +231,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
     }
     case "messageVoiceNote": {
       const voice = asTdObject(content.voice_note);
-      return fileContent("voice", "语音消息", voice?.voice, {
+      return mediaContent("voice", "语音消息", voice?.voice, {
         caption: formattedText(content.caption) || undefined,
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
       });
@@ -301,7 +327,6 @@ export const mapTdChatFolders = (
     title: "全部聊天",
     iconName: "All",
   });
-  folders.push({ id: "archive", title: "已归档", iconName: "Archive" });
   return folders;
 };
 
@@ -368,7 +393,11 @@ export const mapTdUser = (raw: TdObject): User | undefined => {
   return {
     id,
     displayName,
-    avatar: { label: initials(displayName), color: colorFor(id) },
+    avatar: {
+      label: initials(displayName),
+      color: colorFor(id),
+      imagePath: localImagePath(asTdObject(raw.profile_photo)?.small),
+    },
     presence: online ? "online" : "offline",
     lastSeenLabel: lastSeen ? new Date(lastSeen * 1000).toLocaleString("zh-CN") : undefined,
   };

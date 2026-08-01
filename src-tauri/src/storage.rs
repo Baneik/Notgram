@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     env, fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager};
@@ -64,6 +66,86 @@ pub fn telegram_save_downloaded_file(
     Ok(destination.display().to_string())
 }
 
+#[tauri::command]
+pub fn telegram_read_snapshot_cache(app: AppHandle) -> Result<Option<Value>, String> {
+    let path = snapshot_cache_path(&app)?;
+    let backup = path.with_extension("bak");
+    let readable_path = if path.is_file() {
+        path
+    } else if backup.is_file() {
+        backup
+    } else {
+        return Ok(None);
+    };
+    let protected = fs::read(&readable_path).map_err(|error| {
+        format!(
+            "Unable to read UI cache {}: {error}",
+            readable_path.display()
+        )
+    })?;
+    let serialized = crate::proxy::unprotect(&protected)?;
+    let snapshot = serde_json::from_slice(&serialized)
+        .map_err(|error| format!("Unable to parse UI cache: {error}"))?;
+    Ok(Some(snapshot))
+}
+
+#[tauri::command]
+pub fn telegram_write_snapshot_cache(app: AppHandle, snapshot: Value) -> Result<(), String> {
+    let path = snapshot_cache_path(&app)?;
+    let temporary = path.with_extension("tmp");
+    let backup = path.with_extension("bak");
+    let serialized = serde_json::to_vec(&snapshot)
+        .map_err(|error| format!("Unable to serialize UI cache: {error}"))?;
+    let protected = crate::proxy::protect(&serialized)?;
+    let mut file = fs::File::create(&temporary)
+        .map_err(|error| format!("Unable to create UI cache {}: {error}", temporary.display()))?;
+    file.write_all(&protected)
+        .map_err(|error| format!("Unable to write UI cache {}: {error}", temporary.display()))?;
+    file.sync_all()
+        .map_err(|error| format!("Unable to flush UI cache {}: {error}", temporary.display()))?;
+
+    if backup.exists() {
+        fs::remove_file(&backup).map_err(|error| {
+            format!(
+                "Unable to remove old UI cache backup {}: {error}",
+                backup.display()
+            )
+        })?;
+    }
+    if path.exists() {
+        fs::rename(&path, &backup)
+            .map_err(|error| format!("Unable to rotate UI cache {}: {error}", path.display()))?;
+    }
+    if let Err(error) = fs::rename(&temporary, &path) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, &path);
+        }
+        return Err(format!(
+            "Unable to replace UI cache {}: {error}",
+            path.display()
+        ));
+    }
+    if backup.exists() {
+        let _ = fs::remove_file(backup);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn telegram_clear_snapshot_cache(app: AppHandle) -> Result<(), String> {
+    let path = snapshot_cache_path(&app)?;
+    let temporary = path.with_extension("tmp");
+    let backup = path.with_extension("bak");
+    for candidate in [&path, &temporary, &backup] {
+        if candidate.exists() {
+            fs::remove_file(candidate).map_err(|error| {
+                format!("Unable to remove UI cache {}: {error}", candidate.display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
 pub fn tdlib_cache_directory(app: &AppHandle) -> Result<PathBuf, String> {
     let preferences = load_preferences(app)?;
     let resolved = resolve_preferences(app, preferences)?;
@@ -77,6 +159,15 @@ pub fn tdlib_cache_directory(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(PathBuf::from(resolved.cache_path))
 }
 
+pub fn tdlib_database_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Unable to resolve app data directory: {error}"))?
+        .join("tdlib")
+        .join("database"))
+}
+
 pub fn download_directory(app: &AppHandle) -> Result<PathBuf, String> {
     let preferences = load_preferences(app)?;
     let resolved = resolve_preferences(app, preferences)?;
@@ -88,6 +179,10 @@ pub fn download_directory(app: &AppHandle) -> Result<PathBuf, String> {
     })?;
     allow_asset_directories(app, &resolved)?;
     Ok(PathBuf::from(resolved.download_path))
+}
+
+fn snapshot_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(tdlib_cache_directory(app)?.join("notgram-ui-cache.dat"))
 }
 
 fn storage_settings(app: &AppHandle) -> Result<StorageSettings, String> {
@@ -145,12 +240,19 @@ fn allow_asset_directories(
     preferences: &StoragePreferences,
 ) -> Result<(), String> {
     let scope = app.asset_protocol_scope();
+    allow_tdlib_database_assets(app)?;
     scope
         .allow_directory(PathBuf::from(&preferences.cache_path).join("files"), true)
         .map_err(|error| format!("Unable to allow cache assets: {error}"))?;
     scope
         .allow_directory(&preferences.download_path, true)
         .map_err(|error| format!("Unable to allow download assets: {error}"))
+}
+
+fn allow_tdlib_database_assets(app: &AppHandle) -> Result<(), String> {
+    app.asset_protocol_scope()
+        .allow_directory(tdlib_database_directory(app)?, true)
+        .map_err(|error| format!("Unable to allow TDLib database assets: {error}"))
 }
 
 fn create_directory(path: &str, label: &str) -> Result<(), String> {

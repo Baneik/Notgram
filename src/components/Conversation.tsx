@@ -4,6 +4,7 @@ import {
   CheckCheck,
   ChevronLeft,
   FileText,
+  ImageIcon,
   Download,
   MoreVertical,
   LoaderCircle,
@@ -19,6 +20,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import type { Chat, Message, User } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
+import {
+  isGroupFirst,
+  isGroupLast,
+  messageGroupPosition,
+  type MessageGroupPosition,
+} from "../utils/messageGrouping";
 import { Avatar } from "./Avatar";
 
 interface ConversationProps {
@@ -54,6 +61,7 @@ export function Conversation({
   const [sending, setSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
+  const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const previousLayoutRef = useRef<{
     chatId?: string;
     firstId?: string;
@@ -68,7 +76,7 @@ export function Conversation({
     const query = messageSearch.trim().toLocaleLowerCase();
     if (!query) return messages;
     return messages.filter((message) => {
-      if (message.content.kind === "file") {
+      if (message.content.kind !== "text") {
         return message.content.fileName.toLocaleLowerCase().includes(query);
       }
       return message.content.text.toLocaleLowerCase().includes(query);
@@ -118,6 +126,9 @@ export function Conversation({
     ) {
       return;
     }
+    const attemptKey = `${chat?.id ?? ""}:${messages.length}`;
+    if (autoFillAttemptRef.current === attemptKey) return;
+    autoFillAttemptRef.current = attemptKey;
     void onLoadOlder();
   }, [chat?.id, hasOlderMessages, historyLoading, messageSearch, messages.length, onLoadOlder]);
 
@@ -228,9 +239,22 @@ export function Conversation({
         {visibleMessages.length === 0 ? (
           <div className="messages-empty">没有匹配的消息</div>
         ) : (
-          visibleMessages.map((message) => (
-            <MessageBubble key={message.id} message={message} sender={users.get(message.senderId)} onDownload={onDownloadFile} onRetry={onRetryMessage} />
-          ))
+          visibleMessages.map((message, index) => {
+            const sender = users.get(message.senderId);
+            const groupPosition = messageGroupPosition(visibleMessages, index);
+            return (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                sender={sender}
+                senderName={sender?.displayName ?? (chat.kind === "direct" ? chat.title : "Telegram 用户")}
+                senderAvatar={sender?.avatar ?? (chat.kind === "direct" ? chat.avatar : undefined)}
+                groupPosition={groupPosition}
+                onDownload={onDownloadFile}
+                onRetry={onRetryMessage}
+              />
+            );
+          })
         )}
       </div>
 
@@ -285,37 +309,84 @@ export function Conversation({
 function MessageBubble({
   message,
   sender,
+  senderName,
+  senderAvatar,
+  groupPosition,
   onDownload,
   onRetry,
 }: {
   message: Message;
   sender?: User;
+  senderName: string;
+  senderAvatar?: User["avatar"];
+  groupPosition: MessageGroupPosition;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onRetry: (messageId: string) => Promise<void>;
 }) {
-  const fileSource = message.content.kind === "file" && message.content.localPath && isTauri()
-    ? convertFileSrc(message.content.localPath)
+  const isPhoto = message.content.kind === "media" && message.content.mediaType === "photo";
+  const hasCaption = message.content.kind === "media" &&
+    message.content.mediaType === "photo" &&
+    Boolean(message.content.caption);
+  const showSender = !message.outgoing && isGroupFirst(groupPosition);
+  const showAvatar = !message.outgoing && isGroupLast(groupPosition);
+  const mediaSource = message.content.kind === "media"
+    ? localSource(message.content.localPath) ??
+      localSource(message.content.thumbnailPath) ??
+      message.content.previewDataUrl
     : undefined;
-  const fileProgress = message.content.kind === "file" && message.content.progress !== undefined
+  const fileProgress = message.content.kind !== "text" && message.content.progress !== undefined
     ? `${Math.round(message.content.progress * 100)}%`
     : undefined;
-  const downloadFileId = message.content.kind === "file" ? message.content.fileId : undefined;
-  const downloadFileName = message.content.kind === "file" ? message.content.fileName : "";
-  const canDownload = message.content.kind === "file" &&
+  const downloadFileId = message.content.kind !== "text" ? message.content.fileId : undefined;
+  const downloadFileName = message.content.kind !== "text" ? message.content.fileName : "";
+  const canDownload = message.content.kind !== "text" &&
     downloadFileId !== undefined &&
     message.content.canDownload !== false &&
     !message.content.isDownloaded &&
     !message.content.isDownloading;
   return (
-    <article className={`message-row ${message.outgoing ? "is-outgoing" : ""}`}>
-      <div className="message-bubble">
-        {!message.outgoing && sender && <span className="message-sender">{sender.displayName}</span>}
+    <article className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"}`}>
+      {!message.outgoing && (
+        <span className="message-avatar-slot">
+          {showAvatar && (
+            <Avatar
+              avatar={senderAvatar ?? {
+                label: Array.from(senderName.trim())[0] ?? "?",
+                color: "#73828c",
+              }}
+              size="small"
+            />
+          )}
+        </span>
+      )}
+      <div className={`message-bubble ${isPhoto ? "is-photo" : ""} ${hasCaption ? "has-caption" : ""}`}>
+        {showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
         {message.content.kind === "text" ? (
           <p>{message.content.text}</p>
-        ) : message.content.mediaKind === "photo" && fileSource ? (
-          <div className="photo-message">
-            <img src={fileSource} alt={message.content.caption || message.content.fileName} />
-            {message.content.caption && <p>{message.content.caption}</p>}
+        ) : message.content.kind === "media" && message.content.mediaType === "photo" ? (
+          <div className="photo-message" data-media-type="photo">
+            <div
+              className="photo-preview"
+              style={message.content.width && message.content.height
+                ? { aspectRatio: `${message.content.width} / ${message.content.height}` }
+                : undefined}
+            >
+              {mediaSource ? (
+                <img src={mediaSource} alt={message.content.caption || message.content.fileName} />
+              ) : (
+                <span className="photo-placeholder" aria-label="图片正在加载">
+                  <ImageIcon size={28} strokeWidth={1.6} />
+                </span>
+              )}
+              {message.content.isDownloading && (
+                <span className="media-progress">
+                  {message.content.progress === undefined
+                    ? <LoaderCircle className="spin" size={15} />
+                    : `${Math.round(message.content.progress * 100)}%`}
+                </span>
+              )}
+            </div>
+            {message.content.caption && <p className="photo-caption">{message.content.caption}</p>}
           </div>
         ) : (
           <div className="file-message">
@@ -353,3 +424,8 @@ function MessageBubble({
     </article>
   );
 }
+
+const localSource = (path?: string) => {
+  if (!path) return undefined;
+  return isTauri() ? convertFileSrc(path) : path;
+};

@@ -18,10 +18,10 @@ interface AuthorizationScreenProps {
   pending: boolean;
   error?: string;
   onSubmit: (action: AuthorizationAction) => Promise<void>;
-  onOpenProxy: () => void;
+  onOpenSettings: () => void;
 }
 
-export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenProxy }: AuthorizationScreenProps) {
+export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenSettings }: AuthorizationScreenProps) {
   const [phoneMode, setPhoneMode] = useState(false);
   const [primary, setPrimary] = useState("");
   const [secondary, setSecondary] = useState("");
@@ -42,7 +42,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenPro
 
   if (state.kind === "waitPhoneNumber" && !phoneMode) {
     return (
-      <AuthLayout onOpenProxy={onOpenProxy}>
+      <AuthLayout onOpenSettings={onOpenSettings}>
         <div className="auth-progress" role="status">
           <LoaderCircle className="spin" size={28} />
           <span>正在生成登录二维码</span>
@@ -57,7 +57,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenPro
 
   if (state.kind === "waitOtherDeviceConfirmation" && !phoneMode) {
     return (
-      <AuthLayout onOpenProxy={onOpenProxy}>
+      <AuthLayout onOpenSettings={onOpenSettings}>
         <div className="auth-qr-code" aria-label="Telegram 登录二维码">
           <QRCodeSVG value={state.link} size={260} level="M" marginSize={4} bgColor="#ffffff" fgColor="#111111" />
         </div>
@@ -85,7 +85,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenPro
   const definition = getStepDefinition(formState);
   if (!definition) {
     return (
-      <AuthLayout onOpenProxy={onOpenProxy}>
+      <AuthLayout onOpenSettings={onOpenSettings}>
         <div className="auth-progress" role="status">
           <LoaderCircle className="spin" size={28} />
           <span>{state.kind === "closed" ? "连接已关闭" : "正在连接 Telegram"}</span>
@@ -101,7 +101,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenPro
   };
 
   return (
-    <AuthLayout onOpenProxy={onOpenProxy}>
+    <AuthLayout onOpenSettings={onOpenSettings}>
       <form className="auth-form" onSubmit={submit}>
         <span className="auth-heading-icon">{definition.icon}</span>
         <h1>{definition.title}</h1>
@@ -132,10 +132,10 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenPro
   );
 }
 
-function AuthLayout({ children, onOpenProxy }: { children: ReactNode; onOpenProxy: () => void }) {
+function AuthLayout({ children, onOpenSettings }: { children: ReactNode; onOpenSettings: () => void }) {
   return (
     <main className="auth-shell">
-      <button className="auth-settings icon-button" type="button" aria-label="代理设置" title="代理设置" onClick={onOpenProxy}>
+      <button className="auth-settings icon-button" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
         <Settings size={21} />
       </button>
       <section className="auth-panel">

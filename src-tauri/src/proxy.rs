@@ -284,7 +284,7 @@ fn parse_proxy_server(value: &str) -> Option<ProxyEndpoint> {
 }
 
 #[cfg(target_os = "windows")]
-fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     use std::{ptr, slice};
     use windows_sys::Win32::{
         Foundation::LocalFree,
@@ -295,7 +295,7 @@ fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
         cbData: data
             .len()
             .try_into()
-            .map_err(|_| "代理设置过大".to_string())?,
+            .map_err(|_| "受保护的本地数据过大".to_string())?,
         pbData: data.as_ptr() as *mut u8,
     };
     let mut output = CRYPT_INTEGER_BLOB::default();
@@ -312,7 +312,7 @@ fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     };
     if success == 0 {
         return Err(format!(
-            "Windows 无法加密代理设置: {}",
+            "Windows 无法加密本地数据: {}",
             std::io::Error::last_os_error()
         ));
     }
@@ -323,7 +323,7 @@ fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(target_os = "windows")]
-fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     use std::{ptr, slice};
     use windows_sys::Win32::{
         Foundation::LocalFree,
@@ -336,7 +336,7 @@ fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
         cbData: data
             .len()
             .try_into()
-            .map_err(|_| "代理设置过大".to_string())?,
+            .map_err(|_| "受保护的本地数据过大".to_string())?,
         pbData: data.as_ptr() as *mut u8,
     };
     let mut output = CRYPT_INTEGER_BLOB::default();
@@ -353,7 +353,7 @@ fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     };
     if success == 0 {
         return Err(format!(
-            "Windows 无法解密代理设置: {}",
+            "Windows 无法解密本地数据: {}",
             std::io::Error::last_os_error()
         ));
     }
@@ -364,12 +364,12 @@ fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(data.to_vec())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(data.to_vec())
 }
 

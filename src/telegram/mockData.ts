@@ -1,4 +1,5 @@
 import type { Chat, Message, TelegramSnapshot, User } from "./types";
+import mediaPreviewUrl from "../../src-tauri/icons/icon.png";
 
 const users: User[] = [
   {
@@ -144,7 +145,6 @@ const messages: Message[] = [
     delivery: "read",
     content: {
       kind: "file",
-      mediaKind: "document",
       fileName: "desktop-layout-review.pdf",
       sizeLabel: "2.4 MB",
       fileId: 42,
@@ -162,6 +162,27 @@ const messages: Message[] = [
     sentAt: "2026-08-01T09:48:00+08:00",
     delivery: "read",
     content: { kind: "text", text: "我把交互稿更新到最新版本了，下午可以直接走查。" },
+  },
+  {
+    id: "p-5",
+    chatId: "chat-product",
+    senderId: "u-mia",
+    outgoing: false,
+    sentAt: "2026-08-01T09:50:00+08:00",
+    delivery: "read",
+    content: {
+      kind: "media",
+      mediaType: "photo",
+      fileName: "界面预览.jpg",
+      sizeLabel: "186 KB",
+      previewDataUrl: mediaPreviewUrl,
+      width: 512,
+      height: 512,
+      caption: "新的媒体预览样式",
+      isDownloaded: false,
+      isDownloading: true,
+      progress: 0.62,
+    },
   },
   {
     id: "m-1",
@@ -230,7 +251,6 @@ export const mockSnapshot: TelegramSnapshot = {
   folders: [
     { id: "main", title: "全部聊天", iconName: "All" },
     { id: "folder:work", title: "工作", iconName: "Custom" },
-    { id: "archive", title: "已归档", iconName: "Archive" },
   ],
   chats,
   messages,

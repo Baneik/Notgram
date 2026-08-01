@@ -26,7 +26,12 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPCACHE/tdlib/files/**", "$APPDATA/tdlib/files/**", "$EXE/downloads/**"]
+        "scope": [
+          "$APPCACHE/tdlib/files/**",
+          "$APPDATA/tdlib/database/**",
+          "$APPDATA/tdlib/files/**",
+          "$EXE/downloads/**"
+        ]
       }
     }
   },

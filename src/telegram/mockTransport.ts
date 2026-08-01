@@ -2,6 +2,7 @@ import { mockSnapshot } from "./mockData";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
+  CachedTelegramSnapshot,
   Chat,
   Message,
   ProxySettings,
@@ -13,6 +14,15 @@ import type {
 } from "./types";
 
 const clone = <T,>(value: T): T => structuredClone(value);
+const CACHE_KEY = "notgram:ui-cache:v1";
+
+const browserStorage = () => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+};
 
 const readableFileSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -26,6 +36,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   private listener?: TelegramEventListener;
   private snapshot = clone(mockSnapshot);
+  private cachedSnapshot?: CachedTelegramSnapshot;
   private historyOffsets = new Map<string, number>();
   private authFlow: boolean;
   private storageSettings: StorageSettings = {
@@ -56,8 +67,11 @@ export class MockTelegramTransport implements TelegramTransport {
     },
   };
 
-  constructor(options: { authFlow?: boolean } = {}) {
+  constructor(options: { authFlow?: boolean; cachedSnapshot?: CachedTelegramSnapshot } = {}) {
     this.authFlow = Boolean(options.authFlow);
+    this.cachedSnapshot = options.cachedSnapshot
+      ? clone(options.cachedSnapshot)
+      : undefined;
     if (this.authFlow) {
       this.snapshot.authorization = { kind: "waitPhoneNumber" };
     }
@@ -70,6 +84,28 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async disconnect() {
     this.listener = undefined;
+  }
+
+  async loadCachedSnapshot() {
+    if (this.cachedSnapshot) return clone(this.cachedSnapshot);
+    const serialized = browserStorage()?.getItem(CACHE_KEY);
+    if (!serialized) return undefined;
+    try {
+      const snapshot = JSON.parse(serialized) as CachedTelegramSnapshot;
+      return snapshot.version === 1 ? snapshot : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
+    this.cachedSnapshot = clone(snapshot);
+    browserStorage()?.setItem(CACHE_KEY, JSON.stringify(snapshot));
+  }
+
+  async clearCachedSnapshot() {
+    this.cachedSnapshot = undefined;
+    browserStorage()?.removeItem(CACHE_KEY);
   }
 
   async authenticate(action: AuthorizationAction) {
@@ -105,6 +141,7 @@ export class MockTelegramTransport implements TelegramTransport {
     return {
       loadedCount: page.length,
       hasMore: offset + page.length < history.length,
+      messageIds: page.map((message) => message.id),
     };
   }
 

@@ -376,15 +376,10 @@ struct TdlibConfiguration {
 
 impl TdlibConfiguration {
     fn new(app: &AppHandle, credentials: ApiCredentials) -> Result<Self, String> {
-        let data_root = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("Unable to resolve app data directory: {error}"))?
-            .join("tdlib");
-        let database_directory = data_root.join("database");
-        let files_directory = crate::storage::tdlib_cache_directory(app)?.join("files");
+        let database_directory = crate::storage::tdlib_database_directory(app)?;
         std::fs::create_dir_all(&database_directory)
             .map_err(|error| format!("无法创建 TDLib 数据库目录: {error}"))?;
+        let files_directory = crate::storage::tdlib_cache_directory(app)?.join("files");
         std::fs::create_dir_all(&files_directory)
             .map_err(|error| format!("无法创建 TDLib 文件目录: {error}"))?;
         Ok(Self {

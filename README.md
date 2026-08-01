@@ -89,16 +89,36 @@ src-tauri/src/         TDLib dynamic loader, receive loop, and commands
 The native bridge uses TDLib's current `td_create_client_id`, `td_send`, and `td_receive` interface. One dedicated Rust thread owns `td_receive`; updates are copied immediately and emitted to the webview in the order received. Rust automatically answers `authorizationStateWaitTdlibParameters`, while user-facing authorization states remain in the TypeScript store.
 
 After authorization, the TDLib transport now synchronizes the current user,
-main, archived, and server-defined chat folders, user presence, paginated
+the main list and server-defined chat folders, user presence, paginated
 message history, outgoing text messages, send-failure retry state, read state,
-chat avatars, and common real-time chat/message updates. History is preloaded in
+chat and sender avatars, and common real-time chat/message updates. Sender
+profile photos are downloaded through TDLib and refreshed when updateFile
+completes. The Tauri asset scope includes both the configurable TDLib files
+directory and TDLib's app-data database directory, where profile and chat
+thumbnails can be stored. Consecutive messages from the same sender use joined Telegram-style
+bubbles, show the sender name only on the first item and the avatar on the last,
+and render timestamps with second precision. Photo messages use a sender header
+only when they start a consecutive group; subsequent photos are borderless.
+History is preloaded in
 30-message pages and continues loading when the message list is scrolled upward.
-Document and photo file metadata, download progress, cache updates, and downloaded
-photo rendering are mapped through TDLib updateFile events. Completed user
+On startup, the UI restores a DPAPI-protected snapshot from the configured cache
+directory while TDLib connects in parallel; live server updates always replace
+cached chat, folder, user, and message state. The generated local archive folder
+is not shown or loaded. History requests are deferred until authorization is
+ready. Each chat keeps an independent server-history cursor and always starts
+its first refresh from TDLib's latest window, even if a live message arrived
+first. Cached continuity cleanup runs only after a complete recent window is
+confirmed; partial or stalled responses preserve the existing cache and remain
+retryable instead of marking history complete.
+Documents and Telegram media messages are mapped separately: image documents
+remain file cards, while photo media uses the embedded preview immediately and
+is cached automatically for inline rendering through TDLib updateFile events. Completed user
 downloads are copied to the configured download directory without overwriting
 existing files. The cache path defaults to the Windows app cache directory, while
 downloads default to the downloads folder beside Notgram.exe; both paths are
-configurable from Settings. Real file upload and dedicated video/audio players
+configurable under Advanced Settings. Settings also provides the Telegram-style
+account, notification, privacy, chat, folder, device, power, and language
+categories. Real file upload and dedicated video/audio players
 remain disabled.
 
 Phone-number and QR-code authorization are supported. QR login uses TDLib's

@@ -7,10 +7,10 @@ interface NavigationRailProps {
   folders: ChatFolder[];
   onFilterChange: (filter: ChatFilter) => void;
   transportLabel: string;
-  onOpenProxy: () => void;
+  onOpenSettings: () => void;
 }
 
-export function NavigationRail({ folders, filter, onFilterChange, transportLabel, onOpenProxy }: NavigationRailProps) {
+export function NavigationRail({ folders, filter, onFilterChange, transportLabel, onOpenSettings }: NavigationRailProps) {
   return (
     <nav className="navigation-rail" aria-label="聊天文件夹">
       <div className="rail-brand"><span className="brand-mark">N</span><span>Notgram</span></div>
@@ -23,7 +23,7 @@ export function NavigationRail({ folders, filter, onFilterChange, transportLabel
           </button>
         ))}
       </div>
-      <button className="rail-button rail-settings" type="button" aria-label="代理设置" title="代理设置" onClick={onOpenProxy}>
+      <button className="rail-button rail-settings" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
         <span className="rail-icon"><Settings size={22} strokeWidth={1.8} /></span><span>设置</span>
       </button>
       <div className="rail-connection" title={`连接：${transportLabel}`}><span className="connection-dot" />{transportLabel}</div>

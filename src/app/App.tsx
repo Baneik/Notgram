@@ -4,7 +4,7 @@ import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
-import { ProxySettingsDialog } from "../components/ProxySettingsDialog";
+import { SettingsDialog } from "../components/SettingsDialog";
 import { filterAndSortChats, useTelegramStore } from "../store/telegramStore";
 
 export function App() {
@@ -34,7 +34,7 @@ export function App() {
   const clearError = useTelegramStore((state) => state.clearError);
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
-  const [proxyOpen, setProxyOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     void initialize();
@@ -53,9 +53,9 @@ export function App() {
         pending={authorizationPending}
         error={authorizationError}
         onSubmit={authenticate}
-        onOpenProxy={() => setProxyOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
-      {proxyOpen && <ProxySettingsDialog onClose={() => setProxyOpen(false)} />}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       </>
     );
   }
@@ -69,7 +69,7 @@ export function App() {
   return (
     <>
       <main className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}>
-        <NavigationRail folders={folders} filter={chatFilter} onFilterChange={setChatFilter} transportLabel={`${transportLabel}${phase === "idle" || phase === "loading" ? " · 同步中" : ""}`} onOpenProxy={() => setProxyOpen(true)} />
+        <NavigationRail folders={folders} filter={chatFilter} onFilterChange={setChatFilter} transportLabel={`${transportLabel}${phase === "idle" || phase === "loading" ? " · 同步中" : ""}`} onOpenSettings={() => setSettingsOpen(true)} />
         <ChatSidebar
           chats={visibleChats}
           activeChatId={activeChatId}
@@ -99,7 +99,7 @@ export function App() {
           <button type="button" aria-label="关闭错误提示" title="关闭" onClick={clearError}><X size={16} /></button>
         </div>
       )}
-      {proxyOpen && <ProxySettingsDialog onClose={() => setProxyOpen(false)} />}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
     </>
   );
 }

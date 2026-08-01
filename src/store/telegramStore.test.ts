@@ -1,8 +1,290 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { mockSnapshot } from "../telegram/mockData";
 import { MockTelegramTransport } from "../telegram/mockTransport";
+import type { TelegramEventListener } from "../telegram/transport";
+import type { CachedTelegramSnapshot, Message } from "../telegram/types";
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 
 describe("telegram store", () => {
+  it("hydrates cached chats before the server connection finishes", async () => {
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 1,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: structuredClone(
+        mockSnapshot.messages
+          .filter((message) => message.chatId === "chat-product")
+          .slice(-3),
+      ),
+      activeChatId: "chat-product",
+      chatFilter: "folder:work",
+    };
+
+    class DelayedTransport extends MockTelegramTransport {
+      connectStarted = false;
+      private releaseConnection?: () => void;
+      private connectionGate = new Promise<void>((resolve) => {
+        this.releaseConnection = resolve;
+      });
+
+      override async connect(listener: Parameters<MockTelegramTransport["connect"]>[0]) {
+        this.connectStarted = true;
+        await this.connectionGate;
+        return super.connect(listener);
+      }
+
+      release() {
+        this.releaseConnection?.();
+      }
+    }
+
+    const transport = new DelayedTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    const initialization = store.getState().initialize();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(transport.connectStarted).toBe(true);
+    expect(store.getState().phase).toBe("loading");
+    expect(store.getState().activeChatId).toBe("chat-product");
+    expect(store.getState().chatFilter).toBe("folder:work");
+    expect(store.getState().messages.get("chat-product")).toHaveLength(3);
+
+    transport.release();
+    await initialization;
+    expect(store.getState().phase).toBe("ready");
+    expect(store.getState().messages.get("chat-product")?.length).toBeGreaterThanOrEqual(30);
+  });
+
+  it("persists a bounded snapshot after live state changes", async () => {
+    class TrackingTransport extends MockTelegramTransport {
+      savedSnapshot?: CachedTelegramSnapshot;
+
+      override async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
+        this.savedSnapshot = structuredClone(snapshot);
+      }
+    }
+
+    vi.useFakeTimers();
+    try {
+      const transport = new TrackingTransport();
+      const store = createTelegramStore(transport);
+      await store.getState().initialize();
+      await vi.advanceTimersByTimeAsync(601);
+
+      expect(transport.savedSnapshot).toMatchObject({
+        version: 1,
+        currentUserId: "self",
+        activeChatId: "chat-product",
+      });
+      expect(transport.savedSnapshot?.folders.some((folder) => folder.id === "archive")).toBe(false);
+      expect(transport.savedSnapshot?.messages.length).toBeLessThanOrEqual(5_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears cached account data when authorization is no longer valid", async () => {
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 1,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: [],
+      activeChatId: "chat-product",
+      chatFilter: "main",
+    };
+    const transport = new MockTelegramTransport({ authFlow: true, cachedSnapshot });
+    const store = createTelegramStore(transport);
+
+    await store.getState().initialize();
+
+    expect(store.getState().authorization.kind).toBe("waitPhoneNumber");
+    expect(store.getState().chats.size).toBe(0);
+    expect(await transport.loadCachedSnapshot()).toBeUndefined();
+  });
+
+  it("does not request history until authorization is ready", async () => {
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 1,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: structuredClone(
+        mockSnapshot.messages
+          .filter((message) => message.chatId === "chat-product")
+          .slice(-3),
+      ),
+      activeChatId: "chat-product",
+      chatFilter: "main",
+    };
+
+    class PreparingTransport extends MockTelegramTransport {
+      historyRequests = 0;
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        const snapshot = await super.connect(listener);
+        return { ...snapshot, authorization: { kind: "preparing" as const } };
+      }
+
+      override async loadChatHistory(chatId: string, limit = 30) {
+        this.historyRequests += 1;
+        return super.loadChatHistory(chatId, limit);
+      }
+
+      authorize() {
+        this.eventListener?.({
+          type: "authorization.changed",
+          state: { kind: "ready" },
+        });
+      }
+    }
+
+    const transport = new PreparingTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().loadMoreHistory("chat-product");
+
+    expect(transport.historyRequests).toBe(0);
+
+    transport.authorize();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    expect(transport.historyRequests).toBe(1);
+  });
+
+  it("removes a disconnected cached segment after confirming recent server history", async () => {
+    const disconnectedMessage: Message = {
+      id: "1",
+      chatId: "chat-product",
+      senderId: "u-jules",
+      outgoing: false,
+      sentAt: "2026-08-01T01:00:00+08:00",
+      delivery: "read",
+      content: { kind: "text", text: "stale cached boundary" },
+    };
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 1,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: [disconnectedMessage],
+      activeChatId: "chat-product",
+      chatFilter: "main",
+    };
+
+    class GapTransport extends MockTelegramTransport {
+      historyRequests = 0;
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async loadChatHistory() {
+        const newestId = this.historyRequests === 0 ? 100 : 70;
+        this.historyRequests += 1;
+        const page = Array.from({ length: 30 }, (_, index) => {
+          const id = newestId - index;
+          const message: Message = {
+            id: String(id),
+            chatId: "chat-product",
+            senderId: "u-jules",
+            outgoing: false,
+            sentAt: new Date(Date.UTC(2026, 7, 1, 10, id)).toISOString(),
+            delivery: "read",
+            content: { kind: "text", text: `server message ${id}` },
+          };
+          this.eventListener?.({ type: "message.upsert", message });
+          return message;
+        });
+        return {
+          loadedCount: page.length,
+          hasMore: true,
+          messageIds: page.map((message) => message.id),
+        };
+      }
+    }
+
+    const transport = new GapTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    const messages = store.getState().messages.get("chat-product") ?? [];
+    expect(transport.historyRequests).toBe(2);
+    expect(messages).toHaveLength(60);
+    expect(messages.some((message) => message.id === disconnectedMessage.id)).toBe(false);
+    expect(messages.map((message) => message.id)).toContain("100");
+    expect(messages.map((message) => message.id)).toContain("41");
+  });
+
+  it("keeps cached history when the server confirmation window is incomplete", async () => {
+    const cachedMessages = Array.from({ length: 12 }, (_, index): Message => ({
+      id: `cached-${index}`,
+      chatId: "chat-product",
+      senderId: "u-jules",
+      outgoing: false,
+      sentAt: new Date(Date.UTC(2026, 7, 1, 8, index)).toISOString(),
+      delivery: "read",
+      content: { kind: "text", text: `cached ${index}` },
+    }));
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 1,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: cachedMessages,
+      activeChatId: "chat-product",
+      chatFilter: "main",
+    };
+
+    class IncompleteHistoryTransport extends MockTelegramTransport {
+      requests = 0;
+
+      override async connect(listener: TelegramEventListener) {
+        await super.connect(listener);
+        return {
+          currentUserId: mockSnapshot.currentUserId,
+          authorization: { kind: "ready" as const },
+          users: [],
+          folders: [],
+          chats: [],
+          messages: [],
+        };
+      }
+
+      override async loadChatHistory() {
+        this.requests += 1;
+        return {
+          loadedCount: 0,
+          hasMore: true,
+          messageIds: ["unconfirmed-server-message"],
+        };
+      }
+    }
+
+    const transport = new IncompleteHistoryTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    expect(transport.requests).toBe(2);
+    expect(store.getState().messages.get("chat-product")?.map((message) => message.id))
+      .toEqual(cachedMessages.map((message) => message.id));
+    expect(store.getState().histories.get("chat-product")?.hasMore).toBe(true);
+  });
+
   it("loads a snapshot and selects the first pinned chat", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
 
@@ -125,7 +407,7 @@ describe("chat filtering", () => {
 
     await store.getState().loadMoreHistory("chat-product");
 
-    expect(store.getState().messages.get("chat-product")).toHaveLength(40);
+    expect(store.getState().messages.get("chat-product")).toHaveLength(41);
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
   });
 });
