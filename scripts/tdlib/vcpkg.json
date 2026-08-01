@@ -1,0 +1,10 @@
+{
+  "name": "notgram-tdlib-build",
+  "version-string": "0.0.0",
+  "builtin-baseline": "bf144d19bbc8b6961b61b8eac107750b698a454a",
+  "dependencies": [
+    "gperf",
+    "openssl",
+    "zlib"
+  ]
+}

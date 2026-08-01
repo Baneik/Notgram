@@ -1,0 +1,27 @@
+[package]
+name = "notgram"
+version = "0.1.0"
+description = "A focused third-party Telegram client"
+authors = ["Notgram contributors"]
+edition = "2024"
+
+[lib]
+name = "notgram_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+dotenvy = "0.15"
+libloading = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
+winreg = "0.55"

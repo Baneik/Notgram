@@ -1,0 +1,32 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Local project notes and credentials
+project.md
+.env
+.env.*
+!.env.example
+
+# Bundled/generated native binaries
+src-tauri/tdlib/*.dll
+src-tauri/tdlib/*.dylib
+src-tauri/tdlib/*.so
+vendor/tdlib-src/
+vendor/tdlib-build/
+vendor/tdlib-install/
+
+# Runtime and development output
+.dev-server*.log
+*.log
+logs/
+*.tsbuildinfo
+coverage/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
