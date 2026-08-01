@@ -1,4 +1,4 @@
-import { Archive, CheckCheck, Pin, Search, VolumeX } from "lucide-react";
+import { Archive, CheckCheck, LoaderCircle, Pin, Search, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { Chat, ChatDraft } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
@@ -12,6 +12,10 @@ interface ChatSidebarProps {
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onSelect: (chatId: string) => void;
+  onOpenLatest: (chatId: string) => void;
+  loadingMore: boolean;
+  hasMore: boolean;
+  onLoadMore: () => Promise<void>;
   width: number;
   onWidthChange: (width: number) => void;
 }
@@ -28,10 +32,16 @@ export function ChatSidebar({
   searchQuery,
   onSearchChange,
   onSelect,
+  onOpenLatest,
+  loadingMore,
+  hasMore,
+  onLoadMore,
   width,
   onWidthChange,
 }: ChatSidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
+  const chatListRef = useRef<HTMLDivElement>(null);
+  const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const resizeStartRef = useRef<{ x: number; width: number } | undefined>(undefined);
   const [resizing, setResizing] = useState(false);
 
@@ -85,6 +95,15 @@ export function ChatSidebar({
     return () => document.documentElement.classList.remove("is-resizing-sidebar");
   }, [resizing]);
 
+  useEffect(() => {
+    const list = chatListRef.current;
+    if (!list || loadingMore || !hasMore || list.scrollHeight > list.clientHeight + 1) return;
+    const attempt = `${searchQuery}:${chats.length}`;
+    if (autoFillAttemptRef.current === attempt) return;
+    autoFillAttemptRef.current = attempt;
+    void onLoadMore();
+  }, [chats.length, hasMore, loadingMore, onLoadMore, searchQuery]);
+
   return (
     <aside ref={sidebarRef} className={`chat-sidebar ${resizing ? "is-resizing" : ""}`} aria-label="会话列表">
       <div className="sidebar-heading">
@@ -113,7 +132,20 @@ export function ChatSidebar({
         )}
       </label>
 
-      <div className="chat-list">
+      <div
+        className="chat-list"
+        ref={chatListRef}
+        onScroll={(event) => {
+          const list = event.currentTarget;
+          if (
+            list.scrollHeight - list.clientHeight - list.scrollTop <= 96 &&
+            hasMore &&
+            !loadingMore
+          ) {
+            void onLoadMore();
+          }
+        }}
+      >
         {chats.length === 0 ? (
           <div className="list-empty">
             <Search size={22} strokeWidth={1.6} />
@@ -127,8 +159,14 @@ export function ChatSidebar({
               draft={drafts.get(chat.id)}
               active={activeChatId === chat.id}
               onSelect={onSelect}
+              onOpenLatest={onOpenLatest}
             />
           ))
+        )}
+        {loadingMore && (
+          <div className="chat-list-loading" role="status" aria-label="正在加载更多会话">
+            <LoaderCircle className="spin" size={17} />
+          </div>
         )}
       </div>
       <div
@@ -161,11 +199,13 @@ function ChatRow({
   draft,
   active,
   onSelect,
+  onOpenLatest,
 }: {
   chat: Chat;
   draft?: ChatDraft;
   active: boolean;
   onSelect: (chatId: string) => void;
+  onOpenLatest: (chatId: string) => void;
 }) {
   const visibleDraft = draft && (draft.text.length > 0 || draft.replyToMessageId)
     ? draft
@@ -175,6 +215,7 @@ function ChatRow({
       type="button"
       className={`chat-row ${active ? "is-active" : ""}`}
       onClick={() => onSelect(chat.id)}
+      onDoubleClick={() => onOpenLatest(chat.id)}
     >
       <Avatar avatar={chat.avatar} />
       <span className="chat-row-body">

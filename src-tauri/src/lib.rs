@@ -24,7 +24,6 @@ pub fn run() {
             storage::telegram_storage_settings,
             storage::telegram_save_storage_settings,
             storage::telegram_save_downloaded_file,
-            storage::telegram_prepare_upload,
             storage::telegram_read_snapshot_cache,
             storage::telegram_write_snapshot_cache,
             storage::telegram_clear_snapshot_cache,
@@ -34,6 +33,7 @@ pub fn run() {
             storage::telegram_remove_account,
             telegram::telegram_start,
             telegram::telegram_send,
+            telegram::telegram_pick_and_send_file,
             telegram::telegram_shutdown,
         ])
         .run(tauri::generate_context!())

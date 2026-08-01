@@ -1,28 +1,22 @@
 import {
   AlertCircle,
+  ArrowDown,
   Check,
-  CheckCheck,
   ChevronLeft,
-  FileText,
   Forward,
-  ImageIcon,
-  Download,
   Edit3,
   MoreVertical,
-  MoreHorizontal,
   LoaderCircle,
   Paperclip,
   Phone,
   Search,
   Send,
   Smile,
-  RotateCcw,
   Reply,
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   Chat,
   ChatDraft,
@@ -32,17 +26,22 @@ import type {
   ForwardMessagesResult,
   User,
 } from "../telegram/types";
-import { formatMessageTime } from "../utils/formatters";
+import { formatMessageDay, localDateKey } from "../utils/formatters";
 import {
   groupConsecutiveMessages,
-  isGroupFirst,
   messageGroupPosition,
-  type MessageGroupPosition,
 } from "../utils/messageGrouping";
 import { Avatar } from "./Avatar";
+import { MessageBubble as RichMessageBubble } from "./MessageBubble";
+import { usePreferencesStore } from "../store/preferencesStore";
 
 interface ConversationProps {
   chat?: Chat;
+  scrollScope: string;
+  latestScrollRequest?: {
+    chatId: string;
+    requestId: number;
+  };
   messages: Message[];
   chatDraft?: ChatDraft;
   forwardTargets: Chat[];
@@ -63,6 +62,8 @@ interface ConversationProps {
     chatId: string,
     messageId: string,
   ) => Promise<MessagePermissions | undefined>;
+  onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onSearchMessages: (query: string) => Promise<void>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onRetryMessage: (messageId: string) => Promise<void>;
   onSendFile: (file?: File) => Promise<boolean>;
@@ -73,6 +74,69 @@ interface ConversationProps {
 
 const COMPOSER_TEXTAREA_MIN_HEIGHT = 40;
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 290;
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
+const BOTTOM_PROXIMITY_PX = 40;
+
+interface ConversationScrollMemory {
+  scrollTop: number;
+  followLatest: boolean;
+  lastKnownMessageId?: string;
+  pendingNewCount: number;
+  anchorMessageId?: string;
+  anchorOffset?: number;
+}
+
+interface ConversationLayoutSnapshot {
+  key?: string;
+  firstId?: string;
+  lastId?: string;
+  search: string;
+}
+
+const conversationScrollMemory = new Map<string, ConversationScrollMemory>();
+
+const scrollMemoryKey = (scope: string, chatId?: string) =>
+  chatId ? `${scope}:${chatId}` : undefined;
+
+const distanceFromBottom = (element: HTMLElement) =>
+  Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
+
+const captureScrollMemory = (
+  element: HTMLElement,
+  lastKnownMessageId: string | undefined,
+  pendingNewCount: number,
+  followLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX,
+): ConversationScrollMemory => {
+  const listBounds = element.getBoundingClientRect();
+  const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+    .find((row) => row.getBoundingClientRect().bottom > listBounds.top + 1);
+  const atBottom = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
+  const shouldFollowLatest = atBottom || followLatest;
+  return {
+    scrollTop: element.scrollTop,
+    followLatest: shouldFollowLatest,
+    lastKnownMessageId,
+    pendingNewCount: shouldFollowLatest ? 0 : pendingNewCount,
+    anchorMessageId: anchor?.dataset.messageId,
+    anchorOffset: anchor ? anchor.getBoundingClientRect().top - listBounds.top : undefined,
+  };
+};
+
+const restoreScrollMemory = (element: HTMLElement, memory: ConversationScrollMemory) => {
+  element.scrollTop = memory.scrollTop;
+  if (!memory.anchorMessageId || memory.anchorOffset === undefined) return;
+  const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+    .find((row) => row.dataset.messageId === memory.anchorMessageId);
+  if (!anchor) return;
+  const currentOffset = anchor.getBoundingClientRect().top - element.getBoundingClientRect().top;
+  element.scrollTop += currentOffset - memory.anchorOffset;
+};
+
+const appendedMessageCount = (messages: Message[], previousLastId?: string) => {
+  if (!previousLastId) return 0;
+  const previousIndex = messages.findIndex((message) => message.id === previousLastId);
+  return previousIndex < 0 ? 0 : Math.max(0, messages.length - previousIndex - 1);
+};
 
 const resizeComposerInput = (input: HTMLTextAreaElement) => {
   input.style.height = `${COMPOSER_TEXTAREA_MIN_HEIGHT}px`;
@@ -88,6 +152,8 @@ const resizeComposerInput = (input: HTMLTextAreaElement) => {
 
 export function Conversation({
   chat,
+  scrollScope,
+  latestScrollRequest,
   messages,
   chatDraft,
   forwardTargets,
@@ -101,6 +167,8 @@ export function Conversation({
   onDraftChange,
   onForwardMessages,
   onLoadMessageProperties,
+  onSetMessageReaction,
+  onSearchMessages,
   onDownloadFile,
   onRetryMessage,
   onSendFile,
@@ -129,20 +197,21 @@ export function Conversation({
   const [forwardQuery, setForwardQuery] = useState("");
   const [forwardPending, setForwardPending] = useState(false);
   const [forwardPendingTargetId, setForwardPendingTargetId] = useState<string>();
+  const [newMessageNotice, setNewMessageNotice] = useState<{
+    key: string;
+    count: number;
+  }>();
+  const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
+  const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const draftBeforeEditRef = useRef<string | undefined>(undefined);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
-  const previousLayoutRef = useRef<{
-    chatId?: string;
-    firstId?: string;
-    lastId?: string;
-    search: string;
-    height: number;
-    scrollTop: number;
-    distanceBottom: number;
-  } | undefined>(undefined);
+  const previousLayoutRef = useRef<ConversationLayoutSnapshot | undefined>(undefined);
+  const handledLatestRequestRef = useRef(0);
+  const scrollPointerActiveRef = useRef(false);
+  const userScrollIntentUntilRef = useRef(0);
 
   const sendAttachment = async (file?: File) => {
     if (attachmentPending) return;
@@ -206,6 +275,23 @@ export function Conversation({
     ? messagesById.get(actionMenu.messageId)
     : undefined;
   const actionPermissions = actionMessage?.permissions;
+  const currentScrollKey = scrollMemoryKey(scrollScope, chat?.id);
+  const lastVisibleMessageId = visibleMessages.at(-1)?.id;
+
+  const jumpToLatest = () => {
+    const element = messageListRef.current;
+    if (!element || !currentScrollKey) return;
+    scrollPointerActiveRef.current = false;
+    userScrollIntentUntilRef.current = 0;
+    element.scrollTop = element.scrollHeight;
+    const memory = captureScrollMemory(element, lastVisibleMessageId, 0, true);
+    conversationScrollMemory.set(currentScrollKey, {
+      ...memory,
+      followLatest: true,
+      pendingNewCount: 0,
+    });
+    setNewMessageNotice({ key: currentScrollKey, count: 0 });
+  };
 
   useEffect(() => {
     setActionMenu(undefined);
@@ -220,6 +306,8 @@ export function Conversation({
     setForwardQuery("");
     setForwardPending(false);
     setForwardPendingTargetId(undefined);
+    setSearchOpen(false);
+    setMessageSearch("");
     setDraft(chatDraft?.text ?? "");
     draftBeforeEditRef.current = undefined;
   }, [chat?.id]);
@@ -262,6 +350,13 @@ export function Conversation({
   }, [messagesById]);
 
   useEffect(() => {
+    const query = messageSearch.trim();
+    if (!chat?.id || !query) return;
+    const timer = globalThis.setTimeout(() => void onSearchMessages(query), 250);
+    return () => globalThis.clearTimeout(timer);
+  }, [chat?.id, messageSearch, onSearchMessages]);
+
+  useEffect(() => {
     if (!selectionMode) return;
     const closeWithKeyboard = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -296,35 +391,120 @@ export function Conversation({
 
   useLayoutEffect(() => {
     const element = messageListRef.current;
-    if (!element) return;
+    if (!element || !currentScrollKey) return;
     const previous = previousLayoutRef.current;
     const firstId = visibleMessages[0]?.id;
-    const lastId = visibleMessages.at(-1)?.id;
+    const lastId = lastVisibleMessageId;
+    const stored = conversationScrollMemory.get(currentScrollKey);
 
-    if (!previous || previous.chatId !== chat?.id) {
-      element.scrollTop = element.scrollHeight;
-    } else if (previous.search !== messageSearch) {
-      element.scrollTop = messageSearch ? 0 : element.scrollHeight;
-    } else if (
-      previous.firstId &&
-      firstId !== previous.firstId &&
-      visibleMessages.some((message) => message.id === previous.firstId)
-    ) {
-      element.scrollTop = previous.scrollTop + element.scrollHeight - previous.height;
-    } else if (lastId !== previous.lastId && previous.distanceBottom < 96) {
-      element.scrollTop = element.scrollHeight;
+    if (messageSearch) {
+      if (!previous || previous.key !== currentScrollKey || previous.search !== messageSearch) {
+        element.scrollTop = 0;
+      }
+      setNewMessageNotice({
+        key: currentScrollKey,
+        count: stored?.pendingNewCount ?? 0,
+      });
+      previousLayoutRef.current = {
+        key: currentScrollKey,
+        firstId,
+        lastId,
+        search: messageSearch,
+      };
+      return;
     }
 
+    let pendingNewCount = stored?.pendingNewCount ?? 0;
+    let followLatest = stored?.followLatest ?? true;
+    const enteringChat = !previous || previous.key !== currentScrollKey;
+    const leavingSearch = previous?.key === currentScrollKey && Boolean(previous.search);
+    if (enteringChat || leavingSearch) {
+      if (!stored) {
+        element.scrollTop = element.scrollHeight;
+        pendingNewCount = 0;
+        followLatest = true;
+      } else if (stored.followLatest) {
+        element.scrollTop = element.scrollHeight;
+        pendingNewCount = 0;
+        followLatest = true;
+      } else {
+        restoreScrollMemory(element, stored);
+        pendingNewCount += appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
+        followLatest = false;
+      }
+    } else if (stored) {
+      const firstMessageChanged = previous.firstId !== firstId;
+      const previousFirstStillPresent = Boolean(
+        previous.firstId && visibleMessages.some((message) => message.id === previous.firstId),
+      );
+      if (firstMessageChanged && previousFirstStillPresent) {
+        if (stored.followLatest) element.scrollTop = element.scrollHeight;
+        else restoreScrollMemory(element, stored);
+      }
+
+      if (previous.lastId !== lastId) {
+        if (stored.followLatest) {
+          element.scrollTop = element.scrollHeight;
+          pendingNewCount = 0;
+          followLatest = true;
+        } else {
+          pendingNewCount += appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
+          followLatest = false;
+        }
+      }
+    }
+
+    const memory = captureScrollMemory(element, lastId, pendingNewCount, followLatest);
+    conversationScrollMemory.set(currentScrollKey, memory);
+    setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
     previousLayoutRef.current = {
-      chatId: chat?.id,
+      key: currentScrollKey,
       firstId,
       lastId,
       search: messageSearch,
-      height: element.scrollHeight,
-      scrollTop: element.scrollTop,
-      distanceBottom: element.scrollHeight - element.clientHeight - element.scrollTop,
     };
-  }, [chat?.id, messageSearch, visibleMessages]);
+  }, [currentScrollKey, lastVisibleMessageId, messageSearch, visibleMessages]);
+
+  useLayoutEffect(() => {
+    if (
+      !latestScrollRequest ||
+      latestScrollRequest.chatId !== chat?.id ||
+      latestScrollRequest.requestId <= handledLatestRequestRef.current
+    ) {
+      return;
+    }
+    handledLatestRequestRef.current = latestScrollRequest.requestId;
+    jumpToLatest();
+  }, [chat?.id, latestScrollRequest]);
+
+  useEffect(() => {
+    const element = messageListRef.current;
+    const content = element?.querySelector<HTMLElement>(".message-list-content");
+    if (!element || !content || !currentScrollKey || messageSearch) return;
+    let animationFrame: number | undefined;
+    const observer = new ResizeObserver(() => {
+      if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        const stored = conversationScrollMemory.get(currentScrollKey);
+        if (!stored) return;
+        if (stored.followLatest) element.scrollTop = element.scrollHeight;
+        else restoreScrollMemory(element, stored);
+        const memory = captureScrollMemory(
+          element,
+          visibleMessages.at(-1)?.id,
+          stored.pendingNewCount,
+          stored.followLatest,
+        );
+        conversationScrollMemory.set(currentScrollKey, memory);
+        setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
+      });
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+      if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
+    };
+  }, [currentScrollKey, messageSearch, visibleMessages]);
 
   useEffect(() => {
     const element = messageListRef.current;
@@ -523,7 +703,10 @@ export function Conversation({
   };
 
   return (
-    <section className={`conversation ${searchOpen ? "has-message-search" : ""} ${selectionMode ? "is-selecting-messages" : ""}`} aria-label={`${chat.title} 对话`}>
+    <section
+      className={`conversation ${searchOpen ? "has-message-search" : ""} ${selectionMode ? "is-selecting-messages" : ""}`}
+      aria-label={`${chat.title} 对话`}
+    >
       <header className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
         {selectionMode ? (
           <>
@@ -591,29 +774,63 @@ export function Conversation({
         </div>
       )}
 
-      <div
-        className="message-list"
-        ref={messageListRef}
-        onScroll={(event) => {
-          const element = event.currentTarget;
-          const previous = previousLayoutRef.current;
-          if (previous) {
-            previous.scrollTop = element.scrollTop;
-            previous.height = element.scrollHeight;
-            previous.distanceBottom = element.scrollHeight - element.clientHeight - element.scrollTop;
-          }
-          if (element.scrollTop <= 64 && !messageSearch && hasOlderMessages && !historyLoading) {
-            void onLoadOlder();
-          }
-        }}
-      >
-        {historyLoading && <div className="history-loading" aria-label="正在加载更早消息"><LoaderCircle className="spin" size={16} /></div>}
-        <div className="message-day">今天</div>
-        {visibleMessages.length === 0 ? (
-          <div className="messages-empty">没有匹配的消息</div>
-        ) : (
-          visibleMessageGroups.map((messageGroup) => {
+      <div className="message-list-shell">
+        <div
+          className="message-list"
+          ref={messageListRef}
+          role="log"
+          aria-label="消息列表"
+          tabIndex={0}
+          onWheel={() => {
+            userScrollIntentUntilRef.current = performance.now() + 400;
+          }}
+          onPointerDown={() => {
+            scrollPointerActiveRef.current = true;
+          }}
+          onPointerUp={() => {
+            scrollPointerActiveRef.current = false;
+            userScrollIntentUntilRef.current = performance.now() + 200;
+          }}
+          onPointerCancel={() => {
+            scrollPointerActiveRef.current = false;
+          }}
+          onKeyDown={(event) => {
+            if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) {
+              userScrollIntentUntilRef.current = performance.now() + 400;
+            }
+          }}
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            if (!messageSearch && currentScrollKey) {
+              const stored = conversationScrollMemory.get(currentScrollKey);
+              const userInitiated = scrollPointerActiveRef.current ||
+                performance.now() <= userScrollIntentUntilRef.current;
+              const followLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX ||
+                (!userInitiated && stored?.followLatest === true);
+              const memory = captureScrollMemory(
+                element,
+                lastVisibleMessageId,
+                stored?.pendingNewCount ?? 0,
+                followLatest,
+              );
+              conversationScrollMemory.set(currentScrollKey, memory);
+              setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
+            }
+            if (element.scrollTop <= 64 && !messageSearch && hasOlderMessages && !historyLoading) {
+              void onLoadOlder();
+            }
+          }}
+        >
+          <div className="message-list-content">
+          {historyLoading && <div className="history-loading" aria-label="正在加载更早消息"><LoaderCircle className="spin" size={16} /></div>}
+          {visibleMessages.length === 0 ? (
+            <div className="messages-empty">没有匹配的消息</div>
+          ) : (
+            visibleMessageGroups.map((messageGroup, groupIndex) => {
             const firstMessage = messageGroup[0];
+            const previousMessage = visibleMessageGroups[groupIndex - 1]?.[0];
+            const startsNewDay = !previousMessage ||
+              localDateKey(previousMessage.sentAt) !== localDateKey(firstMessage.sentAt);
             const showSenderAvatar = !firstMessage.outgoing && chat.kind !== "direct";
             const sender = users.get(firstMessage.senderId);
             const senderName = sender?.displayName ??
@@ -621,9 +838,12 @@ export function Conversation({
             const senderAvatar = sender?.avatar ??
               (chat.kind === "direct" ? chat.avatar : undefined);
             return (
+              <Fragment key={firstMessage.id}>
+              {startsNewDay && (
+                <div className="message-day">{formatMessageDay(firstMessage.sentAt)}</div>
+              )}
               <div
                 className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
-                key={firstMessage.id}
               >
                 {showSenderAvatar && (
                   <span className="message-group-avatar">
@@ -638,7 +858,7 @@ export function Conversation({
                 )}
                 <div className="message-group-stack">
                   {messageGroup.map((message, index) => (
-                    <MessageBubble
+                    <RichMessageBubble
                       key={message.id}
                       message={message}
                       sender={sender}
@@ -655,13 +875,33 @@ export function Conversation({
                       onDownload={onDownloadFile}
                       onRetry={onRetryMessage}
                       onCancelUpload={onCancelFileUpload}
+                      onReaction={onSetMessageReaction}
+                      autoplayAnimations={autoplayAnimations}
                     />
                   ))}
                 </div>
               </div>
+              </Fragment>
             );
-          })
-        )}
+            })
+          )}
+          </div>
+        </div>
+        {!messageSearch &&
+          currentScrollKey &&
+          newMessageNotice?.key === currentScrollKey &&
+          newMessageNotice.count > 0 && (
+            <button
+              className="jump-to-latest"
+              type="button"
+              aria-label={`跳到最新消息，${newMessageNotice.count} 条新消息`}
+              title="跳到最新消息"
+              onClick={jumpToLatest}
+            >
+              <ArrowDown size={19} strokeWidth={2.1} />
+              <span>{newMessageNotice.count > 99 ? "99+" : newMessageNotice.count}</span>
+            </button>
+          )}
       </div>
 
       {actionMenu && actionMessage && (
@@ -682,6 +922,27 @@ export function Conversation({
             </div>
           ) : (
             <>
+              <div className="message-action-reactions" role="group" aria-label="表情回应">
+                {QUICK_REACTIONS.map((emoji) => {
+                  const existing = actionMessage.interaction?.reactions.find(
+                    (reaction) => reaction.type.kind === "emoji" && reaction.type.emoji === emoji,
+                  );
+                  return (
+                    <button
+                      type="button"
+                      key={emoji}
+                      aria-label={`回应 ${emoji}`}
+                      className={existing?.chosen ? "is-chosen" : ""}
+                      onClick={() => {
+                        setActionMenu(undefined);
+                        void onSetMessageReaction(actionMessage.id, emoji, !existing?.chosen);
+                      }}
+                    >
+                      {emoji}
+                    </button>
+                  );
+                })}
+              </div>
               {actionPermissions.canReply && (
                 <button type="button" role="menuitem" onClick={() => startReply(actionMessage)}>
                   <Reply size={16} strokeWidth={1.9} />
@@ -800,7 +1061,11 @@ export function Conversation({
               }
             }}
             onKeyDown={async (event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              const submitWithKeyboard = event.key === "Enter" && (
+                (sendOnEnter && !event.shiftKey) ||
+                (!sendOnEnter && (event.ctrlKey || event.metaKey))
+              );
+              if (submitWithKeyboard) {
                 if (event.nativeEvent.isComposing) return;
                 event.preventDefault();
                 await submitMessage();
@@ -955,187 +1220,6 @@ export function Conversation({
   );
 }
 
-function MessageBubble({
-  message,
-  sender,
-  senderName,
-  groupPosition,
-  replyPreview,
-  forwardLabel,
-  selectionMode,
-  selected,
-  selectionPending,
-  selectionLimitReached,
-  onToggleSelection,
-  onOpenActions,
-  onDownload,
-  onRetry,
-  onCancelUpload,
-}: {
-  message: Message;
-  sender?: User;
-  senderName: string;
-  groupPosition: MessageGroupPosition;
-  replyPreview?: ReplyPreview;
-  forwardLabel?: string;
-  selectionMode: boolean;
-  selected: boolean;
-  selectionPending: boolean;
-  selectionLimitReached: boolean;
-  onToggleSelection: (message: Message) => Promise<void>;
-  onOpenActions: (message: Message, left: number, top: number) => Promise<void>;
-  onDownload: (fileId: number, fileName: string) => Promise<void>;
-  onRetry: (messageId: string) => Promise<void>;
-  onCancelUpload: (messageId: string) => Promise<void>;
-}) {
-  const isPhoto = message.content.kind === "media" && message.content.mediaType === "photo";
-  const hasCaption = message.content.kind === "media" &&
-    message.content.mediaType === "photo" &&
-    Boolean(message.content.caption);
-  const showSender = !message.outgoing && isGroupFirst(groupPosition);
-  const mediaSource = message.content.kind === "media"
-    ? localSource(message.content.localPath) ??
-      localSource(message.content.thumbnailPath) ??
-      message.content.previewDataUrl
-    : undefined;
-  const fileProgress = message.content.kind !== "text" && message.content.progress !== undefined
-    ? `${Math.round(message.content.progress * 100)}%`
-    : undefined;
-  const downloadFileId = message.content.kind !== "text" ? message.content.fileId : undefined;
-  const downloadFileName = message.content.kind !== "text" ? message.content.fileName : "";
-  const canDownload = message.content.kind !== "text" &&
-    downloadFileId !== undefined &&
-    message.content.canDownload !== false &&
-    !message.content.isDownloaded &&
-    !message.content.isDownloading;
-  const canCancelUpload = message.content.kind !== "text" &&
-    message.content.isUploading === true;
-  const selectionDisabled = selectionPending ||
-    message.permissions?.canForward === false ||
-    (selectionLimitReached && !selected);
-  return (
-    <article className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${selected ? "is-selected" : ""}`}>
-      {selectionMode && (
-        <button
-          className="message-selection-toggle"
-          type="button"
-          aria-label={selected ? "取消选择消息" : "选择消息"}
-          aria-pressed={selected}
-          title={message.permissions?.canForward === false ? "此消息不可转发" : selected ? "取消选择" : "选择消息"}
-          disabled={selectionDisabled}
-          onClick={() => void onToggleSelection(message)}
-        >
-          {selectionPending
-            ? <LoaderCircle className="spin" size={15} />
-            : selected && <Check size={15} strokeWidth={2.4} />}
-        </button>
-      )}
-      <div
-        className="message-bubble-shell"
-        onContextMenu={(event) => {
-          event.preventDefault();
-          if (selectionMode) void onToggleSelection(message);
-          else void onOpenActions(message, event.clientX, event.clientY);
-        }}
-      >
-        <div className={`message-bubble ${isPhoto ? "is-photo" : ""} ${hasCaption ? "has-caption" : ""}`}>
-          {forwardLabel && (
-            <span className="message-forward-label">
-              <Forward size={12} strokeWidth={2} />
-              {forwardLabel}
-            </span>
-          )}
-          {showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
-          {replyPreview && (
-            <span className="message-reply-preview">
-              <strong>{replyPreview.author}</strong>
-              <small>{replyPreview.text}</small>
-            </span>
-          )}
-          {message.content.kind === "text" ? (
-            <p>{message.content.text}</p>
-          ) : message.content.kind === "media" && message.content.mediaType === "photo" ? (
-            <div className="photo-message" data-media-type="photo">
-              <div
-                className="photo-preview"
-                style={message.content.width && message.content.height
-                  ? { aspectRatio: `${message.content.width} / ${message.content.height}` }
-                  : undefined}
-              >
-                {mediaSource ? (
-                  <img src={mediaSource} alt={message.content.caption || message.content.fileName} />
-                ) : (
-                  <span className="photo-placeholder" aria-label="图片正在加载">
-                    <ImageIcon size={28} strokeWidth={1.6} />
-                  </span>
-                )}
-                {(message.content.isDownloading || message.content.isUploading) && (
-                  <span className="media-progress">
-                    <span>{message.content.progress === undefined
-                      ? <LoaderCircle className="spin" size={15} />
-                      : `${Math.round(message.content.progress * 100)}%`}</span>
-                    {canCancelUpload && (
-                      <button type="button" aria-label={`取消上传 ${downloadFileName}`} title="取消上传" onClick={() => void onCancelUpload(message.id)}>
-                        <X size={14} strokeWidth={2.2} />
-                      </button>
-                    )}
-                  </span>
-                )}
-              </div>
-              {message.content.caption && <p className="photo-caption">{message.content.caption}</p>}
-            </div>
-          ) : (
-            <div className="file-message">
-              <span className="file-icon"><FileText size={19} strokeWidth={1.8} /></span>
-              <span className="file-copy">
-                <strong>{message.content.fileName}</strong>
-                <small>{message.content.isUploading ? `上传中 ${fileProgress ?? ""}` : message.content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : message.content.isDownloaded ? `已缓存 · ${message.content.sizeLabel}` : message.content.sizeLabel}</small>
-              </span>
-              {(canDownload || canCancelUpload) && (
-                <button
-                  className="file-download"
-                  type="button"
-                  aria-label={canCancelUpload ? `取消上传 ${message.content.fileName}` : `下载 ${message.content.fileName}`}
-                  title={canCancelUpload ? "取消上传" : "下载到 downloads"}
-                  onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onDownload(downloadFileId!, downloadFileName)}
-                >
-                  {canCancelUpload ? <X size={16} strokeWidth={2.2} /> : <Download size={16} strokeWidth={2} />}
-                </button>
-              )}
-            </div>
-          )}
-          <span className="message-meta">
-            {message.editedAt && <span>已编辑</span>}
-            <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
-            {message.outgoing && (
-              message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
-                : message.delivery === "sending" ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
-                  : message.delivery === "failed" ? (
-                    <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? "重试发送" : "发送失败"} onClick={() => void onRetry(message.id)}>
-                      {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
-                    </button>
-                  ) : <Check size={14} strokeWidth={2.2} />
-            )}
-          </span>
-        </div>
-        {!selectionMode && <button
-          className="message-action-trigger"
-          type="button"
-          aria-label="消息操作"
-          title="消息操作"
-          onClick={(event) => {
-            const bounds = event.currentTarget.getBoundingClientRect();
-            const left = message.outgoing ? bounds.left - 184 : bounds.right + 4;
-            void onOpenActions(message, left, bounds.top);
-          }}
-        >
-          <MoreHorizontal size={18} strokeWidth={1.9} />
-        </button>}
-      </div>
-    </article>
-  );
-}
-
 interface ReplyPreview {
   author: string;
   text: string;
@@ -1207,9 +1291,4 @@ const messageSummary = (content: MessageContent) => {
     : content.caption || content.fileName;
   const normalized = raw.replace(/\s+/g, " ").trim();
   return normalized.length > 72 ? `${normalized.slice(0, 72)}…` : normalized;
-};
-
-const localSource = (path?: string) => {
-  if (!path) return undefined;
-  return isTauri() ? convertFileSrc(path) : path;
 };

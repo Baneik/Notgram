@@ -24,6 +24,8 @@ vendor/tdlib-install/
 logs/
 *.tsbuildinfo
 coverage/
+playwright-report/
+test-results/
 
 # Editor and operating-system files
 .idea/

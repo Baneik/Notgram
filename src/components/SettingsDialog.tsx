@@ -4,13 +4,10 @@ import {
   Bell,
   Check,
   ChevronRight,
-  Folder,
   Gauge,
   HardDrive,
-  Languages,
   LoaderCircle,
   LogOut,
-  LockKeyhole,
   MessageCircle,
   Network,
   RotateCcw,
@@ -18,7 +15,6 @@ import {
   SlidersHorizontal,
   UserCircle,
   UserPlus,
-  Volume2,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -30,6 +26,10 @@ import {
   type SetStateAction,
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
+import {
+  usePreferencesStore,
+  type AppPreferences,
+} from "../store/preferencesStore";
 import type {
   ProxyMode,
   ProxySettings,
@@ -47,13 +47,9 @@ interface SettingsDialogProps {
 type SettingsCategoryId =
   | "account"
   | "notifications"
-  | "privacy"
   | "chats"
-  | "folders"
   | "advanced"
-  | "devices"
-  | "power"
-  | "language";
+  | "power";
 
 interface SettingsCategory {
   id: SettingsCategoryId;
@@ -65,13 +61,9 @@ interface SettingsCategory {
 const categories: SettingsCategory[] = [
   { id: "account", label: "我的账号", icon: UserCircle },
   { id: "notifications", label: "通知与声音", icon: Bell },
-  { id: "privacy", label: "隐私和安全", icon: LockKeyhole },
   { id: "chats", label: "聊天设置", icon: MessageCircle },
-  { id: "folders", label: "文件夹", icon: Folder },
   { id: "advanced", label: "高级设置", icon: SlidersHorizontal },
-  { id: "devices", label: "扬声器和摄像头", icon: Volume2 },
   { id: "power", label: "电池和动画", icon: BatteryCharging },
-  { id: "language", label: "语言", icon: Languages, detail: "简体中文 (beta)" },
 ];
 
 const modeOptions: Array<{ value: ProxyMode; label: string }> = [
@@ -130,10 +122,26 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const addAccount = useTelegramStore((state) => state.addAccount);
   const switchAccount = useTelegramStore((state) => state.switchAccount);
   const logOutCurrentAccount = useTelegramStore((state) => state.logOutCurrentAccount);
+  const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
+  const notificationSound = usePreferencesStore((state) => state.notificationSound);
+  const compactMode = usePreferencesStore((state) => state.compactMode);
+  const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
+  const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
+  const reduceMotion = usePreferencesStore((state) => state.reduceMotion);
+  const preferences: AppPreferences = {
+    notificationsEnabled,
+    notificationSound,
+    compactMode,
+    sendOnEnter,
+    autoplayAnimations,
+    reduceMotion,
+  };
+  const setPreference = usePreferencesStore((state) => state.setPreference);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
   const [detailOpen, setDetailOpen] = useState(false);
   const [draft, setDraft] = useState<ProxySettings>(emptySettings);
   const [storageDraft, setStorageDraft] = useState<StorageSettings>(emptyStorageSettings);
+  const [preferenceError, setPreferenceError] = useState<string>();
 
   useEffect(() => {
     void load();
@@ -168,6 +176,23 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const ActiveIcon = active.icon;
   const activeEndpoint = draft.mode === "system" ? draft.system : draft.custom;
   const busy = pending || storagePending;
+
+  const updatePreference = async <Key extends keyof AppPreferences>(
+    key: Key,
+    value: AppPreferences[Key],
+  ) => {
+    setPreferenceError(undefined);
+    if (key === "notificationsEnabled" && value === true && "Notification" in globalThis) {
+      const permission = Notification.permission === "default"
+        ? await Notification.requestPermission()
+        : Notification.permission;
+      if (permission !== "granted") {
+        setPreferenceError("系统通知权限未开启");
+        return;
+      }
+    }
+    setPreference(key, value);
+  };
 
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
@@ -255,13 +280,70 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               onTest={() => void test(draft)}
             />
           ) : (
-            <div className="settings-empty">
-              <ActiveIcon size={34} strokeWidth={1.5} />
-              <span>暂无设置项</span>
-            </div>
+            <PreferenceSettings
+              category={activeCategory}
+              preferences={preferences}
+              error={preferenceError}
+              onChange={(key, value) => void updatePreference(key, value)}
+            />
           )}
         </main>
       </form>
+    </div>
+  );
+}
+
+interface PreferenceSettingsProps {
+  category: "notifications" | "chats" | "power";
+  preferences: AppPreferences;
+  error?: string;
+  onChange: <Key extends keyof AppPreferences>(key: Key, value: AppPreferences[Key]) => void;
+}
+
+function PreferenceSettings({
+  category,
+  preferences,
+  error,
+  onChange,
+}: PreferenceSettingsProps) {
+  const options: Array<{
+    key: keyof AppPreferences;
+    label: string;
+    disabled?: boolean;
+  }> = category === "notifications"
+    ? [
+        { key: "notificationsEnabled" as const, label: "桌面通知" },
+        { key: "notificationSound" as const, label: "通知声音", disabled: !preferences.notificationsEnabled },
+      ]
+    : category === "chats"
+      ? [
+          { key: "compactMode" as const, label: "紧凑会话密度" },
+          { key: "sendOnEnter" as const, label: "Enter 键发送" },
+        ]
+      : [
+          { key: "autoplayAnimations" as const, label: "自动播放动画" },
+          { key: "reduceMotion" as const, label: "减少动态效果" },
+        ];
+
+  return (
+    <div className="settings-detail-scroll preference-settings">
+      <section className="settings-section">
+        <div className="preference-list">
+          {options.map((option) => (
+            <label className="preference-row" key={option.key}>
+              <span>{option.label}</span>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={preferences[option.key]}
+                disabled={option.disabled}
+                onChange={(event) => onChange(option.key, event.target.checked)}
+              />
+            </label>
+          ))}
+        </div>
+      </section>
+      {error && <div className="settings-error" role="alert">{error}</div>}
     </div>
   );
 }

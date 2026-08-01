@@ -28,6 +28,11 @@ export interface HistoryState {
   hasMore: boolean;
 }
 
+export interface ChatListState {
+  loading: boolean;
+  hasMore: boolean;
+}
+
 export interface TelegramState {
   phase: RuntimePhase;
   error?: string;
@@ -52,6 +57,7 @@ export interface TelegramState {
   folders: ChatFolder[];
   chats: Map<string, Chat>;
   chatListReady: boolean;
+  chatLists: Map<string, ChatListState>;
   messages: Map<string, Message[]>;
   drafts: Map<string, ChatDraft>;
   histories: Map<string, HistoryState>;
@@ -69,11 +75,15 @@ export interface TelegramState {
   switchAccount: (accountId: string) => Promise<boolean>;
   logOutCurrentAccount: () => Promise<boolean>;
   selectChat: (chatId: string) => Promise<void>;
+  loadMoreChats: (chatListId?: string) => Promise<void>;
   loadMoreHistory: (chatId: string) => Promise<void>;
+  markActiveChatRead: () => Promise<void>;
   loadMessageProperties: (
     chatId: string,
     messageId: string,
   ) => Promise<MessagePermissions | undefined>;
+  searchChatMessages: (query: string) => Promise<void>;
+  setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
   sendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
@@ -92,6 +102,12 @@ export interface TelegramState {
   clearError: () => void;
 }
 
+const errorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+};
+
 const upsertMessage = (messages: Message[], next: Message) => {
   const index = messages.findIndex((message) => message.id === next.id);
   const updated = [...messages];
@@ -101,6 +117,36 @@ const upsertMessage = (messages: Message[], next: Message) => {
     (left, right) =>
       new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime(),
   );
+};
+
+const withEmojiReaction = (message: Message, emoji: string, chosen: boolean): Message => {
+  const interaction = message.interaction ?? {
+    viewCount: 0,
+    forwardCount: 0,
+    replyCount: 0,
+    reactions: [],
+  };
+  const reactions = [...interaction.reactions];
+  const index = reactions.findIndex(
+    (reaction) => reaction.type.kind === "emoji" && reaction.type.emoji === emoji,
+  );
+  if (index >= 0) {
+    const current = reactions[index];
+    if (current.chosen === chosen) return message;
+    const totalCount = Math.max(0, current.totalCount + (chosen ? 1 : -1));
+    if (totalCount === 0) reactions.splice(index, 1);
+    else reactions[index] = { ...current, chosen, totalCount };
+  } else if (chosen) {
+    reactions.push({
+      type: { kind: "emoji", emoji },
+      totalCount: 1,
+      chosen: true,
+      recentSenderIds: [],
+    });
+  } else {
+    return message;
+  }
+  return { ...message, interaction: { ...interaction, reactions } };
 };
 
 const messageMapFrom = (messages: Message[]) => {
@@ -257,6 +303,10 @@ export const createTelegramStore = (
     let draftGeneration = 0;
     const draftSyncs = new Map<string, DraftSyncEntry>();
     const draftRequestChains = new Map<string, Promise<void>>();
+    const readTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const readRequestChains = new Map<string, Promise<void>>();
+    let chatSearchTimer: ReturnType<typeof setTimeout> | undefined;
+    let chatSearchGeneration = 0;
 
     const scheduleCacheWrite = () => {
       const state = get();
@@ -402,12 +452,19 @@ export const createTelegramStore = (
       for (const entry of draftSyncs.values()) clearDraftSyncTimers(entry);
       draftSyncs.clear();
       draftRequestChains.clear();
+      for (const timer of readTimers.values()) globalThis.clearTimeout(timer);
+      readTimers.clear();
+      readRequestChains.clear();
+      if (chatSearchTimer) globalThis.clearTimeout(chatSearchTimer);
+      chatSearchTimer = undefined;
+      chatSearchGeneration += 1;
       set({
         currentUserId: undefined,
         users: new Map(),
         folders: [],
         chats: new Map(),
         chatListReady: false,
+        chatLists: new Map(),
         messages: new Map(),
         drafts: new Map(),
         histories: new Map(),
@@ -570,6 +627,66 @@ export const createTelegramStore = (
       }
     };
 
+    const loadChats = async (chatListId = get().chatFilter) => {
+      if (get().authorization.kind !== "ready") return;
+      const current = get().chatLists.get(chatListId);
+      if (current?.loading || current?.hasMore === false) return;
+
+      const chatLists = new Map(get().chatLists);
+      chatLists.set(chatListId, { loading: true, hasMore: current?.hasMore ?? true });
+      set({ chatLists });
+      try {
+        const page = await transport.loadMoreChats(chatListId, 100);
+        const nextChatLists = new Map(get().chatLists);
+        nextChatLists.set(chatListId, { loading: false, hasMore: page.hasMore });
+        set({ chatLists: nextChatLists, error: undefined });
+        scheduleCacheWrite();
+      } catch (error) {
+        const nextChatLists = new Map(get().chatLists);
+        nextChatLists.set(chatListId, { loading: false, hasMore: true });
+        set({
+          chatLists: nextChatLists,
+          error: error instanceof Error ? error.message : "无法加载更多会话",
+        });
+      }
+    };
+
+    const documentIsVisible = () =>
+      typeof document === "undefined" || document.visibilityState === "visible";
+
+    const markChatRead = (chatId: string) => {
+      const previous = readRequestChains.get(chatId) ?? Promise.resolve();
+      const operation = previous
+        .catch(() => undefined)
+        .then(async () => {
+          if (
+            get().authorization.kind !== "ready" ||
+            get().activeChatId !== chatId ||
+            !documentIsVisible()
+          ) {
+            return;
+          }
+          await transport.markChatRead(chatId);
+        })
+        .catch((error) => {
+          set({ error: error instanceof Error ? error.message : "无法更新已读状态" });
+        });
+      const tracked = operation.finally(() => {
+        if (readRequestChains.get(chatId) === tracked) readRequestChains.delete(chatId);
+      });
+      readRequestChains.set(chatId, tracked);
+      return tracked;
+    };
+
+    const scheduleChatRead = (chatId: string, delayMs = 120) => {
+      const currentTimer = readTimers.get(chatId);
+      if (currentTimer) globalThis.clearTimeout(currentTimer);
+      readTimers.set(chatId, globalThis.setTimeout(() => {
+        readTimers.delete(chatId);
+        void markChatRead(chatId);
+      }, delayMs));
+    };
+
     const applyEvent = (event: TelegramEvent) => {
       if (event.type === "authorization.changed") {
         set({
@@ -581,7 +698,9 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           resumePendingDrafts();
           const activeChatId = get().activeChatId;
-          if (activeChatId) void loadHistory(activeChatId);
+          if (activeChatId) {
+            void loadHistory(activeChatId).then(() => markChatRead(activeChatId));
+          }
         } else if (event.state.kind !== "preparing") {
           clearCachedData(!accountTransition);
         }
@@ -628,7 +747,9 @@ export const createTelegramStore = (
           activeChatId: get().activeChatId ?? firstChat,
         });
         scheduleCacheWrite();
-        if (firstChat) void loadHistory(firstChat);
+        if (firstChat) {
+          void loadHistory(firstChat).then(() => markChatRead(firstChat));
+        }
         return;
       }
 
@@ -692,6 +813,9 @@ export const createTelegramStore = (
         upsertMessage(messages.get(event.message.chatId) ?? [], event.message),
       );
       set({ messages });
+      if (!event.message.outgoing && event.message.chatId === get().activeChatId) {
+        scheduleChatRead(event.message.chatId);
+      }
       scheduleCacheWrite();
     };
 
@@ -745,6 +869,7 @@ export const createTelegramStore = (
       folders: [],
       chats: new Map(),
       chatListReady: false,
+      chatLists: new Map(),
       messages: new Map(),
       drafts: new Map(),
       histories: new Map(),
@@ -832,13 +957,14 @@ export const createTelegramStore = (
           const refreshChatId = get().activeChatId ?? firstChat?.id;
           if (authorization.kind === "ready" && refreshChatId) {
             await loadHistory(refreshChatId);
+            await markChatRead(refreshChatId);
           }
           if (authorization.kind === "ready") resumePendingDrafts();
           scheduleCacheWrite();
         } catch (error) {
           set({
             phase: "error",
-            error: error instanceof Error ? error.message : "无法启动 Telegram runtime",
+            error: errorMessage(error, "无法启动 Telegram runtime"),
           });
         }
       },
@@ -967,14 +1093,15 @@ export const createTelegramStore = (
         scheduleCacheWrite();
         if (get().authorization.kind !== "ready") return;
         await loadHistory(chatId);
-        try {
-          await transport.markChatRead(chatId);
-        } catch (error) {
-          set({ error: error instanceof Error ? error.message : "无法更新已读状态" });
-        }
+        await markChatRead(chatId);
       },
 
+      loadMoreChats: loadChats,
       loadMoreHistory: loadHistory,
+      markActiveChatRead: async () => {
+        const chatId = get().activeChatId;
+        if (chatId) await markChatRead(chatId);
+      },
 
       loadMessageProperties: async (chatId, messageId) => {
         const requestedMessage = (get().messages.get(chatId) ?? [])
@@ -998,10 +1125,66 @@ export const createTelegramStore = (
         }
       },
 
-      setSearchQuery: (searchQuery) => set({ searchQuery }),
+      searchChatMessages: async (query) => {
+        const chatId = get().activeChatId;
+        const normalized = query.trim();
+        if (!chatId || !normalized || get().authorization.kind !== "ready") return;
+        try {
+          await transport.searchChatMessages(chatId, normalized, 100);
+          set({ error: undefined });
+        } catch (error) {
+          set({ error: error instanceof Error ? error.message : "无法搜索聊天消息" });
+        }
+      },
+
+      setMessageReaction: async (messageId, emoji, chosen) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return;
+        const currentMessages = get().messages.get(chatId) ?? [];
+        const original = currentMessages.find((message) => message.id === messageId);
+        if (!original) return;
+        const optimistic = withEmojiReaction(original, emoji, chosen);
+        if (optimistic === original) return;
+        const messages = new Map(get().messages);
+        messages.set(chatId, upsertMessage(currentMessages, optimistic));
+        set({ messages, error: undefined });
+        try {
+          await transport.setMessageReaction({ chatId, messageId, emoji, chosen });
+          scheduleCacheWrite();
+        } catch (error) {
+          const latestMessages = get().messages.get(chatId) ?? [];
+          const latest = latestMessages.find((message) => message.id === messageId);
+          const latestReaction = latest?.interaction?.reactions.find(
+            (reaction) => reaction.type.kind === "emoji" && reaction.type.emoji === emoji,
+          );
+          if (latest && Boolean(latestReaction?.chosen) === chosen) {
+            const rollback = new Map(get().messages);
+            rollback.set(chatId, upsertMessage(latestMessages, original));
+            set({ messages: rollback });
+          }
+          set({ error: error instanceof Error ? error.message : "无法更新表情回应" });
+        }
+      },
+
+      setSearchQuery: (searchQuery) => {
+        set({ searchQuery });
+        if (chatSearchTimer) globalThis.clearTimeout(chatSearchTimer);
+        chatSearchTimer = undefined;
+        const normalized = searchQuery.trim();
+        const generation = ++chatSearchGeneration;
+        if (!normalized || get().authorization.kind !== "ready") return;
+        chatSearchTimer = globalThis.setTimeout(() => {
+          chatSearchTimer = undefined;
+          void transport.searchChats(normalized, 50).catch((error) => {
+            if (generation !== chatSearchGeneration) return;
+            set({ error: error instanceof Error ? error.message : "无法搜索会话" });
+          });
+        }, 250);
+      },
       setChatFilter: (chatFilter) => {
         set({ chatFilter });
         scheduleCacheWrite();
+        void loadChats(chatFilter);
       },
 
       updateChatDraft: (chatId, text, replyToMessageId) => {
@@ -1185,7 +1368,7 @@ export const filterAndSortChats = (
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
   return [...chats]
     .filter((chat) => {
-      return chat.folderIds.includes(folderId);
+      return normalizedQuery || chat.folderIds.includes(folderId);
     })
     .filter((chat) => {
       if (!normalizedQuery) return true;

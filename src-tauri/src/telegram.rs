@@ -2,6 +2,7 @@ use libloading::Library;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
+    collections::HashSet,
     env,
     ffi::{CStr, CString},
     fs::{self, OpenOptions},
@@ -16,6 +17,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 type TdCreateClientId = unsafe extern "C" fn() -> c_int;
 type TdSend = unsafe extern "C" fn(c_int, *const c_char);
@@ -385,8 +387,8 @@ struct ApiCredentials {
 
 struct TdlibConfiguration {
     credentials: ApiCredentials,
-    database_directory: String,
-    files_directory: String,
+    database_directory: PathBuf,
+    files_directory: PathBuf,
     database_encryption_key: String,
 }
 
@@ -400,9 +402,9 @@ impl TdlibConfiguration {
             .map_err(|error| format!("无法创建 TDLib 文件目录: {error}"))?;
         Ok(Self {
             credentials,
-            database_directory: database_directory.display().to_string(),
-            files_directory: files_directory.display().to_string(),
-            database_encryption_key: env::var("NOTGRAM_DATABASE_KEY_BASE64").unwrap_or_default(),
+            database_directory,
+            files_directory,
+            database_encryption_key: crate::storage::database_encryption_key(app)?,
         })
     }
 
@@ -427,8 +429,8 @@ impl TdlibConfiguration {
         json!({
             "@type": "setTdlibParameters",
             "use_test_dc": env_flag("NOTGRAM_USE_TEST_DC"),
-            "database_directory": self.database_directory,
-            "files_directory": self.files_directory,
+            "database_directory": self.database_directory.display().to_string(),
+            "files_directory": self.files_directory.display().to_string(),
             "database_encryption_key": self.database_encryption_key,
             "use_file_database": true,
             "use_chat_info_database": true,
@@ -463,6 +465,8 @@ fn receive_loop(
     let mut proxy_ready = false;
     let mut tdlib_parameters_sent = false;
     let mut delayed_authorization_update: Option<Value> = None;
+    let trusted_asset_roots = trusted_asset_roots(&configuration);
+    let mut allowed_assets = HashSet::new();
 
     while !stop.load(Ordering::Acquire) {
         poll_count += 1;
@@ -472,6 +476,13 @@ fn receive_loop(
                 update_count += 1;
                 consecutive_errors = 0;
                 if update.get("@client_id").and_then(Value::as_i64) == Some(client_id as i64) {
+                    allow_tdlib_assets(
+                        &app,
+                        &update,
+                        &trusted_asset_roots,
+                        &mut allowed_assets,
+                        logger.as_ref(),
+                    );
                     let mut emit_update = true;
                     if update.get("@type").and_then(Value::as_str) == Some("error") {
                         let request = update.get("@extra").and_then(Value::as_str);
@@ -629,6 +640,71 @@ fn receive_loop(
     app.state::<TelegramRuntime>().mark_closed(client_id);
 }
 
+fn trusted_asset_roots(configuration: &TdlibConfiguration) -> Vec<PathBuf> {
+    [
+        &configuration.database_directory,
+        &configuration.files_directory,
+    ]
+    .into_iter()
+    .filter_map(|path| path.canonicalize().ok())
+    .collect()
+}
+
+fn allow_tdlib_assets(
+    app: &AppHandle,
+    update: &Value,
+    trusted_roots: &[PathBuf],
+    allowed_assets: &mut HashSet<PathBuf>,
+    logger: Option<&RuntimeLogger>,
+) {
+    for path in trusted_tdlib_asset_paths(update, trusted_roots) {
+        if !allowed_assets.insert(path.clone()) {
+            continue;
+        }
+        if app.asset_protocol_scope().allow_file(&path).is_err()
+            && let Some(logger) = logger
+        {
+            logger.write("warn", "asset_authorization_failed", json!({}));
+        }
+    }
+}
+
+fn trusted_tdlib_asset_paths(value: &Value, trusted_roots: &[PathBuf]) -> Vec<PathBuf> {
+    fn collect(value: &Value, trusted_roots: &[PathBuf], paths: &mut Vec<PathBuf>) {
+        match value {
+            Value::Object(object) => {
+                if let Some(local) = object.get("local").and_then(Value::as_object)
+                    && local
+                        .get("is_downloading_completed")
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                    && let Some(path) = local.get("path").and_then(Value::as_str)
+                    && !path.is_empty()
+                    && let Ok(path) = PathBuf::from(path).canonicalize()
+                    && trusted_roots.iter().any(|root| path.starts_with(root))
+                {
+                    paths.push(path);
+                }
+                for nested in object.values() {
+                    collect(nested, trusted_roots, paths);
+                }
+            }
+            Value::Array(values) => {
+                for nested in values {
+                    collect(nested, trusted_roots, paths);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut paths = Vec::new();
+    collect(value, trusted_roots, &mut paths);
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
 fn api_credentials() -> Result<ApiCredentials, String> {
     let api_id = env::var("NOTGRAM_API_ID")
         .ok()
@@ -768,6 +844,10 @@ mod tests {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tdlib")
             .join("tdjson.dll");
+        if !path.is_file() {
+            eprintln!("skipping bundled TDLib export check because tdjson.dll is not present");
+            return;
+        }
 
         TdJson::load(&path).unwrap_or_else(|error| {
             panic!(
@@ -800,6 +880,167 @@ mod logger_tests {
     }
 }
 
+const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
+    "addMessageReaction",
+    "addProxy",
+    "checkAuthenticationCode",
+    "checkAuthenticationEmailCode",
+    "checkAuthenticationPassword",
+    "deleteMessages",
+    "disableProxy",
+    "downloadFile",
+    "editMessageText",
+    "enableProxy",
+    "forwardMessages",
+    "getChat",
+    "getChatHistory",
+    "getChats",
+    "getMe",
+    "getMessageProperties",
+    "getProxies",
+    "loadChats",
+    "logOut",
+    "pingProxy",
+    "registerUser",
+    "requestQrCodeAuthentication",
+    "removeMessageReaction",
+    "resendMessages",
+    "searchChatMessages",
+    "searchChatsOnServer",
+    "sendMessage",
+    "setAuthenticationEmailAddress",
+    "setAuthenticationPhoneNumber",
+    "setChatDraftMessage",
+    "viewMessages",
+];
+
+fn validate_webview_extra(extra: &str) -> Result<(), String> {
+    let valid = extra.len() == 36
+        && extra
+            .chars()
+            .enumerate()
+            .all(|(index, character)| match index {
+                8 | 13 | 18 | 23 => character == '-',
+                _ => character.is_ascii_hexdigit(),
+            });
+    if valid {
+        Ok(())
+    } else {
+        Err("Invalid TDLib request correlation identifier".to_string())
+    }
+}
+
+fn contains_tdlib_type(value: &Value, rejected: &[&str]) -> bool {
+    match value {
+        Value::Object(object) => {
+            object
+                .get("@type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| rejected.contains(&kind))
+                || object
+                    .values()
+                    .any(|nested| contains_tdlib_type(nested, rejected))
+        }
+        Value::Array(values) => values
+            .iter()
+            .any(|nested| contains_tdlib_type(nested, rejected)),
+        _ => false,
+    }
+}
+
+fn validate_webview_tdlib_request(request: &Value) -> Result<(), String> {
+    let request_type = request
+        .get("@type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "TDLib request is missing @type".to_string())?;
+    if !WEBVIEW_TDLIB_REQUESTS.contains(&request_type) {
+        return Err(format!("TDLib request type is not allowed: {request_type}"));
+    }
+    let extra = request
+        .get("@extra")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "TDLib request is missing @extra".to_string())?;
+    validate_webview_extra(extra)?;
+    if contains_tdlib_type(request, &["inputFileLocal", "inputFileGenerated"]) {
+        return Err("Local files cannot be sent through the generic TDLib bridge".to_string());
+    }
+    if matches!(request_type, "sendMessage" | "editMessageText") {
+        let content_type = request
+            .get("input_message_content")
+            .and_then(|content| content.get("@type"))
+            .and_then(Value::as_str);
+        if content_type != Some("inputMessageText") {
+            return Err("Generic message requests are limited to text content".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn input_message_upload(file: &crate::storage::UploadFileInfo) -> Value {
+    let is_photo = Path::new(&file.path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "jpg" | "jpeg" | "png"
+            )
+        })
+        && file.size <= 10 * 1024 * 1024;
+    let input_file = json!({ "@type": "inputFileLocal", "path": file.path });
+    let caption = json!({ "@type": "formattedText", "text": "", "entities": [] });
+    if is_photo {
+        json!({
+            "@type": "inputMessagePhoto",
+            "photo": {
+                "@type": "inputPhoto",
+                "photo": input_file,
+                "thumbnail": null,
+                "video": null,
+                "added_sticker_file_ids": [],
+                "width": 0,
+                "height": 0
+            },
+            "caption": caption,
+            "show_caption_above_media": false,
+            "self_destruct_type": null,
+            "has_spoiler": false
+        })
+    } else {
+        json!({
+            "@type": "inputMessageDocument",
+            "document": {
+                "@type": "inputDocument",
+                "document": input_file,
+                "thumbnail": null,
+                "disable_content_type_detection": false
+            },
+            "caption": caption
+        })
+    }
+}
+
+fn prepared_file_request(
+    chat_id: i64,
+    extra: &str,
+    file: &crate::storage::UploadFileInfo,
+) -> Result<Value, String> {
+    if chat_id == 0 {
+        return Err("Invalid Telegram chat identifier".to_string());
+    }
+    validate_webview_extra(extra)?;
+    Ok(json!({
+        "@type": "sendMessage",
+        "chat_id": chat_id,
+        "topic_id": null,
+        "reply_to": null,
+        "options": null,
+        "reply_markup": null,
+        "input_message_content": input_message_upload(file),
+        "@extra": extra
+    }))
+}
+
 #[tauri::command]
 pub fn telegram_runtime_status(
     app: AppHandle,
@@ -815,10 +1056,152 @@ pub fn telegram_start(app: AppHandle, runtime: State<'_, TelegramRuntime>) -> Re
 
 #[tauri::command]
 pub fn telegram_send(request: Value, runtime: State<'_, TelegramRuntime>) -> Result<(), String> {
+    validate_webview_tdlib_request(&request)?;
     runtime.send(&request)
+}
+
+#[tauri::command]
+pub async fn telegram_pick_and_send_file(
+    app: AppHandle,
+    chat_id: i64,
+    extra: String,
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<bool, String> {
+    validate_webview_extra(&extra)?;
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .set_title("选择要发送的文件")
+        .blocking_pick_file()
+    else {
+        return Ok(false);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|error| format!("Unable to resolve selected upload file: {error}"))?;
+    let file = crate::storage::prepare_upload_file(&path)?;
+    runtime.send(&prepared_file_request(chat_id, &extra, &file)?)?;
+    Ok(true)
 }
 
 #[tauri::command]
 pub fn telegram_shutdown(runtime: State<'_, TelegramRuntime>) -> Result<(), String> {
     runtime.shutdown()
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
+
+    #[test]
+    fn generic_bridge_allows_text_but_rejects_privileged_requests_and_local_files() {
+        let text = json!({
+            "@type": "sendMessage",
+            "chat_id": 7,
+            "input_message_content": {
+                "@type": "inputMessageText",
+                "text": { "@type": "formattedText", "text": "hello", "entities": [] }
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&text).is_ok());
+
+        let privileged = json!({
+            "@type": "setTdlibParameters",
+            "database_directory": "C:\\private",
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&privileged).is_err());
+
+        let local_file = json!({
+            "@type": "sendMessage",
+            "chat_id": 7,
+            "input_message_content": {
+                "@type": "inputMessageDocument",
+                "document": {
+                    "@type": "inputDocument",
+                    "document": { "@type": "inputFileLocal", "path": "C:\\private.txt" }
+                }
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&local_file).is_err());
+    }
+
+    #[test]
+    fn backend_upload_builder_keeps_local_paths_out_of_the_generic_bridge() {
+        let photo = crate::storage::UploadFileInfo {
+            path: "C:\\selected\\photo.jpg".to_string(),
+            size: 2_000_000,
+        };
+        let large_photo = crate::storage::UploadFileInfo {
+            path: "C:\\selected\\large.jpg".to_string(),
+            size: 10 * 1024 * 1024 + 1,
+        };
+
+        let photo_request = prepared_file_request(7, EXTRA, &photo).unwrap();
+        let document_request = prepared_file_request(7, EXTRA, &large_photo).unwrap();
+        assert_eq!(
+            photo_request["input_message_content"]["@type"],
+            "inputMessagePhoto"
+        );
+        assert_eq!(
+            document_request["input_message_content"]["@type"],
+            "inputMessageDocument"
+        );
+        assert!(validate_webview_tdlib_request(&photo_request).is_err());
+    }
+
+    #[test]
+    fn asset_authorization_only_accepts_completed_files_under_tdlib_roots() {
+        let root = env::temp_dir().join(format!(
+            "notgram-assets-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let trusted = root.join("trusted");
+        let outside = root.join("outside");
+        fs::create_dir_all(&trusted).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let trusted_file = trusted.join("avatar.jpg");
+        let incomplete_file = trusted.join("partial.jpg");
+        let outside_file = outside.join("private.txt");
+        fs::write(&trusted_file, b"image").unwrap();
+        fs::write(&incomplete_file, b"partial").unwrap();
+        fs::write(&outside_file, b"private").unwrap();
+        let update = json!({
+            "files": [
+                {
+                    "@type": "file",
+                    "local": {
+                        "is_downloading_completed": true,
+                        "path": trusted_file.display().to_string()
+                    }
+                },
+                {
+                    "@type": "file",
+                    "local": {
+                        "is_downloading_completed": false,
+                        "path": incomplete_file.display().to_string()
+                    }
+                },
+                {
+                    "@type": "file",
+                    "local": {
+                        "is_downloading_completed": true,
+                        "path": outside_file.display().to_string()
+                    }
+                }
+            ]
+        });
+
+        let paths = trusted_tdlib_asset_paths(&update, &[trusted.canonicalize().unwrap()]);
+        assert_eq!(paths, vec![trusted_file.canonicalize().unwrap()]);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

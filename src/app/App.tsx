@@ -1,11 +1,12 @@
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { filterAndSortChats, useTelegramStore } from "../store/telegramStore";
+import { usePreferencesStore } from "../store/preferencesStore";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -25,8 +26,10 @@ export function App() {
   const chatFilter = useTelegramStore((state) => state.chatFilter);
   const searchQuery = useTelegramStore((state) => state.searchQuery);
   const activeChatId = useTelegramStore((state) => state.activeChatId);
+  const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const chats = useTelegramStore((state) => state.chats);
   const chatListReady = useTelegramStore((state) => state.chatListReady);
+  const chatLists = useTelegramStore((state) => state.chatLists);
   const folders = useTelegramStore((state) => state.folders);
   const users = useTelegramStore((state) => state.users);
   const messages = useTelegramStore((state) => state.messages);
@@ -39,6 +42,8 @@ export function App() {
   const authorizationError = useTelegramStore((state) => state.authorizationError);
   const initialize = useTelegramStore((state) => state.initialize);
   const selectChat = useTelegramStore((state) => state.selectChat);
+  const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
+  const markActiveChatRead = useTelegramStore((state) => state.markActiveChatRead);
   const setSearchQuery = useTelegramStore((state) => state.setSearchQuery);
   const setChatFilter = useTelegramStore((state) => state.setChatFilter);
   const sendMessage = useTelegramStore((state) => state.sendMessage);
@@ -47,6 +52,8 @@ export function App() {
   const updateChatDraft = useTelegramStore((state) => state.updateChatDraft);
   const forwardMessages = useTelegramStore((state) => state.forwardMessages);
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
+  const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
+  const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
   const downloadFile = useTelegramStore((state) => state.downloadFile);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
   const sendFile = useTelegramStore((state) => state.sendFile);
@@ -57,10 +64,82 @@ export function App() {
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const [latestScrollRequest, setLatestScrollRequest] = useState<{
+    chatId: string;
+    requestId: number;
+  }>();
+  const latestScrollRequestIdRef = useRef(0);
+  const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
+  const notificationSound = usePreferencesStore((state) => state.notificationSound);
+  const knownLatestMessagesRef = useRef<Set<string> | undefined>(undefined);
 
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    const markWhenVisible = () => {
+      if (document.visibilityState === "visible") void markActiveChatRead();
+    };
+    document.addEventListener("visibilitychange", markWhenVisible);
+    window.addEventListener("focus", markWhenVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", markWhenVisible);
+      window.removeEventListener("focus", markWhenVisible);
+    };
+  }, [markActiveChatRead]);
+
+  useEffect(() => {
+    const latestMessages = [...messages.values()]
+      .map((chatMessages) => chatMessages.at(-1))
+      .filter((message) => message !== undefined);
+    if (!knownLatestMessagesRef.current) {
+      knownLatestMessagesRef.current = new Set(
+        latestMessages.map((message) => `${message.chatId}:${message.id}`),
+      );
+      return;
+    }
+
+    for (const message of latestMessages) {
+      const key = `${message.chatId}:${message.id}`;
+      if (knownLatestMessagesRef.current.has(key)) continue;
+      knownLatestMessagesRef.current.add(key);
+      if (
+        message.outgoing ||
+        !notificationsEnabled ||
+        (message.chatId === activeChatId && document.visibilityState === "visible")
+      ) {
+        continue;
+      }
+      const chat = chats.get(message.chatId);
+      const body = message.content.kind === "text"
+        ? message.content.text
+        : message.content.caption || message.content.fileName;
+      if ("Notification" in globalThis && Notification.permission === "granted") {
+        try {
+          new Notification(chat?.title ?? "Notgram", { body });
+        } catch {
+          // The native WebView may deny notifications despite a browser permission result.
+        }
+      }
+      if (notificationSound) {
+        try {
+          const context = new AudioContext();
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.frequency.value = 660;
+          gain.gain.setValueAtTime(0.035, context.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.12);
+          oscillator.connect(gain).connect(context.destination);
+          oscillator.start();
+          oscillator.stop(context.currentTime + 0.12);
+          oscillator.addEventListener("ended", () => void context.close(), { once: true });
+        } catch {
+          // Audio can be blocked until the user has interacted with the window.
+        }
+      }
+    }
+  }, [activeChatId, chats, messages, notificationSound, notificationsEnabled]);
 
   useEffect(() => {
     try {
@@ -115,6 +194,7 @@ export function App() {
   const activeHistory = activeChatId
     ? histories.get(activeChatId) ?? { loading: false, hasMore: true }
     : { loading: false, hasMore: false };
+  const activeChatList = chatLists.get(chatFilter) ?? { loading: false, hasMore: true };
 
   return (
     <>
@@ -131,11 +211,26 @@ export function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onSelect={(chatId) => { void selectChat(chatId); setMobileChatOpen(true); }}
+          onOpenLatest={(chatId) => {
+            setMobileChatOpen(true);
+            void selectChat(chatId).finally(() => {
+              latestScrollRequestIdRef.current += 1;
+              setLatestScrollRequest({
+                chatId,
+                requestId: latestScrollRequestIdRef.current,
+              });
+            });
+          }}
+          loadingMore={activeChatList.loading}
+          hasMore={activeChatList.hasMore}
+          onLoadMore={() => loadMoreChats(chatFilter)}
           width={sidebarWidth}
           onWidthChange={setSidebarWidth}
         />
         <Conversation
           chat={activeChat}
+          scrollScope={activeAccountId}
+          latestScrollRequest={latestScrollRequest}
           messages={activeMessages}
           chatDraft={activeChatId ? drafts.get(activeChatId) : undefined}
           forwardTargets={forwardTargets}
@@ -149,6 +244,8 @@ export function App() {
           onDraftChange={updateChatDraft}
           onForwardMessages={forwardMessages}
           onLoadMessageProperties={loadMessageProperties}
+          onSetMessageReaction={setMessageReaction}
+          onSearchMessages={searchChatMessages}
           onDownloadFile={downloadFile}
           onRetryMessage={retryMessage}
           onSendFile={sendFile}

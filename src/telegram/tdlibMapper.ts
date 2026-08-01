@@ -139,7 +139,7 @@ const fileContent = (
 });
 
 const mediaContent = (
-  mediaType: "photo" | "video" | "audio" | "voice" | "animation" | "sticker",
+  mediaType: "photo" | "video" | "videoNote" | "audio" | "voice" | "animation" | "sticker",
   fileName: string,
   file: unknown,
   options: {
@@ -255,10 +255,25 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
       });
     }
-    case "messageVideoNote":
-      return { kind: "text", text: "[视频消息]" };
-    case "messageSticker":
-      return { kind: "text", text: "[贴纸]" };
+    case "messageVideoNote": {
+      const videoNote = asTdObject(content.video_note);
+      const length = tdNumber(videoNote?.length);
+      return mediaContent("videoNote", "视频消息", videoNote?.video, {
+        thumbnailPath: thumbnailPath(videoNote?.thumbnail),
+        previewDataUrl: minithumbnailDataUrl(videoNote?.minithumbnail),
+        width: length,
+        height: length,
+      });
+    }
+    case "messageSticker": {
+      const sticker = asTdObject(content.sticker);
+      const emoji = typeof sticker?.emoji === "string" ? sticker.emoji : "";
+      return mediaContent("sticker", emoji || "贴纸", sticker?.sticker, {
+        thumbnailPath: thumbnailPath(sticker?.thumbnail),
+        width: tdNumber(sticker?.width),
+        height: tdNumber(sticker?.height),
+      });
+    }
     case "messageContact":
       return { kind: "text", text: "[联系人]" };
     case "messageLocation":

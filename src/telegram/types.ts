@@ -94,7 +94,7 @@ export type MessageContent =
   | ({ kind: "file" } & TransferableMessageContent)
   | ({
       kind: "media";
-      mediaType: "photo" | "video" | "audio" | "voice" | "animation" | "sticker";
+      mediaType: "photo" | "video" | "videoNote" | "audio" | "voice" | "animation" | "sticker";
       previewDataUrl?: string;
     } & TransferableMessageContent);
 
@@ -246,6 +246,13 @@ export interface SetChatDraftInput {
   replyToMessageId?: string;
 }
 
+export interface SetMessageReactionInput {
+  chatId: string;
+  messageId: string;
+  emoji: string;
+  chosen: boolean;
+}
+
 export interface SendFileInput {
   chatId: string;
   file?: File;
@@ -255,6 +262,11 @@ export interface ChatHistoryPage {
   loadedCount: number;
   hasMore: boolean;
   messageIds: string[];
+}
+
+export interface ChatListPage {
+  loadedCount: number;
+  hasMore: boolean;
 }
 
 export type ProxyMode = "system" | "direct" | "custom";

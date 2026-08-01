@@ -4,9 +4,11 @@ import type {
   ForwardMessagesInput,
   ForwardMessagesResult,
   SetChatDraftInput,
+  SetMessageReactionInput,
   SendFileInput,
   SendMessageInput,
   ChatHistoryPage,
+  ChatListPage,
   CachedTelegramSnapshot,
   TelegramEvent,
   TelegramSnapshot,
@@ -39,8 +41,12 @@ export interface TelegramTransport {
   testProxy(settings: ProxySettings): Promise<number>;
   getStorageSettings(): Promise<StorageSettings>;
   saveStorageSettings(settings: StorageSettings): Promise<StorageSettings>;
+  searchChats(query: string, limit?: number): Promise<void>;
+  searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;
+  loadMoreChats(chatListId: string, limit?: number): Promise<ChatListPage>;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
   getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
+  setMessageReaction(input: SetMessageReactionInput): Promise<void>;
   sendMessage(input: SendMessageInput): Promise<void>;
   editMessage(input: EditMessageInput): Promise<void>;
   deleteMessage(input: DeleteMessageInput): Promise<void>;

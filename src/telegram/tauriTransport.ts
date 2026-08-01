@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
 import {
   asTdObject,
   asTdObjects,
@@ -22,6 +21,7 @@ import type {
   CachedTelegramSnapshot,
   Chat,
   ChatHistoryPage,
+  ChatListPage,
   DeleteMessageInput,
   EditMessageInput,
   ForwardMessagesInput,
@@ -33,6 +33,7 @@ import type {
   SendFileInput,
   SendMessageInput,
   SetChatDraftInput,
+  SetMessageReactionInput,
   StorageSettings,
   TelegramSnapshot,
   TelegramAccount,
@@ -56,25 +57,6 @@ type PendingRequest = {
   timer: number;
 };
 
-interface NativeUploadFile {
-  path: string;
-  size: number;
-}
-
-type NativeUploadPicker = () => Promise<NativeUploadFile | undefined>;
-
-const pickNativeUpload: NativeUploadPicker = async () => {
-  const selected = await open({
-    title: "选择要发送的文件",
-    multiple: false,
-    directory: false,
-  });
-  const path = Array.isArray(selected) ? selected[0] : selected;
-  return typeof path === "string" && path
-    ? invoke<NativeUploadFile>("telegram_prepare_upload", { path })
-    : undefined;
-};
-
 const numericId = (id: string) => {
   const value = Number(id);
   if (!Number.isSafeInteger(value)) throw new Error(`无效的 Telegram 标识符：${id}`);
@@ -88,55 +70,20 @@ const inputMessageText = (text: string, clearDraft: boolean): TdObject => ({
   clear_draft: clearDraft,
 });
 
-const emptyFormattedText = (): TdObject => ({
-  "@type": "formattedText",
-  text: "",
-  entities: [],
-});
-
-const localInputFile = (path: string): TdObject => ({
-  "@type": "inputFileLocal",
-  path,
-});
-
-const photoFilePattern = /\.(?:jpe?g|png)$/i;
-const maxPhotoSize = 10 * 1024 * 1024;
-
-const inputMessageFile = (file: NativeUploadFile): TdObject =>
-  photoFilePattern.test(file.path) && file.size <= maxPhotoSize
-  ? {
-      "@type": "inputMessagePhoto",
-      photo: {
-        "@type": "inputPhoto",
-        photo: localInputFile(file.path),
-        thumbnail: null,
-        video: null,
-        added_sticker_file_ids: [],
-        width: 0,
-        height: 0,
-      },
-      caption: emptyFormattedText(),
-      show_caption_above_media: false,
-      self_destruct_type: null,
-      has_spoiler: false,
-    }
-  : {
-      "@type": "inputMessageDocument",
-      document: {
-        "@type": "inputDocument",
-        document: localInputFile(file.path),
-        thumbnail: null,
-        disable_content_type_detection: false,
-      },
-      caption: emptyFormattedText(),
-    };
-
 const listObject = (type: "chatListMain" | "chatListArchive") => ({ "@type": type });
 
 const folderListObject = (folderId: unknown) => ({
   "@type": "chatListFolder",
   chat_folder_id: Number(folderId),
 });
+
+const chatListObject = (chatListId: string): TdObject => {
+  if (chatListId === "main") return listObject("chatListMain");
+  if (chatListId === "archive") return listObject("chatListArchive");
+  const folderId = /^folder:(\d+)$/.exec(chatListId)?.[1];
+  if (!folderId) throw new Error(`无效的聊天列表：${chatListId}`);
+  return folderListObject(folderId);
+};
 
 const chatListKey = (value: unknown) => tdChatListId(value);
 
@@ -229,7 +176,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   private historyCursors = new Map<string, number>();
   private historyStalls = new Map<string, number>();
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
-  private chatListLoads = new Map<string, Promise<void>>();
+  private chatListLoads = new Map<string, Promise<ChatListPage>>();
+  private chatListCounts = new Map<string, number>();
+  private exhaustedChatLists = new Set<string>();
   private avatarDownloads = new Set<number>();
   private mediaDownloads = new Set<number>();
   private pendingDownloads = new Map<number, string>();
@@ -238,8 +187,6 @@ export class TauriTelegramTransport implements TelegramTransport {
   private currentUserId?: string;
   private bootstrapPromise?: Promise<void>;
   private initialChatSyncPending = true;
-
-  constructor(private readonly nativeUploadPicker: NativeUploadPicker = pickNativeUpload) {}
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
     this.resetSessionState();
@@ -417,6 +364,52 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
+  async searchChats(query: string, limit = 50) {
+    const normalized = query.trim();
+    if (!normalized) return;
+    const result = await this.request({
+      "@type": "searchChatsOnServer",
+      query: normalized,
+      limit: Math.max(1, Math.min(limit, 100)),
+    });
+    const ids = Array.isArray(result.chat_ids)
+      ? result.chat_ids.map(tdId).filter(Boolean)
+      : [];
+    await Promise.all(ids.map(async (id) => {
+      const raw = this.rawChats.get(id) ?? await this.request({
+        "@type": "getChat",
+        chat_id: numericId(id),
+      });
+      this.upsertChat(raw);
+    }));
+  }
+
+  async searchChatMessages(chatId: string, query: string, limit = 100) {
+    const normalized = query.trim();
+    if (!normalized) return 0;
+    const result = await this.request({
+      "@type": "searchChatMessages",
+      chat_id: numericId(chatId),
+      topic_id: null,
+      query: normalized,
+      sender_id: null,
+      from_message_id: 0,
+      offset: 0,
+      limit: Math.max(1, Math.min(limit, 100)),
+      filter: null,
+    });
+    const messages = asTdObjects(result.messages);
+    for (const message of messages) this.emitMessage(message);
+    return messages.length;
+  }
+
+  async loadMoreChats(chatListId: string, limit = 100) {
+    return this.loadChatList(
+      chatListObject(chatListId),
+      Math.max(1, Math.min(limit, 100)),
+    );
+  }
+
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
     if (this.exhaustedHistories.has(chatId)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
@@ -440,6 +433,20 @@ export class TauriTelegramTransport implements TelegramTransport {
       message_id: numericId(messageId),
     });
     return mapTdMessageProperties(properties);
+  }
+
+  async setMessageReaction(input: SetMessageReactionInput) {
+    const request = {
+      "@type": input.chosen ? "addMessageReaction" : "removeMessageReaction",
+      chat_id: numericId(input.chatId),
+      message_id: numericId(input.messageId),
+      reaction_type: { "@type": "reactionTypeEmoji", emoji: input.emoji },
+    } as TdObject;
+    if (input.chosen) {
+      request.is_big = false;
+      request.update_recent_reactions = true;
+    }
+    await this.request(request);
   }
 
   async sendMessage(input: SendMessageInput) {
@@ -572,17 +579,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async sendFile(input: SendFileInput) {
-    const file = await this.nativeUploadPicker();
-    if (!file) return false;
-    const response = await this.request({
-      "@type": "sendMessage",
-      chat_id: numericId(input.chatId),
-      topic_id: null,
-      reply_to: null,
-      options: null,
-      reply_markup: null,
-      input_message_content: inputMessageFile(file),
-    });
+    const response = await this.requestPreparedFile(input.chatId);
+    if (!response) return false;
     if (response["@type"] === "message") this.emitMessage(response);
     return true;
   }
@@ -690,6 +688,37 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
     try {
       await invoke("telegram_send", { request: payload });
+    } catch (error) {
+      const pending = this.pending.get(extra);
+      if (pending) {
+        window.clearTimeout(pending.timer);
+        this.pending.delete(extra);
+        pending.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    return response;
+  }
+
+  private async requestPreparedFile(chatId: string) {
+    const extra = crypto.randomUUID();
+    const response = new Promise<TdObject>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        this.pending.delete(extra);
+        reject(new Error("TDLib 文件发送请求超时。"));
+      }, 30_000);
+      this.pending.set(extra, { resolve, reject, timer });
+    });
+    try {
+      const selected = await invoke<boolean>("telegram_pick_and_send_file", {
+        chatId: numericId(chatId),
+        extra,
+      });
+      if (!selected) {
+        const pending = this.pending.get(extra);
+        if (pending) window.clearTimeout(pending.timer);
+        this.pending.delete(extra);
+        return undefined;
+      }
     } catch (error) {
       const pending = this.pending.get(extra);
       if (pending) {
@@ -875,7 +904,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
-  private async loadChatList(chatList: TdObject, limit: number) {
+  private async loadChatList(chatList: TdObject, limit: number): Promise<ChatListPage> {
     const key = chatListKey(chatList);
     const existing = this.chatListLoads.get(key);
     if (existing) return existing;
@@ -885,22 +914,37 @@ export class TauriTelegramTransport implements TelegramTransport {
     return load;
   }
 
-  private async fetchChatList(chatList: TdObject, limit: number) {
-    try {
-      await this.request({ "@type": "loadChats", chat_list: chatList, limit });
-    } catch (error) {
-      if (!(error instanceof Error) || !/(all chats are loaded|404)/i.test(error.message)) {
-        throw error;
+  private async fetchChatList(chatList: TdObject, limit: number): Promise<ChatListPage> {
+    const key = chatListKey(chatList);
+    if (!this.exhaustedChatLists.has(key)) {
+      try {
+        await this.request({ "@type": "loadChats", chat_list: chatList, limit });
+      } catch (error) {
+        if (!(error instanceof Error) || !/(all chats are loaded|404)/i.test(error.message)) {
+          throw error;
+        }
+        this.exhaustedChatLists.add(key);
       }
     }
 
-    const result = await this.request({ "@type": "getChats", chat_list: chatList, limit });
+    const previousCount = this.chatListCounts.get(key) ?? 0;
+    const requestedCount = previousCount + limit;
+    const result = await this.request({
+      "@type": "getChats",
+      chat_list: chatList,
+      limit: requestedCount,
+    });
     const ids = Array.isArray(result.chat_ids) ? result.chat_ids.map(tdId).filter(Boolean) : [];
+    this.chatListCounts.set(key, Math.max(previousCount, ids.length));
     await Promise.all(
       ids
         .filter((id) => !this.rawChats.has(id))
         .map(async (id) => this.upsertChat(await this.request({ "@type": "getChat", chat_id: numericId(id) }))),
     );
+    return {
+      loadedCount: Math.max(0, ids.length - previousCount),
+      hasMore: !this.exhaustedChatLists.has(key),
+    };
   }
 
   private updateChatFolders(update: TdObject) {
@@ -909,9 +953,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.emitFolders();
     if (this.bootstrapPromise) {
       void Promise.all(
-        this.rawFolderInfos.map((folder) =>
-          this.loadChatList(folderListObject(folder.id), 100),
-        ),
+        this.rawFolderInfos
+          .filter((folder) => !this.chatListCounts.has(chatListKey(folderListObject(folder.id))))
+          .map((folder) => this.loadChatList(folderListObject(folder.id), 100)),
       ).catch((error) => {
         this.listener?.({
           type: "sync.error",
@@ -1143,14 +1187,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatMessages.set(message.id, raw);
     this.rawMessages.set(message.chatId, chatMessages);
     this.listener?.({ type: "message.upsert", message });
-    this.ensurePhotoMedia(message);
+    this.ensureDisplayMedia(message);
   }
 
-  private ensurePhotoMedia(message: Message) {
+  private ensureDisplayMedia(message: Message) {
     const content = message.content;
     if (
       content.kind !== "media" ||
-      content.mediaType !== "photo" ||
+      !["photo", "sticker"].includes(content.mediaType) ||
       content.fileId === undefined ||
       content.isDownloaded ||
       content.isDownloading ||
@@ -1229,6 +1273,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.historyStalls.clear();
     this.historyLoads.clear();
     this.chatListLoads.clear();
+    this.chatListCounts.clear();
+    this.exhaustedChatLists.clear();
     this.avatarDownloads.clear();
     this.mediaDownloads.clear();
     this.pendingDownloads.clear();

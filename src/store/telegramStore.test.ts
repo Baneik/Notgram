@@ -328,6 +328,22 @@ describe("telegram store", () => {
     expect(state.histories.get("chat-product")).toEqual({ loading: false, hasMore: true });
   });
 
+  it("preserves string startup errors returned by the native bridge", async () => {
+    class FailingTransport extends MockTelegramTransport {
+      override async connect(): Promise<never> {
+        throw "数据库密钥迁移失败";
+      }
+    }
+
+    const store = createTelegramStore(new FailingTransport());
+    await store.getState().initialize();
+
+    expect(store.getState()).toMatchObject({
+      phase: "error",
+      error: "数据库密钥迁移失败",
+    });
+  });
+
   it("applies the initial server chat refresh in one store update", async () => {
     class BatchedChatTransport extends MockTelegramTransport {
       private eventListener?: TelegramEventListener;
@@ -700,6 +716,65 @@ describe("telegram store", () => {
     });
   });
 
+  it("updates emoji reactions optimistically and rolls back failed requests", async () => {
+    class FailedReactionTransport extends MockTelegramTransport {
+      override async setMessageReaction() {
+        throw new Error("reaction unavailable");
+      }
+    }
+
+    const store = createTelegramStore(new FailedReactionTransport());
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-product");
+    const before = structuredClone(
+      store.getState().messages.get("chat-product")
+        ?.find((message) => message.id === "p-4"),
+    );
+
+    await store.getState().setMessageReaction("p-4", "👍", true);
+
+    expect(
+      store.getState().messages.get("chat-product")
+        ?.find((message) => message.id === "p-4"),
+    ).toEqual(before);
+    expect(store.getState().error).toBe("reaction unavailable");
+  });
+
+  it("debounces server chat search and delegates current-chat message search", async () => {
+    class SearchTrackingTransport extends MockTelegramTransport {
+      chatQueries: string[] = [];
+      messageQueries: Array<{ chatId: string; query: string }> = [];
+
+      override async searchChats(query: string) {
+        this.chatQueries.push(query);
+      }
+
+      override async searchChatMessages(chatId: string, query: string) {
+        this.messageQueries.push({ chatId, query });
+        return 0;
+      }
+    }
+
+    vi.useFakeTimers();
+    try {
+      const transport = new SearchTrackingTransport();
+      const store = createTelegramStore(transport);
+      await store.getState().initialize();
+      await store.getState().selectChat("chat-product");
+      store.getState().setSearchQuery("pro");
+      store.getState().setSearchQuery("project");
+      await vi.advanceTimersByTimeAsync(251);
+      await store.getState().searchChatMessages("needle");
+
+      expect(transport.chatQueries).toEqual(["project"]);
+      expect(transport.messageQueries).toEqual([
+        { chatId: "chat-product", query: "needle" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("discards stale permissions when the message changes during the request", async () => {
     class DelayedPropertiesTransport extends MockTelegramTransport {
       private eventListener?: TelegramEventListener;
@@ -1067,6 +1142,73 @@ describe("chat filtering", () => {
 
     expect(store.getState().messages.get("chat-product")).toHaveLength(41);
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
+  });
+
+  it("stops loading a chat list after the transport reports exhaustion", async () => {
+    class PagedChatTransport extends MockTelegramTransport {
+      chatPageRequests = 0;
+
+      override async loadMoreChats() {
+        this.chatPageRequests += 1;
+        return { loadedCount: this.chatPageRequests === 1 ? 5 : 0, hasMore: false };
+      }
+    }
+
+    const transport = new PagedChatTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().loadMoreChats("main");
+    await store.getState().loadMoreChats("main");
+
+    expect(transport.chatPageRequests).toBe(1);
+    expect(store.getState().chatLists.get("main")).toEqual({
+      loading: false,
+      hasMore: false,
+    });
+  });
+
+  it("marks new incoming messages in the active chat as read", async () => {
+    class ReadTrackingTransport extends MockTelegramTransport {
+      readChatIds: string[] = [];
+      eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async markChatRead(chatId: string) {
+        this.readChatIds.push(chatId);
+        await super.markChatRead(chatId);
+      }
+    }
+
+    vi.useFakeTimers();
+    try {
+      const transport = new ReadTrackingTransport();
+      const store = createTelegramStore(transport);
+      await store.getState().initialize();
+      const chatId = store.getState().activeChatId!;
+      const callsBeforeMessage = transport.readChatIds.length;
+      transport.eventListener?.({
+        type: "message.upsert",
+        message: {
+          id: "incoming-read-test",
+          chatId,
+          senderId: "u-jules",
+          outgoing: false,
+          sentAt: new Date().toISOString(),
+          delivery: "sent",
+          content: { kind: "text", text: "new message" },
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(121);
+      expect(transport.readChatIds).toHaveLength(callsBeforeMessage + 1);
+      expect(transport.readChatIds.at(-1)).toBe(chatId);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses chat ids as a stable fallback for equal sort keys", () => {

@@ -1,6 +1,8 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::HashSet,
     env, fs,
     io::Write,
     path::{Path, PathBuf},
@@ -8,6 +10,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 pub const DEFAULT_ACCOUNT_ID: &str = "default";
+const LEGACY_EMPTY_DATABASE_KEY_MARKER: &str = "notgram:legacy-empty-database-key:v1";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -162,7 +165,6 @@ pub fn telegram_save_storage_settings(
 ) -> Result<StorageSettings, String> {
     let resolved = resolve_preferences(&app, preferences)?;
     create_storage_directories(&resolved)?;
-    allow_asset_directories(&app, &resolved)?;
     save_preferences(&app, &resolved)?;
     settings_from_preferences(&app, resolved)
 }
@@ -173,12 +175,27 @@ pub fn telegram_save_downloaded_file(
     source_path: String,
     file_name: String,
 ) -> Result<String, String> {
-    let source = PathBuf::from(source_path);
+    let source = PathBuf::from(source_path)
+        .canonicalize()
+        .map_err(|_| "Downloaded cache file is unavailable".to_string())?;
     if !source.is_file() {
         return Err(format!(
             "Downloaded cache file does not exist: {}",
             source.display()
         ));
+    }
+    let trusted_files = tdlib_cache_directory(&app)?.join("files");
+    fs::create_dir_all(&trusted_files).map_err(|error| {
+        format!(
+            "Unable to create trusted TDLib files directory {}: {error}",
+            trusted_files.display()
+        )
+    })?;
+    let trusted_files = trusted_files
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve trusted TDLib files directory: {error}"))?;
+    if !source.starts_with(&trusted_files) {
+        return Err("Downloaded file is outside the active TDLib files directory".to_string());
     }
     let directory = download_directory(&app)?;
     let destination = available_download_path(&directory, &safe_file_name(&file_name));
@@ -189,11 +206,6 @@ pub fn telegram_save_downloaded_file(
         )
     })?;
     Ok(destination.display().to_string())
-}
-
-#[tauri::command]
-pub fn telegram_prepare_upload(path: String) -> Result<UploadFileInfo, String> {
-    prepare_upload_file(Path::new(&path))
 }
 
 #[tauri::command]
@@ -214,8 +226,9 @@ pub fn telegram_read_snapshot_cache(app: AppHandle) -> Result<Option<Value>, Str
         )
     })?;
     let serialized = crate::proxy::unprotect(&protected)?;
-    let snapshot = serde_json::from_slice(&serialized)
+    let snapshot: Value = serde_json::from_slice(&serialized)
         .map_err(|error| format!("Unable to parse UI cache: {error}"))?;
+    authorize_snapshot_assets(&app, &snapshot)?;
     Ok(Some(snapshot))
 }
 
@@ -289,7 +302,6 @@ pub fn tdlib_cache_directory(app: &AppHandle) -> Result<PathBuf, String> {
             directory.display()
         )
     })?;
-    allow_asset_directories(app, &resolved)?;
     Ok(directory)
 }
 
@@ -311,12 +323,62 @@ pub fn download_directory(app: &AppHandle) -> Result<PathBuf, String> {
             resolved.download_path
         )
     })?;
-    allow_asset_directories(app, &resolved)?;
     Ok(PathBuf::from(resolved.download_path))
 }
 
 fn snapshot_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(tdlib_cache_directory(app)?.join("notgram-ui-cache.dat"))
+}
+
+fn authorize_snapshot_assets(app: &AppHandle, snapshot: &Value) -> Result<(), String> {
+    let roots = [tdlib_cache_directory(app)?, tdlib_database_directory(app)?]
+        .into_iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .collect::<Vec<_>>();
+
+    for path in cached_asset_paths(snapshot, &roots) {
+        app.asset_protocol_scope()
+            .allow_file(&path)
+            .map_err(|error| format!("Unable to authorize a cached TDLib asset: {error}"))?;
+    }
+    Ok(())
+}
+
+fn cached_asset_paths(snapshot: &Value, trusted_roots: &[PathBuf]) -> HashSet<PathBuf> {
+    fn visit(
+        value: &Value,
+        key: Option<&str>,
+        trusted_roots: &[PathBuf],
+        paths: &mut HashSet<PathBuf>,
+    ) {
+        match value {
+            Value::Object(object) => {
+                for (child_key, child) in object {
+                    visit(child, Some(child_key), trusted_roots, paths);
+                }
+            }
+            Value::Array(array) => {
+                for child in array {
+                    visit(child, key, trusted_roots, paths);
+                }
+            }
+            Value::String(path)
+                if matches!(key, Some("imagePath" | "localPath" | "thumbnailPath")) =>
+            {
+                if let Ok(path) = PathBuf::from(path).canonicalize()
+                    && path.is_file()
+                    && trusted_roots.iter().any(|root| path.starts_with(root))
+                {
+                    paths.insert(path);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut paths = HashSet::new();
+    visit(snapshot, None, trusted_roots, &mut paths);
+    paths
 }
 
 pub fn active_account_id(app: &AppHandle) -> Result<String, String> {
@@ -356,6 +418,7 @@ fn clear_account_storage(app: &AppHandle, account_id: &str) -> Result<(), String
         remove_directory_if_present(&app_data_root.join("accounts").join(account_id))?;
         remove_directory_if_present(&cache_root.join("accounts").join(account_id))?;
     }
+    remove_database_key(app, account_id)?;
     Ok(())
 }
 
@@ -488,7 +551,6 @@ fn storage_settings(app: &AppHandle) -> Result<StorageSettings, String> {
     let preferences = load_preferences(app)?;
     let resolved = resolve_preferences(app, preferences)?;
     create_storage_directories(&resolved)?;
-    allow_asset_directories(app, &resolved)?;
     settings_from_preferences(app, resolved)
 }
 
@@ -532,30 +594,6 @@ fn normalize_path(value: &str, default_path: PathBuf) -> Result<String, String> 
 fn create_storage_directories(preferences: &StoragePreferences) -> Result<(), String> {
     create_directory(&preferences.cache_path, "cache")?;
     create_directory(&preferences.download_path, "download")
-}
-
-fn allow_asset_directories(
-    app: &AppHandle,
-    preferences: &StoragePreferences,
-) -> Result<(), String> {
-    let scope = app.asset_protocol_scope();
-    allow_tdlib_database_assets(app)?;
-    let cache_directory = account_cache_directory(
-        PathBuf::from(&preferences.cache_path),
-        &active_account_id(app)?,
-    );
-    scope
-        .allow_directory(cache_directory.join("files"), true)
-        .map_err(|error| format!("Unable to allow cache assets: {error}"))?;
-    scope
-        .allow_directory(&preferences.download_path, true)
-        .map_err(|error| format!("Unable to allow download assets: {error}"))
-}
-
-fn allow_tdlib_database_assets(app: &AppHandle) -> Result<(), String> {
-    app.asset_protocol_scope()
-        .allow_directory(tdlib_database_directory(app)?, true)
-        .map_err(|error| format!("Unable to allow TDLib database assets: {error}"))
 }
 
 fn create_directory(path: &str, label: &str) -> Result<(), String> {
@@ -675,7 +713,7 @@ fn available_download_path(directory: &Path, file_name: &str) -> PathBuf {
     directory.join(format!("{stem}-{}", std::process::id()))
 }
 
-fn prepare_upload_file(path: &Path) -> Result<UploadFileInfo, String> {
+pub fn prepare_upload_file(path: &Path) -> Result<UploadFileInfo, String> {
     if !path.is_absolute() {
         return Err("Selected upload path must be absolute".to_string());
     }
@@ -695,6 +733,164 @@ fn prepare_upload_file(path: &Path) -> Result<UploadFileInfo, String> {
         path: path.to_string(),
         size: metadata.len(),
     })
+}
+
+pub fn database_encryption_key(app: &AppHandle) -> Result<String, String> {
+    if let Some(configured) = env::var("NOTGRAM_DATABASE_KEY_BASE64")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Ok(configured);
+    }
+
+    let path = database_key_path(app, &active_account_id(app)?)?;
+    if let Some(record) = read_protected_string(&path)? {
+        return Ok(database_key_from_record(&record));
+    }
+
+    let database_directory = tdlib_database_directory(app)?;
+    if directory_has_entries(&database_directory)? {
+        // Releases before per-account keys used TDLib's empty database key. Record
+        // that legacy state explicitly so upgrades remain readable without ever
+        // mistaking the database for a new account and assigning a random key.
+        write_protected_string(&path, LEGACY_EMPTY_DATABASE_KEY_MARKER)?;
+        return Ok(String::new());
+    }
+
+    let key = generate_database_key()?;
+    write_protected_string(&path, &key)?;
+    Ok(key)
+}
+
+fn database_key_from_record(record: &str) -> String {
+    if record == LEGACY_EMPTY_DATABASE_KEY_MARKER {
+        String::new()
+    } else {
+        record.to_string()
+    }
+}
+
+fn database_key_path(app: &AppHandle, account_id: &str) -> Result<PathBuf, String> {
+    validate_account_id(account_id)?;
+    let directory = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("Unable to resolve app config directory: {error}"))?
+        .join("database-keys");
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Unable to create database key directory {}: {error}",
+            directory.display()
+        )
+    })?;
+    Ok(directory.join(format!("{account_id}.dat")))
+}
+
+fn remove_database_key(app: &AppHandle, account_id: &str) -> Result<(), String> {
+    let path = database_key_path(app, account_id)?;
+    for candidate in [
+        &path,
+        &path.with_extension("tmp"),
+        &path.with_extension("bak"),
+    ] {
+        if candidate.exists() {
+            fs::remove_file(candidate).map_err(|error| {
+                format!(
+                    "Unable to remove database key {}: {error}",
+                    candidate.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn read_protected_string(path: &Path) -> Result<Option<String>, String> {
+    let backup = path.with_extension("bak");
+    let readable = if path.is_file() {
+        path
+    } else if backup.is_file() {
+        &backup
+    } else {
+        return Ok(None);
+    };
+    let protected = fs::read(readable).map_err(|error| {
+        format!(
+            "Unable to read protected value {}: {error}",
+            readable.display()
+        )
+    })?;
+    let value = String::from_utf8(crate::proxy::unprotect(&protected)?)
+        .map_err(|_| "Protected database key is not valid UTF-8".to_string())?;
+    if value.trim().is_empty() {
+        return Err("Protected database key is empty".to_string());
+    }
+    Ok(Some(value))
+}
+
+fn write_protected_string(path: &Path, value: &str) -> Result<(), String> {
+    let temporary = path.with_extension("tmp");
+    let backup = path.with_extension("bak");
+    let protected = crate::proxy::protect(value.as_bytes())?;
+    let mut file = fs::File::create(&temporary).map_err(|error| {
+        format!(
+            "Unable to create database key {}: {error}",
+            temporary.display()
+        )
+    })?;
+    file.write_all(&protected).map_err(|error| {
+        format!(
+            "Unable to write database key {}: {error}",
+            temporary.display()
+        )
+    })?;
+    file.sync_all().map_err(|error| {
+        format!(
+            "Unable to flush database key {}: {error}",
+            temporary.display()
+        )
+    })?;
+    if backup.exists() {
+        fs::remove_file(&backup)
+            .map_err(|error| format!("Unable to remove old database key backup: {error}"))?;
+    }
+    if path.exists() {
+        fs::rename(path, &backup).map_err(|error| {
+            format!("Unable to rotate database key {}: {error}", path.display())
+        })?;
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, path);
+        }
+        return Err(format!(
+            "Unable to replace database key {}: {error}",
+            path.display()
+        ));
+    }
+    if backup.exists() {
+        let _ = fs::remove_file(backup);
+    }
+    Ok(())
+}
+
+fn directory_has_entries(path: &Path) -> Result<bool, String> {
+    if !path.is_dir() {
+        return Ok(false);
+    }
+    Ok(fs::read_dir(path)
+        .map_err(|error| format!("Unable to inspect TDLib database directory: {error}"))?
+        .next()
+        .transpose()
+        .map_err(|error| format!("Unable to inspect TDLib database entry: {error}"))?
+        .is_some())
+}
+
+fn generate_database_key() -> Result<String, String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| format!("Unable to generate TDLib database key: {error}"))?;
+    Ok(STANDARD.encode(bytes))
 }
 
 fn program_directory() -> Result<PathBuf, String> {
@@ -779,5 +975,59 @@ mod tests {
         assert_eq!(PathBuf::from(info.path), path.canonicalize().unwrap());
         fs::remove_file(path).unwrap();
         assert!(prepare_upload_file(Path::new("relative.txt")).is_err());
+    }
+
+    #[test]
+    fn generates_strong_database_keys() {
+        let first = generate_database_key().unwrap();
+        let second = generate_database_key().unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(STANDARD.decode(first).unwrap().len(), 32);
+        assert_eq!(STANDARD.decode(second).unwrap().len(), 32);
+    }
+
+    #[test]
+    fn preserves_legacy_empty_database_keys_during_upgrade() {
+        assert_eq!(
+            database_key_from_record(LEGACY_EMPTY_DATABASE_KEY_MARKER),
+            ""
+        );
+        assert_eq!(database_key_from_record("stored-key"), "stored-key");
+    }
+
+    #[test]
+    fn cached_assets_are_limited_to_known_fields_and_trusted_roots() {
+        let root = env::temp_dir().join(format!(
+            "notgram-assets-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let trusted = root.join("trusted");
+        let outside = root.join("outside");
+        fs::create_dir_all(&trusted).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let avatar = trusted.join("avatar.jpg");
+        let media = trusted.join("media.jpg");
+        let secret = outside.join("secret.txt");
+        fs::write(&avatar, b"avatar").unwrap();
+        fs::write(&media, b"media").unwrap();
+        fs::write(&secret, b"secret").unwrap();
+
+        let snapshot = serde_json::json!({
+            "avatar": { "imagePath": avatar },
+            "messages": [{ "content": { "localPath": media, "thumbnailPath": secret } }],
+            "unrecognizedPath": trusted.join("ignored.jpg")
+        });
+        let paths = cached_asset_paths(&snapshot, &[trusted.canonicalize().unwrap()]);
+
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains(&avatar.canonicalize().unwrap()));
+        assert!(paths.contains(&media.canonicalize().unwrap()));
+        assert!(!paths.contains(&secret.canonicalize().unwrap()));
+        fs::remove_dir_all(root).unwrap();
     }
 }

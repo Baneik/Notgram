@@ -1,5 +1,5 @@
 param(
-    [string]$Destination = "C:\Users\Developer\Desktop\Data\Program\Notgram"
+    [string]$Destination = (Join-Path $env:LOCALAPPDATA "Programs\Notgram")
 )
 
 Set-StrictMode -Version Latest
@@ -14,6 +14,21 @@ $environmentFile = Join-Path $repositoryRoot ".env"
 
 if (-not (Test-Path -LiteralPath $environmentFile -PathType Leaf)) {
     throw "Local .env is missing. Configure TDLib transport and credentials before publishing."
+}
+
+$environmentValues = @{}
+foreach ($line in Get-Content -LiteralPath $environmentFile) {
+    if ($line -match '^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$') {
+        $environmentValues[$matches[1]] = $matches[2].Trim()
+    }
+}
+if ($environmentValues["VITE_TELEGRAM_TRANSPORT"] -ne "tauri") {
+    throw "Portable releases require VITE_TELEGRAM_TRANSPORT=tauri."
+}
+foreach ($requiredCredential in @("NOTGRAM_API_ID", "NOTGRAM_API_HASH")) {
+    if (-not $environmentValues[$requiredCredential]) {
+        throw "Portable releases require $requiredCredential in .env."
+    }
 }
 
 Push-Location $repositoryRoot
@@ -36,7 +51,15 @@ New-Item -ItemType Directory -Force (Join-Path $resolvedDestination "logs") | Ou
 New-Item -ItemType Directory -Force (Join-Path $resolvedDestination "downloads") | Out-Null
 Copy-Item -LiteralPath $executable -Destination (Join-Path $resolvedDestination "Notgram.exe") -Force
 Copy-Item -LiteralPath $runtimeSource -Destination $resolvedDestination -Recurse -Force
-Copy-Item -LiteralPath $environmentFile -Destination (Join-Path $resolvedDestination ".env") -Force
+$portableEnvironment = Get-Content -LiteralPath $environmentFile | Where-Object {
+    $_ -notmatch '^\s*NOTGRAM_DATABASE_KEY_BASE64\s*=' -and
+    $_ -notmatch '^\s*NOTGRAM_TDLIB_PATH\s*='
+}
+[System.IO.File]::WriteAllLines(
+    (Join-Path $resolvedDestination ".env"),
+    $portableEnvironment,
+    [System.Text.UTF8Encoding]::new($false)
+)
 
 Write-Host "Portable Notgram release is ready: $resolvedDestination"
 Get-Item -LiteralPath (Join-Path $resolvedDestination "Notgram.exe") | Select-Object FullName, Length, LastWriteTime

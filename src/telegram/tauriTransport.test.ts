@@ -6,6 +6,7 @@ import type { TdObject } from "./tdlibMapper";
 type TestableTransport = {
   listener?: TelegramEventListener;
   request: (request: TdObject) => Promise<TdObject>;
+  requestPreparedFile: (chatId: string) => Promise<TdObject | undefined>;
   emitMessage: (message: TdObject) => void;
   handleUpdate: (update: TdObject) => void;
   upsertChat: (chat: TdObject) => void;
@@ -67,6 +68,45 @@ describe("TauriTelegramTransport startup", () => {
     internal.upsertChat(rawChat(7, 1_700_000_009));
     expect(events[2]).toMatchObject({ type: "chat.upsert", chat: { id: "7" } });
   });
+
+  it("loads chat lists incrementally and records TDLib exhaustion", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    let loadCount = 0;
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "loadChats") {
+        loadCount += 1;
+        if (loadCount === 2) throw new Error("404: All chats are loaded");
+        return { "@type": "ok" };
+      }
+      if (request["@type"] === "getChats") {
+        return {
+          "@type": "chats",
+          chat_ids: Number(request.limit) === 2 ? [3, 2] : [3, 2, 1],
+        };
+      }
+      return rawChat(Number(request.chat_id), 1_700_000_000 + Number(request.chat_id));
+    };
+
+    await expect(transport.loadMoreChats("main", 2)).resolves.toEqual({
+      loadedCount: 2,
+      hasMore: true,
+    });
+    await expect(transport.loadMoreChats("main", 2)).resolves.toEqual({
+      loadedCount: 1,
+      hasMore: false,
+    });
+    await expect(transport.loadMoreChats("main", 2)).resolves.toEqual({
+      loadedCount: 0,
+      hasMore: false,
+    });
+
+    expect(requests.filter((request) => request["@type"] === "loadChats")).toHaveLength(2);
+    expect(requests.filter((request) => request["@type"] === "getChats")
+      .map((request) => request.limit)).toEqual([2, 4, 5]);
+  });
 });
 
 describe("TauriTelegramTransport message operations", () => {
@@ -98,6 +138,76 @@ describe("TauriTelegramTransport message operations", () => {
       chat_id: 7,
       message_id: 12,
     }]);
+  });
+
+  it("adds and removes emoji reactions through typed TDLib requests", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.setMessageReaction({
+      chatId: "7",
+      messageId: "12",
+      emoji: "👍",
+      chosen: true,
+    });
+    await transport.setMessageReaction({
+      chatId: "7",
+      messageId: "12",
+      emoji: "👍",
+      chosen: false,
+    });
+
+    expect(requests).toEqual([
+      {
+        "@type": "addMessageReaction",
+        chat_id: 7,
+        message_id: 12,
+        reaction_type: { "@type": "reactionTypeEmoji", emoji: "👍" },
+        is_big: false,
+        update_recent_reactions: true,
+      },
+      {
+        "@type": "removeMessageReaction",
+        chat_id: 7,
+        message_id: 12,
+        reaction_type: { "@type": "reactionTypeEmoji", emoji: "👍" },
+      },
+    ]);
+  });
+
+  it("loads server chat and message search results into the live maps", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.request = async (request) => {
+      if (request["@type"] === "searchChatsOnServer") {
+        return { "@type": "chats", chat_ids: [9] };
+      }
+      if (request["@type"] === "getChat") return rawChat(9, 1_700_000_009);
+      if (request["@type"] === "searchChatMessages") {
+        return { "@type": "foundChatMessages", messages: [rawMessage(15)] };
+      }
+      return { "@type": "ok" };
+    };
+    internal.finishInitialChatSync();
+
+    await transport.searchChats("project");
+    await expect(transport.searchChatMessages("7", "needle")).resolves.toBe(1);
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "chat.upsert",
+      chat: expect.objectContaining({ id: "9" }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "message.upsert",
+      message: expect.objectContaining({ id: "15", chatId: "7" }),
+    }));
   });
 
   it("sends a text reply with the current TDLib reply object", async () => {
@@ -292,78 +402,24 @@ describe("TauriTelegramTransport message operations", () => {
     })).rejects.toThrow("单次最多转发 100 条消息");
   });
 
-  it("sends selected photos and documents with native local-file inputs", async () => {
-    const photoTransport = new TauriTelegramTransport(
-      async () => ({
-        path: "C:\\Users\\test\\Pictures\\holiday.jpg",
-        size: 2_000_000,
-      }),
-    );
-    const documentTransport = new TauriTelegramTransport(
-      async () => ({
-        path: "C:\\Users\\test\\Documents\\notes.pdf",
-        size: 500_000,
-      }),
-    );
-    const photoRequests: TdObject[] = [];
-    const documentRequests: TdObject[] = [];
-    (photoTransport as unknown as TestableTransport).request = async (request) => {
-      photoRequests.push(request);
-      return { "@type": "ok" };
-    };
-    (documentTransport as unknown as TestableTransport).request = async (request) => {
-      documentRequests.push(request);
-      return { "@type": "ok" };
+  it("sends selected files through the path-free native command", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requestedChatIds: string[] = [];
+    internal.requestPreparedFile = async (chatId) => {
+      requestedChatIds.push(chatId);
+      return rawMessage(31);
     };
 
-    await expect(photoTransport.sendFile({ chatId: "7" })).resolves.toBe(true);
-    await expect(documentTransport.sendFile({ chatId: "7" })).resolves.toBe(true);
-
-    expect(photoRequests[0]).toMatchObject({
-      "@type": "sendMessage",
-      chat_id: 7,
-      input_message_content: {
-        "@type": "inputMessagePhoto",
-        photo: {
-          "@type": "inputPhoto",
-          photo: {
-            "@type": "inputFileLocal",
-            path: "C:\\Users\\test\\Pictures\\holiday.jpg",
-          },
-        },
-        caption: { "@type": "formattedText", text: "", entities: [] },
-        has_spoiler: false,
-      },
-    });
-    expect(documentRequests[0]).toMatchObject({
-      "@type": "sendMessage",
-      chat_id: 7,
-      input_message_content: {
-        "@type": "inputMessageDocument",
-        document: {
-          "@type": "inputDocument",
-          document: {
-            "@type": "inputFileLocal",
-            path: "C:\\Users\\test\\Documents\\notes.pdf",
-          },
-          disable_content_type_detection: false,
-        },
-      },
-    });
+    await expect(transport.sendFile({ chatId: "7" })).resolves.toBe(true);
+    expect(requestedChatIds).toEqual(["7"]);
   });
 
   it("does not send when the native picker is cancelled and can cancel an active upload", async () => {
-    const cancelledPicker = new TauriTelegramTransport(async () => undefined);
-    const transport = new TauriTelegramTransport(async () => ({
-      path: "C:\\tmp\\large.zip",
-      size: 20_000_000,
-    }));
-    const pickerRequests: TdObject[] = [];
+    const cancelledPicker = new TauriTelegramTransport();
+    const transport = new TauriTelegramTransport();
     const requests: TdObject[] = [];
-    (cancelledPicker as unknown as TestableTransport).request = async (request) => {
-      pickerRequests.push(request);
-      return { "@type": "ok" };
-    };
+    (cancelledPicker as unknown as TestableTransport).requestPreparedFile = async () => undefined;
     (transport as unknown as TestableTransport).request = async (request) => {
       requests.push(request);
       return { "@type": "ok" };
@@ -372,30 +428,12 @@ describe("TauriTelegramTransport message operations", () => {
     await expect(cancelledPicker.sendFile({ chatId: "7" })).resolves.toBe(false);
     await transport.cancelFileUpload("7", "-91");
 
-    expect(pickerRequests).toEqual([]);
     expect(requests).toEqual([{
       "@type": "deleteMessages",
       chat_id: 7,
       message_ids: [-91],
       revoke: true,
     }]);
-  });
-
-  it("sends photos over TDLib's size limit as documents", async () => {
-    const transport = new TauriTelegramTransport(async () => ({
-      path: "C:\\tmp\\large-photo.jpg",
-      size: 10 * 1024 * 1024 + 1,
-    }));
-    const requests: TdObject[] = [];
-    (transport as unknown as TestableTransport).request = async (request) => {
-      requests.push(request);
-      return { "@type": "ok" };
-    };
-
-    await transport.sendFile({ chatId: "7" });
-
-    expect((requests[0].input_message_content as TdObject)["@type"])
-      .toBe("inputMessageDocument");
   });
 
   it("merges separate edit and interaction updates into the known message", () => {

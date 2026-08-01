@@ -196,6 +196,53 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("maps stickers and video notes as playable media", () => {
+    const sticker = mapTdMessage({
+      id: 1004,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      date: 1_700_000_000,
+      content: {
+        "@type": "messageSticker",
+        sticker: {
+          emoji: "🙂",
+          width: 512,
+          height: 512,
+          sticker: { id: 17, size: 2048, local: { can_be_downloaded: true } },
+        },
+      },
+    });
+    const videoNote = mapTdMessage({
+      id: 1005,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      date: 1_700_000_000,
+      content: {
+        "@type": "messageVideoNote",
+        video_note: {
+          length: 240,
+          video: { id: 18, size: 4096, local: { can_be_downloaded: true } },
+        },
+      },
+    });
+
+    expect(sticker?.content).toMatchObject({
+      kind: "media",
+      mediaType: "sticker",
+      fileName: "🙂",
+      fileId: 17,
+      width: 512,
+      height: 512,
+    });
+    expect(videoNote?.content).toMatchObject({
+      kind: "media",
+      mediaType: "videoNote",
+      fileId: 18,
+      width: 240,
+      height: 240,
+    });
+  });
+
   it("keeps retry information for failed outgoing messages", () => {
     const message = mapTdMessage({
       id: -10,

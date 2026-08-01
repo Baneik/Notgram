@@ -14,6 +14,7 @@ import type {
   SendFileInput,
   SendMessageInput,
   SetChatDraftInput,
+  SetMessageReactionInput,
   StorageSettings,
   TelegramAccount,
   TelegramAccountState,
@@ -214,6 +215,36 @@ export class MockTelegramTransport implements TelegramTransport {
     if (next.kind === "ready") this.publishReadySnapshot();
   }
 
+  async loadMoreChats() {
+    return { loadedCount: 0, hasMore: false };
+  }
+
+  async searchChats(query: string, limit = 50) {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return;
+    for (const chat of this.snapshot.chats
+      .filter((item) => `${item.title} ${item.preview}`.toLocaleLowerCase().includes(normalized))
+      .slice(0, limit)) {
+      this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+    }
+  }
+
+  async searchChatMessages(chatId: string, query: string, limit = 100) {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return 0;
+    const matches = this.snapshot.messages.filter((message) => {
+      if (message.chatId !== chatId) return false;
+      const searchable = message.content.kind === "text"
+        ? message.content.text
+        : `${message.content.fileName} ${message.content.caption ?? ""}`;
+      return searchable.toLocaleLowerCase().includes(normalized);
+    }).slice(0, limit);
+    for (const message of matches) {
+      this.listener?.({ type: "message.upsert", message: clone(message) });
+    }
+    return matches.length;
+  }
+
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
     const history = this.snapshot.messages
       .filter((message) => message.chatId === chatId)
@@ -243,6 +274,38 @@ export class MockTelegramTransport implements TelegramTransport {
       canDeleteForAllUsers: message.outgoing,
       canForward: true,
     });
+  }
+
+  async setMessageReaction(input: SetMessageReactionInput) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === input.chatId && item.id === input.messageId,
+    );
+    if (!message) throw new Error("消息不存在");
+    const interaction = message.interaction ?? {
+      viewCount: 0,
+      forwardCount: 0,
+      replyCount: 0,
+      reactions: [],
+    };
+    const reactions = [...interaction.reactions];
+    const index = reactions.findIndex(
+      (reaction) => reaction.type.kind === "emoji" && reaction.type.emoji === input.emoji,
+    );
+    if (index >= 0) {
+      const current = reactions[index];
+      const totalCount = Math.max(0, current.totalCount + (input.chosen ? 1 : -1));
+      if (totalCount === 0) reactions.splice(index, 1);
+      else reactions[index] = { ...current, chosen: input.chosen, totalCount };
+    } else if (input.chosen) {
+      reactions.push({
+        type: { kind: "emoji", emoji: input.emoji },
+        totalCount: 1,
+        chosen: true,
+        recentSenderIds: [this.snapshot.currentUserId],
+      });
+    }
+    message.interaction = { ...interaction, reactions };
+    this.listener?.({ type: "message.upsert", message: clone(message) });
   }
 
   async getProxySettings() {

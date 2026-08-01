@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
-import { formatMessageTime } from "./formatters";
+import { formatMessageDay, formatMessageTime, localDateKey } from "./formatters";
 import { groupConsecutiveMessages, messageGroupPosition } from "./messageGrouping";
 
 const message = (
@@ -56,5 +56,17 @@ describe("message grouping", () => {
 
   it("formats bubble timestamps with seconds", () => {
     expect(formatMessageTime("2026-08-01T09:18:07+08:00")).toMatch(/:\d{2}:07$/);
+  });
+
+  it("formats message day separators against the local calendar", () => {
+    const now = new Date(2026, 7, 2, 12, 0, 0);
+
+    expect(formatMessageDay(new Date(2026, 7, 2, 1).toISOString(), now)).toBe("今天");
+    expect(formatMessageDay(new Date(2026, 7, 1, 23).toISOString(), now)).toBe("昨天");
+    expect(formatMessageDay(new Date(2026, 6, 30, 10).toISOString(), now)).toBe("7月30日");
+    expect(formatMessageDay(new Date(2025, 11, 31, 10).toISOString(), now))
+      .toBe("2025年12月31日");
+    expect(localDateKey(new Date(2026, 7, 2, 23).toISOString()))
+      .toBe(localDateKey(new Date(2026, 7, 2, 1).toISOString()));
   });
 });
