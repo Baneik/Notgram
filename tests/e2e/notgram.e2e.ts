@@ -63,11 +63,19 @@ test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
-test("photo messages stay inside their aligned bubble at responsive widths", async ({ page }) => {
+test("photo bubbles preserve media geometry and rounded clipping", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
-  const photoRow = page.locator('[data-message-id="p-5"]');
-  await expect(photoRow).toBeVisible();
+  const squareRow = page.locator('[data-message-id="p-5"]');
+  const tallRow = page.locator('[data-message-id="p-tall"]');
+  await expect(squareRow).toBeVisible();
+  await expect(tallRow).toBeVisible();
+  await expect(tallRow).toHaveClass(/group-first/);
+  await expect(squareRow).toHaveClass(/group-last/);
+  await expect.poll(() => tallRow.locator("img").evaluate((image) => {
+    const media = image as HTMLImageElement;
+    return `${media.naturalWidth}x${media.naturalHeight}`;
+  })).toBe("900x1800");
 
   for (const viewport of [
     { width: 1220, height: 780 },
@@ -75,26 +83,81 @@ test("photo messages stay inside their aligned bubble at responsive widths", asy
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
-    await photoRow.scrollIntoViewIfNeeded();
-    const aligned = await photoRow.evaluate((row) => {
-      const shell = row.querySelector<HTMLElement>(".message-bubble-shell");
-      const media = row.querySelector<HTMLElement>(".photo-message");
-      const image = row.querySelector<HTMLElement>(".photo-preview img");
-      const stack = row.closest<HTMLElement>(".message-group-stack");
-      if (!shell || !media || !image || !stack) return false;
-      const shellBounds = shell.getBoundingClientRect();
-      const mediaBounds = media.getBoundingClientRect();
-      const imageBounds = image.getBoundingClientRect();
-      const stackBounds = stack.getBoundingClientRect();
-      const within = (inner: DOMRect, outer: DOMRect) =>
-        inner.left >= outer.left - 1 && inner.right <= outer.right + 1;
-      return within(shellBounds, stackBounds) &&
-        within(mediaBounds, shellBounds) &&
-        Math.abs(imageBounds.left - mediaBounds.left) <= 1 &&
-        Math.abs(imageBounds.right - mediaBounds.right) <= 1;
-    });
-    expect(aligned).toBe(true);
+    for (const row of [tallRow, squareRow]) {
+      await row.scrollIntoViewIfNeeded();
+      await expect.poll(() => row.locator("img").evaluate((image) => {
+        const media = image as HTMLImageElement;
+        return media.complete && media.naturalWidth > 0 && media.naturalHeight > 0;
+      })).toBe(true);
+      const geometry = await row.evaluate((element) => {
+        const shell = element.querySelector<HTMLElement>(".message-bubble-shell");
+        const bubble = element.querySelector<HTMLElement>(".message-bubble");
+        const preview = element.querySelector<HTMLElement>(".photo-preview");
+        const image = element.querySelector<HTMLImageElement>(".photo-preview img");
+        const stack = element.closest<HTMLElement>(".message-group-stack");
+        if (!shell || !bubble || !preview || !image || !stack) return undefined;
+        const shellBounds = shell.getBoundingClientRect();
+        const bubbleBounds = bubble.getBoundingClientRect();
+        const previewBounds = preview.getBoundingClientRect();
+        const imageBounds = image.getBoundingClientRect();
+        const stackBounds = stack.getBoundingClientRect();
+        return {
+          shellWidth: shellBounds.width,
+          previewWidth: previewBounds.width,
+          previewHeight: previewBounds.height,
+          naturalRatio: image.naturalWidth / image.naturalHeight,
+          previewRatio: previewBounds.width / previewBounds.height,
+          shellInsideStack: shellBounds.left >= stackBounds.left - 1 &&
+            shellBounds.right <= stackBounds.right + 1,
+          bubbleGap: Math.abs(shellBounds.width - bubbleBounds.width),
+          imageHorizontalGap: Math.max(
+            Math.abs(imageBounds.left - previewBounds.left),
+            Math.abs(imageBounds.right - previewBounds.right),
+          ),
+          imageVerticalGap: Math.max(
+            Math.abs(imageBounds.top - previewBounds.top),
+            Math.abs(imageBounds.bottom - previewBounds.bottom),
+          ),
+          borderRadius: getComputedStyle(bubble).borderRadius,
+          overflow: getComputedStyle(bubble).overflow,
+        };
+      });
+      expect(geometry).toBeDefined();
+      expect(geometry?.shellInsideStack).toBe(true);
+      expect(geometry?.bubbleGap).toBeLessThanOrEqual(1);
+      expect(geometry?.imageHorizontalGap).toBeLessThanOrEqual(1);
+      expect(geometry?.imageVerticalGap).toBeLessThanOrEqual(1);
+      expect(Math.abs((geometry?.naturalRatio ?? 0) - (geometry?.previewRatio ?? 1)))
+        .toBeLessThan(0.002);
+      expect(geometry?.borderRadius).toBe("12px");
+      expect(geometry?.overflow).toBe("hidden");
+    }
   }
+
+  const tallWidth = await tallRow.locator(".message-bubble-shell").evaluate(
+    (shell) => shell.getBoundingClientRect().width,
+  );
+  expect(tallWidth).toBeCloseTo(210, 0);
+  await tallRow.locator("img").evaluate((image) => {
+    image.dispatchEvent(new Event("error", { bubbles: false }));
+  });
+  await expect(tallRow.locator(".photo-placeholder")).toBeVisible();
+  const failedState = await tallRow.evaluate((element) => {
+    const shell = element.querySelector<HTMLElement>(".message-bubble-shell");
+    const bubble = element.querySelector<HTMLElement>(".message-bubble");
+    const preview = element.querySelector<HTMLElement>(".photo-preview");
+    return {
+      shellWidth: shell?.getBoundingClientRect().width,
+      previewWidth: preview?.getBoundingClientRect().width,
+      borderRadius: bubble ? getComputedStyle(bubble).borderRadius : "",
+      overflow: bubble ? getComputedStyle(bubble).overflow : "",
+    };
+  });
+  expect(Math.abs((failedState.shellWidth ?? 0) - (failedState.previewWidth ?? 1)))
+    .toBeLessThanOrEqual(1);
+  expect(failedState.shellWidth).toBeCloseTo(tallWidth, 0);
+  expect(failedState.borderRadius).toBe("12px");
+  expect(failedState.overflow).toBe("hidden");
 });
 
 test("saved and direct messages align to the conversation edges", async ({ page }) => {

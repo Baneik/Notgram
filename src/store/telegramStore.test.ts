@@ -1140,7 +1140,7 @@ describe("chat filtering", () => {
 
     await store.getState().loadMoreHistory("chat-product");
 
-    expect(store.getState().messages.get("chat-product")).toHaveLength(42);
+    expect(store.getState().messages.get("chat-product")).toHaveLength(43);
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
   });
 

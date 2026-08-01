@@ -1,6 +1,18 @@
 import type { Chat, Message, TelegramSnapshot, User } from "./types";
 import mediaPreviewUrl from "../../src-tauri/icons/icon.png";
 
+const tallMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1800" viewBox="0 0 900 1800">
+    <rect width="900" height="1800" fill="#173b4c"/>
+    <rect x="70" y="70" width="760" height="1660" rx="48" fill="#ecf3f1"/>
+    <rect x="125" y="145" width="650" height="660" rx="28" fill="#2c8f86"/>
+    <rect x="125" y="865" width="650" height="54" rx="18" fill="#173b4c"/>
+    <rect x="125" y="965" width="520" height="34" rx="14" fill="#89aaa4"/>
+    <rect x="125" y="1040" width="610" height="34" rx="14" fill="#89aaa4"/>
+    <rect x="125" y="1115" width="475" height="34" rx="14" fill="#89aaa4"/>
+  </svg>
+`)}`;
+
 const users: User[] = [
   {
     id: "self",
@@ -171,6 +183,26 @@ const messages: Message[] = [
     sentAt: "2026-08-01T09:48:00+08:00",
     delivery: "read",
     content: { kind: "text", text: "我把交互稿更新到最新版本了，下午可以直接走查。" },
+  },
+  {
+    id: "p-tall",
+    chatId: "chat-product",
+    senderId: "u-mia",
+    outgoing: false,
+    sentAt: "2026-08-01T09:49:00+08:00",
+    delivery: "read",
+    content: {
+      kind: "media",
+      mediaType: "photo",
+      fileName: "纵向图片.jpg",
+      sizeLabel: "220 KB",
+      previewDataUrl: tallMediaPreviewUrl,
+      width: 512,
+      height: 512,
+      caption: "纵向图片应该按实际比例收窄，外壳不能留下额外空白。",
+      isDownloaded: false,
+      isDownloading: false,
+    },
   },
   {
     id: "p-5",

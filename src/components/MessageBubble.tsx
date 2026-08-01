@@ -15,10 +15,11 @@ import {
   SmilePlus,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction, User } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
+import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { TgsSticker } from "./TgsSticker";
 
@@ -81,7 +82,14 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [reactionPending, setReactionPending] = useState<string>();
-  const [failedMediaSource, setFailedMediaSource] = useState<string>();
+  const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [measuredMedia, setMeasuredMedia] = useState<{
+    source: string;
+    width: number;
+    height: number;
+  }>();
   const content = message.content;
   const isService = content.kind === "service";
   const isVisual = content.kind === "media" &&
@@ -92,10 +100,10 @@ export function MessageBubble({
   const previewSource = content.kind === "media"
     ? localSource(content.thumbnailPath) ?? content.previewDataUrl
     : undefined;
-  const usableFullMediaSource = fullMediaSource === failedMediaSource
+  const usableFullMediaSource = fullMediaSource && failedMediaSources.has(fullMediaSource)
     ? undefined
     : fullMediaSource;
-  const usablePreviewSource = previewSource === failedMediaSource
+  const usablePreviewSource = previewSource && failedMediaSources.has(previewSource)
     ? undefined
     : previewSource;
   const isVideoSticker = content.kind === "media" && content.mediaType === "sticker" && (
@@ -107,6 +115,36 @@ export function MessageBubble({
   const imageMediaSource = content.kind === "media" && (isVideoSticker || isTgsSticker)
     ? usablePreviewSource
     : usableFullMediaSource ?? usablePreviewSource;
+  const activeMediaSource = usableFullMediaSource ?? usablePreviewSource;
+  const measuredSize = measuredMedia && (
+    measuredMedia.source === activeMediaSource || failedMediaSources.has(measuredMedia.source)
+  ) ? measuredMedia : undefined;
+  const mediaLayout = content.kind === "media" && isVisual
+    ? fitMediaLayout(
+        content.mediaType,
+        measuredSize?.width ?? content.width,
+        measuredSize?.height ?? content.height,
+      )
+    : undefined;
+  const visualShellStyle = mediaLayout
+    ? { "--visual-media-width": `${mediaLayout.width}px` } as CSSProperties
+    : undefined;
+  const rememberMediaSize = (source: string | undefined, width: number, height: number) => {
+    if (!source || width <= 0 || height <= 0) return;
+    setMeasuredMedia((current) => current?.source === source &&
+      current.width === width && current.height === height
+      ? current
+      : { source, width, height });
+  };
+  const markMediaSourceFailed = (source: string | undefined) => {
+    if (!source) return;
+    setFailedMediaSources((current) => {
+      if (current.has(source)) return current;
+      const next = new Set(current);
+      next.add(source);
+      return next;
+    });
+  };
   const fileProgress = (content.kind === "file" || content.kind === "media") && content.progress !== undefined
     ? `${Math.round(content.progress * 100)}%`
     : undefined;
@@ -174,7 +212,8 @@ export function MessageBubble({
         </button>
       )}
       <div
-        className="message-bubble-shell"
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""}`}
+        style={visualShellStyle}
         onContextMenu={(event) => {
           event.preventDefault();
           if (isService) return;
@@ -182,7 +221,7 @@ export function MessageBubble({
           else void onOpenActions(message, event.clientX, event.clientY);
         }}
       >
-        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${hasCaption ? "has-caption" : ""}`}>
+        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""}`}>
           {!isService && forwardLabel && (
             <span className="message-forward-label">
               <Forward size={12} strokeWidth={2} />
@@ -201,9 +240,9 @@ export function MessageBubble({
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
               <div
-                className="photo-preview"
-                style={content.width && content.height
-                  ? { aspectRatio: `${content.width} / ${content.height}` }
+                className={`photo-preview ${mediaLayout?.aspectRatio ? "has-media-ratio" : ""}`}
+                style={mediaLayout?.aspectRatio
+                  ? { aspectRatio: mediaLayout.aspectRatio }
                   : undefined}
               >
                 {usableFullMediaSource && ["video", "videoNote"].includes(content.mediaType) ? (
@@ -213,7 +252,12 @@ export function MessageBubble({
                     controls
                     preload="metadata"
                     playsInline
-                    onError={() => setFailedMediaSource(usableFullMediaSource)}
+                    onLoadedMetadata={(event) => rememberMediaSize(
+                      usableFullMediaSource,
+                      event.currentTarget.videoWidth,
+                      event.currentTarget.videoHeight,
+                    )}
+                    onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
                 ) : usableFullMediaSource && isVideoSticker ? (
                   <video
@@ -224,14 +268,19 @@ export function MessageBubble({
                     muted
                     playsInline
                     aria-label={content.caption || content.fileName}
-                    onError={() => setFailedMediaSource(usableFullMediaSource)}
+                    onLoadedMetadata={(event) => rememberMediaSize(
+                      usableFullMediaSource,
+                      event.currentTarget.videoWidth,
+                      event.currentTarget.videoHeight,
+                    )}
+                    onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
                 ) : usableFullMediaSource && isTgsSticker ? (
                   <TgsSticker
                     src={usableFullMediaSource}
                     label={content.caption || content.fileName}
                     autoplay={autoplayAnimations}
-                    onError={() => setFailedMediaSource(usableFullMediaSource)}
+                    onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
                 ) : usableFullMediaSource && content.mediaType === "animation" ? (
                   <video
@@ -241,7 +290,12 @@ export function MessageBubble({
                     loop
                     muted
                     playsInline
-                    onError={() => setFailedMediaSource(usableFullMediaSource)}
+                    onLoadedMetadata={(event) => rememberMediaSize(
+                      usableFullMediaSource,
+                      event.currentTarget.videoWidth,
+                      event.currentTarget.videoHeight,
+                    )}
+                    onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
                 ) : imageMediaSource ? (
                   <img
@@ -249,7 +303,12 @@ export function MessageBubble({
                     alt={content.caption || content.fileName}
                     loading="lazy"
                     decoding="async"
-                    onError={() => setFailedMediaSource(imageMediaSource)}
+                    onLoad={(event) => rememberMediaSize(
+                      imageMediaSource,
+                      event.currentTarget.naturalWidth,
+                      event.currentTarget.naturalHeight,
+                    )}
+                    onError={() => markMediaSourceFailed(imageMediaSource)}
                   />
                 ) : (
                   <span className="photo-placeholder" aria-label="媒体正在加载">
