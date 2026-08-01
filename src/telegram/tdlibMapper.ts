@@ -189,6 +189,27 @@ const minithumbnailDataUrl = (value: unknown) => {
     : undefined;
 };
 
+const serviceContent = (text: string): MessageContent => ({ kind: "service", text });
+
+const textValue = (value: unknown) => {
+  if (typeof value === "string") return value;
+  return formattedText(value);
+};
+
+const labeledText = (label: string, detail: unknown) => {
+  const text = textValue(detail).trim();
+  return text ? `${label}：${text}` : label;
+};
+
+const durationText = (secondsValue: unknown) => {
+  const seconds = tdNumber(secondsValue) ?? 0;
+  if (seconds <= 0) return "已关闭消息自动删除";
+  if (seconds % 86_400 === 0) return `消息将在 ${seconds / 86_400} 天后自动删除`;
+  if (seconds % 3_600 === 0) return `消息将在 ${seconds / 3_600} 小时后自动删除`;
+  if (seconds % 60 === 0) return `消息将在 ${seconds / 60} 分钟后自动删除`;
+  return `消息将在 ${seconds} 秒后自动删除`;
+};
+
 export const mapTdMessageContent = (value: unknown): MessageContent => {
   const content = asTdObject(value);
   switch (content?.["@type"]) {
@@ -299,23 +320,244 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         height: tdNumber(sticker?.height),
       });
     }
-    case "messageContact":
-      return { kind: "text", text: "[联系人]" };
+    case "messageContact": {
+      const contact = asTdObject(content.contact);
+      const name = [contact?.first_name, contact?.last_name]
+        .filter((part): part is string => typeof part === "string" && Boolean(part.trim()))
+        .join(" ");
+      const phone = typeof contact?.phone_number === "string" ? contact.phone_number : "";
+      return { kind: "text", text: ["联系人", name, phone].filter(Boolean).join(" · ") };
+    }
     case "messageLocation":
-    case "messageVenue":
-      return { kind: "text", text: "[位置]" };
-    case "messagePoll":
-      return { kind: "text", text: "[投票]" };
-    case "messageCall":
-      return { kind: "text", text: "[通话]" };
-    default:
-      return { kind: "text", text: "[暂不支持的消息]" };
+      return { kind: "text", text: "位置" };
+    case "messageLiveLocation":
+      return { kind: "text", text: "实时位置" };
+    case "messageVenue": {
+      const venue = asTdObject(content.venue);
+      const title = typeof venue?.title === "string" ? venue.title : "";
+      const address = typeof venue?.address === "string" ? venue.address : "";
+      return { kind: "text", text: ["地点", title, address].filter(Boolean).join(" · ") };
+    }
+    case "messagePoll": {
+      const poll = asTdObject(content.poll);
+      return { kind: "text", text: labeledText("投票", poll?.question) };
+    }
+    case "messageDice": {
+      const emoji = typeof content.emoji === "string" && content.emoji ? content.emoji : "🎲";
+      const value = tdNumber(content.value);
+      return { kind: "text", text: value === undefined ? emoji : `${emoji} ${value}` };
+    }
+    case "messageAnimatedEmoji": {
+      const animatedEmoji = asTdObject(content.animated_emoji);
+      const emoji = typeof animatedEmoji?.emoji === "string"
+        ? animatedEmoji.emoji
+        : typeof content.emoji === "string" ? content.emoji : "动态表情";
+      return { kind: "text", text: emoji };
+    }
+    case "messageGame": {
+      const game = asTdObject(content.game);
+      return { kind: "text", text: labeledText("游戏", game?.title) };
+    }
+    case "messageInvoice":
+      return { kind: "text", text: labeledText("账单", content.title) };
+    case "messageChecklist": {
+      const checklist = asTdObject(content.checklist);
+      return { kind: "text", text: labeledText("清单", checklist?.title) };
+    }
+    case "messagePaidMedia": {
+      const caption = formattedText(content.caption);
+      return { kind: "text", text: caption ? `付费媒体：${caption}` : "付费媒体" };
+    }
+    case "messageStory":
+      return { kind: "text", text: "故事" };
+    case "messageCall": {
+      const discardReason = asTdObject(content.discard_reason)?.["@type"];
+      const videoLabel = content.is_video === true ? "视频通话" : "通话";
+      const label = discardReason === "callDiscardReasonMissed"
+        ? `未接${videoLabel}`
+        : discardReason === "callDiscardReasonDeclined" ? `已拒绝${videoLabel}` : videoLabel;
+      const duration = tdNumber(content.duration) ?? 0;
+      return serviceContent(duration > 0 ? `${label} · ${duration} 秒` : label);
+    }
+    case "messageBasicGroupChatCreate":
+      return serviceContent(labeledText("群聊已创建", content.title));
+    case "messageSupergroupChatCreate":
+      return serviceContent(labeledText(content.is_channel === true ? "频道已创建" : "群聊已创建", content.title));
+    case "messageChatAddMembers": {
+      const count = Array.isArray(content.member_user_ids) ? content.member_user_ids.length : 0;
+      return serviceContent(count > 1 ? `${count} 位新成员加入了群聊` : "新成员加入了群聊");
+    }
+    case "messageChatJoinByLink":
+      return serviceContent("有成员通过邀请链接加入了群聊");
+    case "messageChatJoinByRequest":
+      return serviceContent("入群申请已通过");
+    case "messageChatDeleteMember":
+      return serviceContent("一位成员离开或被移出了群聊");
+    case "messageChatChangeTitle":
+      return serviceContent(labeledText("群聊名称已更改", content.title));
+    case "messageChatChangePhoto":
+      return serviceContent("群聊头像已更新");
+    case "messageChatDeletePhoto":
+      return serviceContent("群聊头像已移除");
+    case "messageChatUpgradeTo":
+      return serviceContent("群聊已升级为超级群组");
+    case "messageChatUpgradeFrom":
+      return serviceContent("群聊已完成升级");
+    case "messagePinMessage":
+      return serviceContent("置顶了一条消息");
+    case "messageScreenshotTaken":
+      return serviceContent("截取了聊天截图");
+    case "messageChatSetMessageAutoDeleteTime":
+    case "messageAutoDeleteTime":
+      return serviceContent(durationText(content.message_auto_delete_time ?? content.time));
+    case "messageChatSetTheme":
+      return serviceContent(content.theme_name ? `聊天主题已更改为 ${String(content.theme_name)}` : "聊天主题已更改");
+    case "messageChatSetBackground":
+      return serviceContent("聊天背景已更改");
+    case "messageChatHasProtectedContentToggled":
+      return serviceContent(content.has_protected_content === true ? "已禁止转发和保存内容" : "已允许转发和保存内容");
+    case "messageChatHasProtectedContentDisableRequested":
+      return serviceContent("已请求关闭内容保护");
+    case "messageChatBoost": {
+      const count = tdNumber(content.boost_count) ?? 0;
+      return serviceContent(count > 1 ? `为群聊助力 ${count} 次` : "为群聊助力");
+    }
+    case "messageForumTopicCreated": {
+      const topic = asTdObject(content.topic_info);
+      return serviceContent(labeledText("话题已创建", topic?.name));
+    }
+    case "messageForumTopicEdited":
+      return serviceContent(labeledText("话题已更新", content.name));
+    case "messageForumTopicIsClosedToggled":
+      return serviceContent(content.is_closed === true ? "话题已关闭" : "话题已重新打开");
+    case "messageForumTopicIsHiddenToggled":
+      return serviceContent(content.is_hidden === true ? "话题已隐藏" : "话题已显示");
+    case "messageVideoChatScheduled":
+      return serviceContent("视频聊天已安排");
+    case "messageVideoChatStarted":
+      return serviceContent("视频聊天已开始");
+    case "messageVideoChatEnded": {
+      const duration = tdNumber(content.duration) ?? 0;
+      return serviceContent(duration > 0 ? `视频聊天已结束 · ${duration} 秒` : "视频聊天已结束");
+    }
+    case "messageInviteVideoChatParticipants": {
+      const count = Array.isArray(content.user_ids) ? content.user_ids.length : 0;
+      return serviceContent(count > 0 ? `邀请了 ${count} 位成员参加视频聊天` : "邀请成员参加视频聊天");
+    }
+    case "messageContactRegistered":
+      return serviceContent("该联系人已加入 Telegram");
+    case "messageCustomServiceAction":
+      return serviceContent(textValue(content.text).trim() || "群聊状态已更新");
+    case "messageGameScore":
+      return serviceContent(`游戏得分：${tdNumber(content.score) ?? 0}`);
+    case "messagePaymentSuccessful":
+    case "messagePaymentSuccessfulBot":
+      return serviceContent("付款成功");
+    case "messagePaymentRefunded":
+      return serviceContent("付款已退款");
+    case "messageGiftedPremium":
+      return serviceContent("赠送了 Telegram Premium");
+    case "messagePremiumGiftCode":
+      return serviceContent("发送了 Telegram Premium 礼品码");
+    case "messageGiftedStars":
+      return serviceContent("赠送了 Telegram Stars");
+    case "messageGiftedTon":
+      return serviceContent("赠送了 TON");
+    case "messageGift":
+      return serviceContent("发送了一份礼物");
+    case "messageUpgradedGift":
+      return serviceContent("礼物已升级");
+    case "messageRefundedUpgradedGift":
+      return serviceContent("升级礼物已退款");
+    case "messageUpgradedGiftPurchaseOffer":
+      return serviceContent("发起了礼物购买报价");
+    case "messageUpgradedGiftPurchaseOfferRejected":
+      return serviceContent("礼物购买报价已拒绝");
+    case "messageGiveaway":
+    case "messageGiveawayCreated":
+      return serviceContent("抽奖已开始");
+    case "messageGiveawayCompleted":
+      return serviceContent("抽奖已结束");
+    case "messageGiveawayWinners":
+      return serviceContent("抽奖结果已公布");
+    case "messageGiveawayPrizeStars":
+      return serviceContent("抽奖 Stars 奖品已发放");
+    case "messageUsersShared":
+      return serviceContent("分享了用户信息");
+    case "messageChatShared":
+      return serviceContent("分享了聊天信息");
+    case "messageBotWriteAccessAllowed":
+      return serviceContent("已允许机器人发送消息");
+    case "messageWebAppDataSent":
+      return serviceContent("已向小程序发送数据");
+    case "messageWebAppDataReceived":
+      return serviceContent("已从小程序收到数据");
+    case "messagePassportDataSent":
+      return serviceContent("已发送 Telegram Passport 数据");
+    case "messagePassportDataReceived":
+      return serviceContent("已收到 Telegram Passport 数据");
+    case "messageProximityAlertTriggered":
+      return serviceContent("触发了附近提醒");
+    case "messageChecklistTasksAdded":
+      return serviceContent("清单中添加了新任务");
+    case "messageChecklistTasksDone":
+      return serviceContent("清单任务状态已更新");
+    case "messagePollOptionAdded":
+      return serviceContent("投票中添加了新选项");
+    case "messagePollOptionDeleted":
+      return serviceContent("投票选项已移除");
+    case "messageChatAddedToCommunity":
+    case "messageChatAddToCommunity":
+      return serviceContent("群聊已加入社区");
+    case "messageChatRemovedFromCommunity":
+      return serviceContent("群聊已从社区移除");
+    case "messageChatOwnerChanged":
+      return serviceContent("群聊所有者已更改");
+    case "messageChatOwnerLeft":
+      return serviceContent("群聊所有者已离开");
+    case "messageManagedBotCreated":
+      return serviceContent("已创建管理机器人");
+    case "messageDirectMessagePriceChanged":
+    case "messagePaidMessagePriceChanged":
+      return serviceContent("付费消息价格已更改");
+    case "messagePaidMessagesRefunded":
+      return serviceContent("付费消息费用已退还");
+    case "messageSuggestedPostApprovalFailed":
+      return serviceContent("建议帖子审核失败");
+    case "messageSuggestedPostApproved":
+      return serviceContent("建议帖子已通过");
+    case "messageSuggestedPostDeclined":
+      return serviceContent("建议帖子已拒绝");
+    case "messageSuggestedPostPaid":
+      return serviceContent("建议帖子已付款");
+    case "messageSuggestedPostRefunded":
+      return serviceContent("建议帖子已退款");
+    case "messageSuggestBirthdate":
+      return serviceContent("建议添加生日");
+    case "messageSuggestProfilePhoto":
+      return serviceContent("建议更新头像");
+    case "messageExpiredPhoto":
+      return serviceContent("照片已过期");
+    case "messageExpiredVideo":
+      return serviceContent("视频已过期");
+    case "messageExpiredVideoNote":
+      return serviceContent("视频消息已过期");
+    case "messageExpiredVoiceNote":
+      return serviceContent("语音消息已过期");
+    case "messageEmpty":
+      return serviceContent("消息内容为空");
+    case "messageUnsupported":
+      return serviceContent("此消息类型当前无法显示");
+    default: {
+      const type = typeof content?.["@type"] === "string" ? content["@type"] : "unknown";
+      return serviceContent(`收到新类型消息（${type}）`);
+    }
   }
 };
 
 export const messagePreview = (value: unknown) => {
   const content = mapTdMessageContent(asTdObject(value)?.content ?? value);
-  return content.kind === "text" ? content.text : content.fileName;
+  return content.kind === "text" || content.kind === "service" ? content.text : content.fileName;
 };
 
 const messageSenderId = (value: unknown) => {

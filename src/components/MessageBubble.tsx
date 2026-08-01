@@ -83,6 +83,7 @@ export function MessageBubble({
   const [reactionPending, setReactionPending] = useState<string>();
   const [failedMediaSource, setFailedMediaSource] = useState<string>();
   const content = message.content;
+  const isService = content.kind === "service";
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = content.kind === "media" && Boolean(content.caption);
@@ -106,17 +107,22 @@ export function MessageBubble({
   const imageMediaSource = content.kind === "media" && (isVideoSticker || isTgsSticker)
     ? usablePreviewSource
     : usableFullMediaSource ?? usablePreviewSource;
-  const fileProgress = content.kind !== "text" && content.progress !== undefined
+  const fileProgress = (content.kind === "file" || content.kind === "media") && content.progress !== undefined
     ? `${Math.round(content.progress * 100)}%`
     : undefined;
-  const downloadFileId = content.kind !== "text" ? content.fileId : undefined;
-  const downloadFileName = content.kind !== "text" ? content.fileName : "";
-  const canDownload = content.kind !== "text" &&
+  const downloadFileId = content.kind === "file" || content.kind === "media"
+    ? content.fileId
+    : undefined;
+  const downloadFileName = content.kind === "file" || content.kind === "media"
+    ? content.fileName
+    : "";
+  const canDownload = (content.kind === "file" || content.kind === "media") &&
     downloadFileId !== undefined &&
     content.canDownload !== false &&
     !content.isDownloaded &&
     !content.isDownloading;
-  const canCancelUpload = content.kind !== "text" && content.isUploading === true;
+  const canCancelUpload = (content.kind === "file" || content.kind === "media") &&
+    content.isUploading === true;
   const lazyMediaFileId = content.kind === "media" && ["photo", "sticker"].includes(content.mediaType)
     ? content.fileId
     : undefined;
@@ -149,10 +155,10 @@ export function MessageBubble({
   return (
     <article
       ref={lazyMediaRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${selected ? "is-selected" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${isService ? "is-service" : ""} ${selected ? "is-selected" : ""}`}
       data-message-id={message.id}
     >
-      {selectionMode && (
+      {selectionMode && !isService && (
         <button
           className="message-selection-toggle"
           type="button"
@@ -171,25 +177,26 @@ export function MessageBubble({
         className="message-bubble-shell"
         onContextMenu={(event) => {
           event.preventDefault();
+          if (isService) return;
           if (selectionMode) void onToggleSelection(message);
           else void onOpenActions(message, event.clientX, event.clientY);
         }}
       >
         <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${hasCaption ? "has-caption" : ""}`}>
-          {forwardLabel && (
+          {!isService && forwardLabel && (
             <span className="message-forward-label">
               <Forward size={12} strokeWidth={2} />
               {forwardLabel}
             </span>
           )}
-          {showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
-          {replyPreview && (
+          {!isService && showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
+          {!isService && replyPreview && (
             <span className="message-reply-preview">
               <strong>{replyPreview.author}</strong>
               <small>{replyPreview.text}</small>
             </span>
           )}
-          {content.kind === "text" ? (
+          {content.kind === "text" || content.kind === "service" ? (
             <p>{content.text}</p>
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
@@ -310,7 +317,7 @@ export function MessageBubble({
               )}
             </div>
           )}
-          <span className="message-meta">
+          {!isService && <span className="message-meta">
             {message.editedAt && <span>已编辑</span>}
             <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
             {message.outgoing && (
@@ -322,9 +329,9 @@ export function MessageBubble({
                     </button>
                   ) : <Check size={14} strokeWidth={2.2} />
             )}
-          </span>
+          </span>}
         </div>
-        {!selectionMode && (
+        {!selectionMode && !isService && (
           <div className={`message-reactions ${reactions.length === 0 ? "is-empty" : ""}`}>
             {reactions.map((reaction) => {
               const label = reactionLabel(reaction);
@@ -381,7 +388,7 @@ export function MessageBubble({
             </div>
           </div>
         )}
-        {!selectionMode && <button
+        {!selectionMode && !isService && <button
           className="message-action-trigger"
           type="button"
           aria-label="消息操作"

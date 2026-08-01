@@ -54,6 +54,23 @@ describe("message grouping", () => {
       .toEqual(["single", "single", "single", "single"]);
   });
 
+  it("keeps service notices separate from adjacent messages", () => {
+    const service: Message = {
+      ...message("service", "mia", "2026-08-01T09:01:00+08:00"),
+      content: { kind: "service", text: "Mia 加入了群聊" },
+    };
+    const messages = [
+      message("1", "mia", "2026-08-01T09:00:00+08:00"),
+      service,
+      message("2", "mia", "2026-08-01T09:02:00+08:00"),
+    ];
+
+    expect(groupConsecutiveMessages(messages).map((group) => group.map(({ id }) => id)))
+      .toEqual([["1"], ["service"], ["2"]]);
+    expect(messages.map((_, index) => messageGroupPosition(messages, index)))
+      .toEqual(["single", "single", "single"]);
+  });
+
   it("formats bubble timestamps with seconds", () => {
     expect(formatMessageTime("2026-08-01T09:18:07+08:00")).toMatch(/:\d{2}:07$/);
   });

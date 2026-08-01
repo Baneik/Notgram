@@ -12,6 +12,8 @@ const localDay = (isoDate: string) => {
 const belongsToSameGroup = (left?: Message, right?: Message) => Boolean(
   left &&
   right &&
+  left.content.kind !== "service" &&
+  right.content.kind !== "service" &&
   left.senderId === right.senderId &&
   left.outgoing === right.outgoing &&
   localDay(left.sentAt) === localDay(right.sentAt),

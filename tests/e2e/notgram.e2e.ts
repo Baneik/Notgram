@@ -97,6 +97,60 @@ test("photo messages stay inside their aligned bubble at responsive widths", asy
   }
 });
 
+test("saved and direct messages align to the conversation edges", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: /收藏夹/ }).click();
+  const savedMessage = page.locator('[data-message-id="s-2"]');
+  await expect(savedMessage).toBeVisible();
+  await expect(savedMessage).toHaveClass(/is-outgoing/);
+
+  await page.getByRole("button", { name: /Mia Chen/ }).click();
+  await expect(page.locator(".message-group-avatar")).toHaveCount(0);
+  const alignment = await page.locator(".message-list").evaluate((list) => {
+    const content = list.querySelector<HTMLElement>(".message-list-content");
+    const incoming = list.querySelector<HTMLElement>('[data-message-id="m-1"] .message-bubble-shell');
+    const outgoing = list.querySelector<HTMLElement>('[data-message-id="m-2"] .message-bubble-shell');
+    if (!content || !incoming || !outgoing) return undefined;
+    const contentBounds = content.getBoundingClientRect();
+    const incomingBounds = incoming.getBoundingClientRect();
+    const outgoingBounds = outgoing.getBoundingClientRect();
+    const style = getComputedStyle(list);
+    return {
+      paddingLeft: style.paddingLeft,
+      paddingRight: style.paddingRight,
+      incomingOffset: incomingBounds.left - contentBounds.left,
+      outgoingOffset: contentBounds.right - outgoingBounds.right,
+    };
+  });
+  expect(alignment).toEqual({
+    paddingLeft: "10px",
+    paddingRight: "10px",
+    incomingOffset: 0,
+    outgoingOffset: 0,
+  });
+});
+
+test("group service messages render as centered notices", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  const notice = page.locator('[data-message-id="p-service"]');
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveClass(/is-service/);
+  await expect(notice.locator(".message-bubble")).toHaveText("Mia Chen 加入了群聊");
+  await expect(notice.locator(".message-meta, .message-action-trigger")).toHaveCount(0);
+  const centerDelta = await notice.evaluate((row) => {
+    const shell = row.querySelector<HTMLElement>(".message-bubble-shell");
+    if (!shell) return Number.POSITIVE_INFINITY;
+    const rowBounds = row.getBoundingClientRect();
+    const shellBounds = shell.getBoundingClientRect();
+    return Math.abs(
+      (rowBounds.left + rowBounds.right) / 2 - (shellBounds.left + shellBounds.right) / 2,
+    );
+  });
+  expect(centerDelta).toBeLessThanOrEqual(1);
+});
+
 test("conversation scroll state follows, restores, counts, and resets to latest", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-row")).not.toHaveCount(0);

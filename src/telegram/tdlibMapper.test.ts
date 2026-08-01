@@ -4,6 +4,7 @@ import {
   mapTdChatDraft,
   mapTdChatFolders,
   mapTdMessage,
+  mapTdMessageContent,
   mapTdMessageProperties,
   mapTdUser,
 } from "./tdlibMapper";
@@ -242,6 +243,66 @@ describe("TDLib mapper", () => {
       fileId: 18,
       width: 240,
       height: 240,
+    });
+  });
+
+  it("maps join events and other service messages to readable notices", () => {
+    const cases = [
+      [
+        { "@type": "messageChatAddMembers", member_user_ids: [7, 8] },
+        "2 位新成员加入了群聊",
+      ],
+      [
+        { "@type": "messageChatJoinByLink" },
+        "有成员通过邀请链接加入了群聊",
+      ],
+      [
+        { "@type": "messageChatJoinByRequest" },
+        "入群申请已通过",
+      ],
+      [
+        { "@type": "messageChatChangeTitle", title: "设计讨论" },
+        "群聊名称已更改：设计讨论",
+      ],
+      [
+        { "@type": "messagePinMessage" },
+        "置顶了一条消息",
+      ],
+      [
+        { "@type": "messageVideoChatStarted" },
+        "视频聊天已开始",
+      ],
+      [
+        { "@type": "messageExpiredPhoto" },
+        "照片已过期",
+      ],
+    ] as const;
+
+    for (const [content, text] of cases) {
+      expect(mapTdMessageContent(content)).toEqual({ kind: "service", text });
+    }
+  });
+
+  it("maps additional interactive content instead of using an unsupported placeholder", () => {
+    expect(mapTdMessageContent({
+      "@type": "messageContact",
+      contact: { first_name: "Mia", last_name: "Chen", phone_number: "+123" },
+    })).toEqual({ kind: "text", text: "联系人 · Mia Chen · +123" });
+    expect(mapTdMessageContent({
+      "@type": "messagePoll",
+      poll: { question: { "@type": "formattedText", text: "午餐吃什么？" } },
+    })).toEqual({ kind: "text", text: "投票：午餐吃什么？" });
+    expect(mapTdMessageContent({
+      "@type": "messageDice",
+      emoji: "🎲",
+      value: 6,
+    })).toEqual({ kind: "text", text: "🎲 6" });
+  });
+
+  it("keeps future TDLib message types diagnosable", () => {
+    expect(mapTdMessageContent({ "@type": "messageFutureType" })).toEqual({
+      kind: "service",
+      text: "收到新类型消息（messageFutureType）",
     });
   });
 

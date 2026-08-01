@@ -214,7 +214,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   align-items: center; gap: 9px; color: #858c91; background: #ffffff; border-bottom: 1px solid var(--line);
 }
 .message-list-shell { position: relative; min-height: 0; overflow: hidden; }
-.message-list { height: 100%; min-height: 0; padding: 20px clamp(16px, 4vw, 58px) 10px; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #9ba9a5 transparent; }
+.message-list { height: 100%; min-height: 0; padding: 20px 10px 10px; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #9ba9a5 transparent; }
 .message-list:focus-visible { outline: 2px solid rgba(51, 144, 236, 0.55); outline-offset: -2px; }
 .message-list-content { min-height: 100%; }
 .jump-to-latest {
@@ -271,6 +271,14 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .is-incoming.group-single .message-bubble:not(.is-photo)::after { left: -4px; clip-path: polygon(100% 0, 100% 100%, 0 100%); }
 .is-outgoing.group-last .message-bubble:not(.is-photo)::after,
 .is-outgoing.group-single .message-bubble:not(.is-photo)::after { right: -4px; clip-path: polygon(0 0, 100% 100%, 0 100%); }
+.message-row.is-service { justify-content: center; margin: 5px 0; }
+.message-row.is-service .message-bubble-shell { max-width: min(82%, 560px); }
+.message-row.is-service .message-bubble {
+  padding: 4px 9px; color: #ffffff; background: rgba(92, 117, 112, 0.78);
+  border-radius: 12px; box-shadow: none; text-align: center;
+}
+.message-row.is-service .message-bubble::after { display: none; }
+.message-row.is-service .message-bubble p { font-size: 11px; line-height: 1.35; }
 .message-action-trigger {
   position: absolute; top: 2px; width: 30px; height: 30px; padding: 0; display: grid; place-items: center;
   opacity: 0; color: #667077; background: rgba(255, 255, 255, 0.86); border: 0; border-radius: 50%;

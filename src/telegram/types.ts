@@ -94,6 +94,7 @@ interface TransferableMessageContent {
 
 export type MessageContent =
   | { kind: "text"; text: string }
+  | { kind: "service"; text: string }
   | ({ kind: "file" } & TransferableMessageContent)
   | ({
       kind: "media";

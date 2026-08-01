@@ -223,16 +223,23 @@ export function Conversation({
     }
   };
 
+  const displayMessages = useMemo(
+    () => chat?.kind === "saved"
+      ? messages.map((message) => message.outgoing ? message : { ...message, outgoing: true })
+      : messages,
+    [chat?.kind, messages],
+  );
+
   const visibleMessages = useMemo(() => {
     const query = messageSearch.trim().toLocaleLowerCase();
-    if (!query) return messages;
-    return messages.filter((message) => {
-      if (message.content.kind !== "text") {
+    if (!query) return displayMessages;
+    return displayMessages.filter((message) => {
+      if (message.content.kind === "file" || message.content.kind === "media") {
         return message.content.fileName.toLocaleLowerCase().includes(query);
       }
       return message.content.text.toLocaleLowerCase().includes(query);
     });
-  }, [messageSearch, messages]);
+  }, [displayMessages, messageSearch]);
 
   const visibleMessageGroups = useMemo(
     () => groupConsecutiveMessages(visibleMessages),
@@ -240,8 +247,8 @@ export function Conversation({
   );
 
   const messagesById = useMemo(
-    () => new Map(messages.map((message) => [message.id, message])),
-    [messages],
+    () => new Map(displayMessages.map((message) => [message.id, message])),
+    [displayMessages],
   );
 
   const filteredForwardTargets = useMemo(() => {
@@ -831,7 +838,8 @@ export function Conversation({
             const previousMessage = visibleMessageGroups[groupIndex - 1]?.[0];
             const startsNewDay = !previousMessage ||
               localDateKey(previousMessage.sentAt) !== localDateKey(firstMessage.sentAt);
-            const showSenderAvatar = !firstMessage.outgoing && chat.kind !== "direct";
+            const showSenderAvatar = firstMessage.content.kind !== "service" &&
+              !firstMessage.outgoing && chat.kind !== "direct";
             const sender = users.get(firstMessage.senderId);
             const senderName = sender?.displayName ??
               (chat.kind === "direct" ? chat.title : "Telegram 用户");
@@ -1286,7 +1294,7 @@ const replyPreviewFor = (
 };
 
 const messageSummary = (content: MessageContent) => {
-  const raw = content.kind === "text"
+  const raw = content.kind === "text" || content.kind === "service"
     ? content.text
     : content.caption || content.fileName;
   const normalized = raw.replace(/\s+/g, " ").trim();

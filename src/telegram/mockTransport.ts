@@ -234,7 +234,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (!normalized) return 0;
     const matches = this.snapshot.messages.filter((message) => {
       if (message.chatId !== chatId) return false;
-      const searchable = message.content.kind === "text"
+      const searchable = message.content.kind === "text" || message.content.kind === "service"
         ? message.content.text
         : `${message.content.fileName} ${message.content.caption ?? ""}`;
       return searchable.toLocaleLowerCase().includes(normalized);
@@ -507,7 +507,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const updatedChat: Chat = {
       ...chat,
       preview:
-        message.content.kind === "text"
+        message.content.kind === "text" || message.content.kind === "service"
           ? message.content.text
           : message.content.fileName,
       updatedAt: message.sentAt,
@@ -526,7 +526,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (!latest) return;
     const updatedChat: Chat = {
       ...chat,
-      preview: latest.content.kind === "text"
+      preview: latest.content.kind === "text" || latest.content.kind === "service"
         ? latest.content.text
         : latest.content.caption || latest.content.fileName,
       updatedAt: latest.sentAt,

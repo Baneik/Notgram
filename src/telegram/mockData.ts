@@ -119,6 +119,15 @@ const olderProductMessages: Message[] = Array.from({ length: 36 }, (_, index) =>
 const messages: Message[] = [
   ...olderProductMessages,
   {
+    id: "p-service",
+    chatId: "chat-product",
+    senderId: "u-mia",
+    outgoing: false,
+    sentAt: "2026-08-01T09:17:00+08:00",
+    delivery: "read",
+    content: { kind: "service", text: "Mia Chen 加入了群聊" },
+  },
+  {
     id: "p-1",
     chatId: "chat-product",
     senderId: "u-jules",
@@ -210,6 +219,15 @@ const messages: Message[] = [
     sentAt: "2026-08-01T09:32:00+08:00",
     delivery: "read",
     content: { kind: "text", text: "那我们下午三点对一下细节。" },
+  },
+  {
+    id: "s-2",
+    chatId: "chat-saved",
+    senderId: "self",
+    outgoing: false,
+    sentAt: "2026-08-01T08:16:00+08:00",
+    delivery: "read",
+    content: { kind: "text", text: "收藏夹方向测试" },
   },
   {
     id: "s-1",
