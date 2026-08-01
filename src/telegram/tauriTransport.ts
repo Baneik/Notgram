@@ -62,6 +62,7 @@ type CachedFileDownload = {
   priority: number;
   resolve: () => void;
   reject: (reason: Error) => void;
+  stallTimer?: ReturnType<typeof globalThis.setTimeout>;
 };
 
 const numericId = (id: string) => {
@@ -96,6 +97,7 @@ const chatListKey = (value: unknown) => tdChatListId(value);
 
 const MAX_CONSECUTIVE_HISTORY_STALLS = 3;
 const MAX_CACHE_DOWNLOADS = 4;
+const CACHE_DOWNLOAD_STALL_MS = 45_000;
 
 const replaceFileReference = (
   value: unknown,
@@ -622,6 +624,12 @@ export class TauriTelegramTransport implements TelegramTransport {
       const download = this.cacheDownloadQueue.shift();
       if (!download) return;
       this.activeCacheDownloads.set(download.fileId, download);
+      download.stallTimer = globalThis.setTimeout(() => {
+        this.finishCacheDownload(
+          download.fileId,
+          new Error("TDLib preview download stalled"),
+        );
+      }, CACHE_DOWNLOAD_STALL_MS);
       void this.request({
         "@type": "downloadFile",
         file_id: download.fileId,
@@ -654,6 +662,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private finishCacheDownload(fileId: number, error?: Error) {
     const download = this.activeCacheDownloads.get(fileId);
     if (!download) return;
+    if (download.stallTimer !== undefined) globalThis.clearTimeout(download.stallTimer);
     this.activeCacheDownloads.delete(fileId);
     this.cacheDownloadPromises.delete(fileId);
     if (error) download.reject(error);
@@ -895,16 +904,14 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.patchChat(update.chat_id, { photo: update.photo });
         return;
       case "updateChatLastMessage":
-        this.patchChat(update.chat_id, {
+        this.patchChatWithPositions(update.chat_id, {
           last_message: update.last_message,
-          positions: update.positions,
-        });
+        }, update.positions);
         return;
       case "updateChatDraftMessage":
-        this.patchChat(update.chat_id, {
+        this.patchChatWithPositions(update.chat_id, {
           draft_message: update.draft_message,
-          positions: update.positions,
-        });
+        }, update.positions);
         this.emitDraft(update.chat_id, update.draft_message);
         return;
       case "updateChatPosition":
@@ -1119,6 +1126,25 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (current) this.upsertChat({ ...current, ...patch });
   }
 
+  private patchChatWithPositions(
+    idValue: unknown,
+    patch: TdObject,
+    positionsValue: unknown,
+  ) {
+    const id = tdId(idValue);
+    const current = this.rawChats.get(id);
+    if (!current) return;
+    const positions = asTdObjects(positionsValue);
+    this.upsertChat({
+      ...current,
+      ...patch,
+      // TDLib can transiently send an empty positions array while a chat update
+      // is followed by updateChatPosition. Keep the last stable list state until
+      // that authoritative per-list update arrives.
+      positions: positions.length > 0 ? positions : current.positions,
+    });
+  }
+
   private updateChatPosition(update: TdObject) {
     const id = tdId(update.chat_id);
     const current = this.rawChats.get(id);
@@ -1149,7 +1175,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     const fileId = tdNumber(file?.id);
     if (!file || fileId === undefined) return;
     const local = asTdObject(file.local);
-    if (local?.is_downloading_completed === true) this.finishCacheDownload(fileId);
+    if (local?.is_downloading_completed === true) {
+      this.finishCacheDownload(fileId);
+    } else if (
+      this.activeCacheDownloads.has(fileId) &&
+      local?.is_downloading_active === false
+    ) {
+      this.finishCacheDownload(fileId, new Error("TDLib preview download stopped"));
+    }
 
     for (const raw of [...this.rawChats.values()]) {
       const photo = asTdObject(raw.photo);
@@ -1358,7 +1391,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.exhaustedChatLists.clear();
     const sessionError = new Error("TDLib session was reset");
     for (const download of this.cacheDownloadQueue) download.reject(sessionError);
-    for (const download of this.activeCacheDownloads.values()) download.reject(sessionError);
+    for (const download of this.activeCacheDownloads.values()) {
+      if (download.stallTimer !== undefined) globalThis.clearTimeout(download.stallTimer);
+      download.reject(sessionError);
+    }
     this.cacheDownloadQueue = [];
     this.activeCacheDownloads.clear();
     this.cacheDownloadPromises.clear();

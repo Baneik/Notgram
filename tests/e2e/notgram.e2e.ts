@@ -63,6 +63,40 @@ test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("photo messages stay inside their aligned bubble at responsive widths", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  const photoRow = page.locator('[data-message-id="p-5"]');
+  await expect(photoRow).toBeVisible();
+
+  for (const viewport of [
+    { width: 1220, height: 780 },
+    { width: 680, height: 620 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await photoRow.scrollIntoViewIfNeeded();
+    const aligned = await photoRow.evaluate((row) => {
+      const shell = row.querySelector<HTMLElement>(".message-bubble-shell");
+      const media = row.querySelector<HTMLElement>(".photo-message");
+      const image = row.querySelector<HTMLElement>(".photo-preview img");
+      const stack = row.closest<HTMLElement>(".message-group-stack");
+      if (!shell || !media || !image || !stack) return false;
+      const shellBounds = shell.getBoundingClientRect();
+      const mediaBounds = media.getBoundingClientRect();
+      const imageBounds = image.getBoundingClientRect();
+      const stackBounds = stack.getBoundingClientRect();
+      const within = (inner: DOMRect, outer: DOMRect) =>
+        inner.left >= outer.left - 1 && inner.right <= outer.right + 1;
+      return within(shellBounds, stackBounds) &&
+        within(mediaBounds, shellBounds) &&
+        Math.abs(imageBounds.left - mediaBounds.left) <= 1 &&
+        Math.abs(imageBounds.right - mediaBounds.right) <= 1;
+    });
+    expect(aligned).toBe(true);
+  }
+});
+
 test("conversation scroll state follows, restores, counts, and resets to latest", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-row")).not.toHaveCount(0);

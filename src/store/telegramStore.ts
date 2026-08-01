@@ -1303,11 +1303,9 @@ export const createTelegramStore = (
       },
 
       cacheFile: async (fileId, priority) => {
-        try {
-          await transport.cacheFile(fileId, priority);
-        } catch {
-          // Preview caching is opportunistic and must not surface as a runtime error.
-        }
+        // Callers retry opportunistic preview downloads without surfacing a
+        // global runtime error, so preserve the rejection signal here.
+        await transport.cacheFile(fileId, priority);
       },
 
       downloadFile: async (fileId, fileName) => {

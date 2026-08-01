@@ -132,6 +132,19 @@ const thumbnailPath = (value: unknown) => {
   return localImagePath(thumbnail?.file);
 };
 
+const stickerMimeType = (value: unknown) => {
+  switch (asTdObject(value)?.["@type"]) {
+    case "stickerFormatWebm":
+      return "video/webm";
+    case "stickerFormatTgs":
+      return "application/x-tgsticker";
+    case "stickerFormatWebp":
+      return "image/webp";
+    default:
+      return undefined;
+  }
+};
+
 const fileContent = (
   fileName: string,
   file: unknown,
@@ -281,6 +294,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
       const emoji = typeof sticker?.emoji === "string" ? sticker.emoji : "";
       return mediaContent("sticker", emoji || "贴纸", sticker?.sticker, {
         thumbnailPath: thumbnailPath(sticker?.thumbnail),
+        mimeType: stickerMimeType(sticker?.format),
         width: tdNumber(sticker?.width),
         height: tdNumber(sticker?.height),
       });

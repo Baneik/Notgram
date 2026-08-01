@@ -20,6 +20,7 @@ import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction, User } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
+import { TgsSticker } from "./TgsSticker";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
 
@@ -80,6 +81,7 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [reactionPending, setReactionPending] = useState<string>();
+  const [failedMediaSource, setFailedMediaSource] = useState<string>();
   const content = message.content;
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
@@ -89,6 +91,21 @@ export function MessageBubble({
   const previewSource = content.kind === "media"
     ? localSource(content.thumbnailPath) ?? content.previewDataUrl
     : undefined;
+  const usableFullMediaSource = fullMediaSource === failedMediaSource
+    ? undefined
+    : fullMediaSource;
+  const usablePreviewSource = previewSource === failedMediaSource
+    ? undefined
+    : previewSource;
+  const isVideoSticker = content.kind === "media" && content.mediaType === "sticker" && (
+    content.mimeType === "video/webm" || /\.webm(?:$|[?#])/i.test(content.localPath ?? "")
+  );
+  const isTgsSticker = content.kind === "media" && content.mediaType === "sticker" && (
+    content.mimeType === "application/x-tgsticker" || /\.tgs(?:$|[?#])/i.test(content.localPath ?? "")
+  );
+  const imageMediaSource = content.kind === "media" && (isVideoSticker || isTgsSticker)
+    ? usablePreviewSource
+    : usableFullMediaSource ?? usablePreviewSource;
   const fileProgress = content.kind !== "text" && content.progress !== undefined
     ? `${Math.round(content.progress * 100)}%`
     : undefined;
@@ -182,23 +199,50 @@ export function MessageBubble({
                   ? { aspectRatio: `${content.width} / ${content.height}` }
                   : undefined}
               >
-                {fullMediaSource && ["video", "videoNote"].includes(content.mediaType) ? (
-                  <video src={fullMediaSource} poster={previewSource} controls preload="metadata" playsInline />
-                ) : fullMediaSource && content.mediaType === "animation" ? (
+                {usableFullMediaSource && ["video", "videoNote"].includes(content.mediaType) ? (
                   <video
-                    src={fullMediaSource}
-                    poster={previewSource}
+                    src={usableFullMediaSource}
+                    poster={usablePreviewSource}
+                    controls
+                    preload="metadata"
+                    playsInline
+                    onError={() => setFailedMediaSource(usableFullMediaSource)}
+                  />
+                ) : usableFullMediaSource && isVideoSticker ? (
+                  <video
+                    src={usableFullMediaSource}
+                    poster={usablePreviewSource}
                     autoPlay={autoplayAnimations}
                     loop
                     muted
                     playsInline
+                    aria-label={content.caption || content.fileName}
+                    onError={() => setFailedMediaSource(usableFullMediaSource)}
                   />
-                ) : fullMediaSource || previewSource ? (
+                ) : usableFullMediaSource && isTgsSticker ? (
+                  <TgsSticker
+                    src={usableFullMediaSource}
+                    label={content.caption || content.fileName}
+                    autoplay={autoplayAnimations}
+                    onError={() => setFailedMediaSource(usableFullMediaSource)}
+                  />
+                ) : usableFullMediaSource && content.mediaType === "animation" ? (
+                  <video
+                    src={usableFullMediaSource}
+                    poster={usablePreviewSource}
+                    autoPlay={autoplayAnimations}
+                    loop
+                    muted
+                    playsInline
+                    onError={() => setFailedMediaSource(usableFullMediaSource)}
+                  />
+                ) : imageMediaSource ? (
                   <img
-                    src={fullMediaSource ?? previewSource}
+                    src={imageMediaSource}
                     alt={content.caption || content.fileName}
                     loading="lazy"
                     decoding="async"
+                    onError={() => setFailedMediaSource(imageMediaSource)}
                   />
                 ) : (
                   <span className="photo-placeholder" aria-label="媒体正在加载">

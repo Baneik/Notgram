@@ -208,6 +208,7 @@ describe("TDLib mapper", () => {
           emoji: "🙂",
           width: 512,
           height: 512,
+          format: { "@type": "stickerFormatWebm" },
           sticker: { id: 17, size: 2048, local: { can_be_downloaded: true } },
         },
       },
@@ -231,6 +232,7 @@ describe("TDLib mapper", () => {
       mediaType: "sticker",
       fileName: "🙂",
       fileId: 17,
+      mimeType: "video/webm",
       width: 512,
       height: 512,
     });

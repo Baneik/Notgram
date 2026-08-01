@@ -140,6 +140,46 @@ describe("TauriTelegramTransport startup", () => {
       limit: 40,
     });
   });
+
+  it("keeps a pinned position across transient empty position updates", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    const chat = rawChat(7, 1_700_000_007);
+    chat.positions = [{
+      list: { "@type": "chatListMain" },
+      order: "1700000007",
+      is_pinned: true,
+    }];
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat(chat);
+    internal.finishInitialChatSync();
+
+    internal.handleUpdate({
+      "@type": "updateChatDraftMessage",
+      chat_id: 7,
+      draft_message: null,
+      positions: [],
+    });
+    expect(events.at(-2)).toMatchObject({
+      type: "chat.upsert",
+      chat: { id: "7", pinned: true },
+    });
+
+    internal.handleUpdate({
+      "@type": "updateChatPosition",
+      chat_id: 7,
+      position: {
+        list: { "@type": "chatListMain" },
+        order: "1700000007",
+        is_pinned: false,
+      },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "chat.upsert",
+      chat: { id: "7", pinned: false },
+    });
+  });
 });
 
 describe("TauriTelegramTransport message operations", () => {
@@ -964,5 +1004,49 @@ describe("TauriTelegramTransport avatars", () => {
     });
     await Promise.resolve();
     expect(requests).toHaveLength(5);
+  });
+
+  it("releases a stopped preview download so it can be retried", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.listener = () => undefined;
+    internal.request = async (request) => {
+      requests.push(request);
+      const completed = requests.length > 1;
+      return {
+        "@type": "file",
+        id: request.file_id,
+        local: {
+          can_be_downloaded: true,
+          is_downloading_active: !completed,
+          is_downloading_completed: completed,
+          path: completed ? "C:\\cache\\44.webp" : "",
+        },
+        remote: {},
+      };
+    };
+
+    const firstDownload = internal.cacheFile(44);
+    const firstResult = expect(firstDownload).rejects.toThrow("stopped");
+    await Promise.resolve();
+    await Promise.resolve();
+    internal.handleUpdate({
+      "@type": "updateFile",
+      file: {
+        "@type": "file",
+        id: 44,
+        local: {
+          can_be_downloaded: true,
+          is_downloading_active: false,
+          is_downloading_completed: false,
+        },
+        remote: {},
+      },
+    });
+    await firstResult;
+
+    await expect(internal.cacheFile(44)).resolves.toBeUndefined();
+    expect(requests).toHaveLength(2);
   });
 });
