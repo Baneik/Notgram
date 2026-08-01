@@ -71,6 +71,21 @@ interface ConversationProps {
   onBack: () => void;
 }
 
+const COMPOSER_TEXTAREA_MIN_HEIGHT = 40;
+const COMPOSER_TEXTAREA_MAX_HEIGHT = 290;
+
+const resizeComposerInput = (input: HTMLTextAreaElement) => {
+  input.style.height = `${COMPOSER_TEXTAREA_MIN_HEIGHT}px`;
+  const contentHeight = input.scrollHeight;
+  input.style.height = `${Math.min(
+    COMPOSER_TEXTAREA_MAX_HEIGHT,
+    Math.max(COMPOSER_TEXTAREA_MIN_HEIGHT, contentHeight),
+  )}px`;
+  input.style.overflowY = contentHeight > COMPOSER_TEXTAREA_MAX_HEIGHT
+    ? "auto"
+    : "hidden";
+};
+
 export function Conversation({
   chat,
   messages,
@@ -172,6 +187,20 @@ export function Conversation({
   );
 
   const selectionMode = selectedMessageIds.size > 0;
+
+  useLayoutEffect(() => {
+    const input = composerInputRef.current;
+    if (!input || selectionMode) return;
+    resizeComposerInput(input);
+  }, [chat?.id, draft, selectionMode]);
+
+  useEffect(() => {
+    const input = composerInputRef.current;
+    if (!input || selectionMode) return;
+    const observer = new ResizeObserver(() => resizeComposerInput(input));
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [chat?.id, selectionMode]);
 
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
