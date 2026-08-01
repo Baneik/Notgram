@@ -178,15 +178,24 @@ describe("telegram store", () => {
     expect(transport.historyRequests).toBe(1);
   });
 
-  it("removes a disconnected cached segment after confirming recent server history", async () => {
-    const disconnectedMessage: Message = {
-      id: "1",
+  it("only removes cached messages inside the confirmed server window", async () => {
+    const missingMessage: Message = {
+      id: "75",
+      chatId: "chat-product",
+      senderId: "u-jules",
+      outgoing: false,
+      sentAt: "2026-08-01T11:15:00+08:00",
+      delivery: "read",
+      content: { kind: "text", text: "deleted inside confirmed window" },
+    };
+    const olderMessage: Message = {
+      id: "10",
       chatId: "chat-product",
       senderId: "u-jules",
       outgoing: false,
       sentAt: "2026-08-01T01:00:00+08:00",
       delivery: "read",
-      content: { kind: "text", text: "stale cached boundary" },
+      content: { kind: "text", text: "older cached history" },
     };
     const cachedSnapshot: CachedTelegramSnapshot = {
       version: 1,
@@ -195,7 +204,7 @@ describe("telegram store", () => {
       users: structuredClone(mockSnapshot.users),
       folders: structuredClone(mockSnapshot.folders),
       chats: structuredClone(mockSnapshot.chats),
-      messages: [disconnectedMessage],
+      messages: [olderMessage, missingMessage],
       activeChatId: "chat-product",
       chatFilter: "main",
     };
@@ -212,20 +221,21 @@ describe("telegram store", () => {
       override async loadChatHistory() {
         const newestId = this.historyRequests === 0 ? 100 : 70;
         this.historyRequests += 1;
-        const page = Array.from({ length: 30 }, (_, index) => {
-          const id = newestId - index;
-          const message: Message = {
-            id: String(id),
-            chatId: "chat-product",
-            senderId: "u-jules",
-            outgoing: false,
-            sentAt: new Date(Date.UTC(2026, 7, 1, 10, id)).toISOString(),
-            delivery: "read",
-            content: { kind: "text", text: `server message ${id}` },
-          };
-          this.eventListener?.({ type: "message.upsert", message });
-          return message;
-        });
+        const page = Array.from({ length: 30 }, (_, index) => newestId - index)
+          .filter((id) => id !== 75)
+          .map((id) => {
+            const message: Message = {
+              id: String(id),
+              chatId: "chat-product",
+              senderId: "u-jules",
+              outgoing: false,
+              sentAt: new Date(Date.UTC(2026, 7, 1, 10, id)).toISOString(),
+              delivery: "read",
+              content: { kind: "text", text: `server message ${id}` },
+            };
+            this.eventListener?.({ type: "message.upsert", message });
+            return message;
+          });
         return {
           loadedCount: page.length,
           hasMore: true,
@@ -241,14 +251,15 @@ describe("telegram store", () => {
     const messages = store.getState().messages.get("chat-product") ?? [];
     expect(transport.historyRequests).toBe(2);
     expect(messages).toHaveLength(60);
-    expect(messages.some((message) => message.id === disconnectedMessage.id)).toBe(false);
+    expect(messages.some((message) => message.id === missingMessage.id)).toBe(false);
+    expect(messages.some((message) => message.id === olderMessage.id)).toBe(true);
     expect(messages.map((message) => message.id)).toContain("100");
     expect(messages.map((message) => message.id)).toContain("41");
   });
 
-  it("keeps cached history when the server confirmation window is incomplete", async () => {
+  it("keeps older cached history until the server window reaches it", async () => {
     const cachedMessages = Array.from({ length: 12 }, (_, index): Message => ({
-      id: `cached-${index}`,
+      id: String(index + 1),
       chatId: "chat-product",
       senderId: "u-jules",
       outgoing: false,
@@ -284,11 +295,12 @@ describe("telegram store", () => {
       }
 
       override async loadChatHistory() {
+        const newestId = this.requests === 0 ? 100 : 70;
         this.requests += 1;
         return {
-          loadedCount: 0,
+          loadedCount: 30,
           hasMore: true,
-          messageIds: ["unconfirmed-server-message"],
+          messageIds: Array.from({ length: 30 }, (_, index) => String(newestId - index)),
         };
       }
     }

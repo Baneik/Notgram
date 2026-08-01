@@ -114,6 +114,51 @@ const messageMapFrom = (messages: Message[]) => {
   return result;
 };
 
+const numericMessageId = (messageId: string) => {
+  if (!/^-?\d+$/.test(messageId)) return undefined;
+  try {
+    return BigInt(messageId);
+  } catch {
+    return undefined;
+  }
+};
+
+const reconcileCachedMessageWindow = (
+  messages: Message[],
+  pendingCachedIds: Set<string>,
+  confirmedIds: Set<string>,
+) => {
+  const confirmedNumericIds = [...confirmedIds]
+    .map(numericMessageId)
+    .filter((messageId): messageId is bigint => messageId !== undefined);
+  const oldestConfirmedId = confirmedNumericIds.length > 0
+    ? confirmedNumericIds.reduce((oldest, messageId) => messageId < oldest ? messageId : oldest)
+    : undefined;
+  const newestConfirmedId = confirmedNumericIds.length > 0
+    ? confirmedNumericIds.reduce((newest, messageId) => messageId > newest ? messageId : newest)
+    : undefined;
+  const remainingCachedIds = new Set(pendingCachedIds);
+  const reconciledMessages = messages.filter((message) => {
+    if (!pendingCachedIds.has(message.id)) return true;
+    if (confirmedIds.has(message.id)) {
+      remainingCachedIds.delete(message.id);
+      return true;
+    }
+
+    const messageId = numericMessageId(message.id);
+    const coveredByServerWindow =
+      messageId !== undefined &&
+      oldestConfirmedId !== undefined &&
+      newestConfirmedId !== undefined &&
+      messageId >= oldestConfirmedId &&
+      messageId <= newestConfirmedId;
+    if (!coveredByServerWindow) return true;
+    remainingCachedIds.delete(message.id);
+    return false;
+  });
+  return { messages: reconciledMessages, pendingCachedIds: remainingCachedIds };
+};
+
 const compareChats = (left: Chat, right: Chat) =>
   Number(right.pinned) - Number(left.pinned) ||
   new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() ||
@@ -122,7 +167,6 @@ const compareChats = (left: Chat, right: Chat) =>
 const CACHE_VERSION = 1 as const;
 const MAX_CACHED_MESSAGES_PER_CHAT = 60;
 const MAX_CACHED_MESSAGES = 5_000;
-const CACHE_CONTINUITY_WINDOW = 30;
 const DRAFT_SYNC_DELAY_MS = 450;
 const DRAFT_ACK_TIMEOUT_MS = 5_000;
 const DRAFT_RETRY_DELAYS_MS = [1_000, 2_500, 5_000] as const;
@@ -495,23 +539,21 @@ export const createTelegramStore = (
             };
           }
 
-          const confirmedCachedCount = [...pendingCachedIds].filter(
-            (messageId) => confirmedIds.has(messageId),
-          ).length;
-          const continuityConfirmed =
-            confirmedIds.size >= CACHE_CONTINUITY_WINDOW ||
-            (!page.hasMore && confirmedCachedCount === pendingCachedIds.size);
-          if (continuityConfirmed) {
-            const currentMessages = get().messages.get(chatId) ?? [];
-            const contiguousMessages = currentMessages.filter(
-              (message) => !pendingCachedIds.has(message.id) || confirmedIds.has(message.id),
-            );
-            if (contiguousMessages.length !== currentMessages.length) {
-              const nextMessages = new Map(get().messages);
-              nextMessages.set(chatId, contiguousMessages);
-              set({ messages: nextMessages });
-            }
+          const currentMessages = get().messages.get(chatId) ?? [];
+          const reconciled = reconcileCachedMessageWindow(
+            currentMessages,
+            pendingCachedIds,
+            confirmedIds,
+          );
+          if (reconciled.messages.length !== currentMessages.length) {
+            const nextMessages = new Map(get().messages);
+            nextMessages.set(chatId, reconciled.messages);
+            set({ messages: nextMessages });
+          }
+          if (reconciled.pendingCachedIds.size === 0) {
             cachedMessageIds.delete(chatId);
+          } else {
+            cachedMessageIds.set(chatId, reconciled.pendingCachedIds);
           }
         }
         const nextHistories = new Map(get().histories);

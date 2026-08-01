@@ -585,6 +585,7 @@ export function Conversation({
         ) : (
           visibleMessageGroups.map((messageGroup) => {
             const firstMessage = messageGroup[0];
+            const showSenderAvatar = !firstMessage.outgoing && chat.kind !== "direct";
             const sender = users.get(firstMessage.senderId);
             const senderName = sender?.displayName ??
               (chat.kind === "direct" ? chat.title : "Telegram 用户");
@@ -595,7 +596,7 @@ export function Conversation({
                 className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
                 key={firstMessage.id}
               >
-                {!firstMessage.outgoing && (
+                {showSenderAvatar && (
                   <span className="message-group-avatar">
                     <Avatar
                       avatar={senderAvatar ?? {
