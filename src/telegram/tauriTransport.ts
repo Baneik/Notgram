@@ -87,6 +87,8 @@ const chatListObject = (chatListId: string): TdObject => {
 
 const chatListKey = (value: unknown) => tdChatListId(value);
 
+const MAX_CONSECUTIVE_HISTORY_STALLS = 3;
+
 const replaceFileReference = (
   value: unknown,
   fileId: number,
@@ -174,8 +176,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   private rawMessages = new Map<string, Map<string, TdObject>>();
   private exhaustedHistories = new Set<string>();
   private historyCursors = new Map<string, number>();
-  private historyStalls = new Map<string, number>();
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
+  private pendingReplyHydrations = new Map<string, symbol>();
+  private unavailableReplyHydrations = new Set<string>();
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
   private exhaustedChatLists = new Set<string>();
@@ -620,7 +623,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     const returnedIds = new Set<string>();
     let cursor = this.historyCursors.get(chatId) ?? 0;
     let requestCount = 0;
-    const maxRequestCount = targetCount + 2;
+    let consecutiveStalls = 0;
+    const maxRequestCount = targetCount + MAX_CONSECUTIVE_HISTORY_STALLS + 2;
 
     while (loadedCount < targetCount && requestCount < maxRequestCount) {
       requestCount += 1;
@@ -635,7 +639,6 @@ export class TauriTelegramTransport implements TelegramTransport {
       const rawPage = asTdObjects(response.messages);
       if (rawPage.length === 0) {
         this.exhaustedHistories.add(chatId);
-        this.historyStalls.delete(chatId);
         break;
       }
 
@@ -655,18 +658,16 @@ export class TauriTelegramTransport implements TelegramTransport {
       const nextCursor = tdNumber(rawPage.at(-1)?.id);
       if (!nextCursor) {
         this.exhaustedHistories.add(chatId);
-        this.historyStalls.delete(chatId);
         break;
       }
       if (nextCursor === cursor) {
-        const stalls = (this.historyStalls.get(chatId) ?? 0) + 1;
-        this.historyStalls.set(chatId, stalls);
-        if (stalls >= 2) this.exhaustedHistories.add(chatId);
-        break;
+        consecutiveStalls += 1;
+        if (consecutiveStalls >= MAX_CONSECUTIVE_HISTORY_STALLS) break;
+        continue;
       }
       this.historyCursors.set(chatId, nextCursor);
-      this.historyStalls.delete(chatId);
       cursor = nextCursor;
+      consecutiveStalls = 0;
     }
 
     return {
@@ -1188,6 +1189,99 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.set(message.chatId, chatMessages);
     this.listener?.({ type: "message.upsert", message });
     this.ensureDisplayMedia(message);
+    this.ensureReplyContent(raw);
+  }
+
+  private ensureReplyContent(raw: TdObject) {
+    const chatId = tdId(raw.chat_id);
+    const messageId = tdId(raw.id);
+    const reply = asTdObject(raw.reply_to);
+    const repliedMessageId = tdId(reply?.message_id);
+    if (
+      !chatId ||
+      !messageId ||
+      reply?.["@type"] !== "messageReplyToMessage" ||
+      !repliedMessageId ||
+      repliedMessageId === "0" ||
+      asTdObject(reply.content)
+    ) {
+      return;
+    }
+
+    const quote = asTdObject(asTdObject(reply.quote)?.text);
+    if (typeof quote?.text === "string" && quote.text.trim()) return;
+
+    const repliedChatId = tdId(reply.chat_id) || chatId;
+    const key = `${chatId}:${messageId}:${repliedChatId}:${repliedMessageId}`;
+    if (this.pendingReplyHydrations.has(key) || this.unavailableReplyHydrations.has(key)) {
+      return;
+    }
+
+    const token = Symbol(key);
+    this.pendingReplyHydrations.set(key, token);
+    void Promise.resolve()
+      .then(async () => {
+        const current = this.rawMessages.get(chatId)?.get(messageId);
+        const currentReply = asTdObject(current?.reply_to);
+        if (
+          !current ||
+          currentReply?.["@type"] !== "messageReplyToMessage" ||
+          asTdObject(currentReply.content)
+        ) {
+          return;
+        }
+
+        const currentRepliedMessageId = tdId(currentReply.message_id);
+        const currentRepliedChatId = tdId(currentReply.chat_id) || chatId;
+        if (
+          currentRepliedMessageId !== repliedMessageId ||
+          currentRepliedChatId !== repliedChatId
+        ) {
+          return;
+        }
+
+        const known = this.rawMessages.get(repliedChatId)?.get(repliedMessageId);
+        const replied = known ?? await this.request({
+          "@type": "getRepliedMessage",
+          chat_id: numericId(chatId),
+          message_id: numericId(messageId),
+        });
+        if (replied["@type"] !== "message" || !asTdObject(replied.content)) {
+          this.unavailableReplyHydrations.add(key);
+          return;
+        }
+
+        const latest = this.rawMessages.get(chatId)?.get(messageId);
+        const latestReply = asTdObject(latest?.reply_to);
+        if (!latest || latestReply?.["@type"] !== "messageReplyToMessage") return;
+        if (
+          tdId(latestReply.message_id) !== repliedMessageId ||
+          (tdId(latestReply.chat_id) || chatId) !== repliedChatId
+        ) {
+          return;
+        }
+
+        this.emitMessage({
+          ...latest,
+          reply_to: {
+            ...latestReply,
+            chat_id: replied.chat_id,
+            message_id: replied.id,
+            origin_send_date: replied.date,
+            content: replied.content,
+          },
+        });
+      })
+      .catch((error) => {
+        if (error instanceof Error && /\b404\b/.test(error.message)) {
+          this.unavailableReplyHydrations.add(key);
+        }
+      })
+      .finally(() => {
+        if (this.pendingReplyHydrations.get(key) === token) {
+          this.pendingReplyHydrations.delete(key);
+        }
+      });
   }
 
   private ensureDisplayMedia(message: Message) {
@@ -1270,8 +1364,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.clear();
     this.exhaustedHistories.clear();
     this.historyCursors.clear();
-    this.historyStalls.clear();
     this.historyLoads.clear();
+    this.pendingReplyHydrations.clear();
+    this.unavailableReplyHydrations.clear();
     this.chatListLoads.clear();
     this.chatListCounts.clear();
     this.exhaustedChatLists.clear();

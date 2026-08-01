@@ -898,6 +898,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getMe",
     "getMessageProperties",
     "getProxies",
+    "getRepliedMessage",
     "loadChats",
     "logOut",
     "pingProxy",
@@ -1107,6 +1108,14 @@ mod security_tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&text).is_ok());
+
+        let replied_message = json!({
+            "@type": "getRepliedMessage",
+            "chat_id": 7,
+            "message_id": 12,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&replied_message).is_ok());
 
         let privileged = json!({
             "@type": "setTdlibParameters",

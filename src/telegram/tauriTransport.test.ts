@@ -110,6 +110,88 @@ describe("TauriTelegramTransport startup", () => {
 });
 
 describe("TauriTelegramTransport message operations", () => {
+  it("hydrates missing reply content without duplicating requests", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    const requests: TdObject[] = [];
+    const reply = {
+      ...rawMessage(12),
+      reply_to: {
+        "@type": "messageReplyToMessage",
+        chat_id: 7,
+        message_id: 11,
+        quote: null,
+        origin: null,
+        origin_send_date: 0,
+        content: null,
+      },
+    };
+
+    internal.listener = (event) => events.push(event);
+    internal.request = async (request) => {
+      requests.push(request);
+      return rawMessage(11);
+    };
+
+    internal.emitMessage(reply);
+    internal.emitMessage(reply);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(requests).toEqual([{
+      "@type": "getRepliedMessage",
+      chat_id: 7,
+      message_id: 12,
+    }]);
+    expect(events.at(-1)).toMatchObject({
+      type: "message.upsert",
+      message: {
+        id: "12",
+        replyTo: {
+          kind: "message",
+          messageId: "11",
+          content: { kind: "text", text: "message 11" },
+        },
+      },
+    });
+  });
+
+  it("uses a replied message already loaded in the same history page", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+
+    internal.listener = (event) => events.push(event);
+    internal.request = async () => {
+      throw new Error("reply lookup should not be needed");
+    };
+    internal.emitMessage(rawMessage(11));
+    internal.emitMessage({
+      ...rawMessage(12),
+      reply_to: {
+        "@type": "messageReplyToMessage",
+        chat_id: 7,
+        message_id: 11,
+        quote: null,
+        origin: null,
+        origin_send_date: 0,
+        content: null,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events.at(-1)).toMatchObject({
+      type: "message.upsert",
+      message: {
+        id: "12",
+        replyTo: { content: { kind: "text", text: "message 11" } },
+      },
+    });
+  });
+
   it("queries current message permissions through TDLib", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
@@ -558,7 +640,7 @@ describe("TauriTelegramTransport history", () => {
     expect(cursors.slice(0, 3)).toEqual([0, 99, 98]);
   });
 
-  it("retries a stalled cursor before marking history complete", async () => {
+  it("keeps stalled non-empty history available for a later retry", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     let requestCount = 0;
@@ -586,10 +668,71 @@ describe("TauriTelegramTransport history", () => {
     const secondPage = await transport.loadChatHistory("7", 30);
     expect(secondPage).toEqual({
       loadedCount: 0,
-      hasMore: false,
+      hasMore: true,
       messageIds: ["9"],
     });
-    expect(requestCount).toBe(3);
+    expect(requestCount).toBe(7);
+  });
+
+  it("continues after repeated boundary-only pages when TDLib makes progress", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const cursors: number[] = [];
+    let boundaryRequests = 0;
+
+    internal.listener = () => undefined;
+    internal.request = async (request) => {
+      const cursor = Number(request.from_message_id);
+      cursors.push(cursor);
+      if (cursor === 0) {
+        return { "@type": "messages", total_count: -1, messages: [rawMessage(10)] };
+      }
+      boundaryRequests += 1;
+      return {
+        "@type": "messages",
+        total_count: -1,
+        messages: boundaryRequests < 3
+          ? [rawMessage(10)]
+          : [rawMessage(10), rawMessage(9), rawMessage(8)],
+      };
+    };
+
+    const page = await transport.loadChatHistory("7", 3);
+
+    expect(cursors).toEqual([0, 10, 10, 10]);
+    expect(page).toEqual({
+      loadedCount: 3,
+      hasMore: true,
+      messageIds: ["10", "9", "8"],
+    });
+  });
+
+  it("marks history complete only after TDLib returns an empty page", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    let requestCount = 0;
+
+    internal.listener = () => undefined;
+    internal.request = async () => {
+      requestCount += 1;
+      return {
+        "@type": "messages",
+        total_count: -1,
+        messages: requestCount === 1 ? [rawMessage(10)] : [],
+      };
+    };
+
+    await expect(transport.loadChatHistory("7", 30)).resolves.toEqual({
+      loadedCount: 1,
+      hasMore: false,
+      messageIds: ["10"],
+    });
+    await expect(transport.loadChatHistory("7", 30)).resolves.toEqual({
+      loadedCount: 0,
+      hasMore: false,
+      messageIds: [],
+    });
+    expect(requestCount).toBe(2);
   });
 
   it("starts from the latest history window even when live messages are already known", async () => {
