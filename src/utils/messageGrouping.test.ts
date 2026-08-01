@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
 import { formatMessageTime } from "./formatters";
-import { messageGroupPosition } from "./messageGrouping";
+import { groupConsecutiveMessages, messageGroupPosition } from "./messageGrouping";
 
 const message = (
   id: string,
@@ -19,6 +19,18 @@ const message = (
 });
 
 describe("message grouping", () => {
+  it("collects consecutive messages into sender-scoped groups", () => {
+    const messages = [
+      message("1", "alice", "2026-08-01T09:00:00+08:00"),
+      message("2", "alice", "2026-08-01T09:01:00+08:00"),
+      message("3", "self", "2026-08-01T09:02:00+08:00", true),
+      message("4", "alice", "2026-08-01T09:03:00+08:00"),
+    ];
+
+    expect(groupConsecutiveMessages(messages).map((group) => group.map(({ id }) => id)))
+      .toEqual([["1", "2"], ["3"], ["4"]]);
+  });
+
   it("marks consecutive messages from one sender as first, middle, and last", () => {
     const messages = [
       message("1", "mia", "2026-08-01T09:18:01+08:00"),

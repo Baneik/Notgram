@@ -1,11 +1,23 @@
 import { CircleAlert, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { filterAndSortChats, useTelegramStore } from "../store/telegramStore";
+
+const DEFAULT_SIDEBAR_WIDTH = 360;
+const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
+
+const readSidebarWidth = () => {
+  try {
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+    return Number.isFinite(stored) && stored >= 300 ? stored : DEFAULT_SIDEBAR_WIDTH;
+  } catch {
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+};
 
 export function App() {
   const phase = useTelegramStore((state) => state.phase);
@@ -35,10 +47,19 @@ export function App() {
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
 
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    } catch {
+      // A blocked preference store should not affect the messaging UI.
+    }
+  }, [sidebarWidth]);
 
   const visibleChats = useMemo(
     () => filterAndSortChats(chats.values(), chatFilter, searchQuery),
@@ -68,7 +89,10 @@ export function App() {
 
   return (
     <>
-      <main className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}>
+      <main
+        className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
+        style={{ "--chat-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+      >
         <NavigationRail folders={folders} filter={chatFilter} onFilterChange={setChatFilter} transportLabel={`${transportLabel}${phase === "idle" || phase === "loading" ? " · 同步中" : ""}`} onOpenSettings={() => setSettingsOpen(true)} />
         <ChatSidebar
           chats={visibleChats}
@@ -77,6 +101,8 @@ export function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onSelect={(chatId) => { void selectChat(chatId); setMobileChatOpen(true); }}
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
         />
         <Conversation
           chat={activeChat}

@@ -17,6 +17,17 @@ const belongsToSameGroup = (left?: Message, right?: Message) => Boolean(
   localDay(left.sentAt) === localDay(right.sentAt),
 );
 
+export const groupConsecutiveMessages = (messages: Message[]): Message[][] =>
+  messages.reduce<Message[][]>((groups, message) => {
+    const current = groups.at(-1);
+    if (current && belongsToSameGroup(current.at(-1), message)) {
+      current.push(message);
+    } else {
+      groups.push([message]);
+    }
+    return groups;
+  }, []);
+
 export const messageGroupPosition = (
   messages: Message[],
   index: number,

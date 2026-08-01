@@ -96,8 +96,9 @@ profile photos are downloaded through TDLib and refreshed when updateFile
 completes. The Tauri asset scope includes both the configurable TDLib files
 directory and TDLib's app-data database directory, where profile and chat
 thumbnails can be stored. Consecutive messages from the same sender use joined Telegram-style
-bubbles, show the sender name only on the first item and the avatar on the last,
-and render timestamps with second precision. Photo messages use a sender header
+bubbles, show the sender name only on the first item, and keep the sender avatar floating near
+the bottom of the visible portion of its message group while scrolling. Timestamps render with
+second precision. Photo messages use a sender header
 only when they start a consecutive group; subsequent photos are borderless.
 History is preloaded in
 30-message pages and continues loading when the message list is scrolled upward.
@@ -120,6 +121,11 @@ configurable under Advanced Settings. Settings also provides the Telegram-style
 account, notification, privacy, chat, folder, device, power, and language
 categories. Real file upload and dedicated video/audio players
 remain disabled.
+
+The desktop conversation list starts at 360 pixels wide and can be resized from its right edge
+down to a 300-pixel minimum. The preferred width is restored on the next launch. Default chat
+rows, avatars, message text, headers, and the composer use a unified daily-messaging scale, while
+the narrow layout keeps its full-width conversation switching behavior.
 
 Phone-number and QR-code authorization are supported. QR login uses TDLib's
 `requestQrCodeAuthentication` flow and redraws whenever TDLib rotates the

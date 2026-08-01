@@ -21,8 +21,8 @@ import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import type { Chat, Message, User } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
 import {
+  groupConsecutiveMessages,
   isGroupFirst,
-  isGroupLast,
   messageGroupPosition,
   type MessageGroupPosition,
 } from "../utils/messageGrouping";
@@ -82,6 +82,11 @@ export function Conversation({
       return message.content.text.toLocaleLowerCase().includes(query);
     });
   }, [messageSearch, messages]);
+
+  const visibleMessageGroups = useMemo(
+    () => groupConsecutiveMessages(visibleMessages),
+    [visibleMessages],
+  );
 
   useLayoutEffect(() => {
     const element = messageListRef.current;
@@ -239,20 +244,43 @@ export function Conversation({
         {visibleMessages.length === 0 ? (
           <div className="messages-empty">没有匹配的消息</div>
         ) : (
-          visibleMessages.map((message, index) => {
-            const sender = users.get(message.senderId);
-            const groupPosition = messageGroupPosition(visibleMessages, index);
+          visibleMessageGroups.map((messageGroup) => {
+            const firstMessage = messageGroup[0];
+            const sender = users.get(firstMessage.senderId);
+            const senderName = sender?.displayName ??
+              (chat.kind === "direct" ? chat.title : "Telegram 用户");
+            const senderAvatar = sender?.avatar ??
+              (chat.kind === "direct" ? chat.avatar : undefined);
             return (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                sender={sender}
-                senderName={sender?.displayName ?? (chat.kind === "direct" ? chat.title : "Telegram 用户")}
-                senderAvatar={sender?.avatar ?? (chat.kind === "direct" ? chat.avatar : undefined)}
-                groupPosition={groupPosition}
-                onDownload={onDownloadFile}
-                onRetry={onRetryMessage}
-              />
+              <div
+                className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
+                key={firstMessage.id}
+              >
+                {!firstMessage.outgoing && (
+                  <span className="message-group-avatar">
+                    <Avatar
+                      avatar={senderAvatar ?? {
+                        label: Array.from(senderName.trim())[0] ?? "?",
+                        color: "#73828c",
+                      }}
+                      size="small"
+                    />
+                  </span>
+                )}
+                <div className="message-group-stack">
+                  {messageGroup.map((message, index) => (
+                    <MessageBubble
+                      key={message.id}
+                      message={message}
+                      sender={sender}
+                      senderName={senderName}
+                      groupPosition={messageGroupPosition(messageGroup, index)}
+                      onDownload={onDownloadFile}
+                      onRetry={onRetryMessage}
+                    />
+                  ))}
+                </div>
+              </div>
             );
           })
         )}
@@ -310,7 +338,6 @@ function MessageBubble({
   message,
   sender,
   senderName,
-  senderAvatar,
   groupPosition,
   onDownload,
   onRetry,
@@ -318,7 +345,6 @@ function MessageBubble({
   message: Message;
   sender?: User;
   senderName: string;
-  senderAvatar?: User["avatar"];
   groupPosition: MessageGroupPosition;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onRetry: (messageId: string) => Promise<void>;
@@ -328,7 +354,6 @@ function MessageBubble({
     message.content.mediaType === "photo" &&
     Boolean(message.content.caption);
   const showSender = !message.outgoing && isGroupFirst(groupPosition);
-  const showAvatar = !message.outgoing && isGroupLast(groupPosition);
   const mediaSource = message.content.kind === "media"
     ? localSource(message.content.localPath) ??
       localSource(message.content.thumbnailPath) ??
@@ -346,19 +371,6 @@ function MessageBubble({
     !message.content.isDownloading;
   return (
     <article className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"}`}>
-      {!message.outgoing && (
-        <span className="message-avatar-slot">
-          {showAvatar && (
-            <Avatar
-              avatar={senderAvatar ?? {
-                label: Array.from(senderName.trim())[0] ?? "?",
-                color: "#73828c",
-              }}
-              size="small"
-            />
-          )}
-        </span>
-      )}
       <div className={`message-bubble ${isPhoto ? "is-photo" : ""} ${hasCaption ? "has-caption" : ""}`}>
         {showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
         {message.content.kind === "text" ? (
