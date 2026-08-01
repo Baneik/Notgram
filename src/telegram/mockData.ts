@@ -32,7 +32,7 @@ const chats: Chat[] = [
   {
     id: "chat-product",
     kind: "group",
-    folder: "main",
+    folderIds: ["main", "folder:work"],
     title: "产品讨论",
     avatar: { label: "产", color: "#207d75" },
     preview: "Jules：我把交互稿更新到最新版本了",
@@ -44,7 +44,7 @@ const chats: Chat[] = [
   {
     id: "chat-mia",
     kind: "direct",
-    folder: "main",
+    folderIds: ["main"],
     title: "Mia Chen",
     avatar: { label: "MC", color: "#397a78" },
     peerId: "u-mia",
@@ -57,7 +57,7 @@ const chats: Chat[] = [
   {
     id: "chat-saved",
     kind: "saved",
-    folder: "main",
+    folderIds: ["main"],
     title: "收藏夹",
     avatar: { label: "我", color: "#d16f45" },
     preview: "TDLib integration notes.md",
@@ -69,7 +69,7 @@ const chats: Chat[] = [
   {
     id: "chat-chen",
     kind: "direct",
-    folder: "main",
+    folderIds: ["main"],
     title: "陈默",
     avatar: { label: "陈", color: "#75579a" },
     peerId: "u-chen",
@@ -82,7 +82,7 @@ const chats: Chat[] = [
   {
     id: "chat-release",
     kind: "channel",
-    folder: "main",
+    folderIds: ["main", "folder:work"],
     title: "Release Notes",
     avatar: { label: "R", color: "#b76a3a" },
     preview: "Desktop build 0.8.4 is ready",
@@ -94,7 +94,7 @@ const chats: Chat[] = [
   {
     id: "chat-archive",
     kind: "group",
-    folder: "archive",
+    folderIds: ["archive"],
     title: "旧项目同步",
     avatar: { label: "旧", color: "#687477" },
     preview: "归档前请检查共享文件",
@@ -105,7 +105,18 @@ const chats: Chat[] = [
   },
 ];
 
+const olderProductMessages: Message[] = Array.from({ length: 36 }, (_, index) => ({
+  id: `p-old-${index + 1}`,
+  chatId: "chat-product",
+  senderId: index % 2 === 0 ? "u-jules" : "self",
+  outgoing: index % 2 !== 0,
+  sentAt: new Date(Date.UTC(2026, 6, 30, 0, index)).toISOString(),
+  delivery: "read",
+  content: { kind: "text", text: `产品讨论历史消息 ${index + 1}` },
+}));
+
 const messages: Message[] = [
+  ...olderProductMessages,
   {
     id: "p-1",
     chatId: "chat-product",
@@ -133,8 +144,14 @@ const messages: Message[] = [
     delivery: "read",
     content: {
       kind: "file",
+      mediaKind: "document",
       fileName: "desktop-layout-review.pdf",
       sizeLabel: "2.4 MB",
+      fileId: 42,
+      size: 2_516_582,
+      canDownload: true,
+      isDownloading: false,
+      isDownloaded: false,
     },
   },
   {
@@ -210,6 +227,11 @@ export const mockSnapshot: TelegramSnapshot = {
   currentUserId: "self",
   authorization: { kind: "ready" },
   users,
+  folders: [
+    { id: "main", title: "全部聊天", iconName: "All" },
+    { id: "folder:work", title: "工作", iconName: "Custom" },
+    { id: "archive", title: "已归档", iconName: "Archive" },
+  ],
   chats,
   messages,
 };

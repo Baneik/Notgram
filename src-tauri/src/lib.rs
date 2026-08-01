@@ -1,4 +1,5 @@
 mod proxy;
+mod storage;
 mod telegram;
 
 fn load_environment() {
@@ -19,6 +20,9 @@ pub fn run() {
             telegram::telegram_runtime_status,
             proxy::telegram_proxy_settings,
             proxy::telegram_save_proxy_settings,
+            storage::telegram_storage_settings,
+            storage::telegram_save_storage_settings,
+            storage::telegram_save_downloaded_file,
             telegram::telegram_start,
             telegram::telegram_send,
             telegram::telegram_shutdown,

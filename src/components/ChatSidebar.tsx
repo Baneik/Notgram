@@ -1,24 +1,21 @@
 import { Archive, CheckCheck, Pin, Search, VolumeX } from "lucide-react";
 import type { Chat } from "../telegram/types";
-import type { ChatFilter } from "../store/telegramStore";
 import { formatChatTime } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 
 interface ChatSidebarProps {
   chats: Chat[];
   activeChatId?: string;
-  filter: ChatFilter;
+  folderTitle: string;
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onSelect: (chatId: string) => void;
 }
 
-const filterLabels: Record<ChatFilter, string> = { all: "全部聊天", unread: "未读", archive: "已归档" };
-
 export function ChatSidebar({
   chats,
   activeChatId,
-  filter,
+  folderTitle,
   searchQuery,
   onSearchChange,
   onSelect,
@@ -26,7 +23,7 @@ export function ChatSidebar({
   return (
     <aside className="chat-sidebar" aria-label="会话列表">
       <div className="sidebar-heading">
-        <h1>{filterLabels[filter]}</h1>
+        <h1>{folderTitle}</h1>
       </div>
 
       <label className="search-field">
@@ -101,7 +98,7 @@ function ChatRow({
           <span className="chat-row-meta">
             {chat.pinned && <Pin size={13} strokeWidth={2} />}
             {chat.muted && <VolumeX size={13} strokeWidth={2} />}
-            {chat.folder === "archive" && <Archive size={13} strokeWidth={2} />}
+            {chat.folderIds.includes("archive") && <Archive size={13} strokeWidth={2} />}
             {chat.unreadCount > 0 && <span className="unread-count">{chat.unreadCount}</span>}
           </span>
         </span>

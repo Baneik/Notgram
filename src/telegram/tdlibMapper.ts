@@ -1,4 +1,4 @@
-import type { Chat, Message, MessageContent, User } from "./types";
+import type { Chat, ChatFolder, Message, MessageContent, User } from "./types";
 
 export type TdObject = Record<string, unknown>;
 
@@ -56,6 +56,14 @@ const formattedText = (value: unknown) => {
   return typeof object?.text === "string" ? object.text : "";
 };
 
+const localImagePath = (value: unknown) => {
+  const file = asTdObject(value);
+  const local = asTdObject(file?.local);
+  return local?.is_downloading_completed === true && typeof local.path === "string" && local.path
+    ? local.path
+    : undefined;
+};
+
 const readableSize = (bytes: number) => {
   if (bytes <= 0) return "文件";
   if (bytes < 1024) return `${bytes} B`;
@@ -64,11 +72,54 @@ const readableSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
-const nestedFileSize = (value: unknown, key: string) => {
-  const media = asTdObject(value);
-  const file = asTdObject(media?.[key]);
-  return tdNumber(file?.size) ?? tdNumber(file?.expected_size) ?? 0;
+const fileDetails = (value: unknown) => {
+  const file = asTdObject(value);
+  const local = asTdObject(file?.local);
+  const remote = asTdObject(file?.remote);
+  const size = tdNumber(file?.size) ?? tdNumber(file?.expected_size) ?? 0;
+  const downloadedSize = tdNumber(local?.downloaded_size) ?? 0;
+  const uploadedSize = tdNumber(remote?.uploaded_size) ?? 0;
+  const transferredSize = Math.max(downloadedSize, uploadedSize);
+  return {
+    fileId: tdNumber(file?.id),
+    size,
+    sizeLabel: readableSize(size),
+    localPath: localImagePath(file),
+    canDownload: local?.can_be_downloaded === true,
+    isDownloading: local?.is_downloading_active === true,
+    isDownloaded: local?.is_downloading_completed === true,
+    isUploading: remote?.is_uploading_active === true,
+    downloadedSize,
+    uploadedSize,
+    progress: size > 0 && transferredSize > 0
+      ? Math.min(1, transferredSize / size)
+      : undefined,
+  };
 };
+
+const thumbnailPath = (value: unknown) => {
+  const thumbnail = asTdObject(value);
+  return localImagePath(thumbnail?.file);
+};
+
+const fileContent = (
+  mediaKind: "document" | "photo" | "video" | "audio" | "voice" | "animation" | "sticker",
+  fileName: string,
+  file: unknown,
+  options: {
+    caption?: string;
+    mimeType?: string;
+    thumbnailPath?: string;
+    width?: number;
+    height?: number;
+  } = {},
+): MessageContent => ({
+  kind: "file",
+  mediaKind,
+  fileName,
+  ...fileDetails(file),
+  ...options,
+});
 
 export const mapTdMessageContent = (value: unknown): MessageContent => {
   const content = asTdObject(value);
@@ -82,22 +133,83 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         typeof document?.file_name === "string" && document.file_name
           ? document.file_name
           : caption || "文档";
-      return {
-        kind: "file",
-        fileName,
-        sizeLabel: readableSize(nestedFileSize(document, "document")),
-      };
+      return fileContent("document", fileName, document?.document, {
+        caption: caption || undefined,
+        mimeType: typeof document?.mime_type === "string" ? document.mime_type : undefined,
+        thumbnailPath: thumbnailPath(document?.thumbnail),
+      });
     }
-    case "messagePhoto":
-      return { kind: "text", text: formattedText(content.caption) || "[图片]" };
-    case "messageVideo":
-      return { kind: "text", text: formattedText(content.caption) || "[视频]" };
-    case "messageAnimation":
-      return { kind: "text", text: formattedText(content.caption) || "[动图]" };
-    case "messageAudio":
-      return { kind: "text", text: formattedText(content.caption) || "[音频]" };
-    case "messageVoiceNote":
-      return { kind: "text", text: formattedText(content.caption) || "[语音]" };
+    case "messagePhoto": {
+      const photo = asTdObject(content.photo);
+      const sizes = asTdObjects(photo?.sizes);
+      const largest = sizes.reduce<TdObject | undefined>((best, candidate) => {
+        const area = (tdNumber(candidate.width) ?? 0) * (tdNumber(candidate.height) ?? 0);
+        const bestArea = (tdNumber(best?.width) ?? 0) * (tdNumber(best?.height) ?? 0);
+        return area >= bestArea ? candidate : best;
+      }, undefined);
+      const smallest = sizes.reduce<TdObject | undefined>((best, candidate) => {
+        const area = (tdNumber(candidate.width) ?? 0) * (tdNumber(candidate.height) ?? 0);
+        const bestArea = (tdNumber(best?.width) ?? Number.POSITIVE_INFINITY) *
+          (tdNumber(best?.height) ?? Number.POSITIVE_INFINITY);
+        return area <= bestArea ? candidate : best;
+      }, undefined);
+      return fileContent("photo", "图片", largest?.photo, {
+        caption: formattedText(content.caption) || undefined,
+        thumbnailPath: localImagePath(smallest?.photo),
+        width: tdNumber(largest?.width),
+        height: tdNumber(largest?.height),
+      });
+    }
+    case "messageVideo": {
+      const video = asTdObject(content.video);
+      return fileContent(
+        "video",
+        typeof video?.file_name === "string" && video.file_name ? video.file_name : "视频",
+        video?.video,
+        {
+          caption: formattedText(content.caption) || undefined,
+          mimeType: typeof video?.mime_type === "string" ? video.mime_type : undefined,
+          thumbnailPath: thumbnailPath(video?.thumbnail),
+          width: tdNumber(video?.width),
+          height: tdNumber(video?.height),
+        },
+      );
+    }
+    case "messageAnimation": {
+      const animation = asTdObject(content.animation);
+      return fileContent(
+        "animation",
+        typeof animation?.file_name === "string" && animation.file_name ? animation.file_name : "动图",
+        animation?.animation,
+        {
+          caption: formattedText(content.caption) || undefined,
+          mimeType: typeof animation?.mime_type === "string" ? animation.mime_type : undefined,
+          thumbnailPath: thumbnailPath(animation?.thumbnail),
+          width: tdNumber(animation?.width),
+          height: tdNumber(animation?.height),
+        },
+      );
+    }
+    case "messageAudio": {
+      const audio = asTdObject(content.audio);
+      return fileContent(
+        "audio",
+        typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : "音频",
+        audio?.audio,
+        {
+          caption: formattedText(content.caption) || undefined,
+          mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
+          thumbnailPath: thumbnailPath(audio?.album_cover_thumbnail),
+        },
+      );
+    }
+    case "messageVoiceNote": {
+      const voice = asTdObject(content.voice_note);
+      return fileContent("voice", "语音消息", voice?.voice, {
+        caption: formattedText(content.caption) || undefined,
+        mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
+      });
+    }
     case "messageVideoNote":
       return { kind: "text", text: "[视频消息]" };
     case "messageSticker":
@@ -133,6 +245,8 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
       : sender?.["@type"] === "messageSenderChat"
         ? `chat:${tdId(sender.chat_id)}`
         : "unknown";
+  const sendingState = asTdObject(raw.sending_state);
+  const failed = sendingState?.["@type"] === "messageSendingStateFailed";
 
   return {
     id,
@@ -140,12 +254,56 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     senderId,
     outgoing: raw.is_outgoing === true,
     sentAt: unixDate(raw.date),
-    delivery: asTdObject(raw.sending_state) ? "sending" : "sent",
+    delivery: failed ? "failed" : sendingState ? "sending" : "sent",
+    canRetry: failed && sendingState.can_retry === true,
     content: mapTdMessageContent(raw.content),
   };
 };
 
-const chatListType = (position: TdObject) => asTdObject(position.list)?.["@type"];
+export const tdChatListId = (value: unknown) => {
+  const list = asTdObject(value);
+  switch (list?.["@type"]) {
+    case "chatListMain":
+      return "main";
+    case "chatListArchive":
+      return "archive";
+    case "chatListFolder": {
+      const id = tdId(list.chat_folder_id);
+      return id ? `folder:${id}` : "";
+    }
+    default:
+      return "";
+  }
+};
+
+const folderName = (value: unknown) => {
+  const name = asTdObject(value);
+  return formattedText(name?.text).trim();
+};
+
+export const mapTdChatFolders = (
+  values: TdObject[],
+  mainChatListPosition = 0,
+): ChatFolder[] => {
+  const custom = values.flatMap((value) => {
+    const id = tdId(value.id);
+    if (!id) return [];
+    const icon = asTdObject(value.icon);
+    return [{
+      id: `folder:${id}`,
+      title: folderName(value.name) || "聊天文件夹",
+      iconName: typeof icon?.name === "string" ? icon.name : "Custom",
+    }];
+  });
+  const folders: ChatFolder[] = [...custom];
+  folders.splice(Math.min(Math.max(mainChatListPosition, 0), folders.length), 0, {
+    id: "main",
+    title: "全部聊天",
+    iconName: "All",
+  });
+  folders.push({ id: "archive", title: "已归档", iconName: "Archive" });
+  return folders;
+};
 
 export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefined => {
   const id = tdId(raw.id);
@@ -164,18 +322,30 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
   const title = typeof raw.title === "string" && raw.title.trim() ? raw.title : "未命名会话";
   const positions = asTdObjects(raw.positions);
   const chatLists = asTdObjects(raw.chat_lists);
-  const archived =
-    positions.some((position) => chatListType(position) === "chatListArchive") ||
-    chatLists.some((list) => list["@type"] === "chatListArchive");
+  const folderIds = new Set<string>();
+  for (const position of positions) {
+    if ((tdNumber(position.order) ?? 0) !== 0) {
+      const folderId = tdChatListId(position.list);
+      if (folderId) folderIds.add(folderId);
+    }
+  }
+  for (const list of chatLists) {
+    const folderId = tdChatListId(list);
+    if (folderId) folderIds.add(folderId);
+  }
   const lastMessage = asTdObject(raw.last_message);
   const notifications = asTdObject(raw.notification_settings);
 
   return {
     id,
     kind,
-    folder: archived ? "archive" : "main",
+    folderIds: [...folderIds],
     title: kind === "saved" ? "收藏夹" : title,
-    avatar: { label: kind === "saved" ? "我" : initials(title), color: colorFor(id) },
+    avatar: {
+      label: kind === "saved" ? "我" : initials(title),
+      color: colorFor(id),
+      imagePath: localImagePath(asTdObject(raw.photo)?.small),
+    },
     peerId,
     preview: lastMessage ? messagePreview(lastMessage) : "暂无消息",
     updatedAt: unixDate(lastMessage?.date),

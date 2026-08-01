@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapTdChat, mapTdMessage, mapTdUser } from "./tdlibMapper";
+import { mapTdChat, mapTdChatFolders, mapTdMessage, mapTdUser } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
   it("maps a private saved-messages chat", () => {
@@ -32,6 +32,7 @@ describe("TDLib mapper", () => {
       preview: "hello",
       unreadCount: 2,
       pinned: true,
+      folderIds: ["main"],
     });
   });
 
@@ -81,10 +82,118 @@ describe("TDLib mapper", () => {
       },
     });
 
-    expect(message?.content).toEqual({
+    expect(message?.content).toMatchObject({
       kind: "file",
+      mediaKind: "document",
       fileName: "notes.pdf",
       sizeLabel: "2 KB",
+      size: 2048,
     });
+  });
+
+  it("maps photo file state and download progress", () => {
+    const message = mapTdMessage({
+      id: 1003,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      is_outgoing: false,
+      date: 1_700_000_000,
+      content: {
+        "@type": "messagePhoto",
+        caption: { "@type": "formattedText", text: "preview", entities: [] },
+        photo: {
+          sizes: [
+            {
+              width: 90,
+              height: 90,
+              photo: {
+                "@type": "file",
+                id: 8,
+                size: 900,
+                local: { is_downloading_completed: true, path: "C:\\cache\\thumb.jpg" },
+                remote: {},
+              },
+            },
+            {
+              width: 1280,
+              height: 720,
+              photo: {
+                "@type": "file",
+                id: 9,
+                size: 4000,
+                local: {
+                  can_be_downloaded: true,
+                  is_downloading_active: true,
+                  is_downloading_completed: false,
+                  downloaded_size: 1000,
+                },
+                remote: {},
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(message?.content).toMatchObject({
+      kind: "file",
+      mediaKind: "photo",
+      fileId: 9,
+      size: 4000,
+      isDownloading: true,
+      progress: 0.25,
+      thumbnailPath: "C:\\cache\\thumb.jpg",
+      width: 1280,
+      height: 720,
+    });
+  });
+
+  it("keeps retry information for failed outgoing messages", () => {
+    const message = mapTdMessage({
+      id: -10,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      is_outgoing: true,
+      date: 1_700_000_000,
+      sending_state: {
+        "@type": "messageSendingStateFailed",
+        can_retry: true,
+      },
+      content: {
+        "@type": "messageText",
+        text: { "@type": "formattedText", text: "retry me", entities: [] },
+      },
+    });
+
+    expect(message).toMatchObject({ delivery: "failed", canRetry: true });
+  });
+
+  it("maps server folders, custom memberships, and downloaded chat photos", () => {
+    const folders = mapTdChatFolders([
+      {
+        id: 12,
+        name: { text: { text: "工作" } },
+        icon: { name: "Custom" },
+      },
+    ], 1);
+    const chat = mapTdChat({
+      id: 200,
+      type: { "@type": "chatTypeSupergroup", is_channel: false },
+      title: "设计组",
+      positions: [
+        { list: { "@type": "chatListFolder", chat_folder_id: 12 }, order: 10 },
+      ],
+      chat_lists: [{ "@type": "chatListFolder", chat_folder_id: 12 }],
+      photo: {
+        small: {
+          id: 9,
+          local: { is_downloading_completed: true, path: "C:\\avatars\\group.jpg" },
+        },
+      },
+    });
+
+    expect(folders.map((folder) => folder.id)).toEqual(["folder:12", "main", "archive"]);
+    expect(chat?.folderIds).toEqual(["folder:12"]);
+    expect(chat?.avatar.imagePath).toBe("C:\\avatars\\group.jpg");
   });
 });

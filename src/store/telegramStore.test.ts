@@ -12,6 +12,8 @@ describe("telegram store", () => {
     expect(state.phase).toBe("ready");
     expect(state.activeChatId).toBe("chat-product");
     expect(state.chats.size).toBeGreaterThan(0);
+    expect(state.messages.get("chat-product")).toHaveLength(30);
+    expect(state.histories.get("chat-product")).toEqual({ loading: false, hasMore: true });
   });
 
   it("applies message and chat updates emitted by the transport", async () => {
@@ -24,6 +26,21 @@ describe("telegram store", () => {
     const state = store.getState();
     expect(state.messages.get("chat-product")).toHaveLength(previousCount + 1);
     expect(state.chats.get("chat-product")?.preview).toBe("一条新的测试消息");
+  });
+
+  it("reports a rejected send so the composer can retain its draft", async () => {
+    class FailingTransport extends MockTelegramTransport {
+      override async sendMessage() {
+        throw new Error("temporary send failure");
+      }
+    }
+    const store = createTelegramStore(new FailingTransport());
+    await store.getState().initialize();
+
+    const sent = await store.getState().sendMessage("不要丢失这条草稿");
+
+    expect(sent).toBe(false);
+    expect(store.getState().error).toBe("temporary send failure");
   });
 
   it("moves through phone, code, password, and ready authorization states", async () => {
@@ -71,16 +88,44 @@ describe("telegram store", () => {
     expect(await store.getState().saveProxySettings(direct)).toBe(true);
     expect(store.getState().proxySettings?.mode).toBe("direct");
   });
-});
 
-describe("chat filtering", () => {
-  it("returns only unread main-list chats", async () => {
+  it("loads and saves storage paths", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();
 
-    const chats = filterAndSortChats(store.getState().chats.values(), "unread", "");
+    await store.getState().loadStorageSettings();
+    const current = store.getState().storageSettings!;
+    expect(current.cachePath).toBeTruthy();
+    expect(current.downloadPath).toContain("downloads");
+
+    const updated = {
+      ...current,
+      cachePath: "D:\\NotgramCache",
+      downloadPath: "D:\\NotgramDownloads",
+    };
+    expect(await store.getState().saveStorageSettings(updated)).toBe(true);
+    expect(store.getState().storageSettings).toMatchObject(updated);
+  });
+});
+
+describe("chat filtering", () => {
+  it("uses folders synchronized by the transport", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    const chats = filterAndSortChats(store.getState().chats.values(), "folder:work", "");
 
     expect(chats.length).toBeGreaterThan(0);
-    expect(chats.every((chat) => chat.folder === "main" && chat.unreadCount > 0)).toBe(true);
+    expect(chats.every((chat) => chat.folderIds.includes("folder:work"))).toBe(true);
+  });
+
+  it("loads another page when older history is requested", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    await store.getState().loadMoreHistory("chat-product");
+
+    expect(store.getState().messages.get("chat-product")).toHaveLength(40);
+    expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
   });
 });

@@ -1,6 +1,5 @@
-export type ChatFolder = "main" | "archive";
 export type ChatKind = "direct" | "group" | "channel" | "saved";
-export type DeliveryState = "sending" | "sent" | "read";
+export type DeliveryState = "sending" | "sent" | "read" | "failed";
 
 export type AuthorizationState =
   | { kind: "preparing" }
@@ -19,6 +18,13 @@ export type AuthorizationState =
 export interface Avatar {
   label: string;
   color: string;
+  imagePath?: string;
+}
+
+export interface ChatFolder {
+  id: string;
+  title: string;
+  iconName: string;
 }
 
 export interface User {
@@ -32,7 +38,7 @@ export interface User {
 export interface Chat {
   id: string;
   kind: ChatKind;
-  folder: ChatFolder;
+  folderIds: string[];
   title: string;
   avatar: Avatar;
   peerId?: string;
@@ -45,7 +51,27 @@ export interface Chat {
 
 export type MessageContent =
   | { kind: "text"; text: string }
-  | { kind: "file"; fileName: string; sizeLabel: string };
+  | {
+      kind: "file";
+      fileName: string;
+      sizeLabel: string;
+      mediaKind?: "document" | "photo" | "video" | "audio" | "voice" | "animation" | "sticker";
+      caption?: string;
+      mimeType?: string;
+      fileId?: number;
+      size?: number;
+      localPath?: string;
+      thumbnailPath?: string;
+      canDownload?: boolean;
+      isDownloading?: boolean;
+      isDownloaded?: boolean;
+      isUploading?: boolean;
+      downloadedSize?: number;
+      uploadedSize?: number;
+      progress?: number;
+      width?: number;
+      height?: number;
+    };
 
 export interface Message {
   id: string;
@@ -54,6 +80,7 @@ export interface Message {
   outgoing: boolean;
   sentAt: string;
   delivery: DeliveryState;
+  canRetry?: boolean;
   content: MessageContent;
 }
 
@@ -61,6 +88,7 @@ export interface TelegramSnapshot {
   currentUserId: string;
   authorization: AuthorizationState;
   users: User[];
+  folders: ChatFolder[];
   chats: Chat[];
   messages: Message[];
 }
@@ -70,6 +98,7 @@ export type TelegramEvent =
   | { type: "currentUser.changed"; userId: string }
   | { type: "message.upsert"; message: Message }
   | { type: "message.remove"; chatId: string; messageId: string }
+  | { type: "folders.replaced"; folders: ChatFolder[] }
   | { type: "chat.upsert"; chat: Chat }
   | { type: "user.upsert"; user: User }
   | { type: "sync.error"; message: string };
@@ -82,6 +111,11 @@ export interface SendMessageInput {
 export interface SendFileInput {
   chatId: string;
   file: File;
+}
+
+export interface ChatHistoryPage {
+  loadedCount: number;
+  hasMore: boolean;
 }
 
 export type ProxyMode = "system" | "direct" | "custom";
@@ -101,6 +135,13 @@ export interface ProxySettings {
   mode: ProxyMode;
   custom: ProxyEndpoint;
   system?: ProxyEndpoint;
+}
+
+export interface StorageSettings {
+  cachePath: string;
+  downloadPath: string;
+  defaultCachePath: string;
+  defaultDownloadPath: string;
 }
 
 export type AuthorizationAction =

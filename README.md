@@ -89,10 +89,17 @@ src-tauri/src/         TDLib dynamic loader, receive loop, and commands
 The native bridge uses TDLib's current `td_create_client_id`, `td_send`, and `td_receive` interface. One dedicated Rust thread owns `td_receive`; updates are copied immediately and emitted to the webview in the order received. Rust automatically answers `authorizationStateWaitTdlibParameters`, while user-facing authorization states remain in the TypeScript store.
 
 After authorization, the TDLib transport now synchronizes the current user,
-main and archived chat lists, user presence, recent message history, outgoing
-text messages, read state, and common real-time chat/message updates. File
-upload and downloaded media rendering remain intentionally disabled until the
-TDLib file lifecycle is mapped end to end.
+main, archived, and server-defined chat folders, user presence, paginated
+message history, outgoing text messages, send-failure retry state, read state,
+chat avatars, and common real-time chat/message updates. History is preloaded in
+30-message pages and continues loading when the message list is scrolled upward.
+Document and photo file metadata, download progress, cache updates, and downloaded
+photo rendering are mapped through TDLib updateFile events. Completed user
+downloads are copied to the configured download directory without overwriting
+existing files. The cache path defaults to the Windows app cache directory, while
+downloads default to the downloads folder beside Notgram.exe; both paths are
+configurable from Settings. Real file upload and dedicated video/audio players
+remain disabled.
 
 Phone-number and QR-code authorization are supported. QR login uses TDLib's
 `requestQrCodeAuthentication` flow and redraws whenever TDLib rotates the

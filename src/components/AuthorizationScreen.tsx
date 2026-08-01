@@ -5,7 +5,6 @@ import {
   LockKeyhole,
   Mail,
   Phone,
-  QrCode,
   Settings,
   Smartphone,
   UserRound,
@@ -60,8 +59,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenPro
     return (
       <AuthLayout onOpenProxy={onOpenProxy}>
         <div className="auth-qr-code" aria-label="Telegram 登录二维码">
-          <QRCodeSVG value={state.link} size={236} level="M" bgColor="#ffffff" fgColor="#111111" />
-          <span className="auth-qr-logo"><QrCode size={26} /></span>
+          <QRCodeSVG value={state.link} size={260} level="M" marginSize={4} bgColor="#ffffff" fgColor="#111111" />
         </div>
         <h1>扫描二维码登录</h1>
         <ol className="auth-steps">

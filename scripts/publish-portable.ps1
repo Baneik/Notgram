@@ -33,6 +33,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $runtimeSource "tdjson.dll") -PathTy
 
 New-Item -ItemType Directory -Force $resolvedDestination | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $resolvedDestination "logs") | Out-Null
+New-Item -ItemType Directory -Force (Join-Path $resolvedDestination "downloads") | Out-Null
 Copy-Item -LiteralPath $executable -Destination (Join-Path $resolvedDestination "Notgram.exe") -Force
 Copy-Item -LiteralPath $runtimeSource -Destination $resolvedDestination -Recurse -Force
 Copy-Item -LiteralPath $environmentFile -Destination (Join-Path $resolvedDestination ".env") -Force

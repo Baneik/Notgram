@@ -4,9 +4,11 @@ import {
   asTdObject,
   asTdObjects,
   mapTdChat,
+  mapTdChatFolders,
   mapTdMessage,
   mapTdUser,
   tdId,
+  tdChatListId,
   tdNumber,
   type TdObject,
 } from "./tdlibMapper";
@@ -14,11 +16,13 @@ import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
   AuthorizationState,
+  ChatHistoryPage,
   Message,
   ProxyEndpoint,
   ProxySettings,
   SendFileInput,
   SendMessageInput,
+  StorageSettings,
   TelegramSnapshot,
 } from "./types";
 
@@ -46,6 +50,46 @@ const numericId = (id: string) => {
 };
 
 const listObject = (type: "chatListMain" | "chatListArchive") => ({ "@type": type });
+
+const folderListObject = (folderId: unknown) => ({
+  "@type": "chatListFolder",
+  chat_folder_id: Number(folderId),
+});
+
+const chatListKey = (value: unknown) => tdChatListId(value);
+
+const replaceFileReference = (
+  value: unknown,
+  fileId: number,
+  file: TdObject,
+): { value: unknown; changed: boolean } => {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const updated = value.map((item) => {
+      const replaced = replaceFileReference(item, fileId, file);
+      changed ||= replaced.changed;
+      return replaced.value;
+    });
+    return { value: changed ? updated : value, changed };
+  }
+  const object = asTdObject(value);
+  if (!object) return { value, changed: false };
+  if (
+    tdNumber(object.id) === fileId &&
+    (object["@type"] === "file" || ("local" in object && "remote" in object))
+  ) {
+    return { value: file, changed: true };
+  }
+
+  let changed = false;
+  const updated: TdObject = {};
+  for (const [key, item] of Object.entries(object)) {
+    const replaced = replaceFileReference(item, fileId, file);
+    changed ||= replaced.changed;
+    updated[key] = replaced.value;
+  }
+  return { value: changed ? updated : value, changed };
+};
 
 const proxyTypeValue = (endpoint: ProxyEndpoint): TdObject => {
   if (endpoint.type === "socks5") {
@@ -99,7 +143,13 @@ export class TauriTelegramTransport implements TelegramTransport {
   private rawChats = new Map<string, TdObject>();
   private rawUsers = new Map<string, TdObject>();
   private rawMessages = new Map<string, Map<string, TdObject>>();
-  private loadedHistories = new Set<string>();
+  private exhaustedHistories = new Set<string>();
+  private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
+  private chatListLoads = new Map<string, Promise<void>>();
+  private avatarDownloads = new Set<number>();
+  private pendingDownloads = new Map<number, string>();
+  private rawFolderInfos: TdObject[] = [];
+  private mainChatListPosition = 0;
   private currentUserId?: string;
   private bootstrapPromise?: Promise<void>;
 
@@ -133,6 +183,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       currentUserId: "self",
       authorization: { kind: "preparing" },
       users: [],
+      folders: [],
       chats: [],
       messages: [],
     };
@@ -147,7 +198,12 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.unlistenUpdate = undefined;
       this.unlistenError = undefined;
       this.bootstrapPromise = undefined;
-      this.loadedHistories.clear();
+      this.exhaustedHistories.clear();
+      this.historyLoads.clear();
+      this.chatListLoads.clear();
+      this.avatarDownloads.clear();
+      this.pendingDownloads.clear();
+      this.rawFolderInfos = [];
       this.rejectAll(new Error("TDLib runtime 已关闭。"));
     }
   }
@@ -229,23 +285,30 @@ export class TauriTelegramTransport implements TelegramTransport {
     return Math.max(0, Math.round(seconds * 1000));
   }
 
-  async loadChatHistory(chatId: string) {
-    if (this.loadedHistories.has(chatId)) return;
-    this.loadedHistories.add(chatId);
-    try {
-      const response = await this.request({
-        "@type": "getChatHistory",
-        chat_id: numericId(chatId),
-        from_message_id: 0,
-        offset: 0,
-        limit: 50,
-        only_local: false,
-      });
-      for (const message of asTdObjects(response.messages)) this.emitMessage(message);
-    } catch (error) {
-      this.loadedHistories.delete(chatId);
-      throw error;
+  async getStorageSettings() {
+    return invoke<StorageSettings>("telegram_storage_settings");
+  }
+
+  async saveStorageSettings(settings: StorageSettings) {
+    return invoke<StorageSettings>("telegram_save_storage_settings", {
+      preferences: {
+        cachePath: settings.cachePath,
+        downloadPath: settings.downloadPath,
+      },
+    });
+  }
+
+  async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
+    if (this.exhaustedHistories.has(chatId)) {
+      return { loadedCount: 0, hasMore: false };
     }
+    const existing = this.historyLoads.get(chatId);
+    if (existing) return existing;
+
+    const load = this.loadNextHistoryPage(chatId, Math.max(1, Math.min(limit, 100)))
+      .finally(() => this.historyLoads.delete(chatId));
+    this.historyLoads.set(chatId, load);
+    return load;
   }
 
   async sendMessage(input: SendMessageInput) {
@@ -264,6 +327,35 @@ export class TauriTelegramTransport implements TelegramTransport {
       },
     });
     if (response["@type"] === "message") this.emitMessage(response);
+  }
+
+  async downloadFile(fileId: number, fileName: string) {
+    this.pendingDownloads.set(fileId, fileName);
+    try {
+      const file = await this.request({
+        "@type": "downloadFile",
+        file_id: fileId,
+        priority: 24,
+        offset: 0,
+        limit: 0,
+        synchronous: false,
+      });
+      this.updateFile(file);
+    } catch (error) {
+      this.pendingDownloads.delete(fileId);
+      throw error;
+    }
+  }
+
+  async retryMessage(chatId: string, messageId: string) {
+    const response = await this.request({
+      "@type": "resendMessages",
+      chat_id: numericId(chatId),
+      message_ids: [numericId(messageId)],
+      quote: null,
+      paid_message_star_count: 0,
+    });
+    for (const message of asTdObjects(response.messages)) this.emitMessage(message);
   }
 
   async sendFile(_input: SendFileInput) {
@@ -285,6 +377,67 @@ export class TauriTelegramTransport implements TelegramTransport {
       source: { "@type": "messageSourceChatHistory" },
       force_read: true,
     });
+  }
+
+  private async loadNextHistoryPage(
+    chatId: string,
+    targetCount: number,
+  ): Promise<ChatHistoryPage> {
+    let loadedCount = 0;
+    let cursor = this.oldestMessageId(chatId);
+    let requestCount = 0;
+    const maxRequestCount = targetCount + 1;
+
+    while (loadedCount < targetCount && requestCount < maxRequestCount) {
+      requestCount += 1;
+      const response = await this.request({
+        "@type": "getChatHistory",
+        chat_id: numericId(chatId),
+        from_message_id: cursor,
+        offset: 0,
+        limit: Math.min(100, targetCount - loadedCount + (cursor ? 1 : 0)),
+        only_local: false,
+      });
+      const rawPage = asTdObjects(response.messages);
+      if (rawPage.length === 0) {
+        this.exhaustedHistories.add(chatId);
+        break;
+      }
+
+      const known = this.rawMessages.get(chatId) ?? new Map<string, TdObject>();
+      let addedThisRequest = 0;
+      for (const raw of rawPage) {
+        const id = tdId(raw.id);
+        if (id && !known.has(id)) addedThisRequest += 1;
+        this.emitMessage(raw);
+      }
+      loadedCount += addedThisRequest;
+
+      const nextCursor = tdNumber(rawPage.at(-1)?.id);
+      if (
+        !nextCursor ||
+        nextCursor === cursor ||
+        addedThisRequest === 0
+      ) {
+        this.exhaustedHistories.add(chatId);
+        break;
+      }
+      cursor = nextCursor;
+    }
+
+    return {
+      loadedCount,
+      hasMore: !this.exhaustedHistories.has(chatId),
+    };
+  }
+
+  private oldestMessageId(chatId: string) {
+    let oldestId = Number.POSITIVE_INFINITY;
+    for (const raw of this.rawMessages.get(chatId)?.values() ?? []) {
+      const id = tdNumber(raw.id) ?? 0;
+      if (id > 0 && id < oldestId) oldestId = id;
+    }
+    return Number.isFinite(oldestId) ? oldestId : 0;
   }
 
   private async request(request: TdObject) {
@@ -368,6 +521,9 @@ export class TauriTelegramTransport implements TelegramTransport {
       case "updateUserStatus":
         this.updateUserStatus(update);
         return;
+      case "updateChatFolders":
+        this.updateChatFolders(update);
+        return;
       case "updateNewChat":
         this.upsertChat(asTdObject(update.chat));
         return;
@@ -415,6 +571,9 @@ export class TauriTelegramTransport implements TelegramTransport {
         return;
       case "updateDeleteMessages":
         this.deleteMessages(update);
+        return;
+      case "updateFile":
+        this.updateFile(asTdObject(update.file));
     }
   }
 
@@ -445,14 +604,27 @@ export class TauriTelegramTransport implements TelegramTransport {
       for (const chat of this.rawChats.values()) this.emitChat(chat);
     }
 
+    this.emitFolders();
     await Promise.all([
-      this.loadChatList("chatListMain", 100),
-      this.loadChatList("chatListArchive", 50),
+      this.loadChatList(listObject("chatListMain"), 100),
+      this.loadChatList(listObject("chatListArchive"), 50),
+      ...this.rawFolderInfos.map((folder) =>
+        this.loadChatList(folderListObject(folder.id), 100),
+      ),
     ]);
   }
 
-  private async loadChatList(type: "chatListMain" | "chatListArchive", limit: number) {
-    const chatList = listObject(type);
+  private async loadChatList(chatList: TdObject, limit: number) {
+    const key = chatListKey(chatList);
+    const existing = this.chatListLoads.get(key);
+    if (existing) return existing;
+    const load = this.fetchChatList(chatList, limit)
+      .finally(() => this.chatListLoads.delete(key));
+    this.chatListLoads.set(key, load);
+    return load;
+  }
+
+  private async fetchChatList(chatList: TdObject, limit: number) {
     try {
       await this.request({ "@type": "loadChats", chat_list: chatList, limit });
     } catch (error) {
@@ -468,6 +640,31 @@ export class TauriTelegramTransport implements TelegramTransport {
         .filter((id) => !this.rawChats.has(id))
         .map(async (id) => this.upsertChat(await this.request({ "@type": "getChat", chat_id: numericId(id) }))),
     );
+  }
+
+  private updateChatFolders(update: TdObject) {
+    this.rawFolderInfos = asTdObjects(update.chat_folders);
+    this.mainChatListPosition = tdNumber(update.main_chat_list_position) ?? 0;
+    this.emitFolders();
+    if (this.bootstrapPromise) {
+      void Promise.all(
+        this.rawFolderInfos.map((folder) =>
+          this.loadChatList(folderListObject(folder.id), 100),
+        ),
+      ).catch((error) => {
+        this.listener?.({
+          type: "sync.error",
+          message: error instanceof Error ? error.message : "无法同步聊天文件夹",
+        });
+      });
+    }
+  }
+
+  private emitFolders() {
+    this.listener?.({
+      type: "folders.replaced",
+      folders: mapTdChatFolders(this.rawFolderInfos, this.mainChatListPosition),
+    });
   }
 
   private upsertUser(raw?: TdObject) {
@@ -491,6 +688,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!id) return;
     this.rawChats.set(id, raw);
     this.emitChat(raw);
+    this.ensureChatPhoto(raw);
   }
 
   private emitChat(raw: TdObject) {
@@ -509,9 +707,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     const current = this.rawChats.get(id);
     const position = asTdObject(update.position);
     if (!current || !position) return;
-    const incomingType = asTdObject(position.list)?.["@type"];
+    const incomingKey = chatListKey(position.list);
     const positions = asTdObjects(current.positions).filter(
-      (item) => asTdObject(item.list)?.["@type"] !== incomingType,
+      (item) => chatListKey(item.list) !== incomingKey,
     );
     if ((tdNumber(position.order) ?? 0) !== 0) positions.push(position);
     this.upsertChat({ ...current, positions });
@@ -522,10 +720,79 @@ export class TauriTelegramTransport implements TelegramTransport {
     const current = this.rawChats.get(id);
     const list = asTdObject(update.chat_list);
     if (!current || !list) return;
-    const listType = list["@type"];
-    const lists = asTdObjects(current.chat_lists).filter((item) => item["@type"] !== listType);
+    const listKey = chatListKey(list);
+    const lists = asTdObjects(current.chat_lists).filter(
+      (item) => chatListKey(item) !== listKey,
+    );
     if (added) lists.push(list);
     this.upsertChat({ ...current, chat_lists: lists });
+  }
+
+  private ensureChatPhoto(raw: TdObject) {
+    const small = asTdObject(asTdObject(raw.photo)?.small);
+    const local = asTdObject(small?.local);
+    const fileId = tdNumber(small?.id);
+    if (
+      fileId === undefined ||
+      local?.is_downloading_completed === true ||
+      local?.can_be_downloaded !== true ||
+      local.is_downloading_active === true ||
+      this.avatarDownloads.has(fileId)
+    ) {
+      return;
+    }
+
+    this.avatarDownloads.add(fileId);
+    void this.request({
+      "@type": "downloadFile",
+      file_id: fileId,
+      priority: 16,
+      offset: 0,
+      limit: 0,
+      synchronous: false,
+    })
+      .then((file) => this.updateFile(file))
+      .catch(() => this.avatarDownloads.delete(fileId));
+  }
+
+  private updateFile(file?: TdObject) {
+    const fileId = tdNumber(file?.id);
+    if (!file || fileId === undefined) return;
+    const local = asTdObject(file.local);
+    if (local?.is_downloading_active !== true) this.avatarDownloads.delete(fileId);
+
+    for (const raw of [...this.rawChats.values()]) {
+      const photo = asTdObject(raw.photo);
+      const small = asTdObject(photo?.small);
+      if (tdNumber(small?.id) !== fileId || !photo) continue;
+      this.upsertChat({ ...raw, photo: { ...photo, small: file } });
+    }
+
+    for (const chatMessages of this.rawMessages.values()) {
+      for (const raw of [...chatMessages.values()]) {
+        const replaced = replaceFileReference(raw, fileId, file);
+        if (replaced.changed) this.emitMessage(asTdObject(replaced.value));
+      }
+    }
+
+    const fileName = this.pendingDownloads.get(fileId);
+    if (
+      fileName &&
+      local?.is_downloading_completed === true &&
+      typeof local.path === "string" &&
+      local.path
+    ) {
+      this.pendingDownloads.delete(fileId);
+      void invoke<string>("telegram_save_downloaded_file", {
+        sourcePath: local.path,
+        fileName,
+      }).catch((error) => {
+        this.listener?.({
+          type: "sync.error",
+          message: error instanceof Error ? error.message : "无法保存下载文件",
+        });
+      });
+    }
   }
 
   private emitMessage(raw?: TdObject) {

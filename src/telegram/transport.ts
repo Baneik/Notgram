@@ -1,9 +1,11 @@
 import type {
   SendFileInput,
   SendMessageInput,
+  ChatHistoryPage,
   TelegramEvent,
   TelegramSnapshot,
   ProxySettings,
+  StorageSettings,
 } from "./types";
 import type { AuthorizationAction } from "./types";
 
@@ -18,8 +20,12 @@ export interface TelegramTransport {
   getProxySettings(): Promise<ProxySettings>;
   saveProxySettings(settings: ProxySettings): Promise<void>;
   testProxy(settings: ProxySettings): Promise<number>;
-  loadChatHistory(chatId: string): Promise<void>;
+  getStorageSettings(): Promise<StorageSettings>;
+  saveStorageSettings(settings: StorageSettings): Promise<StorageSettings>;
+  loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
   sendMessage(input: SendMessageInput): Promise<void>;
+  downloadFile(fileId: number, fileName: string): Promise<void>;
+  retryMessage(chatId: string, messageId: string): Promise<void>;
   sendFile(input: SendFileInput): Promise<void>;
   markChatRead(chatId: string): Promise<void>;
 }

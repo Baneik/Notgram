@@ -7,7 +7,9 @@ import type {
   ProxySettings,
   SendFileInput,
   SendMessageInput,
+  StorageSettings,
   TelegramSnapshot,
+  ChatHistoryPage,
 } from "./types";
 
 const clone = <T,>(value: T): T => structuredClone(value);
@@ -24,7 +26,14 @@ export class MockTelegramTransport implements TelegramTransport {
 
   private listener?: TelegramEventListener;
   private snapshot = clone(mockSnapshot);
+  private historyOffsets = new Map<string, number>();
   private authFlow: boolean;
+  private storageSettings: StorageSettings = {
+    cachePath: "Windows 应用缓存\\Notgram\\tdlib",
+    downloadPath: "Notgram\\downloads",
+    defaultCachePath: "Windows 应用缓存\\Notgram\\tdlib",
+    defaultDownloadPath: "Notgram\\downloads",
+  };
   private proxySettings: ProxySettings = {
     mode: "system",
     custom: {
@@ -56,7 +65,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
     this.listener = listener;
-    return clone(this.snapshot);
+    return clone({ ...this.snapshot, messages: [] });
   }
 
   async disconnect() {
@@ -83,8 +92,20 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "authorization.changed", state: next });
   }
 
-  async loadChatHistory(_chatId: string) {
-    return Promise.resolve();
+  async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
+    const history = this.snapshot.messages
+      .filter((message) => message.chatId === chatId)
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+    const offset = this.historyOffsets.get(chatId) ?? 0;
+    const page = history.slice(offset, offset + limit);
+    this.historyOffsets.set(chatId, offset + page.length);
+    for (const message of page) {
+      this.listener?.({ type: "message.upsert", message: clone(message) });
+    }
+    return {
+      loadedCount: page.length,
+      hasMore: offset + page.length < history.length,
+    };
   }
 
   async getProxySettings() {
@@ -99,6 +120,15 @@ export class MockTelegramTransport implements TelegramTransport {
     return 42;
   }
 
+  async getStorageSettings() {
+    return structuredClone(this.storageSettings);
+  }
+
+  async saveStorageSettings(settings: StorageSettings) {
+    this.storageSettings = structuredClone(settings);
+    return structuredClone(this.storageSettings);
+  }
+
   async sendMessage({ chatId, text }: SendMessageInput) {
     this.appendMessage({
       id: crypto.randomUUID(),
@@ -109,6 +139,20 @@ export class MockTelegramTransport implements TelegramTransport {
       delivery: "sent",
       content: { kind: "text", text },
     });
+  }
+
+  async downloadFile(_fileId: number, _fileName: string) {
+    return;
+  }
+
+  async retryMessage(chatId: string, messageId: string) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === chatId && item.id === messageId,
+    );
+    if (!message) throw new Error("找不到需要重试的消息");
+    message.delivery = "sent";
+    message.canRetry = false;
+    this.listener?.({ type: "message.upsert", message: clone(message) });
   }
 
   async sendFile({ chatId, file }: SendFileInput) {

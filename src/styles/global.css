@@ -57,11 +57,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   position: relative; width: 260px; height: 260px; display: grid; place-items: center;
   background: #ffffff;
 }
-.auth-qr-code svg { width: 236px; height: 236px; }
-.auth-qr-logo {
-  position: absolute; width: 48px; height: 48px; display: grid; place-items: center;
-  color: #ffffff; background: var(--accent); border: 5px solid #ffffff; border-radius: 50%;
-}
+.auth-qr-code svg { width: 260px; height: 260px; display: block; }
 .auth-steps {
   width: 100%; margin: 0; padding: 0 0 0 28px; display: grid; gap: 10px;
   color: #343a40; text-align: left; font-size: 14px; line-height: 1.4;
@@ -114,7 +110,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: #565d62; font-size: 10px; font-weight: 600;
 }
 .rail-brand .brand-mark { width: 36px; height: 36px; font-size: 15px; }
-.rail-actions { display: grid; gap: 4px; margin-top: 13px; }
+.rail-actions { min-height: 0; display: grid; align-content: start; gap: 4px; margin-top: 13px; overflow-y: auto; scrollbar-width: none; }
 .rail-button {
   width: 100%; min-height: 64px; padding: 5px 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
   color: #6c747a; background: transparent; border: 0; border-radius: 6px; cursor: pointer; font-size: 10px;
@@ -153,7 +149,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .chat-row:hover { background: var(--surface-hover); }
 .chat-row.is-active { color: #ffffff; background: var(--accent); }
-.avatar { display: inline-grid; place-items: center; flex: 0 0 auto; color: #ffffff; border-radius: 50%; font-weight: 650; user-select: none; }
+.avatar { position: relative; display: inline-grid; place-items: center; flex: 0 0 auto; overflow: hidden; color: #ffffff; border-radius: 50%; font-weight: 650; user-select: none; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .avatar-small { width: 30px; height: 30px; font-size: 10px; }
 .avatar-medium { width: 46px; height: 46px; font-size: 12px; }
 .avatar-large { width: 56px; height: 56px; font-size: 15px; }
@@ -171,8 +168,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .conversation {
   grid-column: 3; min-width: 0; height: 100%; min-height: 0; display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto; background: var(--chat-canvas);
+  grid-template-rows: auto minmax(0, 1fr) auto; background: var(--chat-canvas);
 }
+.conversation.has-message-search { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation-header {
   height: 58px; padding: 0 12px 0 16px; display: flex; align-items: center; gap: 10px;
   background: #ffffff; border-bottom: 1px solid var(--line);
@@ -194,6 +192,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   align-items: center; gap: 9px; color: #858c91; background: #ffffff; border-bottom: 1px solid var(--line);
 }
 .message-list { min-height: 0; padding: 18px clamp(14px, 4vw, 54px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #9ba9a5 transparent; }
+.history-loading { width: 32px; height: 24px; margin: -9px auto 5px; display: grid; place-items: center; color: #ffffff; background: rgba(92, 117, 112, 0.72); border-radius: 12px; }
 .message-day {
   width: fit-content; margin: 0 auto 14px; padding: 4px 10px; color: #ffffff; background: rgba(92, 117, 112, 0.72);
   border-radius: 12px; font-size: 10px; font-weight: 600;
@@ -209,11 +208,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .message-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.48; }
 .message-meta { min-height: 14px; margin: 1px 0 0 10px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; color: #8a9297; font-size: 9px; }
 .is-outgoing .message-meta, .is-outgoing .message-meta svg { color: #56a673; }
+.message-retry { width: 17px; height: 17px; padding: 0; display: inline-grid; place-items: center; color: #c84e42; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.message-retry:disabled { cursor: default; }
 .file-message { min-width: min(280px, 55vw); display: flex; align-items: center; gap: 9px; }
 .file-icon { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 auto; color: #ffffff; background: var(--accent); border-radius: 50%; }
 .file-copy { min-width: 0; display: grid; gap: 2px; }
 .file-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .file-copy small { color: var(--muted); font-size: 10px; }
+.file-download {
+  width: 32px; height: 32px; padding: 0; display: grid; place-items: center; flex: 0 0 auto;
+  color: var(--accent); background: #edf6fd; border: 0; border-radius: 50%; cursor: pointer;
+}
+.file-download:hover { background: #dbeefa; }
+.photo-message { width: min(360px, 58vw); display: grid; gap: 6px; }
+.photo-message img { width: 100%; max-height: 420px; display: block; object-fit: contain; border-radius: 5px; }
 .messages-empty { width: fit-content; margin: 42px auto; padding: 5px 10px; color: #ffffff; background: rgba(92, 117, 112, 0.72); border-radius: 12px; font-size: 11px; }
 .composer-wrap { min-height: 70px; padding: 8px clamp(12px, 3vw, 36px) 12px; background: transparent; }
 .composer {
@@ -230,6 +238,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .empty-conversation { grid-template-rows: 1fr; place-items: center; align-content: center; gap: 10px; color: #ffffff; }
 .empty-conversation h2 { margin: 0; padding: 5px 11px; background: rgba(92, 117, 112, 0.72); border-radius: 13px; font-size: 12px; font-weight: 600; }
 .conversation-empty-mark { width: 48px; height: 48px; display: grid; place-items: center; color: #ffffff; background: var(--accent); border-radius: 50%; font-size: 18px; font-weight: 700; }
+
+.runtime-error {
+  position: fixed; z-index: 90; right: 18px; bottom: 18px; max-width: min(430px, calc(100vw - 36px)); min-height: 42px;
+  padding: 9px 9px 9px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  color: #9f342c; background: #fff4f2; border: 1px solid #efc4bf; border-radius: 8px; box-shadow: 0 8px 24px rgba(40, 20, 18, 0.14); font-size: 12px;
+}
+.runtime-error button { width: 26px; height: 26px; padding: 0; display: grid; place-items: center; color: inherit; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.runtime-error button:hover { background: #f8dfdc; }
 
 .dialog-backdrop {
   position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgba(20, 26, 30, 0.48);
@@ -250,6 +266,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .proxy-system-status strong { color: var(--ink); font-size: 13px; }
 .proxy-system-status span { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .proxy-fields { display: grid; gap: 14px; }
+.storage-fields {
+  display: grid; gap: 12px; padding: 13px 12px; background: #f6f8f9; border: 1px solid var(--line); border-radius: 7px;
+}
+.storage-heading { display: flex; align-items: flex-start; gap: 10px; color: var(--accent); }
+.storage-heading div { min-width: 0; display: grid; gap: 3px; }
+.storage-heading strong { color: var(--ink); font-size: 13px; }
+.storage-heading span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.storage-reset {
+  width: fit-content; min-height: 30px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px;
+  color: var(--accent); background: transparent; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 650;
+}
+.storage-reset:hover:not(:disabled) { background: #e7f1fb; }
+.storage-reset:disabled { opacity: 0.45; cursor: default; }
 .proxy-address-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 0.55fr); gap: 12px; }
 .proxy-port { min-width: 0; }
 .proxy-checkbox { display: flex; align-items: center; gap: 8px; color: #52595e; font-size: 12px; }

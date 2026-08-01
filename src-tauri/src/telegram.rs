@@ -379,10 +379,10 @@ impl TdlibConfiguration {
         let data_root = app
             .path()
             .app_data_dir()
-            .map_err(|error| format!("无法解析应用数据目录: {error}"))?
+            .map_err(|error| format!("Unable to resolve app data directory: {error}"))?
             .join("tdlib");
         let database_directory = data_root.join("database");
-        let files_directory = data_root.join("files");
+        let files_directory = crate::storage::tdlib_cache_directory(app)?.join("files");
         std::fs::create_dir_all(&database_directory)
             .map_err(|error| format!("无法创建 TDLib 数据库目录: {error}"))?;
         std::fs::create_dir_all(&files_directory)
@@ -652,13 +652,19 @@ fn sanitize_log_value(value: Value) -> Value {
         "apiId",
         "api_hash",
         "apiHash",
+        "cache_path",
+        "cachePath",
         "database_encryption_key",
         "databaseEncryptionKey",
+        "download_path",
+        "downloadPath",
         "email",
         "email_address",
         "emailAddress",
         "library_path",
         "libraryPath",
+        "files_directory",
+        "filesDirectory",
         "link",
         "message",
         "password",

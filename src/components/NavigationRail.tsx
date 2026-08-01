@@ -1,29 +1,25 @@
-import { Archive, Bell, MessageCircle, Settings } from "lucide-react";
+import { Archive, Bell, Bot, Folder, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
 import type { ChatFilter } from "../store/telegramStore";
+import type { ChatFolder } from "../telegram/types";
 
 interface NavigationRailProps {
   filter: ChatFilter;
+  folders: ChatFolder[];
   onFilterChange: (filter: ChatFilter) => void;
   transportLabel: string;
   onOpenProxy: () => void;
 }
 
-const items = [
-  { filter: "all" as const, label: "全部聊天", Icon: MessageCircle },
-  { filter: "unread" as const, label: "未读", Icon: Bell },
-  { filter: "archive" as const, label: "已归档", Icon: Archive },
-];
-
-export function NavigationRail({ filter, onFilterChange, transportLabel, onOpenProxy }: NavigationRailProps) {
+export function NavigationRail({ folders, filter, onFilterChange, transportLabel, onOpenProxy }: NavigationRailProps) {
   return (
     <nav className="navigation-rail" aria-label="聊天文件夹">
       <div className="rail-brand"><span className="brand-mark">N</span><span>Notgram</span></div>
       <div className="rail-actions">
-        {items.map(({ filter: itemFilter, label, Icon }) => (
-          <button className={`rail-button ${filter === itemFilter ? "is-active" : ""}`} key={itemFilter}
-            type="button" aria-label={label} aria-pressed={filter === itemFilter} title={label}
-            onClick={() => onFilterChange(itemFilter)}>
-            <span className="rail-icon"><Icon size={23} strokeWidth={1.8} /></span><span>{label}</span>
+        {folders.map((folder) => (
+          <button className={`rail-button ${filter === folder.id ? "is-active" : ""}`} key={folder.id}
+            type="button" aria-label={folder.title} aria-pressed={filter === folder.id} title={folder.title}
+            onClick={() => onFilterChange(folder.id)}>
+            <span className="rail-icon"><FolderIcon name={folder.iconName} /></span><span>{folder.title}</span>
           </button>
         ))}
       </div>
@@ -33,4 +29,18 @@ export function NavigationRail({ filter, onFilterChange, transportLabel, onOpenP
       <div className="rail-connection" title={`连接：${transportLabel}`}><span className="connection-dot" />{transportLabel}</div>
     </nav>
   );
+}
+
+function FolderIcon({ name }: { name: string }) {
+  const props = { size: 23, strokeWidth: 1.8 };
+  switch (name) {
+    case "All": return <MessageCircle {...props} />;
+    case "Archive": return <Archive {...props} />;
+    case "Unread": return <Bell {...props} />;
+    case "Bots": return <Bot {...props} />;
+    case "Channels": return <Radio {...props} />;
+    case "Groups": return <Users {...props} />;
+    case "Private": return <UserRound {...props} />;
+    default: return <Folder {...props} />;
+  }
 }
