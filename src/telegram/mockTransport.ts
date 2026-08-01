@@ -6,6 +6,8 @@ import type {
   Chat,
   DeleteMessageInput,
   EditMessageInput,
+  ForwardMessagesInput,
+  ForwardMessagesResult,
   Message,
   MessagePermissions,
   ProxySettings,
@@ -309,6 +311,50 @@ export class MockTelegramTransport implements TelegramTransport {
     this.snapshot.messages.splice(index, 1);
     this.listener?.({ type: "message.remove", chatId, messageId });
     this.refreshChatPreview(chatId);
+  }
+
+  async forwardMessages({ fromChatId, toChatId, messageIds }: ForwardMessagesInput): Promise<ForwardMessagesResult> {
+    const uniqueMessageIds = [...new Set(messageIds)];
+    const selected = uniqueMessageIds
+      .map((messageId) => this.snapshot.messages.find(
+        (message) => message.chatId === fromChatId && message.id === messageId,
+      ))
+      .filter((message): message is Message => Boolean(message));
+    if (selected.length === 0) throw new Error("请选择要转发的消息");
+    if (selected.length > 100) throw new Error("单次最多转发 100 条消息");
+    if (selected.length !== uniqueMessageIds.length) throw new Error("部分待转发消息已不存在");
+    if (!this.snapshot.chats.some((chat) => chat.id === toChatId)) {
+      throw new Error("找不到转发目标会话");
+    }
+
+    const now = Date.now();
+    for (const [index, source] of selected.entries()) {
+      this.appendMessage({
+        ...clone(source),
+        id: crypto.randomUUID(),
+        chatId: toChatId,
+        senderId: this.snapshot.currentUserId,
+        outgoing: true,
+        sentAt: new Date(now + index).toISOString(),
+        delivery: "sent",
+        editedAt: undefined,
+        replyTo: undefined,
+        permissions: undefined,
+        forwardInfo: source.forwardInfo ? clone(source.forwardInfo) : {
+          origin: { kind: "user", userId: source.senderId },
+          sentAt: source.sentAt,
+          source: {
+            chatId: fromChatId,
+            messageId: source.id,
+            senderId: source.senderId,
+            outgoing: source.outgoing,
+          },
+        },
+        interaction: undefined,
+        canRetry: undefined,
+      });
+    }
+    return { forwardedCount: selected.length, failedMessageIds: [] };
   }
 
   async downloadFile(_fileId: number, _fileName: string) {

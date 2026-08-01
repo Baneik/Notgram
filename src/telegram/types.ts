@@ -217,6 +217,17 @@ export interface DeleteMessageInput {
   revoke: boolean;
 }
 
+export interface ForwardMessagesInput {
+  fromChatId: string;
+  toChatId: string;
+  messageIds: string[];
+}
+
+export interface ForwardMessagesResult {
+  forwardedCount: number;
+  failedMessageIds: string[];
+}
+
 export interface SendFileInput {
   chatId: string;
   file?: File;

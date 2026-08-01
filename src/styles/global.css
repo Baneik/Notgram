@@ -190,6 +190,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .conversation-title { min-width: 0; display: grid; gap: 2px; }
 .conversation-title h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; }
 .conversation-title span { color: var(--muted); font-size: 12px; }
+.conversation-header.is-selection-header { gap: 8px; }
+.message-selection-title { min-width: 0; display: grid; gap: 2px; }
+.message-selection-title strong { font-size: 14px; font-weight: 650; }
+.message-selection-title span { color: var(--muted); font-size: 11px; }
 .conversation-actions { margin-left: auto; display: flex; gap: 1px; }
 .icon-button {
   width: 38px; height: 38px; padding: 0; display: inline-grid; place-items: center; flex: 0 0 auto;
@@ -216,6 +220,13 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-row { width: 100%; display: flex; align-items: flex-end; justify-content: flex-start; margin: 1px 0; }
 .message-group:last-child .message-row:last-child { margin-bottom: 0; }
 .message-row.is-outgoing { justify-content: flex-end; }
+.message-selection-toggle {
+  width: 25px; height: 25px; margin: 0 4px 5px; padding: 0; display: grid; place-items: center; flex: 0 0 auto;
+  color: #ffffff; background: #ffffff; border: 1px solid #aeb8bd; border-radius: 50%; cursor: pointer;
+}
+.message-selection-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+.message-selection-toggle:disabled { cursor: default; opacity: 0.5; }
+.message-row.is-selected .message-bubble { outline: 2px solid rgba(51, 144, 236, 0.36); outline-offset: 1px; }
 .message-bubble-shell { position: relative; max-width: min(74%, 720px); }
 .message-bubble {
   position: relative; max-width: 100%; padding: 8px 10px 6px; color: var(--ink); background: #ffffff;
@@ -262,6 +273,9 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-action-menu button.is-danger:hover, .message-action-menu button.is-danger:focus-visible { background: #fff1ef; }
 .message-action-status { min-height: 42px; padding: 0 9px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .message-sender { display: block; margin-bottom: 3px; color: var(--accent-strong); font-size: 12px; font-weight: 700; }
+.message-forward-label {
+  margin-bottom: 3px; display: flex; align-items: center; gap: 4px; color: var(--accent-strong); font-size: 11px; font-weight: 650;
+}
 .message-reply-preview {
   min-width: 0; margin: 0 0 6px; padding: 4px 7px; display: grid; gap: 1px; overflow: hidden;
   background: rgba(51, 144, 236, 0.08); border-left: 3px solid var(--accent); border-radius: 3px;
@@ -288,6 +302,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-bubble.is-photo .message-sender {
   margin: 0; padding: 6px 9px 5px; background: #ffffff; border-bottom: 1px solid #e6ebed;
 }
+.message-bubble.is-photo .message-forward-label { margin: 0; padding: 6px 9px 5px; background: #ffffff; }
+.is-outgoing .message-bubble.is-photo .message-forward-label { background: var(--outgoing); }
 .message-bubble.is-photo .message-reply-preview { margin: 6px 8px; }
 .message-row.group-first .message-bubble.is-photo,
 .message-row.group-single .message-bubble.is-photo { background: #ffffff; box-shadow: 0 1px 2px rgba(35, 50, 48, 0.16); }
@@ -312,6 +328,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .media-progress button:hover { background: rgba(255, 255, 255, 0.16); }
 .messages-empty { width: fit-content; margin: 42px auto; padding: 5px 10px; color: #ffffff; background: rgba(92, 117, 112, 0.72); border-radius: 12px; font-size: 11px; }
 .composer-wrap { min-height: 71px; padding: 6px clamp(12px, 3vw, 38px) 13px; display: grid; align-content: end; background: transparent; }
+.message-selection-bar {
+  min-height: 71px; padding: 8px clamp(12px, 3vw, 38px) 12px; display: flex; align-items: center; justify-content: flex-end; gap: 14px;
+  color: var(--muted); background: #ffffff; border-top: 1px solid var(--line); font-size: 12px;
+}
+.selection-forward-button {
+  min-width: 104px; height: 42px; padding: 0 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  color: #ffffff; background: var(--accent); border: 0; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 650;
+}
+.selection-forward-button:hover { background: var(--accent-strong); }
 .composer-context {
   width: min(940px, 100%); min-height: 44px; margin: 0 auto -3px; padding: 5px 6px 7px 12px;
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px;
@@ -349,6 +374,35 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-delete-heading h3 { margin: 0 0 5px; font-size: 17px; font-weight: 650; }
 .message-delete-heading p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
 .message-delete-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.message-forward-dialog {
+  width: min(440px, calc(100vw - 40px)); max-height: min(640px, calc(100vh - 40px)); min-height: 0;
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden;
+  color: var(--ink); background: #ffffff; border-radius: 8px; box-shadow: 0 16px 48px rgba(10, 20, 28, 0.24);
+}
+.message-forward-heading {
+  min-width: 0; padding: 16px 14px 12px 18px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px;
+}
+.message-forward-heading-icon { width: 36px; height: 36px; display: grid; place-items: center; color: var(--accent); background: #edf6fd; border-radius: 50%; }
+.message-forward-heading h3 { margin: 0 0 3px; font-size: 16px; font-weight: 650; }
+.message-forward-heading p { margin: 0; color: var(--muted); font-size: 11px; }
+.forward-target-search {
+  min-height: 40px; margin: 0 14px 10px; padding: 0 11px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px;
+  color: #8b9499; background: #f1f3f4; border-radius: 7px;
+}
+.forward-target-search input { width: 100%; height: 38px; padding: 0; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 12px; }
+.forward-target-list { min-height: 0; padding: 0 7px 9px; overflow-y: auto; border-top: 1px solid var(--line); }
+.forward-target-row {
+  width: 100%; min-height: 58px; padding: 7px 9px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  text-align: left; color: var(--ink); background: transparent; border: 0; border-radius: 6px; cursor: pointer;
+}
+.forward-target-row:hover:not(:disabled), .forward-target-row:focus-visible { background: #eef4f7; }
+.forward-target-row:disabled { cursor: default; opacity: 0.72; }
+.forward-target-row > span { min-width: 0; display: grid; gap: 3px; }
+.forward-target-row strong, .forward-target-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forward-target-row strong { font-size: 13px; }
+.forward-target-row small { color: var(--muted); font-size: 11px; }
+.forward-target-arrow { color: #90999e; transform: rotate(180deg); }
+.forward-target-empty { min-height: 130px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .dialog-danger {
   min-height: 40px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   color: #ffffff; background: #c94b40; border: 1px solid #c94b40; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650;
@@ -495,6 +549,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .message-bubble-shell { max-width: 88%; }
   .message-action-trigger { opacity: 0.88; }
   .composer-wrap { min-height: 67px; padding: 6px 7px 9px; }
+  .message-selection-bar { min-height: 67px; padding: 7px 10px 9px; }
   .auth-shell { min-height: 520px; padding: 24px 18px 46px; }
   .auth-panel { gap: 24px; }
   .auth-settings { top: 10px; right: 10px; }

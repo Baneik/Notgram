@@ -4,6 +4,7 @@ import {
   CheckCheck,
   ChevronLeft,
   FileText,
+  Forward,
   ImageIcon,
   Download,
   Edit3,
@@ -27,6 +28,7 @@ import type {
   Message,
   MessageContent,
   MessagePermissions,
+  ForwardMessagesResult,
   User,
 } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
@@ -41,6 +43,7 @@ import { Avatar } from "./Avatar";
 interface ConversationProps {
   chat?: Chat;
   messages: Message[];
+  forwardTargets: Chat[];
   users: Map<string, User>;
   historyLoading: boolean;
   hasOlderMessages: boolean;
@@ -48,6 +51,11 @@ interface ConversationProps {
   onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
+  onForwardMessages: (
+    fromChatId: string,
+    messageIds: string[],
+    toChatId: string,
+  ) => Promise<ForwardMessagesResult | undefined>;
   onLoadMessageProperties: (
     chatId: string,
     messageId: string,
@@ -63,6 +71,7 @@ interface ConversationProps {
 export function Conversation({
   chat,
   messages,
+  forwardTargets,
   users,
   historyLoading,
   hasOlderMessages,
@@ -70,6 +79,7 @@ export function Conversation({
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
+  onForwardMessages,
   onLoadMessageProperties,
   onDownloadFile,
   onRetryMessage,
@@ -93,6 +103,12 @@ export function Conversation({
   const [editingMessage, setEditingMessage] = useState<Message>();
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
+  const [selectionLoadingIds, setSelectionLoadingIds] = useState<Set<string>>(new Set());
+  const [forwardDialogOpen, setForwardDialogOpen] = useState(false);
+  const [forwardQuery, setForwardQuery] = useState("");
+  const [forwardPending, setForwardPending] = useState(false);
+  const [forwardPendingTargetId, setForwardPendingTargetId] = useState<string>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
@@ -139,6 +155,19 @@ export function Conversation({
     [messages],
   );
 
+  const filteredForwardTargets = useMemo(() => {
+    const query = forwardQuery.trim().toLocaleLowerCase();
+    return query
+      ? forwardTargets.filter((target) => target.title.toLocaleLowerCase().includes(query))
+      : forwardTargets;
+  }, [forwardQuery, forwardTargets]);
+  const forwardTargetsById = useMemo(
+    () => new Map(forwardTargets.map((target) => [target.id, target])),
+    [forwardTargets],
+  );
+
+  const selectionMode = selectedMessageIds.size > 0;
+
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
@@ -151,6 +180,12 @@ export function Conversation({
     setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setDeletePending(false);
+    setSelectedMessageIds(new Set());
+    setSelectionLoadingIds(new Set());
+    setForwardDialogOpen(false);
+    setForwardQuery("");
+    setForwardPending(false);
+    setForwardPendingTargetId(undefined);
     setDraft("");
     draftBeforeEditRef.current = undefined;
   }, [chat?.id]);
@@ -165,6 +200,28 @@ export function Conversation({
     }
     if (deleteTarget && !messagesById.has(deleteTarget.id)) setDeleteTarget(undefined);
   }, [actionMenu, deleteTarget, editingMessage, messagesById, replyingTo]);
+
+  useEffect(() => {
+    setSelectedMessageIds((current) => {
+      const available = new Set([...current].filter((messageId) => messagesById.has(messageId)));
+      return available.size === current.size ? current : available;
+    });
+  }, [messagesById]);
+
+  useEffect(() => {
+    if (!selectionMode) return;
+    const closeWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (forwardDialogOpen && !forwardPending) {
+        setForwardDialogOpen(false);
+        setForwardQuery("");
+      } else if (!forwardPending) {
+        setSelectedMessageIds(new Set());
+      }
+    };
+    document.addEventListener("keydown", closeWithKeyboard);
+    return () => document.removeEventListener("keydown", closeWithKeyboard);
+  }, [forwardDialogOpen, forwardPending, selectionMode]);
 
   useEffect(() => {
     if (!actionMenu) return;
@@ -270,7 +327,7 @@ export function Conversation({
 
   const openActionMenu = async (message: Message, left: number, top: number) => {
     const menuWidth = 184;
-    const menuHeight = 150;
+    const menuHeight = 170;
     setActionMenu({
       messageId: message.id,
       left: Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8)),
@@ -339,37 +396,124 @@ export function Conversation({
     if (deleted) setDeleteTarget(undefined);
   };
 
+  const startForwardSelection = (message: Message) => {
+    if (editingMessage) {
+      setDraft(draftBeforeEditRef.current ?? "");
+      setEditingMessage(undefined);
+      draftBeforeEditRef.current = undefined;
+    }
+    setReplyingTo(undefined);
+    setActionMenu(undefined);
+    setSearchOpen(false);
+    setMessageSearch("");
+    setSelectedMessageIds(new Set([message.id]));
+  };
+
+  const toggleMessageSelection = async (message: Message) => {
+    if (selectedMessageIds.has(message.id)) {
+      setSelectedMessageIds((current) => {
+        const next = new Set(current);
+        next.delete(message.id);
+        return next;
+      });
+      return;
+    }
+    if (selectedMessageIds.size >= 100 || selectionLoadingIds.has(message.id)) return;
+
+    let permissions = message.permissions;
+    if (!permissions) {
+      setSelectionLoadingIds((current) => new Set(current).add(message.id));
+      permissions = await onLoadMessageProperties(message.chatId, message.id);
+      setSelectionLoadingIds((current) => {
+        const next = new Set(current);
+        next.delete(message.id);
+        return next;
+      });
+    }
+    if (!permissions?.canForward) return;
+    setSelectedMessageIds((current) => current.size >= 100
+      ? current
+      : new Set(current).add(message.id));
+  };
+
+  const confirmForward = async (target: Chat) => {
+    if (forwardPending) return;
+    const messageIds = messages
+      .filter((message) => selectedMessageIds.has(message.id))
+      .map((message) => message.id);
+    if (messageIds.length === 0) return;
+    setForwardPending(true);
+    setForwardPendingTargetId(target.id);
+    const result = await onForwardMessages(chat.id, messageIds, target.id);
+    setForwardPending(false);
+    setForwardPendingTargetId(undefined);
+    if (!result) {
+      setForwardDialogOpen(false);
+      setForwardQuery("");
+      return;
+    }
+    if (result.failedMessageIds.length > 0) {
+      setSelectedMessageIds(new Set(result.failedMessageIds));
+      setForwardDialogOpen(false);
+      setForwardQuery("");
+      return;
+    }
+    setForwardDialogOpen(false);
+    setForwardQuery("");
+    setSelectedMessageIds(new Set());
+  };
+
   return (
-    <section className={`conversation ${searchOpen ? "has-message-search" : ""}`} aria-label={`${chat.title} 对话`}>
-      <header className="conversation-header">
-        <button className="mobile-back icon-button" type="button" aria-label="返回会话列表" title="返回会话列表" onClick={onBack}>
-          <ChevronLeft size={21} strokeWidth={2} />
-        </button>
-        <Avatar avatar={chat.avatar} size="medium" />
-        <div className="conversation-title">
-          <h2>{chat.title}</h2>
-          <span>{statusLabel}</span>
-        </div>
-        <div className="conversation-actions">
-          <button className="icon-button" type="button" aria-label="语音通话" title="语音通话">
-            <Phone size={19} strokeWidth={1.8} />
-          </button>
-          <button
-            className={`icon-button ${searchOpen ? "is-active" : ""}`}
-            type="button"
-            aria-label="搜索消息"
-            title="搜索消息"
-            onClick={() => {
-              setSearchOpen((open) => !open);
-              if (searchOpen) setMessageSearch("");
-            }}
-          >
-            <Search size={19} strokeWidth={1.8} />
-          </button>
-          <button className="icon-button" type="button" aria-label="更多操作" title="更多操作">
-            <MoreVertical size={20} strokeWidth={1.8} />
-          </button>
-        </div>
+    <section className={`conversation ${searchOpen ? "has-message-search" : ""} ${selectionMode ? "is-selecting-messages" : ""}`} aria-label={`${chat.title} 对话`}>
+      <header className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
+        {selectionMode ? (
+          <>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="取消选择"
+              title="取消选择"
+              onClick={() => setSelectedMessageIds(new Set())}
+            >
+              <X size={20} strokeWidth={2} />
+            </button>
+            <div className="message-selection-title">
+              <strong>已选择 {selectedMessageIds.size} 条</strong>
+              <span>最多可同时转发 100 条消息</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <button className="mobile-back icon-button" type="button" aria-label="返回会话列表" title="返回会话列表" onClick={onBack}>
+              <ChevronLeft size={21} strokeWidth={2} />
+            </button>
+            <Avatar avatar={chat.avatar} size="medium" />
+            <div className="conversation-title">
+              <h2>{chat.title}</h2>
+              <span>{statusLabel}</span>
+            </div>
+            <div className="conversation-actions">
+              <button className="icon-button" type="button" aria-label="语音通话" title="语音通话">
+                <Phone size={19} strokeWidth={1.8} />
+              </button>
+              <button
+                className={`icon-button ${searchOpen ? "is-active" : ""}`}
+                type="button"
+                aria-label="搜索消息"
+                title="搜索消息"
+                onClick={() => {
+                  setSearchOpen((open) => !open);
+                  if (searchOpen) setMessageSearch("");
+                }}
+              >
+                <Search size={19} strokeWidth={1.8} />
+              </button>
+              <button className="icon-button" type="button" aria-label="更多操作" title="更多操作">
+                <MoreVertical size={20} strokeWidth={1.8} />
+              </button>
+            </div>
+          </>
+        )}
       </header>
 
       {searchOpen && (
@@ -441,6 +585,12 @@ export function Conversation({
                       senderName={senderName}
                       groupPosition={messageGroupPosition(messageGroup, index)}
                       replyPreview={replyPreviewFor(message, messagesById, users, chat)}
+                      forwardLabel={forwardLabelFor(message, users, forwardTargetsById)}
+                      selectionMode={selectionMode}
+                      selected={selectedMessageIds.has(message.id)}
+                      selectionPending={selectionLoadingIds.has(message.id)}
+                      selectionLimitReached={selectedMessageIds.size >= 100}
+                      onToggleSelection={toggleMessageSelection}
                       onOpenActions={openActionMenu}
                       onDownload={onDownloadFile}
                       onRetry={onRetryMessage}
@@ -484,6 +634,12 @@ export function Conversation({
                   <span>编辑</span>
                 </button>
               )}
+              {actionPermissions.canForward && (
+                <button type="button" role="menuitem" onClick={() => startForwardSelection(actionMessage)}>
+                  <Forward size={16} strokeWidth={1.9} />
+                  <span>转发</span>
+                </button>
+              )}
               {(actionPermissions.canDeleteOnlyForSelf ||
                 actionPermissions.canDeleteForAllUsers) && (
                 <button
@@ -504,6 +660,19 @@ export function Conversation({
         </div>
       )}
 
+      {selectionMode ? (
+        <div className="message-selection-bar">
+          <span>{selectedMessageIds.size} 条消息</span>
+          <button
+            className="selection-forward-button"
+            type="button"
+            onClick={() => setForwardDialogOpen(true)}
+          >
+            <Forward size={18} strokeWidth={1.9} />
+            转发
+          </button>
+        </div>
+      ) : (
       <div className="composer-wrap">
         <input
           ref={fileInputRef}
@@ -586,6 +755,7 @@ export function Conversation({
           </button>
         </div>
       </div>
+      )}
 
       {deleteTarget && deleteTarget.permissions && (
         <div className="message-delete-backdrop" role="presentation">
@@ -636,6 +806,81 @@ export function Conversation({
           </section>
         </div>
       )}
+
+      {forwardDialogOpen && selectionMode && (
+        <div
+          className="message-delete-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !forwardPending) {
+              setForwardDialogOpen(false);
+              setForwardQuery("");
+            }
+          }}
+        >
+          <section
+            className="message-forward-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-forward-title"
+          >
+            <header className="message-forward-heading">
+              <span className="message-forward-heading-icon"><Forward size={18} strokeWidth={1.9} /></span>
+              <div>
+                <h3 id="message-forward-title">转发 {selectedMessageIds.size} 条消息</h3>
+                <p>选择目标会话</p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="关闭转发"
+                title="关闭"
+                disabled={forwardPending}
+                onClick={() => {
+                  setForwardDialogOpen(false);
+                  setForwardQuery("");
+                }}
+              >
+                <X size={18} strokeWidth={1.9} />
+              </button>
+            </header>
+            <label className="forward-target-search">
+              <Search size={16} strokeWidth={1.8} />
+              <span className="sr-only">搜索目标会话</span>
+              <input
+                autoFocus
+                value={forwardQuery}
+                onChange={(event) => setForwardQuery(event.target.value)}
+                placeholder="搜索会话"
+                type="search"
+                disabled={forwardPending}
+              />
+            </label>
+            <div className="forward-target-list">
+              {filteredForwardTargets.length === 0 ? (
+                <div className="forward-target-empty">没有匹配的会话</div>
+              ) : filteredForwardTargets.map((target) => (
+                <button
+                  className="forward-target-row"
+                  type="button"
+                  key={target.id}
+                  disabled={forwardPending}
+                  onClick={() => void confirmForward(target)}
+                >
+                  <Avatar avatar={target.avatar} size="medium" />
+                  <span>
+                    <strong>{target.title}</strong>
+                    <small>{target.id === chat.id ? "当前会话" : target.preview}</small>
+                  </span>
+                  {forwardPending && forwardPendingTargetId === target.id
+                    ? <LoaderCircle className="spin" size={16} />
+                    : <ChevronLeft className="forward-target-arrow" size={18} strokeWidth={1.8} />}
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
@@ -646,6 +891,12 @@ function MessageBubble({
   senderName,
   groupPosition,
   replyPreview,
+  forwardLabel,
+  selectionMode,
+  selected,
+  selectionPending,
+  selectionLimitReached,
+  onToggleSelection,
   onOpenActions,
   onDownload,
   onRetry,
@@ -656,6 +907,12 @@ function MessageBubble({
   senderName: string;
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
+  forwardLabel?: string;
+  selectionMode: boolean;
+  selected: boolean;
+  selectionPending: boolean;
+  selectionLimitReached: boolean;
+  onToggleSelection: (message: Message) => Promise<void>;
   onOpenActions: (message: Message, left: number, top: number) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onRetry: (messageId: string) => Promise<void>;
@@ -683,16 +940,41 @@ function MessageBubble({
     !message.content.isDownloading;
   const canCancelUpload = message.content.kind !== "text" &&
     message.content.isUploading === true;
+  const selectionDisabled = selectionPending ||
+    message.permissions?.canForward === false ||
+    (selectionLimitReached && !selected);
   return (
-    <article className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"}`}>
+    <article className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${selected ? "is-selected" : ""}`}>
+      {selectionMode && (
+        <button
+          className="message-selection-toggle"
+          type="button"
+          aria-label={selected ? "取消选择消息" : "选择消息"}
+          aria-pressed={selected}
+          title={message.permissions?.canForward === false ? "此消息不可转发" : selected ? "取消选择" : "选择消息"}
+          disabled={selectionDisabled}
+          onClick={() => void onToggleSelection(message)}
+        >
+          {selectionPending
+            ? <LoaderCircle className="spin" size={15} />
+            : selected && <Check size={15} strokeWidth={2.4} />}
+        </button>
+      )}
       <div
         className="message-bubble-shell"
         onContextMenu={(event) => {
           event.preventDefault();
-          void onOpenActions(message, event.clientX, event.clientY);
+          if (selectionMode) void onToggleSelection(message);
+          else void onOpenActions(message, event.clientX, event.clientY);
         }}
       >
         <div className={`message-bubble ${isPhoto ? "is-photo" : ""} ${hasCaption ? "has-caption" : ""}`}>
+          {forwardLabel && (
+            <span className="message-forward-label">
+              <Forward size={12} strokeWidth={2} />
+              {forwardLabel}
+            </span>
+          )}
           {showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
           {replyPreview && (
             <span className="message-reply-preview">
@@ -766,7 +1048,7 @@ function MessageBubble({
             )}
           </span>
         </div>
-        <button
+        {!selectionMode && <button
           className="message-action-trigger"
           type="button"
           aria-label="消息操作"
@@ -778,7 +1060,7 @@ function MessageBubble({
           }}
         >
           <MoreHorizontal size={18} strokeWidth={1.9} />
-        </button>
+        </button>}
       </div>
     </article>
   );
@@ -793,6 +1075,26 @@ const senderNameForMessage = (message: Message, users: Map<string, User>, chat: 
   if (message.outgoing) return "你";
   return users.get(message.senderId)?.displayName ??
     (chat.kind === "direct" ? chat.title : "Telegram 用户");
+};
+
+const forwardLabelFor = (
+  message: Message,
+  users: Map<string, User>,
+  chats: Map<string, Chat>,
+) => {
+  const info = message.forwardInfo;
+  if (!info) return undefined;
+  const origin = info.origin;
+  const name = origin?.kind === "user"
+    ? users.get(origin.userId)?.displayName
+    : origin?.kind === "hiddenUser"
+      ? origin.senderName
+      : origin?.kind === "chat" || origin?.kind === "channel"
+        ? chats.get(origin.chatId)?.title ?? origin.authorSignature
+        : undefined;
+  const sourceName = info.source?.senderName ??
+    (info.source?.chatId ? chats.get(info.source.chatId)?.title : undefined);
+  return name ? `转发自 ${name}` : sourceName ? `转发自 ${sourceName}` : "已转发";
 };
 
 const replyPreviewFor = (

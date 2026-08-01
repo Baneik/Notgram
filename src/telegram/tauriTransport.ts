@@ -23,6 +23,8 @@ import type {
   ChatHistoryPage,
   DeleteMessageInput,
   EditMessageInput,
+  ForwardMessagesInput,
+  ForwardMessagesResult,
   Message,
   MessagePermissions,
   ProxyEndpoint,
@@ -476,6 +478,36 @@ export class TauriTelegramTransport implements TelegramTransport {
       message_ids: [numericId(input.messageId)],
       revoke: input.revoke,
     });
+  }
+
+  async forwardMessages(input: ForwardMessagesInput): Promise<ForwardMessagesResult> {
+    const messageIds = [...new Set(input.messageIds.map(numericId))]
+      .sort((left, right) => left - right);
+    if (messageIds.length === 0) throw new Error("请选择要转发的消息");
+    if (messageIds.length > 100) throw new Error("单次最多转发 100 条消息");
+    const response = await this.request({
+      "@type": "forwardMessages",
+      chat_id: numericId(input.toChatId),
+      topic_id: null,
+      from_chat_id: numericId(input.fromChatId),
+      message_ids: messageIds,
+      options: null,
+      send_copy: false,
+      remove_caption: false,
+    });
+    const forwarded = Array.isArray(response.messages) ? response.messages : [];
+    const failedMessageIds: string[] = [];
+    let forwardedCount = 0;
+    for (const [index, messageId] of messageIds.entries()) {
+      const message = asTdObject(forwarded[index]);
+      if (message?.["@type"] === "message") {
+        this.emitMessage(message);
+        forwardedCount += 1;
+      } else {
+        failedMessageIds.push(String(messageId));
+      }
+    }
+    return { forwardedCount, failedMessageIds };
   }
 
   async downloadFile(fileId: number, fileName: string) {

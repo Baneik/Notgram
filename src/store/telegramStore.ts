@@ -9,6 +9,7 @@ import type {
   Chat,
   ChatFolder,
   Message,
+  ForwardMessagesResult,
   MessagePermissions,
   ProxySettings,
   StorageSettings,
@@ -76,6 +77,11 @@ export interface TelegramState {
   sendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   editMessage: (messageId: string, text: string) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
+  forwardMessages: (
+    fromChatId: string,
+    messageIds: string[],
+    toChatId: string,
+  ) => Promise<ForwardMessagesResult | undefined>;
   downloadFile: (fileId: number, fileName: string) => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   sendFile: (file?: File) => Promise<boolean>;
@@ -800,6 +806,29 @@ export const createTelegramStore = (
         } catch (error) {
           set({ error: error instanceof Error ? error.message : "消息删除失败" });
           return false;
+        }
+      },
+
+      forwardMessages: async (fromChatId, messageIds, toChatId) => {
+        if (!get().chats.has(fromChatId) || !get().chats.has(toChatId)) return undefined;
+        const uniqueMessageIds = [...new Set(messageIds)];
+        if (uniqueMessageIds.length === 0) return undefined;
+        if (uniqueMessageIds.length > 100) {
+          set({ error: "单次最多转发 100 条消息" });
+          return undefined;
+        }
+        try {
+          const result = await transport.forwardMessages({ fromChatId, toChatId, messageIds: uniqueMessageIds });
+          set({
+            error: result.failedMessageIds.length > 0
+              ? `${result.forwardedCount} 条消息已转发，${result.failedMessageIds.length} 条失败`
+              : undefined,
+          });
+          scheduleCacheWrite();
+          return result;
+        } catch (error) {
+          set({ error: error instanceof Error ? error.message : "消息转发失败" });
+          return undefined;
         }
       },
 

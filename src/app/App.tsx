@@ -43,6 +43,7 @@ export function App() {
   const sendMessage = useTelegramStore((state) => state.sendMessage);
   const editMessage = useTelegramStore((state) => state.editMessage);
   const deleteMessage = useTelegramStore((state) => state.deleteMessage);
+  const forwardMessages = useTelegramStore((state) => state.forwardMessages);
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
   const downloadFile = useTelegramStore((state) => state.downloadFile);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
@@ -70,6 +71,12 @@ export function App() {
   const visibleChats = useMemo(
     () => filterAndSortChats(chats.values(), chatFilter, searchQuery),
     [chatFilter, chats, searchQuery],
+  );
+  const forwardTargets = useMemo(
+    () => [...chats.values()].sort(
+      (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+    ),
+    [chats],
   );
 
   if (!chatListReady && (authorization.kind === "preparing" || authorization.kind === "ready")) {
@@ -127,6 +134,7 @@ export function App() {
         <Conversation
           chat={activeChat}
           messages={activeMessages}
+          forwardTargets={forwardTargets}
           users={users}
           historyLoading={activeHistory.loading}
           hasOlderMessages={activeHistory.hasMore}
@@ -134,6 +142,7 @@ export function App() {
           onSendMessage={sendMessage}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}
+          onForwardMessages={forwardMessages}
           onLoadMessageProperties={loadMessageProperties}
           onDownloadFile={downloadFile}
           onRetryMessage={retryMessage}

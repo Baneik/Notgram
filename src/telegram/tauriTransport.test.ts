@@ -161,6 +161,54 @@ describe("TauriTelegramTransport message operations", () => {
     ]);
   });
 
+  it("forwards a sorted message batch and reports partial TDLib failures", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "messages",
+        messages: [
+          { ...rawMessage(20), chat_id: 9, is_outgoing: true },
+          null,
+          { ...rawMessage(22), chat_id: 9, is_outgoing: true },
+        ],
+      };
+    };
+
+    await expect(transport.forwardMessages({
+      fromChatId: "7",
+      toChatId: "9",
+      messageIds: ["14", "12", "13", "12"],
+    })).resolves.toEqual({ forwardedCount: 2, failedMessageIds: ["13"] });
+
+    expect(requests).toEqual([{
+      "@type": "forwardMessages",
+      chat_id: 9,
+      topic_id: null,
+      from_chat_id: 7,
+      message_ids: [12, 13, 14],
+      options: null,
+      send_copy: false,
+      remove_caption: false,
+    }]);
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ type: "message.upsert", message: { id: "20", chatId: "9" } });
+    expect(events[1]).toMatchObject({ type: "message.upsert", message: { id: "22", chatId: "9" } });
+  });
+
+  it("rejects forward batches over TDLib's 100-message limit", async () => {
+    const transport = new TauriTelegramTransport();
+    await expect(transport.forwardMessages({
+      fromChatId: "7",
+      toChatId: "9",
+      messageIds: Array.from({ length: 101 }, (_, index) => String(index + 1)),
+    })).rejects.toThrow("单次最多转发 100 条消息");
+  });
+
   it("sends selected photos and documents with native local-file inputs", async () => {
     const photoTransport = new TauriTelegramTransport(
       async () => ({

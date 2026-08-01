@@ -395,6 +395,51 @@ describe("telegram store", () => {
     expect(store.getState().chats.get("chat-product")?.preview).toBe("新的媒体预览样式");
   });
 
+  it("forwards multiple messages to another chat with original source metadata", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+    const before = store.getState().messages.get("chat-mia")?.length ?? 0;
+
+    await expect(store.getState().forwardMessages(
+      "chat-product",
+      ["p-1", "p-2"],
+      "chat-mia",
+    )).resolves.toEqual({ forwardedCount: 2, failedMessageIds: [] });
+
+    const forwarded = store.getState().messages.get("chat-mia")?.slice(before);
+    expect(forwarded).toHaveLength(2);
+    expect(forwarded?.map((message) => message.content)).toEqual([
+      mockSnapshot.messages.find((message) => message.id === "p-1")?.content,
+      mockSnapshot.messages.find((message) => message.id === "p-2")?.content,
+    ]);
+    expect(forwarded?.[0]).toMatchObject({
+      chatId: "chat-mia",
+      outgoing: true,
+      senderId: "self",
+      forwardInfo: {
+        origin: { kind: "user", userId: "u-jules" },
+        source: { chatId: "chat-product", messageId: "p-1" },
+      },
+    });
+  });
+
+  it("keeps forward failures recoverable, including partial batches", async () => {
+    class PartialForwardTransport extends MockTelegramTransport {
+      override async forwardMessages() {
+        return { forwardedCount: 1, failedMessageIds: ["p-2"] };
+      }
+    }
+    const store = createTelegramStore(new PartialForwardTransport());
+    await store.getState().initialize();
+
+    await expect(store.getState().forwardMessages(
+      "chat-product",
+      ["p-1", "p-2"],
+      "chat-mia",
+    )).resolves.toEqual({ forwardedCount: 1, failedMessageIds: ["p-2"] });
+    expect(store.getState().error).toBe("1 条消息已转发，1 条失败");
+  });
+
   it("sends and cancels a selected photo through the active chat", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();
