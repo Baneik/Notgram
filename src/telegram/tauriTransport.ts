@@ -770,7 +770,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private async request(request: TdObject) {
     const requestType = typeof request["@type"] === "string" ? request["@type"] : "unknown";
-    const extra = `web:${requestType}:${crypto.randomUUID()}`;
+    const extra = crypto.randomUUID();
     const payload = { ...request, "@extra": extra };
     const response = new Promise<TdObject>((resolve, reject) => {
       const timer = window.setTimeout(() => {

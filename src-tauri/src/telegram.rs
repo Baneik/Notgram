@@ -2,7 +2,7 @@ use libloading::Library;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env,
     ffi::{CStr, CString},
     fs::{self, OpenOptions},
@@ -180,6 +180,7 @@ struct RuntimeInner {
 
 pub struct TelegramRuntime {
     inner: Mutex<RuntimeInner>,
+    request_types: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl TelegramRuntime {
@@ -193,6 +194,7 @@ impl TelegramRuntime {
                 phase: "unavailable",
                 last_error: None,
             }),
+            request_types: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -267,10 +269,23 @@ impl TelegramRuntime {
         }
 
         let app_handle = app.clone();
+        self.request_types
+            .lock()
+            .expect("request type mutex poisoned")
+            .clear();
+        let request_types = Arc::clone(&self.request_types);
         thread::Builder::new()
             .name("tdlib-receive".to_string())
             .spawn(move || {
-                receive_loop(app_handle, engine, logger, client_id, stop, configuration);
+                receive_loop(
+                    app_handle,
+                    engine,
+                    logger,
+                    client_id,
+                    stop,
+                    configuration,
+                    request_types,
+                );
             })
             .map_err(|error| format!("无法启动 TDLib 接收线程: {error}"))?;
         Ok(())
@@ -293,7 +308,29 @@ impl TelegramRuntime {
                 json!({ "type": request.get("@type").and_then(Value::as_str) }),
             );
         }
-        engine.send_value(running.client_id, request)
+        let correlation = request
+            .get("@extra")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if let (Some(correlation), Some(request_type)) = (
+            correlation.as_ref(),
+            request.get("@type").and_then(Value::as_str),
+        ) {
+            self.request_types
+                .lock()
+                .expect("request type mutex poisoned")
+                .insert(correlation.clone(), request_type.to_string());
+        }
+        let result = engine.send_value(running.client_id, request);
+        if result.is_err()
+            && let Some(correlation) = correlation
+        {
+            self.request_types
+                .lock()
+                .expect("request type mutex poisoned")
+                .remove(&correlation);
+        }
+        result
     }
 
     fn shutdown(&self) -> Result<(), String> {
@@ -339,6 +376,10 @@ impl TelegramRuntime {
             inner.running = None;
             inner.phase = "ready";
         }
+        self.request_types
+            .lock()
+            .expect("request type mutex poisoned")
+            .clear();
     }
 
     fn status(&self, app: &AppHandle) -> TelegramRuntimeStatus {
@@ -449,12 +490,6 @@ impl TdlibConfiguration {
 }
 
 fn request_type_from_extra(extra: &str) -> Option<&str> {
-    if let Some(web_request) = extra.strip_prefix("web:") {
-        return web_request
-            .split(':')
-            .next()
-            .filter(|value| !value.is_empty());
-    }
     extra.strip_prefix("native:")
 }
 
@@ -465,6 +500,7 @@ fn receive_loop(
     client_id: i32,
     stop: Arc<AtomicBool>,
     configuration: TdlibConfiguration,
+    request_types: Arc<Mutex<HashMap<String, String>>>,
 ) {
     let mut stats_started = Instant::now();
     let mut poll_count = 0_u64;
@@ -495,11 +531,21 @@ fn receive_loop(
                         logger.as_ref(),
                     );
                     let mut emit_update = true;
+                    let request = update.get("@extra").and_then(Value::as_str);
+                    let request_type = request.and_then(|correlation| {
+                        request_type_from_extra(correlation)
+                            .map(str::to_owned)
+                            .or_else(|| {
+                                request_types
+                                    .lock()
+                                    .expect("request type mutex poisoned")
+                                    .remove(correlation)
+                            })
+                    });
                     if update.get("@type").and_then(Value::as_str) == Some("error") {
-                        let request = update.get("@extra").and_then(Value::as_str);
-                        let request_type = request.and_then(request_type_from_extra);
                         let code = update.get("code").and_then(Value::as_i64);
-                        let expected = (code == Some(404) && request_type == Some("loadChats"))
+                        let expected = (code == Some(404)
+                            && request_type.as_deref() == Some("loadChats"))
                             || (code == Some(401) && authorization_closing);
                         if let Some(logger) = &logger {
                             logger.write(
@@ -511,7 +557,7 @@ fn receive_loop(
                                 },
                                 json!({
                                     "code": code,
-                                    "requestType": request_type,
+                                    "requestType": request_type.as_deref(),
                                 }),
                             );
                         }
@@ -887,11 +933,11 @@ mod logger_tests {
     use super::*;
 
     #[test]
-    fn extracts_safe_request_types_from_request_extras() {
-        assert_eq!(
-            request_type_from_extra("web:loadChats:550e8400-e29b-41d4-a716-446655440000"),
-            Some("loadChats")
-        );
+    fn preserves_uuid_webview_correlations_and_extracts_native_request_types() {
+        let correlation = "550e8400-e29b-41d4-a716-446655440000";
+        assert!(validate_webview_extra(correlation).is_ok());
+        assert_eq!(request_type_from_extra(correlation), None);
+        assert!(validate_webview_extra(&format!("web:getMe:{correlation}")).is_err());
         assert_eq!(
             request_type_from_extra("native:setTdlibParameters"),
             Some("setTdlibParameters")
