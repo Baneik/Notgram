@@ -359,6 +359,73 @@ describe("telegram store", () => {
     expect(state.chats.get("chat-product")?.preview).toBe("一条新的测试消息");
   });
 
+  it("completes reply, edit, and delete operations through transport events", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    const replied = await store.getState().sendMessage("收到，我会跟进", "p-4");
+    const reply = store.getState().messages.get("chat-product")?.at(-1);
+    expect(replied).toBe(true);
+    expect(reply).toMatchObject({
+      content: { kind: "text", text: "收到，我会跟进" },
+      replyTo: { kind: "message", messageId: "p-4" },
+    });
+
+    const edited = await store.getState().editMessage("p-2", "调整后的消息内容");
+    expect(edited).toBe(true);
+    expect(
+      store.getState().messages.get("chat-product")
+        ?.find((message) => message.id === "p-2"),
+    ).toMatchObject({
+      editedAt: expect.any(String),
+      content: { kind: "text", text: "调整后的消息内容" },
+    });
+
+    const deleted = await store.getState().deleteMessage("p-4", false);
+    expect(deleted).toBe(true);
+    expect(
+      store.getState().messages.get("chat-product")
+        ?.some((message) => message.id === "p-4"),
+    ).toBe(false);
+
+    const deletedReply = await store.getState().deleteMessage(reply!.id, true);
+    expect(deletedReply).toBe(true);
+    expect(store.getState().chats.get("chat-product")?.preview).toBe("新的媒体预览样式");
+  });
+
+  it("preserves message state when edit or delete is rejected", async () => {
+    class FailingOperationsTransport extends MockTelegramTransport {
+      override async editMessage() {
+        throw new Error("temporary edit failure");
+      }
+
+      override async deleteMessage() {
+        throw new Error("temporary delete failure");
+      }
+    }
+
+    const store = createTelegramStore(new FailingOperationsTransport());
+    await store.getState().initialize();
+    const original = structuredClone(
+      store.getState().messages.get("chat-product")
+        ?.find((message) => message.id === "p-2"),
+    );
+
+    await expect(store.getState().editMessage("p-2", "不会保存")).resolves.toBe(false);
+    expect(store.getState().error).toBe("temporary edit failure");
+    expect(
+      store.getState().messages.get("chat-product")
+        ?.find((message) => message.id === "p-2"),
+    ).toEqual(original);
+
+    await expect(store.getState().deleteMessage("p-2", true)).resolves.toBe(false);
+    expect(store.getState().error).toBe("temporary delete failure");
+    expect(
+      store.getState().messages.get("chat-product")
+        ?.some((message) => message.id === "p-2"),
+    ).toBe(true);
+  });
+
   it("applies repeated message metadata updates idempotently", async () => {
     class MetadataTransport extends MockTelegramTransport {
       private eventListener?: TelegramEventListener;

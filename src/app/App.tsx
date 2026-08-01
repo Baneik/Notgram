@@ -40,6 +40,9 @@ export function App() {
   const setSearchQuery = useTelegramStore((state) => state.setSearchQuery);
   const setChatFilter = useTelegramStore((state) => state.setChatFilter);
   const sendMessage = useTelegramStore((state) => state.sendMessage);
+  const editMessage = useTelegramStore((state) => state.editMessage);
+  const deleteMessage = useTelegramStore((state) => state.deleteMessage);
+  const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
   const downloadFile = useTelegramStore((state) => state.downloadFile);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
   const sendFile = useTelegramStore((state) => state.sendFile);
@@ -126,6 +129,9 @@ export function App() {
           historyLoading={activeHistory.loading}
           hasOlderMessages={activeHistory.hasMore}
           onSendMessage={sendMessage}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
+          onLoadMessageProperties={loadMessageProperties}
           onDownloadFile={downloadFile}
           onRetryMessage={retryMessage}
           onSendFile={sendFile}

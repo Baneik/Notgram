@@ -4,6 +4,8 @@ import type {
   AuthorizationAction,
   CachedTelegramSnapshot,
   Chat,
+  DeleteMessageInput,
+  EditMessageInput,
   Message,
   MessagePermissions,
   ProxySettings,
@@ -181,7 +183,13 @@ export class MockTelegramTransport implements TelegramTransport {
     return structuredClone(this.storageSettings);
   }
 
-  async sendMessage({ chatId, text }: SendMessageInput) {
+  async sendMessage({ chatId, text, replyToMessageId }: SendMessageInput) {
+    const replyTarget = replyToMessageId
+      ? this.snapshot.messages.find(
+          (message) => message.chatId === chatId && message.id === replyToMessageId,
+        )
+      : undefined;
+    if (replyToMessageId && !replyTarget) throw new Error("找不到需要回复的消息");
     this.appendMessage({
       id: crypto.randomUUID(),
       chatId,
@@ -189,8 +197,39 @@ export class MockTelegramTransport implements TelegramTransport {
       outgoing: true,
       sentAt: new Date().toISOString(),
       delivery: "sent",
+      replyTo: replyTarget
+        ? {
+            kind: "message",
+            chatId,
+            messageId: replyTarget.id,
+            content: clone(replyTarget.content),
+          }
+        : undefined,
       content: { kind: "text", text },
     });
+  }
+
+  async editMessage({ chatId, messageId, text }: EditMessageInput) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === chatId && item.id === messageId,
+    );
+    if (!message) throw new Error("找不到需要编辑的消息");
+    if (message.content.kind !== "text") throw new Error("只能编辑文本消息");
+    message.content = { kind: "text", text };
+    message.editedAt = new Date().toISOString();
+    delete message.permissions;
+    this.listener?.({ type: "message.upsert", message: clone(message) });
+    this.refreshChatPreview(chatId);
+  }
+
+  async deleteMessage({ chatId, messageId }: DeleteMessageInput) {
+    const index = this.snapshot.messages.findIndex(
+      (item) => item.chatId === chatId && item.id === messageId,
+    );
+    if (index < 0) throw new Error("找不到需要删除的消息");
+    this.snapshot.messages.splice(index, 1);
+    this.listener?.({ type: "message.remove", chatId, messageId });
+    this.refreshChatPreview(chatId);
   }
 
   async downloadFile(_fileId: number, _fileName: string) {
@@ -245,6 +284,24 @@ export class MockTelegramTransport implements TelegramTransport {
           : message.content.fileName,
       updatedAt: message.sentAt,
       unreadCount: 0,
+    };
+    Object.assign(chat, updatedChat);
+    this.listener?.({ type: "chat.upsert", chat: clone(updatedChat) });
+  }
+
+  private refreshChatPreview(chatId: string) {
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat) return;
+    const latest = this.snapshot.messages
+      .filter((message) => message.chatId === chatId)
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt))[0];
+    if (!latest) return;
+    const updatedChat: Chat = {
+      ...chat,
+      preview: latest.content.kind === "text"
+        ? latest.content.text
+        : latest.content.caption || latest.content.fileName,
+      updatedAt: latest.sentAt,
     };
     Object.assign(chat, updatedChat);
     this.listener?.({ type: "chat.upsert", chat: clone(updatedChat) });

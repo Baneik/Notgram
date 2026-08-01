@@ -64,7 +64,9 @@ export interface TelegramState {
   ) => Promise<MessagePermissions | undefined>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
-  sendMessage: (text: string) => Promise<boolean>;
+  sendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
+  editMessage: (messageId: string, text: string) => Promise<boolean>;
+  deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
   downloadFile: (fileId: number, fileName: string) => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   sendFile: (file: File) => Promise<void>;
@@ -586,6 +588,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
         const requestedMessage = (get().messages.get(chatId) ?? [])
           .find((message) => message.id === messageId);
         if (!requestedMessage) return undefined;
+        if (requestedMessage.permissions) return requestedMessage.permissions;
         try {
           const permissions = await transport.getMessageProperties(chatId, messageId);
           const currentMessages = get().messages.get(chatId) ?? [];
@@ -609,16 +612,49 @@ export const createTelegramStore = (transport: TelegramTransport) =>
         scheduleCacheWrite();
       },
 
-      sendMessage: async (text) => {
+      sendMessage: async (text, replyToMessageId) => {
         const chatId = get().activeChatId;
         const normalizedText = text.trim();
         if (!chatId || !normalizedText) return false;
         try {
-          await transport.sendMessage({ chatId, text: normalizedText });
+          await transport.sendMessage({ chatId, text: normalizedText, replyToMessageId });
           set({ error: undefined });
           return true;
         } catch (error) {
           set({ error: error instanceof Error ? error.message : "消息发送失败" });
+          return false;
+        }
+      },
+
+      editMessage: async (messageId, text) => {
+        const chatId = get().activeChatId;
+        const normalizedText = text.trim();
+        if (!chatId || !normalizedText) return false;
+        try {
+          await transport.editMessage({ chatId, messageId, text: normalizedText });
+          set({ error: undefined });
+          return true;
+        } catch (error) {
+          set({ error: error instanceof Error ? error.message : "消息编辑失败" });
+          return false;
+        }
+      },
+
+      deleteMessage: async (messageId, revoke) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return false;
+        try {
+          await transport.deleteMessage({ chatId, messageId, revoke });
+          const messages = new Map(get().messages);
+          messages.set(
+            chatId,
+            (messages.get(chatId) ?? []).filter((message) => message.id !== messageId),
+          );
+          set({ messages, error: undefined });
+          scheduleCacheWrite();
+          return true;
+        } catch (error) {
+          set({ error: error instanceof Error ? error.message : "消息删除失败" });
           return false;
         }
       },

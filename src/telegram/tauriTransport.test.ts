@@ -95,6 +95,72 @@ describe("TauriTelegramTransport message operations", () => {
     }]);
   });
 
+  it("sends a text reply with the current TDLib reply object", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.sendMessage({ chatId: "7", text: "reply", replyToMessageId: "12" });
+
+    expect(requests).toEqual([{
+      "@type": "sendMessage",
+      chat_id: 7,
+      topic_id: null,
+      reply_to: {
+        "@type": "inputMessageReplyToMessage",
+        message_id: 12,
+        quote: null,
+        checklist_task_id: 0,
+      },
+      options: null,
+      reply_markup: null,
+      input_message_content: {
+        "@type": "inputMessageText",
+        text: { "@type": "formattedText", text: "reply", entities: [] },
+        link_preview_options: null,
+        clear_draft: true,
+      },
+    }]);
+  });
+
+  it("edits and deletes messages through TDLib", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return request["@type"] === "editMessageText" ? rawMessage(12) : { "@type": "ok" };
+    };
+
+    await transport.editMessage({ chatId: "7", messageId: "12", text: "edited" });
+    await transport.deleteMessage({ chatId: "7", messageId: "12", revoke: true });
+
+    expect(requests).toEqual([
+      {
+        "@type": "editMessageText",
+        chat_id: 7,
+        message_id: 12,
+        reply_markup: null,
+        input_message_content: {
+          "@type": "inputMessageText",
+          text: { "@type": "formattedText", text: "edited", entities: [] },
+          link_preview_options: null,
+          clear_draft: false,
+        },
+      },
+      {
+        "@type": "deleteMessages",
+        chat_id: 7,
+        message_ids: [12],
+        revoke: true,
+      },
+    ]);
+  });
+
   it("merges separate edit and interaction updates into the known message", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

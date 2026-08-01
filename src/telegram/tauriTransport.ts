@@ -20,6 +20,8 @@ import type {
   CachedTelegramSnapshot,
   Chat,
   ChatHistoryPage,
+  DeleteMessageInput,
+  EditMessageInput,
   Message,
   MessagePermissions,
   ProxyEndpoint,
@@ -52,6 +54,13 @@ const numericId = (id: string) => {
   if (!Number.isSafeInteger(value)) throw new Error(`无效的 Telegram 标识符：${id}`);
   return value;
 };
+
+const inputMessageText = (text: string, clearDraft: boolean): TdObject => ({
+  "@type": "inputMessageText",
+  text: { "@type": "formattedText", text, entities: [] },
+  link_preview_options: null,
+  clear_draft: clearDraft,
+});
 
 const listObject = (type: "chatListMain" | "chatListArchive") => ({ "@type": type });
 
@@ -355,17 +364,39 @@ export class TauriTelegramTransport implements TelegramTransport {
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
       topic_id: null,
-      reply_to: null,
+      reply_to: input.replyToMessageId
+        ? {
+            "@type": "inputMessageReplyToMessage",
+            message_id: numericId(input.replyToMessageId),
+            quote: null,
+            checklist_task_id: 0,
+          }
+        : null,
       options: null,
       reply_markup: null,
-      input_message_content: {
-        "@type": "inputMessageText",
-        text: { "@type": "formattedText", text: input.text, entities: [] },
-        link_preview_options: null,
-        clear_draft: true,
-      },
+      input_message_content: inputMessageText(input.text, true),
     });
     if (response["@type"] === "message") this.emitMessage(response);
+  }
+
+  async editMessage(input: EditMessageInput) {
+    const response = await this.request({
+      "@type": "editMessageText",
+      chat_id: numericId(input.chatId),
+      message_id: numericId(input.messageId),
+      reply_markup: null,
+      input_message_content: inputMessageText(input.text, false),
+    });
+    if (response["@type"] === "message") this.emitMessage(response);
+  }
+
+  async deleteMessage(input: DeleteMessageInput) {
+    await this.request({
+      "@type": "deleteMessages",
+      chat_id: numericId(input.chatId),
+      message_ids: [numericId(input.messageId)],
+      revoke: input.revoke,
+    });
   }
 
   async downloadFile(fileId: number, fileName: string) {

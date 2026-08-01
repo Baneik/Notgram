@@ -6,7 +6,9 @@ import {
   FileText,
   ImageIcon,
   Download,
+  Edit3,
   MoreVertical,
+  MoreHorizontal,
   LoaderCircle,
   Paperclip,
   Phone,
@@ -14,11 +16,19 @@ import {
   Send,
   Smile,
   RotateCcw,
+  Reply,
+  Trash2,
   X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
-import type { Chat, Message, User } from "../telegram/types";
+import type {
+  Chat,
+  Message,
+  MessageContent,
+  MessagePermissions,
+  User,
+} from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
 import {
   groupConsecutiveMessages,
@@ -34,7 +44,13 @@ interface ConversationProps {
   users: Map<string, User>;
   historyLoading: boolean;
   hasOlderMessages: boolean;
-  onSendMessage: (text: string) => Promise<boolean>;
+  onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
+  onEditMessage: (messageId: string, text: string) => Promise<boolean>;
+  onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
+  onLoadMessageProperties: (
+    chatId: string,
+    messageId: string,
+  ) => Promise<MessagePermissions | undefined>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onRetryMessage: (messageId: string) => Promise<void>;
   onSendFile: (file: File) => Promise<void>;
@@ -49,6 +65,9 @@ export function Conversation({
   historyLoading,
   hasOlderMessages,
   onSendMessage,
+  onEditMessage,
+  onDeleteMessage,
+  onLoadMessageProperties,
   onDownloadFile,
   onRetryMessage,
   onSendFile,
@@ -59,8 +78,20 @@ export function Conversation({
   const [searchOpen, setSearchOpen] = useState(false);
   const [messageSearch, setMessageSearch] = useState("");
   const [sending, setSending] = useState(false);
+  const [actionMenu, setActionMenu] = useState<{
+    messageId: string;
+    left: number;
+    top: number;
+  }>();
+  const [actionLoadingId, setActionLoadingId] = useState<string>();
+  const [replyingTo, setReplyingTo] = useState<Message>();
+  const [editingMessage, setEditingMessage] = useState<Message>();
+  const [deleteTarget, setDeleteTarget] = useState<Message>();
+  const [deletePending, setDeletePending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
+  const draftBeforeEditRef = useRef<string | undefined>(undefined);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const previousLayoutRef = useRef<{
     chatId?: string;
@@ -87,6 +118,56 @@ export function Conversation({
     () => groupConsecutiveMessages(visibleMessages),
     [visibleMessages],
   );
+
+  const messagesById = useMemo(
+    () => new Map(messages.map((message) => [message.id, message])),
+    [messages],
+  );
+
+  const actionMessage = actionMenu
+    ? messagesById.get(actionMenu.messageId)
+    : undefined;
+  const actionPermissions = actionMessage?.permissions;
+
+  useEffect(() => {
+    setActionMenu(undefined);
+    setActionLoadingId(undefined);
+    setReplyingTo(undefined);
+    setEditingMessage(undefined);
+    setDeleteTarget(undefined);
+    setDeletePending(false);
+    setDraft("");
+    draftBeforeEditRef.current = undefined;
+  }, [chat?.id]);
+
+  useEffect(() => {
+    if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
+    if (replyingTo && !messagesById.has(replyingTo.id)) setReplyingTo(undefined);
+    if (editingMessage && !messagesById.has(editingMessage.id)) {
+      setEditingMessage(undefined);
+      setDraft(draftBeforeEditRef.current ?? "");
+      draftBeforeEditRef.current = undefined;
+    }
+    if (deleteTarget && !messagesById.has(deleteTarget.id)) setDeleteTarget(undefined);
+  }, [actionMenu, deleteTarget, editingMessage, messagesById, replyingTo]);
+
+  useEffect(() => {
+    if (!actionMenu) return;
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".message-action-menu")) return;
+      setActionMenu(undefined);
+    };
+    const dismissWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActionMenu(undefined);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", dismissWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", dismissWithKeyboard);
+    };
+  }, [actionMenu]);
 
   useLayoutEffect(() => {
     const element = messageListRef.current;
@@ -161,17 +242,86 @@ export function Conversation({
               : peer?.lastSeenLabel
                 ? `最后上线：${peer.lastSeenLabel}`
                 : "离线";
+  const composerContextMessage = editingMessage ?? replyingTo;
+  const composerContextTitle = editingMessage
+    ? "编辑消息"
+    : replyingTo
+      ? `回复 ${senderNameForMessage(replyingTo, users, chat)}`
+      : undefined;
+
+  const focusComposer = () => {
+    globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
+  };
+
+  const openActionMenu = async (message: Message, left: number, top: number) => {
+    const menuWidth = 184;
+    const menuHeight = 150;
+    setActionMenu({
+      messageId: message.id,
+      left: Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8)),
+      top: Math.max(8, Math.min(top, window.innerHeight - menuHeight - 8)),
+    });
+    if (message.permissions || actionLoadingId === message.id) return;
+    setActionLoadingId(message.id);
+    await onLoadMessageProperties(message.chatId, message.id);
+    setActionLoadingId((current) => current === message.id ? undefined : current);
+  };
+
+  const cancelEditing = () => {
+    setEditingMessage(undefined);
+    setDraft(draftBeforeEditRef.current ?? "");
+    draftBeforeEditRef.current = undefined;
+    focusComposer();
+  };
+
+  const startReply = (message: Message) => {
+    if (editingMessage) {
+      setDraft(draftBeforeEditRef.current ?? "");
+      setEditingMessage(undefined);
+      draftBeforeEditRef.current = undefined;
+    }
+    setReplyingTo(message);
+    setActionMenu(undefined);
+    focusComposer();
+  };
+
+  const startEditing = (message: Message) => {
+    if (message.content.kind !== "text") return;
+    if (!editingMessage) draftBeforeEditRef.current = draft;
+    setReplyingTo(undefined);
+    setEditingMessage(message);
+    setDraft(message.content.text);
+    setActionMenu(undefined);
+    focusComposer();
+  };
 
   const submitMessage = async () => {
     const submitted = draft.trim();
     if (!submitted || sending) return;
+    if (editingMessage) {
+      setSending(true);
+      const edited = await onEditMessage(editingMessage.id, submitted);
+      setSending(false);
+      if (edited) cancelEditing();
+      return;
+    }
     setDraft("");
     setSending(true);
-    const sent = await onSendMessage(submitted);
+    const sent = await onSendMessage(submitted, replyingTo?.id);
     setSending(false);
-    if (!sent) {
+    if (sent) {
+      setReplyingTo(undefined);
+    } else {
       setDraft((current) => current ? `${submitted}\n${current}` : submitted);
     }
+  };
+
+  const confirmDelete = async (revoke: boolean) => {
+    if (!deleteTarget || deletePending) return;
+    setDeletePending(true);
+    const deleted = await onDeleteMessage(deleteTarget.id, revoke);
+    setDeletePending(false);
+    if (deleted) setDeleteTarget(undefined);
   };
 
   return (
@@ -275,6 +425,8 @@ export function Conversation({
                       sender={sender}
                       senderName={senderName}
                       groupPosition={messageGroupPosition(messageGroup, index)}
+                      replyPreview={replyPreviewFor(message, messagesById, users, chat)}
+                      onOpenActions={openActionMenu}
                       onDownload={onDownloadFile}
                       onRetry={onRetryMessage}
                     />
@@ -285,6 +437,56 @@ export function Conversation({
           })
         )}
       </div>
+
+      {actionMenu && actionMessage && (
+        <div
+          className="message-action-menu"
+          role="menu"
+          aria-label="消息操作"
+          style={{ left: actionMenu.left, top: actionMenu.top }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          {!actionPermissions ? (
+            <div className="message-action-status" role="status">
+              {actionLoadingId === actionMessage.id ? (
+                <><LoaderCircle className="spin" size={15} />正在读取操作权限</>
+              ) : (
+                <><AlertCircle size={15} />无法读取操作权限</>
+              )}
+            </div>
+          ) : (
+            <>
+              {actionPermissions.canReply && (
+                <button type="button" role="menuitem" onClick={() => startReply(actionMessage)}>
+                  <Reply size={16} strokeWidth={1.9} />
+                  <span>回复</span>
+                </button>
+              )}
+              {actionPermissions.canEdit && actionMessage.content.kind === "text" && (
+                <button type="button" role="menuitem" onClick={() => startEditing(actionMessage)}>
+                  <Edit3 size={16} strokeWidth={1.9} />
+                  <span>编辑</span>
+                </button>
+              )}
+              {(actionPermissions.canDeleteOnlyForSelf ||
+                actionPermissions.canDeleteForAllUsers) && (
+                <button
+                  className="is-danger"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setDeleteTarget(actionMessage);
+                    setActionMenu(undefined);
+                  }}
+                >
+                  <Trash2 size={16} strokeWidth={1.9} />
+                  <span>删除</span>
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="composer-wrap">
         <input
@@ -297,14 +499,44 @@ export function Conversation({
             event.target.value = "";
           }}
         />
-        <div className="composer">
-          <button className="icon-button" type="button" aria-label="表情" title="表情">
+        {composerContextMessage && (
+          <div className={`composer-context ${editingMessage ? "is-editing" : "is-replying"}`}>
+            <span className="composer-context-icon">
+              {editingMessage
+                ? <Edit3 size={18} strokeWidth={1.9} />
+                : <Reply size={18} strokeWidth={1.9} />}
+            </span>
+            <span className="composer-context-copy">
+              <strong>{composerContextTitle}</strong>
+              <small>{messageSummary(composerContextMessage.content)}</small>
+            </span>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label={editingMessage ? "取消编辑" : "取消回复"}
+              title={editingMessage ? "取消编辑" : "取消回复"}
+              onClick={editingMessage ? cancelEditing : () => setReplyingTo(undefined)}
+            >
+              <X size={17} strokeWidth={1.9} />
+            </button>
+          </div>
+        )}
+        <div className={`composer ${editingMessage ? "is-editing" : ""}`}>
+          <button className="icon-button" type="button" aria-label="表情" title="表情" disabled={Boolean(editingMessage)}>
             <Smile size={21} strokeWidth={1.8} />
           </button>
-          <button className="icon-button" type="button" aria-label="添加附件" title="添加附件" onClick={() => fileInputRef.current?.click()}>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="添加附件"
+            title={composerContextMessage ? "完成当前消息操作后添加附件" : "添加附件"}
+            disabled={Boolean(composerContextMessage)}
+            onClick={() => fileInputRef.current?.click()}
+          >
             <Paperclip size={20} strokeWidth={1.8} />
           </button>
           <textarea
+            ref={composerInputRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={async (event) => {
@@ -315,21 +547,74 @@ export function Conversation({
               }
             }}
             rows={1}
-            placeholder="写一条消息"
+            placeholder={editingMessage ? "编辑消息" : "写一条消息"}
             aria-label="消息内容"
+            disabled={sending}
           />
           <button
             className="send-button icon-button"
             type="button"
-            aria-label="发送消息"
-            title="发送消息"
+            aria-label={editingMessage ? "保存编辑" : "发送消息"}
+            title={editingMessage ? "保存编辑" : "发送消息"}
             disabled={!draft.trim() || sending}
             onClick={submitMessage}
           >
-            <Send size={19} strokeWidth={2} />
+            {editingMessage
+              ? <Check size={19} strokeWidth={2.2} />
+              : <Send size={19} strokeWidth={2} />}
           </button>
         </div>
       </div>
+
+      {deleteTarget && deleteTarget.permissions && (
+        <div className="message-delete-backdrop" role="presentation">
+          <section
+            className="message-delete-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-delete-title"
+          >
+            <div className="message-delete-heading">
+              <span><Trash2 size={18} strokeWidth={1.9} /></span>
+              <div>
+                <h3 id="message-delete-title">删除消息</h3>
+                <p>{messageSummary(deleteTarget.content)}</p>
+              </div>
+            </div>
+            <div className="message-delete-actions">
+              {deleteTarget.permissions.canDeleteOnlyForSelf && (
+                <button
+                  className="dialog-secondary"
+                  type="button"
+                  disabled={deletePending}
+                  onClick={() => void confirmDelete(false)}
+                >
+                  仅对我删除
+                </button>
+              )}
+              {deleteTarget.permissions.canDeleteForAllUsers && (
+                <button
+                  className="dialog-danger"
+                  type="button"
+                  disabled={deletePending}
+                  onClick={() => void confirmDelete(true)}
+                >
+                  {deletePending ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
+                  为所有人删除
+                </button>
+              )}
+              <button
+                className="dialog-secondary"
+                type="button"
+                disabled={deletePending}
+                onClick={() => setDeleteTarget(undefined)}
+              >
+                取消
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
@@ -339,6 +624,8 @@ function MessageBubble({
   sender,
   senderName,
   groupPosition,
+  replyPreview,
+  onOpenActions,
   onDownload,
   onRetry,
 }: {
@@ -346,6 +633,8 @@ function MessageBubble({
   sender?: User;
   senderName: string;
   groupPosition: MessageGroupPosition;
+  replyPreview?: ReplyPreview;
+  onOpenActions: (message: Message, left: number, top: number) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onRetry: (messageId: string) => Promise<void>;
 }) {
@@ -371,71 +660,152 @@ function MessageBubble({
     !message.content.isDownloading;
   return (
     <article className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"}`}>
-      <div className={`message-bubble ${isPhoto ? "is-photo" : ""} ${hasCaption ? "has-caption" : ""}`}>
-        {showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
-        {message.content.kind === "text" ? (
-          <p>{message.content.text}</p>
-        ) : message.content.kind === "media" && message.content.mediaType === "photo" ? (
-          <div className="photo-message" data-media-type="photo">
-            <div
-              className="photo-preview"
-              style={message.content.width && message.content.height
-                ? { aspectRatio: `${message.content.width} / ${message.content.height}` }
-                : undefined}
-            >
-              {mediaSource ? (
-                <img src={mediaSource} alt={message.content.caption || message.content.fileName} />
-              ) : (
-                <span className="photo-placeholder" aria-label="图片正在加载">
-                  <ImageIcon size={28} strokeWidth={1.6} />
-                </span>
-              )}
-              {message.content.isDownloading && (
-                <span className="media-progress">
-                  {message.content.progress === undefined
-                    ? <LoaderCircle className="spin" size={15} />
-                    : `${Math.round(message.content.progress * 100)}%`}
-                </span>
+      <div
+        className="message-bubble-shell"
+        onContextMenu={(event) => {
+          event.preventDefault();
+          void onOpenActions(message, event.clientX, event.clientY);
+        }}
+      >
+        <div className={`message-bubble ${isPhoto ? "is-photo" : ""} ${hasCaption ? "has-caption" : ""}`}>
+          {showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
+          {replyPreview && (
+            <span className="message-reply-preview">
+              <strong>{replyPreview.author}</strong>
+              <small>{replyPreview.text}</small>
+            </span>
+          )}
+          {message.content.kind === "text" ? (
+            <p>{message.content.text}</p>
+          ) : message.content.kind === "media" && message.content.mediaType === "photo" ? (
+            <div className="photo-message" data-media-type="photo">
+              <div
+                className="photo-preview"
+                style={message.content.width && message.content.height
+                  ? { aspectRatio: `${message.content.width} / ${message.content.height}` }
+                  : undefined}
+              >
+                {mediaSource ? (
+                  <img src={mediaSource} alt={message.content.caption || message.content.fileName} />
+                ) : (
+                  <span className="photo-placeholder" aria-label="图片正在加载">
+                    <ImageIcon size={28} strokeWidth={1.6} />
+                  </span>
+                )}
+                {message.content.isDownloading && (
+                  <span className="media-progress">
+                    {message.content.progress === undefined
+                      ? <LoaderCircle className="spin" size={15} />
+                      : `${Math.round(message.content.progress * 100)}%`}
+                  </span>
+                )}
+              </div>
+              {message.content.caption && <p className="photo-caption">{message.content.caption}</p>}
+            </div>
+          ) : (
+            <div className="file-message">
+              <span className="file-icon"><FileText size={19} strokeWidth={1.8} /></span>
+              <span className="file-copy">
+                <strong>{message.content.fileName}</strong>
+                <small>{message.content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.content.isDownloaded ? `已缓存 · ${message.content.sizeLabel}` : message.content.sizeLabel}</small>
+              </span>
+              {canDownload && (
+                <button
+                  className="file-download"
+                  type="button"
+                  aria-label={`下载 ${message.content.fileName}`}
+                  title="下载到 downloads"
+                  onClick={() => void onDownload(downloadFileId!, downloadFileName)}
+                >
+                  <Download size={16} strokeWidth={2} />
+                </button>
               )}
             </div>
-            {message.content.caption && <p className="photo-caption">{message.content.caption}</p>}
-          </div>
-        ) : (
-          <div className="file-message">
-            <span className="file-icon"><FileText size={19} strokeWidth={1.8} /></span>
-            <span className="file-copy">
-              <strong>{message.content.fileName}</strong>
-              <small>{message.content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.content.isDownloaded ? `已缓存 · ${message.content.sizeLabel}` : message.content.sizeLabel}</small>
-            </span>
-            {canDownload && (
-              <button
-                className="file-download"
-                type="button"
-                aria-label={`下载 ${message.content.fileName}`}
-                title="下载到 downloads"
-                onClick={() => void onDownload(downloadFileId!, downloadFileName)}
-              >
-                <Download size={16} strokeWidth={2} />
-              </button>
-            )}
-          </div>
-        )}
-        <span className="message-meta">
-          <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
-          {message.outgoing && (
-            message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
-              : message.delivery === "sending" ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
-                : message.delivery === "failed" ? (
-                  <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? "重试发送" : "发送失败"} onClick={() => void onRetry(message.id)}>
-                    {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
-                  </button>
-                ) : <Check size={14} strokeWidth={2.2} />
           )}
-        </span>
+          <span className="message-meta">
+            {message.editedAt && <span>已编辑</span>}
+            <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
+            {message.outgoing && (
+              message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
+                : message.delivery === "sending" ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
+                  : message.delivery === "failed" ? (
+                    <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? "重试发送" : "发送失败"} onClick={() => void onRetry(message.id)}>
+                      {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
+                    </button>
+                  ) : <Check size={14} strokeWidth={2.2} />
+            )}
+          </span>
+        </div>
+        <button
+          className="message-action-trigger"
+          type="button"
+          aria-label="消息操作"
+          title="消息操作"
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            const left = message.outgoing ? bounds.left - 184 : bounds.right + 4;
+            void onOpenActions(message, left, bounds.top);
+          }}
+        >
+          <MoreHorizontal size={18} strokeWidth={1.9} />
+        </button>
       </div>
     </article>
   );
 }
+
+interface ReplyPreview {
+  author: string;
+  text: string;
+}
+
+const senderNameForMessage = (message: Message, users: Map<string, User>, chat: Chat) => {
+  if (message.outgoing) return "你";
+  return users.get(message.senderId)?.displayName ??
+    (chat.kind === "direct" ? chat.title : "Telegram 用户");
+};
+
+const replyPreviewFor = (
+  message: Message,
+  messagesById: Map<string, Message>,
+  users: Map<string, User>,
+  chat: Chat,
+): ReplyPreview | undefined => {
+  if (!message.replyTo) return undefined;
+  if (message.replyTo.kind === "story") {
+    return { author: "动态", text: "回复了一条动态" };
+  }
+  const target = message.replyTo.messageId
+    ? messagesById.get(message.replyTo.messageId)
+    : undefined;
+  if (target) {
+    return {
+      author: senderNameForMessage(target, users, chat),
+      text: messageSummary(target.content),
+    };
+  }
+  const origin = message.replyTo.origin;
+  const author = origin?.kind === "user"
+    ? users.get(origin.userId)?.displayName
+    : origin?.kind === "hiddenUser"
+      ? origin.senderName
+      : origin?.kind === "chat" || origin?.kind === "channel"
+        ? origin.authorSignature
+        : undefined;
+  return {
+    author: author || "回复消息",
+    text: message.replyTo.quote ||
+      (message.replyTo.content ? messageSummary(message.replyTo.content) : "原消息不可用"),
+  };
+};
+
+const messageSummary = (content: MessageContent) => {
+  const raw = content.kind === "text"
+    ? content.text
+    : content.caption || content.fileName;
+  const normalized = raw.replace(/\s+/g, " ").trim();
+  return normalized.length > 72 ? `${normalized.slice(0, 72)}…` : normalized;
+};
 
 const localSource = (path?: string) => {
   if (!path) return undefined;

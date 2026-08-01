@@ -190,6 +190,19 @@ export type TelegramEvent =
 export interface SendMessageInput {
   chatId: string;
   text: string;
+  replyToMessageId?: string;
+}
+
+export interface EditMessageInput {
+  chatId: string;
+  messageId: string;
+  text: string;
+}
+
+export interface DeleteMessageInput {
+  chatId: string;
+  messageId: string;
+  revoke: boolean;
 }
 
 export interface SendFileInput {
