@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { mockSnapshot } from "../telegram/mockData";
 import { MockTelegramTransport } from "../telegram/mockTransport";
 import type { TelegramEventListener } from "../telegram/transport";
-import type { CachedTelegramSnapshot, Message } from "../telegram/types";
+import type { CachedTelegramSnapshot, Chat, Message } from "../telegram/types";
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 
 describe("telegram store", () => {
@@ -50,6 +50,7 @@ describe("telegram store", () => {
     expect(store.getState().phase).toBe("loading");
     expect(store.getState().activeChatId).toBe("chat-product");
     expect(store.getState().chatFilter).toBe("folder:work");
+    expect(store.getState().chatListReady).toBe(true);
     expect(store.getState().messages.get("chat-product")).toHaveLength(3);
 
     transport.release();
@@ -298,6 +299,40 @@ describe("telegram store", () => {
     expect(state.histories.get("chat-product")).toEqual({ loading: false, hasMore: true });
   });
 
+  it("applies the initial server chat refresh in one store update", async () => {
+    class BatchedChatTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        const snapshot = await super.connect(listener);
+        return { ...snapshot, chats: [] };
+      }
+
+      publish(chats: Chat[]) {
+        this.eventListener?.({ type: "chats.upserted", chats });
+      }
+    }
+
+    const transport = new BatchedChatTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    expect(store.getState().chatListReady).toBe(false);
+
+    let chatStateChanges = 0;
+    const unsubscribe = store.subscribe((state, previous) => {
+      if (state.chats !== previous.chats) chatStateChanges += 1;
+    });
+
+    transport.publish(structuredClone(mockSnapshot.chats));
+    unsubscribe();
+
+    expect(chatStateChanges).toBe(1);
+    expect(store.getState().chatListReady).toBe(true);
+    expect(store.getState().chats.size).toBe(mockSnapshot.chats.length);
+    expect(store.getState().activeChatId).toBe("chat-product");
+  });
+
   it("applies message and chat updates emitted by the transport", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();
@@ -409,5 +444,16 @@ describe("chat filtering", () => {
 
     expect(store.getState().messages.get("chat-product")).toHaveLength(41);
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
+  });
+
+  it("uses chat ids as a stable fallback for equal sort keys", () => {
+    const base = structuredClone(mockSnapshot.chats[0]);
+    const chats: Chat[] = [
+      { ...base, id: "chat-b", pinned: false, updatedAt: "2026-08-01T10:00:00+08:00" },
+      { ...base, id: "chat-a", pinned: false, updatedAt: "2026-08-01T10:00:00+08:00" },
+    ];
+
+    expect(filterAndSortChats(chats, "main", "").map((chat) => chat.id))
+      .toEqual(["chat-a", "chat-b"]);
   });
 });

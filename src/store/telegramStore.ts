@@ -42,6 +42,7 @@ export interface TelegramState {
   users: Map<string, User>;
   folders: ChatFolder[];
   chats: Map<string, Chat>;
+  chatListReady: boolean;
   messages: Map<string, Message[]>;
   histories: Map<string, HistoryState>;
   activeChatId?: string;
@@ -86,6 +87,11 @@ const messageMapFrom = (messages: Message[]) => {
   }
   return result;
 };
+
+const compareChats = (left: Chat, right: Chat) =>
+  Number(right.pinned) - Number(left.pinned) ||
+  new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() ||
+  (left.id === right.id ? 0 : left.id < right.id ? -1 : 1);
 
 const CACHE_VERSION = 1 as const;
 const MAX_CACHED_MESSAGES_PER_CHAT = 60;
@@ -172,6 +178,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
         users: new Map(),
         folders: [],
         chats: new Map(),
+        chatListReady: false,
         messages: new Map(),
         histories: new Map(),
         activeChatId: undefined,
@@ -214,6 +221,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
         users,
         folders,
         chats,
+        chatListReady: true,
         messages,
         activeChatId: current.activeChatId ?? cachedActiveChatId,
         chatFilter: current.chatFilter !== "main" ? current.chatFilter : chatFilter,
@@ -322,11 +330,18 @@ export const createTelegramStore = (transport: TelegramTransport) =>
         return;
       }
 
-      if (event.type === "chat.upsert") {
+      if (event.type === "chats.upserted" || event.type === "chat.upsert") {
+        const incomingChats = event.type === "chats.upserted" ? event.chats : [event.chat];
         const chats = new Map(get().chats);
-        chats.set(event.chat.id, event.chat);
-        const firstChat = get().activeChatId ? undefined : event.chat.id;
-        set({ chats, activeChatId: get().activeChatId ?? firstChat });
+        for (const chat of incomingChats) chats.set(chat.id, chat);
+        const firstChat = get().activeChatId
+          ? undefined
+          : [...chats.values()].sort(compareChats)[0]?.id;
+        set({
+          chats,
+          chatListReady: true,
+          activeChatId: get().activeChatId ?? firstChat,
+        });
         scheduleCacheWrite();
         if (firstChat) void loadHistory(firstChat);
         return;
@@ -373,6 +388,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
       users: new Map(),
       folders: [],
       chats: new Map(),
+      chatListReady: false,
       messages: new Map(),
       histories: new Map(),
       searchQuery: "",
@@ -437,6 +453,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
                 : snapshot.currentUserId,
             authorization,
             chats,
+            chatListReady: current.chatListReady || snapshot.chats.length > 0,
             users,
             folders: current.folders.length > 0 ? current.folders : folders,
             messages,
@@ -634,9 +651,7 @@ export const filterAndSortChats = (
         .includes(normalizedQuery);
     })
     .sort(
-      (left, right) =>
-        Number(right.pinned) - Number(left.pinned) ||
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+      compareChats,
     );
 };
 

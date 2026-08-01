@@ -116,6 +116,7 @@ export type TelegramEvent =
   | { type: "message.upsert"; message: Message }
   | { type: "message.remove"; chatId: string; messageId: string }
   | { type: "folders.replaced"; folders: ChatFolder[] }
+  | { type: "chats.upserted"; chats: Chat[] }
   | { type: "chat.upsert"; chat: Chat }
   | { type: "user.upsert"; user: User }
   | { type: "sync.error"; message: string };

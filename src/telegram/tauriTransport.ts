@@ -17,6 +17,7 @@ import type {
   AuthorizationAction,
   AuthorizationState,
   CachedTelegramSnapshot,
+  Chat,
   ChatHistoryPage,
   Message,
   ProxyEndpoint,
@@ -156,9 +157,11 @@ export class TauriTelegramTransport implements TelegramTransport {
   private mainChatListPosition = 0;
   private currentUserId?: string;
   private bootstrapPromise?: Promise<void>;
+  private initialChatSyncPending = true;
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
     this.listener = listener;
+    this.initialChatSyncPending = true;
     const status = await invoke<RuntimeStatus>("telegram_runtime_status");
     if (!status.linked) {
       const detail =
@@ -202,6 +205,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.unlistenUpdate = undefined;
       this.unlistenError = undefined;
       this.bootstrapPromise = undefined;
+      this.initialChatSyncPending = true;
       this.exhaustedHistories.clear();
       this.historyCursors.clear();
       this.historyStalls.clear();
@@ -612,12 +616,15 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private startBootstrap() {
     if (this.bootstrapPromise) return;
-    this.bootstrapPromise = this.bootstrap().catch((error) => {
-      this.listener?.({
-        type: "sync.error",
-        message: error instanceof Error ? error.message : "无法同步 Telegram 数据",
+    this.bootstrapPromise = this.bootstrap()
+      .then(() => this.finishInitialChatSync())
+      .catch((error) => {
+        this.finishInitialChatSync();
+        this.listener?.({
+          type: "sync.error",
+          message: error instanceof Error ? error.message : "无法同步 Telegram 数据",
+        });
       });
-    });
   }
 
   private async bootstrap() {
@@ -626,7 +633,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.upsertUser(me);
     if (this.currentUserId) {
       this.listener?.({ type: "currentUser.changed", userId: this.currentUserId });
-      for (const chat of this.rawChats.values()) this.emitChat(chat);
     }
 
     this.emitFolders();
@@ -636,6 +642,9 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.loadChatList(folderListObject(folder.id), 100),
       ),
     ]);
+    while (this.chatListLoads.size > 0) {
+      await Promise.all([...this.chatListLoads.values()]);
+    }
   }
 
   private async loadChatList(chatList: TdObject, limit: number) {
@@ -718,7 +727,20 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private emitChat(raw: TdObject) {
     const chat = mapTdChat(raw, this.currentUserId);
-    if (chat) this.listener?.({ type: "chat.upsert", chat });
+    if (chat && !this.initialChatSyncPending) {
+      this.listener?.({ type: "chat.upsert", chat });
+    }
+  }
+
+  private finishInitialChatSync() {
+    if (!this.initialChatSyncPending) return;
+    this.initialChatSyncPending = false;
+    const chats: Chat[] = [];
+    for (const raw of this.rawChats.values()) {
+      const chat = mapTdChat(raw, this.currentUserId);
+      if (chat) chats.push(chat);
+    }
+    this.listener?.({ type: "chats.upserted", chats });
   }
 
   private patchChat(idValue: unknown, patch: TdObject) {

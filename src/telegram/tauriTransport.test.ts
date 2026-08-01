@@ -7,7 +7,9 @@ type TestableTransport = {
   listener?: TelegramEventListener;
   request: (request: TdObject) => Promise<TdObject>;
   emitMessage: (message: TdObject) => void;
+  upsertChat: (chat: TdObject) => void;
   upsertUser: (user: TdObject) => void;
+  finishInitialChatSync: () => void;
 };
 
 const rawMessage = (id: number): TdObject => ({
@@ -20,6 +22,45 @@ const rawMessage = (id: number): TdObject => ({
     "@type": "messageText",
     text: { "@type": "formattedText", text: `message ${id}`, entities: [] },
   },
+});
+
+const rawChat = (id: number, date: number): TdObject => ({
+  "@type": "chat",
+  id,
+  title: `chat ${id}`,
+  type: { "@type": "chatTypePrivate", user_id: id },
+  positions: [{
+    list: { "@type": "chatListMain" },
+    order: String(date),
+    is_pinned: false,
+  }],
+  last_message: { ...rawMessage(id), chat_id: id, date },
+  unread_count: 0,
+  notification_settings: { mute_for: 0 },
+});
+
+describe("TauriTelegramTransport startup", () => {
+  it("publishes the initial chat refresh as one atomic event", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat(rawChat(7, 1_700_000_007));
+    internal.upsertChat(rawChat(8, 1_700_000_008));
+
+    expect(events).toEqual([]);
+    internal.finishInitialChatSync();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "chats.upserted",
+      chats: [{ id: "7" }, { id: "8" }],
+    });
+
+    internal.upsertChat(rawChat(7, 1_700_000_009));
+    expect(events[1]).toMatchObject({ type: "chat.upsert", chat: { id: "7" } });
+  });
 });
 
 describe("TauriTelegramTransport history", () => {

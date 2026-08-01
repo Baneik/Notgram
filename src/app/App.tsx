@@ -1,4 +1,4 @@
-import { CircleAlert, X } from "lucide-react";
+import { CircleAlert, LoaderCircle, X } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
@@ -26,6 +26,7 @@ export function App() {
   const searchQuery = useTelegramStore((state) => state.searchQuery);
   const activeChatId = useTelegramStore((state) => state.activeChatId);
   const chats = useTelegramStore((state) => state.chats);
+  const chatListReady = useTelegramStore((state) => state.chatListReady);
   const folders = useTelegramStore((state) => state.folders);
   const users = useTelegramStore((state) => state.users);
   const messages = useTelegramStore((state) => state.messages);
@@ -65,6 +66,20 @@ export function App() {
     () => filterAndSortChats(chats.values(), chatFilter, searchQuery),
     [chatFilter, chats, searchQuery],
   );
+
+  if (!chatListReady && (authorization.kind === "preparing" || authorization.kind === "ready")) {
+    return phase === "error" ? (
+      <div className="startup-screen startup-error" role="alert">
+        <CircleAlert size={19} />
+        <span>{error ?? "无法载入会话"}</span>
+      </div>
+    ) : (
+      <div className="startup-screen" role="status">
+        <LoaderCircle className="spin" size={19} />
+        <span>正在载入会话</span>
+      </div>
+    );
+  }
 
   if (authorization.kind !== "ready" && authorization.kind !== "preparing") {
     return (
