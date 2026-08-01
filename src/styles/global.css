@@ -207,7 +207,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   min-height: 44px; padding: 0 12px 0 20px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center; gap: 9px; color: #858c91; background: #ffffff; border-bottom: 1px solid var(--line);
 }
-.message-list { min-height: 0; padding: 20px clamp(16px, 4vw, 58px) 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #9ba9a5 transparent; }
+.message-list { min-height: 0; padding: 20px clamp(16px, 4vw, 58px) 10px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #9ba9a5 transparent; }
 .history-loading { width: 32px; height: 24px; margin: -9px auto 5px; display: grid; place-items: center; color: #ffffff; background: rgba(92, 117, 112, 0.72); border-radius: 12px; }
 .message-day {
   width: fit-content; margin: 0 auto 14px; padding: 4px 10px; color: #ffffff; background: rgba(92, 117, 112, 0.72);
@@ -544,7 +544,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .mobile-chat-open { grid-template-rows: minmax(0, 1fr); }
   .mobile-chat-open .conversation { display: grid; }
   .mobile-back { display: inline-grid; }
-  .message-list { padding: 14px 10px 0; }
+  .message-list { padding: 14px 10px 10px; }
   .message-group { gap: 6px; }
   .message-bubble-shell { max-width: 88%; }
   .message-action-trigger { opacity: 0.88; }
