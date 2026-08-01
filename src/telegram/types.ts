@@ -19,6 +19,9 @@ export interface Avatar {
   label: string;
   color: string;
   imagePath?: string;
+  fileId?: number;
+  canDownload?: boolean;
+  isDownloading?: boolean;
 }
 
 export interface ChatFolder {

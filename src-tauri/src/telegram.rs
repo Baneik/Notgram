@@ -448,6 +448,16 @@ impl TdlibConfiguration {
     }
 }
 
+fn request_type_from_extra(extra: &str) -> Option<&str> {
+    if let Some(web_request) = extra.strip_prefix("web:") {
+        return web_request
+            .split(':')
+            .next()
+            .filter(|value| !value.is_empty());
+    }
+    extra.strip_prefix("native:")
+}
+
 fn receive_loop(
     app: AppHandle,
     engine: Arc<TdJson>,
@@ -464,6 +474,7 @@ fn receive_loop(
     let mut next_error_emit = Instant::now();
     let mut proxy_ready = false;
     let mut tdlib_parameters_sent = false;
+    let mut authorization_closing = false;
     let mut delayed_authorization_update: Option<Value> = None;
     let trusted_asset_roots = trusted_asset_roots(&configuration);
     let mut allowed_assets = HashSet::new();
@@ -486,12 +497,21 @@ fn receive_loop(
                     let mut emit_update = true;
                     if update.get("@type").and_then(Value::as_str) == Some("error") {
                         let request = update.get("@extra").and_then(Value::as_str);
+                        let request_type = request.and_then(request_type_from_extra);
+                        let code = update.get("code").and_then(Value::as_i64);
+                        let expected = (code == Some(404) && request_type == Some("loadChats"))
+                            || (code == Some(401) && authorization_closing);
                         if let Some(logger) = &logger {
                             logger.write(
-                                "error",
-                                "tdlib_request_failed",
+                                if expected { "debug" } else { "error" },
+                                if expected {
+                                    "tdlib_request_ignored"
+                                } else {
+                                    "tdlib_request_failed"
+                                },
                                 json!({
-                                    "code": update.get("code"),
+                                    "code": code,
+                                    "requestType": request_type,
                                 }),
                             );
                         }
@@ -535,6 +555,17 @@ fn receive_loop(
                         .get("authorization_state")
                         .and_then(|state| state.get("@type"))
                         .and_then(Value::as_str);
+
+                    if matches!(
+                        authorization_state,
+                        Some(
+                            "authorizationStateLoggingOut"
+                                | "authorizationStateClosing"
+                                | "authorizationStateClosed"
+                        )
+                    ) {
+                        authorization_closing = true;
+                    }
 
                     if let Some(state) = authorization_state
                         && let Some(logger) = &logger
@@ -603,13 +634,6 @@ fn receive_loop(
                 let backoff_ms = (50_u64 * (1_u64 << exponent)).min(1_000);
                 thread::sleep(Duration::from_millis(backoff_ms));
             }
-        }
-
-        // Keep a small floor between receive calls when TDLib returns immediately.
-        // This prevents a burst of updates from turning the bridge into a busy loop.
-        let cycle_elapsed = poll_started.elapsed();
-        if cycle_elapsed < Duration::from_millis(25) {
-            thread::sleep(Duration::from_millis(25) - cycle_elapsed);
         }
 
         if stats_started.elapsed() >= Duration::from_secs(60) {
@@ -861,6 +885,19 @@ mod tests {
 #[cfg(test)]
 mod logger_tests {
     use super::*;
+
+    #[test]
+    fn extracts_safe_request_types_from_request_extras() {
+        assert_eq!(
+            request_type_from_extra("web:loadChats:550e8400-e29b-41d4-a716-446655440000"),
+            Some("loadChats")
+        );
+        assert_eq!(
+            request_type_from_extra("native:setTdlibParameters"),
+            Some("setTdlibParameters")
+        );
+        assert_eq!(request_type_from_extra("unexpected"), None);
+    }
 
     #[test]
     fn sensitive_log_fields_are_redacted_recursively() {

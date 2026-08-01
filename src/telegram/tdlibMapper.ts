@@ -83,6 +83,17 @@ const localImagePath = (value: unknown) => {
     : undefined;
 };
 
+const avatarFile = (value: unknown) => {
+  const file = asTdObject(value);
+  const local = asTdObject(file?.local);
+  return {
+    imagePath: localImagePath(file),
+    fileId: tdNumber(file?.id),
+    canDownload: local?.can_be_downloaded === true,
+    isDownloading: local?.is_downloading_active === true,
+  };
+};
+
 const readableSize = (bytes: number) => {
   if (bytes <= 0) return "文件";
   if (bytes < 1024) return `${bytes} B`;
@@ -562,7 +573,7 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
     avatar: {
       label: kind === "saved" ? "我" : initials(title),
       color: colorFor(id),
-      imagePath: localImagePath(asTdObject(raw.photo)?.small),
+      ...avatarFile(asTdObject(raw.photo)?.small),
     },
     peerId,
     preview: lastMessage ? messagePreview(lastMessage) : "暂无消息",
@@ -611,7 +622,7 @@ export const mapTdUser = (raw: TdObject): User | undefined => {
     avatar: {
       label: initials(displayName),
       color: colorFor(id),
-      imagePath: localImagePath(asTdObject(raw.profile_photo)?.small),
+      ...avatarFile(asTdObject(raw.profile_photo)?.small),
     },
     presence: online ? "online" : "offline",
     lastSeenLabel: lastSeen ? new Date(lastSeen * 1000).toLocaleString("zh-CN") : undefined,

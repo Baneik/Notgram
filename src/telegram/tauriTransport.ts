@@ -57,6 +57,13 @@ type PendingRequest = {
   timer: number;
 };
 
+type CachedFileDownload = {
+  fileId: number;
+  priority: number;
+  resolve: () => void;
+  reject: (reason: Error) => void;
+};
+
 const numericId = (id: string) => {
   const value = Number(id);
   if (!Number.isSafeInteger(value)) throw new Error(`无效的 Telegram 标识符：${id}`);
@@ -88,6 +95,7 @@ const chatListObject = (chatListId: string): TdObject => {
 const chatListKey = (value: unknown) => tdChatListId(value);
 
 const MAX_CONSECUTIVE_HISTORY_STALLS = 3;
+const MAX_CACHE_DOWNLOADS = 4;
 
 const replaceFileReference = (
   value: unknown,
@@ -182,8 +190,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
   private exhaustedChatLists = new Set<string>();
-  private avatarDownloads = new Set<number>();
-  private mediaDownloads = new Set<number>();
+  private cacheDownloadQueue: CachedFileDownload[] = [];
+  private activeCacheDownloads = new Map<number, CachedFileDownload>();
+  private cacheDownloadPromises = new Map<number, Promise<void>>();
   private pendingDownloads = new Map<number, string>();
   private rawFolderInfos: TdObject[] = [];
   private mainChatListPosition = 0;
@@ -555,6 +564,20 @@ export class TauriTelegramTransport implements TelegramTransport {
   async downloadFile(fileId: number, fileName: string) {
     this.pendingDownloads.set(fileId, fileName);
     try {
+      const cachedDownload = this.cacheDownloadPromises.get(fileId);
+      if (cachedDownload) {
+        const queuedIndex = this.cacheDownloadQueue.findIndex(
+          (download) => download.fileId === fileId,
+        );
+        if (queuedIndex >= 0) {
+          const [download] = this.cacheDownloadQueue.splice(queuedIndex, 1);
+          download.priority = 24;
+          this.cacheDownloadQueue.unshift(download);
+          this.pumpCacheDownloads();
+        }
+        await cachedDownload;
+        return;
+      }
       const file = await this.request({
         "@type": "downloadFile",
         file_id: fileId,
@@ -568,6 +591,74 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.pendingDownloads.delete(fileId);
       throw error;
     }
+  }
+
+  cacheFile(fileId: number, priority = 16) {
+    const existing = this.cacheDownloadPromises.get(fileId);
+    if (existing) return existing;
+
+    let resolveDownload!: () => void;
+    let rejectDownload!: (reason: Error) => void;
+    const result = new Promise<void>((resolve, reject) => {
+      resolveDownload = resolve;
+      rejectDownload = reject;
+    });
+    this.cacheDownloadPromises.set(fileId, result);
+    this.cacheDownloadQueue.push({
+      fileId,
+      priority: Math.max(1, Math.min(priority, 32)),
+      resolve: resolveDownload,
+      reject: rejectDownload,
+    });
+    this.pumpCacheDownloads();
+    return result;
+  }
+
+  private pumpCacheDownloads() {
+    while (
+      this.activeCacheDownloads.size < MAX_CACHE_DOWNLOADS &&
+      this.cacheDownloadQueue.length > 0
+    ) {
+      const download = this.cacheDownloadQueue.shift();
+      if (!download) return;
+      this.activeCacheDownloads.set(download.fileId, download);
+      void this.request({
+        "@type": "downloadFile",
+        file_id: download.fileId,
+        priority: download.priority,
+        offset: 0,
+        limit: 0,
+        synchronous: false,
+      })
+        .then((file) => {
+          this.updateFile(file);
+          const local = asTdObject(file.local);
+          if (local?.is_downloading_completed === true) {
+            this.finishCacheDownload(download.fileId);
+          } else if (local?.is_downloading_active !== true) {
+            this.finishCacheDownload(
+              download.fileId,
+              new Error("TDLib did not start the preview download"),
+            );
+          }
+        })
+        .catch((error) => {
+          this.finishCacheDownload(
+            download.fileId,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    }
+  }
+
+  private finishCacheDownload(fileId: number, error?: Error) {
+    const download = this.activeCacheDownloads.get(fileId);
+    if (!download) return;
+    this.activeCacheDownloads.delete(fileId);
+    this.cacheDownloadPromises.delete(fileId);
+    if (error) download.reject(error);
+    else download.resolve();
+    this.pumpCacheDownloads();
   }
 
   async retryMessage(chatId: string, messageId: string) {
@@ -678,12 +769,13 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private async request(request: TdObject) {
-    const extra = crypto.randomUUID();
+    const requestType = typeof request["@type"] === "string" ? request["@type"] : "unknown";
+    const extra = `web:${requestType}:${crypto.randomUUID()}`;
     const payload = { ...request, "@extra": extra };
     const response = new Promise<TdObject>((resolve, reject) => {
       const timer = window.setTimeout(() => {
         this.pending.delete(extra);
-        reject(new Error("TDLib 请求超时。"));
+        reject(new Error(`TDLib ${requestType} 请求超时。`));
       }, 30_000);
       this.pending.set(extra, { resolve, reject, timer });
     });
@@ -894,15 +986,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
 
     this.emitFolders();
-    await Promise.all([
-      this.loadChatList(listObject("chatListMain"), 100),
-      ...this.rawFolderInfos.map((folder) =>
-        this.loadChatList(folderListObject(folder.id), 100),
-      ),
-    ]);
-    while (this.chatListLoads.size > 0) {
-      await Promise.all([...this.chatListLoads.values()]);
-    }
+    await this.loadChatList(listObject("chatListMain"), 40);
   }
 
   private async loadChatList(chatList: TdObject, limit: number): Promise<ChatListPage> {
@@ -952,18 +1036,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawFolderInfos = asTdObjects(update.chat_folders);
     this.mainChatListPosition = tdNumber(update.main_chat_list_position) ?? 0;
     this.emitFolders();
-    if (this.bootstrapPromise) {
-      void Promise.all(
-        this.rawFolderInfos
-          .filter((folder) => !this.chatListCounts.has(chatListKey(folderListObject(folder.id))))
-          .map((folder) => this.loadChatList(folderListObject(folder.id), 100)),
-      ).catch((error) => {
-        this.listener?.({
-          type: "sync.error",
-          message: error instanceof Error ? error.message : "无法同步聊天文件夹",
-        });
-      });
-    }
   }
 
   private emitFolders() {
@@ -980,7 +1052,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!id || !user) return;
     this.rawUsers.set(id, raw);
     this.listener?.({ type: "user.upsert", user });
-    this.ensureUserPhoto(raw);
   }
 
   private updateUserStatus(update: TdObject) {
@@ -995,7 +1066,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!id) return;
     this.rawChats.set(id, raw);
     this.emitChat(raw);
-    this.ensureChatPhoto(raw);
   }
 
   private emitChat(raw: TdObject) {
@@ -1075,66 +1145,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.upsertChat({ ...current, chat_lists: lists });
   }
 
-  private ensureChatPhoto(raw: TdObject) {
-    const small = asTdObject(asTdObject(raw.photo)?.small);
-    const local = asTdObject(small?.local);
-    const fileId = tdNumber(small?.id);
-    if (
-      fileId === undefined ||
-      local?.is_downloading_completed === true ||
-      local?.can_be_downloaded !== true ||
-      local.is_downloading_active === true ||
-      this.avatarDownloads.has(fileId)
-    ) {
-      return;
-    }
-
-    this.avatarDownloads.add(fileId);
-    void this.request({
-      "@type": "downloadFile",
-      file_id: fileId,
-      priority: 16,
-      offset: 0,
-      limit: 0,
-      synchronous: false,
-    })
-      .then((file) => this.updateFile(file))
-      .catch(() => this.avatarDownloads.delete(fileId));
-  }
-
-  private ensureUserPhoto(raw: TdObject) {
-    const small = asTdObject(asTdObject(raw.profile_photo)?.small);
-    const local = asTdObject(small?.local);
-    const fileId = tdNumber(small?.id);
-    if (
-      fileId === undefined ||
-      local?.is_downloading_completed === true ||
-      local?.can_be_downloaded !== true ||
-      local.is_downloading_active === true ||
-      this.avatarDownloads.has(fileId)
-    ) {
-      return;
-    }
-
-    this.avatarDownloads.add(fileId);
-    void this.request({
-      "@type": "downloadFile",
-      file_id: fileId,
-      priority: 16,
-      offset: 0,
-      limit: 0,
-      synchronous: false,
-    })
-      .then((file) => this.updateFile(file))
-      .catch(() => this.avatarDownloads.delete(fileId));
-  }
-
   private updateFile(file?: TdObject) {
     const fileId = tdNumber(file?.id);
     if (!file || fileId === undefined) return;
     const local = asTdObject(file.local);
-    if (local?.is_downloading_active !== true) this.avatarDownloads.delete(fileId);
-    if (local?.is_downloading_completed === true) this.mediaDownloads.delete(fileId);
+    if (local?.is_downloading_completed === true) this.finishCacheDownload(fileId);
 
     for (const raw of [...this.rawChats.values()]) {
       const photo = asTdObject(raw.photo);
@@ -1188,7 +1203,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatMessages.set(message.id, raw);
     this.rawMessages.set(message.chatId, chatMessages);
     this.listener?.({ type: "message.upsert", message });
-    this.ensureDisplayMedia(message);
     this.ensureReplyContent(raw);
   }
 
@@ -1284,34 +1298,6 @@ export class TauriTelegramTransport implements TelegramTransport {
       });
   }
 
-  private ensureDisplayMedia(message: Message) {
-    const content = message.content;
-    if (
-      content.kind !== "media" ||
-      !["photo", "sticker"].includes(content.mediaType) ||
-      content.fileId === undefined ||
-      content.isDownloaded ||
-      content.isDownloading ||
-      content.canDownload !== true ||
-      this.mediaDownloads.has(content.fileId)
-    ) {
-      return;
-    }
-
-    const fileId = content.fileId;
-    this.mediaDownloads.add(fileId);
-    void this.request({
-      "@type": "downloadFile",
-      file_id: fileId,
-      priority: 18,
-      offset: 0,
-      limit: 0,
-      synchronous: false,
-    })
-      .then((file) => this.updateFile(file))
-      .catch(() => this.mediaDownloads.delete(fileId));
-  }
-
   private replaceSentMessage(update: TdObject) {
     const raw = asTdObject(update.message);
     if (!raw) return;
@@ -1370,8 +1356,12 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.chatListLoads.clear();
     this.chatListCounts.clear();
     this.exhaustedChatLists.clear();
-    this.avatarDownloads.clear();
-    this.mediaDownloads.clear();
+    const sessionError = new Error("TDLib session was reset");
+    for (const download of this.cacheDownloadQueue) download.reject(sessionError);
+    for (const download of this.activeCacheDownloads.values()) download.reject(sessionError);
+    this.cacheDownloadQueue = [];
+    this.activeCacheDownloads.clear();
+    this.cacheDownloadPromises.clear();
     this.pendingDownloads.clear();
     this.rawFolderInfos = [];
     this.mainChatListPosition = 0;

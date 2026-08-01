@@ -6,6 +6,8 @@ import type { TdObject } from "./tdlibMapper";
 type TestableTransport = {
   listener?: TelegramEventListener;
   request: (request: TdObject) => Promise<TdObject>;
+  bootstrap: () => Promise<void>;
+  cacheFile: (fileId: number, priority?: number) => Promise<void>;
   requestPreparedFile: (chatId: string) => Promise<TdObject | undefined>;
   emitMessage: (message: TdObject) => void;
   handleUpdate: (update: TdObject) => void;
@@ -106,6 +108,37 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.filter((request) => request["@type"] === "loadChats")).toHaveLength(2);
     expect(requests.filter((request) => request["@type"] === "getChats")
       .map((request) => request.limit)).toEqual([2, 4, 5]);
+  });
+
+  it("loads only the main chat list during startup", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.listener = () => undefined;
+    internal.handleUpdate({
+      "@type": "updateChatFolders",
+      chat_folders: Array.from({ length: 10 }, (_, id) => ({ id: id + 1 })),
+      main_chat_list_position: 0,
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getMe") {
+        return { "@type": "user", id: 11, first_name: "Mia", last_name: "Chen" };
+      }
+      if (request["@type"] === "getChats") {
+        return { "@type": "chats", chat_ids: [] };
+      }
+      return { "@type": "ok" };
+    };
+
+    await internal.bootstrap();
+
+    const loads = requests.filter((request) => request["@type"] === "loadChats");
+    expect(loads).toHaveLength(1);
+    expect(loads[0]).toMatchObject({
+      chat_list: { "@type": "chatListMain" },
+      limit: 40,
+    });
   });
 });
 
@@ -765,7 +798,7 @@ describe("TauriTelegramTransport history", () => {
 });
 
 describe("TauriTelegramTransport media", () => {
-  it("automatically caches photo media without treating it as a downloaded document", async () => {
+  it("caches photo media only after a visible-file request", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -816,6 +849,10 @@ describe("TauriTelegramTransport media", () => {
     });
     await Promise.resolve();
 
+    expect(requests).toHaveLength(0);
+    void internal.cacheFile(91, 18);
+    await Promise.resolve();
+
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       "@type": "downloadFile",
@@ -827,7 +864,7 @@ describe("TauriTelegramTransport media", () => {
 });
 
 describe("TauriTelegramTransport avatars", () => {
-  it("downloads and publishes a user's small profile photo", async () => {
+  it("downloads and publishes a user's small profile photo on demand", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -872,6 +909,10 @@ describe("TauriTelegramTransport avatars", () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    expect(requests).toHaveLength(0);
+    expect(imagePaths).toEqual([undefined]);
+    await internal.cacheFile(44, 16);
+
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       "@type": "downloadFile",
@@ -879,5 +920,49 @@ describe("TauriTelegramTransport avatars", () => {
       priority: 16,
     });
     expect(imagePaths).toEqual([undefined, "C:\\avatars\\mia.jpg"]);
+  });
+
+  it("limits background cache downloads to four active files", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.listener = () => undefined;
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "file",
+        id: request.file_id,
+        local: {
+          can_be_downloaded: true,
+          is_downloading_active: true,
+          is_downloading_completed: false,
+        },
+        remote: {},
+      };
+    };
+
+    for (let fileId = 1; fileId <= 6; fileId += 1) {
+      void internal.cacheFile(fileId);
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(requests).toHaveLength(4);
+
+    internal.handleUpdate({
+      "@type": "updateFile",
+      file: {
+        "@type": "file",
+        id: 1,
+        local: {
+          can_be_downloaded: true,
+          is_downloading_active: false,
+          is_downloading_completed: true,
+          path: "C:\\cache\\1.jpg",
+        },
+        remote: {},
+      },
+    });
+    await Promise.resolve();
+    expect(requests).toHaveLength(5);
   });
 });

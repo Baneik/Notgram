@@ -444,6 +444,10 @@ export class MockTelegramTransport implements TelegramTransport {
     return;
   }
 
+  async cacheFile(_fileId: number, _priority?: number) {
+    return;
+  }
+
   async retryMessage(chatId: string, messageId: string) {
     const message = this.snapshot.messages.find(
       (item) => item.chatId === chatId && item.id === messageId,

@@ -95,6 +95,7 @@ export interface TelegramState {
     messageIds: string[],
     toChatId: string,
   ) => Promise<ForwardMessagesResult | undefined>;
+  cacheFile: (fileId: number, priority?: number) => Promise<void>;
   downloadFile: (fileId: number, fileName: string) => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   sendFile: (file?: File) => Promise<boolean>;
@@ -636,7 +637,7 @@ export const createTelegramStore = (
       chatLists.set(chatListId, { loading: true, hasMore: current?.hasMore ?? true });
       set({ chatLists });
       try {
-        const page = await transport.loadMoreChats(chatListId, 100);
+        const page = await transport.loadMoreChats(chatListId, 50);
         const nextChatLists = new Map(get().chatLists);
         nextChatLists.set(chatListId, { loading: false, hasMore: page.hasMore });
         set({ chatLists: nextChatLists, error: undefined });
@@ -1298,6 +1299,14 @@ export const createTelegramStore = (
         } catch (error) {
           set({ error: error instanceof Error ? error.message : "消息转发失败" });
           return undefined;
+        }
+      },
+
+      cacheFile: async (fileId, priority) => {
+        try {
+          await transport.cacheFile(fileId, priority);
+        } catch {
+          // Preview caching is opportunistic and must not surface as a runtime error.
         }
       },
 

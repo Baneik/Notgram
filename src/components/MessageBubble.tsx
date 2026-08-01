@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction, User } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
@@ -99,6 +100,19 @@ export function MessageBubble({
     !content.isDownloaded &&
     !content.isDownloading;
   const canCancelUpload = content.kind !== "text" && content.isUploading === true;
+  const lazyMediaFileId = content.kind === "media" && ["photo", "sticker"].includes(content.mediaType)
+    ? content.fileId
+    : undefined;
+  const lazyMediaRef = useVisibleFile<HTMLElement>(
+    lazyMediaFileId,
+    lazyMediaFileId !== undefined &&
+      content.kind === "media" &&
+      content.canDownload === true &&
+      !content.isDownloaded &&
+      !content.isDownloading,
+    18,
+    "320px 0px",
+  );
   const selectionDisabled = selectionPending ||
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
@@ -117,6 +131,7 @@ export function MessageBubble({
 
   return (
     <article
+      ref={lazyMediaRef}
       className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${selected ? "is-selected" : ""}`}
       data-message-id={message.id}
     >
@@ -182,6 +197,8 @@ export function MessageBubble({
                   <img
                     src={fullMediaSource ?? previewSource}
                     alt={content.caption || content.fileName}
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   <span className="photo-placeholder" aria-label="媒体正在加载">
