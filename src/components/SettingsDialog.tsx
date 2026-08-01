@@ -2,12 +2,14 @@ import {
   ArrowLeft,
   BatteryCharging,
   Bell,
+  Check,
   ChevronRight,
   Folder,
   Gauge,
   HardDrive,
   Languages,
   LoaderCircle,
+  LogOut,
   LockKeyhole,
   MessageCircle,
   Network,
@@ -15,6 +17,7 @@ import {
   Save,
   SlidersHorizontal,
   UserCircle,
+  UserPlus,
   Volume2,
   X,
   type LucideIcon,
@@ -27,7 +30,15 @@ import {
   type SetStateAction,
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
-import type { ProxyMode, ProxySettings, ProxyType, StorageSettings } from "../telegram/types";
+import type {
+  ProxyMode,
+  ProxySettings,
+  ProxyType,
+  StorageSettings,
+  TelegramAccount,
+  User,
+} from "../telegram/types";
+import { Avatar } from "./Avatar";
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -103,6 +114,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const storageSettings = useTelegramStore((state) => state.storageSettings);
   const storagePending = useTelegramStore((state) => state.storagePending);
   const storageError = useTelegramStore((state) => state.storageError);
+  const accounts = useTelegramStore((state) => state.accounts);
+  const activeAccountId = useTelegramStore((state) => state.activeAccountId);
+  const accountPending = useTelegramStore((state) => state.accountPending);
+  const accountError = useTelegramStore((state) => state.accountError);
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const currentUser = useTelegramStore((state) =>
     state.currentUserId ? state.users.get(state.currentUserId) : undefined,
@@ -112,6 +127,9 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const test = useTelegramStore((state) => state.testProxy);
   const loadStorage = useTelegramStore((state) => state.loadStorageSettings);
   const saveStorage = useTelegramStore((state) => state.saveStorageSettings);
+  const addAccount = useTelegramStore((state) => state.addAccount);
+  const switchAccount = useTelegramStore((state) => state.switchAccount);
+  const logOutCurrentAccount = useTelegramStore((state) => state.logOutCurrentAccount);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
   const [detailOpen, setDetailOpen] = useState(false);
   const [draft, setDraft] = useState<ProxySettings>(emptySettings);
@@ -210,7 +228,18 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
             <h3>{active.label}</h3>
           </header>
 
-          {activeCategory === "advanced" ? (
+          {activeCategory === "account" ? (
+            <AccountSettings
+              accounts={accounts}
+              activeAccountId={activeAccountId}
+              currentUser={currentUser}
+              pending={accountPending}
+              error={accountError}
+              onAdd={() => void addAccount()}
+              onSwitch={(accountId) => void switchAccount(accountId)}
+              onLogOut={() => void logOutCurrentAccount()}
+            />
+          ) : activeCategory === "advanced" ? (
             <AdvancedSettings
               draft={draft}
               storageDraft={storageDraft}
@@ -233,6 +262,112 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
           )}
         </main>
       </form>
+    </div>
+  );
+}
+
+interface AccountSettingsProps {
+  accounts: TelegramAccount[];
+  activeAccountId: string;
+  currentUser?: User;
+  pending: boolean;
+  error?: string;
+  onAdd: () => void;
+  onSwitch: (accountId: string) => void;
+  onLogOut: () => void;
+}
+
+function AccountSettings({
+  accounts,
+  activeAccountId,
+  currentUser,
+  pending,
+  error,
+  onAdd,
+  onSwitch,
+  onLogOut,
+}: AccountSettingsProps) {
+  const [logoutConfirmation, setLogoutConfirmation] = useState(false);
+  const visibleAccounts = accounts.some((account) => account.id === activeAccountId) || !currentUser
+    ? accounts
+    : [
+        ...accounts,
+        {
+          id: activeAccountId,
+          userId: currentUser.id,
+          displayName: currentUser.displayName,
+          avatar: currentUser.avatar,
+        },
+      ];
+
+  return (
+    <div className="settings-detail-scroll account-settings">
+      <section className="settings-section" aria-labelledby="accounts-heading">
+        <div className="settings-section-heading">
+          <UserCircle size={18} strokeWidth={1.8} />
+          <div>
+            <h4 id="accounts-heading">已登录账号</h4>
+            <span>账号数据分别存储，切换时会重新连接 Telegram</span>
+          </div>
+        </div>
+        <div className="account-list">
+          {visibleAccounts.map((account) => {
+            const active = account.id === activeAccountId;
+            return (
+              <button
+                className={`account-row ${active ? "is-active" : ""}`}
+                type="button"
+                key={account.id}
+                disabled={pending || active}
+                aria-current={active ? "true" : undefined}
+                onClick={() => onSwitch(account.id)}
+              >
+                <Avatar avatar={account.avatar} size="medium" />
+                <span className="account-row-copy">
+                  <strong>{account.displayName}</strong>
+                  <small>{active ? "当前账号" : "切换到此账号"}</small>
+                </span>
+                {active && <Check size={18} strokeWidth={2.2} />}
+              </button>
+            );
+          })}
+        </div>
+        <button className="account-command" type="button" disabled={pending} onClick={onAdd}>
+          {pending ? <LoaderCircle className="spin" size={18} /> : <UserPlus size={18} />}
+          <span>添加账号</span>
+        </button>
+      </section>
+
+      {currentUser && (
+        <section className="settings-section account-session-section" aria-labelledby="session-heading">
+          <div className="settings-section-heading">
+            <LogOut size={18} strokeWidth={1.8} />
+            <div>
+              <h4 id="session-heading">当前会话</h4>
+              <span>{currentUser.displayName}</span>
+            </div>
+          </div>
+          {logoutConfirmation ? (
+            <div className="account-logout-confirm" role="group" aria-label="确认退出登录">
+              <p>退出后将删除此账号在本机的 TDLib 数据和界面缓存，其他账号不受影响。</p>
+              <div>
+                <button className="dialog-secondary" type="button" disabled={pending} onClick={() => setLogoutConfirmation(false)}>取消</button>
+                <button className="dialog-danger" type="button" disabled={pending} onClick={onLogOut}>
+                  {pending && <LoaderCircle className="spin" size={16} />}
+                  退出登录
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button className="account-command is-danger" type="button" disabled={pending} onClick={() => setLogoutConfirmation(true)}>
+              <LogOut size={18} />
+              <span>退出当前账号</span>
+            </button>
+          )}
+        </section>
+      )}
+
+      {error && <div className="settings-error" role="alert">{error}</div>}
     </div>
   );
 }

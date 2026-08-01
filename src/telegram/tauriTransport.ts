@@ -30,6 +30,8 @@ import type {
   SendMessageInput,
   StorageSettings,
   TelegramSnapshot,
+  TelegramAccount,
+  TelegramAccountState,
 } from "./types";
 
 interface RuntimeStatus {
@@ -171,6 +173,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private initialChatSyncPending = true;
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
+    this.resetSessionState();
     this.listener = listener;
     this.initialChatSyncPending = true;
     const status = await invoke<RuntimeStatus>("telegram_runtime_status");
@@ -215,19 +218,30 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.unlistenError?.();
       this.unlistenUpdate = undefined;
       this.unlistenError = undefined;
-      this.bootstrapPromise = undefined;
-      this.initialChatSyncPending = true;
-      this.exhaustedHistories.clear();
-      this.historyCursors.clear();
-      this.historyStalls.clear();
-      this.historyLoads.clear();
-      this.chatListLoads.clear();
-      this.avatarDownloads.clear();
-      this.mediaDownloads.clear();
-      this.pendingDownloads.clear();
-      this.rawFolderInfos = [];
       this.rejectAll(new Error("TDLib runtime 已关闭。"));
+      this.listener = undefined;
+      this.resetSessionState();
     }
+  }
+
+  async getAccountState() {
+    return invoke<TelegramAccountState>("telegram_account_state");
+  }
+
+  async registerCurrentAccount(account: Omit<TelegramAccount, "id">) {
+    return invoke<TelegramAccountState>("telegram_register_account", { account });
+  }
+
+  async selectAccount(accountId: string) {
+    return invoke<TelegramAccountState>("telegram_select_account", { accountId });
+  }
+
+  async removeAccount(accountId: string) {
+    return invoke<TelegramAccountState>("telegram_remove_account", { accountId });
+  }
+
+  async logOut() {
+    await this.request({ "@type": "logOut" });
   }
 
   async loadCachedSnapshot() {
@@ -1019,6 +1033,25 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.rawMessages.get(chatId)?.delete(messageId);
       this.listener?.({ type: "message.remove", chatId, messageId });
     }
+  }
+
+  private resetSessionState() {
+    this.rawChats.clear();
+    this.rawUsers.clear();
+    this.rawMessages.clear();
+    this.exhaustedHistories.clear();
+    this.historyCursors.clear();
+    this.historyStalls.clear();
+    this.historyLoads.clear();
+    this.chatListLoads.clear();
+    this.avatarDownloads.clear();
+    this.mediaDownloads.clear();
+    this.pendingDownloads.clear();
+    this.rawFolderInfos = [];
+    this.mainChatListPosition = 0;
+    this.currentUserId = undefined;
+    this.bootstrapPromise = undefined;
+    this.initialChatSyncPending = true;
   }
 
   private rejectAll(error: Error) {

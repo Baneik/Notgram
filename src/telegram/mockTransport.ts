@@ -12,12 +12,25 @@ import type {
   SendFileInput,
   SendMessageInput,
   StorageSettings,
+  TelegramAccount,
+  TelegramAccountState,
   TelegramSnapshot,
   ChatHistoryPage,
 } from "./types";
 
 const clone = <T,>(value: T): T => structuredClone(value);
 const CACHE_KEY = "notgram:ui-cache:v1";
+const ACCOUNT_STATE_KEY = "notgram:accounts:v1";
+
+const defaultMockAccount = (): TelegramAccount => {
+  const user = mockSnapshot.users.find((item) => item.id === mockSnapshot.currentUserId);
+  return {
+    id: "default",
+    userId: mockSnapshot.currentUserId,
+    displayName: user?.displayName ?? "Telegram 账号",
+    avatar: clone(user?.avatar ?? { label: "N", color: "#3390ec" }),
+  };
+};
 
 const browserStorage = () => {
   try {
@@ -40,6 +53,7 @@ export class MockTelegramTransport implements TelegramTransport {
   private listener?: TelegramEventListener;
   private snapshot = clone(mockSnapshot);
   private cachedSnapshot?: CachedTelegramSnapshot;
+  private accountState: TelegramAccountState;
   private historyOffsets = new Map<string, number>();
   private authFlow: boolean;
   private storageSettings: StorageSettings = {
@@ -71,7 +85,23 @@ export class MockTelegramTransport implements TelegramTransport {
   };
 
   constructor(options: { authFlow?: boolean; cachedSnapshot?: CachedTelegramSnapshot } = {}) {
-    this.authFlow = Boolean(options.authFlow);
+    const serializedAccounts = browserStorage()?.getItem(ACCOUNT_STATE_KEY);
+    let storedAccounts: TelegramAccountState | undefined;
+    if (serializedAccounts) {
+      try {
+        storedAccounts = JSON.parse(serializedAccounts) as TelegramAccountState;
+      } catch {
+        storedAccounts = undefined;
+      }
+    }
+    this.accountState = storedAccounts ?? {
+      activeAccountId: "default",
+      accounts: [defaultMockAccount()],
+    };
+    const activeAccountExists = this.accountState.accounts.some(
+      (account) => account.id === this.accountState.activeAccountId,
+    );
+    this.authFlow = options.authFlow ?? !activeAccountExists;
     this.cachedSnapshot = options.cachedSnapshot
       ? clone(options.cachedSnapshot)
       : undefined;
@@ -91,7 +121,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async loadCachedSnapshot() {
     if (this.cachedSnapshot) return clone(this.cachedSnapshot);
-    const serialized = browserStorage()?.getItem(CACHE_KEY);
+    const serialized = browserStorage()?.getItem(this.cacheKey());
     if (!serialized) return undefined;
     try {
       const snapshot = JSON.parse(serialized) as CachedTelegramSnapshot;
@@ -103,12 +133,50 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
     this.cachedSnapshot = clone(snapshot);
-    browserStorage()?.setItem(CACHE_KEY, JSON.stringify(snapshot));
+    browserStorage()?.setItem(this.cacheKey(), JSON.stringify(snapshot));
   }
 
   async clearCachedSnapshot() {
     this.cachedSnapshot = undefined;
-    browserStorage()?.removeItem(CACHE_KEY);
+    browserStorage()?.removeItem(this.cacheKey());
+  }
+
+  async getAccountState() {
+    return clone(this.accountState);
+  }
+
+  async registerCurrentAccount(account: Omit<TelegramAccount, "id">) {
+    const registered = { ...clone(account), id: this.accountState.activeAccountId };
+    const index = this.accountState.accounts.findIndex((item) => item.id === registered.id);
+    if (index >= 0) this.accountState.accounts[index] = registered;
+    else this.accountState.accounts.push(registered);
+    this.persistAccountState();
+    return clone(this.accountState);
+  }
+
+  async selectAccount(accountId: string) {
+    this.accountState.activeAccountId = accountId;
+    this.persistAccountState();
+    return clone(this.accountState);
+  }
+
+  async removeAccount(accountId: string) {
+    this.accountState.accounts = this.accountState.accounts.filter(
+      (account) => account.id !== accountId,
+    );
+    if (this.accountState.activeAccountId === accountId) {
+      this.accountState.activeAccountId = this.accountState.accounts[0]?.id ?? "default";
+    }
+    browserStorage()?.removeItem(accountId === "default" ? CACHE_KEY : `${CACHE_KEY}:${accountId}`);
+    this.persistAccountState();
+    return clone(this.accountState);
+  }
+
+  async logOut() {
+    this.snapshot.authorization = { kind: "loggingOut" };
+    this.listener?.({ type: "authorization.changed", state: { kind: "loggingOut" } });
+    this.snapshot.authorization = { kind: "closed" };
+    this.listener?.({ type: "authorization.changed", state: { kind: "closed" } });
   }
 
   async authenticate(action: AuthorizationAction) {
@@ -129,6 +197,7 @@ export class MockTelegramTransport implements TelegramTransport {
                 : { kind: "waitPhoneNumber" as const };
     this.snapshot.authorization = next;
     this.listener?.({ type: "authorization.changed", state: next });
+    if (next.kind === "ready") this.publishReadySnapshot();
   }
 
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
@@ -305,5 +374,24 @@ export class MockTelegramTransport implements TelegramTransport {
     };
     Object.assign(chat, updatedChat);
     this.listener?.({ type: "chat.upsert", chat: clone(updatedChat) });
+  }
+
+  private cacheKey() {
+    return this.accountState.activeAccountId === "default"
+      ? CACHE_KEY
+      : `${CACHE_KEY}:${this.accountState.activeAccountId}`;
+  }
+
+  private persistAccountState() {
+    browserStorage()?.setItem(ACCOUNT_STATE_KEY, JSON.stringify(this.accountState));
+  }
+
+  private publishReadySnapshot() {
+    for (const user of this.snapshot.users) {
+      this.listener?.({ type: "user.upsert", user: clone(user) });
+    }
+    this.listener?.({ type: "currentUser.changed", userId: this.snapshot.currentUserId });
+    this.listener?.({ type: "folders.replaced", folders: clone(this.snapshot.folders) });
+    this.listener?.({ type: "chats.upserted", chats: clone(this.snapshot.chats) });
   }
 }

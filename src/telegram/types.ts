@@ -35,6 +35,18 @@ export interface User {
   lastSeenLabel?: string;
 }
 
+export interface TelegramAccount {
+  id: string;
+  userId: string;
+  displayName: string;
+  avatar: Avatar;
+}
+
+export interface TelegramAccountState {
+  activeAccountId: string;
+  accounts: TelegramAccount[];
+}
+
 export interface Chat {
   id: string;
   kind: ChatKind;

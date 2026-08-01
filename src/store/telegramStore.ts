@@ -13,6 +13,8 @@ import type {
   ProxySettings,
   StorageSettings,
   TelegramEvent,
+  TelegramAccount,
+  TelegramAccountState,
   User,
 } from "../telegram/types";
 
@@ -40,6 +42,10 @@ export interface TelegramState {
   storageSettings?: StorageSettings;
   storagePending: boolean;
   storageError?: string;
+  accounts: TelegramAccount[];
+  activeAccountId: string;
+  accountPending: boolean;
+  accountError?: string;
   users: Map<string, User>;
   folders: ChatFolder[];
   chats: Map<string, Chat>;
@@ -56,6 +62,9 @@ export interface TelegramState {
   testProxy: (settings: ProxySettings) => Promise<void>;
   loadStorageSettings: () => Promise<void>;
   saveStorageSettings: (settings: StorageSettings) => Promise<boolean>;
+  addAccount: () => Promise<boolean>;
+  switchAccount: (accountId: string) => Promise<boolean>;
+  logOutCurrentAccount: () => Promise<boolean>;
   selectChat: (chatId: string) => Promise<void>;
   loadMoreHistory: (chatId: string) => Promise<void>;
   loadMessageProperties: (
@@ -155,11 +164,21 @@ const cachedSnapshotFrom = (state: TelegramState): CachedTelegramSnapshot => ({
   chatFilter: state.chatFilter,
 });
 
-export const createTelegramStore = (transport: TelegramTransport) =>
+const reloadCurrentApplication = () => {
+  if (typeof window !== "undefined") window.location.reload();
+};
+
+export const createTelegramStore = (
+  transport: TelegramTransport,
+  reloadApplication: () => void = reloadCurrentApplication,
+) =>
   createStore<TelegramState>((set, get) => {
     let cacheTimer: ReturnType<typeof setTimeout> | undefined;
     let cacheWrite = Promise.resolve();
     const cachedMessageIds = new Map<string, Set<string>>();
+    let accountTransition = false;
+    let registeredAccountKey: string | undefined;
+    let accountRegistration = Promise.resolve();
 
     const scheduleCacheWrite = () => {
       const state = get();
@@ -178,7 +197,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
       }, 600);
     };
 
-    const clearCachedData = () => {
+    const clearCachedData = (clearSnapshot = true) => {
       if (cacheTimer) globalThis.clearTimeout(cacheTimer);
       cacheTimer = undefined;
       cachedMessageIds.clear();
@@ -193,7 +212,57 @@ export const createTelegramStore = (transport: TelegramTransport) =>
         activeChatId: undefined,
         chatFilter: "main",
       });
-      void transport.clearCachedSnapshot().catch(() => undefined);
+      if (clearSnapshot) void transport.clearCachedSnapshot().catch(() => undefined);
+    };
+
+    const applyAccountState = (accountState: TelegramAccountState) => {
+      set({
+        accounts: accountState.accounts,
+        activeAccountId: accountState.activeAccountId,
+        accountPending: false,
+        accountError: undefined,
+      });
+    };
+
+    const registerCurrentAccount = () => {
+      const state = get();
+      if (accountTransition) return Promise.resolve();
+      const user = state.currentUserId ? state.users.get(state.currentUserId) : undefined;
+      if (!user || state.authorization.kind !== "ready") return Promise.resolve();
+      const accountId = state.activeAccountId;
+      const key = `${state.activeAccountId}:${user.id}:${user.displayName}:${user.avatar.label}:${user.avatar.color}`;
+      if (registeredAccountKey === key) return accountRegistration;
+      registeredAccountKey = key;
+      const registration = transport.registerCurrentAccount({
+        userId: user.id,
+        displayName: user.displayName,
+        avatar: user.avatar,
+      }).then((accountState) => {
+        if (!accountTransition && get().activeAccountId === accountId) {
+          applyAccountState(accountState);
+        }
+      }).catch((error) => {
+        if (registeredAccountKey === key) registeredAccountKey = undefined;
+        if (!accountTransition) {
+          set({
+            accountError: error instanceof Error ? error.message : "无法保存账号信息",
+          });
+        }
+      });
+      accountRegistration = registration;
+      return registration;
+    };
+
+    const flushCachedSnapshot = async () => {
+      if (cacheTimer) {
+        globalThis.clearTimeout(cacheTimer);
+        cacheTimer = undefined;
+      }
+      await cacheWrite.catch(() => undefined);
+      const state = get();
+      if (state.authorization.kind === "ready" && state.currentUserId) {
+        await transport.saveCachedSnapshot(cachedSnapshotFrom(state));
+      }
     };
 
     const hydrateCachedSnapshot = (snapshot?: CachedTelegramSnapshot) => {
@@ -308,7 +377,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
           const activeChatId = get().activeChatId;
           if (activeChatId) void loadHistory(activeChatId);
         } else if (event.state.kind !== "preparing") {
-          clearCachedData();
+          clearCachedData(!accountTransition);
         }
         return;
       }
@@ -316,6 +385,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
       if (event.type === "currentUser.changed") {
         set({ currentUserId: event.userId });
         scheduleCacheWrite();
+        void registerCurrentAccount();
         return;
       }
 
@@ -361,6 +431,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
         users.set(event.user.id, event.user);
         set({ users });
         scheduleCacheWrite();
+        if (event.user.id === get().currentUserId) void registerCurrentAccount();
         return;
       }
 
@@ -386,12 +457,49 @@ export const createTelegramStore = (transport: TelegramTransport) =>
       scheduleCacheWrite();
     };
 
+    const selectAccountAndReload = async (accountId: string) => {
+      const current = get();
+      if (accountId === current.activeAccountId && current.authorization.kind === "ready") {
+        return true;
+      }
+      const previousAccountId = current.activeAccountId;
+      const discardPreviousAccount = previousAccountId !== accountId
+        && !current.accounts.some((account) => account.id === previousAccountId);
+      let disconnected = false;
+      accountTransition = true;
+      registeredAccountKey = undefined;
+      set({ accountPending: true, accountError: undefined, error: undefined });
+      try {
+        await accountRegistration;
+        await flushCachedSnapshot();
+        await transport.disconnect();
+        disconnected = true;
+        if (discardPreviousAccount) {
+          await transport.removeAccount(previousAccountId);
+        }
+        applyAccountState(await transport.selectAccount(accountId));
+        reloadApplication();
+        return true;
+      } catch (error) {
+        accountTransition = false;
+        set({
+          accountPending: false,
+          accountError: error instanceof Error ? error.message : "无法切换账号",
+        });
+        if (disconnected) reloadApplication();
+        return false;
+      }
+    };
+
     return {
       phase: "idle",
       transportKind: transport.kind,
       transportLabel: transport.label,
       authorization: { kind: "preparing" },
       authorizationPending: false,
+      accounts: [],
+      activeAccountId: "default",
+      accountPending: false,
       proxyPending: false,
       storagePending: false,
       users: new Map(),
@@ -407,6 +515,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
         if (get().phase !== "idle") return;
         set({ phase: "loading", error: undefined });
         try {
+          applyAccountState(await transport.getAccountState());
           let connectionSnapshot: Awaited<ReturnType<TelegramTransport["connect"]>> | undefined;
           let connectionError: unknown;
           const cacheLoad = transport
@@ -474,6 +583,7 @@ export const createTelegramStore = (transport: TelegramTransport) =>
                 ? current.chatFilter
                 : (folders[0]?.id ?? "main"),
           });
+          void registerCurrentAccount();
           const refreshChatId = get().activeChatId ?? firstChat?.id;
           if (authorization.kind === "ready" && refreshChatId) {
             await loadHistory(refreshChatId);
@@ -566,6 +676,39 @@ export const createTelegramStore = (transport: TelegramTransport) =>
             storagePending: false,
             storageError: error instanceof Error ? error.message : "无法保存存储路径设置",
           });
+          return false;
+        }
+      },
+
+      addAccount: async () => {
+        const accountId = `account-${globalThis.crypto.randomUUID()}`;
+        return selectAccountAndReload(accountId);
+      },
+
+      switchAccount: selectAccountAndReload,
+
+      logOutCurrentAccount: async () => {
+        const accountId = get().activeAccountId;
+        let disconnected = false;
+        accountTransition = true;
+        registeredAccountKey = undefined;
+        set({ accountPending: true, accountError: undefined, error: undefined });
+        try {
+          await accountRegistration;
+          await flushCachedSnapshot();
+          await transport.logOut();
+          await transport.disconnect();
+          disconnected = true;
+          applyAccountState(await transport.removeAccount(accountId));
+          reloadApplication();
+          return true;
+        } catch (error) {
+          accountTransition = false;
+          set({
+            accountPending: false,
+            accountError: error instanceof Error ? error.message : "退出登录失败",
+          });
+          if (disconnected) reloadApplication();
           return false;
         }
       },

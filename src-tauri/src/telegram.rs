@@ -295,20 +295,36 @@ impl TelegramRuntime {
     }
 
     fn shutdown(&self) -> Result<(), String> {
-        let mut inner = self.inner.lock().expect("telegram runtime mutex poisoned");
-        let Some(running) = inner.running.as_ref() else {
-            return Ok(());
-        };
-        let engine = inner
-            .engine
-            .as_ref()
-            .ok_or_else(|| "tdjson 动态库尚未加载".to_string())?;
-        engine.send_value(running.client_id, &json!({ "@type": "close" }))?;
-        if let Some(logger) = &inner.logger {
-            logger.write("info", "runtime_closing", json!({}));
+        {
+            let mut inner = self.inner.lock().expect("telegram runtime mutex poisoned");
+            let Some(running) = inner.running.as_ref() else {
+                return Ok(());
+            };
+            let engine = inner
+                .engine
+                .as_ref()
+                .ok_or_else(|| "tdjson 动态库尚未加载".to_string())?;
+            engine.send_value(running.client_id, &json!({ "@type": "close" }))?;
+            if let Some(logger) = &inner.logger {
+                logger.write("info", "runtime_closing", json!({}));
+            }
+            inner.phase = "closing";
         }
-        inner.phase = "closing";
-        Ok(())
+
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            if self
+                .inner
+                .lock()
+                .expect("telegram runtime mutex poisoned")
+                .running
+                .is_none()
+            {
+                return Ok(());
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        Err("等待 TDLib runtime 关闭超时".to_string())
     }
 
     fn mark_closed(&self, client_id: i32) {

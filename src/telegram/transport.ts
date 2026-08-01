@@ -7,6 +7,8 @@ import type {
   CachedTelegramSnapshot,
   TelegramEvent,
   TelegramSnapshot,
+  TelegramAccount,
+  TelegramAccountState,
   ProxySettings,
   StorageSettings,
   MessagePermissions,
@@ -23,6 +25,11 @@ export interface TelegramTransport {
   loadCachedSnapshot(): Promise<CachedTelegramSnapshot | undefined>;
   saveCachedSnapshot(snapshot: CachedTelegramSnapshot): Promise<void>;
   clearCachedSnapshot(): Promise<void>;
+  getAccountState(): Promise<TelegramAccountState>;
+  registerCurrentAccount(account: Omit<TelegramAccount, "id">): Promise<TelegramAccountState>;
+  selectAccount(accountId: string): Promise<TelegramAccountState>;
+  removeAccount(accountId: string): Promise<TelegramAccountState>;
+  logOut(): Promise<void>;
   authenticate(action: AuthorizationAction): Promise<void>;
   getProxySettings(): Promise<ProxySettings>;
   saveProxySettings(settings: ProxySettings): Promise<void>;

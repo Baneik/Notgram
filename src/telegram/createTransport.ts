@@ -9,6 +9,8 @@ export const createTelegramTransport = (): TelegramTransport => {
   return new MockTelegramTransport({
     authFlow:
       typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).has("auth"),
+      new URLSearchParams(window.location.search).has("auth")
+        ? true
+        : undefined,
   });
 };

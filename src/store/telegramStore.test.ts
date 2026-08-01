@@ -7,6 +7,8 @@ import type {
   Chat,
   Message,
   MessagePermissions,
+  TelegramAccount,
+  TelegramAccountState,
 } from "../telegram/types";
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 
@@ -559,6 +561,215 @@ describe("telegram store", () => {
 
     await store.getState().authenticate({ kind: "password", password: "test" });
     expect(store.getState().authorization.kind).toBe("ready");
+  });
+
+  it("registers the active Telegram profile after startup", async () => {
+    class AccountRegistrationTransport extends MockTelegramTransport {
+      registeredAccount?: Omit<TelegramAccount, "id">;
+
+      override async registerCurrentAccount(account: Omit<TelegramAccount, "id">) {
+        this.registeredAccount = structuredClone(account);
+        return {
+          activeAccountId: "default",
+          accounts: [{ id: "default", ...structuredClone(account) }],
+        };
+      }
+    }
+
+    const transport = new AccountRegistrationTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(transport.registeredAccount).toMatchObject({
+      userId: mockSnapshot.currentUserId,
+      displayName: mockSnapshot.users.find(
+        (user) => user.id === mockSnapshot.currentUserId,
+      )?.displayName,
+    });
+    expect(store.getState().accounts).toEqual([
+      expect.objectContaining({ id: "default", userId: mockSnapshot.currentUserId }),
+    ]);
+  });
+
+  it("flushes the active snapshot before switching accounts and reloading", async () => {
+    const accounts: TelegramAccount[] = [
+      {
+        id: "default",
+        userId: "self",
+        displayName: "林遥",
+        avatar: { label: "遥", color: "#3390ec" },
+      },
+      {
+        id: "account-secondary",
+        userId: "secondary",
+        displayName: "工作账号",
+        avatar: { label: "工", color: "#26a269" },
+      },
+    ];
+
+    class AccountSwitchTransport extends MockTelegramTransport {
+      events: string[] = [];
+
+      override async getAccountState(): Promise<TelegramAccountState> {
+        return { activeAccountId: "default", accounts: structuredClone(accounts) };
+      }
+
+      override async registerCurrentAccount() {
+        return { activeAccountId: "default", accounts: structuredClone(accounts) };
+      }
+
+      override async saveCachedSnapshot() {
+        this.events.push("save");
+      }
+
+      override async disconnect() {
+        this.events.push("disconnect");
+      }
+
+      override async selectAccount(accountId: string) {
+        this.events.push(`select:${accountId}`);
+        return { activeAccountId: accountId, accounts: structuredClone(accounts) };
+      }
+    }
+
+    const transport = new AccountSwitchTransport();
+    const reload = vi.fn();
+    const store = createTelegramStore(transport, reload);
+    await store.getState().initialize();
+
+    await expect(store.getState().switchAccount("account-secondary")).resolves.toBe(true);
+
+    expect(transport.events).toEqual([
+      "save",
+      "disconnect",
+      "select:account-secondary",
+    ]);
+    expect(store.getState().activeAccountId).toBe("account-secondary");
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("cleans an unfinished account slot before returning to a registered account", async () => {
+    const account: TelegramAccount = {
+      id: "default",
+      userId: "self",
+      displayName: "林然",
+      avatar: { label: "然", color: "#3390ec" },
+    };
+
+    class UnfinishedAccountTransport extends MockTelegramTransport {
+      events: string[] = [];
+
+      override async getAccountState() {
+        return { activeAccountId: "account-unfinished", accounts: [account] };
+      }
+
+      override async registerCurrentAccount() {
+        return { activeAccountId: "account-unfinished", accounts: [account] };
+      }
+
+      override async saveCachedSnapshot() {
+        this.events.push("save");
+      }
+
+      override async disconnect() {
+        this.events.push("disconnect");
+      }
+
+      override async removeAccount(accountId: string) {
+        this.events.push(`remove:${accountId}`);
+        return { activeAccountId: "default", accounts: [account] };
+      }
+
+      override async selectAccount(accountId: string) {
+        this.events.push(`select:${accountId}`);
+        return { activeAccountId: accountId, accounts: [account] };
+      }
+    }
+
+    const transport = new UnfinishedAccountTransport();
+    const reload = vi.fn();
+    const store = createTelegramStore(transport, reload);
+    await store.getState().initialize();
+
+    await expect(store.getState().switchAccount("default")).resolves.toBe(true);
+
+    expect(transport.events).toEqual([
+      "save",
+      "disconnect",
+      "remove:account-unfinished",
+      "select:default",
+    ]);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("logs out, removes only the active account, and reloads the fallback account", async () => {
+    const accounts: TelegramAccount[] = [
+      {
+        id: "default",
+        userId: "self",
+        displayName: "林遥",
+        avatar: { label: "遥", color: "#3390ec" },
+      },
+      {
+        id: "account-secondary",
+        userId: "secondary",
+        displayName: "工作账号",
+        avatar: { label: "工", color: "#26a269" },
+      },
+    ];
+
+    class AccountLogoutTransport extends MockTelegramTransport {
+      events: string[] = [];
+
+      override async getAccountState() {
+        return {
+          activeAccountId: "account-secondary",
+          accounts: structuredClone(accounts),
+        };
+      }
+
+      override async registerCurrentAccount() {
+        return {
+          activeAccountId: "account-secondary",
+          accounts: structuredClone(accounts),
+        };
+      }
+
+      override async saveCachedSnapshot() {
+        this.events.push("save");
+      }
+
+      override async logOut() {
+        this.events.push("logout");
+      }
+
+      override async disconnect() {
+        this.events.push("disconnect");
+      }
+
+      override async removeAccount(accountId: string) {
+        this.events.push(`remove:${accountId}`);
+        return { activeAccountId: "default", accounts: [structuredClone(accounts[0])] };
+      }
+    }
+
+    const transport = new AccountLogoutTransport();
+    const reload = vi.fn();
+    const store = createTelegramStore(transport, reload);
+    await store.getState().initialize();
+
+    await expect(store.getState().logOutCurrentAccount()).resolves.toBe(true);
+
+    expect(transport.events).toEqual([
+      "save",
+      "logout",
+      "disconnect",
+      "remove:account-secondary",
+    ]);
+    expect(store.getState().accounts).toEqual([accounts[0]]);
+    expect(store.getState().activeAccountId).toBe("default");
+    expect(reload).toHaveBeenCalledOnce();
   });
 
   it("switches from phone entry to QR confirmation", async () => {
