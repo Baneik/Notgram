@@ -1,11 +1,12 @@
 import { Archive, CheckCheck, Pin, Search, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import type { Chat } from "../telegram/types";
+import type { Chat, ChatDraft } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 
 interface ChatSidebarProps {
   chats: Chat[];
+  drafts: Map<string, ChatDraft>;
   activeChatId?: string;
   folderTitle: string;
   searchQuery: string;
@@ -21,6 +22,7 @@ const MIN_CONVERSATION_WIDTH = 340;
 
 export function ChatSidebar({
   chats,
+  drafts,
   activeChatId,
   folderTitle,
   searchQuery,
@@ -122,6 +124,7 @@ export function ChatSidebar({
             <ChatRow
               key={chat.id}
               chat={chat}
+              draft={drafts.get(chat.id)}
               active={activeChatId === chat.id}
               onSelect={onSelect}
             />
@@ -155,13 +158,18 @@ export function ChatSidebar({
 
 function ChatRow({
   chat,
+  draft,
   active,
   onSelect,
 }: {
   chat: Chat;
+  draft?: ChatDraft;
   active: boolean;
   onSelect: (chatId: string) => void;
 }) {
+  const visibleDraft = draft && (draft.text.length > 0 || draft.replyToMessageId)
+    ? draft
+    : undefined;
   return (
     <button
       type="button"
@@ -175,9 +183,12 @@ function ChatRow({
           <time dateTime={chat.updatedAt}>{formatChatTime(chat.updatedAt)}</time>
         </span>
         <span className="chat-row-bottomline">
-          <span className="chat-preview">
-            {chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}
-            {chat.preview}
+          <span className={`chat-preview ${visibleDraft ? "is-draft" : ""}`}>
+            {visibleDraft ? (
+              <>草稿：{visibleDraft.text || "回复消息"}</>
+            ) : (
+              <>{chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}{chat.preview}</>
+            )}
           </span>
           <span className="chat-row-meta">
             {chat.pinned && <Pin size={13} strokeWidth={2} />}

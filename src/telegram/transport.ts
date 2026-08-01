@@ -3,6 +3,7 @@ import type {
   EditMessageInput,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  SetChatDraftInput,
   SendFileInput,
   SendMessageInput,
   ChatHistoryPage,
@@ -44,6 +45,7 @@ export interface TelegramTransport {
   editMessage(input: EditMessageInput): Promise<void>;
   deleteMessage(input: DeleteMessageInput): Promise<void>;
   forwardMessages(input: ForwardMessagesInput): Promise<ForwardMessagesResult>;
+  setChatDraft(input: SetChatDraftInput): Promise<void>;
   downloadFile(fileId: number, fileName: string): Promise<void>;
   retryMessage(chatId: string, messageId: string): Promise<void>;
   sendFile(input: SendFileInput): Promise<boolean>;

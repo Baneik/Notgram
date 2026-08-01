@@ -7,6 +7,7 @@ import type {
   Chat,
   Message,
   MessagePermissions,
+  SetChatDraftInput,
   TelegramAccount,
   TelegramAccountState,
 } from "../telegram/types";
@@ -440,6 +441,142 @@ describe("telegram store", () => {
     expect(store.getState().error).toBe("1 条消息已转发，1 条失败");
   });
 
+  it("syncs independent chat drafts after debounce and on chat switches", async () => {
+    class TrackingDraftTransport extends MockTelegramTransport {
+      draftWrites: { chatId: string; text: string; replyToMessageId?: string }[] = [];
+
+      override async setChatDraft(input: SetChatDraftInput) {
+        this.draftWrites.push(structuredClone(input));
+        await super.setChatDraft(input);
+      }
+    }
+
+    vi.useFakeTimers();
+    try {
+      const transport = new TrackingDraftTransport();
+      const store = createTelegramStore(transport);
+      await store.getState().initialize();
+
+      store.getState().updateChatDraft("chat-product", "first draft", "p-4");
+      expect(store.getState().drafts.get("chat-product")).toMatchObject({
+        text: "first draft",
+        replyToMessageId: "p-4",
+        pending: true,
+      });
+      await vi.advanceTimersByTimeAsync(449);
+      expect(transport.draftWrites).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(transport.draftWrites).toEqual([{
+        chatId: "chat-product",
+        text: "first draft",
+        replyToMessageId: "p-4",
+      }]);
+      expect(store.getState().drafts.get("chat-product")?.pending).toBe(false);
+
+      await store.getState().selectChat("chat-mia");
+      store.getState().updateChatDraft("chat-mia", "second draft");
+      await store.getState().selectChat("chat-product");
+      await vi.runAllTimersAsync();
+      expect(transport.draftWrites.at(-1)).toEqual({
+        chatId: "chat-mia",
+        text: "second draft",
+        replyToMessageId: undefined,
+      });
+      expect(store.getState().drafts.get("chat-product")?.text).toBe("first draft");
+      expect(store.getState().drafts.get("chat-mia")?.text).toBe("second draft");
+      await expect(store.getState().sendMessage("first draft", "p-4")).resolves.toBe(true);
+      expect(store.getState().drafts.has("chat-product")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores stale server draft updates while local text is pending", async () => {
+    class ManualDraftTransport extends MockTelegramTransport {
+      eventListener?: TelegramEventListener;
+      writes: { chatId: string; text: string; replyToMessageId?: string }[] = [];
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async setChatDraft(input: SetChatDraftInput) {
+        this.writes.push(structuredClone(input));
+      }
+
+      publish(text: string) {
+        this.eventListener?.({
+          type: "chat.draftChanged",
+          chatId: "chat-product",
+          draft: {
+            chatId: "chat-product",
+            text,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      }
+    }
+
+    vi.useFakeTimers();
+    try {
+      const transport = new ManualDraftTransport();
+      const store = createTelegramStore(transport);
+      await store.getState().initialize();
+      store.getState().updateChatDraft("chat-product", "new local draft");
+
+      transport.publish("old server draft");
+      expect(store.getState().drafts.get("chat-product")?.text).toBe("new local draft");
+      await vi.advanceTimersByTimeAsync(450);
+      expect(transport.writes).toHaveLength(1);
+      transport.publish("old server draft");
+      expect(store.getState().drafts.get("chat-product")?.text).toBe("new local draft");
+
+      transport.publish("new local draft");
+      expect(store.getState().drafts.get("chat-product")?.pending).toBe(false);
+      transport.publish("newer remote draft");
+      expect(store.getState().drafts.get("chat-product")?.text).toBe("newer remote draft");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resumes a pending draft restored from the encrypted UI snapshot", async () => {
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 1,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: [],
+      drafts: [{
+        chatId: "chat-product",
+        text: "restored draft",
+        updatedAt: "2026-08-01T10:00:00+08:00",
+        pending: true,
+      }],
+    };
+    class RestoredDraftTransport extends MockTelegramTransport {
+      writes: string[] = [];
+
+      override async setChatDraft(input: SetChatDraftInput) {
+        this.writes.push(input.text);
+        await super.setChatDraft(input);
+      }
+    }
+    const transport = new RestoredDraftTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(transport.writes).toEqual(["restored draft"]);
+    expect(store.getState().drafts.get("chat-product")).toMatchObject({
+      text: "restored draft",
+      pending: false,
+    });
+  });
+
   it("sends and cancels a selected photo through the active chat", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();
@@ -613,11 +750,16 @@ describe("telegram store", () => {
     }
     const store = createTelegramStore(new FailingTransport());
     await store.getState().initialize();
+    store.getState().updateChatDraft("chat-product", "不要丢失这条草稿");
 
     const sent = await store.getState().sendMessage("不要丢失这条草稿");
 
     expect(sent).toBe(false);
     expect(store.getState().error).toBe("temporary send failure");
+    expect(store.getState().drafts.get("chat-product")).toMatchObject({
+      text: "不要丢失这条草稿",
+      pending: true,
+    });
   });
 
   it("moves through phone, code, password, and ready authorization states", async () => {

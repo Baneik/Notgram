@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   mapTdChat,
+  mapTdChatDraft,
   mapTdChatFolders,
   mapTdMessage,
   mapTdMessageProperties,
@@ -8,6 +9,30 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("maps text drafts and their reply target", () => {
+    expect(mapTdChatDraft(7, {
+      "@type": "draftMessage",
+      reply_to: {
+        "@type": "inputMessageReplyToMessage",
+        message_id: 12,
+      },
+      date: 1_700_000_000,
+      content: {
+        "@type": "draftMessageContentText",
+        text: { "@type": "formattedText", text: "unfinished text", entities: [] },
+      },
+    })).toEqual({
+      chatId: "7",
+      text: "unfinished text",
+      replyToMessageId: "12",
+      updatedAt: "2023-11-14T22:13:20.000Z",
+    });
+    expect(mapTdChatDraft(7, {
+      "@type": "draftMessage",
+      content: { "@type": "draftMessageContentVoiceNote" },
+    })).toBeUndefined();
+  });
+
   it("maps a private saved-messages chat", () => {
     const chat = mapTdChat(
       {

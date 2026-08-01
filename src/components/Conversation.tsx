@@ -25,6 +25,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import type {
   Chat,
+  ChatDraft,
   Message,
   MessageContent,
   MessagePermissions,
@@ -43,6 +44,7 @@ import { Avatar } from "./Avatar";
 interface ConversationProps {
   chat?: Chat;
   messages: Message[];
+  chatDraft?: ChatDraft;
   forwardTargets: Chat[];
   users: Map<string, User>;
   historyLoading: boolean;
@@ -51,6 +53,7 @@ interface ConversationProps {
   onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
+  onDraftChange: (chatId: string, text: string, replyToMessageId?: string) => void;
   onForwardMessages: (
     fromChatId: string,
     messageIds: string[],
@@ -71,6 +74,7 @@ interface ConversationProps {
 export function Conversation({
   chat,
   messages,
+  chatDraft,
   forwardTargets,
   users,
   historyLoading,
@@ -79,6 +83,7 @@ export function Conversation({
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
+  onDraftChange,
   onForwardMessages,
   onLoadMessageProperties,
   onDownloadFile,
@@ -186,13 +191,32 @@ export function Conversation({
     setForwardQuery("");
     setForwardPending(false);
     setForwardPendingTargetId(undefined);
-    setDraft("");
+    setDraft(chatDraft?.text ?? "");
     draftBeforeEditRef.current = undefined;
   }, [chat?.id]);
 
   useEffect(() => {
+    if (!editingMessage) setDraft(chatDraft?.text ?? "");
+  }, [chat?.id, chatDraft?.text, editingMessage]);
+
+  useEffect(() => {
+    if (editingMessage) return;
+    const replyToMessageId = chatDraft?.replyToMessageId;
+    if (!replyToMessageId) {
+      setReplyingTo(undefined);
+      return;
+    }
+    const target = messagesById.get(replyToMessageId);
+    if (target) {
+      setReplyingTo((current) => current?.id === target.id ? current : target);
+    }
+  }, [chat?.id, chatDraft?.replyToMessageId, editingMessage, messagesById]);
+
+  useEffect(() => {
     if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
-    if (replyingTo && !messagesById.has(replyingTo.id)) setReplyingTo(undefined);
+    if (replyingTo && !messagesById.has(replyingTo.id)) {
+      setReplyingTo(undefined);
+    }
     if (editingMessage && !messagesById.has(editingMessage.id)) {
       setEditingMessage(undefined);
       setDraft(draftBeforeEditRef.current ?? "");
@@ -341,18 +365,25 @@ export function Conversation({
 
   const cancelEditing = () => {
     setEditingMessage(undefined);
-    setDraft(draftBeforeEditRef.current ?? "");
+    setDraft(chatDraft?.text ?? draftBeforeEditRef.current ?? "");
     draftBeforeEditRef.current = undefined;
+    focusComposer();
+  };
+
+  const cancelReply = () => {
+    setReplyingTo(undefined);
+    onDraftChange(chat.id, draft, undefined);
     focusComposer();
   };
 
   const startReply = (message: Message) => {
     if (editingMessage) {
-      setDraft(draftBeforeEditRef.current ?? "");
+      setDraft(chatDraft?.text ?? draftBeforeEditRef.current ?? "");
       setEditingMessage(undefined);
       draftBeforeEditRef.current = undefined;
     }
     setReplyingTo(message);
+    onDraftChange(chat.id, chatDraft?.text ?? draft, message.id);
     setActionMenu(undefined);
     focusComposer();
   };
@@ -379,7 +410,7 @@ export function Conversation({
     }
     setDraft("");
     setSending(true);
-    const sent = await onSendMessage(submitted, replyingTo?.id);
+    const sent = await onSendMessage(submitted, replyingTo?.id ?? chatDraft?.replyToMessageId);
     setSending(false);
     if (sent) {
       setReplyingTo(undefined);
@@ -398,11 +429,10 @@ export function Conversation({
 
   const startForwardSelection = (message: Message) => {
     if (editingMessage) {
-      setDraft(draftBeforeEditRef.current ?? "");
+      setDraft(chatDraft?.text ?? draftBeforeEditRef.current ?? "");
       setEditingMessage(undefined);
       draftBeforeEditRef.current = undefined;
     }
-    setReplyingTo(undefined);
     setActionMenu(undefined);
     setSearchOpen(false);
     setMessageSearch("");
@@ -700,7 +730,7 @@ export function Conversation({
               type="button"
               aria-label={editingMessage ? "取消编辑" : "取消回复"}
               title={editingMessage ? "取消编辑" : "取消回复"}
-              onClick={editingMessage ? cancelEditing : () => setReplyingTo(undefined)}
+              onClick={editingMessage ? cancelEditing : cancelReply}
             >
               <X size={17} strokeWidth={1.9} />
             </button>
@@ -728,7 +758,17 @@ export function Conversation({
           <textarea
             ref={composerInputRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraft(value);
+              if (!editingMessage) {
+                onDraftChange(
+                  chat.id,
+                  value,
+                  replyingTo?.id ?? chatDraft?.replyToMessageId,
+                );
+              }
+            }}
             onKeyDown={async (event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 if (event.nativeEvent.isComposing) return;

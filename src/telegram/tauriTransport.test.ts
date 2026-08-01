@@ -53,14 +53,19 @@ describe("TauriTelegramTransport startup", () => {
     expect(events).toEqual([]);
     internal.finishInitialChatSync();
 
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({
       type: "chats.upserted",
       chats: [{ id: "7" }, { id: "8" }],
     });
+    expect(events[1]).toEqual({
+      type: "drafts.replaced",
+      drafts: [],
+      chatIds: ["7", "8"],
+    });
 
     internal.upsertChat(rawChat(7, 1_700_000_009));
-    expect(events[1]).toMatchObject({ type: "chat.upsert", chat: { id: "7" } });
+    expect(events[2]).toMatchObject({ type: "chat.upsert", chat: { id: "7" } });
   });
 });
 
@@ -125,6 +130,84 @@ describe("TauriTelegramTransport message operations", () => {
         clear_draft: true,
       },
     }]);
+  });
+
+  it("writes, clears, and publishes chat drafts through the current TDLib schema", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+    internal.listener = (event) => events.push(event);
+
+    await transport.setChatDraft({ chatId: "7", text: "unfinished", replyToMessageId: "12" });
+    await transport.setChatDraft({ chatId: "7", text: "" });
+
+    expect(requests).toEqual([
+      {
+        "@type": "setChatDraftMessage",
+        chat_id: 7,
+        topic_id: null,
+        draft_message: {
+          "@type": "draftMessage",
+          reply_to: {
+            "@type": "inputMessageReplyToMessage",
+            message_id: 12,
+            quote: null,
+            checklist_task_id: 0,
+          },
+          date: expect.any(Number),
+          content: {
+            "@type": "draftMessageContentText",
+            text: { "@type": "formattedText", text: "unfinished", entities: [] },
+            link_preview_options: null,
+          },
+          effect_id: 0,
+          suggested_post_info: null,
+        },
+      },
+      {
+        "@type": "setChatDraftMessage",
+        chat_id: 7,
+        topic_id: null,
+        draft_message: null,
+      },
+    ]);
+
+    internal.handleUpdate({
+      "@type": "updateChatDraftMessage",
+      chat_id: 7,
+      draft_message: {
+        "@type": "draftMessage",
+        reply_to: null,
+        date: 1_700_000_000,
+        content: {
+          "@type": "draftMessageContentText",
+          text: { "@type": "formattedText", text: "remote draft", entities: [] },
+        },
+      },
+      positions: [],
+    });
+    internal.handleUpdate({
+      "@type": "updateChatDraftMessage",
+      chat_id: 7,
+      draft_message: null,
+      positions: [],
+    });
+
+    expect(events).toContainEqual({
+      type: "chat.draftChanged",
+      chatId: "7",
+      draft: expect.objectContaining({ text: "remote draft" }),
+    });
+    expect(events.at(-1)).toEqual({
+      type: "chat.draftChanged",
+      chatId: "7",
+      draft: undefined,
+    });
   });
 
   it("edits and deletes messages through TDLib", async () => {

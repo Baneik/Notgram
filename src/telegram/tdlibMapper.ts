@@ -1,5 +1,6 @@
 import type {
   Chat,
+  ChatDraft,
   ChatFolder,
   Message,
   MessageContent,
@@ -554,6 +555,28 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
     unreadCount: tdNumber(raw.unread_count) ?? 0,
     pinned: positions.some((position) => position.is_pinned === true),
     muted: (tdNumber(notifications?.mute_for) ?? 0) > 0,
+  };
+};
+
+export const mapTdChatDraft = (
+  chatIdValue: unknown,
+  value: unknown,
+): ChatDraft | undefined => {
+  const chatId = tdId(chatIdValue);
+  const draft = asTdObject(value);
+  const content = asTdObject(draft?.content);
+  if (!chatId || !draft || content?.["@type"] !== "draftMessageContentText") {
+    return undefined;
+  }
+  const reply = asTdObject(draft.reply_to);
+  const replyToMessageId = reply?.["@type"] === "inputMessageReplyToMessage"
+    ? tdId(reply.message_id)
+    : undefined;
+  return {
+    chatId,
+    text: formattedText(content.text),
+    replyToMessageId: replyToMessageId || undefined,
+    updatedAt: unixDate(draft.date),
   };
 };
 

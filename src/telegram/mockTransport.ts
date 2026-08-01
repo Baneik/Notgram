@@ -13,6 +13,7 @@ import type {
   ProxySettings,
   SendFileInput,
   SendMessageInput,
+  SetChatDraftInput,
   StorageSettings,
   TelegramAccount,
   TelegramAccountState,
@@ -67,6 +68,7 @@ export class MockTelegramTransport implements TelegramTransport {
   private cachedSnapshot?: CachedTelegramSnapshot;
   private accountState: TelegramAccountState;
   private historyOffsets = new Map<string, number>();
+  private drafts = new Map((mockSnapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
   private authFlow: boolean;
   private storageSettings: StorageSettings = {
     cachePath: "Windows 应用缓存\\Notgram\\tdlib",
@@ -124,7 +126,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
     this.listener = listener;
-    return clone({ ...this.snapshot, messages: [] });
+    return clone({ ...this.snapshot, messages: [], drafts: [...this.drafts.values()] });
   }
 
   async disconnect() {
@@ -288,6 +290,7 @@ export class MockTelegramTransport implements TelegramTransport {
         : undefined,
       content: { kind: "text", text },
     });
+    await this.setChatDraft({ chatId, text: "" });
   }
 
   async editMessage({ chatId, messageId, text }: EditMessageInput) {
@@ -355,6 +358,23 @@ export class MockTelegramTransport implements TelegramTransport {
       });
     }
     return { forwardedCount: selected.length, failedMessageIds: [] };
+  }
+
+  async setChatDraft({ chatId, text, replyToMessageId }: SetChatDraftInput) {
+    if (!this.snapshot.chats.some((chat) => chat.id === chatId)) {
+      throw new Error("找不到需要保存草稿的会话");
+    }
+    const draft = text.length > 0 || replyToMessageId
+      ? {
+          chatId,
+          text,
+          replyToMessageId,
+          updatedAt: new Date().toISOString(),
+        }
+      : undefined;
+    if (draft) this.drafts.set(chatId, draft);
+    else this.drafts.delete(chatId);
+    this.listener?.({ type: "chat.draftChanged", chatId, draft: clone(draft) });
   }
 
   async downloadFile(_fileId: number, _fileName: string) {

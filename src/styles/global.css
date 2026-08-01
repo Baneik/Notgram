@@ -161,6 +161,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .chat-row-topline strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; }
 .chat-row-topline time { flex: 0 0 auto; color: #899096; font-size: 11px; }
 .chat-preview { min-width: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; color: #71787d; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.chat-preview.is-draft { color: #c1463b; }
 .chat-preview svg { flex: 0 0 auto; color: var(--accent); }
 .chat-row-meta { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; color: #949ba0; }
 .chat-row.is-active .chat-row-topline time, .chat-row.is-active .chat-preview, .chat-row.is-active .chat-row-meta, .chat-row.is-active .chat-preview svg { color: rgba(255, 255, 255, 0.84); }

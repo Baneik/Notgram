@@ -30,6 +30,7 @@ export function App() {
   const folders = useTelegramStore((state) => state.folders);
   const users = useTelegramStore((state) => state.users);
   const messages = useTelegramStore((state) => state.messages);
+  const drafts = useTelegramStore((state) => state.drafts);
   const histories = useTelegramStore((state) => state.histories);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
   const transportKind = useTelegramStore((state) => state.transportKind);
@@ -43,6 +44,7 @@ export function App() {
   const sendMessage = useTelegramStore((state) => state.sendMessage);
   const editMessage = useTelegramStore((state) => state.editMessage);
   const deleteMessage = useTelegramStore((state) => state.deleteMessage);
+  const updateChatDraft = useTelegramStore((state) => state.updateChatDraft);
   const forwardMessages = useTelegramStore((state) => state.forwardMessages);
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
   const downloadFile = useTelegramStore((state) => state.downloadFile);
@@ -123,6 +125,7 @@ export function App() {
         <NavigationRail folders={folders} filter={chatFilter} onFilterChange={setChatFilter} transportLabel={`${transportLabel}${phase === "idle" || phase === "loading" ? " · 同步中" : ""}`} onOpenSettings={() => setSettingsOpen(true)} />
         <ChatSidebar
           chats={visibleChats}
+          drafts={drafts}
           activeChatId={activeChatId}
           folderTitle={folders.find((folder) => folder.id === chatFilter)?.title ?? "聊天"}
           searchQuery={searchQuery}
@@ -134,6 +137,7 @@ export function App() {
         <Conversation
           chat={activeChat}
           messages={activeMessages}
+          chatDraft={activeChatId ? drafts.get(activeChatId) : undefined}
           forwardTargets={forwardTargets}
           users={users}
           historyLoading={activeHistory.loading}
@@ -142,6 +146,7 @@ export function App() {
           onSendMessage={sendMessage}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}
+          onDraftChange={updateChatDraft}
           onForwardMessages={forwardMessages}
           onLoadMessageProperties={loadMessageProperties}
           onDownloadFile={downloadFile}

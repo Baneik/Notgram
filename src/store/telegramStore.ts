@@ -7,6 +7,7 @@ import type {
   AuthorizationState,
   CachedTelegramSnapshot,
   Chat,
+  ChatDraft,
   ChatFolder,
   Message,
   ForwardMessagesResult,
@@ -52,6 +53,7 @@ export interface TelegramState {
   chats: Map<string, Chat>;
   chatListReady: boolean;
   messages: Map<string, Message[]>;
+  drafts: Map<string, ChatDraft>;
   histories: Map<string, HistoryState>;
   activeChatId?: string;
   searchQuery: string;
@@ -77,6 +79,7 @@ export interface TelegramState {
   sendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   editMessage: (messageId: string, text: string) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
+  updateChatDraft: (chatId: string, text: string, replyToMessageId?: string) => void;
   forwardMessages: (
     fromChatId: string,
     messageIds: string[],
@@ -120,6 +123,26 @@ const CACHE_VERSION = 1 as const;
 const MAX_CACHED_MESSAGES_PER_CHAT = 60;
 const MAX_CACHED_MESSAGES = 5_000;
 const CACHE_CONTINUITY_WINDOW = 30;
+const DRAFT_SYNC_DELAY_MS = 450;
+const DRAFT_ACK_TIMEOUT_MS = 5_000;
+const DRAFT_RETRY_DELAYS_MS = [1_000, 2_500, 5_000] as const;
+
+interface DraftSyncEntry {
+  generation: number;
+  draft?: ChatDraft;
+  attempts: number;
+  sent: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+  ackTimer?: ReturnType<typeof setTimeout>;
+}
+
+const draftForSync = (draft?: ChatDraft) =>
+  draft && (draft.text.length > 0 || draft.replyToMessageId) ? draft : undefined;
+
+const draftSignature = (draft?: ChatDraft) => JSON.stringify([
+  draft?.text ?? "",
+  draft?.replyToMessageId ?? "",
+]);
 
 const recentMessagesForCache = (state: TelegramState) => {
   const orderedChatIds = [...state.chats.values()]
@@ -167,6 +190,7 @@ const cachedSnapshotFrom = (state: TelegramState): CachedTelegramSnapshot => ({
   folders: state.folders.filter((folder) => folder.id !== "archive"),
   chats: [...state.chats.values()],
   messages: recentMessagesForCache(state),
+  drafts: [...state.drafts.values()],
   activeChatId: state.activeChatId,
   chatFilter: state.chatFilter,
 });
@@ -186,6 +210,9 @@ export const createTelegramStore = (
     let accountTransition = false;
     let registeredAccountKey: string | undefined;
     let accountRegistration = Promise.resolve();
+    let draftGeneration = 0;
+    const draftSyncs = new Map<string, DraftSyncEntry>();
+    const draftRequestChains = new Map<string, Promise<void>>();
 
     const scheduleCacheWrite = () => {
       const state = get();
@@ -204,10 +231,133 @@ export const createTelegramStore = (
       }, 600);
     };
 
+    const clearDraftSyncTimers = (entry: DraftSyncEntry) => {
+      if (entry.timer) globalThis.clearTimeout(entry.timer);
+      if (entry.ackTimer) globalThis.clearTimeout(entry.ackTimer);
+      entry.timer = undefined;
+      entry.ackTimer = undefined;
+    };
+
+    const settleDraftWithoutServerUpdate = (chatId: string, generation: number) => {
+      const entry = draftSyncs.get(chatId);
+      if (!entry || entry.generation !== generation) return;
+      draftSyncs.delete(chatId);
+      const drafts = new Map(get().drafts);
+      const current = drafts.get(chatId);
+      if (!entry.draft) {
+        drafts.delete(chatId);
+      } else if (draftSignature(current) === draftSignature(entry.draft)) {
+        drafts.set(chatId, { ...entry.draft, pending: false });
+      }
+      set({ drafts });
+      scheduleCacheWrite();
+    };
+
+    const performDraftSync = (chatId: string, generation: number): Promise<void> => {
+      const entry = draftSyncs.get(chatId);
+      if (!entry || entry.generation !== generation || entry.sent) return Promise.resolve();
+      if (entry.timer) globalThis.clearTimeout(entry.timer);
+      entry.timer = undefined;
+      if (get().authorization.kind !== "ready") return Promise.resolve();
+
+      const previous = draftRequestChains.get(chatId) ?? Promise.resolve();
+      const operation = previous
+        .catch(() => undefined)
+        .then(async () => {
+          const current = draftSyncs.get(chatId);
+          if (!current || current.generation !== generation || current.sent) return;
+          try {
+            await transport.setChatDraft({
+              chatId,
+              text: current.draft?.text ?? "",
+              replyToMessageId: current.draft?.replyToMessageId,
+            });
+          } catch (error) {
+            const latest = draftSyncs.get(chatId);
+            if (!latest || latest.generation !== generation) return;
+            const retryDelay = DRAFT_RETRY_DELAYS_MS[latest.attempts];
+            latest.attempts += 1;
+            if (retryDelay !== undefined) {
+              latest.timer = globalThis.setTimeout(
+                () => void performDraftSync(chatId, generation),
+                retryDelay,
+              );
+            }
+            set({ error: error instanceof Error ? error.message : "草稿同步失败" });
+            return;
+          }
+
+          const latest = draftSyncs.get(chatId);
+          if (!latest || latest.generation !== generation) return;
+          latest.sent = true;
+          latest.attempts = 0;
+          latest.ackTimer = globalThis.setTimeout(
+            () => settleDraftWithoutServerUpdate(chatId, generation),
+            DRAFT_ACK_TIMEOUT_MS,
+          );
+        });
+      const tracked = operation.finally(() => {
+        if (draftRequestChains.get(chatId) === tracked) draftRequestChains.delete(chatId);
+      });
+      draftRequestChains.set(chatId, tracked);
+      return tracked;
+    };
+
+    const expectDraftSync = (
+      chatId: string,
+      draft: ChatDraft | undefined,
+      delayMs?: number,
+    ) => {
+      const previous = draftSyncs.get(chatId);
+      if (previous) clearDraftSyncTimers(previous);
+      const entry: DraftSyncEntry = {
+        generation: ++draftGeneration,
+        draft: draftForSync(draft),
+        attempts: 0,
+        sent: false,
+      };
+      draftSyncs.set(chatId, entry);
+      if (delayMs !== undefined) {
+        entry.timer = globalThis.setTimeout(
+          () => void performDraftSync(chatId, entry.generation),
+          delayMs,
+        );
+      }
+      return entry;
+    };
+
+    const resumePendingDrafts = () => {
+      if (get().authorization.kind !== "ready") return;
+      for (const draft of get().drafts.values()) {
+        if (!draft.pending) continue;
+        const entry = expectDraftSync(draft.chatId, draftForSync(draft), 0);
+        void performDraftSync(draft.chatId, entry.generation);
+      }
+    };
+
+    const flushDraft = async (chatId: string) => {
+      let entry = draftSyncs.get(chatId);
+      const cached = get().drafts.get(chatId);
+      if (!entry && cached?.pending) {
+        entry = expectDraftSync(chatId, draftForSync(cached));
+      }
+      if (!entry || entry.sent) return;
+      await performDraftSync(chatId, entry.generation);
+    };
+
+    const flushPendingDrafts = async () => {
+      await Promise.all([...get().drafts.values()]
+        .filter((draft) => draft.pending)
+        .map((draft) => flushDraft(draft.chatId)));
+    };
+
     const clearCachedData = (clearSnapshot = true) => {
       if (cacheTimer) globalThis.clearTimeout(cacheTimer);
       cacheTimer = undefined;
       cachedMessageIds.clear();
+      for (const entry of draftSyncs.values()) clearDraftSyncTimers(entry);
+      draftSyncs.clear();
+      draftRequestChains.clear();
       set({
         currentUserId: undefined,
         users: new Map(),
@@ -215,6 +365,7 @@ export const createTelegramStore = (
         chats: new Map(),
         chatListReady: false,
         messages: new Map(),
+        drafts: new Map(),
         histories: new Map(),
         activeChatId: undefined,
         chatFilter: "main",
@@ -278,6 +429,7 @@ export const createTelegramStore = (
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
       const messages = messageMapFrom(snapshot.messages);
+      const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
       cachedMessageIds.clear();
       for (const message of snapshot.messages) {
         const ids = cachedMessageIds.get(message.chatId) ?? new Set<string>();
@@ -286,6 +438,9 @@ export const createTelegramStore = (
       }
       for (const [id, chat] of current.chats) chats.set(id, chat);
       for (const [id, user] of current.users) users.set(id, user);
+      for (const [chatId, draft] of current.drafts) {
+        if (draft.pending || !drafts.has(chatId)) drafts.set(chatId, draft);
+      }
       for (const [chatId, chatMessages] of current.messages) {
         for (const message of chatMessages) {
           messages.set(chatId, upsertMessage(messages.get(chatId) ?? [], message));
@@ -308,6 +463,7 @@ export const createTelegramStore = (
         chats,
         chatListReady: true,
         messages,
+        drafts,
         activeChatId: current.activeChatId ?? cachedActiveChatId,
         chatFilter: current.chatFilter !== "main" ? current.chatFilter : chatFilter,
       });
@@ -381,6 +537,7 @@ export const createTelegramStore = (
         });
         if (event.state.kind === "ready") {
           scheduleCacheWrite();
+          resumePendingDrafts();
           const activeChatId = get().activeChatId;
           if (activeChatId) void loadHistory(activeChatId);
         } else if (event.state.kind !== "preparing") {
@@ -455,6 +612,38 @@ export const createTelegramStore = (
         return;
       }
 
+      if (event.type === "chat.draftChanged") {
+        const incoming = draftForSync(event.draft);
+        const expected = draftSyncs.get(event.chatId);
+        if (expected && draftSignature(incoming) !== draftSignature(expected.draft)) {
+          return;
+        }
+        if (expected) {
+          clearDraftSyncTimers(expected);
+          draftSyncs.delete(event.chatId);
+        }
+        const drafts = new Map(get().drafts);
+        if (incoming) drafts.set(event.chatId, { ...incoming, pending: false });
+        else drafts.delete(event.chatId);
+        set({ drafts });
+        scheduleCacheWrite();
+        return;
+      }
+
+      if (event.type === "drafts.replaced") {
+        const incoming = new Map(event.drafts.map((draft) => [draft.chatId, draft]));
+        const drafts = new Map(get().drafts);
+        for (const chatId of event.chatIds) {
+          if (drafts.get(chatId)?.pending) continue;
+          const draft = incoming.get(chatId);
+          if (draft) drafts.set(chatId, { ...draft, pending: false });
+          else drafts.delete(chatId);
+        }
+        set({ drafts });
+        scheduleCacheWrite();
+        return;
+      }
+
       const messages = new Map(get().messages);
       messages.set(
         event.message.chatId,
@@ -478,6 +667,7 @@ export const createTelegramStore = (
       set({ accountPending: true, accountError: undefined, error: undefined });
       try {
         await accountRegistration;
+        await flushPendingDrafts();
         await flushCachedSnapshot();
         await transport.disconnect();
         disconnected = true;
@@ -514,6 +704,7 @@ export const createTelegramStore = (
       chats: new Map(),
       chatListReady: false,
       messages: new Map(),
+      drafts: new Map(),
       histories: new Map(),
       searchQuery: "",
       chatFilter: "main",
@@ -541,6 +732,7 @@ export const createTelegramStore = (
           const users = new Map(snapshot.users.map((user) => [user.id, user]));
           const folders = snapshot.folders.filter((folder) => folder.id !== "archive");
           const messages = messageMapFrom(snapshot.messages);
+          const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
           const current = get();
           for (const [id, chat] of current.chats) chats.set(id, chat);
           for (const [id, user] of current.users) users.set(id, user);
@@ -551,6 +743,9 @@ export const createTelegramStore = (
                 upsertMessage(messages.get(chatId) ?? [], message),
               );
             }
+          }
+          for (const [chatId, draft] of current.drafts) {
+            if (draft.pending || !drafts.has(chatId)) drafts.set(chatId, draft);
           }
           const firstChat = [...chats.values()].sort(
             (left, right) =>
@@ -582,6 +777,7 @@ export const createTelegramStore = (
             users,
             folders: current.folders.length > 0 ? current.folders : folders,
             messages,
+            drafts,
             activeChatId: current.activeChatId ?? firstChat?.id,
             chatFilter:
               (current.folders.length > 0 ? current.folders : folders).some(
@@ -595,6 +791,7 @@ export const createTelegramStore = (
           if (authorization.kind === "ready" && refreshChatId) {
             await loadHistory(refreshChatId);
           }
+          if (authorization.kind === "ready") resumePendingDrafts();
           scheduleCacheWrite();
         } catch (error) {
           set({
@@ -702,6 +899,7 @@ export const createTelegramStore = (
         set({ accountPending: true, accountError: undefined, error: undefined });
         try {
           await accountRegistration;
+          await flushPendingDrafts();
           await flushCachedSnapshot();
           await transport.logOut();
           await transport.disconnect();
@@ -721,6 +919,8 @@ export const createTelegramStore = (
       },
 
       selectChat: async (chatId) => {
+        const previousChatId = get().activeChatId;
+        if (previousChatId && previousChatId !== chatId) void flushDraft(previousChatId);
         set({ activeChatId: chatId });
         scheduleCacheWrite();
         if (get().authorization.kind !== "ready") return;
@@ -762,15 +962,59 @@ export const createTelegramStore = (
         scheduleCacheWrite();
       },
 
+      updateChatDraft: (chatId, text, replyToMessageId) => {
+        if (!get().chats.has(chatId)) return;
+        const current = get().drafts.get(chatId);
+        const next: ChatDraft = {
+          chatId,
+          text,
+          replyToMessageId,
+          updatedAt: new Date().toISOString(),
+          pending: true,
+        };
+        if (draftSignature(current) === draftSignature(next)) return;
+        const drafts = new Map(get().drafts);
+        drafts.set(chatId, next);
+        set({ drafts });
+        expectDraftSync(chatId, draftForSync(next), DRAFT_SYNC_DELAY_MS);
+        scheduleCacheWrite();
+      },
+
       sendMessage: async (text, replyToMessageId) => {
         const chatId = get().activeChatId;
         const normalizedText = text.trim();
         if (!chatId || !normalizedText) return false;
+        const previousDraft = get().drafts.get(chatId);
+        await flushDraft(chatId);
+        const clearExpectation = expectDraftSync(chatId, undefined);
         try {
           await transport.sendMessage({ chatId, text: normalizedText, replyToMessageId });
-          set({ error: undefined });
+          const pendingClear = draftSyncs.get(chatId);
+          if (pendingClear?.generation === clearExpectation.generation) {
+            pendingClear.sent = true;
+            pendingClear.ackTimer = globalThis.setTimeout(
+              () => settleDraftWithoutServerUpdate(chatId, clearExpectation.generation),
+              DRAFT_ACK_TIMEOUT_MS,
+            );
+          }
+          const drafts = new Map(get().drafts);
+          drafts.delete(chatId);
+          set({ drafts, error: undefined });
+          scheduleCacheWrite();
           return true;
         } catch (error) {
+          const pendingClear = draftSyncs.get(chatId);
+          if (pendingClear?.generation === clearExpectation.generation) {
+            clearDraftSyncTimers(pendingClear);
+            draftSyncs.delete(chatId);
+          }
+          if (previousDraft) {
+            const restored = { ...previousDraft, pending: true };
+            const drafts = new Map(get().drafts);
+            drafts.set(chatId, restored);
+            set({ drafts });
+            expectDraftSync(chatId, draftForSync(restored), 0);
+          }
           set({ error: error instanceof Error ? error.message : "消息发送失败" });
           return false;
         }

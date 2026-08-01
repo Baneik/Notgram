@@ -61,6 +61,14 @@ export interface Chat {
   muted: boolean;
 }
 
+export interface ChatDraft {
+  chatId: string;
+  text: string;
+  replyToMessageId?: string;
+  updatedAt: string;
+  pending?: boolean;
+}
+
 interface TransferableMessageContent {
   fileName: string;
   sizeLabel: string;
@@ -174,6 +182,7 @@ export interface TelegramSnapshot {
   folders: ChatFolder[];
   chats: Chat[];
   messages: Message[];
+  drafts?: ChatDraft[];
 }
 
 export interface CachedTelegramSnapshot {
@@ -184,6 +193,7 @@ export interface CachedTelegramSnapshot {
   folders: ChatFolder[];
   chats: Chat[];
   messages: Message[];
+  drafts?: ChatDraft[];
   activeChatId?: string;
   chatFilter?: string;
 }
@@ -196,6 +206,8 @@ export type TelegramEvent =
   | { type: "folders.replaced"; folders: ChatFolder[] }
   | { type: "chats.upserted"; chats: Chat[] }
   | { type: "chat.upsert"; chat: Chat }
+  | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
+  | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }
   | { type: "user.upsert"; user: User }
   | { type: "sync.error"; message: string };
 
@@ -226,6 +238,12 @@ export interface ForwardMessagesInput {
 export interface ForwardMessagesResult {
   forwardedCount: number;
   failedMessageIds: string[];
+}
+
+export interface SetChatDraftInput {
+  chatId: string;
+  text: string;
+  replyToMessageId?: string;
 }
 
 export interface SendFileInput {

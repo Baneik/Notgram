@@ -5,6 +5,7 @@ import {
   asTdObject,
   asTdObjects,
   mapTdChat,
+  mapTdChatDraft,
   mapTdChatFolders,
   mapTdMessage,
   mapTdMessageProperties,
@@ -31,6 +32,7 @@ import type {
   ProxySettings,
   SendFileInput,
   SendMessageInput,
+  SetChatDraftInput,
   StorageSettings,
   TelegramSnapshot,
   TelegramAccount,
@@ -510,6 +512,36 @@ export class TauriTelegramTransport implements TelegramTransport {
     return { forwardedCount, failedMessageIds };
   }
 
+  async setChatDraft(input: SetChatDraftInput) {
+    const hasDraft = input.text.length > 0 || Boolean(input.replyToMessageId);
+    await this.request({
+      "@type": "setChatDraftMessage",
+      chat_id: numericId(input.chatId),
+      topic_id: null,
+      draft_message: hasDraft
+        ? {
+            "@type": "draftMessage",
+            reply_to: input.replyToMessageId
+              ? {
+                  "@type": "inputMessageReplyToMessage",
+                  message_id: numericId(input.replyToMessageId),
+                  quote: null,
+                  checklist_task_id: 0,
+                }
+              : null,
+            date: Math.floor(Date.now() / 1000),
+            content: {
+              "@type": "draftMessageContentText",
+              text: { "@type": "formattedText", text: input.text, entities: [] },
+              link_preview_options: null,
+            },
+            effect_id: 0,
+            suggested_post_info: null,
+          }
+        : null,
+    });
+  }
+
   async downloadFile(fileId: number, fileName: string) {
     this.pendingDownloads.set(fileId, fileName);
     try {
@@ -732,6 +764,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         return;
       case "updateNewChat":
         this.upsertChat(asTdObject(update.chat));
+        this.emitDraft(update.chat_id ?? asTdObject(update.chat)?.id, asTdObject(update.chat)?.draft_message);
         return;
       case "updateChatTitle":
         this.patchChat(update.chat_id, { title: update.title });
@@ -744,6 +777,13 @@ export class TauriTelegramTransport implements TelegramTransport {
           last_message: update.last_message,
           positions: update.positions,
         });
+        return;
+      case "updateChatDraftMessage":
+        this.patchChat(update.chat_id, {
+          draft_message: update.draft_message,
+          positions: update.positions,
+        });
+        this.emitDraft(update.chat_id, update.draft_message);
         return;
       case "updateChatPosition":
         this.updateChatPosition(update);
@@ -929,6 +969,33 @@ export class TauriTelegramTransport implements TelegramTransport {
       if (chat) chats.push(chat);
     }
     this.listener?.({ type: "chats.upserted", chats });
+    const drafts = [];
+    const draftChatIds: string[] = [];
+    for (const raw of this.rawChats.values()) {
+      const chatId = tdId(raw.id);
+      if (!chatId) continue;
+      if (raw.draft_message === null || raw.draft_message === undefined) {
+        draftChatIds.push(chatId);
+        continue;
+      }
+      const draft = mapTdChatDraft(chatId, raw.draft_message);
+      if (draft) {
+        drafts.push(draft);
+        draftChatIds.push(chatId);
+      }
+    }
+    this.listener?.({ type: "drafts.replaced", drafts, chatIds: draftChatIds });
+  }
+
+  private emitDraft(chatIdValue: unknown, value: unknown) {
+    const chatId = tdId(chatIdValue);
+    if (!chatId) return;
+    if (value === null || value === undefined) {
+      this.listener?.({ type: "chat.draftChanged", chatId, draft: undefined });
+      return;
+    }
+    const draft = mapTdChatDraft(chatId, value);
+    if (draft) this.listener?.({ type: "chat.draftChanged", chatId, draft });
   }
 
   private patchChat(idValue: unknown, patch: TdObject) {
