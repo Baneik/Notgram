@@ -7,6 +7,7 @@ import type {
   TelegramSnapshot,
   ProxySettings,
   StorageSettings,
+  MessagePermissions,
 } from "./types";
 import type { AuthorizationAction } from "./types";
 
@@ -27,6 +28,7 @@ export interface TelegramTransport {
   getStorageSettings(): Promise<StorageSettings>;
   saveStorageSettings(settings: StorageSettings): Promise<StorageSettings>;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
+  getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
   sendMessage(input: SendMessageInput): Promise<void>;
   downloadFile(fileId: number, fileName: string): Promise<void>;
   retryMessage(chatId: string, messageId: string): Promise<void>;

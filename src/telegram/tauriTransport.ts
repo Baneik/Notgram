@@ -6,6 +6,7 @@ import {
   mapTdChat,
   mapTdChatFolders,
   mapTdMessage,
+  mapTdMessageProperties,
   mapTdUser,
   tdId,
   tdChatListId,
@@ -20,6 +21,7 @@ import type {
   Chat,
   ChatHistoryPage,
   Message,
+  MessagePermissions,
   ProxyEndpoint,
   ProxySettings,
   SendFileInput,
@@ -336,6 +338,18 @@ export class TauriTelegramTransport implements TelegramTransport {
     return load;
   }
 
+  async getMessageProperties(
+    chatId: string,
+    messageId: string,
+  ): Promise<MessagePermissions> {
+    const properties = await this.request({
+      "@type": "getMessageProperties",
+      chat_id: numericId(chatId),
+      message_id: numericId(messageId),
+    });
+    return mapTdMessageProperties(properties);
+  }
+
   async sendMessage(input: SendMessageInput) {
     const response = await this.request({
       "@type": "sendMessage",
@@ -594,6 +608,17 @@ export class TauriTelegramTransport implements TelegramTransport {
         return;
       case "updateMessageContent":
         this.updateMessageContent(update);
+        return;
+      case "updateMessageEdited":
+        this.patchMessage(update.chat_id, update.message_id, {
+          edit_date: update.edit_date,
+          reply_markup: update.reply_markup,
+        });
+        return;
+      case "updateMessageInteractionInfo":
+        this.patchMessage(update.chat_id, update.message_id, {
+          interaction_info: update.interaction_info,
+        });
         return;
       case "updateChatReadOutbox":
         this.updateReadOutbox(update);
@@ -932,10 +957,16 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private updateMessageContent(update: TdObject) {
-    const chatId = tdId(update.chat_id);
-    const messageId = tdId(update.message_id);
+    this.patchMessage(update.chat_id, update.message_id, {
+      content: update.new_content,
+    });
+  }
+
+  private patchMessage(chatIdValue: unknown, messageIdValue: unknown, patch: TdObject) {
+    const chatId = tdId(chatIdValue);
+    const messageId = tdId(messageIdValue);
     const raw = this.rawMessages.get(chatId)?.get(messageId);
-    if (raw) this.emitMessage({ ...raw, content: update.new_content });
+    if (raw) this.emitMessage({ ...raw, ...patch });
   }
 
   private updateReadOutbox(update: TdObject) {

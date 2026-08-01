@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { mockSnapshot } from "../telegram/mockData";
 import { MockTelegramTransport } from "../telegram/mockTransport";
 import type { TelegramEventListener } from "../telegram/transport";
-import type { CachedTelegramSnapshot, Chat, Message } from "../telegram/types";
+import type {
+  CachedTelegramSnapshot,
+  Chat,
+  Message,
+  MessagePermissions,
+} from "../telegram/types";
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 
 describe("telegram store", () => {
@@ -73,6 +78,12 @@ describe("telegram store", () => {
       const transport = new TrackingTransport();
       const store = createTelegramStore(transport);
       await store.getState().initialize();
+      const permissions = await store.getState().loadMessageProperties("chat-product", "p-4");
+      expect(permissions).toMatchObject({ canReply: true, canEdit: false });
+      expect(
+        store.getState().messages.get("chat-product")
+          ?.find((message) => message.id === "p-4")?.permissions,
+      ).toEqual(permissions);
       await vi.advanceTimersByTimeAsync(601);
 
       expect(transport.savedSnapshot).toMatchObject({
@@ -82,6 +93,9 @@ describe("telegram store", () => {
       });
       expect(transport.savedSnapshot?.folders.some((folder) => folder.id === "archive")).toBe(false);
       expect(transport.savedSnapshot?.messages.length).toBeLessThanOrEqual(5_000);
+      expect(
+        transport.savedSnapshot?.messages.find((message) => message.id === "p-4"),
+      ).not.toHaveProperty("permissions");
     } finally {
       vi.useRealTimers();
     }
@@ -343,6 +357,109 @@ describe("telegram store", () => {
     const state = store.getState();
     expect(state.messages.get("chat-product")).toHaveLength(previousCount + 1);
     expect(state.chats.get("chat-product")?.preview).toBe("一条新的测试消息");
+  });
+
+  it("applies repeated message metadata updates idempotently", async () => {
+    class MetadataTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      publish(message: Message) {
+        this.eventListener?.({ type: "message.upsert", message });
+      }
+    }
+
+    const transport = new MetadataTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const initialMessages = store.getState().messages.get("chat-product") ?? [];
+    const original = initialMessages.find((message) => message.id === "p-4")!;
+    const updated: Message = {
+      ...original,
+      editedAt: "2026-08-01T10:00:00+08:00",
+      interaction: {
+        viewCount: 0,
+        forwardCount: 0,
+        replyCount: 0,
+        reactions: [{
+          type: { kind: "emoji", emoji: "👍" },
+          totalCount: 2,
+          chosen: true,
+          recentSenderIds: ["self"],
+        }],
+      },
+    };
+
+    transport.publish(structuredClone(updated));
+    transport.publish(structuredClone(updated));
+
+    const finalMessages = store.getState().messages.get("chat-product") ?? [];
+    expect(finalMessages).toHaveLength(initialMessages.length);
+    expect(finalMessages.filter((message) => message.id === "p-4")).toHaveLength(1);
+    expect(finalMessages.find((message) => message.id === "p-4")).toMatchObject({
+      editedAt: "2026-08-01T10:00:00+08:00",
+      interaction: {
+        reactions: [{ type: { kind: "emoji", emoji: "👍" }, totalCount: 2 }],
+      },
+    });
+  });
+
+  it("discards stale permissions when the message changes during the request", async () => {
+    class DelayedPropertiesTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+      private releaseProperties?: (permissions: MessagePermissions) => void;
+      private properties = new Promise<MessagePermissions>((resolve) => {
+        this.releaseProperties = resolve;
+      });
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async getMessageProperties() {
+        return this.properties;
+      }
+
+      publish(message: Message) {
+        this.eventListener?.({ type: "message.upsert", message });
+      }
+
+      release() {
+        this.releaseProperties?.({
+          canReply: true,
+          canEdit: true,
+          canDeleteOnlyForSelf: false,
+          canDeleteForAllUsers: true,
+          canForward: true,
+        });
+      }
+    }
+
+    const transport = new DelayedPropertiesTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const original = store.getState().messages.get("chat-product")
+      ?.find((message) => message.id === "p-4")!;
+    const pending = store.getState().loadMessageProperties("chat-product", "p-4");
+
+    transport.publish({
+      ...structuredClone(original),
+      editedAt: "2026-08-01T10:00:00+08:00",
+    });
+    transport.release();
+
+    await expect(pending).resolves.toBeUndefined();
+    const current = store.getState().messages.get("chat-product")
+      ?.find((message) => message.id === "p-4");
+    expect(current).toMatchObject({
+      editedAt: "2026-08-01T10:00:00+08:00",
+    });
+    expect(current).not.toHaveProperty("permissions");
   });
 
   it("reports a rejected send so the composer can retain its draft", async () => {

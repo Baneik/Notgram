@@ -91,7 +91,9 @@ The native bridge uses TDLib's current `td_create_client_id`, `td_send`, and `td
 After authorization, the TDLib transport now synchronizes the current user,
 the main list and server-defined chat folders, user presence, paginated
 message history, outgoing text messages, send-failure retry state, read state,
-chat and sender avatars, and common real-time chat/message updates. Sender
+chat and sender avatars, and common real-time chat/message updates. Message
+metadata now preserves replies, forward origins, edit timestamps, reactions,
+and current operation permissions; the corresponding action UI is not yet enabled. Sender
 profile photos are downloaded through TDLib and refreshed when updateFile
 completes. The Tauri asset scope includes both the configurable TDLib files
 directory and TDLib's app-data database directory, where profile and chat

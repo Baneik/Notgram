@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { mapTdChat, mapTdChatFolders, mapTdMessage, mapTdUser } from "./tdlibMapper";
+import {
+  mapTdChat,
+  mapTdChatFolders,
+  mapTdMessage,
+  mapTdMessageProperties,
+  mapTdUser,
+} from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
   it("maps a private saved-messages chat", () => {
@@ -183,6 +189,133 @@ describe("TDLib mapper", () => {
     });
 
     expect(message).toMatchObject({ delivery: "failed", canRetry: true });
+  });
+
+  it("maps reply, forward, edit, and reaction metadata", () => {
+    const message = mapTdMessage({
+      id: 1004,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      is_outgoing: false,
+      date: 1_700_000_000,
+      edit_date: 1_700_000_100,
+      reply_to: {
+        "@type": "messageReplyToMessage",
+        chat_id: 88,
+        message_id: 900,
+        quote: {
+          text: { "@type": "formattedText", text: "quoted text", entities: [] },
+        },
+        origin: { "@type": "messageOriginHiddenUser", sender_name: "Hidden Sender" },
+        origin_send_date: 1_699_999_000,
+        content: {
+          "@type": "messageText",
+          text: { "@type": "formattedText", text: "source preview", entities: [] },
+        },
+      },
+      forward_info: {
+        origin: {
+          "@type": "messageOriginChannel",
+          chat_id: 77,
+          message_id: 800,
+          author_signature: "Editor",
+        },
+        date: 1_699_998_000,
+        source: {
+          chat_id: 77,
+          message_id: 800,
+          sender_id: { "@type": "messageSenderChat", chat_id: 77 },
+          sender_name: "",
+          date: 1_699_998_000,
+          is_outgoing: false,
+        },
+        public_service_announcement_type: "",
+      },
+      interaction_info: {
+        view_count: 12,
+        forward_count: 3,
+        reply_info: { reply_count: 2 },
+        reactions: {
+          reactions: [
+            {
+              type: { "@type": "reactionTypeEmoji", emoji: "👍" },
+              total_count: 4,
+              is_chosen: true,
+              recent_sender_ids: [
+                { "@type": "messageSenderUser", user_id: 7 },
+                { "@type": "messageSenderChat", chat_id: 77 },
+              ],
+            },
+            {
+              type: { "@type": "reactionTypeCustomEmoji", custom_emoji_id: "123456789" },
+              total_count: 1,
+              is_chosen: false,
+              recent_sender_ids: [],
+            },
+          ],
+        },
+      },
+      content: {
+        "@type": "messageText",
+        text: { "@type": "formattedText", text: "hello", entities: [] },
+      },
+    });
+
+    expect(message).toMatchObject({
+      editedAt: "2023-11-14T22:15:00.000Z",
+      replyTo: {
+        kind: "message",
+        chatId: "88",
+        messageId: "900",
+        quote: "quoted text",
+        origin: { kind: "hiddenUser", senderName: "Hidden Sender" },
+        content: { kind: "text", text: "source preview" },
+      },
+      forwardInfo: {
+        origin: {
+          kind: "channel",
+          chatId: "77",
+          messageId: "800",
+          authorSignature: "Editor",
+        },
+        source: { chatId: "77", messageId: "800", senderId: "chat:77" },
+      },
+      interaction: {
+        viewCount: 12,
+        forwardCount: 3,
+        replyCount: 2,
+        reactions: [
+          {
+            type: { kind: "emoji", emoji: "👍" },
+            totalCount: 4,
+            chosen: true,
+            recentSenderIds: ["7", "chat:77"],
+          },
+          {
+            type: { kind: "customEmoji", customEmojiId: "123456789" },
+            totalCount: 1,
+            chosen: false,
+          },
+        ],
+      },
+    });
+  });
+
+  it("maps message operation permissions without inferring missing rights", () => {
+    expect(mapTdMessageProperties({
+      "@type": "messageProperties",
+      can_be_replied: true,
+      can_be_edited: false,
+      can_be_deleted_only_for_self: true,
+      can_be_deleted_for_all_users: false,
+      can_be_forwarded: true,
+    })).toEqual({
+      canReply: true,
+      canEdit: false,
+      canDeleteOnlyForSelf: true,
+      canDeleteForAllUsers: false,
+      canForward: true,
+    });
   });
 
   it("maps server folders, custom memberships, and downloaded chat photos", () => {

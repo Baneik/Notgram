@@ -1,4 +1,17 @@
-import type { Chat, ChatFolder, Message, MessageContent, User } from "./types";
+import type {
+  Chat,
+  ChatFolder,
+  Message,
+  MessageContent,
+  MessageForwardInfo,
+  MessageInteraction,
+  MessageOrigin,
+  MessagePermissions,
+  MessageReaction,
+  MessageReactionType,
+  MessageReplyTarget,
+  User,
+} from "./types";
 
 export type TdObject = Record<string, unknown>;
 
@@ -49,6 +62,11 @@ const colorFor = (id: string) => {
 const unixDate = (value: unknown) => {
   const seconds = tdNumber(value) ?? 0;
   return new Date(seconds * 1000).toISOString();
+};
+
+const optionalUnixDate = (value: unknown) => {
+  const seconds = tdNumber(value) ?? 0;
+  return seconds > 0 ? new Date(seconds * 1000).toISOString() : undefined;
 };
 
 const formattedText = (value: unknown) => {
@@ -259,18 +277,173 @@ export const messagePreview = (value: unknown) => {
   return content.kind === "text" ? content.text : content.fileName;
 };
 
+const messageSenderId = (value: unknown) => {
+  const sender = asTdObject(value);
+  if (sender?.["@type"] === "messageSenderUser") return tdId(sender.user_id);
+  if (sender?.["@type"] === "messageSenderChat") {
+    const chatId = tdId(sender.chat_id);
+    return chatId ? `chat:${chatId}` : "";
+  }
+  return "";
+};
+
+const mapTdMessageOrigin = (value: unknown): MessageOrigin | undefined => {
+  const origin = asTdObject(value);
+  switch (origin?.["@type"]) {
+    case "messageOriginUser": {
+      const userId = tdId(origin.sender_user_id);
+      return userId ? { kind: "user", userId } : undefined;
+    }
+    case "messageOriginHiddenUser":
+      return typeof origin.sender_name === "string" && origin.sender_name
+        ? { kind: "hiddenUser", senderName: origin.sender_name }
+        : undefined;
+    case "messageOriginChat": {
+      const chatId = tdId(origin.sender_chat_id);
+      return chatId
+        ? {
+            kind: "chat",
+            chatId,
+            authorSignature: typeof origin.author_signature === "string" && origin.author_signature
+              ? origin.author_signature
+              : undefined,
+          }
+        : undefined;
+    }
+    case "messageOriginChannel": {
+      const chatId = tdId(origin.chat_id);
+      const messageId = tdId(origin.message_id);
+      return chatId
+        ? {
+            kind: "channel",
+            chatId,
+            messageId: messageId && messageId !== "0" ? messageId : undefined,
+            authorSignature: typeof origin.author_signature === "string" && origin.author_signature
+              ? origin.author_signature
+              : undefined,
+          }
+        : undefined;
+    }
+    default:
+      return undefined;
+  }
+};
+
+const mapTdReplyTarget = (value: unknown): MessageReplyTarget | undefined => {
+  const reply = asTdObject(value);
+  if (reply?.["@type"] === "messageReplyToStory") {
+    const chatId = tdId(reply.story_poster_chat_id);
+    const storyId = tdNumber(reply.story_id);
+    return chatId && storyId !== undefined ? { kind: "story", chatId, storyId } : undefined;
+  }
+  if (reply?.["@type"] !== "messageReplyToMessage") return undefined;
+
+  const chatId = tdId(reply.chat_id);
+  const messageId = tdId(reply.message_id);
+  const quote = formattedText(asTdObject(reply.quote)?.text).trim();
+  const content = asTdObject(reply.content);
+  return {
+    kind: "message",
+    chatId: chatId && chatId !== "0" ? chatId : undefined,
+    messageId: messageId && messageId !== "0" ? messageId : undefined,
+    quote: quote || undefined,
+    origin: mapTdMessageOrigin(reply.origin),
+    sentAt: optionalUnixDate(reply.origin_send_date),
+    content: content ? mapTdMessageContent(content) : undefined,
+  };
+};
+
+const mapTdForwardInfo = (value: unknown): MessageForwardInfo | undefined => {
+  const forward = asTdObject(value);
+  if (!forward) return undefined;
+  const source = asTdObject(forward.source);
+  const sourceChatId = tdId(source?.chat_id);
+  const sourceMessageId = tdId(source?.message_id);
+  const sourceSenderId = messageSenderId(source?.sender_id);
+  return {
+    origin: mapTdMessageOrigin(forward.origin),
+    sentAt: optionalUnixDate(forward.date),
+    source: source
+      ? {
+          chatId: sourceChatId && sourceChatId !== "0" ? sourceChatId : undefined,
+          messageId: sourceMessageId && sourceMessageId !== "0" ? sourceMessageId : undefined,
+          senderId: sourceSenderId || undefined,
+          senderName: typeof source.sender_name === "string" && source.sender_name
+            ? source.sender_name
+            : undefined,
+          sentAt: optionalUnixDate(source.date),
+          outgoing: source.is_outgoing === true,
+        }
+      : undefined,
+    publicServiceAnnouncementType:
+      typeof forward.public_service_announcement_type === "string" &&
+        forward.public_service_announcement_type
+        ? forward.public_service_announcement_type
+        : undefined,
+  };
+};
+
+const mapTdReactionType = (value: unknown): MessageReactionType | undefined => {
+  const reaction = asTdObject(value);
+  switch (reaction?.["@type"]) {
+    case "reactionTypeEmoji":
+      return typeof reaction.emoji === "string" && reaction.emoji
+        ? { kind: "emoji", emoji: reaction.emoji }
+        : undefined;
+    case "reactionTypeCustomEmoji": {
+      const customEmojiId = tdId(reaction.custom_emoji_id);
+      return customEmojiId ? { kind: "customEmoji", customEmojiId } : undefined;
+    }
+    case "reactionTypePaid":
+      return { kind: "paid" };
+    default:
+      return undefined;
+  }
+};
+
+const mapTdReaction = (value: unknown): MessageReaction | undefined => {
+  const reaction = asTdObject(value);
+  const type = mapTdReactionType(reaction?.type);
+  if (!reaction || !type) return undefined;
+  return {
+    type,
+    totalCount: Math.max(0, tdNumber(reaction.total_count) ?? 0),
+    chosen: reaction.is_chosen === true,
+    recentSenderIds: asTdObjects(reaction.recent_sender_ids)
+      .map(messageSenderId)
+      .filter(Boolean),
+  };
+};
+
+const mapTdInteraction = (value: unknown): MessageInteraction | undefined => {
+  const interaction = asTdObject(value);
+  if (!interaction) return undefined;
+  const replyInfo = asTdObject(interaction.reply_info);
+  const reactions = asTdObjects(asTdObject(interaction.reactions)?.reactions)
+    .map(mapTdReaction)
+    .filter((reaction): reaction is MessageReaction => Boolean(reaction));
+  return {
+    viewCount: Math.max(0, tdNumber(interaction.view_count) ?? 0),
+    forwardCount: Math.max(0, tdNumber(interaction.forward_count) ?? 0),
+    replyCount: Math.max(0, tdNumber(replyInfo?.reply_count) ?? 0),
+    reactions,
+  };
+};
+
+export const mapTdMessageProperties = (raw: TdObject): MessagePermissions => ({
+  canReply: raw.can_be_replied === true,
+  canEdit: raw.can_be_edited === true,
+  canDeleteOnlyForSelf: raw.can_be_deleted_only_for_self === true,
+  canDeleteForAllUsers: raw.can_be_deleted_for_all_users === true,
+  canForward: raw.can_be_forwarded === true,
+});
+
 export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const id = tdId(raw.id);
   const chatId = tdId(raw.chat_id);
   if (!id || !chatId) return undefined;
 
-  const sender = asTdObject(raw.sender_id);
-  const senderId =
-    sender?.["@type"] === "messageSenderUser"
-      ? tdId(sender.user_id)
-      : sender?.["@type"] === "messageSenderChat"
-        ? `chat:${tdId(sender.chat_id)}`
-        : "unknown";
+  const senderId = messageSenderId(raw.sender_id) || "unknown";
   const sendingState = asTdObject(raw.sending_state);
   const failed = sendingState?.["@type"] === "messageSendingStateFailed";
 
@@ -282,6 +455,10 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     sentAt: unixDate(raw.date),
     delivery: failed ? "failed" : sendingState ? "sending" : "sent",
     canRetry: failed && sendingState.can_retry === true,
+    editedAt: optionalUnixDate(raw.edit_date),
+    replyTo: mapTdReplyTarget(raw.reply_to),
+    forwardInfo: mapTdForwardInfo(raw.forward_info),
+    interaction: mapTdInteraction(raw.interaction_info),
     content: mapTdMessageContent(raw.content),
   };
 };

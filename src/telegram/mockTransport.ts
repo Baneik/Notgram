@@ -5,6 +5,7 @@ import type {
   CachedTelegramSnapshot,
   Chat,
   Message,
+  MessagePermissions,
   ProxySettings,
   SendFileInput,
   SendMessageInput,
@@ -143,6 +144,20 @@ export class MockTelegramTransport implements TelegramTransport {
       hasMore: offset + page.length < history.length,
       messageIds: page.map((message) => message.id),
     };
+  }
+
+  async getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions> {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === chatId && item.id === messageId,
+    );
+    if (!message) throw new Error("找不到消息");
+    return clone(message.permissions ?? {
+      canReply: true,
+      canEdit: message.outgoing && message.content.kind === "text",
+      canDeleteOnlyForSelf: !message.outgoing,
+      canDeleteForAllUsers: message.outgoing,
+      canForward: true,
+    });
   }
 
   async getProxySettings() {

@@ -7,6 +7,7 @@ type TestableTransport = {
   listener?: TelegramEventListener;
   request: (request: TdObject) => Promise<TdObject>;
   emitMessage: (message: TdObject) => void;
+  handleUpdate: (update: TdObject) => void;
   upsertChat: (chat: TdObject) => void;
   upsertUser: (user: TdObject) => void;
   finishInitialChatSync: () => void;
@@ -60,6 +61,125 @@ describe("TauriTelegramTransport startup", () => {
 
     internal.upsertChat(rawChat(7, 1_700_000_009));
     expect(events[1]).toMatchObject({ type: "chat.upsert", chat: { id: "7" } });
+  });
+});
+
+describe("TauriTelegramTransport message operations", () => {
+  it("queries current message permissions through TDLib", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "messageProperties",
+        can_be_replied: true,
+        can_be_edited: true,
+        can_be_deleted_only_for_self: false,
+        can_be_deleted_for_all_users: true,
+        can_be_forwarded: true,
+      };
+    };
+
+    await expect(transport.getMessageProperties("7", "12")).resolves.toEqual({
+      canReply: true,
+      canEdit: true,
+      canDeleteOnlyForSelf: false,
+      canDeleteForAllUsers: true,
+      canForward: true,
+    });
+    expect(requests).toEqual([{
+      "@type": "getMessageProperties",
+      chat_id: 7,
+      message_id: 12,
+    }]);
+  });
+
+  it("merges separate edit and interaction updates into the known message", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const messages: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => messages.push(event);
+    internal.emitMessage(rawMessage(12));
+    messages.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updateMessageEdited",
+      chat_id: 7,
+      message_id: 12,
+      edit_date: 1_700_000_500,
+      reply_markup: null,
+    });
+    internal.handleUpdate({
+      "@type": "updateMessageInteractionInfo",
+      chat_id: 7,
+      message_id: 12,
+      interaction_info: {
+        view_count: 9,
+        forward_count: 2,
+        reply_info: null,
+        reactions: {
+          reactions: [{
+            type: { "@type": "reactionTypeEmoji", emoji: "🔥" },
+            total_count: 3,
+            is_chosen: true,
+            recent_sender_ids: [],
+          }],
+        },
+      },
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({
+      type: "message.upsert",
+      message: { id: "12", editedAt: "2023-11-14T22:21:40.000Z" },
+    });
+    expect(messages[1]).toMatchObject({
+      type: "message.upsert",
+      message: {
+        id: "12",
+        editedAt: "2023-11-14T22:21:40.000Z",
+        interaction: {
+          viewCount: 9,
+          forwardCount: 2,
+          reactions: [{
+            type: { kind: "emoji", emoji: "🔥" },
+            totalCount: 3,
+            chosen: true,
+          }],
+        },
+      },
+    });
+  });
+
+  it("does not resurrect a deleted message from a late edit update", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.emitMessage(rawMessage(13));
+    events.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updateDeleteMessages",
+      chat_id: 7,
+      message_ids: [13],
+      is_permanent: true,
+      from_cache: false,
+    });
+    internal.handleUpdate({
+      "@type": "updateMessageEdited",
+      chat_id: 7,
+      message_id: 13,
+      edit_date: 1_700_000_500,
+      reply_markup: null,
+    });
+
+    expect(events).toEqual([{
+      type: "message.remove",
+      chatId: "7",
+      messageId: "13",
+    }]);
   });
 });
 

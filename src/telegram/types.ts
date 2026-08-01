@@ -78,6 +78,67 @@ export type MessageContent =
       previewDataUrl?: string;
     } & TransferableMessageContent);
 
+export type MessageOrigin =
+  | { kind: "user"; userId: string }
+  | { kind: "hiddenUser"; senderName: string }
+  | { kind: "chat"; chatId: string; authorSignature?: string }
+  | { kind: "channel"; chatId: string; messageId?: string; authorSignature?: string };
+
+export type MessageReplyTarget =
+  | {
+      kind: "message";
+      chatId?: string;
+      messageId?: string;
+      quote?: string;
+      origin?: MessageOrigin;
+      sentAt?: string;
+      content?: MessageContent;
+    }
+  | { kind: "story"; chatId: string; storyId: number };
+
+export interface MessageForwardSource {
+  chatId?: string;
+  messageId?: string;
+  senderId?: string;
+  senderName?: string;
+  sentAt?: string;
+  outgoing: boolean;
+}
+
+export interface MessageForwardInfo {
+  origin?: MessageOrigin;
+  sentAt?: string;
+  source?: MessageForwardSource;
+  publicServiceAnnouncementType?: string;
+}
+
+export type MessageReactionType =
+  | { kind: "emoji"; emoji: string }
+  | { kind: "customEmoji"; customEmojiId: string }
+  | { kind: "paid" };
+
+export interface MessageReaction {
+  type: MessageReactionType;
+  totalCount: number;
+  chosen: boolean;
+  recentSenderIds: string[];
+}
+
+export interface MessageInteraction {
+  viewCount: number;
+  forwardCount: number;
+  replyCount: number;
+  reactions: MessageReaction[];
+}
+
+export interface MessagePermissions {
+  canReply: boolean;
+  canEdit: boolean;
+  canDeleteOnlyForSelf: boolean;
+  canDeleteForAllUsers: boolean;
+  canForward: boolean;
+}
+
 export interface Message {
   id: string;
   chatId: string;
@@ -86,6 +147,11 @@ export interface Message {
   sentAt: string;
   delivery: DeliveryState;
   canRetry?: boolean;
+  editedAt?: string;
+  replyTo?: MessageReplyTarget;
+  forwardInfo?: MessageForwardInfo;
+  interaction?: MessageInteraction;
+  permissions?: MessagePermissions;
   content: MessageContent;
 }
 

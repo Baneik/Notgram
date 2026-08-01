@@ -9,6 +9,7 @@ import type {
   Chat,
   ChatFolder,
   Message,
+  MessagePermissions,
   ProxySettings,
   StorageSettings,
   TelegramEvent,
@@ -57,6 +58,10 @@ export interface TelegramState {
   saveStorageSettings: (settings: StorageSettings) => Promise<boolean>;
   selectChat: (chatId: string) => Promise<void>;
   loadMoreHistory: (chatId: string) => Promise<void>;
+  loadMessageProperties: (
+    chatId: string,
+    messageId: string,
+  ) => Promise<MessagePermissions | undefined>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
   sendMessage: (text: string) => Promise<boolean>;
@@ -118,16 +123,18 @@ const recentMessagesForCache = (state: TelegramState) => {
       -Math.min(MAX_CACHED_MESSAGES_PER_CHAT, remaining),
     );
     messages.push(...recent.map((message) => {
+      const cacheableMessage = { ...message };
+      delete cacheableMessage.permissions;
       if (
-        message.content.kind !== "media" ||
-        !message.content.previewDataUrl ||
-        message.content.previewDataUrl.length <= 32_768
+        cacheableMessage.content.kind !== "media" ||
+        !cacheableMessage.content.previewDataUrl ||
+        cacheableMessage.content.previewDataUrl.length <= 32_768
       ) {
-        return message;
+        return cacheableMessage;
       }
       return {
-        ...message,
-        content: { ...message.content, previewDataUrl: undefined },
+        ...cacheableMessage,
+        content: { ...cacheableMessage.content, previewDataUrl: undefined },
       };
     }));
   }
@@ -574,6 +581,27 @@ export const createTelegramStore = (transport: TelegramTransport) =>
       },
 
       loadMoreHistory: loadHistory,
+
+      loadMessageProperties: async (chatId, messageId) => {
+        const requestedMessage = (get().messages.get(chatId) ?? [])
+          .find((message) => message.id === messageId);
+        if (!requestedMessage) return undefined;
+        try {
+          const permissions = await transport.getMessageProperties(chatId, messageId);
+          const currentMessages = get().messages.get(chatId) ?? [];
+          const message = currentMessages.find((item) => item.id === messageId);
+          if (!message || message !== requestedMessage) return undefined;
+          const messages = new Map(get().messages);
+          messages.set(chatId, upsertMessage(currentMessages, { ...message, permissions }));
+          set({ messages, error: undefined });
+          return permissions;
+        } catch (error) {
+          set({
+            error: error instanceof Error ? error.message : "无法读取消息操作权限",
+          });
+          return undefined;
+        }
+      },
 
       setSearchQuery: (searchQuery) => set({ searchQuery }),
       setChatFilter: (chatFilter) => {
