@@ -113,6 +113,9 @@ Real TDLib acceptance is tracked separately from browser mocks. See
 existing-account passes, their non-sensitive evidence format, and verification
 commands.
 
+The automated accessibility gate and native Windows checklist are documented in
+[`docs/accessibility-matrix.md`](docs/accessibility-matrix.md).
+
 ## Architecture
 
 ```text
