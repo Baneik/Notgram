@@ -487,8 +487,8 @@ impl TdlibConfiguration {
             "use_secret_chats": true,
             "api_id": self.credentials.api_id,
             "api_hash": self.credentials.api_hash,
-            "system_language_code": env::var("NOTGRAM_SYSTEM_LANGUAGE")
-                .unwrap_or_else(|_| "zh-CN".to_string()),
+            "system_language_code": crate::development::environment_value("NOTGRAM_SYSTEM_LANGUAGE")
+                .unwrap_or_else(|| "zh-CN".to_string()),
             "device_model": "Notgram Desktop",
             "system_version": env::consts::OS,
             "application_version": env!("CARGO_PKG_VERSION"),
@@ -720,14 +720,12 @@ fn receive_loop(
 }
 
 fn api_credentials() -> Result<ApiCredentials, String> {
-    let api_id = env::var("NOTGRAM_API_ID")
-        .ok()
+    let api_id = crate::development::environment_value("NOTGRAM_API_ID")
         .or_else(|| option_env!("NOTGRAM_API_ID").map(str::to_string))
         .ok_or_else(|| "缺少 NOTGRAM_API_ID".to_string())?
         .parse::<i32>()
         .map_err(|_| "NOTGRAM_API_ID 必须是有效整数".to_string())?;
-    let api_hash = env::var("NOTGRAM_API_HASH")
-        .ok()
+    let api_hash = crate::development::environment_value("NOTGRAM_API_HASH")
         .or_else(|| option_env!("NOTGRAM_API_HASH").map(str::to_string))
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "缺少 NOTGRAM_API_HASH".to_string())?;
@@ -735,15 +733,15 @@ fn api_credentials() -> Result<ApiCredentials, String> {
 }
 
 fn env_flag(name: &str) -> bool {
-    env::var(name)
-        .is_ok_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+    crate::development::environment_value(name)
+        .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
 }
 
 fn library_candidates(app: &AppHandle) -> Vec<PathBuf> {
     let file_name = tdjson_file_name();
     let mut candidates = Vec::new();
 
-    if let Ok(configured) = env::var("NOTGRAM_TDLIB_PATH") {
+    if let Some(configured) = crate::development::environment_value("NOTGRAM_TDLIB_PATH") {
         let configured = PathBuf::from(configured);
         candidates.push(if configured.is_dir() {
             configured.join(file_name)

@@ -1,6 +1,6 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::{
-    env, fs,
+    fs,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -9,8 +9,7 @@ use tauri::{AppHandle, Manager};
 const LEGACY_EMPTY_DATABASE_KEY_MARKER: &str = "notgram:legacy-empty-database-key:v1";
 
 pub fn database_encryption_key(app: &AppHandle) -> Result<String, String> {
-    if let Some(configured) = env::var("NOTGRAM_DATABASE_KEY_BASE64")
-        .ok()
+    if let Some(configured) = crate::development::environment_value("NOTGRAM_DATABASE_KEY_BASE64")
         .filter(|value| !value.trim().is_empty())
     {
         return Ok(configured);

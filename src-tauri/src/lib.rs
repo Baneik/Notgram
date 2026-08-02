@@ -1,21 +1,13 @@
 mod desktop_lifecycle;
 mod desktop_notification;
+mod development;
 mod proxy;
 mod storage;
 mod telegram;
 
-fn load_environment() {
-    if let Ok(executable) = std::env::current_exe()
-        && let Some(directory) = executable.parent()
-    {
-        dotenvy::from_path(directory.join(".env")).ok();
-    }
-    dotenvy::dotenv().ok();
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    load_environment();
+    development::load_environment();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             desktop_lifecycle::show_main_window(app);
