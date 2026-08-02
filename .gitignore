@@ -26,6 +26,7 @@ logs/
 coverage/
 playwright-report/
 test-results/
+.native-smoke/
 
 # Editor and operating-system files
 .idea/

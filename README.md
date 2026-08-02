@@ -81,12 +81,18 @@ npm test          # Unit tests
 npx playwright install chromium # One-time E2E browser installation
 npm run test:e2e:types # Type-check Playwright configuration and specs
 npm run test:e2e  # Headless Chromium desktop/mobile flows
+npm run test:native-smoke -- -Profile Clean # Prepare an isolated native smoke run
 npm run check     # Frontend plus Rust formatting, lint, and tests
 npm run check:release # Full check plus a native release build
 npm run tauri dev # Native desktop shell
 npm run publish:portable # Release directly to Program\Notgram
 cargo check       # Run from src-tauri for the native bridge
 ```
+
+Real TDLib acceptance is tracked separately from browser mocks. See
+[`docs/native-smoke.md`](docs/native-smoke.md) for the isolated clean-profile and
+existing-account passes, their non-sensitive evidence format, and verification
+commands.
 
 ## Architecture
 
