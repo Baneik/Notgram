@@ -1,10 +1,13 @@
 mod desktop_lifecycle;
 mod desktop_notification;
 mod development;
+mod diagnostics;
 mod distribution;
 mod proxy;
 mod storage;
 mod telegram;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,6 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            app.manage(diagnostics::setup(app.handle())?);
             if distribution::supports_native_updater() {
                 app.handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -36,6 +40,8 @@ pub fn run() {
             },
         )
         .invoke_handler(tauri::generate_handler![
+            diagnostics::notgram_diagnostics_settings,
+            diagnostics::notgram_set_crash_reporting_enabled,
             distribution::notgram_distribution_kind,
             desktop_notification::notgram_show_notification,
             telegram::telegram_runtime_status,
