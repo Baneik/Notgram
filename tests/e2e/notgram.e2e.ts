@@ -684,3 +684,52 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   );
   expect(Math.abs(offset - before.offset)).toBeLessThanOrEqual(2);
 });
+
+test("chat organization menu confirms pin, mute, and archive changes", async ({ page }) => {
+  await page.goto("/");
+  const moreButton = page.getByRole("button", { name: "更多操作" });
+  const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
+
+  await moreButton.click();
+  const menu = page.getByRole("menu", { name: "会话操作" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "取消置顶" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(moreButton).toBeFocused();
+
+  await moreButton.click();
+  await page.getByRole("button", { name: "搜索消息" }).click();
+  await expect(menu).toBeHidden();
+  await page.getByRole("button", { name: "关闭消息搜索" }).click();
+
+  await moreButton.click();
+  await expect(menu.getByRole("menuitem", { name: "取消置顶" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(menu).toBeHidden();
+  await expect(productRow).toHaveAttribute("data-pinned", "false");
+
+  await moreButton.click();
+  await menu.getByRole("menuitem", { name: "置顶会话" }).click();
+  await expect(productRow).toHaveAttribute("data-pinned", "true");
+
+  await moreButton.click();
+  await menu.getByRole("menuitem", { name: "静音通知" }).click();
+  await expect(productRow).toHaveClass(/is-muted/);
+
+  await moreButton.click();
+  await expect(menu.getByRole("menuitem", { name: "取消静音" })).toBeVisible();
+  await menu.getByRole("menuitem", { name: "归档会话" }).click();
+  await expect(productRow).toHaveCount(0);
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+
+  await moreButton.click();
+  await menu.getByRole("menuitem", { name: "移出归档" }).click();
+  await expect(productRow).toHaveCount(1);
+
+  await page.setViewportSize({ width: 390, height: 700 });
+  await productRow.click();
+  await moreButton.click();
+  await expect(menu).toBeVisible();
+  expect(await horizontalOverflow(page)).toBe(false);
+});

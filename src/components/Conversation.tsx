@@ -56,6 +56,7 @@ import { MediaViewer } from "./MediaViewer";
 import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
 import { segmentMediaAlbums } from "../utils/mediaAlbums";
+import { ChatActionMenu } from "./ChatActionMenu";
 
 interface ConversationProps {
   chat?: Chat;
@@ -72,6 +73,8 @@ interface ConversationProps {
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
   failedQueuedMessageCount: number;
+  chatListId: string;
+  chatManagementPending: boolean;
   onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
@@ -98,6 +101,9 @@ interface ConversationProps {
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
+  onSetChatPinned: (pinned: boolean) => Promise<boolean>;
+  onSetChatMuted: (muted: boolean) => Promise<boolean>;
+  onSetChatArchived: (archived: boolean) => Promise<boolean>;
   onBack: () => void;
 }
 
@@ -116,6 +122,8 @@ export function Conversation({
   connectionStatus,
   queuedMessageCount,
   failedQueuedMessageCount,
+  chatListId,
+  chatManagementPending,
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
@@ -135,6 +143,9 @@ export function Conversation({
   onCancelFileUpload,
   onLoadOlder,
   onOpenProfile,
+  onSetChatPinned,
+  onSetChatMuted,
+  onSetChatArchived,
   onBack,
 }: ConversationProps) {
   const [draft, setDraft] = useState("");
@@ -152,12 +163,14 @@ export function Conversation({
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
   const [viewerMessageId, setViewerMessageId] = useState<string>();
+  const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
+  const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const draftBeforeEditRef = useRef<string | undefined>(undefined);
 
   const sendAttachment = async (file?: File) => {
@@ -197,7 +210,27 @@ export function Conversation({
 
   useEffect(() => {
     setViewerMessageId(undefined);
+    setChatMenuOpen(false);
   }, [chat?.id]);
+
+  const closeChatMenu = useCallback((restoreFocus = true) => {
+    setChatMenuOpen(false);
+    if (restoreFocus) globalThis.setTimeout(() => chatMenuButtonRef.current?.focus(), 0);
+  }, []);
+
+  useEffect(() => {
+    if (!chatMenuOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (target.closest(".chat-action-menu") || chatMenuButtonRef.current?.contains(target))
+      ) return;
+      closeChatMenu(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [chatMenuOpen, closeChatMenu]);
 
   useEffect(() => {
     if (viewerMessageId && !viewerPhotos.some((message) => message.id === viewerMessageId)) {
@@ -512,9 +545,30 @@ export function Conversation({
               >
                 <Search size={19} strokeWidth={1.8} />
               </button>
-              <button className="icon-button" type="button" aria-label="更多操作" title="更多操作">
+              <button
+                ref={chatMenuButtonRef}
+                className={`icon-button ${chatMenuOpen ? "is-active" : ""}`}
+                type="button"
+                aria-label="更多操作"
+                title="更多操作"
+                aria-haspopup="menu"
+                aria-expanded={chatMenuOpen}
+                disabled={chatManagementPending}
+                onClick={() => setChatMenuOpen((open) => !open)}
+              >
                 <MoreVertical size={20} strokeWidth={1.8} />
               </button>
+              {chatMenuOpen && (
+                <ChatActionMenu
+                  chat={chat}
+                  chatListId={chatListId}
+                  pending={chatManagementPending}
+                  onSetPinned={onSetChatPinned}
+                  onSetMuted={onSetChatMuted}
+                  onSetArchived={onSetChatArchived}
+                  onClose={() => closeChatMenu(true)}
+                />
+              )}
             </div>
           </>
         )}

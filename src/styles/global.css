@@ -302,7 +302,20 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-selection-title { min-width: 0; display: grid; gap: 2px; }
 .message-selection-title strong { font-size: 14px; font-weight: 650; }
 .message-selection-title span { color: var(--muted); font-size: 11px; }
-.conversation-actions { margin-left: auto; display: flex; gap: 1px; }
+.conversation-actions { position: relative; margin-left: auto; display: flex; gap: 1px; }
+.chat-action-menu {
+  position: absolute; z-index: 75; top: calc(100% + 7px); right: 0; width: 184px; padding: 5px;
+  display: grid; gap: 2px; color: var(--ink); background: #ffffff;
+  border: 1px solid #d9dfe2; border-radius: 7px; box-shadow: 0 8px 28px rgba(24, 34, 40, 0.2);
+}
+.chat-action-menu button {
+  width: 100%; min-height: 38px; padding: 0 9px; display: grid;
+  grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 7px;
+  color: #30363a; background: transparent; border: 0; border-radius: 5px;
+  text-align: left; cursor: pointer;
+}
+.chat-action-menu button:hover:not(:disabled), .chat-action-menu button:focus-visible { background: #eef4f7; }
+.chat-action-menu button:disabled { opacity: 0.45; cursor: default; }
 .icon-button {
   width: 38px; height: 38px; padding: 0; display: inline-grid; place-items: center; flex: 0 0 auto;
   color: #70777c; background: transparent; border: 0; border-radius: 50%; cursor: pointer;

@@ -63,6 +63,7 @@ export function App() {
   const contactsLoading = useTelegramStore((state) => state.contactsLoading);
   const contactsError = useTelegramStore((state) => state.contactsError);
   const contactPendingUserId = useTelegramStore((state) => state.contactPendingUserId);
+  const chatManagementPending = useTelegramStore((state) => state.chatManagementPending);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
   const transportKind = useTelegramStore((state) => state.transportKind);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
@@ -79,6 +80,9 @@ export function App() {
   const loadContacts = useTelegramStore((state) => state.loadContacts);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
+  const setChatPinned = useTelegramStore((state) => state.setChatPinned);
+  const setChatMuted = useTelegramStore((state) => state.setChatMuted);
+  const setChatArchived = useTelegramStore((state) => state.setChatArchived);
   const markActiveChatRead = useTelegramStore((state) => state.markActiveChatRead);
   const setSearchQuery = useTelegramStore((state) => state.setSearchQuery);
   const setChatFilter = useTelegramStore((state) => state.setChatFilter);
@@ -474,6 +478,12 @@ export function App() {
           connectionStatus={connectionStatus}
           queuedMessageCount={activeOutbox.filter((item) => item.status === "queued").length}
           failedQueuedMessageCount={activeOutbox.filter((item) => item.status === "failed").length}
+          chatListId={activeChat?.folderIds.includes(chatFilter)
+            ? chatFilter
+            : activeChat?.folderIds.includes("archive") ? "archive" : "main"}
+          chatManagementPending={activeChatId
+            ? chatManagementPending.has(activeChatId)
+            : false}
           onSendMessage={sendMessage}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}
@@ -493,6 +503,21 @@ export function App() {
           onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
+          onSetChatPinned={(pinned) => activeChatId
+            ? setChatPinned(
+                activeChat?.folderIds.includes(chatFilter)
+                  ? chatFilter
+                  : activeChat?.folderIds.includes("archive") ? "archive" : "main",
+                activeChatId,
+                pinned,
+              )
+            : Promise.resolve(false)}
+          onSetChatMuted={(muted) => activeChatId
+            ? setChatMuted(activeChatId, muted)
+            : Promise.resolve(false)}
+          onSetChatArchived={(archived) => activeChatId
+            ? setChatArchived(activeChatId, archived)
+            : Promise.resolve(false)}
           onBack={() => setMobileChatOpen(false)}
         />
           </>
