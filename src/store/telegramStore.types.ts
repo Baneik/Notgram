@@ -79,6 +79,7 @@ export interface TelegramState {
   contactsLoading: boolean;
   contactsError?: string;
   contactPendingUserId?: string;
+  chatManagementPending: Set<string>;
   initialize: () => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
@@ -94,7 +95,10 @@ export interface TelegramState {
   logOutCurrentAccount: () => Promise<boolean>;
   selectChat: (chatId: string) => Promise<void>;
   loadMoreChats: (chatListId?: string) => Promise<void>;
+  setChatPinned: (chatListId: string, chatId: string, pinned: boolean) => Promise<boolean>;
   reorderPinnedChats: (chatListId: string, chatIds: string[]) => Promise<boolean>;
+  setChatMuted: (chatId: string, muted: boolean) => Promise<boolean>;
+  setChatArchived: (chatId: string, archived: boolean) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
   loadMessage: (chatId: string, messageId: string) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;

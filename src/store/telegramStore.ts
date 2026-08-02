@@ -143,6 +143,7 @@ export const createTelegramStore = (
         contactsLoading: false,
         contactsError: undefined,
         contactPendingUserId: undefined,
+        chatManagementPending: new Set(),
         chatFilter: "main",
         cacheHealth: clearSnapshot ? "empty" : get().cacheHealth,
       });
@@ -650,6 +651,35 @@ export const createTelegramStore = (
       }
     };
 
+    const manageChat = async (
+      chatId: string,
+      fallbackError: string,
+      operation: () => Promise<void>,
+    ) => {
+      const state = get();
+      if (
+        state.authorization.kind !== "ready" ||
+        !state.chats.has(chatId) ||
+        state.chatManagementPending.has(chatId)
+      ) return false;
+
+      const pending = new Set(state.chatManagementPending);
+      pending.add(chatId);
+      set({ chatManagementPending: pending, operationError: undefined });
+      try {
+        await operation();
+        await flushCachedSnapshot();
+        return true;
+      } catch (error) {
+        set({ operationError: errorMessage(error, fallbackError) });
+        return false;
+      } finally {
+        const latestPending = new Set(get().chatManagementPending);
+        latestPending.delete(chatId);
+        set({ chatManagementPending: latestPending });
+      }
+    };
+
     return {
       phase: "idle",
       transportKind: transport.kind,
@@ -680,6 +710,7 @@ export const createTelegramStore = (
       profile: emptyProfileState(),
       contacts: [],
       contactsLoading: false,
+      chatManagementPending: new Set(),
 
       initialize: async () => {
         if (get().phase !== "idle") return;
@@ -983,6 +1014,11 @@ export const createTelegramStore = (
       },
 
       loadMoreChats: loadChats,
+      setChatPinned: (chatListId, chatId, pinned) => manageChat(
+        chatId,
+        "无法更新置顶状态",
+        () => transport.setChatPinned(chatListId, chatId, pinned),
+      ),
       reorderPinnedChats: async (chatListId, orderedChatIds) => {
         const pinnedChats = filterAndSortChats(get().chats.values(), chatListId, "")
           .filter((chat) => isChatPinnedInFolder(chat, chatListId));
@@ -1031,6 +1067,16 @@ export const createTelegramStore = (
           return false;
         }
       },
+      setChatMuted: (chatId, muted) => manageChat(
+        chatId,
+        "无法更新通知设置",
+        () => transport.setChatMuted(chatId, muted),
+      ),
+      setChatArchived: (chatId, archived) => manageChat(
+        chatId,
+        archived ? "无法归档会话" : "无法移出归档",
+        () => transport.setChatArchived(chatId, archived),
+      ),
       loadMoreHistory: loadHistory,
       loadMessage: async (chatId, messageId) => {
         if ((get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {

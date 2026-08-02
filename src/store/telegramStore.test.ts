@@ -1805,4 +1805,68 @@ describe("chat filtering", () => {
       .toEqual(before);
     expect(store.getState().operationError).toBe("置顶同步失败");
   });
+
+  it("applies chat management changes from confirmed transport events", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await expect(store.getState().setChatPinned("main", "chat-saved", true))
+      .resolves.toBe(true);
+    expect(store.getState().chats.get("chat-saved")).toMatchObject({
+      pinned: true,
+      pinnedFolderIds: ["main"],
+    });
+
+    await expect(store.getState().setChatMuted("chat-saved", true)).resolves.toBe(true);
+    expect(store.getState().chats.get("chat-saved")?.muted).toBe(true);
+
+    await expect(store.getState().setChatArchived("chat-saved", true)).resolves.toBe(true);
+    expect(store.getState().chats.get("chat-saved")?.folderIds).toContain("archive");
+    expect(store.getState().chats.get("chat-saved")?.folderIds).not.toContain("main");
+    expect(store.getState().chatManagementPending.size).toBe(0);
+  });
+
+  it("serializes management changes per chat and clears pending state after failure", async () => {
+    let releaseMute: () => void = () => undefined;
+    class DeferredManagementTransport extends MockTelegramTransport {
+      archiveCalls = 0;
+
+      override async setChatMuted(chatId: string, muted: boolean) {
+        await new Promise<void>((resolve) => {
+          releaseMute = resolve;
+        });
+        await super.setChatMuted(chatId, muted);
+      }
+
+      override async setChatArchived(chatId: string, archived: boolean) {
+        this.archiveCalls += 1;
+        await super.setChatArchived(chatId, archived);
+      }
+    }
+
+    const transport = new DeferredManagementTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const mute = store.getState().setChatMuted("chat-saved", true);
+
+    expect(store.getState().chatManagementPending.has("chat-saved")).toBe(true);
+    await expect(store.getState().setChatArchived("chat-saved", true)).resolves.toBe(false);
+    expect(transport.archiveCalls).toBe(0);
+    releaseMute();
+    await expect(mute).resolves.toBe(true);
+    expect(store.getState().chatManagementPending.has("chat-saved")).toBe(false);
+
+    class FailedManagementTransport extends MockTelegramTransport {
+      override async setChatMuted() {
+        throw new Error("通知设置同步失败");
+      }
+    }
+    const failedStore = createTelegramStore(new FailedManagementTransport());
+    await failedStore.getState().initialize();
+    await expect(failedStore.getState().setChatMuted("chat-saved", true)).resolves.toBe(false);
+    expect(failedStore.getState().chats.get("chat-saved")?.muted).toBe(false);
+    expect(failedStore.getState().chatManagementPending.size).toBe(0);
+    expect(failedStore.getState().operationError).toBe("通知设置同步失败");
+  });
 });
