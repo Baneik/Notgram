@@ -112,7 +112,7 @@ export const cachedSnapshotFrom = (state: TelegramState): CachedTelegramSnapshot
   savedAt: new Date().toISOString(),
   currentUserId: state.currentUserId ?? "",
   users: [...state.users.values()],
-  folders: state.folders.filter((folder) => folder.id !== "archive"),
+  folders: state.folders,
   chats: [...state.chats.values()],
   messages: recentMessagesForCache(state),
   drafts: [...state.drafts.values()],

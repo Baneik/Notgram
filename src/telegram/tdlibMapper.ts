@@ -1211,6 +1211,11 @@ export const mapTdChatFolders = (
     title: "全部聊天",
     iconName: "All",
   });
+  folders.push({
+    id: "archive",
+    title: "归档",
+    iconName: "Archive",
+  });
   return folders;
 };
 

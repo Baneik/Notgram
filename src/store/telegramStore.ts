@@ -289,7 +289,7 @@ export const createTelegramStore = (
       );
       const folders = current.folders.length > 0
         ? current.folders
-        : snapshot.folders.filter((folder) => folder.id !== "archive");
+        : snapshot.folders;
       const requestedFilter = snapshot.chatFilter ?? "main";
       const chatFilter = folders.some((folder) => folder.id === requestedFilter)
         ? requestedFilter
@@ -493,7 +493,7 @@ export const createTelegramStore = (
       }
 
       if (event.type === "folders.replaced") {
-        const folders = event.folders.filter((folder) => folder.id !== "archive");
+        const folders = event.folders;
         const activeFolderExists = folders.some(
           (folder) => folder.id === get().chatFilter,
         );
@@ -735,7 +735,7 @@ export const createTelegramStore = (
           const snapshot = await transport.connect(applyEvent);
           const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
           const users = new Map(snapshot.users.map((user) => [user.id, user]));
-          const folders = snapshot.folders.filter((folder) => folder.id !== "archive");
+          const folders = snapshot.folders;
           const messages = messageMapFrom(snapshot.messages);
           const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
           const current = get();

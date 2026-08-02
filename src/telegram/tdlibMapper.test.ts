@@ -743,7 +743,7 @@ describe("TDLib mapper", () => {
       },
     });
 
-    expect(folders.map((folder) => folder.id)).toEqual(["folder:12", "main"]);
+    expect(folders.map((folder) => folder.id)).toEqual(["folder:12", "main", "archive"]);
     expect(chat?.folderIds).toEqual(["folder:12"]);
     expect(chat?.pinnedFolderIds).toEqual(["folder:12"]);
     expect(chat?.avatar.imagePath).toBe("C:\\avatars\\group.jpg");

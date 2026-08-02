@@ -491,6 +491,7 @@ export const mockSnapshot: TelegramSnapshot = {
   folders: [
     { id: "main", title: "全部聊天", iconName: "All" },
     { id: "folder:work", title: "工作", iconName: "Custom" },
+    { id: "archive", title: "归档", iconName: "Archive" },
   ],
   chats,
   messages,

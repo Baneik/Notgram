@@ -319,7 +319,7 @@ describe("telegram store", () => {
         currentUserId: "self",
         activeChatId: "chat-product",
       });
-      expect(transport.savedSnapshot?.folders.some((folder) => folder.id === "archive")).toBe(false);
+      expect(transport.savedSnapshot?.folders.some((folder) => folder.id === "archive")).toBe(true);
       expect(transport.savedSnapshot?.messages.length).toBeLessThanOrEqual(5_000);
       expect(
         transport.savedSnapshot?.messages.find((message) => message.id === "p-4"),
