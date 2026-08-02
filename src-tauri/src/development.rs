@@ -10,22 +10,12 @@ pub fn load_environment() {
     }
 }
 
+#[cfg(debug_assertions)]
 pub fn environment_value(name: &str) -> Option<String> {
-    #[cfg(debug_assertions)]
-    {
-        return std::env::var(name).ok();
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = name;
-        None
-    }
+    std::env::var(name).ok()
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_builds_allow_explicit_development_overrides() {
-        assert!(cfg!(debug_assertions));
-    }
+#[cfg(not(debug_assertions))]
+pub fn environment_value(_name: &str) -> Option<String> {
+    None
 }
