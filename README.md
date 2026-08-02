@@ -63,6 +63,8 @@ The default destination is `artifacts/`; pass `-DestinationRoot` to
 worktree and reads API credentials only from the process environment. It never
 copies `.env`. The versioned ZIP contains `Notgram.exe`, TDLib and its runtime
 licenses, dependency inventory, build metadata, and per-file SHA-256 hashes.
+After a bundled Tauri build, `npm run publish:installer` validates and stages
+the matching NSIS installer with the same dependency, metadata, and hash files.
 
 The bridge searches these locations in order:
 
