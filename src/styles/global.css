@@ -1110,3 +1110,61 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .auth-qr-code svg { width: 218px; height: 218px; }
   .proxy-address-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+@media (forced-colors: active) {
+  :root {
+    --ink: CanvasText;
+    --muted: CanvasText;
+    --subtle: GrayText;
+    --surface: Canvas;
+    --surface-hover: Canvas;
+    --line: CanvasText;
+    --accent: Highlight;
+    --accent-strong: Highlight;
+    --accent-soft: Canvas;
+    --outgoing: Canvas;
+    --chat-canvas: Canvas;
+  }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline-color: Highlight;
+  }
+  .dialog-backdrop, .profile-backdrop, .message-delete-backdrop,
+  .media-viewer-backdrop { background: Canvas; }
+  .chat-row, .message-bubble, .settings-category, .preference-list,
+  .account-row, .folder-list-item, .dialog-secondary,
+  .folder-dialog, .settings-dialog, .profile-drawer {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .rail-button.is-active, .chat-row.is-active, .settings-category.is-active,
+  .folder-list-item.is-active,
+  .global-search-filters button.is-active, .proxy-mode button.is-active {
+    color: HighlightText;
+    background: Highlight;
+    border-color: Highlight;
+    forced-color-adjust: none;
+  }
+  .chat-row.is-active .chat-preview, .chat-row.is-active time,
+  .rail-button.is-active svg, .settings-category.is-active small,
+  .settings-category.is-active svg {
+    color: HighlightText;
+  }
+  .is-outgoing .message-bubble { border-width: 2px; }
+  .preference-row input[role="switch"] {
+    background: Canvas;
+    border: 1px solid CanvasText;
+    forced-color-adjust: none;
+  }
+  .preference-row input[role="switch"]::after {
+    background: CanvasText;
+    box-shadow: none;
+  }
+  .preference-row input[role="switch"]:checked {
+    background: Highlight;
+    border-color: Highlight;
+  }
+  .preference-row input[role="switch"]:checked::after { background: HighlightText; }
+  .message-photo, .video-player, .media-album-grid img, .avatar img, .auth-qr-code {
+    forced-color-adjust: none;
+  }
+}

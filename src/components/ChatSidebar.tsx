@@ -371,6 +371,7 @@ function ChatRow({
       data-chat-id={chat.id}
       data-pinned={pinnedDraggable}
       aria-grabbed={dragging}
+      aria-current={active ? "true" : undefined}
       onClick={() => onSelectChat(chat.id)}
       onDoubleClick={() => onOpenLatest(chat.id)}
       onPointerDown={(event) => pinnedDraggable && onPointerDown(event, chat.id)}

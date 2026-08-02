@@ -312,8 +312,8 @@ test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
-test("minimum window remains operable at Windows 125 and 150 percent scaling", async ({ browser }) => {
-  for (const deviceScaleFactor of [1.25, 1.5]) {
+test("minimum window remains operable at Windows 125, 150, and 200 percent scaling", async ({ browser }) => {
+  for (const deviceScaleFactor of [1.25, 1.5, 2]) {
     const context = await browser.newContext({
       viewport: { width: 680, height: 560 },
       deviceScaleFactor,
