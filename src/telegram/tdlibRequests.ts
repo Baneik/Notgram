@@ -37,6 +37,12 @@ export const chatListObject = (chatListId: string): TdObject => {
   return folderListObject(folderId);
 };
 
+export const chatFolderNumericId = (folderId: string) => {
+  const value = /^folder:(\d+)$/.exec(folderId)?.[1];
+  if (!value) throw new Error(`无效的聊天文件夹：${folderId}`);
+  return Number(value);
+};
+
 export const chatListKey = (value: unknown) => tdChatListId(value);
 
 const proxyTypeValue = (endpoint: ProxyEndpoint): TdObject => {

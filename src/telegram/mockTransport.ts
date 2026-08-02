@@ -117,6 +117,26 @@ export class MockTelegramTransport implements TelegramTransport {
     },
   };
 
+  private folderTitle(title: string) {
+    const normalized = title.trim();
+    if ([...normalized].length < 1 || [...normalized].length > 12 || /[\r\n]/.test(normalized)) {
+      throw new Error("文件夹名称需要包含 1 至 12 个字符");
+    }
+    return normalized;
+  }
+
+  private requireCustomFolder(folderId: string) {
+    const folder = this.snapshot.folders.find((item) => item.id === folderId);
+    if (!folder || folderId === "main" || folderId === "archive") {
+      throw new Error("找不到自定义文件夹");
+    }
+    return folder;
+  }
+
+  private publishFolders() {
+    this.listener?.({ type: "folders.replaced", folders: clone(this.snapshot.folders) });
+  }
+
   constructor(options: {
     authFlow?: boolean;
     cachedSnapshot?: CachedTelegramSnapshot;
@@ -318,6 +338,61 @@ export class MockTelegramTransport implements TelegramTransport {
     delete listOrderByFolder.archive;
     chat.listOrderByFolder = listOrderByFolder;
     chat.pinned = (chat.pinnedFolderIds?.length ?? 0) > 0;
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+  }
+
+  async createChatFolder(title: string, chatIds: string[]) {
+    const normalized = this.folderTitle(title);
+    const nextId = Math.max(0, ...this.snapshot.folders.flatMap((folder) => {
+      const id = /^folder:(\d+)$/.exec(folder.id)?.[1];
+      return id ? [Number(id)] : [];
+    })) + 1;
+    const folder = { id: `folder:${nextId}`, title: normalized, iconName: "Custom" };
+    this.snapshot.folders.splice(this.snapshot.folders.length - 1, 0, folder);
+    for (const chatId of new Set(chatIds)) {
+      const chat = this.snapshot.chats.find((item) => item.id === chatId);
+      if (!chat) continue;
+      if (!chat.folderIds.includes(folder.id)) chat.folderIds.push(folder.id);
+      this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+    }
+    this.publishFolders();
+    return clone(folder);
+  }
+
+  async renameChatFolder(folderId: string, title: string) {
+    const folder = this.requireCustomFolder(folderId);
+    folder.title = this.folderTitle(title);
+    this.publishFolders();
+    return clone(folder);
+  }
+
+  async deleteChatFolder(folderId: string) {
+    this.requireCustomFolder(folderId);
+    this.snapshot.folders = this.snapshot.folders.filter((folder) => folder.id !== folderId);
+    for (const chat of this.snapshot.chats) {
+      if (!chat.folderIds.includes(folderId)) continue;
+      chat.folderIds = chat.folderIds.filter((id) => id !== folderId);
+      chat.pinnedFolderIds = chat.pinnedFolderIds?.filter((id) => id !== folderId);
+      if (chat.listOrderByFolder) delete chat.listOrderByFolder[folderId];
+      chat.pinned = (chat.pinnedFolderIds?.length ?? 0) > 0;
+      this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+    }
+    this.publishFolders();
+  }
+
+  async setChatFolderMembership(folderId: string, chatId: string, included: boolean) {
+    this.requireCustomFolder(folderId);
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat) throw new Error("找不到会话");
+    const folders = new Set(chat.folderIds);
+    if (included) folders.add(folderId);
+    else folders.delete(folderId);
+    chat.folderIds = [...folders];
+    if (!included) {
+      chat.pinnedFolderIds = chat.pinnedFolderIds?.filter((id) => id !== folderId);
+      if (chat.listOrderByFolder) delete chat.listOrderByFolder[folderId];
+      chat.pinned = (chat.pinnedFolderIds?.length ?? 0) > 0;
+    }
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 

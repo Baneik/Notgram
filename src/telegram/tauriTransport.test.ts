@@ -43,6 +43,38 @@ const rawChat = (id: number, date: number): TdObject => ({
   notification_settings: { mute_for: 0 },
 });
 
+const rawFolderInfo = (id: number, title: string): TdObject => ({
+  "@type": "chatFolderInfo",
+  id,
+  name: {
+    "@type": "chatFolderName",
+    text: { "@type": "formattedText", text: title, entities: [] },
+    animate_custom_emoji: false,
+  },
+  icon: { "@type": "chatFolderIcon", name: "Custom" },
+  color_id: -1,
+  is_shareable: false,
+});
+
+const rawFolder = (title: string): TdObject => ({
+  "@type": "chatFolder",
+  name: rawFolderInfo(12, title).name,
+  icon: { "@type": "chatFolderIcon", name: "Work" },
+  color_id: 2,
+  is_shareable: false,
+  pinned_chat_ids: [7],
+  included_chat_ids: [8],
+  excluded_chat_ids: [9],
+  exclude_muted: true,
+  exclude_read: false,
+  exclude_archived: true,
+  include_contacts: true,
+  include_non_contacts: false,
+  include_bots: false,
+  include_groups: true,
+  include_channels: false,
+});
+
 describe("TauriTelegramTransport startup", () => {
   it("loads history context on both sides of an exact message", async () => {
     const transport = new TauriTelegramTransport();
@@ -348,6 +380,108 @@ describe("TauriTelegramTransport startup", () => {
       },
     ]);
     expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(3);
+  });
+
+  it("creates and renames folders with complete TDLib folder objects", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.finishInitialChatSync();
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "createChatFolder") return rawFolderInfo(13, "客户");
+      if (request["@type"] === "getChatFolder") return rawFolder("工作");
+      if (request["@type"] === "editChatFolder") return rawFolderInfo(12, "项目");
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.createChatFolder(" 客户 ", ["7", "8", "7"]))
+      .resolves.toMatchObject({ id: "folder:13", title: "客户" });
+    await expect(transport.renameChatFolder("folder:12", "项目"))
+      .resolves.toMatchObject({ id: "folder:12", title: "项目" });
+
+    expect(requests[0]).toEqual({
+      "@type": "createChatFolder",
+      folder: {
+        "@type": "chatFolder",
+        name: {
+          "@type": "chatFolderName",
+          text: { "@type": "formattedText", text: "客户", entities: [] },
+          animate_custom_emoji: false,
+        },
+        icon: { "@type": "chatFolderIcon", name: "Custom" },
+        color_id: -1,
+        is_shareable: false,
+        pinned_chat_ids: [],
+        included_chat_ids: [7, 8],
+        excluded_chat_ids: [],
+        exclude_muted: false,
+        exclude_read: false,
+        exclude_archived: false,
+        include_contacts: false,
+        include_non_contacts: false,
+        include_bots: false,
+        include_groups: false,
+        include_channels: false,
+      },
+    });
+    expect(requests[2]).toMatchObject({
+      "@type": "editChatFolder",
+      chat_folder_id: 12,
+      folder: {
+        icon: { "@type": "chatFolderIcon", name: "Work" },
+        color_id: 2,
+        exclude_muted: true,
+        include_groups: true,
+        name: { text: { text: "项目" } },
+      },
+    });
+    await expect(transport.renameChatFolder("folder:12", "超过十二个字符的文件夹名称"))
+      .rejects.toThrow("1 至 12 个字符");
+  });
+
+  it("preserves folder rules while removing a chat and safely refreshes folder deletion", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const inFolder = rawChat(7, 1_700_000_007);
+    inFolder.chat_lists = [{ "@type": "chatListFolder", chat_folder_id: 12 }];
+    internal.handleUpdate({
+      "@type": "updateChatFolders",
+      chat_folders: [rawFolderInfo(12, "工作")],
+      main_chat_list_position: 0,
+    });
+    internal.upsertChat(inFolder);
+    internal.finishInitialChatSync();
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getChatFolder") return rawFolder("工作");
+      if (request["@type"] === "editChatFolder") return rawFolderInfo(12, "工作");
+      if (request["@type"] === "getChat") return rawChat(7, 1_700_000_007);
+      return { "@type": "ok" };
+    };
+
+    await transport.setChatFolderMembership("folder:12", "7", false);
+    expect(requests[1]).toEqual({
+      "@type": "editChatFolder",
+      chat_folder_id: 12,
+      folder: {
+        ...rawFolder("工作"),
+        pinned_chat_ids: [],
+        included_chat_ids: [8],
+        excluded_chat_ids: [9, 7],
+      },
+    });
+
+    requests.length = 0;
+    internal.upsertChat(inFolder);
+    await transport.deleteChatFolder("folder:12");
+    expect(requests[0]).toEqual({
+      "@type": "deleteChatFolder",
+      chat_folder_id: 12,
+      leave_chat_ids: [],
+    });
+    expect(requests[1]).toEqual({ "@type": "getChat", chat_id: 7 });
   });
 
   it("refreshes known chats when a list page is revisited", async () => {

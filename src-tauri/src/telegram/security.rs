@@ -8,14 +8,18 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "checkAuthenticationCode",
     "checkAuthenticationEmailCode",
     "checkAuthenticationPassword",
+    "createChatFolder",
     "createPrivateChat",
+    "deleteChatFolder",
     "deleteMessages",
     "disableProxy",
     "downloadFile",
+    "editChatFolder",
     "editMessageText",
     "enableProxy",
     "forwardMessages",
     "getChat",
+    "getChatFolder",
     "getChatHistory",
     "getChats",
     "getBasicGroupFullInfo",
@@ -270,6 +274,29 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&archive_chat).is_ok());
+
+        for request in [
+            json!({ "@type": "getChatFolder", "chat_folder_id": 12, "@extra": EXTRA }),
+            json!({
+                "@type": "createChatFolder",
+                "folder": { "@type": "chatFolder" },
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "editChatFolder",
+                "chat_folder_id": 12,
+                "folder": { "@type": "chatFolder" },
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "deleteChatFolder",
+                "chat_folder_id": 12,
+                "leave_chat_ids": [],
+                "@extra": EXTRA
+            }),
+        ] {
+            assert!(validate_webview_tdlib_request(&request).is_ok());
+        }
 
         let global_search = json!({
             "@type": "searchMessages",

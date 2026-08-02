@@ -24,6 +24,7 @@ import { TauriAccountStorage } from "./tauriAccountStorage";
 import {
   chatListKey,
   chatListObject,
+  chatFolderNumericId,
   effectiveProxy,
   formattedTextObject,
   inputMessageText,
@@ -39,6 +40,7 @@ import type {
   AuthorizationAction,
   CachedTelegramSnapshot,
   Chat,
+  ChatFolder,
   ChatProfile,
   ChatHistoryPage,
   ChatListPage,
@@ -681,6 +683,76 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.refreshChat(chatId);
   }
 
+  async createChatFolder(title: string, chatIds: string[]) {
+    const includedChatIds = [...new Set(chatIds)].map(numericId);
+    if (includedChatIds.length === 0) throw new Error("请至少选择一个会话");
+    const info = await this.request({
+      "@type": "createChatFolder",
+      folder: this.newChatFolder(title, includedChatIds),
+    });
+    return this.upsertFolderInfo(info);
+  }
+
+  async renameChatFolder(folderId: string, title: string) {
+    const numericFolderId = chatFolderNumericId(folderId);
+    const folder = await this.request({
+      "@type": "getChatFolder",
+      chat_folder_id: numericFolderId,
+    });
+    const info = await this.request({
+      "@type": "editChatFolder",
+      chat_folder_id: numericFolderId,
+      folder: { ...folder, name: this.folderName(title) },
+    });
+    return this.upsertFolderInfo(info);
+  }
+
+  async deleteChatFolder(folderId: string) {
+    const numericFolderId = chatFolderNumericId(folderId);
+    const affectedChatIds = [...this.rawChats.entries()].flatMap(([chatId, raw]) =>
+      mapTdChat(raw, this.currentUserId)?.folderIds.includes(folderId) ? [chatId] : []
+    );
+    await this.request({
+      "@type": "deleteChatFolder",
+      chat_folder_id: numericFolderId,
+      leave_chat_ids: [],
+    });
+    this.rawFolderInfos = this.rawFolderInfos.filter(
+      (info) => tdNumber(info.id) !== numericFolderId,
+    );
+    this.emitFolders();
+    await Promise.all(affectedChatIds.map((chatId) => this.refreshChat(chatId)));
+  }
+
+  async setChatFolderMembership(folderId: string, chatId: string, included: boolean) {
+    const numericFolderId = chatFolderNumericId(folderId);
+    const numericChatId = numericId(chatId);
+    const folder = await this.request({
+      "@type": "getChatFolder",
+      chat_folder_id: numericFolderId,
+    });
+    const pinned = this.folderChatIds(folder.pinned_chat_ids)
+      .filter((id) => included || id !== numericChatId);
+    const alwaysIncluded = this.folderChatIds(folder.included_chat_ids)
+      .filter((id) => id !== numericChatId);
+    const excluded = this.folderChatIds(folder.excluded_chat_ids)
+      .filter((id) => id !== numericChatId);
+    if (included && !pinned.includes(numericChatId)) alwaysIncluded.push(numericChatId);
+    if (!included && folder.is_shareable !== true) excluded.push(numericChatId);
+    const info = await this.request({
+      "@type": "editChatFolder",
+      chat_folder_id: numericFolderId,
+      folder: {
+        ...folder,
+        pinned_chat_ids: pinned,
+        included_chat_ids: alwaysIncluded,
+        excluded_chat_ids: excluded,
+      },
+    });
+    this.upsertFolderInfo(info);
+    await this.refreshChat(chatId);
+  }
+
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
     if (this.exhaustedHistories.has(chatId)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
@@ -1233,6 +1305,58 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!id) return;
     this.rawChats.set(id, raw);
     this.emitChat(raw);
+  }
+
+  private folderName(title: string): TdObject {
+    const normalized = title.trim();
+    if ([...normalized].length < 1 || [...normalized].length > 12 || /[\r\n]/.test(normalized)) {
+      throw new Error("文件夹名称需要包含 1 至 12 个字符");
+    }
+    return {
+      "@type": "chatFolderName",
+      text: formattedTextObject(normalized),
+      animate_custom_emoji: false,
+    };
+  }
+
+  private newChatFolder(title: string, includedChatIds: number[]): TdObject {
+    return {
+      "@type": "chatFolder",
+      name: this.folderName(title),
+      icon: { "@type": "chatFolderIcon", name: "Custom" },
+      color_id: -1,
+      is_shareable: false,
+      pinned_chat_ids: [],
+      included_chat_ids: includedChatIds,
+      excluded_chat_ids: [],
+      exclude_muted: false,
+      exclude_read: false,
+      exclude_archived: false,
+      include_contacts: false,
+      include_non_contacts: false,
+      include_bots: false,
+      include_groups: false,
+      include_channels: false,
+    };
+  }
+
+  private folderChatIds(value: unknown) {
+    return Array.isArray(value)
+      ? value.map((id) => Number(id)).filter(Number.isSafeInteger)
+      : [];
+  }
+
+  private upsertFolderInfo(info: TdObject): ChatFolder {
+    const id = tdNumber(info.id);
+    if (id === undefined) throw new Error("TDLib 未返回文件夹标识");
+    this.rawFolderInfos = [
+      ...this.rawFolderInfos.filter((item) => tdNumber(item.id) !== id),
+      info,
+    ];
+    this.emitFolders();
+    const folder = mapTdChatFolders([info]).find((item) => item.id === `folder:${id}`);
+    if (!folder) throw new Error("TDLib 未返回文件夹资料");
+    return folder;
   }
 
   private async refreshChat(chatId: string) {

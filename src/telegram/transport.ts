@@ -17,6 +17,7 @@ import type {
   CacheUsage,
   CachedTelegramSnapshot,
   Chat,
+  ChatFolder,
   ChatProfile,
   TelegramEvent,
   TelegramSnapshot,
@@ -65,6 +66,10 @@ export interface TelegramTransport {
   setPinnedChats(chatListId: string, chatIds: string[]): Promise<void>;
   setChatMuted(chatId: string, muted: boolean): Promise<void>;
   setChatArchived(chatId: string, archived: boolean): Promise<void>;
+  createChatFolder(title: string, chatIds: string[]): Promise<ChatFolder>;
+  renameChatFolder(folderId: string, title: string): Promise<ChatFolder>;
+  deleteChatFolder(folderId: string): Promise<void>;
+  setChatFolderMembership(folderId: string, chatId: string, included: boolean): Promise<void>;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
   getMessageContext(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
   getMessage(chatId: string, messageId: string): Promise<Message | undefined>;
