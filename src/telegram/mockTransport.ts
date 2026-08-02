@@ -361,7 +361,7 @@ export class MockTelegramTransport implements TelegramTransport {
     return structuredClone(this.storageSettings);
   }
 
-  async sendMessage({ chatId, text, replyToMessageId }: SendMessageInput) {
+  async sendMessage({ chatId, text, replyToMessageId, clearDraft = true }: SendMessageInput) {
     const replyTarget = replyToMessageId
       ? this.snapshot.messages.find(
           (message) => message.chatId === chatId && message.id === replyToMessageId,
@@ -385,7 +385,7 @@ export class MockTelegramTransport implements TelegramTransport {
         : undefined,
       content: { kind: "text", text },
     });
-    await this.setChatDraft({ chatId, text: "" });
+    if (clearDraft) await this.setChatDraft({ chatId, text: "" });
   }
 
   async editMessage({ chatId, messageId, text }: EditMessageInput) {

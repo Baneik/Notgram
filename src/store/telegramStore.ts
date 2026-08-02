@@ -5,9 +5,11 @@ import type { TelegramTransport } from "../telegram/transport";
 import type {
   CachedTelegramSnapshot,
   ChatDraft,
+  QueuedOutgoingMessage,
   TelegramEvent,
   TelegramAccountState,
 } from "../telegram/types";
+import { connectionPresentation } from "../telegram/connectionState";
 import {
   accountStatePatch,
   currentAccountRegistration,
@@ -27,6 +29,7 @@ import {
   upsertMessages,
   withEmojiReaction,
 } from "./telegramStore.messages";
+import { messagesWithOutbox, outboxItemId } from "./telegramStore.outbox";
 import {
   compareChats,
   filterAndSortChats,
@@ -69,6 +72,7 @@ export const createTelegramStore = (
     const readRequestChains = new Map<string, Promise<void>>();
     let chatSearchTimer: ReturnType<typeof setTimeout> | undefined;
     let chatSearchGeneration = 0;
+    let outboxFlush: Promise<void> | undefined;
 
     const scheduleCacheWrite = () => {
       const state = get();
@@ -121,6 +125,7 @@ export const createTelegramStore = (
         chatLists: new Map(),
         messages: new Map(),
         drafts: new Map(),
+        outbox: [],
         histories: new Map(),
         activeChatId: undefined,
         chatFilter: "main",
@@ -170,6 +175,65 @@ export const createTelegramStore = (
       }
     };
 
+    const setOutbox = (outbox: QueuedOutgoingMessage[]) => {
+      const state = get();
+      set({
+        outbox,
+        messages: messagesWithOutbox(
+          state.messages,
+          outbox,
+          state.currentUserId ?? "self",
+        ),
+      });
+    };
+
+    const persistOutboxState = async () => {
+      try {
+        await flushCachedSnapshot();
+        return true;
+      } catch {
+        await transport.clearCachedSnapshot().catch(() => undefined);
+        set({ cacheHealth: "invalid" });
+        return false;
+      }
+    };
+
+    const flushOutbox = () => {
+      if (outboxFlush) return outboxFlush;
+      const operation = (async () => {
+        while (
+          get().authorization.kind === "ready" &&
+          get().connectionStatus === "online"
+        ) {
+          const item = get().outbox.find((candidate) => candidate.status === "queued");
+          if (!item) return;
+          try {
+            await transport.sendMessage({
+              chatId: item.chatId,
+              text: item.text,
+              replyToMessageId: item.replyToMessageId,
+              clearDraft: !get().drafts.has(item.chatId),
+            });
+          } catch (error) {
+            setOutbox(get().outbox.map((candidate) =>
+              candidate.id === item.id ? { ...candidate, status: "failed" } : candidate,
+            ));
+            set({ error: errorMessage(error, "离线消息恢复发送失败") });
+            await persistOutboxState();
+            return;
+          }
+
+          setOutbox(get().outbox.filter((candidate) => candidate.id !== item.id));
+          if (!await persistOutboxState()) return;
+        }
+      })();
+      const tracked = operation.finally(() => {
+        if (outboxFlush === tracked) outboxFlush = undefined;
+      });
+      outboxFlush = tracked;
+      return tracked;
+    };
+
     const hydrateCachedSnapshot = (persistedSnapshot?: CachedTelegramSnapshot) => {
       const migration = migrateCachedSnapshot(persistedSnapshot);
       const snapshot = migration.snapshot;
@@ -183,8 +247,9 @@ export const createTelegramStore = (
       const current = get();
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
-      const messages = messageMapFrom(snapshot.messages);
+      let messages = messageMapFrom(snapshot.messages);
       const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
+      const outbox = snapshot.outbox ?? [];
       cachedMessageIds.clear();
       for (const message of snapshot.messages) {
         const ids = cachedMessageIds.get(message.chatId) ?? new Set<string>();
@@ -201,6 +266,11 @@ export const createTelegramStore = (
           messages.set(chatId, upsertMessage(messages.get(chatId) ?? [], message));
         }
       }
+      messages = messagesWithOutbox(
+        messages,
+        outbox,
+        current.currentUserId ?? snapshot.currentUserId,
+      );
       const folders = current.folders.length > 0
         ? current.folders
         : snapshot.folders.filter((folder) => folder.id !== "archive");
@@ -219,6 +289,7 @@ export const createTelegramStore = (
         chatListReady: true,
         messages,
         drafts,
+        outbox,
         activeChatId: current.activeChatId ?? cachedActiveChatId,
         chatFilter: current.chatFilter !== "main" ? current.chatFilter : chatFilter,
         cacheHealth: migration.health,
@@ -368,6 +439,7 @@ export const createTelegramStore = (
         if (event.state.kind === "ready") {
           scheduleCacheWrite();
           draftSync.resumePending();
+          void flushOutbox();
           const activeChatId = get().activeChatId;
           if (activeChatId) {
             void loadHistory(activeChatId).then(() => markChatRead(activeChatId));
@@ -383,6 +455,7 @@ export const createTelegramStore = (
 
       if (event.type === "connection.changed") {
         set({ connectionStatus: event.status });
+        if (event.status === "online") void flushOutbox();
         return;
       }
 
@@ -576,6 +649,7 @@ export const createTelegramStore = (
       chatLists: new Map(),
       messages: new Map(),
       drafts: new Map(),
+      outbox: [],
       histories: new Map(),
       searchQuery: "",
       chatFilter: "main",
@@ -657,7 +731,10 @@ export const createTelegramStore = (
             await loadHistory(refreshChatId);
             await markChatRead(refreshChatId);
           }
-          if (authorization.kind === "ready") draftSync.resumePending();
+          if (authorization.kind === "ready") {
+            draftSync.resumePending();
+            void flushOutbox();
+          }
           scheduleCacheWrite();
         } catch (error) {
           set({
@@ -982,6 +1059,50 @@ export const createTelegramStore = (
         const normalizedText = text.trim();
         if (!chatId || !normalizedText) return false;
         const previousDraft = get().drafts.get(chatId);
+        if (!connectionPresentation(get().connectionStatus).operational) {
+          const previousOutbox = get().outbox;
+          const previousMessages = get().messages;
+          const previousDrafts = get().drafts;
+          const item: QueuedOutgoingMessage = {
+            id: globalThis.crypto.randomUUID(),
+            chatId,
+            text: normalizedText,
+            replyToMessageId,
+            createdAt: new Date().toISOString(),
+            status: "queued",
+          };
+          const outbox = [...previousOutbox, item];
+          const drafts = new Map(previousDrafts);
+          drafts.delete(chatId);
+          const clearGeneration = draftSync.expect(chatId, undefined);
+          set({
+            drafts,
+            outbox,
+            messages: messagesWithOutbox(
+              previousMessages,
+              outbox,
+              get().currentUserId ?? "self",
+            ),
+            error: undefined,
+          });
+          try {
+            await flushCachedSnapshot();
+            return true;
+          } catch (error) {
+            draftSync.cancelExpectation(chatId, clearGeneration);
+            if (previousDraft?.pending) {
+              draftSync.expect(chatId, draftForSync(previousDraft));
+            }
+            set({
+              drafts: previousDrafts,
+              outbox: previousOutbox,
+              messages: previousMessages,
+              cacheHealth: "invalid",
+              error: errorMessage(error, "无法保存离线发送队列"),
+            });
+            return false;
+          }
+        }
         await draftSync.flush(chatId);
         const clearGeneration = draftSync.expect(chatId, undefined);
         try {
@@ -1091,6 +1212,27 @@ export const createTelegramStore = (
       retryMessage: async (messageId) => {
         const chatId = get().activeChatId;
         if (!chatId) return;
+        const itemId = outboxItemId(messageId);
+        if (itemId) {
+          const previous = get().outbox;
+          const item = previous.find((candidate) => candidate.id === itemId);
+          if (!item) return;
+          setOutbox(previous.map((candidate) =>
+            candidate.id === itemId ? { ...candidate, status: "queued" } : candidate,
+          ));
+          try {
+            await flushCachedSnapshot();
+          } catch (error) {
+            setOutbox(previous);
+            set({
+              cacheHealth: "invalid",
+              error: errorMessage(error, "无法保存重试队列"),
+            });
+            return;
+          }
+          await flushOutbox();
+          return;
+        }
         try {
           await transport.retryMessage(chatId, messageId);
           set({ error: undefined });

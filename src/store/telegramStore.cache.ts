@@ -41,6 +41,18 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       !Array.isArray(value.drafts) ||
       !value.drafts.every((draft) => hasStringKey(draft, "chatId"))
     )) ||
+    (value.outbox !== undefined && (
+      !Array.isArray(value.outbox) ||
+      !value.outbox.every((item) =>
+        hasStringKey(item, "id") &&
+        hasStringKey(item, "chatId") &&
+        hasStringKey(item, "text") &&
+        hasStringKey(item, "createdAt") &&
+        isRecord(item) &&
+        (item.status === "queued" || item.status === "failed") &&
+        (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string")
+      )
+    )) ||
     (value.activeChatId !== undefined && typeof value.activeChatId !== "string") ||
     (value.chatFilter !== undefined && typeof value.chatFilter !== "string")
   ) {
@@ -52,6 +64,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     snapshot: {
       ...(value as unknown as CachedTelegramSnapshot),
       version: TELEGRAM_CACHE_VERSION,
+      outbox: value.version === 1 ? [] : (value.outbox ?? []),
     },
   };
 };
@@ -103,6 +116,7 @@ export const cachedSnapshotFrom = (state: TelegramState): CachedTelegramSnapshot
   chats: [...state.chats.values()],
   messages: recentMessagesForCache(state),
   drafts: [...state.drafts.values()],
+  outbox: state.outbox ?? [],
   activeChatId: state.activeChatId,
   chatFilter: state.chatFilter,
 });

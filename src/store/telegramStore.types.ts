@@ -11,6 +11,7 @@ import type {
   Message,
   MessagePermissions,
   ProxySettings,
+  QueuedOutgoingMessage,
   StorageSettings,
   TelegramAccount,
   User,
@@ -58,6 +59,7 @@ export interface TelegramState {
   chatLists: Map<string, ChatListState>;
   messages: Map<string, Message[]>;
   drafts: Map<string, ChatDraft>;
+  outbox: QueuedOutgoingMessage[];
   histories: Map<string, HistoryState>;
   activeChatId?: string;
   searchQuery: string;

@@ -471,7 +471,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         : null,
       options: null,
       reply_markup: null,
-      input_message_content: inputMessageText(text, true),
+      input_message_content: inputMessageText(text, input.clearDraft !== false),
     });
     if (response["@type"] === "message") this.emitMessage(response);
   }

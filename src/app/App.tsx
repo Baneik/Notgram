@@ -36,6 +36,7 @@ export function App() {
   const users = useTelegramStore((state) => state.users);
   const messages = useTelegramStore((state) => state.messages);
   const drafts = useTelegramStore((state) => state.drafts);
+  const outbox = useTelegramStore((state) => state.outbox);
   const histories = useTelegramStore((state) => state.histories);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
   const transportKind = useTelegramStore((state) => state.transportKind);
@@ -162,6 +163,9 @@ export function App() {
     ),
     [chats],
   );
+  const activeOutbox = activeChatId
+    ? outbox.filter((item) => item.chatId === activeChatId)
+    : [];
 
   if (!chatListReady && (authorization.kind === "preparing" || authorization.kind === "ready")) {
     return phase === "error" ? (
@@ -246,6 +250,8 @@ export function App() {
           hasOlderMessages={activeHistory.hasMore}
           transportKind={transportKind}
           connectionStatus={connectionStatus}
+          queuedMessageCount={activeOutbox.filter((item) => item.status === "queued").length}
+          failedQueuedMessageCount={activeOutbox.filter((item) => item.status === "failed").length}
           onSendMessage={sendMessage}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}

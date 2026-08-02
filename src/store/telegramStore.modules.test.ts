@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockSnapshot } from "../telegram/mockData";
-import type { ChatDraft, Message } from "../telegram/types";
+import type { ChatDraft, Message, QueuedOutgoingMessage } from "../telegram/types";
 import {
   accountStatePatch,
   currentAccountRegistration,
@@ -14,6 +14,7 @@ import {
   upsertMessages,
   withEmojiReaction,
 } from "./telegramStore.messages";
+import { messagesWithOutbox, outboxMessageId } from "./telegramStore.outbox";
 import type { TelegramState } from "./telegramStore.types";
 
 const message = (id: string, sentAt = `2026-08-02T08:00:${id.padStart(2, "0")}Z`): Message => ({
@@ -29,6 +30,26 @@ const message = (id: string, sentAt = `2026-08-02T08:00:${id.padStart(2, "0")}Z`
 afterEach(() => vi.useRealTimers());
 
 describe("telegram store message state", () => {
+  it("renders restored outbox entries idempotently and marks failed entries retryable", () => {
+    const item: QueuedOutgoingMessage = {
+      id: "queued-1",
+      chatId: "chat-product",
+      text: "send after reconnect",
+      createdAt: "2026-08-02T08:00:00Z",
+      status: "queued",
+    };
+    const restored = messagesWithOutbox(new Map(), [item], "self");
+    const repeated = messagesWithOutbox(restored, [item], "self");
+
+    expect(repeated.get(item.chatId)).toMatchObject([{
+      id: outboxMessageId(item.id),
+      delivery: "sending",
+      content: { kind: "text", text: item.text },
+    }]);
+    expect(messagesWithOutbox(repeated, [{ ...item, status: "failed" }], "self")
+      .get(item.chatId)?.[0]).toMatchObject({ delivery: "failed", canRetry: true });
+  });
+
   it("merges a history page in one chronological batch", () => {
     const original = [message("10"), message("12")];
     const replacement = { ...message("12"), delivery: "read" as const };

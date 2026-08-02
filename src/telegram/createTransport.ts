@@ -1,6 +1,20 @@
 import { MockTelegramTransport } from "./mockTransport";
 import { TauriTelegramTransport } from "./tauriTransport";
 import type { TelegramTransport } from "./transport";
+import type { ConnectionStatus } from "./types";
+
+const mockConnectionStatus = () => {
+  if (typeof window === "undefined") return undefined;
+  const value = new URLSearchParams(window.location.search).get("connection");
+  return ([
+    "connecting",
+    "syncing",
+    "online",
+    "waitingForNetwork",
+    "proxyError",
+    "offline",
+  ] satisfies ConnectionStatus[]).find((status) => status === value);
+};
 
 export const createTelegramTransport = (): TelegramTransport => {
   if (import.meta.env.VITE_TELEGRAM_TRANSPORT === "tauri") {
@@ -12,5 +26,6 @@ export const createTelegramTransport = (): TelegramTransport => {
       new URLSearchParams(window.location.search).has("auth")
         ? true
         : undefined,
+    connectionStatus: mockConnectionStatus(),
   });
 };

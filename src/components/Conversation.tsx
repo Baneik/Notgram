@@ -64,6 +64,8 @@ interface ConversationProps {
   hasOlderMessages: boolean;
   transportKind: "mock" | "tauri";
   connectionStatus: ConnectionStatus;
+  queuedMessageCount: number;
+  failedQueuedMessageCount: number;
   onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
@@ -100,6 +102,8 @@ export function Conversation({
   hasOlderMessages,
   transportKind,
   connectionStatus,
+  queuedMessageCount,
+  failedQueuedMessageCount,
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
@@ -616,6 +620,13 @@ export function Conversation({
             className="composer-connection-status"
             status={connectionStatus}
           />
+        )}
+        {(queuedMessageCount > 0 || failedQueuedMessageCount > 0) && (
+          <div className="composer-outbox-status" role="status">
+            {failedQueuedMessageCount > 0
+              ? `${failedQueuedMessageCount} 条离线消息需要手动重试`
+              : `${queuedMessageCount} 条消息将在联网后发送`}
+          </div>
         )}
         {composerContextMessage && (
           <div className={`composer-context ${editingMessage ? "is-editing" : "is-replying"}`}>

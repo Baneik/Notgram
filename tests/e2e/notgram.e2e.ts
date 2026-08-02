@@ -56,6 +56,22 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("offline text messages survive a restart in the snapshot model", async ({ page }) => {
+  await page.goto("/?connection=waitingForNetwork");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("queued across restart");
+  await page.getByRole("button", { name: "发送消息" }).click();
+
+  await expect(page.locator(".composer-outbox-status"))
+    .toContainText("1 条消息将在联网后发送");
+  await expect(page.getByText("queued across restart", { exact: true })).toBeVisible();
+
+  await page.reload();
+  await expect(page.locator(".composer-outbox-status"))
+    .toContainText("1 条消息将在联网后发送");
+  await expect(page.getByText("queued across restart", { exact: true })).toBeVisible();
+});
+
 test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

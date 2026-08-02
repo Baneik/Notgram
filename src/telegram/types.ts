@@ -280,8 +280,18 @@ export interface CachedTelegramSnapshot {
   chats: Chat[];
   messages: Message[];
   drafts?: ChatDraft[];
+  outbox?: QueuedOutgoingMessage[];
   activeChatId?: string;
   chatFilter?: string;
+}
+
+export interface QueuedOutgoingMessage {
+  id: string;
+  chatId: string;
+  text: string;
+  replyToMessageId?: string;
+  createdAt: string;
+  status: "queued" | "failed";
 }
 
 export type TelegramEvent =
@@ -303,6 +313,7 @@ export interface SendMessageInput {
   chatId: string;
   text: string;
   replyToMessageId?: string;
+  clearDraft?: boolean;
 }
 
 export interface EditMessageInput {

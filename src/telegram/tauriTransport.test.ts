@@ -528,6 +528,23 @@ describe("TauriTelegramTransport message operations", () => {
     }]);
   });
 
+  it("preserves a newer draft while flushing a restored outbox message", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.sendMessage({ chatId: "7", text: "queued", clearDraft: false });
+
+    expect(requests[0]).toMatchObject({
+      "@type": "sendMessage",
+      input_message_content: { clear_draft: false },
+    });
+  });
+
   it("parses Markdown before sending and uses the parsed TDLib entities", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

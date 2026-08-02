@@ -37,4 +37,19 @@ describe("Telegram transport factory", () => {
     expect(transport.kind).toBe("mock");
     expect(snapshot.authorization).toEqual({ kind: "waitPhoneNumber" });
   });
+
+  it("accepts a deterministic mock connection state from the browser query", async () => {
+    vi.stubEnv("VITE_TELEGRAM_TRANSPORT", "mock");
+    vi.stubGlobal("window", {
+      location: { search: "?connection=waitingForNetwork" },
+    });
+
+    const transport = createTelegramTransport();
+    let status: string | undefined;
+    await transport.connect((event) => {
+      if (event.type === "connection.changed") status = event.status;
+    });
+
+    expect(status).toBe("waitingForNetwork");
+  });
 });

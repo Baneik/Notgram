@@ -8,6 +8,7 @@ import type {
   ConnectionStatus,
   Message,
   MessagePermissions,
+  SendMessageInput,
   SetChatDraftInput,
   TelegramAccount,
   TelegramAccountState,
@@ -82,6 +83,85 @@ describe("telegram store", () => {
       connectionStatus: "offline",
       error: "runtime stopped",
     });
+  });
+
+  it("persists offline text messages and sends them once after restart and reconnect", async () => {
+    class TrackingOutboxTransport extends MockTelegramTransport {
+      sends: SendMessageInput[] = [];
+
+      override async sendMessage(input: SendMessageInput) {
+        this.sends.push(structuredClone(input));
+        await super.sendMessage(input);
+      }
+    }
+
+    const offlineTransport = new TrackingOutboxTransport({
+      connectionStatus: "waitingForNetwork",
+    });
+    const offlineStore = createTelegramStore(offlineTransport);
+    await offlineStore.getState().initialize();
+
+    await expect(offlineStore.getState().sendMessage("queued while offline"))
+      .resolves.toBe(true);
+    expect(offlineTransport.sends).toHaveLength(0);
+    expect(offlineStore.getState().outbox).toMatchObject([{
+      chatId: "chat-product",
+      text: "queued while offline",
+      status: "queued",
+    }]);
+    const persisted = await offlineTransport.loadCachedSnapshot();
+    expect(persisted?.outbox).toHaveLength(1);
+
+    const restoredTransport = new TrackingOutboxTransport({
+      cachedSnapshot: persisted,
+      connectionStatus: "waitingForNetwork",
+    });
+    const restoredStore = createTelegramStore(restoredTransport);
+    await restoredStore.getState().initialize();
+    expect(restoredStore.getState().outbox).toHaveLength(1);
+
+    restoredTransport.setConnectionStatus("online");
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(restoredTransport.sends).toHaveLength(1);
+    expect(restoredStore.getState().outbox).toHaveLength(0);
+    expect(
+      restoredStore.getState().messages.get("chat-product")
+        ?.filter((message) => message.content.kind === "text" &&
+          message.content.text === "queued while offline"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a failed restored outbox message for explicit retry", async () => {
+    class FailingOutboxTransport extends MockTelegramTransport {
+      fail = true;
+      sends = 0;
+
+      override async sendMessage(input: SendMessageInput) {
+        this.sends += 1;
+        if (this.fail) throw new Error("network request rejected");
+        await super.sendMessage(input);
+      }
+    }
+
+    const transport = new FailingOutboxTransport({ connectionStatus: "waitingForNetwork" });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().sendMessage("retry me");
+    transport.setConnectionStatus("online");
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    const failed = store.getState().messages.get("chat-product")?.find(
+      (message) => message.content.kind === "text" && message.content.text === "retry me",
+    );
+    expect(failed).toMatchObject({ delivery: "failed", canRetry: true });
+    expect(store.getState().outbox[0]).toMatchObject({ status: "failed" });
+
+    transport.fail = false;
+    await store.getState().retryMessage(failed!.id);
+    expect(transport.sends).toBe(2);
+    expect(store.getState().outbox).toHaveLength(0);
   });
 
   it("finishes loading the cached chat list before starting live updates", async () => {
