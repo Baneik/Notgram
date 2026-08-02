@@ -59,6 +59,7 @@ interface MessageBubbleProps {
   onRetry: (messageId: string) => Promise<void>;
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onOpenMedia?: (messageId: string) => void;
   autoplayAnimations: boolean;
   developerMode: boolean;
 }
@@ -92,6 +93,7 @@ function MessageBubbleComponent({
   onRetry,
   onCancelUpload,
   onReaction,
+  onOpenMedia,
   autoplayAnimations,
   developerMode,
 }: MessageBubbleProps) {
@@ -374,6 +376,26 @@ function MessageBubbleComponent({
                     )}
                     onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
+                ) : imageMediaSource && content.mediaType === "photo" && onOpenMedia ? (
+                  <button
+                    className="photo-open"
+                    type="button"
+                    aria-label={`查看图片 ${content.fileName}`}
+                    onClick={() => onOpenMedia(message.id)}
+                  >
+                    <img
+                      src={imageMediaSource}
+                      alt={content.caption || content.fileName}
+                      loading="lazy"
+                      decoding="async"
+                      onLoad={(event) => rememberMediaSize(
+                        imageMediaSource,
+                        event.currentTarget.naturalWidth,
+                        event.currentTarget.naturalHeight,
+                      )}
+                      onError={() => markMediaSourceFailed(imageMediaSource)}
+                    />
+                  </button>
                 ) : imageMediaSource ? (
                   <img
                     src={imageMediaSource}
@@ -387,6 +409,17 @@ function MessageBubbleComponent({
                     )}
                     onError={() => markMediaSourceFailed(imageMediaSource)}
                   />
+                ) : content.mediaType === "photo" && onOpenMedia ? (
+                  <button
+                    className="photo-open"
+                    type="button"
+                    aria-label={`查看图片 ${content.fileName}`}
+                    onClick={() => onOpenMedia(message.id)}
+                  >
+                    <span className="photo-placeholder" aria-label="媒体正在加载">
+                      <ImageIcon size={28} strokeWidth={1.6} />
+                    </span>
+                  </button>
                 ) : (
                   <span className="photo-placeholder" aria-label="媒体正在加载">
                     <ImageIcon size={28} strokeWidth={1.6} />

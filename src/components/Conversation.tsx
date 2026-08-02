@@ -52,6 +52,8 @@ import {
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
+import { MediaViewer } from "./MediaViewer";
+import { photoMessages } from "../utils/mediaViewerModel";
 
 interface ConversationProps {
   chat?: Chat;
@@ -137,6 +139,7 @@ export function Conversation({
   const [editingMessage, setEditingMessage] = useState<Message>();
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
+  const [viewerMessageId, setViewerMessageId] = useState<string>();
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const developerMode = usePreferencesStore((state) => state.developerMode);
@@ -178,6 +181,17 @@ export function Conversation({
     () => groupConsecutiveMessages(visibleMessages),
     [visibleMessages],
   );
+  const viewerPhotos = useMemo(() => photoMessages(displayMessages), [displayMessages]);
+
+  useEffect(() => {
+    setViewerMessageId(undefined);
+  }, [chat?.id]);
+
+  useEffect(() => {
+    if (viewerMessageId && !viewerPhotos.some((message) => message.id === viewerMessageId)) {
+      setViewerMessageId(undefined);
+    }
+  }, [viewerMessageId, viewerPhotos]);
 
   const messagesById = useMemo(
     () => new Map(displayMessages.map((message) => [message.id, message])),
@@ -568,6 +582,7 @@ export function Conversation({
                       onRetry={onRetryMessage}
                       onCancelUpload={onCancelFileUpload}
                       onReaction={onSetMessageReaction}
+                      onOpenMedia={selectionMode ? undefined : setViewerMessageId}
                       autoplayAnimations={autoplayAnimations}
                       developerMode={developerMode}
                     />
@@ -762,6 +777,16 @@ export function Conversation({
           onQueryChange={forwarding.setQuery}
           onConfirm={(target) => void confirmForward(target)}
           onClose={forwarding.closeDialog}
+        />
+      )}
+
+      {viewerMessageId && (
+        <MediaViewer
+          messages={viewerPhotos}
+          activeMessageId={viewerMessageId}
+          onActiveMessageChange={setViewerMessageId}
+          onClose={() => setViewerMessageId(undefined)}
+          onDownload={onDownloadFile}
         />
       )}
     </section>
