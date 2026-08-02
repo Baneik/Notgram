@@ -489,6 +489,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .video-player:hover .video-controls,
 .video-player:focus-within .video-controls { opacity: 1; }
 .video-controls button { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; flex: 0 0 28px; color: inherit; background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+.video-controls button.playback-rate { width: 34px; flex-basis: 34px; font-size: 10px; font-weight: 700; }
 .video-controls button:hover, .video-controls button:focus-visible { background: rgba(255, 255, 255, 0.14); outline: none; }
 .video-time { width: 34px; flex: 0 0 34px; color: #f2f5f5; font-size: 10px; text-align: center; font-variant-numeric: tabular-nums; }
 .video-seek, .video-volume { height: 18px; margin: 0; accent-color: #57b5aa; cursor: pointer; }
@@ -511,9 +512,18 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .media-download:hover { background: rgba(24, 37, 35, 0.86); }
 .audio-message {
-  min-width: min(390px, 58vw); display: grid; grid-template-columns: auto minmax(90px, 1fr) auto; align-items: center; gap: 9px;
+  min-width: min(420px, 62vw); display: grid; grid-template-columns: auto minmax(90px, 1fr); align-items: center; gap: 9px;
 }
-.audio-message audio { width: min(240px, 32vw); height: 32px; }
+.audio-player { position: relative; min-width: 0; grid-column: 1 / -1; display: grid; grid-template-columns: 30px 34px minmax(64px, 1fr) 34px 38px auto; align-items: center; gap: 4px; }
+.audio-player audio { display: none; }
+.audio-player button { height: 28px; padding: 0; display: grid; place-items: center; color: var(--accent-strong); background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+.audio-player button:hover, .audio-player button:focus-visible { background: rgba(51, 144, 236, 0.1); outline: none; }
+.audio-play { width: 30px; }
+.audio-time { color: var(--muted); font-size: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+.audio-seek { width: 100%; min-width: 0; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.audio-player .playback-rate { width: 38px; font-size: 10px; font-weight: 700; }
+.audio-download { width: 28px; }
+.audio-download-progress { position: absolute; right: 4px; bottom: -12px; color: var(--muted); font-size: 9px; }
 .message-reactions { min-height: 24px; margin-top: 4px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .is-outgoing .message-reactions { justify-content: flex-end; }
 .message-reactions > button, .reaction-add {

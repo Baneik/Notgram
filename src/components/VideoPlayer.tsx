@@ -8,10 +8,16 @@ import {
   VolumeX,
 } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import {
+  formatPlaybackTime,
+  mediaPlaybackCoordinator,
+  nextPlaybackRate,
+} from "../media/mediaPlayback";
 
 interface VideoPlayerProps {
   source?: string;
   poster?: string;
+  playbackId: string;
   label: string;
   fileId?: number;
   size?: number;
@@ -24,15 +30,10 @@ interface VideoPlayerProps {
   onError: (source: string) => void;
 }
 
-const formatDuration = (seconds: number) => {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
-};
-
 export function VideoPlayer({
   source,
   poster,
+  playbackId,
   label,
   fileId,
   size,
@@ -47,6 +48,7 @@ export function VideoPlayer({
   const shellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pendingPlayRef = useRef(false);
+  const lastRememberedSecondRef = useRef(0);
   const [resolvedSource, setResolvedSource] = useState(source);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -56,12 +58,20 @@ export function VideoPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
 
   useEffect(() => {
     if (!source) return;
     setResolvedSource(source);
     setFailed(false);
   }, [source]);
+
+  useEffect(() => () => {
+    const video = videoRef.current;
+    if (!video) return;
+    mediaPlaybackCoordinator.remember(playbackId, video.currentTime, video.duration);
+    mediaPlaybackCoordinator.release(video);
+  }, [playbackId]);
 
   const startPlayback = async () => {
     const video = videoRef.current;
@@ -105,6 +115,12 @@ export function VideoPlayer({
     setMuted(video.muted);
   };
 
+  const cyclePlaybackRate = () => {
+    const next = nextPlaybackRate(playbackRate);
+    if (videoRef.current) videoRef.current.playbackRate = next;
+    setPlaybackRate(next);
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) return;
     if (event.key !== " " && event.key !== "Enter") return;
@@ -134,7 +150,14 @@ export function VideoPlayer({
         aria-label={label}
         onLoadedMetadata={(event) => {
           const video = event.currentTarget;
-          setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+          const nextDuration = Number.isFinite(video.duration) ? video.duration : 0;
+          setDuration(nextDuration);
+          video.playbackRate = playbackRate;
+          const resume = mediaPlaybackCoordinator.resumePosition(playbackId, nextDuration);
+          if (resume > 0) {
+            video.currentTime = resume;
+            setCurrentTime(resume);
+          }
           if (resolvedSource) onLoadedMetadata(resolvedSource, video.videoWidth, video.videoHeight);
         }}
         onCanPlay={(event) => {
@@ -143,11 +166,29 @@ export function VideoPlayer({
           pendingPlayRef.current = false;
           void event.currentTarget.play().catch(() => undefined);
         }}
-        onPlaying={() => { setPlaying(true); setBuffering(false); }}
-        onPause={() => setPlaying(false)}
+        onPlay={(event) => mediaPlaybackCoordinator.activate(playbackId, event.currentTarget)}
+        onPlaying={() => { setPlaying(true); setBuffering(false); setFailed(false); }}
+        onPause={(event) => {
+          setPlaying(false);
+          mediaPlaybackCoordinator.remember(playbackId, event.currentTarget.currentTime, event.currentTarget.duration);
+          mediaPlaybackCoordinator.release(event.currentTarget);
+        }}
         onWaiting={() => setBuffering(true)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onEnded={() => setPlaying(false)}
+        onTimeUpdate={(event) => {
+          const video = event.currentTarget;
+          setCurrentTime(video.currentTime);
+          const wholeSecond = Math.floor(video.currentTime);
+          if (wholeSecond - lastRememberedSecondRef.current >= 5) {
+            lastRememberedSecondRef.current = wholeSecond;
+            mediaPlaybackCoordinator.remember(playbackId, video.currentTime, video.duration);
+          }
+        }}
+        onEnded={(event) => {
+          setPlaying(false);
+          setCurrentTime(0);
+          mediaPlaybackCoordinator.clear(playbackId);
+          mediaPlaybackCoordinator.release(event.currentTarget);
+        }}
         onError={() => {
           setBuffering(false);
           setFailed(true);
@@ -180,7 +221,7 @@ export function VideoPlayer({
         <button type="button" aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"} onClick={togglePlayback}>
           {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
         </button>
-        <span className="video-time">{formatDuration(currentTime)}</span>
+        <span className="video-time">{formatPlaybackTime(currentTime)}</span>
         <input
           className="video-seek"
           type="range"
@@ -195,7 +236,7 @@ export function VideoPlayer({
             setCurrentTime(nextTime);
           }}
         />
-        <span className="video-time">{formatDuration(duration)}</span>
+        <span className="video-time">{formatPlaybackTime(duration)}</span>
         <button type="button" aria-label={muted ? "取消静音" : "静音"} title={muted ? "取消静音" : "静音"} onClick={toggleMuted}>
           {muted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
@@ -218,6 +259,9 @@ export function VideoPlayer({
             setMuted(nextVolume === 0);
           }}
         />
+        <button className="playback-rate" type="button" aria-label={`播放速度 ${playbackRate} 倍`} title="切换播放速度" onClick={cyclePlaybackRate}>
+          {playbackRate}x
+        </button>
         {onDownload && (
           <button type="button" aria-label={`下载 ${label}`} title="下载视频" onClick={onDownload}>
             <Download size={16} />

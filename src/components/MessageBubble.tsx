@@ -28,6 +28,7 @@ import { TgsSticker } from "./TgsSticker";
 import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
+import { AudioPlayer } from "./AudioPlayer";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
 
@@ -327,6 +328,7 @@ function MessageBubbleComponent({
                   <VideoPlayer
                     source={usableFullMediaSource}
                     poster={usablePreviewSource}
+                    playbackId={`${message.chatId}:${message.id}`}
                     label={content.fileName}
                     fileId={content.fileId}
                     size={content.size}
@@ -334,7 +336,7 @@ function MessageBubbleComponent({
                     downloadProgress={content.progress}
                     round={content.mediaType === "videoNote"}
                     onRequestStream={onStream}
-                    onDownload={downloadFileId !== undefined
+                    onDownload={canDownload && downloadFileId !== undefined
                       ? () => void onDownload(downloadFileId, downloadFileName)
                       : undefined}
                     onLoadedMetadata={rememberMediaSize}
@@ -467,13 +469,19 @@ function MessageBubbleComponent({
                   <strong>{content.fileName}</strong>
                   <small>{content.sizeLabel}</small>
                 </span>
-                {fullMediaSource ? (
-                  <audio src={fullMediaSource} controls preload="metadata" />
-                ) : canDownload ? (
-                  <button className="file-download" type="button" aria-label={`下载 ${content.fileName}`} title="下载音频" onClick={() => void onDownload(downloadFileId!, downloadFileName)}>
-                    <Download size={16} strokeWidth={2} />
-                  </button>
-                ) : content.isDownloading ? <LoaderCircle className="spin" size={16} /> : null}
+                <AudioPlayer
+                  source={fullMediaSource}
+                  playbackId={`${message.chatId}:${message.id}`}
+                  label={content.fileName}
+                  fileId={content.fileId}
+                  size={content.size}
+                  mimeType={content.mimeType}
+                  downloadProgress={content.progress}
+                  onRequestStream={onStream}
+                  onDownload={canDownload && downloadFileId !== undefined
+                    ? () => void onDownload(downloadFileId, downloadFileName)
+                    : undefined}
+                />
               </div>
               {content.caption && (
                 <MessageRichText
