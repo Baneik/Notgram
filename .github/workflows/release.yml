@@ -50,6 +50,34 @@ jobs:
           scripts/build-tdlib.ps1
           cargo test --manifest-path src-tauri/Cargo.toml bundled_tdjson_exports_current_json_api
           if ($LASTEXITCODE -ne 0) { throw "Bundled TDLib export test failed." }
+      - name: Verify isolated version upgrade
+        shell: pwsh
+        env:
+          VITE_TELEGRAM_TRANSPORT: tauri
+          NOTGRAM_API_ID: ${{ secrets.NOTGRAM_API_ID }}
+          NOTGRAM_API_HASH: ${{ secrets.NOTGRAM_API_HASH }}
+        run: |
+          $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          $previousVersion = (Get-Content src-tauri/tauri.lifecycle.previous.conf.json -Raw | ConvertFrom-Json).version
+          npm run tauri build -- --config src-tauri/tauri.lifecycle.previous.conf.json
+          $previous = Get-Item "src-tauri/target/release/bundle/nsis/Notgram Lifecycle_$($previousVersion)_x64-setup.exe"
+          npm run tauri build -- --config src-tauri/tauri.lifecycle.conf.json
+          $current = Get-Item "src-tauri/target/release/bundle/nsis/Notgram Lifecycle_$($version)_x64-setup.exe"
+          $portableRoot = Join-Path $env:RUNNER_TEMP "notgram-lifecycle-portable"
+          scripts/publish-portable.ps1 -DestinationRoot $portableRoot -SkipBuild -ChecksPassed
+          $portable = Get-Item "$portableRoot/Notgram-$version-windows-x64-portable.zip"
+          $evidence = Join-Path $PWD "artifacts/Notgram-$version-windows-x64-upgrade-lifecycle.json"
+          scripts/test-release-lifecycle.ps1 `
+            -InstallerPath $current.FullName `
+            -PreviousInstallerPath $previous.FullName `
+            -PreviousVersion $previousVersion `
+            -PortableArchive $portable.FullName `
+            -DataIdentifier "dev.notgram.desktop.lifecycle" `
+            -EvidencePath $evidence `
+            -ExecuteInstaller `
+            -AllowUnsignedIsolated
+          [System.IO.File]::Delete($previous.FullName)
+          [System.IO.File]::Delete($current.FullName)
       - name: Import code-signing certificate
         shell: pwsh
         env:

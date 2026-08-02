@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Notgram Lifecycle",
+  "identifier": "dev.notgram.desktop.lifecycle",
+  "build": {
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Notgram Lifecycle"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "allowDowngrades": false
+    }
+  }
+}

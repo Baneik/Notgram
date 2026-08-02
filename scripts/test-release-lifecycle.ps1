@@ -3,9 +3,14 @@ param(
     [string]$InstallerPath,
     [Parameter(Mandatory = $true)]
     [string]$PortableArchive,
+    [string]$PreviousInstallerPath = "",
+    [string]$PreviousVersion = "",
+    [ValidateSet("dev.notgram.desktop", "dev.notgram.desktop.lifecycle")]
+    [string]$DataIdentifier = "dev.notgram.desktop",
     [string]$EvidencePath = "",
     [switch]$ExecuteInstaller,
-    [switch]$AllowLocalInstallerMutation
+    [switch]$AllowLocalInstallerMutation,
+    [switch]$AllowUnsignedIsolated
 )
 
 Set-StrictMode -Version Latest
@@ -29,10 +34,24 @@ if ($env:OS -ne "Windows_NT") { throw "Release lifecycle checks require Windows.
 if ($ExecuteInstaller -and $env:CI -ne "true" -and -not $AllowLocalInstallerMutation) {
     throw "Installer execution is restricted to CI unless -AllowLocalInstallerMutation is supplied."
 }
+if ($ExecuteInstaller -and $env:CI -ne "true" -and $DataIdentifier -ne "dev.notgram.desktop.lifecycle") {
+    throw "Local installer execution must use the isolated lifecycle identifier."
+}
+if ($AllowUnsignedIsolated -and $DataIdentifier -ne "dev.notgram.desktop.lifecycle") {
+    throw "Unsigned lifecycle execution is allowed only for the isolated lifecycle profile."
+}
+if ([bool]$PreviousInstallerPath -ne [bool]$PreviousVersion) {
+    throw "PreviousInstallerPath and PreviousVersion must be supplied together."
+}
 
 $resolvedInstaller = [System.IO.Path]::GetFullPath($InstallerPath)
 $resolvedPortable = [System.IO.Path]::GetFullPath($PortableArchive)
-foreach ($path in @($resolvedInstaller, $resolvedPortable, "$resolvedPortable.sha256")) {
+$resolvedPreviousInstaller = if ($PreviousInstallerPath) {
+    [System.IO.Path]::GetFullPath($PreviousInstallerPath)
+} else {
+    $null
+}
+foreach ($path in @($resolvedInstaller, $resolvedPortable, "$resolvedPortable.sha256", $resolvedPreviousInstaller) | Where-Object { $_ }) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "A required lifecycle artifact is missing."
     }
@@ -129,14 +148,20 @@ function Invoke-ProcessChecked {
 }
 
 Test-PeFile -Path $resolvedInstaller
+if ($resolvedPreviousInstaller) { Test-PeFile -Path $resolvedPreviousInstaller }
 $portableHash = Test-ArchiveHash -ArchivePath $resolvedPortable
 $installerHash = (Get-FileHash -LiteralPath $resolvedInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+$previousInstallerHash = if ($resolvedPreviousInstaller) {
+    (Get-FileHash -LiteralPath $resolvedPreviousInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+} else {
+    $null
+}
 $checkRoot = Join-Path ([System.IO.Path]::GetTempPath()) "notgram-lifecycle-$([Guid]::NewGuid().ToString('N'))"
 $portableFirst = Join-Path $checkRoot "portable-first"
 $portableSecond = Join-Path $checkRoot "portable-second"
 $installDirectory = Join-Path $checkRoot "installed"
 $dataDirectory = if ($ExecuteInstaller) {
-    Join-Path $env:APPDATA "dev.notgram.desktop"
+    Join-Path $env:APPDATA $DataIdentifier
 } else {
     Join-Path $checkRoot "retained-data"
 }
@@ -152,6 +177,7 @@ $evidence = [ordered]@{
     commit = $commit
     checkedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
     installerSha256 = $installerHash
+    previousInstallerSha256 = $previousInstallerHash
     portableSha256 = $portableHash
     portable = [ordered]@{
         startup = "pending"
@@ -160,6 +186,7 @@ $evidence = [ordered]@{
     }
     installer = [ordered]@{
         mode = if ($ExecuteInstaller) { "executed" } else { "artifact-only" }
+        transition = if ($resolvedPreviousInstaller) { "version-upgrade" } else { "same-version-replacement" }
         startup = "not-run"
         inPlaceUpgrade = "not-run"
         uninstall = "not-run"
@@ -175,31 +202,47 @@ try {
 
     Expand-CheckedArchive -ArchivePath $resolvedPortable -Destination $portableFirst
     $portableExecutable = Get-OnlyFile -Root $portableFirst -Filter "Notgram.exe"
-    Invoke-ReleaseProbe -Executable $portableExecutable -ExpectedDistribution "portable" -OutputDirectory $checkRoot -RequireSignature:$ExecuteInstaller | Out-Null
+    $requireSignature = $ExecuteInstaller -and -not $AllowUnsignedIsolated
+    Invoke-ReleaseProbe -Executable $portableExecutable -ExpectedDistribution "portable" -OutputDirectory $checkRoot -RequireSignature:$requireSignature | Out-Null
     $evidence.portable.startup = "passed"
 
     Expand-CheckedArchive -ArchivePath $resolvedPortable -Destination $portableSecond
     $replacementExecutable = Get-OnlyFile -Root $portableSecond -Filter "Notgram.exe"
-    Invoke-ReleaseProbe -Executable $replacementExecutable -ExpectedDistribution "portable" -OutputDirectory $checkRoot -RequireSignature:$ExecuteInstaller | Out-Null
+    Invoke-ReleaseProbe -Executable $replacementExecutable -ExpectedDistribution "portable" -OutputDirectory $checkRoot -RequireSignature:$requireSignature | Out-Null
     $evidence.portable.replacement = "passed"
     if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) { throw "Portable replacement removed retained data." }
     $evidence.portable.dataRetained = "passed"
 
     if ($ExecuteInstaller) {
         $signature = Get-AuthenticodeSignature -LiteralPath $resolvedInstaller
-        if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        if ($requireSignature -and $signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
             throw "Executable lifecycle checks require a valid Authenticode installer."
         }
+        if ((Get-Item -LiteralPath $resolvedInstaller).VersionInfo.ProductVersion -ne $version) {
+            throw "Current lifecycle installer version does not match version.json."
+        }
+        if ($resolvedPreviousInstaller -and
+            (Get-Item -LiteralPath $resolvedPreviousInstaller).VersionInfo.ProductVersion -ne $PreviousVersion) {
+            throw "Previous lifecycle installer version does not match PreviousVersion."
+        }
         $installerExecuted = $true
-        Invoke-ProcessChecked -Executable $resolvedInstaller -Arguments "/S /D=$installDirectory" -FailureMessage "Silent installation failed."
+        $initialInstaller = if ($resolvedPreviousInstaller) { $resolvedPreviousInstaller } else { $resolvedInstaller }
+        Invoke-ProcessChecked -Executable $initialInstaller -Arguments "/S /D=$installDirectory" -FailureMessage "Silent installation failed."
         $installedExecutable = Join-Path $installDirectory "Notgram.exe"
         if (-not (Test-Path -LiteralPath $installedExecutable -PathType Leaf)) { throw "Installed executable is missing." }
         $uninstaller = Get-OnlyFile -Root $installDirectory -Filter "uninstall*.exe"
-        Invoke-ReleaseProbe -Executable $installedExecutable -ExpectedDistribution "installed" -OutputDirectory $checkRoot -RequireSignature | Out-Null
+        if ($resolvedPreviousInstaller -and
+            (Get-Item -LiteralPath $installedExecutable).VersionInfo.ProductVersion -ne $PreviousVersion) {
+            throw "Previous installed application version is incorrect."
+        }
+        Invoke-ReleaseProbe -Executable $installedExecutable -ExpectedDistribution "installed" -OutputDirectory $checkRoot -RequireSignature:$requireSignature | Out-Null
         $evidence.installer.startup = "passed"
 
         Invoke-ProcessChecked -Executable $resolvedInstaller -Arguments "/S /D=$installDirectory" -FailureMessage "In-place installer upgrade failed."
-        Invoke-ReleaseProbe -Executable $installedExecutable -ExpectedDistribution "installed" -OutputDirectory $checkRoot -RequireSignature | Out-Null
+        if ((Get-Item -LiteralPath $installedExecutable).VersionInfo.ProductVersion -ne $version) {
+            throw "Installed application did not advance to the current version."
+        }
+        Invoke-ReleaseProbe -Executable $installedExecutable -ExpectedDistribution "installed" -OutputDirectory $checkRoot -RequireSignature:$requireSignature | Out-Null
         if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) { throw "Installer upgrade removed retained data." }
         $evidence.installer.inPlaceUpgrade = "passed"
 

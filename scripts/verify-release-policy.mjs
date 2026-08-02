@@ -8,6 +8,8 @@ const readJson = (path) => JSON.parse(readText(path));
 const version = readJson("version.json").version;
 const policy = readJson("release-policy.json");
 const tauri = readJson("src-tauri/tauri.conf.json");
+const lifecycle = readJson("src-tauri/tauri.lifecycle.conf.json");
+const previousLifecycle = readJson("src-tauri/tauri.lifecycle.previous.conf.json");
 const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 
 function parseVersion(value) {
@@ -82,5 +84,12 @@ if (policy.dataLifecycle?.storage !== "os-user-profile" ||
     policy.dataLifecycle?.retainOnUninstall !== true ||
     policy.dataLifecycle?.cleanup !== "explicit-user-action") {
   throw new Error("Release data lifecycle policy is invalid.");
+}
+if (lifecycle.identifier !== "dev.notgram.desktop.lifecycle" ||
+    previousLifecycle.identifier !== lifecycle.identifier ||
+    lifecycle.productName !== "Notgram Lifecycle" ||
+    previousLifecycle.productName !== lifecycle.productName ||
+    compareVersions(previousLifecycle.version, version) >= 0) {
+  throw new Error("Isolated installer upgrade configurations are invalid.");
 }
 console.log(`Release policy is valid for ${version}.`);
