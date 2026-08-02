@@ -86,8 +86,14 @@ npm run check     # Frontend plus Rust formatting, lint, and tests
 npm run check:release # Full check plus a native release build
 npm run tauri dev # Native desktop shell
 npm run publish:portable # Release directly to Program\Notgram
+npm run version:check # Verify version.json matches npm, Cargo, and Tauri
+npm run version:sync # Synchronize all manifests from version.json
 cargo check       # Run from src-tauri for the native bridge
 ```
+
+`version.json` is the single application version source. Release tags and
+changelog rules are documented in
+[`docs/release-versioning.md`](docs/release-versioning.md).
 
 Real TDLib acceptance is tracked separately from browser mocks. See
 [`docs/native-smoke.md`](docs/native-smoke.md) for the isolated clean-profile and
