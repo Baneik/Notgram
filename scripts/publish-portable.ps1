@@ -2,6 +2,7 @@ param(
     [string]$DestinationRoot = "",
     [switch]$SkipBuild,
     [switch]$SkipChecks,
+    [switch]$ChecksPassed,
     [switch]$AllowDirty
 )
 
@@ -109,7 +110,7 @@ $metadata = [ordered]@{
     transport = "tauri"
     checks = [ordered]@{
         versionSynchronization = "passed"
-        repositoryChecks = if ($SkipBuild -or $SkipChecks) { "not-run" } else { "passed" }
+        repositoryChecks = if ($ChecksPassed -or (-not $SkipBuild -and -not $SkipChecks)) { "passed" } else { "not-run" }
         tauriReleaseBuild = if ($SkipBuild) { "prebuilt" } else { "passed" }
         tdlibRuntime = "passed"
     }

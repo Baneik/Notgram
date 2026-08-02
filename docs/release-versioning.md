@@ -24,3 +24,9 @@ git push origin "v$version"
 Stable releases use `MAJOR.MINOR.PATCH`; candidates use a SemVer prerelease such
 as `0.5.0-rc.1`. Never move or replace a published tag. Publish a new patch or
 prerelease when a release must be superseded.
+
+The `Windows release` workflow requires repository secrets
+`NOTGRAM_WINDOWS_CERTIFICATE_BASE64`, `NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD`,
+`NOTGRAM_API_ID`, and `NOTGRAM_API_HASH`. Manual runs produce retained workflow
+artifacts; matching `v<version>` tag runs also create the GitHub release. Missing
+signing inputs fail before a release build starts.

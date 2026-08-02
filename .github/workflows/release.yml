@@ -1,0 +1,109 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: npm ci
+      - run: npx playwright install chromium
+      - name: Validate release inputs
+        shell: pwsh
+        env:
+          NOTGRAM_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.NOTGRAM_WINDOWS_CERTIFICATE_BASE64 }}
+          NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD }}
+          NOTGRAM_API_ID: ${{ secrets.NOTGRAM_API_ID }}
+          NOTGRAM_API_HASH: ${{ secrets.NOTGRAM_API_HASH }}
+        run: scripts/release-preflight.ps1 -RequireSigning
+      - name: Validate release tag
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: scripts/release-preflight.ps1 -RequireTag
+      - run: npm run check
+      - run: npm run test:e2e
+      - name: Build pinned TDLib
+        shell: pwsh
+        run: |
+          scripts/build-tdlib.ps1
+          cargo test --manifest-path src-tauri/Cargo.toml bundled_tdjson_exports_current_json_api
+          if ($LASTEXITCODE -ne 0) { throw "Bundled TDLib export test failed." }
+      - name: Import code-signing certificate
+        shell: pwsh
+        env:
+          NOTGRAM_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.NOTGRAM_WINDOWS_CERTIFICATE_BASE64 }}
+          NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD }}
+        run: scripts/import-signing-certificate.ps1
+      - name: Sign native runtime dependencies
+        shell: pwsh
+        run: scripts/sign-windows-files.ps1 -Path (Get-ChildItem src-tauri/tdlib/*.dll).FullName
+      - name: Build signed Tauri and NSIS release
+        shell: pwsh
+        env:
+          VITE_TELEGRAM_TRANSPORT: tauri
+          NOTGRAM_API_ID: ${{ secrets.NOTGRAM_API_ID }}
+          NOTGRAM_API_HASH: ${{ secrets.NOTGRAM_API_HASH }}
+        run: |
+          $config = Join-Path $env:RUNNER_TEMP "notgram-signing.json"
+          scripts/new-signing-config.ps1 -OutputPath $config
+          npm run tauri build -- --config $config
+      - name: Verify and stage release artifacts
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe -File | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer was not produced." }
+          $signed = @($installer.FullName, (Resolve-Path src-tauri/target/release/notgram.exe).Path)
+          $signed += (Get-ChildItem src-tauri/target/release/tdlib/*.dll).FullName
+          scripts/verify-windows-signatures.ps1 -Path $signed
+          scripts/publish-portable.ps1 -SkipBuild -ChecksPassed
+          scripts/publish-installer.ps1 -InstallerPath $installer.FullName
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notgram-${{ github.ref_name }}-windows
+          path: artifacts/
+          if-no-files-found: error
+      - name: Publish tagged release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(
+            Get-ChildItem artifacts -File | Where-Object { $_.Extension -in @(".zip", ".sha256") }
+            Get-ChildItem artifacts/Notgram-*-installer -File
+          )
+          if ($assets.Count -eq 0) { throw "No release assets were staged." }
+          $arguments = @(
+            "release", "create", $env:GITHUB_REF_NAME,
+            "--verify-tag",
+            "--title", "Notgram $env:GITHUB_REF_NAME",
+            "--generate-notes"
+          )
+          $arguments += $assets.FullName
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release publication failed." }
+      - name: Remove signing certificate
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:NOTGRAM_CERTIFICATE_THUMBPRINT -match '^[0-9A-Fa-f]{40}$') {
+            Remove-Item -LiteralPath "Cert:\CurrentUser\My\$env:NOTGRAM_CERTIFICATE_THUMBPRINT" -Force -ErrorAction SilentlyContinue
+          }
