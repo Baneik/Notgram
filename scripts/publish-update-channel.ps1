@@ -61,9 +61,25 @@ foreach ($path in @($resolvedArtifact, $resolvedSignature)) {
         throw "Updater release input is missing: $path"
     }
 }
+$artifactHeader = [System.IO.File]::ReadAllBytes($resolvedArtifact)
+if ($artifactHeader.Length -lt 2 -or $artifactHeader[0] -ne 0x4d -or $artifactHeader[1] -ne 0x5a) {
+    throw "Updater installer is not a Windows PE executable."
+}
 $signature = (Get-Content -LiteralPath $resolvedSignature -Raw).Trim()
 if ([string]::IsNullOrWhiteSpace($signature) -or $signature.Length -gt 4096) {
     throw "Updater signature is empty or unexpectedly large."
+}
+$signatureBytes = $null
+try {
+    $signatureBytes = [Convert]::FromBase64String($signature)
+    $signatureText = [Text.Encoding]::UTF8.GetString($signatureBytes)
+    if (-not $signatureText.StartsWith("untrusted comment: signature from tauri secret key")) {
+        throw "unexpected signature format"
+    }
+} catch {
+    throw "Updater signature is not valid Base64 Tauri signature data."
+} finally {
+    if ($signatureBytes) { [Array]::Clear($signatureBytes, 0, $signatureBytes.Length) }
 }
 
 $resolvedDestinationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
