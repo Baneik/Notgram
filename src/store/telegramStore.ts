@@ -144,6 +144,7 @@ export const createTelegramStore = (
         contactsError: undefined,
         contactPendingUserId: undefined,
         chatManagementPending: new Set(),
+        folderManagementPending: false,
         chatFilter: "main",
         cacheHealth: clearSnapshot ? "empty" : get().cacheHealth,
       });
@@ -683,6 +684,29 @@ export const createTelegramStore = (
       }
     };
 
+    const manageFolder = async <T,>(
+      fallbackError: string,
+      confirmationError: string,
+      operation: () => Promise<T>,
+      confirmed: (result: T) => boolean,
+    ): Promise<T | undefined> => {
+      if (get().authorization.kind !== "ready" || get().folderManagementPending) {
+        return undefined;
+      }
+      set({ folderManagementPending: true, operationError: undefined });
+      try {
+        const result = await operation();
+        if (!confirmed(result)) throw new Error(confirmationError);
+        await flushCachedSnapshot();
+        return result;
+      } catch (error) {
+        set({ operationError: errorMessage(error, fallbackError) });
+        return undefined;
+      } finally {
+        set({ folderManagementPending: false });
+      }
+    };
+
     return {
       phase: "idle",
       transportKind: transport.kind,
@@ -714,6 +738,7 @@ export const createTelegramStore = (
       contacts: [],
       contactsLoading: false,
       chatManagementPending: new Set(),
+      folderManagementPending: false,
 
       initialize: async () => {
         if (get().phase !== "idle") return;
@@ -1096,6 +1121,53 @@ export const createTelegramStore = (
         () => get().chats.get(chatId)?.folderIds.includes(
           archived ? "archive" : "main",
         ) === true,
+      ),
+      createChatFolder: async (title, chatIds) => {
+        const uniqueChatIds = [...new Set(chatIds)].filter((chatId) => get().chats.has(chatId));
+        if (uniqueChatIds.length === 0) {
+          set({ operationError: "请至少选择一个会话" });
+          return undefined;
+        }
+        const folder = await manageFolder(
+          "无法创建文件夹",
+          "Telegram 未确认新文件夹",
+          () => transport.createChatFolder(title, uniqueChatIds),
+          (created) => get().folders.some((item) =>
+            item.id === created.id && item.title === created.title
+          ) && uniqueChatIds.every((chatId) =>
+            get().chats.get(chatId)?.folderIds.includes(created.id)
+          ),
+        );
+        return folder?.id;
+      },
+      renameChatFolder: async (folderId, title) => Boolean(await manageFolder(
+        "无法重命名文件夹",
+        "Telegram 未确认文件夹名称",
+        () => transport.renameChatFolder(folderId, title),
+        (renamed) => get().folders.some((folder) =>
+          folder.id === folderId && folder.title === renamed.title
+        ),
+      )),
+      deleteChatFolder: async (folderId) => Boolean(await manageFolder(
+        "无法删除文件夹",
+        "Telegram 未确认文件夹删除",
+        async () => {
+          await transport.deleteChatFolder(folderId);
+          return true;
+        },
+        () => !get().folders.some((folder) => folder.id === folderId) &&
+          [...get().chats.values()].every((chat) => !chat.folderIds.includes(folderId)),
+      )),
+      setChatFolderMembership: async (folderId, chatId, included) => Boolean(
+        await manageFolder(
+          "无法更新文件夹成员",
+          "Telegram 未确认文件夹成员状态",
+          async () => {
+            await transport.setChatFolderMembership(folderId, chatId, included);
+            return true;
+          },
+          () => get().chats.get(chatId)?.folderIds.includes(folderId) === included,
+        )
       ),
       loadMoreHistory: loadHistory,
       loadMessage: async (chatId, messageId) => {

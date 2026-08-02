@@ -1886,4 +1886,53 @@ describe("chat filtering", () => {
     await expect(store.getState().setChatMuted("chat-saved", true)).resolves.toBe(false);
     expect(store.getState().operationError).toBe("收藏夹不支持静音");
   });
+
+  it("manages folder structure only after transport events confirm every change", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    const folderId = await store.getState().createChatFolder("客户", ["chat-mia"]);
+    expect(folderId).toMatch(/^folder:/);
+    expect(store.getState().folders).toContainEqual({
+      id: folderId,
+      title: "客户",
+      iconName: "Custom",
+    });
+    expect(store.getState().chats.get("chat-mia")?.folderIds).toContain(folderId);
+
+    await expect(store.getState().renameChatFolder(folderId!, "重点客户"))
+      .resolves.toBe(true);
+    expect(store.getState().folders.find((folder) => folder.id === folderId)?.title)
+      .toBe("重点客户");
+
+    await expect(store.getState().setChatFolderMembership(folderId!, "chat-product", true))
+      .resolves.toBe(true);
+    expect(store.getState().chats.get("chat-product")?.folderIds).toContain(folderId);
+    await expect(store.getState().setChatFolderMembership(folderId!, "chat-mia", false))
+      .resolves.toBe(true);
+    expect(store.getState().chats.get("chat-mia")?.folderIds).not.toContain(folderId);
+
+    await expect(store.getState().deleteChatFolder(folderId!)).resolves.toBe(true);
+    expect(store.getState().folders.some((folder) => folder.id === folderId)).toBe(false);
+    expect([...store.getState().chats.values()].every(
+      (chat) => !chat.folderIds.includes(folderId!),
+    )).toBe(true);
+    expect(store.getState().folderManagementPending).toBe(false);
+  });
+
+  it("rejects folder operations without authoritative confirmation", async () => {
+    class UnconfirmedFolderTransport extends MockTelegramTransport {
+      override async createChatFolder(title: string) {
+        return { id: "folder:99", title, iconName: "Custom" };
+      }
+    }
+    const store = createTelegramStore(new UnconfirmedFolderTransport());
+    await store.getState().initialize();
+
+    await expect(store.getState().createChatFolder("未确认", ["chat-mia"]))
+      .resolves.toBeUndefined();
+    expect(store.getState().folders.some((folder) => folder.id === "folder:99")).toBe(false);
+    expect(store.getState().operationError).toBe("Telegram 未确认新文件夹");
+    expect(store.getState().folderManagementPending).toBe(false);
+  });
 });

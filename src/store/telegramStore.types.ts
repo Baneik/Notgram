@@ -80,6 +80,7 @@ export interface TelegramState {
   contactsError?: string;
   contactPendingUserId?: string;
   chatManagementPending: Set<string>;
+  folderManagementPending: boolean;
   initialize: () => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
@@ -99,6 +100,14 @@ export interface TelegramState {
   reorderPinnedChats: (chatListId: string, chatIds: string[]) => Promise<boolean>;
   setChatMuted: (chatId: string, muted: boolean) => Promise<boolean>;
   setChatArchived: (chatId: string, archived: boolean) => Promise<boolean>;
+  createChatFolder: (title: string, chatIds: string[]) => Promise<string | undefined>;
+  renameChatFolder: (folderId: string, title: string) => Promise<boolean>;
+  deleteChatFolder: (folderId: string) => Promise<boolean>;
+  setChatFolderMembership: (
+    folderId: string,
+    chatId: string,
+    included: boolean,
+  ) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
   loadMessage: (chatId: string, messageId: string) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
