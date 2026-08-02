@@ -1,5 +1,6 @@
 import type { TelegramTransport } from "../telegram/transport";
 import type { CacheHealth } from "./telegramStore.cache";
+import type { GlobalSearchState } from "./globalSearchState";
 import type {
   AuthorizationAction,
   AuthorizationState,
@@ -11,6 +12,7 @@ import type {
   CacheUsage,
   ConnectionStatus,
   ForwardMessagesResult,
+  GlobalSearchFilter,
   Message,
   MessagePermissions,
   ProxySettings,
@@ -70,6 +72,7 @@ export interface TelegramState {
   activeChatId?: string;
   searchQuery: string;
   chatFilter: ChatFilter;
+  globalSearch: GlobalSearchState;
   initialize: () => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
@@ -94,6 +97,10 @@ export interface TelegramState {
     messageId: string,
   ) => Promise<MessagePermissions | undefined>;
   searchChatMessages: (query: string) => Promise<void>;
+  searchGlobal: (query: string, filter?: GlobalSearchFilter) => Promise<void>;
+  loadMoreGlobalSearch: () => Promise<void>;
+  cancelGlobalSearch: () => void;
+  clearGlobalSearch: () => void;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;

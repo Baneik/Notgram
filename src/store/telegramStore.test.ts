@@ -6,6 +6,8 @@ import type {
   CachedTelegramSnapshot,
   Chat,
   ConnectionStatus,
+  GlobalSearchInput,
+  GlobalSearchPage,
   Message,
   MessagePermissions,
   SendMessageInput,
@@ -1369,6 +1371,99 @@ describe("telegram store", () => {
     expect(transport.cleanupInput?.protectedPaths).toContain("/mock-video.mp4");
     expect(store.getState().cacheCleanupResult?.removedFiles).toBe(11);
     expect(store.getState().cacheUsage?.total.files).toBe(7);
+  });
+});
+
+describe("global search state", () => {
+  it("drops stale pages and ignores a response after cancellation", async () => {
+    class DelayedSearchTransport extends MockTelegramTransport {
+      requests: Array<{
+        input: GlobalSearchInput;
+        resolve: (page: GlobalSearchPage) => void;
+      }> = [];
+
+      override searchGlobal(input: GlobalSearchInput) {
+        return new Promise<GlobalSearchPage>((resolve) => {
+          this.requests.push({ input, resolve });
+        });
+      }
+    }
+    const transport = new DelayedSearchTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const first = store.getState().searchGlobal("first", "all");
+    const second = store.getState().searchGlobal("second", "media");
+
+    transport.requests[0].resolve({
+      chats: [mockSnapshot.chats[0]],
+      messages: [mockSnapshot.messages[0]],
+      totalCount: 1,
+    });
+    await first;
+    expect(store.getState().globalSearch).toMatchObject({
+      query: "second",
+      filter: "media",
+      messages: [],
+      loading: true,
+    });
+
+    transport.requests[1].resolve({
+      chats: [mockSnapshot.chats[1]],
+      messages: [mockSnapshot.messages[1]],
+      totalCount: 1,
+    });
+    await second;
+    expect(store.getState().globalSearch.messages.map((message) => message.id)).toEqual([
+      mockSnapshot.messages[1].id,
+    ]);
+
+    const cancelled = store.getState().searchGlobal("cancelled", "all");
+    store.getState().cancelGlobalSearch();
+    transport.requests[2].resolve({
+      chats: [mockSnapshot.chats[0]],
+      messages: [mockSnapshot.messages[0]],
+      totalCount: 1,
+    });
+    await cancelled;
+    expect(store.getState().globalSearch).toMatchObject({
+      query: "cancelled",
+      messages: [],
+      loading: false,
+    });
+  });
+
+  it("loads an opaque next page and deduplicates repeated messages", async () => {
+    class PagedSearchTransport extends MockTelegramTransport {
+      requests: GlobalSearchInput[] = [];
+
+      override async searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage> {
+        this.requests.push(input);
+        return input.offset
+          ? {
+              chats: [mockSnapshot.chats[0]],
+              messages: [mockSnapshot.messages[0], mockSnapshot.messages[1]],
+            }
+          : {
+              chats: [mockSnapshot.chats[0]],
+              messages: [mockSnapshot.messages[0]],
+              nextOffset: "opaque-next",
+            };
+      }
+    }
+    const transport = new PagedSearchTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await store.getState().searchGlobal("project", "all");
+    await store.getState().loadMoreGlobalSearch();
+
+    expect(transport.requests.map(({ offset }) => offset)).toEqual([undefined, "opaque-next"]);
+    expect(store.getState().globalSearch.messages.map(({ id }) => id)).toEqual([
+      mockSnapshot.messages[0].id,
+      mockSnapshot.messages[1].id,
+    ]);
+    expect(store.getState().globalSearch.totalCount).toBe(2);
+    expect(store.getState().globalSearch.nextOffset).toBeUndefined();
   });
 });
 

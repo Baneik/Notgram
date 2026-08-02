@@ -38,6 +38,7 @@ import {
 import type { TelegramState } from "./telegramStore.types";
 import { logPerformance } from "../utils/performanceMonitor";
 import { protectedCachePaths } from "./cacheProtection";
+import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
 
 export type {
   ChatFilter,
@@ -74,6 +75,7 @@ export const createTelegramStore = (
     let chatSearchTimer: ReturnType<typeof setTimeout> | undefined;
     let chatSearchGeneration = 0;
     let outboxFlush: Promise<void> | undefined;
+    let globalSearchGeneration = 0;
 
     const scheduleCacheWrite = () => {
       const state = get();
@@ -129,6 +131,7 @@ export const createTelegramStore = (
         outbox: [],
         histories: new Map(),
         activeChatId: undefined,
+        globalSearch: emptyGlobalSearch(),
         chatFilter: "main",
         cacheHealth: clearSnapshot ? "empty" : get().cacheHealth,
       });
@@ -662,6 +665,7 @@ export const createTelegramStore = (
       histories: new Map(),
       searchQuery: "",
       chatFilter: "main",
+      globalSearch: emptyGlobalSearch(),
 
       initialize: async () => {
         if (get().phase !== "idle") return;
@@ -1070,6 +1074,90 @@ export const createTelegramStore = (
             operationError: error instanceof Error ? error.message : "无法搜索聊天消息",
           });
         }
+      },
+
+      searchGlobal: async (query, filter = "all") => {
+        const normalized = query.trim();
+        const generation = ++globalSearchGeneration;
+        if (!normalized) {
+          set({ globalSearch: emptyGlobalSearch() });
+          return;
+        }
+        if (get().authorization.kind !== "ready") {
+          set({
+            globalSearch: {
+              ...emptyGlobalSearch(normalized, filter),
+              error: "Telegram 就绪后才能搜索",
+            },
+          });
+          return;
+        }
+        set({
+          globalSearch: {
+            ...emptyGlobalSearch(normalized, filter),
+            loading: true,
+          },
+        });
+        try {
+          const page = await transport.searchGlobal({
+            query: normalized,
+            filter,
+            limit: 30,
+          });
+          if (generation !== globalSearchGeneration) return;
+          set({
+            globalSearch: mergeGlobalSearchPage(
+              { ...emptyGlobalSearch(normalized, filter), loading: true },
+              page,
+            ),
+          });
+        } catch (error) {
+          if (generation !== globalSearchGeneration) return;
+          set({
+            globalSearch: {
+              ...emptyGlobalSearch(normalized, filter),
+              error: errorMessage(error, "全局搜索失败"),
+            },
+          });
+        }
+      },
+
+      loadMoreGlobalSearch: async () => {
+        const current = get().globalSearch;
+        if (current.loading || !current.query || !current.nextOffset) return;
+        const generation = ++globalSearchGeneration;
+        set({ globalSearch: { ...current, loading: true, error: undefined } });
+        try {
+          const page = await transport.searchGlobal({
+            query: current.query,
+            filter: current.filter,
+            offset: current.nextOffset,
+            limit: 30,
+          });
+          if (generation !== globalSearchGeneration) return;
+          set({ globalSearch: mergeGlobalSearchPage(current, page) });
+        } catch (error) {
+          if (generation !== globalSearchGeneration) return;
+          set({
+            globalSearch: {
+              ...current,
+              loading: false,
+              error: errorMessage(error, "无法加载更多搜索结果"),
+            },
+          });
+        }
+      },
+
+      cancelGlobalSearch: () => {
+        globalSearchGeneration += 1;
+        set((state) => ({
+          globalSearch: { ...state.globalSearch, loading: false, error: undefined },
+        }));
+      },
+
+      clearGlobalSearch: () => {
+        globalSearchGeneration += 1;
+        set({ globalSearch: emptyGlobalSearch() });
       },
 
       setMessageReaction: async (messageId, emoji, chosen) => {
