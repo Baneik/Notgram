@@ -690,7 +690,9 @@ export class TauriTelegramTransport implements TelegramTransport {
       "@type": "createChatFolder",
       folder: this.newChatFolder(title, includedChatIds),
     });
-    return this.upsertFolderInfo(info);
+    const folder = this.upsertFolderInfo(info);
+    await Promise.all([...new Set(chatIds)].map((chatId) => this.refreshChat(chatId)));
+    return folder;
   }
 
   async renameChatFolder(folderId: string, title: string) {

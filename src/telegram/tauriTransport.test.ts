@@ -390,6 +390,11 @@ describe("TauriTelegramTransport startup", () => {
     internal.request = async (request) => {
       requests.push(request);
       if (request["@type"] === "createChatFolder") return rawFolderInfo(13, "客户");
+      if (request["@type"] === "getChat") {
+        const chat = rawChat(Number(request.chat_id), 1_700_000_000);
+        chat.chat_lists = [{ "@type": "chatListFolder", chat_folder_id: 13 }];
+        return chat;
+      }
       if (request["@type"] === "getChatFolder") return rawFolder("工作");
       if (request["@type"] === "editChatFolder") return rawFolderInfo(12, "项目");
       return { "@type": "ok" };
@@ -425,7 +430,9 @@ describe("TauriTelegramTransport startup", () => {
         include_channels: false,
       },
     });
-    expect(requests[2]).toMatchObject({
+    expect(requests.filter((request) => request["@type"] === "getChat")
+      .map((request) => request.chat_id)).toEqual([7, 8]);
+    expect(requests[4]).toMatchObject({
       "@type": "editChatFolder",
       chat_folder_id: 12,
       folder: {
