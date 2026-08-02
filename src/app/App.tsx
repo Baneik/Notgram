@@ -9,6 +9,8 @@ import { filterAndSortChats, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
 import { connectionPresentation } from "../telegram/connectionState";
+import { showDesktopNotification } from "../notifications/desktopNotifications";
+import { shouldNotifyMessage } from "../notifications/messageNotificationPolicy";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -112,38 +114,20 @@ export function App() {
       const key = `${message.chatId}:${message.id}`;
       if (knownLatestMessagesRef.current.has(key)) continue;
       knownLatestMessagesRef.current.add(key);
-      if (
-        message.outgoing ||
-        !notificationsEnabled ||
-        (message.chatId === activeChatId && document.visibilityState === "visible")
-      ) {
-        continue;
-      }
       const chat = chats.get(message.chatId);
+      if (!shouldNotifyMessage({
+        outgoing: message.outgoing,
+        notificationsEnabled,
+        muted: chat?.muted ?? false,
+        activeChat: message.chatId === activeChatId,
+        appVisible: document.visibilityState === "visible",
+      })) continue;
       const body = messageContentText(message.content);
-      if ("Notification" in globalThis && Notification.permission === "granted") {
-        try {
-          new Notification(chat?.title ?? "Notgram", { body });
-        } catch {
-          // The native WebView may deny notifications despite a browser permission result.
-        }
-      }
-      if (notificationSound) {
-        try {
-          const context = new AudioContext();
-          const oscillator = context.createOscillator();
-          const gain = context.createGain();
-          oscillator.frequency.value = 660;
-          gain.gain.setValueAtTime(0.035, context.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.12);
-          oscillator.connect(gain).connect(context.destination);
-          oscillator.start();
-          oscillator.stop(context.currentTime + 0.12);
-          oscillator.addEventListener("ended", () => void context.close(), { once: true });
-        } catch {
-          // Audio can be blocked until the user has interacted with the window.
-        }
-      }
+      void showDesktopNotification({
+        title: chat?.title ?? "Notgram",
+        body,
+        sound: notificationSound,
+      });
     }
   }, [activeChatId, chats, messages, notificationSound, notificationsEnabled]);
 

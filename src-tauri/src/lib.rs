@@ -16,6 +16,7 @@ pub fn run() {
     load_environment();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(telegram::TelegramRuntime::new())
         .manage(telegram::media_stream::MediaStreamRegistry::default())
         .register_asynchronous_uri_scheme_protocol(

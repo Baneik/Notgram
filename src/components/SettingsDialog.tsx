@@ -29,6 +29,7 @@ import {
 import { useTelegramStore } from "../store/telegramStore";
 import type { CacheHealth } from "../store/telegramStore.cache";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { requestDesktopNotificationPermission } from "../notifications/desktopNotifications";
 import {
   usePreferencesStore,
   type AppPreferences,
@@ -198,14 +199,13 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     value: AppPreferences[Key],
   ) => {
     setPreferenceError(undefined);
-    if (key === "notificationsEnabled" && value === true && "Notification" in globalThis) {
-      const permission = Notification.permission === "default"
-        ? await Notification.requestPermission()
-        : Notification.permission;
-      if (permission !== "granted") {
-        setPreferenceError("系统通知权限未开启");
-        return;
-      }
+    if (
+      key === "notificationsEnabled" &&
+      value === true &&
+      !await requestDesktopNotificationPermission()
+    ) {
+      setPreferenceError("系统通知权限未开启");
+      return;
     }
     setPreference(key, value);
   };
