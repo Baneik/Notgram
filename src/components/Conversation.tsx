@@ -53,7 +53,9 @@ import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { MediaViewer } from "./MediaViewer";
+import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
+import { segmentMediaAlbums } from "../utils/mediaAlbums";
 
 interface ConversationProps {
   chat?: Chat;
@@ -562,31 +564,71 @@ export function Conversation({
                   </span>
                 )}
                 <div className="message-group-stack">
-                  {messageGroup.map((message, index) => (
-                    <RichMessageBubble
-                      key={message.id}
-                      message={message}
-                      sender={sender}
-                      senderName={senderName}
-                      groupPosition={messageGroupPosition(messageGroup, index)}
-                      replyPreview={replyPreviewFor(message, messagesById, users, chat)}
-                      forwardLabel={forwardLabelFor(message, users, forwardTargetsById)}
-                      selectionMode={selectionMode}
-                      selected={selectedMessageIds.has(message.id)}
-                      selectionPending={selectionLoadingIds.has(message.id)}
-                      selectionLimitReached={selectedMessageIds.size >= 100}
-                      onToggleSelection={toggleMessageSelection}
-                      onOpenActions={openActionMenu}
-                      onDownload={onDownloadFile}
-                      onStream={onStreamFile}
-                      onRetry={onRetryMessage}
-                      onCancelUpload={onCancelFileUpload}
-                      onReaction={onSetMessageReaction}
-                      onOpenMedia={selectionMode ? undefined : setViewerMessageId}
-                      autoplayAnimations={autoplayAnimations}
-                      developerMode={developerMode}
-                    />
-                  ))}
+                  {(selectionMode
+                    ? messageGroup.map((message) => ({ kind: "message" as const, message }))
+                    : segmentMediaAlbums(messageGroup)
+                  ).map((segment) => {
+                    const renderBubble = (message: Message, albumItem = false) => (
+                      <RichMessageBubble
+                        key={message.id}
+                        message={message}
+                        sender={sender}
+                        senderName={senderName}
+                        groupPosition={messageGroupPosition(
+                          messageGroup,
+                          messageGroup.findIndex((candidate) => candidate.id === message.id),
+                        )}
+                        replyPreview={replyPreviewFor(message, messagesById, users, chat)}
+                        forwardLabel={forwardLabelFor(message, users, forwardTargetsById)}
+                        selectionMode={selectionMode}
+                        selected={selectedMessageIds.has(message.id)}
+                        selectionPending={selectionLoadingIds.has(message.id)}
+                        selectionLimitReached={selectedMessageIds.size >= 100}
+                        onToggleSelection={toggleMessageSelection}
+                        onOpenActions={openActionMenu}
+                        onDownload={onDownloadFile}
+                        onStream={onStreamFile}
+                        onRetry={onRetryMessage}
+                        onCancelUpload={onCancelFileUpload}
+                        onReaction={onSetMessageReaction}
+                        onOpenMedia={selectionMode ? undefined : setViewerMessageId}
+                        albumItem={albumItem}
+                        autoplayAnimations={autoplayAnimations}
+                        developerMode={developerMode}
+                      />
+                    );
+                    if (segment.kind === "message") return renderBubble(segment.message);
+
+                    const captionMessage = segment.messages.find((message) =>
+                      message.content.kind === "media" && Boolean(message.content.caption),
+                    );
+                    const caption = captionMessage?.content.kind === "media"
+                      ? captionMessage.content
+                      : undefined;
+                    return (
+                      <div
+                        className={`media-album ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
+                        data-media-album-id={segment.albumId}
+                        key={`album:${segment.albumId}:${segment.messages[0]?.id}`}
+                        role="group"
+                        aria-label={`${segment.messages.length} 项媒体相册`}
+                      >
+                        <div
+                          className="media-album-grid"
+                          data-count={Math.min(segment.messages.length, 5)}
+                        >
+                          {segment.messages.map((message) => renderBubble(message, true))}
+                        </div>
+                        {caption?.caption && (
+                          <MessageRichText
+                            className="media-album-caption"
+                            text={caption.caption}
+                            entities={caption.captionEntities}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               </Fragment>

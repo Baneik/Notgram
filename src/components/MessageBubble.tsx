@@ -60,6 +60,7 @@ interface MessageBubbleProps {
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onOpenMedia?: (messageId: string) => void;
+  albumItem?: boolean;
   autoplayAnimations: boolean;
   developerMode: boolean;
 }
@@ -94,6 +95,7 @@ function MessageBubbleComponent({
   onCancelUpload,
   onReaction,
   onOpenMedia,
+  albumItem = false,
   autoplayAnimations,
   developerMode,
 }: MessageBubbleProps) {
@@ -114,8 +116,8 @@ function MessageBubbleComponent({
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
-  const hasCaption = content.kind === "media" && Boolean(content.caption);
-  const showSender = !message.outgoing && isGroupFirst(groupPosition);
+  const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
+  const showSender = !albumItem && !message.outgoing && isGroupFirst(groupPosition);
   const fullMediaSource = content.kind === "media" ? localSource(content.localPath) : undefined;
   const previewSource = content.kind === "media"
     ? localSource(content.thumbnailPath) ?? content.previewDataUrl
@@ -246,7 +248,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={lazyMediaRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
     >
       {selectionMode && !isService && (
@@ -275,14 +277,14 @@ function MessageBubbleComponent({
         }}
       >
         <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""}`}>
-          {!isService && forwardLabel && (
+          {!albumItem && !isService && forwardLabel && (
             <span className="message-forward-label">
               <Forward size={12} strokeWidth={2} />
               {forwardLabel}
             </span>
           )}
           {!isService && showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
-          {!isService && replyPreview && (
+          {!albumItem && !isService && replyPreview && (
             <span className="message-reply-preview">
               <strong>{replyPreview.author}</strong>
               <small>{replyPreview.text}</small>
@@ -449,7 +451,7 @@ function MessageBubbleComponent({
                   </span>
                 )}
               </div>
-              {content.caption && (
+              {hasCaption && content.caption && (
                 <MessageRichText
                   className="photo-caption"
                   text={content.caption}
@@ -524,7 +526,7 @@ function MessageBubbleComponent({
             )}
           </span>}
         </div>
-        {!selectionMode && !isService && (
+        {!albumItem && !selectionMode && !isService && (
           <div className={`message-reactions ${reactions.length === 0 ? "is-empty" : ""}`}>
             {reactions.map((reaction) => {
               const label = reactionLabel(reaction);

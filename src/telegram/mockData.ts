@@ -309,6 +309,7 @@ const messages: Message[] = [
   {
     id: "p-tall",
     chatId: "chat-product",
+    mediaAlbumId: "mock-album-product",
     senderId: "u-mia",
     outgoing: false,
     sentAt: "2026-08-01T09:49:00+08:00",
@@ -329,6 +330,7 @@ const messages: Message[] = [
   {
     id: "p-5",
     chatId: "chat-product",
+    mediaAlbumId: "mock-album-product",
     senderId: "u-mia",
     outgoing: false,
     sentAt: "2026-08-01T09:50:00+08:00",
