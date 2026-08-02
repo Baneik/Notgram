@@ -617,13 +617,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .empty-conversation h2 { margin: 0; padding: 5px 11px; background: rgba(92, 117, 112, 0.72); border-radius: 13px; font-size: 12px; font-weight: 600; }
 .conversation-empty-mark { width: 48px; height: 48px; display: grid; place-items: center; color: #ffffff; background: var(--accent); border-radius: 50%; font-size: 18px; font-weight: 700; }
 
-.runtime-error {
+.runtime-error, .operation-error {
   position: fixed; z-index: 90; right: 18px; bottom: 18px; max-width: min(430px, calc(100vw - 36px)); min-height: 42px;
   padding: 9px 9px 9px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
   color: #9f342c; background: #fff4f2; border: 1px solid #efc4bf; border-radius: 8px; box-shadow: 0 8px 24px rgba(40, 20, 18, 0.14); font-size: 12px;
 }
-.runtime-error button { width: 26px; height: 26px; padding: 0; display: grid; place-items: center; color: inherit; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.operation-error { color: #765817; background: #fff9e8; border-color: #eadcae; }
+.runtime-error button, .operation-error button { width: 26px; height: 26px; padding: 0; display: grid; place-items: center; color: inherit; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .runtime-error button:hover { background: #f8dfdc; }
+.operation-error button:hover { background: #f3e9c8; }
 
 .dialog-backdrop {
   position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgba(20, 26, 30, 0.48);

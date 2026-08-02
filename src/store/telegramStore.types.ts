@@ -33,6 +33,7 @@ export interface ChatListState {
 export interface TelegramState {
   phase: RuntimePhase;
   error?: string;
+  operationError?: string;
   transportKind: TelegramTransport["kind"];
   transportLabel: string;
   connectionStatus: ConnectionStatus;
@@ -104,4 +105,5 @@ export interface TelegramState {
   sendFile: (file?: File) => Promise<boolean>;
   cancelFileUpload: (messageId: string) => Promise<void>;
   clearError: () => void;
+  clearOperationError: () => void;
 }

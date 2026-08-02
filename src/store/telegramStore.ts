@@ -101,7 +101,7 @@ export const createTelegramStore = (
         text: draft?.text ?? "",
         replyToMessageId: draft?.replyToMessageId,
       }),
-      reportError: (error) => set({ error }),
+      reportError: (operationError) => set({ operationError }),
       scheduleCacheWrite,
     });
 
@@ -218,7 +218,7 @@ export const createTelegramStore = (
             setOutbox(get().outbox.map((candidate) =>
               candidate.id === item.id ? { ...candidate, status: "failed" } : candidate,
             ));
-            set({ error: errorMessage(error, "离线消息恢复发送失败") });
+            set({ operationError: errorMessage(error, "离线消息恢复发送失败") });
             await persistOutboxState();
             return;
           }
@@ -343,7 +343,7 @@ export const createTelegramStore = (
         }
         const nextHistories = new Map(get().histories);
         nextHistories.set(chatId, { loading: false, hasMore: page.hasMore });
-        set({ histories: nextHistories, error: undefined });
+        set({ histories: nextHistories, operationError: undefined });
         logPerformance("ui_history_data", {
           durationMs: performance.now() - startedAt,
           beforeCount,
@@ -358,7 +358,7 @@ export const createTelegramStore = (
         nextHistories.set(chatId, { loading: false, hasMore: true });
         set({
           histories: nextHistories,
-          error: error instanceof Error ? error.message : "无法加载历史消息",
+          operationError: error instanceof Error ? error.message : "无法加载历史消息",
         });
         logPerformance("ui_history_data", {
           durationMs: performance.now() - startedAt,
@@ -381,14 +381,14 @@ export const createTelegramStore = (
         const page = await transport.loadMoreChats(chatListId, 50);
         const nextChatLists = new Map(get().chatLists);
         nextChatLists.set(chatListId, { loading: false, hasMore: page.hasMore });
-        set({ chatLists: nextChatLists, error: undefined });
+        set({ chatLists: nextChatLists, operationError: undefined });
         scheduleCacheWrite();
       } catch (error) {
         const nextChatLists = new Map(get().chatLists);
         nextChatLists.set(chatListId, { loading: false, hasMore: true });
         set({
           chatLists: nextChatLists,
-          error: error instanceof Error ? error.message : "无法加载更多会话",
+          operationError: error instanceof Error ? error.message : "无法加载更多会话",
         });
       }
     };
@@ -411,7 +411,7 @@ export const createTelegramStore = (
           await transport.markChatRead(chatId);
         })
         .catch((error) => {
-          set({ error: error instanceof Error ? error.message : "无法更新已读状态" });
+          set({ operationError: error instanceof Error ? error.message : "无法更新已读状态" });
         });
       const tracked = operation.finally(() => {
         if (readRequestChains.get(chatId) === tracked) readRequestChains.delete(chatId);
@@ -470,7 +470,8 @@ export const createTelegramStore = (
         set({
           phase: event.fatal ? "error" : get().phase,
           connectionStatus: event.fatal ? "offline" : get().connectionStatus,
-          error: event.message,
+          error: event.fatal ? event.message : get().error,
+          operationError: event.fatal ? undefined : event.message,
         });
         return;
       }
@@ -605,7 +606,12 @@ export const createTelegramStore = (
       let disconnected = false;
       accountTransition = true;
       registeredAccountKey = undefined;
-      set({ accountPending: true, accountError: undefined, error: undefined });
+      set({
+        accountPending: true,
+        accountError: undefined,
+        error: undefined,
+        operationError: undefined,
+      });
       try {
         await accountRegistration;
         await draftSync.flushPending();
@@ -656,7 +662,12 @@ export const createTelegramStore = (
 
       initialize: async () => {
         if (get().phase !== "idle") return;
-        set({ phase: "loading", connectionStatus: "connecting", error: undefined });
+        set({
+          phase: "loading",
+          connectionStatus: "connecting",
+          error: undefined,
+          operationError: undefined,
+        });
         try {
           applyAccountState(await transport.getAccountState());
           try {
@@ -867,7 +878,12 @@ export const createTelegramStore = (
         let disconnected = false;
         accountTransition = true;
         registeredAccountKey = undefined;
-        set({ accountPending: true, accountError: undefined, error: undefined });
+        set({
+          accountPending: true,
+          accountError: undefined,
+          error: undefined,
+          operationError: undefined,
+        });
         try {
           await accountRegistration;
           await draftSync.flushPending();
@@ -925,7 +941,7 @@ export const createTelegramStore = (
             listOrderByFolder: { ...chat.listOrderByFolder, [chatListId]: order },
           });
         }
-        set({ chats, error: undefined });
+        set({ chats, operationError: undefined });
 
         try {
           await transport.setPinnedChats(chatListId, uniqueIds);
@@ -942,7 +958,9 @@ export const createTelegramStore = (
             for (const [chatId, chat] of originalChats) rollback.set(chatId, chat);
             set({ chats: rollback });
           }
-          set({ error: error instanceof Error ? error.message : "无法调整置顶顺序" });
+          set({
+            operationError: error instanceof Error ? error.message : "无法调整置顶顺序",
+          });
           return false;
         }
       },
@@ -964,11 +982,11 @@ export const createTelegramStore = (
           if (!message || message !== requestedMessage) return undefined;
           const messages = new Map(get().messages);
           messages.set(chatId, upsertMessage(currentMessages, { ...message, permissions }));
-          set({ messages, error: undefined });
+          set({ messages, operationError: undefined });
           return permissions;
         } catch (error) {
           set({
-            error: error instanceof Error ? error.message : "无法读取消息操作权限",
+            operationError: error instanceof Error ? error.message : "无法读取消息操作权限",
           });
           return undefined;
         }
@@ -980,9 +998,11 @@ export const createTelegramStore = (
         if (!chatId || !normalized || get().authorization.kind !== "ready") return;
         try {
           await transport.searchChatMessages(chatId, normalized, 100);
-          set({ error: undefined });
+          set({ operationError: undefined });
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "无法搜索聊天消息" });
+          set({
+            operationError: error instanceof Error ? error.message : "无法搜索聊天消息",
+          });
         }
       },
 
@@ -996,7 +1016,7 @@ export const createTelegramStore = (
         if (optimistic === original) return;
         const messages = new Map(get().messages);
         messages.set(chatId, upsertMessage(currentMessages, optimistic));
-        set({ messages, error: undefined });
+        set({ messages, operationError: undefined });
         try {
           await transport.setMessageReaction({ chatId, messageId, emoji, chosen });
           scheduleCacheWrite();
@@ -1011,7 +1031,9 @@ export const createTelegramStore = (
             rollback.set(chatId, upsertMessage(latestMessages, original));
             set({ messages: rollback });
           }
-          set({ error: error instanceof Error ? error.message : "无法更新表情回应" });
+          set({
+            operationError: error instanceof Error ? error.message : "无法更新表情回应",
+          });
         }
       },
 
@@ -1026,7 +1048,7 @@ export const createTelegramStore = (
           chatSearchTimer = undefined;
           void transport.searchChats(normalized, 50).catch((error) => {
             if (generation !== chatSearchGeneration) return;
-            set({ error: error instanceof Error ? error.message : "无法搜索会话" });
+            set({ operationError: error instanceof Error ? error.message : "无法搜索会话" });
           });
         }, 250);
       },
@@ -1083,7 +1105,7 @@ export const createTelegramStore = (
               outbox,
               get().currentUserId ?? "self",
             ),
-            error: undefined,
+            operationError: undefined,
           });
           try {
             await flushCachedSnapshot();
@@ -1098,7 +1120,7 @@ export const createTelegramStore = (
               outbox: previousOutbox,
               messages: previousMessages,
               cacheHealth: "invalid",
-              error: errorMessage(error, "无法保存离线发送队列"),
+              operationError: errorMessage(error, "无法保存离线发送队列"),
             });
             return false;
           }
@@ -1110,7 +1132,7 @@ export const createTelegramStore = (
           draftSync.markAwaitingAck(chatId, clearGeneration);
           const drafts = new Map(get().drafts);
           drafts.delete(chatId);
-          set({ drafts, error: undefined });
+          set({ drafts, operationError: undefined });
           scheduleCacheWrite();
           return true;
         } catch (error) {
@@ -1122,7 +1144,7 @@ export const createTelegramStore = (
             set({ drafts });
             draftSync.expect(chatId, draftForSync(restored), 0);
           }
-          set({ error: error instanceof Error ? error.message : "消息发送失败" });
+          set({ operationError: error instanceof Error ? error.message : "消息发送失败" });
           return false;
         }
       },
@@ -1133,10 +1155,10 @@ export const createTelegramStore = (
         if (!chatId || !normalizedText) return false;
         try {
           await transport.editMessage({ chatId, messageId, text: normalizedText });
-          set({ error: undefined });
+          set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "消息编辑失败" });
+          set({ operationError: error instanceof Error ? error.message : "消息编辑失败" });
           return false;
         }
       },
@@ -1151,11 +1173,11 @@ export const createTelegramStore = (
             chatId,
             (messages.get(chatId) ?? []).filter((message) => message.id !== messageId),
           );
-          set({ messages, error: undefined });
+          set({ messages, operationError: undefined });
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "消息删除失败" });
+          set({ operationError: error instanceof Error ? error.message : "消息删除失败" });
           return false;
         }
       },
@@ -1165,20 +1187,20 @@ export const createTelegramStore = (
         const uniqueMessageIds = [...new Set(messageIds)];
         if (uniqueMessageIds.length === 0) return undefined;
         if (uniqueMessageIds.length > 100) {
-          set({ error: "单次最多转发 100 条消息" });
+          set({ operationError: "单次最多转发 100 条消息" });
           return undefined;
         }
         try {
           const result = await transport.forwardMessages({ fromChatId, toChatId, messageIds: uniqueMessageIds });
           set({
-            error: result.failedMessageIds.length > 0
+            operationError: result.failedMessageIds.length > 0
               ? `${result.forwardedCount} 条消息已转发，${result.failedMessageIds.length} 条失败`
               : undefined,
           });
           scheduleCacheWrite();
           return result;
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "消息转发失败" });
+          set({ operationError: error instanceof Error ? error.message : "消息转发失败" });
           return undefined;
         }
       },
@@ -1192,10 +1214,10 @@ export const createTelegramStore = (
       streamFile: async (fileId, size, mimeType) => {
         try {
           const source = await transport.streamFile({ fileId, size, mimeType });
-          set({ error: undefined });
+          set({ operationError: undefined });
           return source;
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "视频流加载失败" });
+          set({ operationError: error instanceof Error ? error.message : "视频流加载失败" });
           return undefined;
         }
       },
@@ -1203,9 +1225,9 @@ export const createTelegramStore = (
       downloadFile: async (fileId, fileName) => {
         try {
           await transport.downloadFile(fileId, fileName);
-          set({ error: undefined });
+          set({ operationError: undefined });
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "文件下载失败" });
+          set({ operationError: error instanceof Error ? error.message : "文件下载失败" });
         }
       },
 
@@ -1226,7 +1248,7 @@ export const createTelegramStore = (
             setOutbox(previous);
             set({
               cacheHealth: "invalid",
-              error: errorMessage(error, "无法保存重试队列"),
+              operationError: errorMessage(error, "无法保存重试队列"),
             });
             return;
           }
@@ -1235,9 +1257,9 @@ export const createTelegramStore = (
         }
         try {
           await transport.retryMessage(chatId, messageId);
-          set({ error: undefined });
+          set({ operationError: undefined });
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "消息重试失败" });
+          set({ operationError: error instanceof Error ? error.message : "消息重试失败" });
         }
       },
 
@@ -1246,10 +1268,10 @@ export const createTelegramStore = (
         if (!chatId) return false;
         try {
           const sent = await transport.sendFile({ chatId, file });
-          if (sent) set({ error: undefined });
+          if (sent) set({ operationError: undefined });
           return sent;
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "文件发送失败" });
+          set({ operationError: error instanceof Error ? error.message : "文件发送失败" });
           return false;
         }
       },
@@ -1264,14 +1286,15 @@ export const createTelegramStore = (
             chatId,
             (messages.get(chatId) ?? []).filter((message) => message.id !== messageId),
           );
-          set({ messages, error: undefined });
+          set({ messages, operationError: undefined });
           scheduleCacheWrite();
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "取消上传失败" });
+          set({ operationError: error instanceof Error ? error.message : "取消上传失败" });
         }
       },
 
       clearError: () => set({ error: undefined }),
+      clearOperationError: () => set({ operationError: undefined }),
     };
   });
 

@@ -25,6 +25,7 @@ const readSidebarWidth = () => {
 export function App() {
   const phase = useTelegramStore((state) => state.phase);
   const error = useTelegramStore((state) => state.error);
+  const operationError = useTelegramStore((state) => state.operationError);
   const chatFilter = useTelegramStore((state) => state.chatFilter);
   const searchQuery = useTelegramStore((state) => state.searchQuery);
   const activeChatId = useTelegramStore((state) => state.activeChatId);
@@ -66,6 +67,7 @@ export function App() {
   const cancelFileUpload = useTelegramStore((state) => state.cancelFileUpload);
   const loadMoreHistory = useTelegramStore((state) => state.loadMoreHistory);
   const clearError = useTelegramStore((state) => state.clearError);
+  const clearOperationError = useTelegramStore((state) => state.clearOperationError);
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -274,6 +276,13 @@ export function App() {
           <CircleAlert size={17} />
           <span>{error}</span>
           <button type="button" aria-label="关闭错误提示" title="关闭" onClick={clearError}><X size={16} /></button>
+        </div>
+      )}
+      {operationError && (
+        <div className="operation-error" role="alert">
+          <CircleAlert size={17} />
+          <span>{operationError}</span>
+          <button type="button" aria-label="关闭操作提示" title="关闭" onClick={clearOperationError}><X size={16} /></button>
         </div>
       )}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}

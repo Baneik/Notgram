@@ -74,8 +74,11 @@ describe("telegram store", () => {
     expect(store.getState()).toMatchObject({
       phase: "ready",
       connectionStatus: "online",
-      error: "下载保存失败",
+      operationError: "下载保存失败",
     });
+    expect(store.getState().error).toBeUndefined();
+    store.getState().clearOperationError();
+    expect(store.getState().operationError).toBeUndefined();
 
     transport.report("runtime stopped", true);
     expect(store.getState()).toMatchObject({
@@ -83,6 +86,7 @@ describe("telegram store", () => {
       connectionStatus: "offline",
       error: "runtime stopped",
     });
+    expect(store.getState().operationError).toBeUndefined();
   });
 
   it("persists offline text messages and sends them once after restart and reconnect", async () => {
@@ -685,7 +689,7 @@ describe("telegram store", () => {
       ["p-1", "p-2"],
       "chat-mia",
     )).resolves.toEqual({ forwardedCount: 1, failedMessageIds: ["p-2"] });
-    expect(store.getState().error).toBe("1 条消息已转发，1 条失败");
+    expect(store.getState().operationError).toBe("1 条消息已转发，1 条失败");
   });
 
   it("syncs independent chat drafts after debounce and on chat switches", async () => {
@@ -872,14 +876,14 @@ describe("telegram store", () => {
     );
 
     await expect(store.getState().editMessage("p-2", "不会保存")).resolves.toBe(false);
-    expect(store.getState().error).toBe("temporary edit failure");
+    expect(store.getState().operationError).toBe("temporary edit failure");
     expect(
       store.getState().messages.get("chat-product")
         ?.find((message) => message.id === "p-2"),
     ).toEqual(original);
 
     await expect(store.getState().deleteMessage("p-2", true)).resolves.toBe(false);
-    expect(store.getState().error).toBe("temporary delete failure");
+    expect(store.getState().operationError).toBe("temporary delete failure");
     expect(
       store.getState().messages.get("chat-product")
         ?.some((message) => message.id === "p-2"),
@@ -956,7 +960,7 @@ describe("telegram store", () => {
       store.getState().messages.get("chat-product")
         ?.find((message) => message.id === "p-4"),
     ).toEqual(before);
-    expect(store.getState().error).toBe("reaction unavailable");
+    expect(store.getState().operationError).toBe("reaction unavailable");
   });
 
   it("debounces server chat search and delegates current-chat message search", async () => {
@@ -1061,7 +1065,7 @@ describe("telegram store", () => {
     const sent = await store.getState().sendMessage("不要丢失这条草稿");
 
     expect(sent).toBe(false);
-    expect(store.getState().error).toBe("temporary send failure");
+    expect(store.getState().operationError).toBe("temporary send failure");
     expect(store.getState().drafts.get("chat-product")).toMatchObject({
       text: "不要丢失这条草稿",
       pending: true,
@@ -1571,6 +1575,6 @@ describe("chat filtering", () => {
       .filter((chat) => chat.pinnedFolderIds?.includes("main"))
       .map((chat) => chat.id))
       .toEqual(before);
-    expect(store.getState().error).toBe("置顶同步失败");
+    expect(store.getState().operationError).toBe("置顶同步失败");
   });
 });
