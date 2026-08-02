@@ -1,3 +1,4 @@
+mod desktop_lifecycle;
 mod desktop_notification;
 mod proxy;
 mod storage;
@@ -16,8 +17,13 @@ fn load_environment() {
 pub fn run() {
     load_environment();
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            desktop_lifecycle::show_main_window(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .setup(desktop_lifecycle::setup)
+        .on_window_event(desktop_lifecycle::handle_window_event)
         .manage(telegram::TelegramRuntime::new())
         .manage(telegram::media_stream::MediaStreamRegistry::default())
         .register_asynchronous_uri_scheme_protocol(
