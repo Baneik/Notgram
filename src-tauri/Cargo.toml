@@ -25,7 +25,7 @@ tauri-plugin-notification = "2.3.3"
 tauri-plugin-single-instance = "2.4.3"
 
 [target.'cfg(windows)'.dependencies]
-notify-rust = "4.18.0"
+tauri-winrt-notification = "0.7.3"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security_Cryptography",

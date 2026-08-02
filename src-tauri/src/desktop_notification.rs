@@ -1,9 +1,8 @@
-use notify_rust::{Notification, NotificationResponse};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_winrt_notification::{Sound, Toast};
 
 const NOTIFICATION_OPEN_EVENT: &str = "notgram://notification-open";
-const WINDOWS_MESSAGE_SOUND: &str = "IM";
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_BODY_CHARS: usize = 1_000;
 const MAX_ROUTE_ID_CHARS: usize = 256;
@@ -69,13 +68,13 @@ fn should_set_application_id() -> bool {
         && !directory.ends_with(&format!("{separator}target{separator}release"))
 }
 
-fn open_notification_route(app: &AppHandle, route: NotificationRoute) {
+fn open_notification_route(app: &AppHandle, route: &NotificationRoute) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
-    let _ = app.emit(NOTIFICATION_OPEN_EVENT, route);
+    let _ = app.emit(NOTIFICATION_OPEN_EVENT, route.clone());
 }
 
 #[tauri::command]
@@ -85,34 +84,22 @@ pub fn notgram_show_notification(
 ) -> Result<(), String> {
     validate_request(&notification)?;
 
-    let mut native_notification = Notification::new();
-    native_notification
-        .summary(&notification.title)
-        .body(&notification.body);
-    if notification.sound {
-        native_notification.sound_name(WINDOWS_MESSAGE_SOUND);
-    }
-    if should_set_application_id() {
-        native_notification.app_id(&app.config().identifier);
-    }
-
-    let handle = native_notification
-        .show()
-        .map_err(|_| "Unable to show the Windows notification".to_string())?;
+    let application_id = if should_set_application_id() {
+        app.config().identifier.clone()
+    } else {
+        Toast::POWERSHELL_APP_ID.to_string()
+    };
     let route = notification.route;
-    std::thread::Builder::new()
-        .name("notgram-notification-action".to_string())
-        .spawn(move || {
-            let app = app.clone();
-            let _ = handle.wait_for_response(move |response: &NotificationResponse| {
-                if response.is_default_action() {
-                    open_notification_route(&app, route);
-                }
-            });
+    Toast::new(&application_id)
+        .title(&notification.title)
+        .text1(&notification.body)
+        .sound(notification.sound.then_some(Sound::IM))
+        .on_activated(move |_| {
+            open_notification_route(&app, &route);
+            Ok(())
         })
-        .map_err(|_| "Unable to observe the Windows notification".to_string())?;
-
-    Ok(())
+        .show()
+        .map_err(|_| "Unable to show the Windows notification".to_string())
 }
 
 #[cfg(test)]
