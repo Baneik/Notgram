@@ -41,6 +41,7 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             diagnostics::notgram_diagnostics_settings,
+            diagnostics::notgram_export_diagnostics,
             diagnostics::notgram_set_crash_reporting_enabled,
             distribution::notgram_distribution_kind,
             desktop_notification::notgram_show_notification,

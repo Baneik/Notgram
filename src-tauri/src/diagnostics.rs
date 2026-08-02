@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::{
     error::Error,
     fs,
-    io::{self, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     panic,
     path::{Path, PathBuf},
     sync::{
@@ -12,6 +13,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+
+use crate::distribution::{DistributionKind, current_kind};
+
+const MAX_EXPORTED_LOG_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_EXPORTED_LOG_RECORDS: usize = 20_000;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +42,24 @@ struct CrashReport {
     event: &'static str,
     version: &'static str,
     timestamp_ms: u128,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsManifest {
+    schema_version: u32,
+    application: &'static str,
+    version: &'static str,
+    generated_at_ms: u128,
+    operating_system: &'static str,
+    architecture: &'static str,
+    distribution: DistributionKind,
+    crash_reporting_enabled: bool,
+    crash_report_included: bool,
+    runtime_log_records: usize,
+    message_content_included: bool,
+    credentials_included: bool,
+    local_paths_included: bool,
 }
 
 #[derive(Clone)]
@@ -87,6 +113,194 @@ fn write_crash_report(path: &Path) -> io::Result<()> {
     file.write_all(&payload)?;
     file.write_all(b"\n")?;
     file.sync_all()
+}
+
+fn safe_detail_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 48
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn sanitize_diagnostic_details(value: Value, depth: usize) -> Value {
+    if depth >= 4 {
+        return Value::Null;
+    }
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => value,
+        Value::String(_) => Value::String("[REDACTED]".to_string()),
+        Value::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .take(32)
+                .map(|value| sanitize_diagnostic_details(value, depth + 1))
+                .collect(),
+        ),
+        Value::Object(values) => Value::Object(
+            values
+                .into_iter()
+                .filter(|(key, _)| safe_detail_key(key))
+                .take(32)
+                .map(|(key, value)| (key, sanitize_diagnostic_details(value, depth + 1)))
+                .collect(),
+        ),
+    }
+}
+
+fn read_bounded_tail(path: &Path) -> io::Result<String> {
+    let mut file = fs::File::open(path)?;
+    let length = file.metadata()?.len();
+    if length > MAX_EXPORTED_LOG_BYTES {
+        file.seek(SeekFrom::Start(length - MAX_EXPORTED_LOG_BYTES))?;
+    }
+    let mut bytes = Vec::with_capacity(length.min(MAX_EXPORTED_LOG_BYTES) as usize);
+    file.take(MAX_EXPORTED_LOG_BYTES).read_to_end(&mut bytes)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn sanitize_runtime_logs(log_directory: &Path) -> (Vec<u8>, usize) {
+    let mut records = Vec::new();
+    for file_name in ["notgram.log.1", "notgram.log"] {
+        let path = log_directory.join(file_name);
+        let Ok(content) = read_bounded_tail(&path) else {
+            continue;
+        };
+        for line in content.lines() {
+            let Ok(value) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            let Some(object) = value.as_object() else {
+                continue;
+            };
+            let event = object
+                .get("event")
+                .and_then(Value::as_str)
+                .filter(|event| {
+                    !event.is_empty()
+                        && event.len() <= 64
+                        && event.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                        })
+                })
+                .unwrap_or("invalid_event");
+            let level = object
+                .get("level")
+                .and_then(Value::as_str)
+                .filter(|level| matches!(*level, "info" | "warn" | "error"))
+                .unwrap_or("unknown");
+            records.push(json!({
+                "timestampMs": object.get("timestampMs").and_then(Value::as_u64).unwrap_or(0),
+                "level": level,
+                "event": event,
+                "details": sanitize_diagnostic_details(
+                    object.get("details").cloned().unwrap_or_else(|| json!({})),
+                    0,
+                ),
+            }));
+            if records.len() >= MAX_EXPORTED_LOG_RECORDS {
+                break;
+            }
+        }
+        if records.len() >= MAX_EXPORTED_LOG_RECORDS {
+            break;
+        }
+    }
+    let mut payload = Vec::new();
+    for record in &records {
+        if serde_json::to_writer(&mut payload, record).is_ok() {
+            payload.push(b'\n');
+        }
+    }
+    (payload, records.len())
+}
+
+fn sanitized_crash_report(path: &Path) -> Option<Vec<u8>> {
+    let value: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+    let timestamp_ms = value.get("timestampMs")?.as_u64()?;
+    serde_json::to_vec_pretty(&json!({
+        "schemaVersion": 1,
+        "event": "application_panic",
+        "version": env!("CARGO_PKG_VERSION"),
+        "timestampMs": timestamp_ms,
+    }))
+    .ok()
+}
+
+fn add_zip_file(
+    archive: &mut ZipWriter<fs::File>,
+    name: &str,
+    bytes: &[u8],
+) -> zip::result::ZipResult<()> {
+    let options = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .unix_permissions(0o600);
+    archive.start_file(name, options)?;
+    archive.write_all(bytes)?;
+    Ok(())
+}
+
+fn export_diagnostics_bundle(
+    destination: &Path,
+    log_directory: &Path,
+    state: &DiagnosticsState,
+) -> io::Result<()> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| io::Error::other("diagnostics destination has no parent"))?;
+    let temporary = parent.join(format!(
+        ".notgram-diagnostics-{}-{}.tmp",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+    ));
+    let result = (|| -> io::Result<()> {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        let mut archive = ZipWriter::new(file);
+        let (runtime_logs, runtime_log_records) = sanitize_runtime_logs(log_directory);
+        let crash_reporting_enabled = state.enabled.load(Ordering::Relaxed);
+        let crash_report = crash_reporting_enabled
+            .then(|| sanitized_crash_report(&state.crash_report_path))
+            .flatten();
+        let manifest = DiagnosticsManifest {
+            schema_version: 1,
+            application: "Notgram",
+            version: env!("CARGO_PKG_VERSION"),
+            generated_at_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
+            operating_system: std::env::consts::OS,
+            architecture: std::env::consts::ARCH,
+            distribution: current_kind(),
+            crash_reporting_enabled,
+            crash_report_included: crash_report.is_some(),
+            runtime_log_records,
+            message_content_included: false,
+            credentials_included: false,
+            local_paths_included: false,
+        };
+        let manifest = serde_json::to_vec_pretty(&manifest)?;
+        add_zip_file(&mut archive, "manifest.json", &manifest)?;
+        add_zip_file(&mut archive, "logs/runtime.jsonl", &runtime_logs)?;
+        if let Some(crash_report) = crash_report {
+            add_zip_file(&mut archive, "crash/latest.json", &crash_report)?;
+        }
+        archive.finish()?.sync_all()?;
+        if destination.exists() {
+            fs::remove_file(destination)?;
+        }
+        fs::rename(&temporary, destination)
+    })();
+    if result.is_err() && temporary.is_file() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
 }
 
 fn install_crash_hook(state: CrashHookState) {
@@ -150,6 +364,46 @@ pub fn notgram_set_crash_reporting_enabled(
     Ok(settings)
 }
 
+#[tauri::command]
+pub fn notgram_export_diagnostics(
+    app: AppHandle,
+    state: State<'_, DiagnosticsState>,
+) -> Result<bool, String> {
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .set_title("Export Notgram diagnostics")
+        .add_filter("ZIP archive", &["zip"])
+        .set_file_name(format!(
+            "Notgram-diagnostics-{}.zip",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .blocking_save_file()
+    else {
+        return Ok(false);
+    };
+    let mut destination = selected
+        .into_path()
+        .map_err(|_| "Unable to resolve the diagnostics destination".to_string())?;
+    if !destination.is_absolute() || destination.is_dir() {
+        return Err("Diagnostics destination must be an absolute file path".to_string());
+    }
+    if destination
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("zip")
+    {
+        destination.set_extension("zip");
+    }
+    let program_directory = std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(Path::to_path_buf))
+        .ok_or_else(|| "Unable to resolve the diagnostics log directory".to_string())?;
+    export_diagnostics_bundle(&destination, &program_directory.join("logs"), &state)
+        .map_err(|_| "Unable to export the diagnostics bundle".to_string())?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +461,76 @@ mod tests {
             4
         );
         assert!(!payload.contains(directory.to_string_lossy().as_ref()));
+        fs::remove_dir_all(directory).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn exported_logs_redact_all_strings_and_ignore_malformed_records() {
+        let directory = test_directory();
+        fs::create_dir_all(&directory).expect("test directory should be created");
+        fs::write(
+            directory.join("notgram.log"),
+            concat!(
+                "not-json\n",
+                "{\"timestampMs\":12,\"level\":\"info\",\"event\":\"runtime_started\",",
+                "\"details\":{\"durationMs\":8,\"path\":\"C:\\\\Users\\\\private\",",
+                "\"nested\":{\"token\":\"secret\",\"ok\":true}}}\n",
+            ),
+        )
+        .expect("runtime log should be written");
+
+        let (payload, count) = sanitize_runtime_logs(&directory);
+        let payload = String::from_utf8(payload).expect("sanitized logs should be UTF-8");
+        assert_eq!(count, 1);
+        assert!(payload.contains("runtime_started"));
+        assert!(payload.contains("[REDACTED]"));
+        assert!(!payload.contains("private"));
+        assert!(!payload.contains("secret"));
+        fs::remove_dir_all(directory).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn diagnostics_zip_contains_only_sanitized_entries() {
+        let directory = test_directory();
+        let logs = directory.join("logs");
+        fs::create_dir_all(&logs).expect("log directory should be created");
+        fs::write(
+            logs.join("notgram.log"),
+            "{\"timestampMs\":12,\"level\":\"error\",\"event\":\"test_event\",\"details\":{\"token\":\"private-token\",\"count\":2}}\n",
+        )
+        .expect("runtime log should be written");
+        let settings_path = directory.join("settings.json");
+        let crash_report_path = directory.join("crash-report.json");
+        write_crash_report(&crash_report_path).expect("crash report should be written");
+        let state = DiagnosticsState {
+            enabled: Arc::new(AtomicBool::new(true)),
+            settings_path: Arc::new(settings_path),
+            crash_report_path: Arc::new(crash_report_path),
+        };
+        let destination = directory.join("diagnostics.zip");
+        export_diagnostics_bundle(&destination, &logs, &state)
+            .expect("diagnostics bundle should be exported");
+
+        let file = fs::File::open(&destination).expect("diagnostics bundle should open");
+        let mut archive = zip::ZipArchive::new(file).expect("diagnostics bundle should be a ZIP");
+        assert_eq!(archive.len(), 3);
+        let mut manifest = String::new();
+        archive
+            .by_name("manifest.json")
+            .expect("manifest should exist")
+            .read_to_string(&mut manifest)
+            .expect("manifest should be readable");
+        assert!(manifest.contains("\"messageContentIncluded\": false"));
+        assert!(manifest.contains("\"crashReportIncluded\": true"));
+        let mut logs = String::new();
+        archive
+            .by_name("logs/runtime.jsonl")
+            .expect("sanitized logs should exist")
+            .read_to_string(&mut logs)
+            .expect("sanitized logs should be readable");
+        assert!(logs.contains("[REDACTED]"));
+        assert!(!logs.contains("private-token"));
+
         fs::remove_dir_all(directory).expect("test directory should be removed");
     }
 }
