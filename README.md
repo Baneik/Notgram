@@ -200,6 +200,20 @@ and scroll-anchor drift. Main-thread tasks over 50 ms are sampled as
 `ui_long_task` at most once every ten seconds. These records contain only
 numeric and boolean diagnostics and never include chat IDs or message content.
 
+## Diagnostics and crash reports
+
+The native **Diagnostics and privacy** settings can export a ZIP selected by the
+user. Export applies a second redaction pass to bounded runtime-log records and
+includes a manifest that identifies the application version, distribution kind,
+architecture, and record count. It never includes message text, credentials,
+account/chat/message identifiers, phone numbers, or local paths.
+
+Crash reporting is disabled by default. Opting in stores one minimal crash event
+locally with only a fixed event type, application version, and timestamp;
+nothing is uploaded.
+The record is included only when the user manually exports diagnostics and is
+deleted when crash reporting is disabled. Corrupt consent settings fail closed.
+
 ## Proxy settings
 
 Notgram uses the Windows system proxy by default. On Windows, the current
