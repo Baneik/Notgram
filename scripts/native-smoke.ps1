@@ -92,9 +92,9 @@ function Write-Checklist {
     $content = @"
 # Notgram native smoke: $SelectedProfile
 
-- Commit: `$Commit`
-- Profile: `$SelectedProfile`
-- Started (UTC): `$((Get-Date).ToUniversalTime().ToString("o"))`
+- Commit: ``$Commit``
+- Profile: ``$SelectedProfile``
+- Started (UTC): ``$((Get-Date).ToUniversalTime().ToString("o"))``
 
 Do not record credentials, phone numbers, account/chat identifiers, message text,
 proxy secrets, or local paths in this file.
