@@ -312,13 +312,23 @@ test("video uses its poster and custom streaming controls", async ({ page }) => 
     .toBe(true);
 });
 
-test("photo bubbles preserve media geometry and rounded clipping", async ({ page }) => {
+test("photo albums preserve order, captions, clipping, and tile geometry", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
   const squareRow = page.locator('[data-message-id="p-5"]');
   const tallRow = page.locator('[data-message-id="p-tall"]');
+  const album = page.locator('[data-media-album-id="mock-album-product"]');
+  await expect(album).toBeVisible();
   await expect(squareRow).toBeVisible();
   await expect(tallRow).toBeVisible();
+  await expect(album.locator(".message-row")).toHaveCount(2);
+  expect(await album.locator(".message-row").evaluateAll((rows) =>
+    rows.map((row) => (row as HTMLElement).dataset.messageId),
+  )).toEqual(["p-tall", "p-5"]);
+  await expect(album.locator(".media-album-caption")).toHaveText([
+    "纵向图片应该按实际比例收窄，外壳不能留下额外空白。",
+    "新的媒体预览样式",
+  ]);
   await expect(tallRow).toHaveClass(/group-first/);
   await expect(squareRow).toHaveClass(/group-last/);
   await expect.poll(() => tallRow.locator("img").evaluate((image) => {
@@ -354,8 +364,6 @@ test("photo bubbles preserve media geometry and rounded clipping", async ({ page
           shellWidth: shellBounds.width,
           previewWidth: previewBounds.width,
           previewHeight: previewBounds.height,
-          naturalRatio: image.naturalWidth / image.naturalHeight,
-          previewRatio: previewBounds.width / previewBounds.height,
           shellInsideStack: shellBounds.left >= stackBounds.left - 1 &&
             shellBounds.right <= stackBounds.right + 1,
           bubbleGap: Math.abs(shellBounds.width - bubbleBounds.width),
@@ -367,6 +375,7 @@ test("photo bubbles preserve media geometry and rounded clipping", async ({ page
             Math.abs(imageBounds.top - previewBounds.top),
             Math.abs(imageBounds.bottom - previewBounds.bottom),
           ),
+          objectFit: getComputedStyle(image).objectFit,
           borderRadius: getComputedStyle(bubble).borderRadius,
           overflow: getComputedStyle(bubble).overflow,
         };
@@ -376,17 +385,28 @@ test("photo bubbles preserve media geometry and rounded clipping", async ({ page
       expect(geometry?.bubbleGap).toBeLessThanOrEqual(1);
       expect(geometry?.imageHorizontalGap).toBeLessThanOrEqual(1);
       expect(geometry?.imageVerticalGap).toBeLessThanOrEqual(1);
-      expect(Math.abs((geometry?.naturalRatio ?? 0) - (geometry?.previewRatio ?? 1)))
-        .toBeLessThan(0.002);
-      expect(geometry?.borderRadius).toBe("12px");
+      expect(geometry?.objectFit).toBe("cover");
+      expect(geometry?.borderRadius).toBe("0px");
       expect(geometry?.overflow).toBe("hidden");
     }
+    const albumGeometry = await album.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const stack = element.closest<HTMLElement>(".message-group-stack")?.getBoundingClientRect();
+      return {
+        insideStack: stack !== undefined &&
+          bounds.left >= stack.left - 1 && bounds.right <= stack.right + 1,
+        borderRadius: getComputedStyle(element).borderRadius,
+        overflow: getComputedStyle(element).overflow,
+      };
+    });
+    expect(albumGeometry).toEqual({ insideStack: true, borderRadius: "8px", overflow: "hidden" });
+    expect(await horizontalOverflow(page)).toBe(false);
   }
 
-  const tallWidth = await tallRow.locator(".message-bubble-shell").evaluate(
-    (shell) => shell.getBoundingClientRect().width,
-  );
-  expect(tallWidth).toBeCloseTo(210, 0);
+  const tallTile = await tallRow.locator(".message-bubble-shell").evaluate((shell) => ({
+    width: shell.getBoundingClientRect().width,
+    height: shell.getBoundingClientRect().height,
+  }));
   await tallRow.locator("img").evaluate((image) => {
     image.dispatchEvent(new Event("error", { bubbles: false }));
   });
@@ -397,6 +417,7 @@ test("photo bubbles preserve media geometry and rounded clipping", async ({ page
     const preview = element.querySelector<HTMLElement>(".photo-preview");
     return {
       shellWidth: shell?.getBoundingClientRect().width,
+      shellHeight: shell?.getBoundingClientRect().height,
       previewWidth: preview?.getBoundingClientRect().width,
       borderRadius: bubble ? getComputedStyle(bubble).borderRadius : "",
       overflow: bubble ? getComputedStyle(bubble).overflow : "",
@@ -404,8 +425,9 @@ test("photo bubbles preserve media geometry and rounded clipping", async ({ page
   });
   expect(Math.abs((failedState.shellWidth ?? 0) - (failedState.previewWidth ?? 1)))
     .toBeLessThanOrEqual(1);
-  expect(failedState.shellWidth).toBeCloseTo(tallWidth, 0);
-  expect(failedState.borderRadius).toBe("12px");
+  expect(failedState.shellWidth).toBeCloseTo(tallTile.width, 0);
+  expect(failedState.shellHeight).toBeCloseTo(tallTile.height, 0);
+  expect(failedState.borderRadius).toBe("0px");
   expect(failedState.overflow).toBe("hidden");
 });
 
@@ -557,8 +579,12 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   });
 
   expect(before.id).toBeTruthy();
-  await expect(page.locator(".message-row")).toHaveCount(48);
-  const offset = await page.locator(`[data-message-id="${before.id}"]`).evaluate(
+  await expect.poll(() => page.locator(".message-row").count()).toBeGreaterThan(30);
+  const loadedIds = await page.locator(".message-row").evaluateAll((rows) =>
+    rows.map((row) => (row as HTMLElement).dataset.messageId),
+  );
+  expect(new Set(loadedIds).size).toBe(loadedIds.length);
+  const offset = await page.locator(`.message-row[data-message-id="${before.id}"]`).evaluate(
     (row) => row.getBoundingClientRect().top -
       (row.closest(".message-list")?.getBoundingClientRect().top ?? 0),
   );

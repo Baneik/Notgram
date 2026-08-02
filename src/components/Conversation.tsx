@@ -633,7 +633,7 @@ export function Conversation({
                             {captionMessages.map((message) => {
                               const content = message.content;
                               return content.kind === "media" && content.caption ? (
-                                <div className="media-album-caption-entry" data-message-id={message.id} key={message.id}>
+                                <div className="media-album-caption-entry" key={message.id}>
                                   <MessageRichText
                                     className="media-album-caption"
                                     text={content.caption}
