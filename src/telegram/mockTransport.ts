@@ -479,11 +479,33 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "chat.draftChanged", chatId, draft: clone(draft) });
   }
 
-  async downloadFile(_fileId: number, _fileName: string) {
+  async downloadFile(fileId: number, _fileName: string) {
+    this.updateFileTransfer(fileId, {
+      isDownloading: true,
+      isDownloaded: false,
+      canDownload: true,
+      progress: 0,
+    });
+  }
+
+  async cancelFileDownload(fileId: number) {
+    this.updateFileTransfer(fileId, {
+      isDownloading: false,
+      isDownloaded: false,
+      canDownload: true,
+      progress: undefined,
+    });
+  }
+
+  async openFile(_sourcePath: string) {
     return;
   }
 
-  async cancelFileDownload(_fileId: number) {
+  async saveFileAs(_sourcePath: string, _fileName: string) {
+    return true;
+  }
+
+  async openDownloadDirectory() {
     return;
   }
 
@@ -559,6 +581,25 @@ export class MockTelegramTransport implements TelegramTransport {
     };
     Object.assign(chat, updatedChat);
     this.listener?.({ type: "chat.upsert", chat: clone(updatedChat) });
+  }
+
+  private updateFileTransfer(
+    fileId: number,
+    patch: {
+      canDownload: boolean;
+      isDownloading: boolean;
+      isDownloaded: boolean;
+      progress?: number;
+    },
+  ) {
+    for (const message of this.snapshot.messages) {
+      const content = message.content;
+      if ((content.kind !== "file" && content.kind !== "media") || content.fileId !== fileId) {
+        continue;
+      }
+      message.content = { ...content, ...patch };
+      this.listener?.({ type: "message.upsert", message: clone(message) });
+    }
   }
 
   private refreshChatPreview(chatId: string) {

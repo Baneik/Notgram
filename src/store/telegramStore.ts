@@ -1257,6 +1257,33 @@ export const createTelegramStore = (
         }
       },
 
+      openFile: async (sourcePath) => {
+        try {
+          await transport.openFile(sourcePath);
+          set({ operationError: undefined });
+        } catch (error) {
+          set({ operationError: error instanceof Error ? error.message : "无法打开文件" });
+        }
+      },
+
+      saveFileAs: async (sourcePath, fileName) => {
+        try {
+          await transport.saveFileAs(sourcePath, fileName);
+          set({ operationError: undefined });
+        } catch (error) {
+          set({ operationError: error instanceof Error ? error.message : "无法另存文件" });
+        }
+      },
+
+      openDownloadDirectory: async () => {
+        try {
+          await transport.openDownloadDirectory();
+          set({ operationError: undefined });
+        } catch (error) {
+          set({ operationError: error instanceof Error ? error.message : "无法打开下载目录" });
+        }
+      },
+
       retryMessage: async (messageId) => {
         const chatId = get().activeChatId;
         if (!chatId) return;

@@ -103,6 +103,9 @@ export interface TelegramState {
   streamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   downloadFile: (fileId: number, fileName: string) => Promise<void>;
   cancelFileDownload: (fileId: number) => Promise<void>;
+  openFile: (sourcePath: string) => Promise<void>;
+  saveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
+  openDownloadDirectory: () => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   sendFile: (file?: File) => Promise<boolean>;
   cancelFileUpload: (messageId: string) => Promise<void>;

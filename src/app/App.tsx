@@ -75,6 +75,10 @@ export function App() {
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
   const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
   const downloadFile = useTelegramStore((state) => state.downloadFile);
+  const cancelFileDownload = useTelegramStore((state) => state.cancelFileDownload);
+  const openFile = useTelegramStore((state) => state.openFile);
+  const saveFileAs = useTelegramStore((state) => state.saveFileAs);
+  const openDownloadDirectory = useTelegramStore((state) => state.openDownloadDirectory);
   const streamFile = useTelegramStore((state) => state.streamFile);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
   const sendFile = useTelegramStore((state) => state.sendFile);
@@ -325,6 +329,10 @@ export function App() {
           onSetMessageReaction={setMessageReaction}
           onSearchMessages={searchChatMessages}
           onDownloadFile={downloadFile}
+          onCancelFileDownload={cancelFileDownload}
+          onOpenFile={openFile}
+          onSaveFileAs={saveFileAs}
+          onOpenDownloadDirectory={openDownloadDirectory}
           onStreamFile={streamFile}
           onRetryMessage={retryMessage}
           onSendFile={sendFile}

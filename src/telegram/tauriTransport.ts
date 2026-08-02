@@ -616,6 +616,18 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
+  async openFile(sourcePath: string) {
+    await invoke("telegram_open_cached_file", { sourcePath });
+  }
+
+  async saveFileAs(sourcePath: string, fileName: string) {
+    return invoke<boolean>("telegram_save_cached_file_as", { sourcePath, fileName });
+  }
+
+  async openDownloadDirectory() {
+    await invoke("telegram_open_download_directory");
+  }
+
   cacheFile(fileId: number, priority = 16) {
     return this.fileDownloads.cache(fileId, priority);
   }

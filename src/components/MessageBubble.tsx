@@ -6,13 +6,16 @@ import {
   CheckCheck,
   Copy,
   Download,
+  ExternalLink,
   FileText,
+  FolderOpen,
   Forward,
   Image as ImageIcon,
   LoaderCircle,
   MoreHorizontal,
   Play,
   RotateCcw,
+  Save,
   SmilePlus,
   X,
 } from "lucide-react";
@@ -56,6 +59,10 @@ interface MessageBubbleProps {
     returnFocus?: HTMLElement,
   ) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
+  onCancelDownload: (fileId: number) => Promise<void>;
+  onOpenFile: (sourcePath: string) => Promise<void>;
+  onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
+  onOpenDownloadDirectory: () => Promise<void>;
   onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onRetry: (messageId: string) => Promise<void>;
   onCancelUpload: (messageId: string) => Promise<void>;
@@ -91,6 +98,10 @@ function MessageBubbleComponent({
   onToggleSelection,
   onOpenActions,
   onDownload,
+  onCancelDownload,
+  onOpenFile,
+  onSaveFileAs,
+  onOpenDownloadDirectory,
   onStream,
   onRetry,
   onCancelUpload,
@@ -184,6 +195,13 @@ function MessageBubbleComponent({
     !content.isDownloading;
   const canCancelUpload = (content.kind === "file" || content.kind === "media") &&
     content.isUploading === true;
+  const canCancelDownload = (content.kind === "file" || content.kind === "media") &&
+    downloadFileId !== undefined && content.isDownloading === true;
+  const localFilePath = content.kind === "file" || content.kind === "media"
+    ? content.localPath
+    : undefined;
+  const canOpenFile = (content.kind === "file" || content.kind === "media") &&
+    content.isDownloaded === true && Boolean(localFilePath);
   const lazyMediaFileId = content.kind === "media"
     ? ["video", "videoNote", "animation"].includes(content.mediaType)
       ? content.thumbnailFileId
@@ -445,8 +463,8 @@ function MessageBubbleComponent({
                     <span>{content.progress === undefined
                       ? <LoaderCircle className="spin" size={15} />
                       : `${Math.round(content.progress * 100)}%`}</span>
-                    {canCancelUpload && (
-                      <button type="button" aria-label={`取消上传 ${downloadFileName}`} title="取消上传" onClick={() => void onCancelUpload(message.id)}>
+                    {(canCancelUpload || canCancelDownload) && (
+                      <button type="button" aria-label={`${canCancelUpload ? "取消上传" : "取消下载"} ${downloadFileName}`} title={canCancelUpload ? "取消上传" : "取消下载"} onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onCancelDownload(downloadFileId!)}>
                         <X size={14} strokeWidth={2.2} />
                       </button>
                     )}
@@ -481,6 +499,9 @@ function MessageBubbleComponent({
                   onDownload={canDownload && downloadFileId !== undefined
                     ? () => void onDownload(downloadFileId, downloadFileName)
                     : undefined}
+                  onCancelDownload={canCancelDownload && downloadFileId !== undefined
+                    ? () => void onCancelDownload(downloadFileId)
+                    : undefined}
                 />
               </div>
               {content.caption && (
@@ -499,17 +520,21 @@ function MessageBubbleComponent({
                   <strong>{content.fileName}</strong>
                   <small>{content.isUploading ? `上传中 ${fileProgress ?? ""}` : content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : content.isDownloaded ? `已缓存 · ${content.sizeLabel}` : content.sizeLabel}</small>
                 </span>
-                {(canDownload || canCancelUpload) && (
-                  <button
-                    className="file-download"
-                    type="button"
-                    aria-label={canCancelUpload ? `取消上传 ${content.fileName}` : `下载 ${content.fileName}`}
-                    title={canCancelUpload ? "取消上传" : "下载到 downloads"}
-                    onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onDownload(downloadFileId!, downloadFileName)}
-                  >
-                    {canCancelUpload ? <X size={16} strokeWidth={2.2} /> : <Download size={16} strokeWidth={2} />}
-                  </button>
-                )}
+                <span className="file-actions">
+                  {canOpenFile && <button type="button" aria-label={`打开 ${content.fileName}`} title="打开文件" onClick={() => void onOpenFile(localFilePath!)}><ExternalLink size={15} /></button>}
+                  {canOpenFile && <button type="button" aria-label={`另存为 ${content.fileName}`} title="另存为" onClick={() => void onSaveFileAs(localFilePath!, content.fileName)}><Save size={15} /></button>}
+                  {canOpenFile && <button type="button" aria-label="打开下载目录" title="打开下载目录" onClick={() => void onOpenDownloadDirectory()}><FolderOpen size={15} /></button>}
+                  {(canDownload || canCancelUpload || canCancelDownload) && (
+                    <button
+                      type="button"
+                      aria-label={canCancelUpload ? `取消上传 ${content.fileName}` : canCancelDownload ? `取消下载 ${content.fileName}` : `下载 ${content.fileName}`}
+                      title={canCancelUpload ? "取消上传" : canCancelDownload ? "取消下载" : "下载到 downloads"}
+                      onClick={() => canCancelUpload ? void onCancelUpload(message.id) : canCancelDownload ? void onCancelDownload(downloadFileId!) : void onDownload(downloadFileId!, downloadFileName)}
+                    >
+                      {canCancelUpload || canCancelDownload ? <X size={16} strokeWidth={2.2} /> : <Download size={16} strokeWidth={2} />}
+                    </button>
+                  )}
+                </span>
               </div>
               {content.caption && (
                 <MessageRichText

@@ -88,6 +88,10 @@ interface ConversationProps {
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onSearchMessages: (query: string) => Promise<void>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
+  onCancelFileDownload: (fileId: number) => Promise<void>;
+  onOpenFile: (sourcePath: string) => Promise<void>;
+  onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
+  onOpenDownloadDirectory: () => Promise<void>;
   onStreamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onRetryMessage: (messageId: string) => Promise<void>;
   onSendFile: (file?: File) => Promise<boolean>;
@@ -120,6 +124,10 @@ export function Conversation({
   onSetMessageReaction,
   onSearchMessages,
   onDownloadFile,
+  onCancelFileDownload,
+  onOpenFile,
+  onSaveFileAs,
+  onOpenDownloadDirectory,
   onStreamFile,
   onRetryMessage,
   onSendFile,
@@ -587,6 +595,10 @@ export function Conversation({
                         onToggleSelection={toggleMessageSelection}
                         onOpenActions={openActionMenu}
                         onDownload={onDownloadFile}
+                        onCancelDownload={onCancelFileDownload}
+                        onOpenFile={onOpenFile}
+                        onSaveFileAs={onSaveFileAs}
+                        onOpenDownloadDirectory={onOpenDownloadDirectory}
                         onStream={onStreamFile}
                         onRetry={onRetryMessage}
                         onCancelUpload={onCancelFileUpload}

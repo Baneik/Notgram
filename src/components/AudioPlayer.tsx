@@ -1,4 +1,4 @@
-import { AlertCircle, Download, LoaderCircle, Pause, Play } from "lucide-react";
+import { AlertCircle, Download, LoaderCircle, Pause, Play, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   formatPlaybackTime,
@@ -16,6 +16,7 @@ interface AudioPlayerProps {
   downloadProgress?: number;
   onRequestStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onDownload?: () => void;
+  onCancelDownload?: () => void;
 }
 
 export function AudioPlayer({
@@ -28,6 +29,7 @@ export function AudioPlayer({
   downloadProgress,
   onRequestStream,
   onDownload,
+  onCancelDownload,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const pendingPlayRef = useRef(false);
@@ -164,7 +166,11 @@ export function AudioPlayer({
       <button className="playback-rate" type="button" aria-label={`播放速度 ${playbackRate} 倍`} title="切换播放速度" onClick={cyclePlaybackRate}>
         {playbackRate}x
       </button>
-      {onDownload && (
+      {onCancelDownload ? (
+        <button className="audio-download" type="button" aria-label={`取消下载 ${label}`} title="取消下载" onClick={onCancelDownload}>
+          <X size={15} />
+        </button>
+      ) : onDownload && (
         <button className="audio-download" type="button" aria-label={`下载 ${label}`} title="下载音频" onClick={onDownload}>
           <Download size={15} />
         </button>

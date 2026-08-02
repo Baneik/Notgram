@@ -437,13 +437,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .attachment-caption { margin-top: 6px; }
 .file-icon { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 auto; color: #ffffff; background: var(--accent); border-radius: 50%; }
 .file-copy { min-width: 0; display: grid; gap: 2px; }
+.file-copy { flex: 1 1 auto; }
 .file-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .file-copy small { color: var(--muted); font-size: 10px; }
-.file-download {
-  width: 32px; height: 32px; padding: 0; display: grid; place-items: center; flex: 0 0 auto;
+.file-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.file-actions button {
+  width: 28px; height: 28px; padding: 0; display: grid; place-items: center;
   color: var(--accent); background: #edf6fd; border: 0; border-radius: 50%; cursor: pointer;
 }
-.file-download:hover { background: #dbeefa; }
+.file-actions button:hover, .file-actions button:focus-visible { background: #dbeefa; outline: none; }
 .message-bubble.is-photo { padding: 0; overflow: hidden; background: transparent; box-shadow: none; }
 .message-bubble.is-photo.media-bubble-photo,
 .message-bubble.is-photo.media-bubble-video,
