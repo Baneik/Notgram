@@ -123,6 +123,37 @@ fn safe_detail_key(key: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
+fn sensitive_detail_key(key: &str) -> bool {
+    let normalized = key
+        .bytes()
+        .filter(|byte| byte.is_ascii_alphanumeric())
+        .map(|byte| byte.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let normalized = String::from_utf8_lossy(&normalized);
+    normalized.len() > 2 && normalized.ends_with("id")
+        || [
+            "apihash",
+            "cachepath",
+            "correlation",
+            "databaseencryptionkey",
+            "downloadpath",
+            "email",
+            "filesdirectory",
+            "librarypath",
+            "link",
+            "message",
+            "password",
+            "path",
+            "phonenumber",
+            "secret",
+            "text",
+            "token",
+            "username",
+        ]
+        .iter()
+        .any(|sensitive| normalized.contains(sensitive))
+}
+
 fn sanitize_diagnostic_details(value: Value, depth: usize) -> Value {
     if depth >= 4 {
         return Value::Null;
@@ -142,7 +173,14 @@ fn sanitize_diagnostic_details(value: Value, depth: usize) -> Value {
                 .into_iter()
                 .filter(|(key, _)| safe_detail_key(key))
                 .take(32)
-                .map(|(key, value)| (key, sanitize_diagnostic_details(value, depth + 1)))
+                .map(|(key, value)| {
+                    let value = if sensitive_detail_key(&key) {
+                        Value::String("[REDACTED]".to_string())
+                    } else {
+                        sanitize_diagnostic_details(value, depth + 1)
+                    };
+                    (key, value)
+                })
                 .collect(),
         ),
     }
@@ -187,7 +225,7 @@ fn sanitize_runtime_logs(log_directory: &Path) -> (Vec<u8>, usize) {
             let level = object
                 .get("level")
                 .and_then(Value::as_str)
-                .filter(|level| matches!(*level, "info" | "warn" | "error"))
+                .filter(|level| matches!(*level, "debug" | "info" | "warn" | "error"))
                 .unwrap_or("unknown");
             records.push(json!({
                 "timestampMs": object.get("timestampMs").and_then(Value::as_u64).unwrap_or(0),
@@ -372,8 +410,8 @@ pub fn notgram_export_diagnostics(
     let Some(selected) = app
         .dialog()
         .file()
-        .set_title("Export Notgram diagnostics")
-        .add_filter("ZIP archive", &["zip"])
+        .set_title("导出 Notgram 诊断包")
+        .add_filter("ZIP 压缩包", &["zip"])
         .set_file_name(format!(
             "Notgram-diagnostics-{}.zip",
             env!("CARGO_PKG_VERSION")
@@ -391,7 +429,7 @@ pub fn notgram_export_diagnostics(
     if destination
         .extension()
         .and_then(|extension| extension.to_str())
-        != Some("zip")
+        .is_none_or(|extension| !extension.eq_ignore_ascii_case("zip"))
     {
         destination.set_extension("zip");
     }
@@ -472,8 +510,9 @@ mod tests {
             directory.join("notgram.log"),
             concat!(
                 "not-json\n",
-                "{\"timestampMs\":12,\"level\":\"info\",\"event\":\"runtime_started\",",
+                "{\"timestampMs\":12,\"level\":\"debug\",\"event\":\"runtime_started\",",
                 "\"details\":{\"durationMs\":8,\"path\":\"C:\\\\Users\\\\private\",",
+                "\"chatId\":7931534087,\"phoneNumber\":13800000000,",
                 "\"nested\":{\"token\":\"secret\",\"ok\":true}}}\n",
             ),
         )
@@ -486,17 +525,19 @@ mod tests {
         assert!(payload.contains("[REDACTED]"));
         assert!(!payload.contains("private"));
         assert!(!payload.contains("secret"));
+        assert!(!payload.contains("7931534087"));
+        assert!(!payload.contains("13800000000"));
         fs::remove_dir_all(directory).expect("test directory should be removed");
     }
 
     #[test]
     fn diagnostics_zip_contains_only_sanitized_entries() {
         let directory = test_directory();
-        let logs = directory.join("logs");
-        fs::create_dir_all(&logs).expect("log directory should be created");
+        let log_directory = directory.join("logs");
+        fs::create_dir_all(&log_directory).expect("log directory should be created");
         fs::write(
-            logs.join("notgram.log"),
-            "{\"timestampMs\":12,\"level\":\"error\",\"event\":\"test_event\",\"details\":{\"token\":\"private-token\",\"count\":2}}\n",
+            log_directory.join("notgram.log"),
+            "{\"timestampMs\":12,\"level\":\"error\",\"event\":\"test_event\",\"details\":{\"token\":\"private-token\",\"messageId\":991,\"count\":2}}\n",
         )
         .expect("runtime log should be written");
         let settings_path = directory.join("settings.json");
@@ -508,7 +549,7 @@ mod tests {
             crash_report_path: Arc::new(crash_report_path),
         };
         let destination = directory.join("diagnostics.zip");
-        export_diagnostics_bundle(&destination, &logs, &state)
+        export_diagnostics_bundle(&destination, &log_directory, &state)
             .expect("diagnostics bundle should be exported");
 
         let file = fs::File::open(&destination).expect("diagnostics bundle should open");
@@ -522,14 +563,34 @@ mod tests {
             .expect("manifest should be readable");
         assert!(manifest.contains("\"messageContentIncluded\": false"));
         assert!(manifest.contains("\"crashReportIncluded\": true"));
-        let mut logs = String::new();
+        let mut log_payload = String::new();
         archive
             .by_name("logs/runtime.jsonl")
             .expect("sanitized logs should exist")
-            .read_to_string(&mut logs)
+            .read_to_string(&mut log_payload)
             .expect("sanitized logs should be readable");
-        assert!(logs.contains("[REDACTED]"));
-        assert!(!logs.contains("private-token"));
+        assert!(log_payload.contains("[REDACTED]"));
+        assert!(!log_payload.contains("private-token"));
+        assert!(!log_payload.contains("991"));
+        drop(archive);
+
+        state.enabled.store(false, Ordering::Relaxed);
+        let opted_out_destination = directory.join("diagnostics-opted-out.zip");
+        export_diagnostics_bundle(&opted_out_destination, &log_directory, &state)
+            .expect("opted-out diagnostics bundle should be exported");
+        let file = fs::File::open(&opted_out_destination)
+            .expect("opted-out diagnostics bundle should open");
+        let mut archive =
+            zip::ZipArchive::new(file).expect("opted-out diagnostics bundle should be a ZIP");
+        assert_eq!(archive.len(), 2);
+        let mut manifest = String::new();
+        archive
+            .by_name("manifest.json")
+            .expect("opted-out manifest should exist")
+            .read_to_string(&mut manifest)
+            .expect("opted-out manifest should be readable");
+        assert!(manifest.contains("\"crashReportIncluded\": false"));
+        drop(archive);
 
         fs::remove_dir_all(directory).expect("test directory should be removed");
     }
