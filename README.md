@@ -58,11 +58,11 @@ installer:
 npm run publish:portable
 ```
 
-The default destination is `%LOCALAPPDATA%\Programs\Notgram`; pass
-`-Destination` to `scripts/publish-portable.ps1` to override it.
-The directory contains `Notgram.exe`, the local `.env`, TDLib, its dependent
-DLLs, and licenses. The application reads `.env` beside the executable before
-falling back to the current working directory.
+The default destination is `artifacts/`; pass `-DestinationRoot` to
+`scripts/publish-portable.ps1` to override it. Publishing requires a clean
+worktree and reads API credentials only from the process environment. It never
+copies `.env`. The versioned ZIP contains `Notgram.exe`, TDLib and its runtime
+licenses, dependency inventory, build metadata, and per-file SHA-256 hashes.
 
 The bridge searches these locations in order:
 
@@ -85,7 +85,7 @@ npm run test:native-smoke -- -Profile Clean # Prepare an isolated native smoke r
 npm run check     # Frontend plus Rust formatting, lint, and tests
 npm run check:release # Full check plus a native release build
 npm run tauri dev # Native desktop shell
-npm run publish:portable # Release directly to Program\Notgram
+npm run publish:portable # Build a traceable portable ZIP in artifacts/
 npm run version:check # Verify version.json matches npm, Cargo, and Tauri
 npm run version:sync # Synchronize all manifests from version.json
 cargo check       # Run from src-tauri for the native bridge
