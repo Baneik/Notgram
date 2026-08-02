@@ -1,5 +1,4 @@
 import {
-  AlertCircle,
   ArrowDown,
   Check,
   ChevronLeft,
@@ -13,35 +12,48 @@ import {
   Send,
   Smile,
   Reply,
-  Trash2,
   X,
 } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Chat,
   ChatDraft,
   Message,
-  MessageContent,
   MessagePermissions,
   ForwardMessagesResult,
   User,
 } from "../telegram/types";
+import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
+import { useConversationSearch } from "../hooks/useConversationSearch";
+import {
+  useConversationScroll,
+  type LatestConversationScrollRequest,
+} from "../hooks/useConversationScroll";
+import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { formatMessageDay, localDateKey } from "../utils/formatters";
 import {
   groupConsecutiveMessages,
   messageGroupPosition,
 } from "../utils/messageGrouping";
 import { Avatar } from "./Avatar";
+import {
+  DeleteMessageDialog,
+  ForwardMessagesDialog,
+  MessageActionMenu,
+} from "./ConversationOverlays";
+import {
+  forwardLabelFor,
+  messageSummary,
+  replyPreviewFor,
+  senderNameForMessage,
+} from "./conversationMessages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
 
 interface ConversationProps {
   chat?: Chat;
   scrollScope: string;
-  latestScrollRequest?: {
-    chatId: string;
-    requestId: number;
-  };
+  latestScrollRequest?: LatestConversationScrollRequest;
   messages: Message[];
   chatDraft?: ChatDraft;
   forwardTargets: Chat[];
@@ -72,84 +84,6 @@ interface ConversationProps {
   onBack: () => void;
 }
 
-const COMPOSER_TEXTAREA_MIN_HEIGHT = 40;
-const COMPOSER_TEXTAREA_MAX_HEIGHT = 290;
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
-const BOTTOM_PROXIMITY_PX = 40;
-
-interface ConversationScrollMemory {
-  scrollTop: number;
-  followLatest: boolean;
-  lastKnownMessageId?: string;
-  pendingNewCount: number;
-  anchorMessageId?: string;
-  anchorOffset?: number;
-}
-
-interface ConversationLayoutSnapshot {
-  key?: string;
-  firstId?: string;
-  lastId?: string;
-  search: string;
-}
-
-const conversationScrollMemory = new Map<string, ConversationScrollMemory>();
-
-const scrollMemoryKey = (scope: string, chatId?: string) =>
-  chatId ? `${scope}:${chatId}` : undefined;
-
-const distanceFromBottom = (element: HTMLElement) =>
-  Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
-
-const captureScrollMemory = (
-  element: HTMLElement,
-  lastKnownMessageId: string | undefined,
-  pendingNewCount: number,
-  followLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX,
-): ConversationScrollMemory => {
-  const listBounds = element.getBoundingClientRect();
-  const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
-    .find((row) => row.getBoundingClientRect().bottom > listBounds.top + 1);
-  const atBottom = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
-  const shouldFollowLatest = atBottom || followLatest;
-  return {
-    scrollTop: element.scrollTop,
-    followLatest: shouldFollowLatest,
-    lastKnownMessageId,
-    pendingNewCount: shouldFollowLatest ? 0 : pendingNewCount,
-    anchorMessageId: anchor?.dataset.messageId,
-    anchorOffset: anchor ? anchor.getBoundingClientRect().top - listBounds.top : undefined,
-  };
-};
-
-const restoreScrollMemory = (element: HTMLElement, memory: ConversationScrollMemory) => {
-  element.scrollTop = memory.scrollTop;
-  if (!memory.anchorMessageId || memory.anchorOffset === undefined) return;
-  const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
-    .find((row) => row.dataset.messageId === memory.anchorMessageId);
-  if (!anchor) return;
-  const currentOffset = anchor.getBoundingClientRect().top - element.getBoundingClientRect().top;
-  element.scrollTop += currentOffset - memory.anchorOffset;
-};
-
-const appendedMessageCount = (messages: Message[], previousLastId?: string) => {
-  if (!previousLastId) return 0;
-  const previousIndex = messages.findIndex((message) => message.id === previousLastId);
-  return previousIndex < 0 ? 0 : Math.max(0, messages.length - previousIndex - 1);
-};
-
-const resizeComposerInput = (input: HTMLTextAreaElement) => {
-  input.style.height = `${COMPOSER_TEXTAREA_MIN_HEIGHT}px`;
-  const contentHeight = input.scrollHeight;
-  input.style.height = `${Math.min(
-    COMPOSER_TEXTAREA_MAX_HEIGHT,
-    Math.max(COMPOSER_TEXTAREA_MIN_HEIGHT, contentHeight),
-  )}px`;
-  input.style.overflowY = contentHeight > COMPOSER_TEXTAREA_MAX_HEIGHT
-    ? "auto"
-    : "hidden";
-};
-
 export function Conversation({
   chat,
   scrollScope,
@@ -177,8 +111,6 @@ export function Conversation({
   onBack,
 }: ConversationProps) {
   const [draft, setDraft] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [messageSearch, setMessageSearch] = useState("");
   const [sending, setSending] = useState(false);
   const [attachmentPending, setAttachmentPending] = useState(false);
   const [actionMenu, setActionMenu] = useState<{
@@ -191,27 +123,11 @@ export function Conversation({
   const [editingMessage, setEditingMessage] = useState<Message>();
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
-  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
-  const [selectionLoadingIds, setSelectionLoadingIds] = useState<Set<string>>(new Set());
-  const [forwardDialogOpen, setForwardDialogOpen] = useState(false);
-  const [forwardQuery, setForwardQuery] = useState("");
-  const [forwardPending, setForwardPending] = useState(false);
-  const [forwardPendingTargetId, setForwardPendingTargetId] = useState<string>();
-  const [newMessageNotice, setNewMessageNotice] = useState<{
-    key: string;
-    count: number;
-  }>();
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
-  const messageListRef = useRef<HTMLDivElement>(null);
   const draftBeforeEditRef = useRef<string | undefined>(undefined);
-  const autoFillAttemptRef = useRef<string | undefined>(undefined);
-  const previousLayoutRef = useRef<ConversationLayoutSnapshot | undefined>(undefined);
-  const handledLatestRequestRef = useRef(0);
-  const scrollPointerActiveRef = useRef(false);
-  const userScrollIntentUntilRef = useRef(0);
 
   const sendAttachment = async (file?: File) => {
     if (attachmentPending) return;
@@ -229,17 +145,14 @@ export function Conversation({
       : messages,
     [chat?.kind, messages],
   );
-
-  const visibleMessages = useMemo(() => {
-    const query = messageSearch.trim().toLocaleLowerCase();
-    if (!query) return displayMessages;
-    return displayMessages.filter((message) => {
-      if (message.content.kind === "file" || message.content.kind === "media") {
-        return message.content.fileName.toLocaleLowerCase().includes(query);
-      }
-      return message.content.text.toLocaleLowerCase().includes(query);
-    });
-  }, [displayMessages, messageSearch]);
+  const {
+    open: searchOpen,
+    query: messageSearch,
+    visibleMessages,
+    setQuery: setMessageSearch,
+    close: closeMessageSearch,
+    toggle: toggleMessageSearch,
+  } = useConversationSearch(chat?.id, displayMessages, onSearchMessages);
 
   const visibleMessageGroups = useMemo(
     () => groupConsecutiveMessages(visibleMessages),
@@ -251,54 +164,51 @@ export function Conversation({
     [displayMessages],
   );
 
-  const filteredForwardTargets = useMemo(() => {
-    const query = forwardQuery.trim().toLocaleLowerCase();
-    return query
-      ? forwardTargets.filter((target) => target.title.toLocaleLowerCase().includes(query))
-      : forwardTargets;
-  }, [forwardQuery, forwardTargets]);
   const forwardTargetsById = useMemo(
     () => new Map(forwardTargets.map((target) => [target.id, target])),
     [forwardTargets],
   );
+  const forwarding = useMessageForwarding({
+    chatId: chat?.id,
+    messages,
+    messagesById,
+    targets: forwardTargets,
+    onLoadMessageProperties,
+    onForwardMessages,
+  });
+  const {
+    selectedIds: selectedMessageIds,
+    loadingIds: selectionLoadingIds,
+    selectionMode,
+    dialogOpen: forwardDialogOpen,
+    query: forwardQuery,
+    pending: forwardPending,
+    pendingTargetId: forwardPendingTargetId,
+    filteredTargets: filteredForwardTargets,
+  } = forwarding;
+  useComposerAutoResize(composerInputRef, draft, !selectionMode, chat?.id);
 
-  const selectionMode = selectedMessageIds.size > 0;
-
-  useLayoutEffect(() => {
-    const input = composerInputRef.current;
-    if (!input || selectionMode) return;
-    resizeComposerInput(input);
-  }, [chat?.id, draft, selectionMode]);
-
-  useEffect(() => {
-    const input = composerInputRef.current;
-    if (!input || selectionMode) return;
-    const observer = new ResizeObserver(() => resizeComposerInput(input));
-    observer.observe(input);
-    return () => observer.disconnect();
-  }, [chat?.id, selectionMode]);
+  const {
+    messageListRef,
+    currentScrollKey,
+    newMessageNotice,
+    jumpToLatest,
+    messageListHandlers,
+  } = useConversationScroll({
+    scope: scrollScope,
+    chatId: chat?.id,
+    latestRequest: latestScrollRequest,
+    visibleMessages,
+    search: messageSearch,
+    historyLoading,
+    hasOlderMessages,
+    messageCount: messages.length,
+    onLoadOlder,
+  });
 
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
-  const actionPermissions = actionMessage?.permissions;
-  const currentScrollKey = scrollMemoryKey(scrollScope, chat?.id);
-  const lastVisibleMessageId = visibleMessages.at(-1)?.id;
-
-  const jumpToLatest = () => {
-    const element = messageListRef.current;
-    if (!element || !currentScrollKey) return;
-    scrollPointerActiveRef.current = false;
-    userScrollIntentUntilRef.current = 0;
-    element.scrollTop = element.scrollHeight;
-    const memory = captureScrollMemory(element, lastVisibleMessageId, 0, true);
-    conversationScrollMemory.set(currentScrollKey, {
-      ...memory,
-      followLatest: true,
-      pendingNewCount: 0,
-    });
-    setNewMessageNotice({ key: currentScrollKey, count: 0 });
-  };
 
   useEffect(() => {
     setActionMenu(undefined);
@@ -307,14 +217,6 @@ export function Conversation({
     setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setDeletePending(false);
-    setSelectedMessageIds(new Set());
-    setSelectionLoadingIds(new Set());
-    setForwardDialogOpen(false);
-    setForwardQuery("");
-    setForwardPending(false);
-    setForwardPendingTargetId(undefined);
-    setSearchOpen(false);
-    setMessageSearch("");
     setDraft(chatDraft?.text ?? "");
     draftBeforeEditRef.current = undefined;
   }, [chat?.id]);
@@ -350,35 +252,6 @@ export function Conversation({
   }, [actionMenu, deleteTarget, editingMessage, messagesById, replyingTo]);
 
   useEffect(() => {
-    setSelectedMessageIds((current) => {
-      const available = new Set([...current].filter((messageId) => messagesById.has(messageId)));
-      return available.size === current.size ? current : available;
-    });
-  }, [messagesById]);
-
-  useEffect(() => {
-    const query = messageSearch.trim();
-    if (!chat?.id || !query) return;
-    const timer = globalThis.setTimeout(() => void onSearchMessages(query), 250);
-    return () => globalThis.clearTimeout(timer);
-  }, [chat?.id, messageSearch, onSearchMessages]);
-
-  useEffect(() => {
-    if (!selectionMode) return;
-    const closeWithKeyboard = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (forwardDialogOpen && !forwardPending) {
-        setForwardDialogOpen(false);
-        setForwardQuery("");
-      } else if (!forwardPending) {
-        setSelectedMessageIds(new Set());
-      }
-    };
-    document.addEventListener("keydown", closeWithKeyboard);
-    return () => document.removeEventListener("keydown", closeWithKeyboard);
-  }, [forwardDialogOpen, forwardPending, selectionMode]);
-
-  useEffect(() => {
     if (!actionMenu) return;
     const dismiss = (event: PointerEvent) => {
       const target = event.target;
@@ -395,140 +268,6 @@ export function Conversation({
       document.removeEventListener("keydown", dismissWithKeyboard);
     };
   }, [actionMenu]);
-
-  useLayoutEffect(() => {
-    const element = messageListRef.current;
-    if (!element || !currentScrollKey) return;
-    const previous = previousLayoutRef.current;
-    const firstId = visibleMessages[0]?.id;
-    const lastId = lastVisibleMessageId;
-    const stored = conversationScrollMemory.get(currentScrollKey);
-
-    if (messageSearch) {
-      if (!previous || previous.key !== currentScrollKey || previous.search !== messageSearch) {
-        element.scrollTop = 0;
-      }
-      setNewMessageNotice({
-        key: currentScrollKey,
-        count: stored?.pendingNewCount ?? 0,
-      });
-      previousLayoutRef.current = {
-        key: currentScrollKey,
-        firstId,
-        lastId,
-        search: messageSearch,
-      };
-      return;
-    }
-
-    let pendingNewCount = stored?.pendingNewCount ?? 0;
-    let followLatest = stored?.followLatest ?? true;
-    const enteringChat = !previous || previous.key !== currentScrollKey;
-    const leavingSearch = previous?.key === currentScrollKey && Boolean(previous.search);
-    if (enteringChat || leavingSearch) {
-      if (!stored) {
-        element.scrollTop = element.scrollHeight;
-        pendingNewCount = 0;
-        followLatest = true;
-      } else if (stored.followLatest) {
-        element.scrollTop = element.scrollHeight;
-        pendingNewCount = 0;
-        followLatest = true;
-      } else {
-        restoreScrollMemory(element, stored);
-        pendingNewCount += appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
-        followLatest = false;
-      }
-    } else if (stored) {
-      const firstMessageChanged = previous.firstId !== firstId;
-      const previousFirstStillPresent = Boolean(
-        previous.firstId && visibleMessages.some((message) => message.id === previous.firstId),
-      );
-      if (firstMessageChanged && previousFirstStillPresent) {
-        if (stored.followLatest) element.scrollTop = element.scrollHeight;
-        else restoreScrollMemory(element, stored);
-      }
-
-      if (previous.lastId !== lastId) {
-        if (stored.followLatest) {
-          element.scrollTop = element.scrollHeight;
-          pendingNewCount = 0;
-          followLatest = true;
-        } else {
-          pendingNewCount += appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
-          followLatest = false;
-        }
-      }
-    }
-
-    const memory = captureScrollMemory(element, lastId, pendingNewCount, followLatest);
-    conversationScrollMemory.set(currentScrollKey, memory);
-    setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
-    previousLayoutRef.current = {
-      key: currentScrollKey,
-      firstId,
-      lastId,
-      search: messageSearch,
-    };
-  }, [currentScrollKey, lastVisibleMessageId, messageSearch, visibleMessages]);
-
-  useLayoutEffect(() => {
-    if (
-      !latestScrollRequest ||
-      latestScrollRequest.chatId !== chat?.id ||
-      latestScrollRequest.requestId <= handledLatestRequestRef.current
-    ) {
-      return;
-    }
-    handledLatestRequestRef.current = latestScrollRequest.requestId;
-    jumpToLatest();
-  }, [chat?.id, latestScrollRequest]);
-
-  useEffect(() => {
-    const element = messageListRef.current;
-    const content = element?.querySelector<HTMLElement>(".message-list-content");
-    if (!element || !content || !currentScrollKey || messageSearch) return;
-    let animationFrame: number | undefined;
-    const observer = new ResizeObserver(() => {
-      if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(() => {
-        const stored = conversationScrollMemory.get(currentScrollKey);
-        if (!stored) return;
-        if (stored.followLatest) element.scrollTop = element.scrollHeight;
-        else restoreScrollMemory(element, stored);
-        const memory = captureScrollMemory(
-          element,
-          visibleMessages.at(-1)?.id,
-          stored.pendingNewCount,
-          stored.followLatest,
-        );
-        conversationScrollMemory.set(currentScrollKey, memory);
-        setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
-      });
-    });
-    observer.observe(content);
-    return () => {
-      observer.disconnect();
-      if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
-    };
-  }, [currentScrollKey, messageSearch, visibleMessages]);
-
-  useEffect(() => {
-    const element = messageListRef.current;
-    if (
-      !element ||
-      messageSearch ||
-      historyLoading ||
-      !hasOlderMessages ||
-      element.scrollHeight > element.clientHeight + 1
-    ) {
-      return;
-    }
-    const attemptKey = `${chat?.id ?? ""}:${messages.length}`;
-    if (autoFillAttemptRef.current === attemptKey) return;
-    autoFillAttemptRef.current = attemptKey;
-    void onLoadOlder();
-  }, [chat?.id, hasOlderMessages, historyLoading, messageSearch, messages.length, onLoadOlder]);
 
   if (!chat) {
     return (
@@ -650,64 +389,12 @@ export function Conversation({
       draftBeforeEditRef.current = undefined;
     }
     setActionMenu(undefined);
-    setSearchOpen(false);
-    setMessageSearch("");
-    setSelectedMessageIds(new Set([message.id]));
+    closeMessageSearch();
+    forwarding.startSelection(message);
   };
 
-  const toggleMessageSelection = async (message: Message) => {
-    if (selectedMessageIds.has(message.id)) {
-      setSelectedMessageIds((current) => {
-        const next = new Set(current);
-        next.delete(message.id);
-        return next;
-      });
-      return;
-    }
-    if (selectedMessageIds.size >= 100 || selectionLoadingIds.has(message.id)) return;
-
-    let permissions = message.permissions;
-    if (!permissions) {
-      setSelectionLoadingIds((current) => new Set(current).add(message.id));
-      permissions = await onLoadMessageProperties(message.chatId, message.id);
-      setSelectionLoadingIds((current) => {
-        const next = new Set(current);
-        next.delete(message.id);
-        return next;
-      });
-    }
-    if (!permissions?.canForward) return;
-    setSelectedMessageIds((current) => current.size >= 100
-      ? current
-      : new Set(current).add(message.id));
-  };
-
-  const confirmForward = async (target: Chat) => {
-    if (forwardPending) return;
-    const messageIds = messages
-      .filter((message) => selectedMessageIds.has(message.id))
-      .map((message) => message.id);
-    if (messageIds.length === 0) return;
-    setForwardPending(true);
-    setForwardPendingTargetId(target.id);
-    const result = await onForwardMessages(chat.id, messageIds, target.id);
-    setForwardPending(false);
-    setForwardPendingTargetId(undefined);
-    if (!result) {
-      setForwardDialogOpen(false);
-      setForwardQuery("");
-      return;
-    }
-    if (result.failedMessageIds.length > 0) {
-      setSelectedMessageIds(new Set(result.failedMessageIds));
-      setForwardDialogOpen(false);
-      setForwardQuery("");
-      return;
-    }
-    setForwardDialogOpen(false);
-    setForwardQuery("");
-    setSelectedMessageIds(new Set());
-  };
+  const toggleMessageSelection = forwarding.toggleSelection;
+  const confirmForward = forwarding.confirm;
 
   return (
     <section
@@ -722,7 +409,7 @@ export function Conversation({
               type="button"
               aria-label="取消选择"
               title="取消选择"
-              onClick={() => setSelectedMessageIds(new Set())}
+              onClick={forwarding.clearSelection}
             >
               <X size={20} strokeWidth={2} />
             </button>
@@ -750,10 +437,7 @@ export function Conversation({
                 type="button"
                 aria-label="搜索消息"
                 title="搜索消息"
-                onClick={() => {
-                  setSearchOpen((open) => !open);
-                  if (searchOpen) setMessageSearch("");
-                }}
+                onClick={toggleMessageSearch}
               >
                 <Search size={19} strokeWidth={1.8} />
               </button>
@@ -775,7 +459,7 @@ export function Conversation({
             placeholder="搜索当前对话"
             type="search"
           />
-          <button className="icon-button" type="button" aria-label="关闭消息搜索" title="关闭消息搜索" onClick={() => { setSearchOpen(false); setMessageSearch(""); }}>
+          <button className="icon-button" type="button" aria-label="关闭消息搜索" title="关闭消息搜索" onClick={closeMessageSearch}>
             <X size={17} strokeWidth={1.8} />
           </button>
         </div>
@@ -788,45 +472,7 @@ export function Conversation({
           role="log"
           aria-label="消息列表"
           tabIndex={0}
-          onWheel={() => {
-            userScrollIntentUntilRef.current = performance.now() + 400;
-          }}
-          onPointerDown={() => {
-            scrollPointerActiveRef.current = true;
-          }}
-          onPointerUp={() => {
-            scrollPointerActiveRef.current = false;
-            userScrollIntentUntilRef.current = performance.now() + 200;
-          }}
-          onPointerCancel={() => {
-            scrollPointerActiveRef.current = false;
-          }}
-          onKeyDown={(event) => {
-            if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) {
-              userScrollIntentUntilRef.current = performance.now() + 400;
-            }
-          }}
-          onScroll={(event) => {
-            const element = event.currentTarget;
-            if (!messageSearch && currentScrollKey) {
-              const stored = conversationScrollMemory.get(currentScrollKey);
-              const userInitiated = scrollPointerActiveRef.current ||
-                performance.now() <= userScrollIntentUntilRef.current;
-              const followLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX ||
-                (!userInitiated && stored?.followLatest === true);
-              const memory = captureScrollMemory(
-                element,
-                lastVisibleMessageId,
-                stored?.pendingNewCount ?? 0,
-                followLatest,
-              );
-              conversationScrollMemory.set(currentScrollKey, memory);
-              setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
-            }
-            if (element.scrollTop <= 64 && !messageSearch && hasOlderMessages && !historyLoading) {
-              void onLoadOlder();
-            }
-          }}
+          {...messageListHandlers}
         >
           <div className="message-list-content">
           {historyLoading && <div className="history-loading" aria-label="正在加载更早消息"><LoaderCircle className="spin" size={16} /></div>}
@@ -913,80 +559,22 @@ export function Conversation({
       </div>
 
       {actionMenu && actionMessage && (
-        <div
-          className="message-action-menu"
-          role="menu"
-          aria-label="消息操作"
-          style={{ left: actionMenu.left, top: actionMenu.top }}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {!actionPermissions ? (
-            <div className="message-action-status" role="status">
-              {actionLoadingId === actionMessage.id ? (
-                <><LoaderCircle className="spin" size={15} />正在读取操作权限</>
-              ) : (
-                <><AlertCircle size={15} />无法读取操作权限</>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="message-action-reactions" role="group" aria-label="表情回应">
-                {QUICK_REACTIONS.map((emoji) => {
-                  const existing = actionMessage.interaction?.reactions.find(
-                    (reaction) => reaction.type.kind === "emoji" && reaction.type.emoji === emoji,
-                  );
-                  return (
-                    <button
-                      type="button"
-                      key={emoji}
-                      aria-label={`回应 ${emoji}`}
-                      className={existing?.chosen ? "is-chosen" : ""}
-                      onClick={() => {
-                        setActionMenu(undefined);
-                        void onSetMessageReaction(actionMessage.id, emoji, !existing?.chosen);
-                      }}
-                    >
-                      {emoji}
-                    </button>
-                  );
-                })}
-              </div>
-              {actionPermissions.canReply && (
-                <button type="button" role="menuitem" onClick={() => startReply(actionMessage)}>
-                  <Reply size={16} strokeWidth={1.9} />
-                  <span>回复</span>
-                </button>
-              )}
-              {actionPermissions.canEdit && actionMessage.content.kind === "text" && (
-                <button type="button" role="menuitem" onClick={() => startEditing(actionMessage)}>
-                  <Edit3 size={16} strokeWidth={1.9} />
-                  <span>编辑</span>
-                </button>
-              )}
-              {actionPermissions.canForward && (
-                <button type="button" role="menuitem" onClick={() => startForwardSelection(actionMessage)}>
-                  <Forward size={16} strokeWidth={1.9} />
-                  <span>转发</span>
-                </button>
-              )}
-              {(actionPermissions.canDeleteOnlyForSelf ||
-                actionPermissions.canDeleteForAllUsers) && (
-                <button
-                  className="is-danger"
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setDeleteTarget(actionMessage);
-                    setActionMenu(undefined);
-                  }}
-                >
-                  <Trash2 size={16} strokeWidth={1.9} />
-                  <span>删除</span>
-                </button>
-              )}
-            </>
-          )}
-        </div>
+        <MessageActionMenu
+          position={actionMenu}
+          message={actionMessage}
+          loading={actionLoadingId === actionMessage.id}
+          onReaction={(emoji, chosen) => {
+            setActionMenu(undefined);
+            void onSetMessageReaction(actionMessage.id, emoji, chosen);
+          }}
+          onReply={() => startReply(actionMessage)}
+          onEdit={() => startEditing(actionMessage)}
+          onForward={() => startForwardSelection(actionMessage)}
+          onDelete={() => {
+            setDeleteTarget(actionMessage);
+            setActionMenu(undefined);
+          }}
+        />
       )}
 
       {selectionMode ? (
@@ -995,7 +583,7 @@ export function Conversation({
           <button
             className="selection-forward-button"
             type="button"
-            onClick={() => setForwardDialogOpen(true)}
+            onClick={forwarding.openDialog}
           >
             <Forward size={18} strokeWidth={1.9} />
             转发
@@ -1100,203 +688,28 @@ export function Conversation({
       </div>
       )}
 
-      {deleteTarget && deleteTarget.permissions && (
-        <div className="message-delete-backdrop" role="presentation">
-          <section
-            className="message-delete-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="message-delete-title"
-          >
-            <div className="message-delete-heading">
-              <span><Trash2 size={18} strokeWidth={1.9} /></span>
-              <div>
-                <h3 id="message-delete-title">删除消息</h3>
-                <p>{messageSummary(deleteTarget.content)}</p>
-              </div>
-            </div>
-            <div className="message-delete-actions">
-              {deleteTarget.permissions.canDeleteOnlyForSelf && (
-                <button
-                  className="dialog-secondary"
-                  type="button"
-                  disabled={deletePending}
-                  onClick={() => void confirmDelete(false)}
-                >
-                  仅对我删除
-                </button>
-              )}
-              {deleteTarget.permissions.canDeleteForAllUsers && (
-                <button
-                  className="dialog-danger"
-                  type="button"
-                  disabled={deletePending}
-                  onClick={() => void confirmDelete(true)}
-                >
-                  {deletePending ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
-                  为所有人删除
-                </button>
-              )}
-              <button
-                className="dialog-secondary"
-                type="button"
-                disabled={deletePending}
-                onClick={() => setDeleteTarget(undefined)}
-              >
-                取消
-              </button>
-            </div>
-          </section>
-        </div>
+      {deleteTarget && (
+        <DeleteMessageDialog
+          message={deleteTarget}
+          pending={deletePending}
+          onConfirm={(revoke) => void confirmDelete(revoke)}
+          onClose={() => setDeleteTarget(undefined)}
+        />
       )}
 
       {forwardDialogOpen && selectionMode && (
-        <div
-          className="message-delete-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !forwardPending) {
-              setForwardDialogOpen(false);
-              setForwardQuery("");
-            }
-          }}
-        >
-          <section
-            className="message-forward-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="message-forward-title"
-          >
-            <header className="message-forward-heading">
-              <span className="message-forward-heading-icon"><Forward size={18} strokeWidth={1.9} /></span>
-              <div>
-                <h3 id="message-forward-title">转发 {selectedMessageIds.size} 条消息</h3>
-                <p>选择目标会话</p>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="关闭转发"
-                title="关闭"
-                disabled={forwardPending}
-                onClick={() => {
-                  setForwardDialogOpen(false);
-                  setForwardQuery("");
-                }}
-              >
-                <X size={18} strokeWidth={1.9} />
-              </button>
-            </header>
-            <label className="forward-target-search">
-              <Search size={16} strokeWidth={1.8} />
-              <span className="sr-only">搜索目标会话</span>
-              <input
-                autoFocus
-                value={forwardQuery}
-                onChange={(event) => setForwardQuery(event.target.value)}
-                placeholder="搜索会话"
-                type="search"
-                disabled={forwardPending}
-              />
-            </label>
-            <div className="forward-target-list">
-              {filteredForwardTargets.length === 0 ? (
-                <div className="forward-target-empty">没有匹配的会话</div>
-              ) : filteredForwardTargets.map((target) => (
-                <button
-                  className="forward-target-row"
-                  type="button"
-                  key={target.id}
-                  disabled={forwardPending}
-                  onClick={() => void confirmForward(target)}
-                >
-                  <Avatar avatar={target.avatar} size="medium" />
-                  <span>
-                    <strong>{target.title}</strong>
-                    <small>{target.id === chat.id ? "当前会话" : target.preview}</small>
-                  </span>
-                  {forwardPending && forwardPendingTargetId === target.id
-                    ? <LoaderCircle className="spin" size={16} />
-                    : <ChevronLeft className="forward-target-arrow" size={18} strokeWidth={1.8} />}
-                </button>
-              ))}
-            </div>
-          </section>
-        </div>
+        <ForwardMessagesDialog
+          selectedCount={selectedMessageIds.size}
+          targets={filteredForwardTargets}
+          currentChatId={chat.id}
+          query={forwardQuery}
+          pending={forwardPending}
+          pendingTargetId={forwardPendingTargetId}
+          onQueryChange={forwarding.setQuery}
+          onConfirm={(target) => void confirmForward(target)}
+          onClose={forwarding.closeDialog}
+        />
       )}
     </section>
   );
 }
-
-interface ReplyPreview {
-  author: string;
-  text: string;
-}
-
-const senderNameForMessage = (message: Message, users: Map<string, User>, chat: Chat) => {
-  if (message.outgoing) return "你";
-  return users.get(message.senderId)?.displayName ??
-    (chat.kind === "direct" ? chat.title : "Telegram 用户");
-};
-
-const forwardLabelFor = (
-  message: Message,
-  users: Map<string, User>,
-  chats: Map<string, Chat>,
-) => {
-  const info = message.forwardInfo;
-  if (!info) return undefined;
-  const origin = info.origin;
-  const name = origin?.kind === "user"
-    ? users.get(origin.userId)?.displayName
-    : origin?.kind === "hiddenUser"
-      ? origin.senderName
-      : origin?.kind === "chat" || origin?.kind === "channel"
-        ? chats.get(origin.chatId)?.title ?? origin.authorSignature
-        : undefined;
-  const sourceName = info.source?.senderName ??
-    (info.source?.chatId ? chats.get(info.source.chatId)?.title : undefined);
-  return name ? `转发自 ${name}` : sourceName ? `转发自 ${sourceName}` : "已转发";
-};
-
-const replyPreviewFor = (
-  message: Message,
-  messagesById: Map<string, Message>,
-  users: Map<string, User>,
-  chat: Chat,
-): ReplyPreview | undefined => {
-  if (!message.replyTo) return undefined;
-  if (message.replyTo.kind === "story") {
-    return { author: "动态", text: "回复了一条动态" };
-  }
-  const target = message.replyTo.messageId
-    ? messagesById.get(message.replyTo.messageId)
-    : undefined;
-  if (target) {
-    return {
-      author: senderNameForMessage(target, users, chat),
-      text: messageSummary(target.content),
-    };
-  }
-  const origin = message.replyTo.origin;
-  const author = origin?.kind === "user"
-    ? users.get(origin.userId)?.displayName
-    : origin?.kind === "hiddenUser"
-      ? origin.senderName
-      : origin?.kind === "chat" || origin?.kind === "channel"
-        ? origin.authorSignature
-        : undefined;
-  return {
-    author: author || "回复消息",
-    text: message.replyTo.quote ||
-      (message.replyTo.content ? messageSummary(message.replyTo.content) : "原消息不可用"),
-  };
-};
-
-const messageSummary = (content: MessageContent) => {
-  const raw = content.kind === "text" || content.kind === "service"
-    ? content.text
-    : content.caption || content.fileName;
-  const normalized = raw.replace(/\s+/g, " ").trim();
-  return normalized.length > 72 ? `${normalized.slice(0, 72)}…` : normalized;
-};

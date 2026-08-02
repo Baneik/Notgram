@@ -10,14 +10,28 @@ import {
   mapTdMessageProperties,
   mapTdUser,
   tdId,
-  tdChatListId,
   tdNumber,
   type TdObject,
 } from "./tdlibMapper";
+import { FileDownloadQueue } from "./fileDownloadQueue";
+import { loadHistoryWindow } from "./historyPager";
+import { TdRequestBroker } from "./tdRequestBroker";
+import { TauriAccountStorage } from "./tauriAccountStorage";
+import {
+  chatListKey,
+  chatListObject,
+  effectiveProxy,
+  inputMessageText,
+  listObject,
+  mapAuthorizationState,
+  numericId,
+  proxyValue,
+  sameProxy,
+} from "./tdlibRequests";
+import { routeTdUpdate, type TdUpdateHandlers } from "./tdUpdateRouter";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
-  AuthorizationState,
   CachedTelegramSnapshot,
   Chat,
   ChatHistoryPage,
@@ -28,7 +42,6 @@ import type {
   ForwardMessagesResult,
   Message,
   MessagePermissions,
-  ProxyEndpoint,
   ProxySettings,
   SendFileInput,
   SendMessageInput,
@@ -50,54 +63,6 @@ interface RuntimeStatus {
   error?: string;
   logPath?: string;
 }
-
-type PendingRequest = {
-  resolve: (value: TdObject) => void;
-  reject: (reason: Error) => void;
-  timer: number;
-};
-
-type CachedFileDownload = {
-  fileId: number;
-  priority: number;
-  resolve: () => void;
-  reject: (reason: Error) => void;
-  stallTimer?: ReturnType<typeof globalThis.setTimeout>;
-};
-
-const numericId = (id: string) => {
-  const value = Number(id);
-  if (!Number.isSafeInteger(value)) throw new Error(`无效的 Telegram 标识符：${id}`);
-  return value;
-};
-
-const inputMessageText = (text: string, clearDraft: boolean): TdObject => ({
-  "@type": "inputMessageText",
-  text: { "@type": "formattedText", text, entities: [] },
-  link_preview_options: null,
-  clear_draft: clearDraft,
-});
-
-const listObject = (type: "chatListMain" | "chatListArchive") => ({ "@type": type });
-
-const folderListObject = (folderId: unknown) => ({
-  "@type": "chatListFolder",
-  chat_folder_id: Number(folderId),
-});
-
-const chatListObject = (chatListId: string): TdObject => {
-  if (chatListId === "main") return listObject("chatListMain");
-  if (chatListId === "archive") return listObject("chatListArchive");
-  const folderId = /^folder:(\d+)$/.exec(chatListId)?.[1];
-  if (!folderId) throw new Error(`无效的聊天列表：${chatListId}`);
-  return folderListObject(folderId);
-};
-
-const chatListKey = (value: unknown) => tdChatListId(value);
-
-const MAX_CONSECUTIVE_HISTORY_STALLS = 3;
-const MAX_CACHE_DOWNLOADS = 4;
-const CACHE_DOWNLOAD_STALL_MS = 45_000;
 
 const replaceFileReference = (
   value: unknown,
@@ -132,55 +97,15 @@ const replaceFileReference = (
   return { value: changed ? updated : value, changed };
 };
 
-const proxyTypeValue = (endpoint: ProxyEndpoint): TdObject => {
-  if (endpoint.type === "socks5") {
-    return {
-      "@type": "proxyTypeSocks5",
-      username: endpoint.username,
-      password: endpoint.password,
-    };
-  }
-  if (endpoint.type === "mtproto") {
-    return { "@type": "proxyTypeMtproto", secret: endpoint.secret };
-  }
-  return {
-    "@type": "proxyTypeHttp",
-    username: endpoint.username,
-    password: endpoint.password,
-    http_only: endpoint.httpOnly,
-  };
-};
-
-const proxyValue = (endpoint: ProxyEndpoint): TdObject => ({
-  "@type": "proxy",
-  server: endpoint.server.trim(),
-  port: endpoint.port,
-  type: proxyTypeValue(endpoint),
-});
-
-const sameProxy = (raw: TdObject, endpoint: ProxyEndpoint) => {
-  if (raw.server !== endpoint.server.trim() || tdNumber(raw.port) !== endpoint.port) return false;
-  const rawType = asTdObject(raw.type);
-  if (endpoint.type === "mtproto") {
-    return rawType?.["@type"] === "proxyTypeMtproto" && rawType.secret === endpoint.secret;
-  }
-  if (endpoint.type === "socks5") {
-    return rawType?.["@type"] === "proxyTypeSocks5" &&
-      rawType.username === endpoint.username && rawType.password === endpoint.password;
-  }
-  return rawType?.["@type"] === "proxyTypeHttp" &&
-    rawType.username === endpoint.username && rawType.password === endpoint.password &&
-    rawType.http_only === endpoint.httpOnly;
-};
-
 export class TauriTelegramTransport implements TelegramTransport {
   readonly kind = "tauri" as const;
   readonly label = "TDLib";
 
   private listener?: TelegramEventListener;
+  private accountStorage = new TauriAccountStorage();
   private unlistenUpdate?: UnlistenFn;
   private unlistenError?: UnlistenFn;
-  private pending = new Map<string, PendingRequest>();
+  private requestBroker = new TdRequestBroker();
   private rawChats = new Map<string, TdObject>();
   private rawUsers = new Map<string, TdObject>();
   private rawMessages = new Map<string, Map<string, TdObject>>();
@@ -192,9 +117,31 @@ export class TauriTelegramTransport implements TelegramTransport {
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
   private exhaustedChatLists = new Set<string>();
-  private cacheDownloadQueue: CachedFileDownload[] = [];
-  private activeCacheDownloads = new Map<number, CachedFileDownload>();
-  private cacheDownloadPromises = new Map<number, Promise<void>>();
+  private fileDownloads = new FileDownloadQueue(
+    (request) => this.request(request),
+    (file) => this.updateFile(file),
+  );
+  private updateHandlers: TdUpdateHandlers = {
+    authorization: (update) => this.handleAuthorizationUpdate(update),
+    upsertUser: (user) => this.upsertUser(user),
+    updateUserStatus: (update) => this.updateUserStatus(update),
+    updateChatFolders: (update) => this.updateChatFolders(update),
+    upsertChat: (chat) => this.upsertChat(chat),
+    emitDraft: (chatId, draft) => this.emitDraft(chatId, draft),
+    patchChat: (chatId, patch) => this.patchChat(chatId, patch),
+    patchChatWithPositions: (chatId, patch, positions) =>
+      this.patchChatWithPositions(chatId, patch, positions),
+    updateChatPosition: (update) => this.updateChatPosition(update),
+    updateChatList: (update, added) => this.updateChatList(update, added),
+    emitMessage: (message) => this.emitMessage(message),
+    replaceSentMessage: (update) => this.replaceSentMessage(update),
+    updateMessageContent: (update) => this.updateMessageContent(update),
+    patchMessage: (chatId, messageId, patch) =>
+      this.patchMessage(chatId, messageId, patch),
+    updateReadOutbox: (update) => this.updateReadOutbox(update),
+    deleteMessages: (update) => this.deleteMessages(update),
+    updateFile: (file) => this.updateFile(file),
+  };
   private pendingDownloads = new Map<number, string>();
   private rawFolderInfos: TdObject[] = [];
   private mainChatListPosition = 0;
@@ -224,7 +171,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       "telegram://bridge-error",
       (event) => {
         const error = new Error(event.payload.message);
-        this.rejectAll(error);
+        this.requestBroker.rejectAll(error);
         this.listener?.({ type: "sync.error", message: error.message });
       },
     );
@@ -248,26 +195,26 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.unlistenError?.();
       this.unlistenUpdate = undefined;
       this.unlistenError = undefined;
-      this.rejectAll(new Error("TDLib runtime 已关闭。"));
+      this.requestBroker.rejectAll(new Error("TDLib runtime 已关闭。"));
       this.listener = undefined;
       this.resetSessionState();
     }
   }
 
   async getAccountState() {
-    return invoke<TelegramAccountState>("telegram_account_state");
+    return this.accountStorage.getAccountState();
   }
 
   async registerCurrentAccount(account: Omit<TelegramAccount, "id">) {
-    return invoke<TelegramAccountState>("telegram_register_account", { account });
+    return this.accountStorage.registerCurrentAccount(account);
   }
 
   async selectAccount(accountId: string) {
-    return invoke<TelegramAccountState>("telegram_select_account", { accountId });
+    return this.accountStorage.selectAccount(accountId);
   }
 
   async removeAccount(accountId: string) {
-    return invoke<TelegramAccountState>("telegram_remove_account", { accountId });
+    return this.accountStorage.removeAccount(accountId);
   }
 
   async logOut() {
@@ -275,17 +222,15 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async loadCachedSnapshot() {
-    return (await invoke<CachedTelegramSnapshot | null>(
-      "telegram_read_snapshot_cache",
-    )) ?? undefined;
+    return this.accountStorage.loadCachedSnapshot();
   }
 
   async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
-    await invoke("telegram_write_snapshot_cache", { snapshot });
+    await this.accountStorage.saveCachedSnapshot(snapshot);
   }
 
   async clearCachedSnapshot() {
-    await invoke("telegram_clear_snapshot_cache");
+    await this.accountStorage.clearCachedSnapshot();
   }
 
   async authenticate(action: AuthorizationAction) {
@@ -355,7 +300,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async testProxy(settings: ProxySettings) {
-    const endpoint = this.effectiveProxy(settings);
+    const endpoint = effectiveProxy(settings);
     const response = await this.request({
       "@type": "pingProxy",
       proxy: endpoint ? proxyValue(endpoint) : null,
@@ -366,16 +311,11 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async getStorageSettings() {
-    return invoke<StorageSettings>("telegram_storage_settings");
+    return this.accountStorage.getStorageSettings();
   }
 
   async saveStorageSettings(settings: StorageSettings) {
-    return invoke<StorageSettings>("telegram_save_storage_settings", {
-      preferences: {
-        cachePath: settings.cachePath,
-        downloadPath: settings.downloadPath,
-      },
-    });
+    return this.accountStorage.saveStorageSettings(settings);
   }
 
   async searchChats(query: string, limit = 50) {
@@ -566,17 +506,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   async downloadFile(fileId: number, fileName: string) {
     this.pendingDownloads.set(fileId, fileName);
     try {
-      const cachedDownload = this.cacheDownloadPromises.get(fileId);
+      const cachedDownload = this.fileDownloads.get(fileId);
       if (cachedDownload) {
-        const queuedIndex = this.cacheDownloadQueue.findIndex(
-          (download) => download.fileId === fileId,
-        );
-        if (queuedIndex >= 0) {
-          const [download] = this.cacheDownloadQueue.splice(queuedIndex, 1);
-          download.priority = 24;
-          this.cacheDownloadQueue.unshift(download);
-          this.pumpCacheDownloads();
-        }
+        this.fileDownloads.promote(fileId);
         await cachedDownload;
         return;
       }
@@ -596,78 +528,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   cacheFile(fileId: number, priority = 16) {
-    const existing = this.cacheDownloadPromises.get(fileId);
-    if (existing) return existing;
-
-    let resolveDownload!: () => void;
-    let rejectDownload!: (reason: Error) => void;
-    const result = new Promise<void>((resolve, reject) => {
-      resolveDownload = resolve;
-      rejectDownload = reject;
-    });
-    this.cacheDownloadPromises.set(fileId, result);
-    this.cacheDownloadQueue.push({
-      fileId,
-      priority: Math.max(1, Math.min(priority, 32)),
-      resolve: resolveDownload,
-      reject: rejectDownload,
-    });
-    this.pumpCacheDownloads();
-    return result;
-  }
-
-  private pumpCacheDownloads() {
-    while (
-      this.activeCacheDownloads.size < MAX_CACHE_DOWNLOADS &&
-      this.cacheDownloadQueue.length > 0
-    ) {
-      const download = this.cacheDownloadQueue.shift();
-      if (!download) return;
-      this.activeCacheDownloads.set(download.fileId, download);
-      download.stallTimer = globalThis.setTimeout(() => {
-        this.finishCacheDownload(
-          download.fileId,
-          new Error("TDLib preview download stalled"),
-        );
-      }, CACHE_DOWNLOAD_STALL_MS);
-      void this.request({
-        "@type": "downloadFile",
-        file_id: download.fileId,
-        priority: download.priority,
-        offset: 0,
-        limit: 0,
-        synchronous: false,
-      })
-        .then((file) => {
-          this.updateFile(file);
-          const local = asTdObject(file.local);
-          if (local?.is_downloading_completed === true) {
-            this.finishCacheDownload(download.fileId);
-          } else if (local?.is_downloading_active !== true) {
-            this.finishCacheDownload(
-              download.fileId,
-              new Error("TDLib did not start the preview download"),
-            );
-          }
-        })
-        .catch((error) => {
-          this.finishCacheDownload(
-            download.fileId,
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        });
-    }
-  }
-
-  private finishCacheDownload(fileId: number, error?: Error) {
-    const download = this.activeCacheDownloads.get(fileId);
-    if (!download) return;
-    if (download.stallTimer !== undefined) globalThis.clearTimeout(download.stallTimer);
-    this.activeCacheDownloads.delete(fileId);
-    this.cacheDownloadPromises.delete(fileId);
-    if (error) download.reject(error);
-    else download.resolve();
-    this.pumpCacheDownloads();
+    return this.fileDownloads.cache(fileId, priority);
   }
 
   async retryMessage(chatId: string, messageId: string) {
@@ -718,127 +579,34 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatId: string,
     targetCount: number,
   ): Promise<ChatHistoryPage> {
-    let loadedCount = 0;
-    const messageIds: string[] = [];
-    const returnedIds = new Set<string>();
-    let cursor = this.historyCursors.get(chatId) ?? 0;
-    let requestCount = 0;
-    let consecutiveStalls = 0;
-    const maxRequestCount = targetCount + MAX_CONSECUTIVE_HISTORY_STALLS + 2;
-
-    while (loadedCount < targetCount && requestCount < maxRequestCount) {
-      requestCount += 1;
-      const response = await this.request({
-        "@type": "getChatHistory",
-        chat_id: numericId(chatId),
-        from_message_id: cursor,
-        offset: 0,
-        limit: Math.min(100, targetCount - loadedCount + (cursor ? 1 : 0)),
-        only_local: false,
-      });
-      const rawPage = asTdObjects(response.messages);
-      if (rawPage.length === 0) {
-        this.exhaustedHistories.add(chatId);
-        break;
-      }
-
-      const known = this.rawMessages.get(chatId) ?? new Map<string, TdObject>();
-      let addedThisRequest = 0;
-      for (const raw of rawPage) {
-        const id = tdId(raw.id);
-        if (id && !returnedIds.has(id)) {
-          returnedIds.add(id);
-          messageIds.push(id);
-        }
-        if (id && !known.has(id)) addedThisRequest += 1;
-        this.emitMessage(raw);
-      }
-      loadedCount += addedThisRequest;
-
-      const nextCursor = tdNumber(rawPage.at(-1)?.id);
-      if (!nextCursor) {
-        this.exhaustedHistories.add(chatId);
-        break;
-      }
-      if (nextCursor === cursor) {
-        consecutiveStalls += 1;
-        if (consecutiveStalls >= MAX_CONSECUTIVE_HISTORY_STALLS) break;
-        continue;
-      }
-      this.historyCursors.set(chatId, nextCursor);
-      cursor = nextCursor;
-      consecutiveStalls = 0;
-    }
+    const result = await loadHistoryWindow({
+      chatId,
+      targetCount,
+      cursor: this.historyCursors.get(chatId) ?? 0,
+      knownMessages: this.rawMessages.get(chatId) ?? new Map<string, TdObject>(),
+      request: (request) => this.request(request),
+      emitMessage: (message) => this.emitMessage(message),
+      onCursor: (cursor) => this.historyCursors.set(chatId, cursor),
+    });
+    if (result.exhausted) this.exhaustedHistories.add(chatId);
 
     return {
-      loadedCount,
+      loadedCount: result.loadedCount,
       hasMore: !this.exhaustedHistories.has(chatId),
-      messageIds,
+      messageIds: result.messageIds,
     };
   }
 
   private async request(request: TdObject) {
-    const requestType = typeof request["@type"] === "string" ? request["@type"] : "unknown";
-    const extra = crypto.randomUUID();
-    const payload = { ...request, "@extra": extra };
-    const response = new Promise<TdObject>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        this.pending.delete(extra);
-        reject(new Error(`TDLib ${requestType} 请求超时。`));
-      }, 30_000);
-      this.pending.set(extra, { resolve, reject, timer });
-    });
-    try {
-      await invoke("telegram_send", { request: payload });
-    } catch (error) {
-      const pending = this.pending.get(extra);
-      if (pending) {
-        window.clearTimeout(pending.timer);
-        this.pending.delete(extra);
-        pending.reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    }
-    return response;
+    return this.requestBroker.request(request);
   }
 
   private async requestPreparedFile(chatId: string) {
-    const extra = crypto.randomUUID();
-    const response = new Promise<TdObject>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        this.pending.delete(extra);
-        reject(new Error("TDLib 文件发送请求超时。"));
-      }, 30_000);
-      this.pending.set(extra, { resolve, reject, timer });
-    });
-    try {
-      const selected = await invoke<boolean>("telegram_pick_and_send_file", {
-        chatId: numericId(chatId),
-        extra,
-      });
-      if (!selected) {
-        const pending = this.pending.get(extra);
-        if (pending) window.clearTimeout(pending.timer);
-        this.pending.delete(extra);
-        return undefined;
-      }
-    } catch (error) {
-      const pending = this.pending.get(extra);
-      if (pending) {
-        window.clearTimeout(pending.timer);
-        this.pending.delete(extra);
-        pending.reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    }
-    return response;
-  }
-
-  private effectiveProxy(settings: ProxySettings) {
-    if (settings.mode === "direct") return undefined;
-    return settings.mode === "system" ? settings.system : settings.custom;
+    return this.requestBroker.requestPreparedFile(chatId);
   }
 
   private async applyProxy(settings: ProxySettings) {
-    const endpoint = this.effectiveProxy(settings);
+    const endpoint = effectiveProxy(settings);
     if (!endpoint) {
       await this.request({ "@type": "disableProxy" });
       return;
@@ -863,104 +631,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private handleUpdate(update: TdObject) {
-    const extra = typeof update["@extra"] === "string" ? update["@extra"] : undefined;
-    if (extra) {
-      const pending = this.pending.get(extra);
-      if (pending) {
-        window.clearTimeout(pending.timer);
-        this.pending.delete(extra);
-        if (update["@type"] === "error") {
-          const code = tdNumber(update.code);
-          const suffix = code === undefined ? "" : ` (${code})`;
-          pending.reject(new Error(`${String(update.message ?? "TDLib 请求失败")}${suffix}`));
-        } else {
-          pending.resolve(update);
-        }
-        return;
-      }
-    }
-
-    switch (update["@type"]) {
-      case "updateAuthorizationState":
-        this.handleAuthorizationUpdate(update);
-        return;
-      case "updateUser":
-        this.upsertUser(asTdObject(update.user));
-        return;
-      case "updateUserStatus":
-        this.updateUserStatus(update);
-        return;
-      case "updateChatFolders":
-        this.updateChatFolders(update);
-        return;
-      case "updateNewChat":
-        this.upsertChat(asTdObject(update.chat));
-        this.emitDraft(update.chat_id ?? asTdObject(update.chat)?.id, asTdObject(update.chat)?.draft_message);
-        return;
-      case "updateChatTitle":
-        this.patchChat(update.chat_id, { title: update.title });
-        return;
-      case "updateChatPhoto":
-        this.patchChat(update.chat_id, { photo: update.photo });
-        return;
-      case "updateChatLastMessage":
-        this.patchChatWithPositions(update.chat_id, {
-          last_message: update.last_message,
-        }, update.positions);
-        return;
-      case "updateChatDraftMessage":
-        this.patchChatWithPositions(update.chat_id, {
-          draft_message: update.draft_message,
-        }, update.positions);
-        this.emitDraft(update.chat_id, update.draft_message);
-        return;
-      case "updateChatPosition":
-        this.updateChatPosition(update);
-        return;
-      case "updateChatAddedToList":
-        this.updateChatList(update, true);
-        return;
-      case "updateChatRemovedFromList":
-        this.updateChatList(update, false);
-        return;
-      case "updateChatReadInbox":
-        this.patchChat(update.chat_id, { unread_count: update.unread_count });
-        return;
-      case "updateChatNotificationSettings":
-        this.patchChat(update.chat_id, {
-          notification_settings: update.notification_settings,
-        });
-        return;
-      case "updateNewMessage":
-        this.emitMessage(asTdObject(update.message));
-        return;
-      case "updateMessageSendSucceeded":
-      case "updateMessageSendFailed":
-        this.replaceSentMessage(update);
-        return;
-      case "updateMessageContent":
-        this.updateMessageContent(update);
-        return;
-      case "updateMessageEdited":
-        this.patchMessage(update.chat_id, update.message_id, {
-          edit_date: update.edit_date,
-          reply_markup: update.reply_markup,
-        });
-        return;
-      case "updateMessageInteractionInfo":
-        this.patchMessage(update.chat_id, update.message_id, {
-          interaction_info: update.interaction_info,
-        });
-        return;
-      case "updateChatReadOutbox":
-        this.updateReadOutbox(update);
-        return;
-      case "updateDeleteMessages":
-        this.deleteMessages(update);
-        return;
-      case "updateFile":
-        this.updateFile(asTdObject(update.file));
-    }
+    if (this.requestBroker.settle(update)) return;
+    routeTdUpdate(update, this.updateHandlers);
   }
 
   private handleAuthorizationUpdate(update: TdObject) {
@@ -1175,14 +847,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     const fileId = tdNumber(file?.id);
     if (!file || fileId === undefined) return;
     const local = asTdObject(file.local);
-    if (local?.is_downloading_completed === true) {
-      this.finishCacheDownload(fileId);
-    } else if (
-      this.activeCacheDownloads.has(fileId) &&
-      local?.is_downloading_active === false
-    ) {
-      this.finishCacheDownload(fileId, new Error("TDLib preview download stopped"));
-    }
+    this.fileDownloads.handleFile(
+      fileId,
+      local?.is_downloading_completed === true,
+      local?.is_downloading_active === true,
+    );
 
     for (const raw of [...this.rawChats.values()]) {
       const photo = asTdObject(raw.photo);
@@ -1389,15 +1058,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.chatListLoads.clear();
     this.chatListCounts.clear();
     this.exhaustedChatLists.clear();
-    const sessionError = new Error("TDLib session was reset");
-    for (const download of this.cacheDownloadQueue) download.reject(sessionError);
-    for (const download of this.activeCacheDownloads.values()) {
-      if (download.stallTimer !== undefined) globalThis.clearTimeout(download.stallTimer);
-      download.reject(sessionError);
-    }
-    this.cacheDownloadQueue = [];
-    this.activeCacheDownloads.clear();
-    this.cacheDownloadPromises.clear();
+    this.fileDownloads.reset();
     this.pendingDownloads.clear();
     this.rawFolderInfos = [];
     this.mainChatListPosition = 0;
@@ -1406,62 +1067,4 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.initialChatSyncPending = true;
   }
 
-  private rejectAll(error: Error) {
-    for (const [extra, pending] of this.pending) {
-      window.clearTimeout(pending.timer);
-      pending.reject(error);
-      this.pending.delete(extra);
-    }
-  }
 }
-
-const mapAuthorizationState = (state: TdObject): AuthorizationState => {
-  switch (state["@type"]) {
-    case "authorizationStateWaitTdlibParameters":
-      return { kind: "preparing" };
-    case "authorizationStateWaitPhoneNumber":
-      return { kind: "waitPhoneNumber" };
-    case "authorizationStateWaitCode": {
-      const codeInfo = asTdObject(state.code_info);
-      const codeType = asTdObject(codeInfo?.type);
-      return {
-        kind: "waitCode",
-        phoneNumber:
-          typeof codeInfo?.phone_number === "string" ? codeInfo.phone_number : undefined,
-        codeLength: tdNumber(codeType?.length),
-      };
-    }
-    case "authorizationStateWaitPassword":
-      return {
-        kind: "waitPassword",
-        hint: typeof state.password_hint === "string" ? state.password_hint : undefined,
-      };
-    case "authorizationStateWaitEmailAddress":
-      return { kind: "waitEmailAddress" };
-    case "authorizationStateWaitEmailCode": {
-      const codeInfo = asTdObject(state.code_info);
-      return {
-        kind: "waitEmailCode",
-        emailPattern:
-          typeof codeInfo?.email_address_pattern === "string"
-            ? codeInfo.email_address_pattern
-            : undefined,
-        codeLength: tdNumber(codeInfo?.length),
-      };
-    }
-    case "authorizationStateWaitRegistration":
-      return { kind: "waitRegistration" };
-    case "authorizationStateWaitOtherDeviceConfirmation":
-      return { kind: "waitOtherDeviceConfirmation", link: String(state.link ?? "") };
-    case "authorizationStateReady":
-      return { kind: "ready" };
-    case "authorizationStateLoggingOut":
-      return { kind: "loggingOut" };
-    case "authorizationStateClosing":
-      return { kind: "closing" };
-    case "authorizationStateClosed":
-      return { kind: "closed" };
-    default:
-      return { kind: "preparing" };
-  }
-};
