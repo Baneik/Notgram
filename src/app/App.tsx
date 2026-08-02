@@ -8,6 +8,7 @@ import { SettingsDialog } from "../components/SettingsDialog";
 import { GlobalSearchView } from "../components/GlobalSearchView";
 import { ProfileDrawer } from "../components/ProfileDrawer";
 import { ContactsView } from "../components/ContactsView";
+import { FolderManagerDialog } from "../components/FolderManagerDialog";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
@@ -64,6 +65,7 @@ export function App() {
   const contactsError = useTelegramStore((state) => state.contactsError);
   const contactPendingUserId = useTelegramStore((state) => state.contactPendingUserId);
   const chatManagementPending = useTelegramStore((state) => state.chatManagementPending);
+  const folderManagementPending = useTelegramStore((state) => state.folderManagementPending);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
   const transportKind = useTelegramStore((state) => state.transportKind);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
@@ -83,6 +85,10 @@ export function App() {
   const setChatPinned = useTelegramStore((state) => state.setChatPinned);
   const setChatMuted = useTelegramStore((state) => state.setChatMuted);
   const setChatArchived = useTelegramStore((state) => state.setChatArchived);
+  const createChatFolder = useTelegramStore((state) => state.createChatFolder);
+  const renameChatFolder = useTelegramStore((state) => state.renameChatFolder);
+  const deleteChatFolder = useTelegramStore((state) => state.deleteChatFolder);
+  const setChatFolderMembership = useTelegramStore((state) => state.setChatFolderMembership);
   const markActiveChatRead = useTelegramStore((state) => state.markActiveChatRead);
   const setSearchQuery = useTelegramStore((state) => state.setSearchQuery);
   const setChatFilter = useTelegramStore((state) => state.setChatFilter);
@@ -115,6 +121,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [contactsOpen, setContactsOpen] = useState(false);
+  const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const globalSearchButtonRef = useRef<HTMLButtonElement>(null);
   const contactsButtonRef = useRef<HTMLButtonElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
@@ -380,6 +387,8 @@ export function App() {
   return (
     <>
       <main
+        inert={folderManagerOpen}
+        aria-hidden={folderManagerOpen || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
         style={{ "--chat-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
@@ -408,6 +417,7 @@ export function App() {
             setContactsOpen(true);
             void loadContacts();
           }}
+          onManageFolders={() => setFolderManagerOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
         {globalSearchOpen ? (
@@ -538,6 +548,18 @@ export function App() {
         </div>
       )}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {folderManagerOpen && (
+        <FolderManagerDialog
+          folders={folders}
+          chats={[...chats.values()]}
+          pending={folderManagementPending}
+          onCreate={createChatFolder}
+          onRename={renameChatFolder}
+          onDelete={deleteChatFolder}
+          onSetMembership={setChatFolderMembership}
+          onClose={() => setFolderManagerOpen(false)}
+        />
+      )}
       {profile.target && (
         <ProfileDrawer
           state={profile}

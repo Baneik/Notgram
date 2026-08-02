@@ -1,4 +1,4 @@
-import { Archive, Bell, Bot, Folder, MessageCircle, Radio, Search, Settings, UserRound, Users } from "lucide-react";
+import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, Search, Settings, UserRound, Users } from "lucide-react";
 import { type RefObject } from "react";
 import type { ChatFilter } from "../store/telegramStore";
 import type { ChatFolder, ConnectionStatus } from "../telegram/types";
@@ -16,6 +16,7 @@ interface NavigationRailProps {
   contactsActive: boolean;
   contactsButtonRef: RefObject<HTMLButtonElement | null>;
   onOpenContacts: () => void;
+  onManageFolders: () => void;
   onOpenSettings: () => void;
 }
 
@@ -31,6 +32,7 @@ export function NavigationRail({
   contactsActive,
   contactsButtonRef,
   onOpenContacts,
+  onManageFolders,
   onOpenSettings,
 }: NavigationRailProps) {
   return (
@@ -66,6 +68,9 @@ export function NavigationRail({
             <span className="rail-icon"><FolderIcon name={folder.iconName} /></span><span>{folder.title}</span>
           </button>
         ))}
+        <button className="rail-button" type="button" aria-label="管理文件夹" title="管理文件夹" onClick={onManageFolders}>
+          <span className="rail-icon"><FolderCog size={23} strokeWidth={1.8} /></span><span>管理</span>
+        </button>
       </div>
       <button className="rail-button rail-settings" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
         <span className="rail-icon"><Settings size={22} strokeWidth={1.8} /></span><span>设置</span>

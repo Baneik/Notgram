@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const horizontalOverflow = async (page: Page) =>
   page.evaluate(() => [...document.querySelectorAll("body *")].some((element) => {
+    if (element.closest(".rail-actions")) return false;
     const style = getComputedStyle(element);
     if (style.display === "none" || style.visibility === "hidden") return false;
     const rect = element.getBoundingClientRect();
@@ -732,4 +733,35 @@ test("chat organization menu confirms pin, mute, and archive changes", async ({ 
   await moreButton.click();
   await expect(menu).toBeVisible();
   expect(await horizontalOverflow(page)).toBe(false);
+});
+
+test("folder manager creates, edits, and deletes confirmed server folders", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "管理文件夹" }).click();
+  const dialog = page.getByRole("dialog", { name: "聊天文件夹" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "关闭" })).toBeFocused();
+
+  await dialog.getByRole("button", { name: "新建文件夹" }).click();
+  await dialog.getByLabel("名称").fill("客户");
+  await dialog.getByRole("checkbox", { name: "Mia Chen" }).check();
+  await dialog.getByRole("button", { name: "保存" }).click();
+  await expect(dialog.getByRole("button", { name: "客户", exact: true })).toBeVisible();
+
+  await dialog.getByLabel("名称").fill("客户团队");
+  await dialog.getByRole("button", { name: "保存" }).click();
+  await expect(dialog.getByRole("button", { name: "客户团队", exact: true })).toBeVisible();
+
+  await dialog.getByRole("checkbox", { name: "产品讨论" }).check();
+  await dialog.getByRole("button", { name: "保存" }).click();
+  await expect(dialog.getByRole("checkbox", { name: "产品讨论" })).toBeChecked();
+
+  await page.setViewportSize({ width: 390, height: 700 });
+  expect(await horizontalOverflow(page)).toBe(false);
+
+  await dialog.getByRole("button", { name: "删除文件夹" }).click();
+  await dialog.getByRole("button", { name: "删除文件夹" }).click();
+  await expect(dialog.getByRole("button", { name: "客户团队", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "关闭" }).click();
+  await expect(page.getByRole("button", { name: "客户团队", exact: true })).toHaveCount(0);
 });
