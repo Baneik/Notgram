@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
+    "addChatToList",
     "addMessageReaction",
     "addProxy",
     "checkAuthenticationCode",
@@ -44,7 +45,9 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setAuthenticationEmailAddress",
     "setAuthenticationPhoneNumber",
     "setChatDraftMessage",
+    "setChatNotificationSettings",
     "setPinnedChats",
+    "toggleChatIsPinned",
     "viewMessages",
 ];
 
@@ -238,6 +241,35 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&pinned_chats).is_ok());
+
+        let pin_chat = json!({
+            "@type": "toggleChatIsPinned",
+            "chat_list": { "@type": "chatListMain" },
+            "chat_id": 7,
+            "is_pinned": true,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&pin_chat).is_ok());
+
+        let mute_chat = json!({
+            "@type": "setChatNotificationSettings",
+            "chat_id": 7,
+            "notification_settings": {
+                "@type": "chatNotificationSettings",
+                "use_default_mute_for": false,
+                "mute_for": 2_147_483_647
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&mute_chat).is_ok());
+
+        let archive_chat = json!({
+            "@type": "addChatToList",
+            "chat_id": 7,
+            "chat_list": { "@type": "chatListArchive" },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&archive_chat).is_ok());
 
         let global_search = json!({
             "@type": "searchMessages",

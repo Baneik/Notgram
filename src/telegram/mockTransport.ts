@@ -269,6 +269,58 @@ export class MockTelegramTransport implements TelegramTransport {
     browserStorage()?.setItem(this.pinnedOrderKey(), JSON.stringify(stored));
   }
 
+  async setChatPinned(chatListId: string, chatId: string, pinned: boolean) {
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat || !chat.folderIds.includes(chatListId)) {
+      throw new Error("找不到当前列表中的会话");
+    }
+    const pinnedFolderIds = new Set(chat.pinnedFolderIds ?? []);
+    const listOrderByFolder = { ...chat.listOrderByFolder };
+    if (pinned) {
+      pinnedFolderIds.add(chatListId);
+      const currentOrders = this.snapshot.chats.flatMap((item) => {
+        const order = item.listOrderByFolder?.[chatListId];
+        return order ? [BigInt(order)] : [];
+      });
+      listOrderByFolder[chatListId] = String(
+        currentOrders.reduce((highest, order) => order > highest ? order : highest, 0n) + 1n,
+      );
+    } else {
+      pinnedFolderIds.delete(chatListId);
+      delete listOrderByFolder[chatListId];
+    }
+    chat.pinnedFolderIds = [...pinnedFolderIds];
+    chat.listOrderByFolder = listOrderByFolder;
+    chat.pinned = pinnedFolderIds.size > 0;
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+  }
+
+  async setChatMuted(chatId: string, muted: boolean) {
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat) throw new Error("找不到会话");
+    chat.muted = muted;
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+  }
+
+  async setChatArchived(chatId: string, archived: boolean) {
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat) throw new Error("找不到会话");
+    const target = archived ? "archive" : "main";
+    chat.folderIds = [
+      ...chat.folderIds.filter((folderId) => folderId !== "main" && folderId !== "archive"),
+      target,
+    ];
+    chat.pinnedFolderIds = chat.pinnedFolderIds?.filter(
+      (folderId) => folderId !== "main" && folderId !== "archive",
+    );
+    const listOrderByFolder = { ...chat.listOrderByFolder };
+    delete listOrderByFolder.main;
+    delete listOrderByFolder.archive;
+    chat.listOrderByFolder = listOrderByFolder;
+    chat.pinned = (chat.pinnedFolderIds?.length ?? 0) > 0;
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+  }
+
   async getCurrentUserProfile(): Promise<ChatProfile> {
     const user = this.snapshot.users.find((item) => item.id === this.snapshot.currentUserId);
     if (!user) throw new Error("找不到当前账号资料");

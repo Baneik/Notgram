@@ -61,7 +61,10 @@ export interface TelegramTransport {
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;
   loadMoreChats(chatListId: string, limit?: number): Promise<ChatListPage>;
+  setChatPinned(chatListId: string, chatId: string, pinned: boolean): Promise<void>;
   setPinnedChats(chatListId: string, chatIds: string[]): Promise<void>;
+  setChatMuted(chatId: string, muted: boolean): Promise<void>;
+  setChatArchived(chatId: string, archived: boolean): Promise<void>;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
   getMessageContext(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
   getMessage(chatId: string, messageId: string): Promise<Message | undefined>;

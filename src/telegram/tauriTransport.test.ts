@@ -298,6 +298,58 @@ describe("TauriTelegramTransport startup", () => {
       .toEqual([8, 7]);
   });
 
+  it("manages pin, mute, and archive state through TDLib and refreshes the chat", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const managedChat = {
+      ...rawChat(7, 1_700_000_007),
+      notification_settings: {
+        use_default_mute_for: true,
+        mute_for: 0,
+        use_default_show_preview: false,
+        show_preview: false,
+      },
+    };
+    internal.finishInitialChatSync();
+    internal.upsertChat(managedChat);
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getChat") return managedChat;
+      return { "@type": "ok" };
+    };
+
+    await transport.setChatPinned("main", "7", true);
+    await transport.setChatMuted("7", true);
+    await transport.setChatArchived("7", true);
+
+    expect(requests.filter((request) => request["@type"] !== "getChat")).toEqual([
+      {
+        "@type": "toggleChatIsPinned",
+        chat_list: { "@type": "chatListMain" },
+        chat_id: 7,
+        is_pinned: true,
+      },
+      {
+        "@type": "setChatNotificationSettings",
+        chat_id: 7,
+        notification_settings: {
+          "@type": "chatNotificationSettings",
+          use_default_mute_for: false,
+          mute_for: 2_147_483_647,
+          use_default_show_preview: false,
+          show_preview: false,
+        },
+      },
+      {
+        "@type": "addChatToList",
+        chat_id: 7,
+        chat_list: { "@type": "chatListArchive" },
+      },
+    ]);
+    expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(3);
+  });
+
   it("refreshes known chats when a list page is revisited", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

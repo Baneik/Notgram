@@ -642,10 +642,43 @@ export class TauriTelegramTransport implements TelegramTransport {
       chat_list: chatListObject(chatListId),
       chat_ids: chatIds.map(numericId),
     });
-    await Promise.all(chatIds.map(async (chatId) => this.upsertChat(await this.request({
-      "@type": "getChat",
+    await Promise.all(chatIds.map((chatId) => this.refreshChat(chatId)));
+  }
+
+  async setChatPinned(chatListId: string, chatId: string, pinned: boolean) {
+    await this.request({
+      "@type": "toggleChatIsPinned",
+      chat_list: chatListObject(chatListId),
       chat_id: numericId(chatId),
-    }))));
+      is_pinned: pinned,
+    });
+    await this.refreshChat(chatId);
+  }
+
+  async setChatMuted(chatId: string, muted: boolean) {
+    const raw = this.rawChats.get(chatId) ?? await this.refreshChat(chatId);
+    const currentSettings = asTdObject(raw.notification_settings);
+    if (!currentSettings) throw new Error("无法读取会话通知设置");
+    await this.request({
+      "@type": "setChatNotificationSettings",
+      chat_id: numericId(chatId),
+      notification_settings: {
+        ...currentSettings,
+        "@type": "chatNotificationSettings",
+        use_default_mute_for: false,
+        mute_for: muted ? 2_147_483_647 : 0,
+      },
+    });
+    await this.refreshChat(chatId);
+  }
+
+  async setChatArchived(chatId: string, archived: boolean) {
+    await this.request({
+      "@type": "addChatToList",
+      chat_id: numericId(chatId),
+      chat_list: chatListObject(archived ? "archive" : "main"),
+    });
+    await this.refreshChat(chatId);
   }
 
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
@@ -1200,6 +1233,15 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!id) return;
     this.rawChats.set(id, raw);
     this.emitChat(raw);
+  }
+
+  private async refreshChat(chatId: string) {
+    const raw = await this.request({
+      "@type": "getChat",
+      chat_id: numericId(chatId),
+    });
+    this.upsertChat(raw);
+    return raw;
   }
 
   private emitChat(raw: TdObject) {
