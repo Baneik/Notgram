@@ -365,6 +365,18 @@ export class TauriTelegramTransport implements TelegramTransport {
     );
   }
 
+  async setPinnedChats(chatListId: string, chatIds: string[]) {
+    await this.request({
+      "@type": "setPinnedChats",
+      chat_list: chatListObject(chatListId),
+      chat_ids: chatIds.map(numericId),
+    });
+    await Promise.all(chatIds.map(async (chatId) => this.upsertChat(await this.request({
+      "@type": "getChat",
+      chat_id: numericId(chatId),
+    }))));
+  }
+
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
     if (this.exhaustedHistories.has(chatId)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
@@ -675,7 +687,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
 
     this.emitFolders();
-    await this.loadChatList(listObject("chatListMain"), 40);
+    await this.loadChatList(listObject("chatListMain"), 100);
   }
 
   private async loadChatList(chatList: TdObject, limit: number): Promise<ChatListPage> {
@@ -818,13 +830,18 @@ export class TauriTelegramTransport implements TelegramTransport {
     const current = this.rawChats.get(id);
     if (!current) return;
     const positions = asTdObjects(positionsValue);
+    const incomingLists = new Set(positions.map((position) => chatListKey(position.list)));
+    const stablePinnedPositions = asTdObjects(current.positions).filter((position) =>
+      position.is_pinned === true && !incomingLists.has(chatListKey(position.list)),
+    );
     this.upsertChat({
       ...current,
       ...patch,
-      // TDLib can transiently send an empty positions array while a chat update
-      // is followed by updateChatPosition. Keep the last stable list state until
-      // that authoritative per-list update arrives.
-      positions: positions.length > 0 ? positions : current.positions,
+      // Last-message and draft updates can briefly omit a pinned list position.
+      // Keep it until updateChatPosition explicitly replaces or removes that list.
+      positions: positions.length > 0
+        ? [...positions, ...stablePinnedPositions]
+        : current.positions,
     });
   }
 

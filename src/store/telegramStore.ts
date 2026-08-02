@@ -26,7 +26,11 @@ import {
   upsertMessage,
   withEmojiReaction,
 } from "./telegramStore.messages";
-import { compareChats } from "./telegramStore.selectors";
+import {
+  compareChats,
+  filterAndSortChats,
+  isChatPinnedInFolder,
+} from "./telegramStore.selectors";
 import type { TelegramState } from "./telegramStore.types";
 
 export type {
@@ -505,20 +509,12 @@ export const createTelegramStore = (
         set({ phase: "loading", error: undefined });
         try {
           applyAccountState(await transport.getAccountState());
-          let connectionSnapshot: Awaited<ReturnType<TelegramTransport["connect"]>> | undefined;
-          let connectionError: unknown;
-          const cacheLoad = transport
-            .loadCachedSnapshot()
-            .then(hydrateCachedSnapshot)
-            .catch(() => undefined);
-          const connection = transport.connect(applyEvent)
-            .then((snapshot) => { connectionSnapshot = snapshot; })
-            .catch((error) => { connectionError = error; });
-          await cacheLoad;
-          await connection;
-          if (connectionError) throw connectionError;
-          if (!connectionSnapshot) throw new Error("Telegram runtime 未返回启动快照");
-          const snapshot = connectionSnapshot;
+          try {
+            hydrateCachedSnapshot(await transport.loadCachedSnapshot());
+          } catch {
+            // A corrupt or unavailable cache must not block the live connection.
+          }
+          const snapshot = await transport.connect(applyEvent);
           const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
           const users = new Map(snapshot.users.map((user) => [user.id, user]));
           const folders = snapshot.folders.filter((folder) => folder.id !== "archive");
@@ -721,6 +717,52 @@ export const createTelegramStore = (
       },
 
       loadMoreChats: loadChats,
+      reorderPinnedChats: async (chatListId, orderedChatIds) => {
+        const pinnedChats = filterAndSortChats(get().chats.values(), chatListId, "")
+          .filter((chat) => isChatPinnedInFolder(chat, chatListId));
+        const currentIds = pinnedChats.map((chat) => chat.id);
+        const uniqueIds = [...new Set(orderedChatIds)];
+        if (
+          uniqueIds.length !== currentIds.length ||
+          uniqueIds.some((chatId) => !currentIds.includes(chatId))
+        ) return false;
+        if (uniqueIds.every((chatId, index) => chatId === currentIds[index])) return true;
+
+        const originalChats = new Map(pinnedChats.map((chat) => [chat.id, chat]));
+        const optimisticOrders = new Map<string, string>();
+        const chats = new Map(get().chats);
+        const rankBase = BigInt(uniqueIds.length);
+        for (const [index, chatId] of uniqueIds.entries()) {
+          const chat = chats.get(chatId);
+          if (!chat) return false;
+          const order = String(rankBase - BigInt(index));
+          optimisticOrders.set(chatId, order);
+          chats.set(chatId, {
+            ...chat,
+            listOrderByFolder: { ...chat.listOrderByFolder, [chatListId]: order },
+          });
+        }
+        set({ chats, error: undefined });
+
+        try {
+          await transport.setPinnedChats(chatListId, uniqueIds);
+          await flushCachedSnapshot();
+          return true;
+        } catch (error) {
+          const latestChats = get().chats;
+          const stillOptimistic = uniqueIds.every((chatId) =>
+            latestChats.get(chatId)?.listOrderByFolder?.[chatListId] ===
+              optimisticOrders.get(chatId),
+          );
+          if (stillOptimistic) {
+            const rollback = new Map(latestChats);
+            for (const [chatId, chat] of originalChats) rollback.set(chatId, chat);
+            set({ chats: rollback });
+          }
+          set({ error: error instanceof Error ? error.message : "无法调整置顶顺序" });
+          return false;
+        }
+      },
       loadMoreHistory: loadHistory,
       markActiveChatRead: async () => {
         const chatId = get().activeChatId;

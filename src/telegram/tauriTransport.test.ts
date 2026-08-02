@@ -137,8 +137,33 @@ describe("TauriTelegramTransport startup", () => {
     expect(loads).toHaveLength(1);
     expect(loads[0]).toMatchObject({
       chat_list: { "@type": "chatListMain" },
-      limit: 40,
+      limit: 100,
     });
+  });
+
+  it("sends the complete pinned order and refreshes reordered chats", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.finishInitialChatSync();
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getChat") {
+        return rawChat(Number(request.chat_id), 1_700_000_000 + Number(request.chat_id));
+      }
+      return { "@type": "ok" };
+    };
+
+    await transport.setPinnedChats("folder:12", ["8", "7"]);
+
+    expect(requests[0]).toEqual({
+      "@type": "setPinnedChats",
+      chat_list: { "@type": "chatListFolder", chat_folder_id: 12 },
+      chat_ids: [8, 7],
+    });
+    expect(requests.filter((request) => request["@type"] === "getChat")
+      .map((request) => request.chat_id))
+      .toEqual([8, 7]);
   });
 
   it("refreshes known chats when a list page is revisited", async () => {
@@ -206,6 +231,47 @@ describe("TauriTelegramTransport startup", () => {
     expect(events.at(-1)).toMatchObject({
       type: "chat.upsert",
       chat: { id: "7", pinned: false },
+    });
+  });
+
+  it("keeps pinned positions omitted by a partial chat update", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    const chat = rawChat(7, 1_700_000_007);
+    chat.positions = [
+      {
+        list: { "@type": "chatListMain" },
+        order: "200",
+        is_pinned: true,
+      },
+      {
+        list: { "@type": "chatListFolder", chat_folder_id: 12 },
+        order: "100",
+        is_pinned: true,
+      },
+    ];
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat(chat);
+    internal.finishInitialChatSync();
+
+    internal.handleUpdate({
+      "@type": "updateChatLastMessage",
+      chat_id: 7,
+      last_message: rawMessage(12),
+      positions: [{
+        list: { "@type": "chatListFolder", chat_folder_id: 12 },
+        order: "100",
+        is_pinned: true,
+      }],
+    });
+
+    expect(events.at(-1)).toMatchObject({
+      type: "chat.upsert",
+      chat: {
+        pinnedFolderIds: ["folder:12", "main"],
+        listOrderByFolder: { main: "200", "folder:12": "100" },
+      },
     });
   });
 });

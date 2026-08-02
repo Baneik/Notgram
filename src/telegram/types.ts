@@ -62,6 +62,7 @@ export interface Chat {
   unreadCount: number;
   pinned: boolean;
   pinnedFolderIds?: string[];
+  listOrderByFolder?: Record<string, string>;
   muted: boolean;
 }
 

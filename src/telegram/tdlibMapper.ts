@@ -840,6 +840,11 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
   }
   const lastMessage = asTdObject(raw.last_message);
   const notifications = asTdObject(raw.notification_settings);
+  const listOrderByFolder = Object.fromEntries(positions.flatMap((position) => {
+    const order = tdId(position.order);
+    const folderId = tdChatListId(position.list);
+    return order && order !== "0" && folderId ? [[folderId, order]] : [];
+  }));
   const pinnedFolderIds = positions.flatMap((position) => {
     if (position.is_pinned !== true || (tdNumber(position.order) ?? 0) === 0) return [];
     const folderId = tdChatListId(position.list);
@@ -862,6 +867,7 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
     unreadCount: tdNumber(raw.unread_count) ?? 0,
     pinned: pinnedFolderIds.length > 0,
     pinnedFolderIds,
+    listOrderByFolder,
     muted: (tdNumber(notifications?.mute_for) ?? 0) > 0,
   };
 };

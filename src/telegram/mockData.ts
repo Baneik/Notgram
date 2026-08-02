@@ -52,6 +52,8 @@ const chats: Chat[] = [
     updatedAt: "2026-08-01T09:48:00+08:00",
     unreadCount: 3,
     pinned: true,
+    pinnedFolderIds: ["main", "folder:work"],
+    listOrderByFolder: { main: "200", "folder:work": "200" },
     muted: false,
   },
   {
@@ -65,6 +67,8 @@ const chats: Chat[] = [
     updatedAt: "2026-08-01T09:32:00+08:00",
     unreadCount: 1,
     pinned: true,
+    pinnedFolderIds: ["main"],
+    listOrderByFolder: { main: "100" },
     muted: false,
   },
   {

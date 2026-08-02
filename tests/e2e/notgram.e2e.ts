@@ -73,6 +73,22 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
   await expect(mutedBadge).toHaveClass(/is-muted/);
   await expect(mutedBadge).toHaveCSS("background-color", "rgb(146, 154, 158)");
   await expect(regularBadge).not.toHaveCSS("background-color", "rgb(146, 154, 158)");
+  await expect(page.locator(".chat-row .lucide-volume-x")).toHaveCount(0);
+});
+
+test("pinned chats can be dragged into a fixed order", async ({ page }) => {
+  await page.goto("/");
+  const product = page.getByRole("button", { name: /产品讨论/ });
+  const mia = page.getByRole("button", { name: /Mia Chen/ });
+
+  await expect(product).toHaveAttribute("draggable", "true");
+  await expect(mia).toHaveAttribute("draggable", "true");
+  await product.dragTo(mia, {
+    targetPosition: { x: 30, y: 65 },
+  });
+
+  await expect(page.locator(".chat-row").first()).toContainText("Mia Chen");
+  await expect(page.locator(".chat-row").nth(1)).toContainText("产品讨论");
 });
 
 test("video uses its poster and custom streaming controls", async ({ page }) => {

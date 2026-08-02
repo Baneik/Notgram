@@ -11,8 +11,25 @@ export const isChatPinnedInFolder = (chat: Chat, folderId: string) =>
     ? chat.pinned
     : chat.pinnedFolderIds.includes(folderId);
 
+const listOrder = (chat: Chat, folderId: string) => {
+  const value = chat.listOrderByFolder?.[folderId];
+  if (!value || !/^-?\d+$/.test(value)) return 0n;
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+};
+
+const compareListOrder = (left: Chat, right: Chat, folderId: string) => {
+  const leftOrder = listOrder(left, folderId);
+  const rightOrder = listOrder(right, folderId);
+  return leftOrder === rightOrder ? 0 : leftOrder > rightOrder ? -1 : 1;
+};
+
 export const compareChatsInFolder = (folderId: string) => (left: Chat, right: Chat) =>
   Number(isChatPinnedInFolder(right, folderId)) - Number(isChatPinnedInFolder(left, folderId)) ||
+  compareListOrder(left, right, folderId) ||
   new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() ||
   (left.id === right.id ? 0 : left.id < right.id ? -1 : 1);
 

@@ -25,6 +25,7 @@ import type {
 const clone = <T,>(value: T): T => structuredClone(value);
 const CACHE_KEY = "notgram:ui-cache:v1";
 const ACCOUNT_STATE_KEY = "notgram:accounts:v1";
+const PINNED_ORDER_KEY = "notgram:mock-pinned-order:v1";
 
 const defaultMockAccount = (): TelegramAccount => {
   const user = mockSnapshot.users.find((item) => item.id === mockSnapshot.currentUserId);
@@ -123,6 +124,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (this.authFlow) {
       this.snapshot.authorization = { kind: "waitPhoneNumber" };
     }
+    this.restorePinnedOrders();
   }
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
@@ -183,6 +185,9 @@ export class MockTelegramTransport implements TelegramTransport {
       this.accountState.activeAccountId = this.accountState.accounts[0]?.id ?? "default";
     }
     browserStorage()?.removeItem(accountId === "default" ? CACHE_KEY : `${CACHE_KEY}:${accountId}`);
+    browserStorage()?.removeItem(
+      accountId === "default" ? PINNED_ORDER_KEY : `${PINNED_ORDER_KEY}:${accountId}`,
+    );
     this.persistAccountState();
     return clone(this.accountState);
   }
@@ -217,6 +222,22 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async loadMoreChats() {
     return { loadedCount: 0, hasMore: false };
+  }
+
+  async setPinnedChats(chatListId: string, chatIds: string[]) {
+    const rankBase = BigInt(chatIds.length);
+    for (const [index, chatId] of chatIds.entries()) {
+      const chat = this.snapshot.chats.find((item) => item.id === chatId);
+      if (!chat) continue;
+      chat.listOrderByFolder = {
+        ...chat.listOrderByFolder,
+        [chatListId]: String(rankBase - BigInt(index)),
+      };
+      this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+    }
+    const stored = this.loadPinnedOrders();
+    stored[chatListId] = [...chatIds];
+    browserStorage()?.setItem(this.pinnedOrderKey(), JSON.stringify(stored));
   }
 
   async searchChats(query: string, limit = 50) {
@@ -543,6 +564,36 @@ export class MockTelegramTransport implements TelegramTransport {
     return this.accountState.activeAccountId === "default"
       ? CACHE_KEY
       : `${CACHE_KEY}:${this.accountState.activeAccountId}`;
+  }
+
+  private pinnedOrderKey() {
+    return this.accountState.activeAccountId === "default"
+      ? PINNED_ORDER_KEY
+      : `${PINNED_ORDER_KEY}:${this.accountState.activeAccountId}`;
+  }
+
+  private loadPinnedOrders(): Record<string, string[]> {
+    const serialized = browserStorage()?.getItem(this.pinnedOrderKey());
+    if (!serialized) return {};
+    try {
+      return JSON.parse(serialized) as Record<string, string[]>;
+    } catch {
+      return {};
+    }
+  }
+
+  private restorePinnedOrders() {
+    for (const [chatListId, chatIds] of Object.entries(this.loadPinnedOrders())) {
+      const rankBase = BigInt(chatIds.length);
+      for (const [index, chatId] of chatIds.entries()) {
+        const chat = this.snapshot.chats.find((item) => item.id === chatId);
+        if (!chat) continue;
+        chat.listOrderByFolder = {
+          ...chat.listOrderByFolder,
+          [chatListId]: String(rankBase - BigInt(index)),
+        };
+      }
+    }
   }
 
   private persistAccountState() {

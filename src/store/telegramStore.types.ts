@@ -70,6 +70,7 @@ export interface TelegramState {
   logOutCurrentAccount: () => Promise<boolean>;
   selectChat: (chatId: string) => Promise<void>;
   loadMoreChats: (chatListId?: string) => Promise<void>;
+  reorderPinnedChats: (chatListId: string, chatIds: string[]) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
   markActiveChatRead: () => Promise<void>;
   loadMessageProperties: (

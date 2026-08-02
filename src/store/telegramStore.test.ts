@@ -14,6 +14,40 @@ import type {
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 
 describe("telegram store", () => {
+  it("finishes loading the cached chat list before starting live updates", async () => {
+    class CacheFirstTransport extends MockTelegramTransport {
+      connectStarted = false;
+      private releaseCache?: () => void;
+      private cacheGate = new Promise<void>((resolve) => {
+        this.releaseCache = resolve;
+      });
+
+      override async loadCachedSnapshot() {
+        await this.cacheGate;
+        return super.loadCachedSnapshot();
+      }
+
+      override async connect(listener: Parameters<MockTelegramTransport["connect"]>[0]) {
+        this.connectStarted = true;
+        return super.connect(listener);
+      }
+
+      release() {
+        this.releaseCache?.();
+      }
+    }
+
+    const transport = new CacheFirstTransport();
+    const store = createTelegramStore(transport);
+    const initialization = store.getState().initialize();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(transport.connectStarted).toBe(false);
+    transport.release();
+    await initialization;
+    expect(transport.connectStarted).toBe(true);
+  });
+
   it("hydrates cached chats before the server connection finishes", async () => {
     const cachedSnapshot: CachedTelegramSnapshot = {
       version: 1,
@@ -1232,6 +1266,7 @@ describe("chat filtering", () => {
         title: "Main pin",
         pinned: true,
         pinnedFolderIds: ["main"],
+        listOrderByFolder: { main: "200", "folder:work": "100" },
         folderIds: ["main", "folder:work"],
         updatedAt: "2026-08-01T09:00:00+08:00",
       },
@@ -1241,6 +1276,7 @@ describe("chat filtering", () => {
         title: "Work pin",
         pinned: true,
         pinnedFolderIds: ["folder:work"],
+        listOrderByFolder: { main: "100", "folder:work": "200" },
         folderIds: ["main", "folder:work"],
         updatedAt: "2026-08-01T08:00:00+08:00",
       },
@@ -1250,5 +1286,78 @@ describe("chat filtering", () => {
       .toEqual(["main-pin", "work-pin"]);
     expect(filterAndSortChats(chats, "folder:work", "").map((chat) => chat.id))
       .toEqual(["work-pin", "main-pin"]);
+  });
+
+  it("keeps pinned chats in list order when their latest message changes", () => {
+    const base = structuredClone(mockSnapshot.chats[0]);
+    const chats: Chat[] = [
+      {
+        ...base,
+        id: "first-pin",
+        listOrderByFolder: { main: "200" },
+        updatedAt: "2026-08-01T08:00:00+08:00",
+      },
+      {
+        ...base,
+        id: "second-pin",
+        listOrderByFolder: { main: "100" },
+        updatedAt: "2026-08-02T12:00:00+08:00",
+      },
+    ];
+
+    expect(filterAndSortChats(chats, "main", "").map((chat) => chat.id))
+      .toEqual(["first-pin", "second-pin"]);
+  });
+
+  it("reorders pinned chats optimistically and sends the complete fixed order", async () => {
+    class ReorderTrackingTransport extends MockTelegramTransport {
+      requests: Array<{ chatListId: string; chatIds: string[] }> = [];
+
+      override async setPinnedChats(chatListId: string, chatIds: string[]) {
+        this.requests.push({ chatListId, chatIds: [...chatIds] });
+        await super.setPinnedChats(chatListId, chatIds);
+      }
+    }
+
+    const transport = new ReorderTrackingTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await expect(store.getState().reorderPinnedChats(
+      "main",
+      ["chat-mia", "chat-product"],
+    )).resolves.toBe(true);
+    expect(transport.requests).toEqual([{
+      chatListId: "main",
+      chatIds: ["chat-mia", "chat-product"],
+    }]);
+    expect(filterAndSortChats(store.getState().chats.values(), "main", "")
+      .filter((chat) => chat.pinnedFolderIds?.includes("main"))
+      .map((chat) => chat.id))
+      .toEqual(["chat-mia", "chat-product"]);
+  });
+
+  it("restores the previous pinned order when synchronization fails", async () => {
+    class FailedReorderTransport extends MockTelegramTransport {
+      override async setPinnedChats() {
+        throw new Error("置顶同步失败");
+      }
+    }
+
+    const store = createTelegramStore(new FailedReorderTransport());
+    await store.getState().initialize();
+    const before = filterAndSortChats(store.getState().chats.values(), "main", "")
+      .filter((chat) => chat.pinnedFolderIds?.includes("main"))
+      .map((chat) => chat.id);
+
+    await expect(store.getState().reorderPinnedChats(
+      "main",
+      ["chat-mia", "chat-product"],
+    )).resolves.toBe(false);
+    expect(filterAndSortChats(store.getState().chats.values(), "main", "")
+      .filter((chat) => chat.pinnedFolderIds?.includes("main"))
+      .map((chat) => chat.id))
+      .toEqual(before);
+    expect(store.getState().error).toBe("置顶同步失败");
   });
 });

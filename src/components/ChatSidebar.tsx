@@ -1,5 +1,12 @@
-import { Archive, CheckCheck, LoaderCircle, Pin, Search, VolumeX } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { Archive, CheckCheck, LoaderCircle, Pin, Search } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import type { Chat, ChatDraft } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
@@ -18,6 +25,7 @@ interface ChatSidebarProps {
   loadingMore: boolean;
   hasMore: boolean;
   onLoadMore: () => Promise<void>;
+  onReorderPinned: (chatIds: string[]) => void;
   width: number;
   onWidthChange: (width: number) => void;
 }
@@ -39,6 +47,7 @@ export function ChatSidebar({
   loadingMore,
   hasMore,
   onLoadMore,
+  onReorderPinned,
   width,
   onWidthChange,
 }: ChatSidebarProps) {
@@ -47,6 +56,48 @@ export function ChatSidebar({
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const resizeStartRef = useRef<{ x: number; width: number } | undefined>(undefined);
   const [resizing, setResizing] = useState(false);
+  const [draggedPinnedChatId, setDraggedPinnedChatId] = useState<string>();
+  const [pinnedDropTarget, setPinnedDropTarget] = useState<{
+    chatId: string;
+    edge: "before" | "after";
+  }>();
+
+  const pinnedReorderEnabled = searchQuery.trim().length === 0;
+
+  const beginPinnedDrag = (event: DragEvent<HTMLButtonElement>, chatId: string) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", chatId);
+    setDraggedPinnedChatId(chatId);
+  };
+
+  const updatePinnedDropTarget = (
+    event: DragEvent<HTMLButtonElement>,
+    chatId: string,
+  ) => {
+    if (!draggedPinnedChatId || draggedPinnedChatId === chatId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const edge = event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+    setPinnedDropTarget({ chatId, edge });
+  };
+
+  const dropPinnedChat = (event: DragEvent<HTMLButtonElement>, chatId: string) => {
+    event.preventDefault();
+    const sourceId = draggedPinnedChatId || event.dataTransfer.getData("text/plain");
+    const edge = pinnedDropTarget?.chatId === chatId ? pinnedDropTarget.edge : "before";
+    const pinnedIds = chats
+      .filter((chat) => isChatPinnedInFolder(chat, folderId))
+      .map((chat) => chat.id);
+    const reordered = pinnedIds.filter((id) => id !== sourceId);
+    const targetIndex = reordered.indexOf(chatId);
+    if (sourceId && targetIndex >= 0) {
+      reordered.splice(targetIndex + (edge === "after" ? 1 : 0), 0, sourceId);
+      onReorderPinned(reordered);
+    }
+    setDraggedPinnedChatId(undefined);
+    setPinnedDropTarget(undefined);
+  };
 
   const maximumWidth = () => {
     const left = sidebarRef.current?.getBoundingClientRect().left ?? 86;
@@ -164,6 +215,18 @@ export function ChatSidebar({
               active={activeChatId === chat.id}
               onSelect={onSelect}
               onOpenLatest={onOpenLatest}
+              pinnedDraggable={pinnedReorderEnabled && isChatPinnedInFolder(chat, folderId)}
+              dragging={draggedPinnedChatId === chat.id}
+              dropEdge={pinnedDropTarget?.chatId === chat.id
+                ? pinnedDropTarget.edge
+                : undefined}
+              onDragStart={beginPinnedDrag}
+              onDragOver={updatePinnedDropTarget}
+              onDrop={dropPinnedChat}
+              onDragEnd={() => {
+                setDraggedPinnedChatId(undefined);
+                setPinnedDropTarget(undefined);
+              }}
             />
           ))
         )}
@@ -205,6 +268,13 @@ function ChatRow({
   active,
   onSelect,
   onOpenLatest,
+  pinnedDraggable,
+  dragging,
+  dropEdge,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   chat: Chat;
   folderId: string;
@@ -212,6 +282,13 @@ function ChatRow({
   active: boolean;
   onSelect: (chatId: string) => void;
   onOpenLatest: (chatId: string) => void;
+  pinnedDraggable: boolean;
+  dragging: boolean;
+  dropEdge?: "before" | "after";
+  onDragStart: (event: DragEvent<HTMLButtonElement>, chatId: string) => void;
+  onDragOver: (event: DragEvent<HTMLButtonElement>, chatId: string) => void;
+  onDrop: (event: DragEvent<HTMLButtonElement>, chatId: string) => void;
+  onDragEnd: () => void;
 }) {
   const visibleDraft = draft && (draft.text.length > 0 || draft.replyToMessageId)
     ? draft
@@ -219,9 +296,15 @@ function ChatRow({
   return (
     <button
       type="button"
-      className={`chat-row ${active ? "is-active" : ""} ${chat.muted ? "is-muted" : ""}`}
+      className={`chat-row ${active ? "is-active" : ""} ${chat.muted ? "is-muted" : ""} ${pinnedDraggable ? "is-pinned-draggable" : ""} ${dragging ? "is-dragging" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
+      draggable={pinnedDraggable}
+      aria-grabbed={dragging}
       onClick={() => onSelect(chat.id)}
       onDoubleClick={() => onOpenLatest(chat.id)}
+      onDragStart={(event) => onDragStart(event, chat.id)}
+      onDragOver={(event) => onDragOver(event, chat.id)}
+      onDrop={(event) => onDrop(event, chat.id)}
+      onDragEnd={onDragEnd}
     >
       <Avatar avatar={chat.avatar} />
       <span className="chat-row-body">
@@ -239,7 +322,6 @@ function ChatRow({
           </span>
           <span className="chat-row-meta">
             {isChatPinnedInFolder(chat, folderId) && <Pin size={13} strokeWidth={2} />}
-            {chat.muted && <VolumeX size={13} strokeWidth={2} />}
             {chat.folderIds.includes("archive") && <Archive size={13} strokeWidth={2} />}
             {chat.unreadCount > 0 && (
               <span className={`unread-count ${chat.muted ? "is-muted" : ""}`}>{chat.unreadCount}</span>

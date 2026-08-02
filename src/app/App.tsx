@@ -43,6 +43,7 @@ export function App() {
   const initialize = useTelegramStore((state) => state.initialize);
   const selectChat = useTelegramStore((state) => state.selectChat);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
+  const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const markActiveChatRead = useTelegramStore((state) => state.markActiveChatRead);
   const setSearchQuery = useTelegramStore((state) => state.setSearchQuery);
   const setChatFilter = useTelegramStore((state) => state.setChatFilter);
@@ -226,6 +227,7 @@ export function App() {
           loadingMore={activeChatList.loading}
           hasMore={activeChatList.hasMore}
           onLoadMore={() => loadMoreChats(chatFilter)}
+          onReorderPinned={(chatIds) => { void reorderPinnedChats(chatFilter, chatIds); }}
           width={sidebarWidth}
           onWidthChange={setSidebarWidth}
         />
