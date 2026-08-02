@@ -34,11 +34,12 @@ function Invoke-CheckedCommand {
 }
 
 function Set-ReleaseEnvironment {
-    if (-not $env:NOTGRAM_API_ID -or $env:NOTGRAM_API_ID -notmatch '^\d+$') {
-        throw "NOTGRAM_API_ID must be supplied as an integer in the release process environment."
+    $apiId = 0
+    if (-not [int]::TryParse($env:NOTGRAM_API_ID, [ref]$apiId) -or $apiId -le 0) {
+        throw "NOTGRAM_API_ID must be supplied as a positive 32-bit integer in the release process environment."
     }
-    if (-not $env:NOTGRAM_API_HASH -or [string]::IsNullOrWhiteSpace($env:NOTGRAM_API_HASH)) {
-        throw "NOTGRAM_API_HASH must be supplied in the release process environment."
+    if ($env:NOTGRAM_API_HASH -notmatch '^[0-9A-Fa-f]{32}$') {
+        throw "NOTGRAM_API_HASH must be supplied as a 32-character hexadecimal value in the release process environment."
     }
     $env:VITE_TELEGRAM_TRANSPORT = "tauri"
     Remove-Item Env:NOTGRAM_DATABASE_KEY_BASE64 -ErrorAction SilentlyContinue

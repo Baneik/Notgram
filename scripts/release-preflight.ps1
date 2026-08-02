@@ -50,6 +50,23 @@ try {
                 throw "Release secret $name is not configured."
             }
         }
+
+        $apiId = 0
+        if (-not [int]::TryParse($env:NOTGRAM_API_ID, [ref]$apiId) -or $apiId -le 0) {
+            throw "NOTGRAM_API_ID must be a positive 32-bit integer."
+        }
+        if ($env:NOTGRAM_API_HASH -notmatch '^[0-9A-Fa-f]{32}$') {
+            throw "NOTGRAM_API_HASH must be a 32-character hexadecimal value."
+        }
+        $certificateBytes = $null
+        try {
+            $certificateBytes = [Convert]::FromBase64String($env:NOTGRAM_WINDOWS_CERTIFICATE_BASE64)
+            if ($certificateBytes.Length -eq 0) { throw "empty certificate" }
+        } catch {
+            throw "NOTGRAM_WINDOWS_CERTIFICATE_BASE64 is not valid Base64 certificate data."
+        } finally {
+            if ($certificateBytes) { [Array]::Clear($certificateBytes, 0, $certificateBytes.Length) }
+        }
     }
 
     Write-Host "Release preflight passed for Notgram $version at $commit."
