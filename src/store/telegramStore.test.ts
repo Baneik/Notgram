@@ -1818,8 +1818,8 @@ describe("chat filtering", () => {
       pinnedFolderIds: ["main"],
     });
 
-    await expect(store.getState().setChatMuted("chat-saved", true)).resolves.toBe(true);
-    expect(store.getState().chats.get("chat-saved")?.muted).toBe(true);
+    await expect(store.getState().setChatMuted("chat-mia", true)).resolves.toBe(true);
+    expect(store.getState().chats.get("chat-mia")?.muted).toBe(true);
 
     await expect(store.getState().setChatArchived("chat-saved", true)).resolves.toBe(true);
     expect(store.getState().chats.get("chat-saved")?.folderIds).toContain("archive");
@@ -1848,14 +1848,14 @@ describe("chat filtering", () => {
     const transport = new DeferredManagementTransport();
     const store = createTelegramStore(transport);
     await store.getState().initialize();
-    const mute = store.getState().setChatMuted("chat-saved", true);
+    const mute = store.getState().setChatMuted("chat-mia", true);
 
-    expect(store.getState().chatManagementPending.has("chat-saved")).toBe(true);
-    await expect(store.getState().setChatArchived("chat-saved", true)).resolves.toBe(false);
+    expect(store.getState().chatManagementPending.has("chat-mia")).toBe(true);
+    await expect(store.getState().setChatArchived("chat-mia", true)).resolves.toBe(false);
     expect(transport.archiveCalls).toBe(0);
     releaseMute();
     await expect(mute).resolves.toBe(true);
-    expect(store.getState().chatManagementPending.has("chat-saved")).toBe(false);
+    expect(store.getState().chatManagementPending.has("chat-mia")).toBe(false);
 
     class FailedManagementTransport extends MockTelegramTransport {
       override async setChatMuted() {
@@ -1864,9 +1864,26 @@ describe("chat filtering", () => {
     }
     const failedStore = createTelegramStore(new FailedManagementTransport());
     await failedStore.getState().initialize();
-    await expect(failedStore.getState().setChatMuted("chat-saved", true)).resolves.toBe(false);
-    expect(failedStore.getState().chats.get("chat-saved")?.muted).toBe(false);
+    await expect(failedStore.getState().setChatMuted("chat-mia", true)).resolves.toBe(false);
+    expect(failedStore.getState().chats.get("chat-mia")?.muted).toBe(false);
     expect(failedStore.getState().chatManagementPending.size).toBe(0);
     expect(failedStore.getState().operationError).toBe("通知设置同步失败");
+  });
+
+  it("rejects unconfirmed updates and unsupported Saved Messages mute changes", async () => {
+    class UnconfirmedManagementTransport extends MockTelegramTransport {
+      override async setChatPinned() {}
+    }
+    const transport = new UnconfirmedManagementTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await expect(store.getState().setChatPinned("main", "chat-saved", true))
+      .resolves.toBe(false);
+    expect(store.getState().chats.get("chat-saved")?.pinned).toBe(false);
+    expect(store.getState().operationError).toBe("Telegram 未确认置顶状态");
+
+    await expect(store.getState().setChatMuted("chat-saved", true)).resolves.toBe(false);
+    expect(store.getState().operationError).toBe("收藏夹不支持静音");
   });
 });

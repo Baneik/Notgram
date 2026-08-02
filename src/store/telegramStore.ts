@@ -654,7 +654,9 @@ export const createTelegramStore = (
     const manageChat = async (
       chatId: string,
       fallbackError: string,
+      confirmationError: string,
       operation: () => Promise<void>,
+      confirmed: () => boolean,
     ) => {
       const state = get();
       if (
@@ -668,6 +670,7 @@ export const createTelegramStore = (
       set({ chatManagementPending: pending, operationError: undefined });
       try {
         await operation();
+        if (!confirmed()) throw new Error(confirmationError);
         await flushCachedSnapshot();
         return true;
       } catch (error) {
@@ -1017,7 +1020,12 @@ export const createTelegramStore = (
       setChatPinned: (chatListId, chatId, pinned) => manageChat(
         chatId,
         "无法更新置顶状态",
+        "Telegram 未确认置顶状态",
         () => transport.setChatPinned(chatListId, chatId, pinned),
+        () => {
+          const chat = get().chats.get(chatId);
+          return Boolean(chat) && isChatPinnedInFolder(chat!, chatListId) === pinned;
+        },
       ),
       reorderPinnedChats: async (chatListId, orderedChatIds) => {
         const pinnedChats = filterAndSortChats(get().chats.values(), chatListId, "")
@@ -1067,15 +1075,27 @@ export const createTelegramStore = (
           return false;
         }
       },
-      setChatMuted: (chatId, muted) => manageChat(
-        chatId,
-        "无法更新通知设置",
-        () => transport.setChatMuted(chatId, muted),
-      ),
+      setChatMuted: (chatId, muted) => {
+        if (get().chats.get(chatId)?.kind === "saved") {
+          set({ operationError: "收藏夹不支持静音" });
+          return Promise.resolve(false);
+        }
+        return manageChat(
+          chatId,
+          "无法更新通知设置",
+          "Telegram 未确认静音状态",
+          () => transport.setChatMuted(chatId, muted),
+          () => get().chats.get(chatId)?.muted === muted,
+        );
+      },
       setChatArchived: (chatId, archived) => manageChat(
         chatId,
         archived ? "无法归档会话" : "无法移出归档",
+        `Telegram 未确认${archived ? "归档" : "取消归档"}状态`,
         () => transport.setChatArchived(chatId, archived),
+        () => get().chats.get(chatId)?.folderIds.includes(
+          archived ? "archive" : "main",
+        ) === true,
       ),
       loadMoreHistory: loadHistory,
       loadMessage: async (chatId, messageId) => {
