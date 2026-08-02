@@ -141,6 +141,34 @@ describe("TauriTelegramTransport startup", () => {
     });
   });
 
+  it("refreshes known chats when a list page is revisited", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    const stale = rawChat(7, 1_700_000_007);
+    const refreshed = rawChat(7, 1_700_000_007);
+    refreshed.positions = [{
+      list: { "@type": "chatListMain" },
+      order: "1700000007",
+      is_pinned: true,
+    }];
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat(stale);
+    internal.finishInitialChatSync();
+    internal.request = async (request) => {
+      if (request["@type"] === "getChats") return { "@type": "chats", chat_ids: [7] };
+      if (request["@type"] === "getChat") return refreshed;
+      return { "@type": "ok" };
+    };
+
+    await transport.loadMoreChats("main", 1);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "chat.upsert",
+      chat: { id: "7", pinned: true, pinnedFolderIds: ["main"] },
+    });
+  });
+
   it("keeps a pinned position across transient empty position updates", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

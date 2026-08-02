@@ -421,7 +421,8 @@ describe("telegram store", () => {
 
     const deletedReply = await store.getState().deleteMessage(reply!.id, true);
     expect(deletedReply).toBe(true);
-    expect(store.getState().chats.get("chat-product")?.preview).toBe("新的媒体预览样式");
+    expect(store.getState().chats.get("chat-product")?.preview)
+      .toBe("这是昨晚导出的交互录屏，麻烦确认最后一段。");
   });
 
   it("forwards multiple messages to another chat with original source metadata", async () => {
@@ -1140,7 +1141,7 @@ describe("chat filtering", () => {
 
     await store.getState().loadMoreHistory("chat-product");
 
-    expect(store.getState().messages.get("chat-product")).toHaveLength(43);
+    expect(store.getState().messages.get("chat-product")).toHaveLength(44);
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
   });
 
@@ -1220,5 +1221,34 @@ describe("chat filtering", () => {
 
     expect(filterAndSortChats(chats, "main", "").map((chat) => chat.id))
       .toEqual(["chat-a", "chat-b"]);
+  });
+
+  it("sorts pinned chats according to the active folder", () => {
+    const base = structuredClone(mockSnapshot.chats[0]);
+    const chats: Chat[] = [
+      {
+        ...base,
+        id: "main-pin",
+        title: "Main pin",
+        pinned: true,
+        pinnedFolderIds: ["main"],
+        folderIds: ["main", "folder:work"],
+        updatedAt: "2026-08-01T09:00:00+08:00",
+      },
+      {
+        ...base,
+        id: "work-pin",
+        title: "Work pin",
+        pinned: true,
+        pinnedFolderIds: ["folder:work"],
+        folderIds: ["main", "folder:work"],
+        updatedAt: "2026-08-01T08:00:00+08:00",
+      },
+    ];
+
+    expect(filterAndSortChats(chats, "main", "").map((chat) => chat.id))
+      .toEqual(["main-pin", "work-pin"]);
+    expect(filterAndSortChats(chats, "folder:work", "").map((chat) => chat.id))
+      .toEqual(["work-pin", "main-pin"]);
   });
 });

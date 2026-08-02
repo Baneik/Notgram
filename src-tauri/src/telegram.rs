@@ -1,4 +1,5 @@
 mod assets;
+pub(crate) mod media_stream;
 mod runtime_log;
 mod security;
 
@@ -283,6 +284,22 @@ impl TelegramRuntime {
         result
     }
 
+    pub(crate) fn request_media_range(
+        &self,
+        file_id: i32,
+        offset: u64,
+        limit: u64,
+    ) -> Result<(), String> {
+        self.send(&json!({
+            "@type": "downloadFile",
+            "file_id": file_id,
+            "priority": 32,
+            "offset": offset,
+            "limit": limit,
+            "synchronous": false
+        }))
+    }
+
     fn shutdown(&self) -> Result<(), String> {
         {
             let mut inner = self.inner.lock().expect("telegram runtime mutex poisoned");
@@ -472,6 +489,8 @@ fn receive_loop(
                 update_count += 1;
                 consecutive_errors = 0;
                 if update.get("@client_id").and_then(Value::as_i64) == Some(client_id as i64) {
+                    app.state::<media_stream::MediaStreamRegistry>()
+                        .observe_update(&update);
                     allow_tdlib_assets(
                         &app,
                         &update,
@@ -760,6 +779,7 @@ pub fn telegram_runtime_status(
 
 #[tauri::command]
 pub fn telegram_start(app: AppHandle, runtime: State<'_, TelegramRuntime>) -> Result<(), String> {
+    app.state::<media_stream::MediaStreamRegistry>().clear();
     runtime.start(&app)
 }
 
@@ -767,6 +787,16 @@ pub fn telegram_start(app: AppHandle, runtime: State<'_, TelegramRuntime>) -> Re
 pub fn telegram_send(request: Value, runtime: State<'_, TelegramRuntime>) -> Result<(), String> {
     validate_webview_tdlib_request(&request)?;
     runtime.send(&request)
+}
+
+#[tauri::command]
+pub fn telegram_register_media_stream(
+    file_id: i32,
+    size: u64,
+    mime_type: String,
+    registry: State<'_, media_stream::MediaStreamRegistry>,
+) -> Result<(), String> {
+    registry.register(file_id, size, &mime_type)
 }
 
 #[tauri::command]

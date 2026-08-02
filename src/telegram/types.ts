@@ -61,6 +61,7 @@ export interface Chat {
   updatedAt: string;
   unreadCount: number;
   pinned: boolean;
+  pinnedFolderIds?: string[];
   muted: boolean;
 }
 
@@ -81,6 +82,9 @@ interface TransferableMessageContent {
   size?: number;
   localPath?: string;
   thumbnailPath?: string;
+  thumbnailFileId?: number;
+  thumbnailCanDownload?: boolean;
+  thumbnailIsDownloading?: boolean;
   canDownload?: boolean;
   isDownloading?: boolean;
   isDownloaded?: boolean;
@@ -260,6 +264,12 @@ export interface SetMessageReactionInput {
 export interface SendFileInput {
   chatId: string;
   file?: File;
+}
+
+export interface StreamFileInput {
+  fileId: number;
+  size: number;
+  mimeType?: string;
 }
 
 export interface ChatHistoryPage {

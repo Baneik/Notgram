@@ -2,12 +2,14 @@ import { Archive, CheckCheck, LoaderCircle, Pin, Search, VolumeX } from "lucide-
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { Chat, ChatDraft } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
+import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
 
 interface ChatSidebarProps {
   chats: Chat[];
   drafts: Map<string, ChatDraft>;
   activeChatId?: string;
+  folderId: string;
   folderTitle: string;
   searchQuery: string;
   onSearchChange: (value: string) => void;
@@ -28,6 +30,7 @@ export function ChatSidebar({
   chats,
   drafts,
   activeChatId,
+  folderId,
   folderTitle,
   searchQuery,
   onSearchChange,
@@ -156,6 +159,7 @@ export function ChatSidebar({
             <ChatRow
               key={chat.id}
               chat={chat}
+              folderId={folderId}
               draft={drafts.get(chat.id)}
               active={activeChatId === chat.id}
               onSelect={onSelect}
@@ -196,12 +200,14 @@ export function ChatSidebar({
 
 function ChatRow({
   chat,
+  folderId,
   draft,
   active,
   onSelect,
   onOpenLatest,
 }: {
   chat: Chat;
+  folderId: string;
   draft?: ChatDraft;
   active: boolean;
   onSelect: (chatId: string) => void;
@@ -213,7 +219,7 @@ function ChatRow({
   return (
     <button
       type="button"
-      className={`chat-row ${active ? "is-active" : ""}`}
+      className={`chat-row ${active ? "is-active" : ""} ${chat.muted ? "is-muted" : ""}`}
       onClick={() => onSelect(chat.id)}
       onDoubleClick={() => onOpenLatest(chat.id)}
     >
@@ -232,10 +238,12 @@ function ChatRow({
             )}
           </span>
           <span className="chat-row-meta">
-            {chat.pinned && <Pin size={13} strokeWidth={2} />}
+            {isChatPinnedInFolder(chat, folderId) && <Pin size={13} strokeWidth={2} />}
             {chat.muted && <VolumeX size={13} strokeWidth={2} />}
             {chat.folderIds.includes("archive") && <Archive size={13} strokeWidth={2} />}
-            {chat.unreadCount > 0 && <span className="unread-count">{chat.unreadCount}</span>}
+            {chat.unreadCount > 0 && (
+              <span className={`unread-count ${chat.muted ? "is-muted" : ""}`}>{chat.unreadCount}</span>
+            )}
           </span>
         </span>
       </span>

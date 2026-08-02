@@ -920,6 +920,17 @@ export const createTelegramStore = (
         await transport.cacheFile(fileId, priority);
       },
 
+      streamFile: async (fileId, size, mimeType) => {
+        try {
+          const source = await transport.streamFile({ fileId, size, mimeType });
+          set({ error: undefined });
+          return source;
+        } catch (error) {
+          set({ error: error instanceof Error ? error.message : "视频流加载失败" });
+          return undefined;
+        }
+      },
+
       downloadFile: async (fileId, fileName) => {
         try {
           await transport.downloadFile(fileId, fileName);

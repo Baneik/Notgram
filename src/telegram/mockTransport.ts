@@ -448,6 +448,10 @@ export class MockTelegramTransport implements TelegramTransport {
     return;
   }
 
+  async streamFile() {
+    return "/mock-video.mp4";
+  }
+
   async retryMessage(chatId: string, messageId: string) {
     const message = this.snapshot.messages.find(
       (item) => item.chatId === chatId && item.id === messageId,

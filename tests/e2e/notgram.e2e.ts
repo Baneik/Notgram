@@ -63,6 +63,37 @@ test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("muted chats use a neutral unread badge", async ({ page }) => {
+  await page.goto("/");
+  const mutedRow = page.getByRole("button", { name: /Release Notes/ });
+  const regularRow = page.getByRole("button", { name: /Mia Chen/ });
+  const mutedBadge = mutedRow.locator(".unread-count");
+  const regularBadge = regularRow.locator(".unread-count");
+
+  await expect(mutedBadge).toHaveClass(/is-muted/);
+  await expect(mutedBadge).toHaveCSS("background-color", "rgb(146, 154, 158)");
+  await expect(regularBadge).not.toHaveCSS("background-color", "rgb(146, 154, 158)");
+});
+
+test("video uses its poster and custom streaming controls", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  const row = page.locator('[data-message-id="p-video"]');
+  const player = row.locator(".video-player");
+  const video = player.locator("video");
+
+  await expect(player).toBeVisible();
+  await expect(video).toHaveAttribute("poster", /mock-video-poster\.jpg/);
+  await expect(video).not.toHaveAttribute("controls", "");
+  await expect(player.getByRole("slider", { name: "播放进度" })).toBeVisible();
+  await expect(player.getByRole("slider", { name: "音量" })).toBeVisible();
+
+  await player.getByRole("button", { name: /播放 交互预览/ }).click();
+  await expect(video).toHaveAttribute("src", /mock-video\.mp4/);
+  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
+    .toBe(true);
+});
+
 test("photo bubbles preserve media geometry and rounded clipping", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();

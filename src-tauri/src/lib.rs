@@ -17,6 +17,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(telegram::TelegramRuntime::new())
+        .manage(telegram::media_stream::MediaStreamRegistry::default())
+        .register_asynchronous_uri_scheme_protocol(
+            "notgram-media",
+            |context, request, responder| {
+                telegram::media_stream::respond(context.app_handle().clone(), request, responder);
+            },
+        )
         .invoke_handler(tauri::generate_handler![
             telegram::telegram_runtime_status,
             proxy::telegram_proxy_settings,
@@ -33,6 +40,7 @@ pub fn run() {
             storage::account::telegram_remove_account,
             telegram::telegram_start,
             telegram::telegram_send,
+            telegram::telegram_register_media_stream,
             telegram::telegram_pick_and_send_file,
             telegram::telegram_shutdown,
         ])

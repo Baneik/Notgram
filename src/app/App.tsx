@@ -55,6 +55,7 @@ export function App() {
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
   const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
   const downloadFile = useTelegramStore((state) => state.downloadFile);
+  const streamFile = useTelegramStore((state) => state.streamFile);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
   const sendFile = useTelegramStore((state) => state.sendFile);
   const cancelFileUpload = useTelegramStore((state) => state.cancelFileUpload);
@@ -207,6 +208,7 @@ export function App() {
           chats={visibleChats}
           drafts={drafts}
           activeChatId={activeChatId}
+          folderId={chatFilter}
           folderTitle={folders.find((folder) => folder.id === chatFilter)?.title ?? "聊天"}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -247,6 +249,7 @@ export function App() {
           onSetMessageReaction={setMessageReaction}
           onSearchMessages={searchChatMessages}
           onDownloadFile={downloadFile}
+          onStreamFile={streamFile}
           onRetryMessage={retryMessage}
           onSendFile={sendFile}
           onCancelFileUpload={cancelFileUpload}

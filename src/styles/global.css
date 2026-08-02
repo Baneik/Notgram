@@ -173,6 +173,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .chat-row.is-active .chat-row-topline time, .chat-row.is-active .chat-preview, .chat-row.is-active .chat-row-meta, .chat-row.is-active .chat-preview svg { color: rgba(255, 255, 255, 0.84); }
 .unread-count { min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center; color: #ffffff; background: var(--accent); border-radius: 10px; font-size: 11px; font-weight: 700; }
 .chat-row.is-active .unread-count { color: var(--accent); background: #ffffff; }
+.unread-count.is-muted,
+.chat-row.is-active .unread-count.is-muted { color: #ffffff; background: #929a9e; }
 .list-empty { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--subtle); font-size: 12px; }
 .sidebar-resizer {
   position: absolute; z-index: 8; top: 0; right: -4px; width: 8px; height: 100%;
@@ -360,6 +362,34 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .photo-preview { position: relative; width: 100%; min-height: 120px; overflow: hidden; display: grid; place-items: center; background: #e7eceb; border-radius: 0; }
 .photo-preview.has-media-ratio { min-height: 0; }
 .photo-preview img, .photo-preview video { width: 100%; height: 100%; display: block; object-fit: contain; object-position: center; }
+.video-player { position: relative; width: 100%; height: 100%; min-height: inherit; overflow: hidden; color: #ffffff; background: #111719; outline: none; }
+.video-player video { width: 100%; height: 100%; min-height: inherit; cursor: pointer; }
+.video-player:focus-visible { box-shadow: inset 0 0 0 2px #ffffff, inset 0 0 0 4px var(--accent); }
+.video-start {
+  position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; padding: 0; display: grid; place-items: center;
+  color: #ffffff; background: rgba(18, 25, 27, 0.8); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 50%;
+  box-shadow: 0 2px 10px rgba(10, 15, 16, 0.22); cursor: pointer; transform: translate(-50%, -50%);
+}
+.video-start:hover { background: rgba(18, 25, 27, 0.94); }
+.video-download-progress { position: absolute; left: 50%; top: calc(50% + 34px); padding: 2px 6px; color: #ffffff; background: rgba(18, 25, 27, 0.74); border-radius: 8px; font-size: 10px; transform: translateX(-50%); }
+.video-controls {
+  position: absolute; z-index: 2; left: 6px; right: 6px; bottom: 6px; height: 34px; padding: 0 5px;
+  display: flex; align-items: center; gap: 4px; opacity: 0; color: #ffffff; background: rgba(17, 23, 25, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 5px; transition: opacity 120ms ease;
+}
+.video-player.is-paused .video-controls,
+.video-player:hover .video-controls,
+.video-player:focus-within .video-controls { opacity: 1; }
+.video-controls button { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; flex: 0 0 28px; color: inherit; background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+.video-controls button:hover, .video-controls button:focus-visible { background: rgba(255, 255, 255, 0.14); outline: none; }
+.video-time { width: 34px; flex: 0 0 34px; color: #f2f5f5; font-size: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+.video-seek, .video-volume { height: 18px; margin: 0; accent-color: #57b5aa; cursor: pointer; }
+.video-seek { min-width: 38px; flex: 1 1 auto; }
+.video-volume { width: 54px; flex: 0 1 54px; }
+.video-player.is-round .video-controls { left: 22px; right: 22px; }
+.video-player.is-round .video-time, .video-player.is-round .video-volume { display: none; }
+.media-bubble-video:not(.has-caption) .message-meta,
+.media-bubble-videoNote:not(.has-caption) .message-meta { bottom: 46px; }
 .tgs-sticker, .tgs-sticker svg { width: 100%; height: 100%; display: block; }
 .media-videoNote { width: 100%; }
 .media-videoNote .photo-preview { border-radius: 50%; }
@@ -653,6 +683,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .message-group { gap: 6px; }
   .message-bubble-shell { max-width: 88%; }
   .message-action-trigger { opacity: 0.88; }
+  .video-controls { gap: 2px; }
+  .video-volume { display: none; }
   .composer-wrap { min-height: 50px; padding: 0; }
   .message-selection-bar { min-height: 67px; padding: 7px 10px 9px; }
   .auth-shell { min-height: 520px; padding: 24px 18px 46px; }

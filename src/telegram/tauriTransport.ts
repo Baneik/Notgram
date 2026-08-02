@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   asTdObject,
@@ -48,6 +48,7 @@ import type {
   SetChatDraftInput,
   SetMessageReactionInput,
   StorageSettings,
+  StreamFileInput,
   TelegramSnapshot,
   TelegramAccount,
   TelegramAccountState,
@@ -531,6 +532,15 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.fileDownloads.cache(fileId, priority);
   }
 
+  async streamFile({ fileId, size, mimeType }: StreamFileInput) {
+    await invoke("telegram_register_media_stream", {
+      fileId,
+      size,
+      mimeType: mimeType ?? "video/mp4",
+    });
+    return convertFileSrc(String(fileId), "notgram-media");
+  }
+
   async retryMessage(chatId: string, messageId: string) {
     const response = await this.request({
       "@type": "resendMessages",
@@ -701,9 +711,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     const ids = Array.isArray(result.chat_ids) ? result.chat_ids.map(tdId).filter(Boolean) : [];
     this.chatListCounts.set(key, Math.max(previousCount, ids.length));
     await Promise.all(
-      ids
-        .filter((id) => !this.rawChats.has(id))
-        .map(async (id) => this.upsertChat(await this.request({ "@type": "getChat", chat_id: numericId(id) }))),
+      ids.map(async (id) => this.upsertChat(await this.request({
+        "@type": "getChat",
+        chat_id: numericId(id),
+      }))),
     );
     return {
       loadedCount: Math.max(0, ids.length - previousCount),

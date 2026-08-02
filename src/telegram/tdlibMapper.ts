@@ -132,6 +132,18 @@ const thumbnailPath = (value: unknown) => {
   return localImagePath(thumbnail?.file);
 };
 
+const thumbnailDetails = (value: unknown) => {
+  const thumbnail = asTdObject(value);
+  const file = asTdObject(thumbnail?.file);
+  const local = asTdObject(file?.local);
+  return {
+    thumbnailPath: localImagePath(file),
+    thumbnailFileId: tdNumber(file?.id),
+    thumbnailCanDownload: local?.can_be_downloaded === true,
+    thumbnailIsDownloading: local?.is_downloading_active === true,
+  };
+};
+
 const stickerMimeType = (value: unknown) => {
   switch (asTdObject(value)?.["@type"]) {
     case "stickerFormatWebm":
@@ -152,6 +164,9 @@ const fileContent = (
     caption?: string;
     mimeType?: string;
     thumbnailPath?: string;
+    thumbnailFileId?: number;
+    thumbnailCanDownload?: boolean;
+    thumbnailIsDownloading?: boolean;
     width?: number;
     height?: number;
   } = {},
@@ -170,6 +185,9 @@ const mediaContent = (
     caption?: string;
     mimeType?: string;
     thumbnailPath?: string;
+    thumbnailFileId?: number;
+    thumbnailCanDownload?: boolean;
+    thumbnailIsDownloading?: boolean;
     previewDataUrl?: string;
     width?: number;
     height?: number;
@@ -259,7 +277,8 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         {
           caption: formattedText(content.caption) || undefined,
           mimeType: typeof video?.mime_type === "string" ? video.mime_type : undefined,
-          thumbnailPath: thumbnailPath(video?.thumbnail),
+          ...thumbnailDetails(video?.thumbnail),
+          previewDataUrl: minithumbnailDataUrl(video?.minithumbnail),
           width: tdNumber(video?.width),
           height: tdNumber(video?.height),
         },
@@ -274,7 +293,8 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         {
           caption: formattedText(content.caption) || undefined,
           mimeType: typeof animation?.mime_type === "string" ? animation.mime_type : undefined,
-          thumbnailPath: thumbnailPath(animation?.thumbnail),
+          ...thumbnailDetails(animation?.thumbnail),
+          previewDataUrl: minithumbnailDataUrl(animation?.minithumbnail),
           width: tdNumber(animation?.width),
           height: tdNumber(animation?.height),
         },
@@ -304,7 +324,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
       const videoNote = asTdObject(content.video_note);
       const length = tdNumber(videoNote?.length);
       return mediaContent("videoNote", "视频消息", videoNote?.video, {
-        thumbnailPath: thumbnailPath(videoNote?.thumbnail),
+        ...thumbnailDetails(videoNote?.thumbnail),
         previewDataUrl: minithumbnailDataUrl(videoNote?.minithumbnail),
         width: length,
         height: length,
@@ -820,6 +840,11 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
   }
   const lastMessage = asTdObject(raw.last_message);
   const notifications = asTdObject(raw.notification_settings);
+  const pinnedFolderIds = positions.flatMap((position) => {
+    if (position.is_pinned !== true || (tdNumber(position.order) ?? 0) === 0) return [];
+    const folderId = tdChatListId(position.list);
+    return folderId ? [folderId] : [];
+  });
 
   return {
     id,
@@ -835,7 +860,8 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
     preview: lastMessage ? messagePreview(lastMessage) : "暂无消息",
     updatedAt: unixDate(lastMessage?.date),
     unreadCount: tdNumber(raw.unread_count) ?? 0,
-    pinned: positions.some((position) => position.is_pinned === true),
+    pinned: pinnedFolderIds.length > 0,
+    pinnedFolderIds,
     muted: (tdNumber(notifications?.mute_for) ?? 0) > 0,
   };
 };

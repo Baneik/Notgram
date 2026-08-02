@@ -90,6 +90,7 @@ export interface TelegramState {
     toChatId: string,
   ) => Promise<ForwardMessagesResult | undefined>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
+  streamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   downloadFile: (fileId: number, fileName: string) => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   sendFile: (file?: File) => Promise<boolean>;

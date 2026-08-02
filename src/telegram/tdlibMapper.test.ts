@@ -64,6 +64,7 @@ describe("TDLib mapper", () => {
       preview: "hello",
       unreadCount: 2,
       pinned: true,
+      pinnedFolderIds: ["main"],
       folderIds: ["main"],
     });
   });
@@ -191,6 +192,49 @@ describe("TDLib mapper", () => {
       isDownloading: true,
       progress: 0.25,
       thumbnailPath: "C:\\cache\\thumb.jpg",
+      previewDataUrl: "data:image/jpeg;base64,aGVsbG8=",
+      width: 1280,
+      height: 720,
+    });
+  });
+
+  it("maps a video cover and its downloadable thumbnail", () => {
+    const content = mapTdMessageContent({
+      "@type": "messageVideo",
+      caption: { "@type": "formattedText", text: "review", entities: [] },
+      video: {
+        file_name: "review.mp4",
+        mime_type: "video/mp4",
+        width: 1280,
+        height: 720,
+        minithumbnail: { data: "aGVsbG8=" },
+        thumbnail: {
+          file: {
+            id: 31,
+            local: {
+              can_be_downloaded: true,
+              is_downloading_active: false,
+              is_downloading_completed: false,
+            },
+          },
+        },
+        video: {
+          id: 32,
+          size: 8_000_000,
+          local: { can_be_downloaded: true, is_downloading_completed: false },
+        },
+      },
+    });
+
+    expect(content).toMatchObject({
+      kind: "media",
+      mediaType: "video",
+      fileId: 32,
+      size: 8_000_000,
+      mimeType: "video/mp4",
+      thumbnailFileId: 31,
+      thumbnailCanDownload: true,
+      thumbnailIsDownloading: false,
       previewDataUrl: "data:image/jpeg;base64,aGVsbG8=",
       width: 1280,
       height: 720,
@@ -506,7 +550,11 @@ describe("TDLib mapper", () => {
       type: { "@type": "chatTypeSupergroup", is_channel: false },
       title: "设计组",
       positions: [
-        { list: { "@type": "chatListFolder", chat_folder_id: 12 }, order: 10 },
+        {
+          list: { "@type": "chatListFolder", chat_folder_id: 12 },
+          order: 10,
+          is_pinned: true,
+        },
       ],
       chat_lists: [{ "@type": "chatListFolder", chat_folder_id: 12 }],
       photo: {
@@ -519,6 +567,7 @@ describe("TDLib mapper", () => {
 
     expect(folders.map((folder) => folder.id)).toEqual(["folder:12", "main"]);
     expect(chat?.folderIds).toEqual(["folder:12"]);
+    expect(chat?.pinnedFolderIds).toEqual(["folder:12"]);
     expect(chat?.avatar.imagePath).toBe("C:\\avatars\\group.jpg");
   });
 });

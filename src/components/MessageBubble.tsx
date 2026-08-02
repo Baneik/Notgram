@@ -22,6 +22,7 @@ import { formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { TgsSticker } from "./TgsSticker";
+import { VideoPlayer } from "./VideoPlayer";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
 
@@ -44,6 +45,7 @@ interface MessageBubbleProps {
   onToggleSelection: (message: Message) => Promise<void>;
   onOpenActions: (message: Message, left: number, top: number) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
+  onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onRetry: (messageId: string) => Promise<void>;
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
@@ -75,6 +77,7 @@ export function MessageBubble({
   onToggleSelection,
   onOpenActions,
   onDownload,
+  onStream,
   onRetry,
   onCancelUpload,
   onReaction,
@@ -161,16 +164,22 @@ export function MessageBubble({
     !content.isDownloading;
   const canCancelUpload = (content.kind === "file" || content.kind === "media") &&
     content.isUploading === true;
-  const lazyMediaFileId = content.kind === "media" && ["photo", "sticker"].includes(content.mediaType)
-    ? content.fileId
+  const lazyMediaFileId = content.kind === "media"
+    ? ["video", "videoNote", "animation"].includes(content.mediaType)
+      ? content.thumbnailFileId
+      : ["photo", "sticker"].includes(content.mediaType)
+        ? content.fileId
+        : undefined
     : undefined;
+  const lazyMediaIsThumbnail = content.kind === "media" &&
+    lazyMediaFileId !== undefined && lazyMediaFileId === content.thumbnailFileId;
   const lazyMediaRef = useVisibleFile<HTMLElement>(
     lazyMediaFileId,
     lazyMediaFileId !== undefined &&
       content.kind === "media" &&
-      content.canDownload === true &&
-      !content.isDownloaded &&
-      !content.isDownloading,
+      (lazyMediaIsThumbnail
+        ? content.thumbnailCanDownload === true && !content.thumbnailPath && !content.thumbnailIsDownloading
+        : content.canDownload === true && !content.isDownloaded && !content.isDownloading),
     18,
     "320px 0px",
   );
@@ -245,19 +254,22 @@ export function MessageBubble({
                   ? { aspectRatio: mediaLayout.aspectRatio }
                   : undefined}
               >
-                {usableFullMediaSource && ["video", "videoNote"].includes(content.mediaType) ? (
-                  <video
-                    src={usableFullMediaSource}
+                {["video", "videoNote"].includes(content.mediaType) ? (
+                  <VideoPlayer
+                    source={usableFullMediaSource}
                     poster={usablePreviewSource}
-                    controls
-                    preload="metadata"
-                    playsInline
-                    onLoadedMetadata={(event) => rememberMediaSize(
-                      usableFullMediaSource,
-                      event.currentTarget.videoWidth,
-                      event.currentTarget.videoHeight,
-                    )}
-                    onError={() => markMediaSourceFailed(usableFullMediaSource)}
+                    label={content.fileName}
+                    fileId={content.fileId}
+                    size={content.size}
+                    mimeType={content.mimeType}
+                    downloadProgress={content.progress}
+                    round={content.mediaType === "videoNote"}
+                    onRequestStream={onStream}
+                    onDownload={downloadFileId !== undefined
+                      ? () => void onDownload(downloadFileId, downloadFileName)
+                      : undefined}
+                    onLoadedMetadata={rememberMediaSize}
+                    onError={markMediaSourceFailed}
                   />
                 ) : usableFullMediaSource && isVideoSticker ? (
                   <video
@@ -315,7 +327,7 @@ export function MessageBubble({
                     <ImageIcon size={28} strokeWidth={1.6} />
                   </span>
                 )}
-                {canDownload && (
+                {canDownload && !["video", "videoNote"].includes(content.mediaType) && (
                   <button
                     className="media-download"
                     type="button"
