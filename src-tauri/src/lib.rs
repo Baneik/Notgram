@@ -8,6 +8,9 @@ mod telegram;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if distribution::run_release_probe_if_requested() {
+        return;
+    }
     development::load_environment();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
