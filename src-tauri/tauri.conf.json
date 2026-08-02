@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Notgram",
-  "version": "0.1.0",
+  "version": "0.5.0-rc.1",
   "identifier": "dev.notgram.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -34,8 +34,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "shortDescription": "A focused third-party Telegram client",
-    "resources": ["tdlib/*", "tdlib/licenses/*"]
+    "resources": [
+      "tdlib/*",
+      "tdlib/licenses/*"
+    ]
   }
 }

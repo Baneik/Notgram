@@ -1,7 +1,7 @@
 {
   "name": "notgram",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.5.0-rc.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,7 +15,9 @@
     "test:e2e:types": "tsc -p tsconfig.e2e.json",
     "test:native-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native-smoke.ps1",
     "test:watch": "vitest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "version:check": "node scripts/sync-version.mjs --check",
+    "version:sync": "node scripts/sync-version.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

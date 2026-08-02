@@ -10,6 +10,9 @@ $manifest = Join-Path $repositoryRoot "src-tauri\Cargo.toml"
 
 Push-Location $repositoryRoot
 try {
+    npm run version:check
+    if ($LASTEXITCODE -ne 0) { throw "Version synchronization check failed." }
+
     npm test
     if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed." }
 
