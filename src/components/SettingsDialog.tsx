@@ -4,6 +4,7 @@ import {
   Bell,
   Check,
   ChevronRight,
+  CloudDownload,
   Code2,
   Gauge,
   HardDrive,
@@ -142,6 +143,11 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const compactMode = usePreferencesStore((state) => state.compactMode);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
+  const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
+  const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
+  const autoDownloadAudio = usePreferencesStore((state) => state.autoDownloadAudio);
+  const autoDownloadFiles = usePreferencesStore((state) => state.autoDownloadFiles);
+  const autoDownloadLimitMb = usePreferencesStore((state) => state.autoDownloadLimitMb);
   const reduceMotion = usePreferencesStore((state) => state.reduceMotion);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const preferences: AppPreferences = {
@@ -151,6 +157,11 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     compactMode,
     sendOnEnter,
     autoplayAnimations,
+    autoDownloadImages,
+    autoDownloadVideos,
+    autoDownloadAudio,
+    autoDownloadFiles,
+    autoDownloadLimitMb,
     reduceMotion,
     developerMode,
   };
@@ -300,6 +311,15 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               updateCustom={updateCustom}
               onTest={() => void test(draft)}
               onRebuildCache={() => void rebuildCache()}
+              autoDownload={{
+                autoDownloadImages,
+                autoDownloadVideos,
+                autoDownloadAudio,
+                autoDownloadFiles,
+                autoDownloadLimitMb,
+              }}
+              onAutoDownloadToggle={(key, enabled) => setPreference(key, enabled)}
+              onAutoDownloadLimitChange={(limitMb) => setPreference("autoDownloadLimitMb", limitMb)}
               developerMode={developerMode}
               onDeveloperModeChange={(enabled) => setPreference("developerMode", enabled)}
             />
@@ -324,6 +344,8 @@ interface PreferenceSettingsProps {
   onChange: <Key extends keyof AppPreferences>(key: Key, value: AppPreferences[Key]) => void;
 }
 
+type BooleanPreferenceKey = Exclude<keyof AppPreferences, "autoDownloadLimitMb">;
+
 function PreferenceSettings({
   category,
   preferences,
@@ -331,7 +353,7 @@ function PreferenceSettings({
   onChange,
 }: PreferenceSettingsProps) {
   const options: Array<{
-    key: keyof AppPreferences;
+    key: BooleanPreferenceKey;
     label: string;
     disabled?: boolean;
   }> = category === "notifications"
@@ -498,6 +520,18 @@ interface AdvancedSettingsProps {
   ) => void;
   onTest: () => void;
   onRebuildCache: () => void;
+  autoDownload: Pick<AppPreferences,
+    | "autoDownloadImages"
+    | "autoDownloadVideos"
+    | "autoDownloadAudio"
+    | "autoDownloadFiles"
+    | "autoDownloadLimitMb"
+  >;
+  onAutoDownloadToggle: (
+    key: "autoDownloadImages" | "autoDownloadVideos" | "autoDownloadAudio" | "autoDownloadFiles",
+    enabled: boolean,
+  ) => void;
+  onAutoDownloadLimitChange: (limitMb: number) => void;
   onDeveloperModeChange: (enabled: boolean) => void;
 }
 
@@ -517,6 +551,9 @@ function AdvancedSettings({
   updateCustom,
   onTest,
   onRebuildCache,
+  autoDownload,
+  onAutoDownloadToggle,
+  onAutoDownloadLimitChange,
   onDeveloperModeChange,
 }: AdvancedSettingsProps) {
   return (
@@ -680,6 +717,49 @@ function AdvancedSettings({
             缓存状态：{cacheHealthLabels[cacheHealth]}
           </span>
         </div>
+        </section>
+
+        <section className="settings-section" aria-labelledby="auto-download-heading">
+          <div className="settings-section-heading">
+            <CloudDownload size={18} strokeWidth={1.8} />
+            <div>
+              <h4 id="auto-download-heading">自动下载</h4>
+              <span>仅在消息进入可视区域时缓存，下载目录不受影响</span>
+            </div>
+          </div>
+          <div className="preference-list">
+            {([
+              ["autoDownloadImages", "图片、贴纸与动画"],
+              ["autoDownloadVideos", "视频与视频消息"],
+              ["autoDownloadAudio", "音频与语音"],
+              ["autoDownloadFiles", "普通文件"],
+            ] as const).map(([key, label]) => (
+              <label className="preference-row" key={key}>
+                <span>{label}</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={autoDownload[key]}
+                  onChange={(event) => onAutoDownloadToggle(key, event.target.checked)}
+                />
+              </label>
+            ))}
+          </div>
+          <label className="auth-field auto-download-limit">
+            <span>单个文件上限</span>
+            <span className="auto-download-limit-control">
+              <input
+                type="number"
+                min={1}
+                max={2048}
+                value={autoDownload.autoDownloadLimitMb}
+                onChange={(event) => onAutoDownloadLimitChange(
+                  Math.max(1, Math.min(2_048, Number(event.target.value) || 1)),
+                )}
+              />
+              <small>MB</small>
+            </span>
+          </label>
         </section>
 
         <section className="settings-section" aria-labelledby="developer-heading">

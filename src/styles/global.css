@@ -785,6 +785,9 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .storage-reset:hover:not(:disabled) { background: #e7f1fb; }
 .storage-reset:disabled { opacity: 0.45; cursor: default; }
+.auto-download-limit-control { display: flex; align-items: center; gap: 8px; }
+.auto-download-limit-control input { width: 110px; }
+.auto-download-limit-control small { color: var(--muted); font-size: 11px; }
 .cache-health { color: var(--muted); font-size: 12px; }
 .proxy-address-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 0.55fr); gap: 12px; }
 .proxy-port { min-width: 0; }

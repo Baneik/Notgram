@@ -32,6 +32,8 @@ import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
 import { AudioPlayer } from "./AudioPlayer";
+import { usePreferencesStore } from "../store/preferencesStore";
+import { shouldAutoDownload } from "../media/autoDownload";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
 
@@ -112,6 +114,11 @@ function MessageBubbleComponent({
   developerMode,
 }: MessageBubbleProps) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
+  const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
+  const autoDownloadAudio = usePreferencesStore((state) => state.autoDownloadAudio);
+  const autoDownloadFiles = usePreferencesStore((state) => state.autoDownloadFiles);
+  const autoDownloadLimitMb = usePreferencesStore((state) => state.autoDownloadLimitMb);
   const [reactionPending, setReactionPending] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
@@ -202,22 +209,26 @@ function MessageBubbleComponent({
     : undefined;
   const canOpenFile = (content.kind === "file" || content.kind === "media") &&
     content.isDownloaded === true && Boolean(localFilePath);
-  const lazyMediaFileId = content.kind === "media"
-    ? ["video", "videoNote", "animation"].includes(content.mediaType)
-      ? content.thumbnailFileId
-      : ["photo", "sticker"].includes(content.mediaType)
-        ? content.fileId
-        : undefined
+  const previewFileId = content.kind === "media" && content.thumbnailFileId !== undefined &&
+    content.thumbnailCanDownload === true && !content.thumbnailPath && !content.thumbnailIsDownloading
+    ? content.thumbnailFileId
     : undefined;
+  const automaticFileId = shouldAutoDownload(content, {
+    images: autoDownloadImages,
+    videos: autoDownloadVideos,
+    audio: autoDownloadAudio,
+    files: autoDownloadFiles,
+    limitMb: autoDownloadLimitMb,
+  }) && (content.kind === "file" || content.kind === "media")
+    ? content.fileId
+    : undefined;
+  const lazyMediaFileId = previewFileId ?? automaticFileId;
   const lazyMediaIsThumbnail = content.kind === "media" &&
     lazyMediaFileId !== undefined && lazyMediaFileId === content.thumbnailFileId;
   const lazyMediaRef = useVisibleFile<HTMLElement>(
     lazyMediaFileId,
     lazyMediaFileId !== undefined &&
-      content.kind === "media" &&
-      (lazyMediaIsThumbnail
-        ? content.thumbnailCanDownload === true && !content.thumbnailPath && !content.thumbnailIsDownloading
-        : content.canDownload === true && !content.isDownloaded && !content.isDownloading),
+      (lazyMediaIsThumbnail || automaticFileId !== undefined),
     18,
     "320px 0px",
   );

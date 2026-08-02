@@ -8,6 +8,11 @@ export interface AppPreferences {
   compactMode: boolean;
   sendOnEnter: boolean;
   autoplayAnimations: boolean;
+  autoDownloadImages: boolean;
+  autoDownloadVideos: boolean;
+  autoDownloadAudio: boolean;
+  autoDownloadFiles: boolean;
+  autoDownloadLimitMb: number;
   reduceMotion: boolean;
   developerMode: boolean;
 }
@@ -27,6 +32,11 @@ const defaults: AppPreferences = {
   compactMode: false,
   sendOnEnter: true,
   autoplayAnimations: true,
+  autoDownloadImages: true,
+  autoDownloadVideos: false,
+  autoDownloadAudio: false,
+  autoDownloadFiles: false,
+  autoDownloadLimitMb: 10,
   reduceMotion: false,
   developerMode: false,
 };
@@ -43,6 +53,13 @@ const readPreferences = (): AppPreferences => {
       compactMode: stored.compactMode ?? defaults.compactMode,
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
+      autoDownloadImages: stored.autoDownloadImages ?? defaults.autoDownloadImages,
+      autoDownloadVideos: stored.autoDownloadVideos ?? defaults.autoDownloadVideos,
+      autoDownloadAudio: stored.autoDownloadAudio ?? defaults.autoDownloadAudio,
+      autoDownloadFiles: stored.autoDownloadFiles ?? defaults.autoDownloadFiles,
+      autoDownloadLimitMb: Number.isFinite(stored.autoDownloadLimitMb)
+        ? Math.max(1, Math.min(2_048, Number(stored.autoDownloadLimitMb)))
+        : defaults.autoDownloadLimitMb,
       reduceMotion: stored.reduceMotion ?? defaults.reduceMotion,
       developerMode: stored.developerMode ?? defaults.developerMode,
     };
@@ -73,6 +90,11 @@ preferencesStore.subscribe((state) => {
     compactMode: state.compactMode,
     sendOnEnter: state.sendOnEnter,
     autoplayAnimations: state.autoplayAnimations,
+    autoDownloadImages: state.autoDownloadImages,
+    autoDownloadVideos: state.autoDownloadVideos,
+    autoDownloadAudio: state.autoDownloadAudio,
+    autoDownloadFiles: state.autoDownloadFiles,
+    autoDownloadLimitMb: state.autoDownloadLimitMb,
     reduceMotion: state.reduceMotion,
     developerMode: state.developerMode,
   };
