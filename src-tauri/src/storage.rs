@@ -10,8 +10,9 @@ use std::{
     env, fs,
     io::Write,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -37,6 +38,52 @@ pub struct StorageSettings {
 pub struct UploadFileInfo {
     pub path: String,
     pub size: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CacheCategory {
+    Image,
+    Video,
+    Audio,
+    Document,
+    Other,
+}
+
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheUsageItem {
+    pub bytes: u64,
+    pub files: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheUsage {
+    pub total: CacheUsageItem,
+    pub images: CacheUsageItem,
+    pub videos: CacheUsageItem,
+    pub audio: CacheUsageItem,
+    pub documents: CacheUsageItem,
+    pub other: CacheUsageItem,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheCleanupRequest {
+    pub categories: Vec<CacheCategory>,
+    pub older_than_days: Option<u32>,
+    #[serde(default)]
+    pub protected_paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheCleanupResult {
+    pub removed_bytes: u64,
+    pub removed_files: u64,
+    pub skipped_protected_files: u64,
+    pub usage: CacheUsage,
 }
 
 #[tauri::command]
@@ -134,8 +181,57 @@ pub fn telegram_open_download_directory(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn telegram_cache_usage(app: AppHandle) -> Result<CacheUsage, String> {
+    cache_usage(&trusted_tdlib_files_directory(&app)?)
+}
+
+#[tauri::command]
+pub fn telegram_clear_media_cache(
+    app: AppHandle,
+    request: CacheCleanupRequest,
+    registry: State<'_, crate::telegram::media_stream::MediaStreamRegistry>,
+) -> Result<CacheCleanupResult, String> {
+    if request.categories.is_empty() {
+        return Err("Select at least one cache category".to_string());
+    }
+    if request.categories.len() > 5 || request.protected_paths.len() > 20_000 {
+        return Err("Cache cleanup request is too large".to_string());
+    }
+    if request.older_than_days.is_some_and(|days| days > 3_650) {
+        return Err("Cache retention period is out of range".to_string());
+    }
+
+    let root = trusted_tdlib_files_directory(&app)?;
+    let mut protected = protected_cache_paths(&root, &request.protected_paths);
+    if let Some(snapshot) = read_snapshot_cache_value(&app)? {
+        protected.extend(cached_asset_paths(&snapshot, std::slice::from_ref(&root)));
+    }
+    protected.extend(canonical_paths_within_root(
+        &root,
+        registry.protected_paths().into_iter(),
+    ));
+    let modified_before = request.older_than_days.and_then(|days| {
+        SystemTime::now().checked_sub(Duration::from_secs(u64::from(days) * 86_400))
+    });
+    clear_cache_files(
+        &root,
+        &request.categories.into_iter().collect(),
+        modified_before,
+        &protected,
+    )
+}
+
+#[tauri::command]
 pub fn telegram_read_snapshot_cache(app: AppHandle) -> Result<Option<Value>, String> {
-    let path = snapshot_cache_path(&app)?;
+    let snapshot = read_snapshot_cache_value(&app)?;
+    if let Some(snapshot) = &snapshot {
+        authorize_snapshot_assets(&app, snapshot)?;
+    }
+    Ok(snapshot)
+}
+
+fn read_snapshot_cache_value(app: &AppHandle) -> Result<Option<Value>, String> {
+    let path = snapshot_cache_path(app)?;
     let backup = path.with_extension("bak");
     let readable_path = if path.is_file() {
         path
@@ -153,7 +249,6 @@ pub fn telegram_read_snapshot_cache(app: AppHandle) -> Result<Option<Value>, Str
     let serialized = crate::proxy::unprotect(&protected)?;
     let snapshot: Value = serde_json::from_slice(&serialized)
         .map_err(|error| format!("Unable to parse UI cache: {error}"))?;
-    authorize_snapshot_assets(&app, &snapshot)?;
     Ok(Some(snapshot))
 }
 
@@ -285,6 +380,157 @@ fn canonical_file_within_roots(source: &Path, roots: &[PathBuf]) -> Result<PathB
         return Err("Cached file is outside trusted storage directories".to_string());
     }
     Ok(source)
+}
+
+fn cache_category(path: &Path) -> CacheCategory {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "avif" | "bmp" | "gif" | "heic" | "jpeg" | "jpg" | "png" | "tgs" | "webp" => {
+            CacheCategory::Image
+        }
+        "avi" | "m4v" | "mkv" | "mov" | "mp4" | "webm" => CacheCategory::Video,
+        "aac" | "flac" | "m4a" | "mp3" | "oga" | "ogg" | "opus" | "wav" => CacheCategory::Audio,
+        "csv" | "doc" | "docx" | "epub" | "json" | "md" | "odp" | "ods" | "odt" | "pdf" | "ppt"
+        | "pptx" | "rtf" | "txt" | "xls" | "xlsx" | "xml" | "zip" => CacheCategory::Document,
+        _ => CacheCategory::Other,
+    }
+}
+
+fn cache_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    fn visit(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+        let entries = fs::read_dir(directory).map_err(|error| {
+            format!(
+                "Unable to read cache directory {}: {error}",
+                directory.display()
+            )
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "Unable to read cache entry in {}: {error}",
+                    directory.display()
+                )
+            })?;
+            let file_type = entry.file_type().map_err(|error| {
+                format!(
+                    "Unable to inspect cache entry {}: {error}",
+                    entry.path().display()
+                )
+            })?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                visit(&entry.path(), files)?;
+            } else if file_type.is_file() {
+                files.push(entry.path());
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    visit(root, &mut files)?;
+    Ok(files)
+}
+
+fn usage_item_mut(usage: &mut CacheUsage, category: CacheCategory) -> &mut CacheUsageItem {
+    match category {
+        CacheCategory::Image => &mut usage.images,
+        CacheCategory::Video => &mut usage.videos,
+        CacheCategory::Audio => &mut usage.audio,
+        CacheCategory::Document => &mut usage.documents,
+        CacheCategory::Other => &mut usage.other,
+    }
+}
+
+fn add_usage(usage: &mut CacheUsage, category: CacheCategory, bytes: u64) {
+    usage.total.bytes = usage.total.bytes.saturating_add(bytes);
+    usage.total.files = usage.total.files.saturating_add(1);
+    let item = usage_item_mut(usage, category);
+    item.bytes = item.bytes.saturating_add(bytes);
+    item.files = item.files.saturating_add(1);
+}
+
+fn cache_usage(root: &Path) -> Result<CacheUsage, String> {
+    let mut usage = CacheUsage::default();
+    for path in cache_files(root)? {
+        let metadata = path.metadata().map_err(|error| {
+            format!("Unable to inspect cached file {}: {error}", path.display())
+        })?;
+        add_usage(&mut usage, cache_category(&path), metadata.len());
+    }
+    Ok(usage)
+}
+
+fn canonical_paths_within_root(
+    root: &Path,
+    paths: impl Iterator<Item = PathBuf>,
+) -> HashSet<PathBuf> {
+    paths
+        .filter_map(|path| path.canonicalize().ok())
+        .filter(|path| path.is_file() && path.starts_with(root))
+        .collect()
+}
+
+fn protected_cache_paths(root: &Path, paths: &[String]) -> HashSet<PathBuf> {
+    canonical_paths_within_root(root, paths.iter().map(PathBuf::from))
+}
+
+fn clear_cache_files(
+    root: &Path,
+    categories: &HashSet<CacheCategory>,
+    modified_before: Option<SystemTime>,
+    protected: &HashSet<PathBuf>,
+) -> Result<CacheCleanupResult, String> {
+    let mut result = CacheCleanupResult {
+        removed_bytes: 0,
+        removed_files: 0,
+        skipped_protected_files: 0,
+        usage: CacheUsage::default(),
+    };
+    for path in cache_files(root)? {
+        if !categories.contains(&cache_category(&path)) {
+            continue;
+        }
+        let canonical = path.canonicalize().map_err(|error| {
+            format!("Unable to resolve cached file {}: {error}", path.display())
+        })?;
+        if !canonical.starts_with(root) || !canonical.is_file() {
+            continue;
+        }
+        if protected.contains(&canonical) {
+            result.skipped_protected_files = result.skipped_protected_files.saturating_add(1);
+            continue;
+        }
+        let metadata = canonical.metadata().map_err(|error| {
+            format!(
+                "Unable to inspect cached file {}: {error}",
+                canonical.display()
+            )
+        })?;
+        if modified_before.is_some_and(|cutoff| {
+            metadata
+                .modified()
+                .map_or(true, |modified| modified > cutoff)
+        }) {
+            continue;
+        }
+        fs::remove_file(&canonical).map_err(|error| {
+            format!(
+                "Unable to remove cached file {}: {error}",
+                canonical.display()
+            )
+        })?;
+        result.removed_bytes = result.removed_bytes.saturating_add(metadata.len());
+        result.removed_files = result.removed_files.saturating_add(1);
+    }
+    result.usage = cache_usage(root)?;
+    Ok(result)
 }
 
 #[cfg(target_os = "windows")]
@@ -677,6 +923,96 @@ mod tests {
         assert!(canonical_file_within_roots(&trusted, &roots).is_err());
         assert!(canonical_file_within_roots(&trusted.join("missing"), &roots).is_err());
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reports_cache_usage_by_media_category() {
+        let root = unique_test_directory("cache-usage");
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("photo.jpg"), b"image").unwrap();
+        fs::write(root.join("nested").join("clip.mp4"), b"video!").unwrap();
+        fs::write(root.join("notes.pdf"), b"doc").unwrap();
+        fs::write(root.join("unknown.bin"), b"other-data").unwrap();
+
+        let usage = cache_usage(&root).unwrap();
+
+        assert_eq!(
+            usage.total,
+            CacheUsageItem {
+                bytes: 24,
+                files: 4
+            }
+        );
+        assert_eq!(usage.images, CacheUsageItem { bytes: 5, files: 1 });
+        assert_eq!(usage.videos, CacheUsageItem { bytes: 6, files: 1 });
+        assert_eq!(usage.documents, CacheUsageItem { bytes: 3, files: 1 });
+        assert_eq!(
+            usage.other,
+            CacheUsageItem {
+                bytes: 10,
+                files: 1
+            }
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn clears_only_selected_unprotected_cache_files() {
+        let root = unique_test_directory("cache-protection");
+        fs::create_dir_all(&root).unwrap();
+        let removable = root.join("remove.jpg");
+        let protected = root.join("keep.jpg");
+        let other_category = root.join("keep.mp4");
+        fs::write(&removable, b"remove").unwrap();
+        fs::write(&protected, b"protected").unwrap();
+        fs::write(&other_category, b"video").unwrap();
+        let root = root.canonicalize().unwrap();
+        let protected = [protected.canonicalize().unwrap()].into_iter().collect();
+
+        let result = clear_cache_files(
+            &root,
+            &[CacheCategory::Image].into_iter().collect(),
+            None,
+            &protected,
+        )
+        .unwrap();
+
+        assert_eq!(result.removed_files, 1);
+        assert_eq!(result.removed_bytes, 6);
+        assert_eq!(result.skipped_protected_files, 1);
+        assert!(!removable.exists());
+        assert!(root.join("keep.jpg").exists());
+        assert!(other_category.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn keeps_files_newer_than_the_cleanup_cutoff() {
+        let root = unique_test_directory("cache-retention");
+        fs::create_dir_all(&root).unwrap();
+        let recent = root.join("recent.ogg");
+        fs::write(&recent, b"audio").unwrap();
+        let root = root.canonicalize().unwrap();
+
+        let kept = clear_cache_files(
+            &root,
+            &[CacheCategory::Audio].into_iter().collect(),
+            SystemTime::now().checked_sub(Duration::from_secs(60)),
+            &HashSet::new(),
+        )
+        .unwrap();
+        assert_eq!(kept.removed_files, 0);
+        assert!(recent.exists());
+
+        let removed = clear_cache_files(
+            &root,
+            &[CacheCategory::Audio].into_iter().collect(),
+            SystemTime::now().checked_add(Duration::from_secs(60)),
+            &HashSet::new(),
+        )
+        .unwrap();
+        assert_eq!(removed.removed_files, 1);
         fs::remove_dir_all(root).unwrap();
     }
 

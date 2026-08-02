@@ -43,6 +43,8 @@ pub fn run() {
             storage::telegram_open_cached_file,
             storage::telegram_save_cached_file_as,
             storage::telegram_open_download_directory,
+            storage::telegram_cache_usage,
+            storage::telegram_clear_media_cache,
             storage::telegram_read_snapshot_cache,
             storage::telegram_write_snapshot_cache,
             storage::telegram_clear_snapshot_cache,

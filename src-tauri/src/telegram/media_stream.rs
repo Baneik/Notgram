@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::PathBuf,
@@ -37,6 +37,7 @@ struct RegisteredMedia {
 #[derive(Default)]
 struct RegistryInner {
     files: HashMap<i32, RegisteredMedia>,
+    active_downloads: HashMap<i32, PathBuf>,
 }
 
 #[derive(Default)]
@@ -79,11 +80,10 @@ impl MediaStreamRegistry {
     }
 
     pub fn clear(&self) {
-        self.inner
-            .lock()
-            .expect("media stream registry poisoned")
-            .files
-            .clear();
+        let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        inner.files.clear();
+        inner.active_downloads.clear();
+        drop(inner);
         self.changed.notify_all();
     }
 
@@ -96,17 +96,38 @@ impl MediaStreamRegistry {
 
         let mut changed = false;
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
-        for (file_id, progress) in files {
-            let Some(media) = inner.files.get_mut(&file_id) else {
-                continue;
-            };
-            media.progress = Some(progress);
-            changed = true;
+        for (file_id, progress, active) in files {
+            if active {
+                inner
+                    .active_downloads
+                    .insert(file_id, progress.path.clone());
+            } else {
+                inner.active_downloads.remove(&file_id);
+            }
+            if let Some(media) = inner.files.get_mut(&file_id) {
+                media.progress = Some(progress);
+                changed = true;
+            }
         }
         drop(inner);
         if changed {
             self.changed.notify_all();
         }
+    }
+
+    pub fn protected_paths(&self) -> HashSet<PathBuf> {
+        let inner = self.inner.lock().expect("media stream registry poisoned");
+        inner
+            .active_downloads
+            .values()
+            .chain(
+                inner
+                    .files
+                    .values()
+                    .filter_map(|media| media.progress.as_ref().map(|progress| &progress.path)),
+            )
+            .cloned()
+            .collect()
     }
 
     fn size(&self, file_id: i32) -> Option<u64> {
@@ -186,7 +207,7 @@ impl MediaStreamRegistry {
     }
 }
 
-fn collect_file_progress(value: &Value, files: &mut Vec<(i32, FileProgress)>) {
+fn collect_file_progress(value: &Value, files: &mut Vec<(i32, FileProgress, bool)>) {
     match value {
         Value::Object(object) => {
             if let (Some(file_id), Some(local)) = (
@@ -213,6 +234,7 @@ fn collect_file_progress(value: &Value, files: &mut Vec<(i32, FileProgress)>) {
                             .and_then(Value::as_bool)
                             == Some(true),
                     },
+                    local.get("is_downloading_active").and_then(Value::as_bool) == Some(true),
                 ));
             }
             for nested in object.values() {
@@ -379,5 +401,56 @@ mod tests {
         assert_eq!(chunk.bytes, b"stream");
         assert!(registry.read_range(8, 0, 1).is_err());
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn protects_registered_streams_and_active_downloads() {
+        let registry = MediaStreamRegistry::default();
+        let stream = PathBuf::from("stream.mp4");
+        let download = PathBuf::from("download.jpg");
+        registry.register(7, 12, "video/mp4").unwrap();
+        registry.observe_update(&serde_json::json!({
+            "@type": "updateFile",
+            "file": {
+                "id": 7,
+                "local": {
+                    "path": stream,
+                    "is_downloading_active": false,
+                    "is_downloading_completed": true
+                }
+            }
+        }));
+        registry.observe_update(&serde_json::json!({
+            "@type": "updateFile",
+            "file": {
+                "id": 8,
+                "local": {
+                    "path": download,
+                    "is_downloading_active": true,
+                    "is_downloading_completed": false
+                }
+            }
+        }));
+
+        let protected = registry.protected_paths();
+        assert!(protected.contains(&PathBuf::from("stream.mp4")));
+        assert!(protected.contains(&PathBuf::from("download.jpg")));
+
+        registry.observe_update(&serde_json::json!({
+            "@type": "updateFile",
+            "file": {
+                "id": 8,
+                "local": {
+                    "path": download,
+                    "is_downloading_active": false,
+                    "is_downloading_completed": false
+                }
+            }
+        }));
+        assert!(
+            !registry
+                .protected_paths()
+                .contains(&PathBuf::from("download.jpg"))
+        );
     }
 }
