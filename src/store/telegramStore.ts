@@ -13,7 +13,7 @@ import {
   currentAccountRegistration,
   shouldDiscardUnregisteredAccount,
 } from "./telegramStore.accounts";
-import { cachedSnapshotFrom, TELEGRAM_CACHE_VERSION } from "./telegramStore.cache";
+import { cachedSnapshotFrom, migrateCachedSnapshot } from "./telegramStore.cache";
 import {
   DRAFT_SYNC_DELAY_MS,
   DraftSyncController,
@@ -83,7 +83,8 @@ export const createTelegramStore = (
         cacheWrite = cacheWrite
           .catch(() => undefined)
           .then(() => transport.saveCachedSnapshot(snapshot))
-          .catch(() => undefined);
+          .then(() => set({ cacheHealth: "healthy" }))
+          .catch(() => set({ cacheHealth: "invalid" }));
       }, 600);
     };
 
@@ -123,6 +124,7 @@ export const createTelegramStore = (
         histories: new Map(),
         activeChatId: undefined,
         chatFilter: "main",
+        cacheHealth: clearSnapshot ? "empty" : get().cacheHealth,
       });
       if (clearSnapshot) void transport.clearCachedSnapshot().catch(() => undefined);
     };
@@ -164,15 +166,20 @@ export const createTelegramStore = (
       const state = get();
       if (state.authorization.kind === "ready" && state.currentUserId) {
         await transport.saveCachedSnapshot(cachedSnapshotFrom(state));
+        set({ cacheHealth: "healthy" });
       }
     };
 
-    const hydrateCachedSnapshot = (snapshot?: CachedTelegramSnapshot) => {
-      if (
-        !snapshot ||
-        snapshot.version !== TELEGRAM_CACHE_VERSION ||
-        !snapshot.currentUserId
-      ) return;
+    const hydrateCachedSnapshot = (persistedSnapshot?: CachedTelegramSnapshot) => {
+      const migration = migrateCachedSnapshot(persistedSnapshot);
+      const snapshot = migration.snapshot;
+      set({ cacheHealth: migration.health });
+      if (!snapshot) {
+        if (migration.health === "invalid") {
+          void transport.clearCachedSnapshot().catch(() => undefined);
+        }
+        return;
+      }
       const current = get();
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
@@ -214,6 +221,7 @@ export const createTelegramStore = (
         drafts,
         activeChatId: current.activeChatId ?? cachedActiveChatId,
         chatFilter: current.chatFilter !== "main" ? current.chatFilter : chatFilter,
+        cacheHealth: migration.health,
       });
     };
 
@@ -560,6 +568,7 @@ export const createTelegramStore = (
       accountPending: false,
       proxyPending: false,
       storagePending: false,
+      cacheHealth: "empty",
       users: new Map(),
       folders: [],
       chats: new Map(),
@@ -580,6 +589,8 @@ export const createTelegramStore = (
             hydrateCachedSnapshot(await transport.loadCachedSnapshot());
           } catch {
             // A corrupt or unavailable cache must not block the live connection.
+            set({ cacheHealth: "invalid" });
+            void transport.clearCachedSnapshot().catch(() => undefined);
           }
           const snapshot = await transport.connect(applyEvent);
           const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
@@ -735,6 +746,33 @@ export const createTelegramStore = (
           set({
             storagePending: false,
             storageError: error instanceof Error ? error.message : "无法保存存储路径设置",
+          });
+          return false;
+        }
+      },
+
+      rebuildCachedSnapshot: async () => {
+        const current = get();
+        if (current.authorization.kind !== "ready" || !current.currentUserId) {
+          set({ storageError: "Telegram 就绪后才能重建界面缓存" });
+          return false;
+        }
+        if (cacheTimer) {
+          globalThis.clearTimeout(cacheTimer);
+          cacheTimer = undefined;
+        }
+        set({ storagePending: true, storageError: undefined });
+        try {
+          await cacheWrite.catch(() => undefined);
+          await transport.clearCachedSnapshot();
+          await transport.saveCachedSnapshot(cachedSnapshotFrom(get()));
+          set({ cacheHealth: "rebuilt", storagePending: false });
+          return true;
+        } catch (error) {
+          set({
+            cacheHealth: "invalid",
+            storagePending: false,
+            storageError: error instanceof Error ? error.message : "无法重建界面缓存",
           });
           return false;
         }

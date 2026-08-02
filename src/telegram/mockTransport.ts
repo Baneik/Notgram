@@ -156,8 +156,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const serialized = browserStorage()?.getItem(this.cacheKey());
     if (!serialized) return undefined;
     try {
-      const snapshot = JSON.parse(serialized) as CachedTelegramSnapshot;
-      return snapshot.version === 1 ? snapshot : undefined;
+      return JSON.parse(serialized) as CachedTelegramSnapshot;
     } catch {
       return undefined;
     }

@@ -1,4 +1,5 @@
 import type { TelegramTransport } from "../telegram/transport";
+import type { CacheHealth } from "./telegramStore.cache";
 import type {
   AuthorizationAction,
   AuthorizationState,
@@ -45,6 +46,7 @@ export interface TelegramState {
   storageSettings?: StorageSettings;
   storagePending: boolean;
   storageError?: string;
+  cacheHealth: CacheHealth;
   accounts: TelegramAccount[];
   activeAccountId: string;
   accountPending: boolean;
@@ -67,6 +69,7 @@ export interface TelegramState {
   testProxy: (settings: ProxySettings) => Promise<void>;
   loadStorageSettings: () => Promise<void>;
   saveStorageSettings: (settings: StorageSettings) => Promise<boolean>;
+  rebuildCachedSnapshot: () => Promise<boolean>;
   addAccount: () => Promise<boolean>;
   switchAccount: (accountId: string) => Promise<boolean>;
   logOutCurrentAccount: () => Promise<boolean>;

@@ -27,6 +27,7 @@ import {
   type SetStateAction,
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
+import type { CacheHealth } from "../store/telegramStore.cache";
 import {
   usePreferencesStore,
   type AppPreferences,
@@ -99,6 +100,14 @@ const emptyStorageSettings: StorageSettings = {
   defaultDownloadPath: "",
 };
 
+const cacheHealthLabels: Record<CacheHealth, string> = {
+  empty: "尚未生成",
+  healthy: "健康",
+  migrated: "已从旧版本迁移",
+  invalid: "已失效，等待重建",
+  rebuilt: "刚刚重建",
+};
+
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const settings = useTelegramStore((state) => state.proxySettings);
   const pending = useTelegramStore((state) => state.proxyPending);
@@ -107,6 +116,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const storageSettings = useTelegramStore((state) => state.storageSettings);
   const storagePending = useTelegramStore((state) => state.storagePending);
   const storageError = useTelegramStore((state) => state.storageError);
+  const cacheHealth = useTelegramStore((state) => state.cacheHealth);
   const accounts = useTelegramStore((state) => state.accounts);
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const accountPending = useTelegramStore((state) => state.accountPending);
@@ -120,6 +130,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const test = useTelegramStore((state) => state.testProxy);
   const loadStorage = useTelegramStore((state) => state.loadStorageSettings);
   const saveStorage = useTelegramStore((state) => state.saveStorageSettings);
+  const rebuildCache = useTelegramStore((state) => state.rebuildCachedSnapshot);
   const addAccount = useTelegramStore((state) => state.addAccount);
   const switchAccount = useTelegramStore((state) => state.switchAccount);
   const logOutCurrentAccount = useTelegramStore((state) => state.logOutCurrentAccount);
@@ -275,12 +286,14 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               pending={pending}
               error={error}
               storageError={storageError}
+              cacheHealth={cacheHealth}
               latency={latency}
               activeEndpoint={activeEndpoint}
               setDraft={setDraft}
               setStorageDraft={setStorageDraft}
               updateCustom={updateCustom}
               onTest={() => void test(draft)}
+              onRebuildCache={() => void rebuildCache()}
               developerMode={developerMode}
               onDeveloperModeChange={(enabled) => setPreference("developerMode", enabled)}
             />
@@ -466,6 +479,7 @@ interface AdvancedSettingsProps {
   pending: boolean;
   error?: string;
   storageError?: string;
+  cacheHealth: CacheHealth;
   latency?: number;
   activeEndpoint?: ProxySettings["custom"];
   developerMode: boolean;
@@ -476,6 +490,7 @@ interface AdvancedSettingsProps {
     value: ProxySettings["custom"][K],
   ) => void;
   onTest: () => void;
+  onRebuildCache: () => void;
   onDeveloperModeChange: (enabled: boolean) => void;
 }
 
@@ -486,6 +501,7 @@ function AdvancedSettings({
   pending,
   error,
   storageError,
+  cacheHealth,
   latency,
   activeEndpoint,
   developerMode,
@@ -493,6 +509,7 @@ function AdvancedSettings({
   setStorageDraft,
   updateCustom,
   onTest,
+  onRebuildCache,
   onDeveloperModeChange,
 }: AdvancedSettingsProps) {
   return (
@@ -642,6 +659,20 @@ function AdvancedSettings({
           <RotateCcw size={15} strokeWidth={2} />
           <span>恢复默认路径</span>
         </button>
+        <div className="settings-inline-actions">
+          <button
+            className="storage-reset"
+            type="button"
+            disabled={busy}
+            onClick={onRebuildCache}
+          >
+            <RotateCcw size={15} strokeWidth={2} />
+            <span>重建界面缓存</span>
+          </button>
+          <span className="cache-health" role="status">
+            缓存状态：{cacheHealthLabels[cacheHealth]}
+          </span>
+        </div>
         </section>
 
         <section className="settings-section" aria-labelledby="developer-heading">

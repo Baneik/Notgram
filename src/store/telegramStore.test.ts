@@ -164,11 +164,45 @@ describe("telegram store", () => {
     expect(store.getState().chatFilter).toBe("folder:work");
     expect(store.getState().chatListReady).toBe(true);
     expect(store.getState().messages.get("chat-product")).toHaveLength(3);
+    expect(store.getState().cacheHealth).toBe("migrated");
 
     transport.release();
     await initialization;
     expect(store.getState().phase).toBe("ready");
     expect(store.getState().messages.get("chat-product")?.length).toBeGreaterThanOrEqual(30);
+  });
+
+  it("discards a damaged snapshot and rebuilds from the live server", async () => {
+    class DamagedCacheTransport extends MockTelegramTransport {
+      clears = 0;
+
+      override async loadCachedSnapshot() {
+        return {
+          version: 2,
+          savedAt: "2026-08-01T10:00:00Z",
+          currentUserId: mockSnapshot.currentUserId,
+          users: [],
+          folders: [],
+          chats: [{ title: "missing id" }],
+          messages: [],
+        } as unknown as CachedTelegramSnapshot;
+      }
+
+      override async clearCachedSnapshot() {
+        this.clears += 1;
+        await super.clearCachedSnapshot();
+      }
+    }
+
+    const transport = new DamagedCacheTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(transport.clears).toBe(1);
+    expect(store.getState().phase).toBe("ready");
+    expect(store.getState().chats.size).toBeGreaterThan(0);
+    expect(store.getState().cacheHealth).toBe("invalid");
   });
 
   it("persists a bounded snapshot after live state changes", async () => {
@@ -194,7 +228,7 @@ describe("telegram store", () => {
       await vi.advanceTimersByTimeAsync(601);
 
       expect(transport.savedSnapshot).toMatchObject({
-        version: 1,
+        version: 2,
         currentUserId: "self",
         activeChatId: "chat-product",
       });
@@ -1325,6 +1359,35 @@ describe("chat filtering", () => {
 
     expect(filterAndSortChats(chats, "main", "").map((chat) => chat.id))
       .toEqual(["chat-a", "chat-b"]);
+  });
+
+  it("rebuilds the encrypted UI snapshot from current live state", async () => {
+    class RebuildTransport extends MockTelegramTransport {
+      clears = 0;
+      savedSnapshot?: CachedTelegramSnapshot;
+
+      override async clearCachedSnapshot() {
+        this.clears += 1;
+        await super.clearCachedSnapshot();
+      }
+
+      override async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
+        this.savedSnapshot = structuredClone(snapshot);
+        await super.saveCachedSnapshot(snapshot);
+      }
+    }
+
+    const transport = new RebuildTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await expect(store.getState().rebuildCachedSnapshot()).resolves.toBe(true);
+    expect(transport.clears).toBe(1);
+    expect(transport.savedSnapshot).toMatchObject({
+      version: 2,
+      currentUserId: mockSnapshot.currentUserId,
+    });
+    expect(store.getState().cacheHealth).toBe("rebuilt");
   });
 
   it("sorts pinned chats according to the active folder", () => {

@@ -272,7 +272,7 @@ export interface TelegramSnapshot {
 }
 
 export interface CachedTelegramSnapshot {
-  version: 1;
+  version: 1 | 2;
   savedAt: string;
   currentUserId: string;
   users: User[];

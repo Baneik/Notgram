@@ -6,7 +6,7 @@ import {
   currentAccountRegistration,
   shouldDiscardUnregisteredAccount,
 } from "./telegramStore.accounts";
-import { cachedSnapshotFrom } from "./telegramStore.cache";
+import { cachedSnapshotFrom, migrateCachedSnapshot } from "./telegramStore.cache";
 import { DraftSyncController } from "./telegramStore.drafts";
 import {
   reconcileCachedMessageWindow,
@@ -62,6 +62,26 @@ describe("telegram store message state", () => {
 });
 
 describe("telegram store cache and accounts", () => {
+  it("migrates version 1 snapshots and safely rejects damaged cache data", () => {
+    const legacy = {
+      version: 1,
+      savedAt: "2026-08-01T10:00:00Z",
+      currentUserId: mockSnapshot.currentUserId,
+      users: mockSnapshot.users,
+      folders: mockSnapshot.folders,
+      chats: mockSnapshot.chats,
+      messages: mockSnapshot.messages.slice(0, 2),
+    };
+
+    expect(migrateCachedSnapshot(legacy)).toMatchObject({
+      health: "migrated",
+      snapshot: { version: 2, currentUserId: mockSnapshot.currentUserId },
+    });
+    expect(migrateCachedSnapshot({ ...legacy, version: 99 })).toEqual({ health: "invalid" });
+    expect(migrateCachedSnapshot({ ...legacy, chats: [{ title: "missing id" }] }))
+      .toEqual({ health: "invalid" });
+  });
+
   it("strips transient permissions and oversized inline previews from snapshots", () => {
     const media: Message = {
       ...message("20"),

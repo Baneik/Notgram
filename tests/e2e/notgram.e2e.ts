@@ -49,6 +49,10 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await page.getByRole("button", { name: /聊天设置/ }).click();
   await page.getByRole("switch", { name: "紧凑会话密度" }).check();
   await expect(page.locator("html")).toHaveClass(/compact-chat/);
+  await page.getByRole("button", { name: /高级设置/ }).click();
+  await page.getByRole("button", { name: "重建界面缓存" }).click();
+  await expect(page.locator(".settings-dialog .cache-health"))
+    .toContainText("缓存状态：刚刚重建");
   expect(await horizontalOverflow(page)).toBe(false);
 });
 

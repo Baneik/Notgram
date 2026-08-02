@@ -1,9 +1,60 @@
 import type { CachedTelegramSnapshot, Message } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
 
-export const TELEGRAM_CACHE_VERSION = 1 as const;
+export const TELEGRAM_CACHE_VERSION = 2 as const;
 const MAX_CACHED_MESSAGES_PER_CHAT = 60;
 const MAX_CACHED_MESSAGES = 5_000;
+
+export type CacheHealth = "empty" | "healthy" | "migrated" | "invalid" | "rebuilt";
+
+export interface CachedSnapshotMigration {
+  health: Exclude<CacheHealth, "rebuilt">;
+  snapshot?: CachedTelegramSnapshot;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const hasStringKey = (value: unknown, key: string) =>
+  isRecord(value) && typeof value[key] === "string";
+
+export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration => {
+  if (value === undefined || value === null) return { health: "empty" };
+  if (!isRecord(value) || (value.version !== 1 && value.version !== 2)) {
+    return { health: "invalid" };
+  }
+  if (
+    typeof value.savedAt !== "string" ||
+    typeof value.currentUserId !== "string" ||
+    !value.currentUserId ||
+    !Array.isArray(value.users) ||
+    !value.users.every((user) => hasStringKey(user, "id")) ||
+    !Array.isArray(value.folders) ||
+    !value.folders.every((folder) => hasStringKey(folder, "id")) ||
+    !Array.isArray(value.chats) ||
+    !value.chats.every((chat) => hasStringKey(chat, "id")) ||
+    !Array.isArray(value.messages) ||
+    !value.messages.every(
+      (message) => hasStringKey(message, "id") && hasStringKey(message, "chatId"),
+    ) ||
+    (value.drafts !== undefined && (
+      !Array.isArray(value.drafts) ||
+      !value.drafts.every((draft) => hasStringKey(draft, "chatId"))
+    )) ||
+    (value.activeChatId !== undefined && typeof value.activeChatId !== "string") ||
+    (value.chatFilter !== undefined && typeof value.chatFilter !== "string")
+  ) {
+    return { health: "invalid" };
+  }
+
+  return {
+    health: value.version === TELEGRAM_CACHE_VERSION ? "healthy" : "migrated",
+    snapshot: {
+      ...(value as unknown as CachedTelegramSnapshot),
+      version: TELEGRAM_CACHE_VERSION,
+    },
+  };
+};
 
 const cacheableMessage = (message: Message): Message => {
   const result = { ...message };
