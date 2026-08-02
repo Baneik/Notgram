@@ -375,6 +375,22 @@ export interface ChatListPage {
   hasMore: boolean;
 }
 
+export type GlobalSearchFilter = "all" | "message" | "media" | "file" | "link";
+
+export interface GlobalSearchInput {
+  query: string;
+  filter: GlobalSearchFilter;
+  offset?: string;
+  limit?: number;
+}
+
+export interface GlobalSearchPage {
+  chats: Chat[];
+  messages: Message[];
+  totalCount: number;
+  nextOffset?: string;
+}
+
 export type ProxyMode = "system" | "direct" | "custom";
 export type ProxyType = "http" | "socks5" | "mtproto";
 

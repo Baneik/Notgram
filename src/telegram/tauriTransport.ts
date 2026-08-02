@@ -45,6 +45,9 @@ import type {
   EditMessageInput,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  GlobalSearchFilter,
+  GlobalSearchInput,
+  GlobalSearchPage,
   Message,
   MessagePermissions,
   ConnectionStatus,
@@ -70,6 +73,26 @@ interface RuntimeStatus {
   error?: string;
   logPath?: string;
 }
+
+const globalSearchFilterObject = (filter: GlobalSearchFilter): TdObject | null => {
+  switch (filter) {
+    case "media": return { "@type": "searchMessagesFilterPhotoAndVideo" };
+    case "file": return { "@type": "searchMessagesFilterDocument" };
+    case "link": return { "@type": "searchMessagesFilterUrl" };
+    default: return null;
+  }
+};
+
+const globalSearchContentMatches = (message: Message, filter: GlobalSearchFilter) => {
+  if (filter === "all") return true;
+  if (filter === "message") return ["text", "rich", "service"].includes(message.content.kind);
+  if (filter === "media") return message.content.kind === "media";
+  if (filter === "file") return message.content.kind === "file";
+  return message.content.kind === "text" && (
+    message.content.entities?.some((entity) => entity.kind === "textUrl" || entity.kind === "url") ||
+    /https?:\/\//i.test(message.content.text)
+  );
+};
 
 const replaceFileReference = (
   value: unknown,
@@ -371,6 +394,70 @@ export class TauriTelegramTransport implements TelegramTransport {
       });
       this.upsertChat(raw);
     }));
+  }
+
+  async searchGlobal({
+    query,
+    filter,
+    offset = "",
+    limit = 30,
+  }: GlobalSearchInput): Promise<GlobalSearchPage> {
+    const normalized = query.trim();
+    if (!normalized) return { chats: [], messages: [], totalCount: 0 };
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const filterObject = globalSearchFilterObject(filter);
+    const [found, serverChats, publicChats] = await Promise.all([
+      this.request({
+        "@type": "searchMessages",
+        chat_list: null,
+        query: normalized,
+        offset,
+        limit: boundedLimit,
+        filter: filterObject,
+        chat_type_filter: null,
+        min_date: 0,
+        max_date: 0,
+      }),
+      offset ? Promise.resolve(undefined) : this.request({
+        "@type": "searchChatsOnServer",
+        query: normalized,
+        limit: 50,
+      }).catch(() => undefined),
+      offset ? Promise.resolve(undefined) : this.request({
+        "@type": "searchPublicChats",
+        query: normalized,
+      }).catch(() => undefined),
+    ]);
+    const messages = asTdObjects(found.messages)
+      .map((raw) => this.mapMessage(raw))
+      .filter((message): message is Message => Boolean(message))
+      .filter((message) => globalSearchContentMatches(message, filter));
+    const uniqueMessages = [...new Map(messages.map((message) => [
+      `${message.chatId}:${message.id}`,
+      message,
+    ])).values()];
+    const chatIds = new Set<string>(uniqueMessages.map((message) => message.chatId));
+    for (const result of [serverChats, publicChats]) {
+      for (const id of Array.isArray(result?.chat_ids) ? result.chat_ids.map(tdId) : []) {
+        if (id) chatIds.add(id);
+      }
+    }
+    const chats = (await Promise.all([...chatIds].map(async (chatId) => {
+      const raw = this.rawChats.get(chatId) ?? await this.request({
+        "@type": "getChat",
+        chat_id: numericId(chatId),
+      });
+      this.upsertChat(raw);
+      return mapTdChat(raw, this.currentUserId);
+    }))).filter((chat): chat is Chat => Boolean(chat));
+    return {
+      chats,
+      messages: uniqueMessages,
+      totalCount: tdNumber(found.total_count) ?? uniqueMessages.length,
+      nextOffset: typeof found.next_offset === "string" && found.next_offset
+        ? found.next_offset
+        : undefined,
+    };
   }
 
   async searchChatMessages(chatId: string, query: string, limit = 100) {

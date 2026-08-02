@@ -3,6 +3,8 @@ import type {
   EditMessageInput,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  GlobalSearchInput,
+  GlobalSearchPage,
   SetChatDraftInput,
   SetMessageReactionInput,
   SendFileInput,
@@ -49,6 +51,7 @@ export interface TelegramTransport {
   getCacheUsage(): Promise<CacheUsage>;
   clearMediaCache(input: CacheCleanupInput): Promise<CacheCleanupResult>;
   searchChats(query: string, limit?: number): Promise<void>;
+  searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;
   loadMoreChats(chatListId: string, limit?: number): Promise<ChatListPage>;
   setPinnedChats(chatListId: string, chatIds: string[]): Promise<void>;

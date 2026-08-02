@@ -44,6 +44,58 @@ const rawChat = (id: number, date: number): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("uses TDLib opaque offsets and merges message and chat search results", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "searchMessages") {
+        return {
+          "@type": "foundMessages",
+          total_count: 5,
+          messages: [{ ...rawMessage(90), chat_id: 7 }],
+          next_offset: "opaque-next",
+        };
+      }
+      if (request["@type"] === "searchChatsOnServer") {
+        return { "@type": "chats", chat_ids: [8, 7] };
+      }
+      if (request["@type"] === "searchPublicChats") {
+        return { "@type": "chats", chat_ids: [8] };
+      }
+      if (request["@type"] === "getChat") {
+        return rawChat(Number(request.chat_id), 1_700_000_000);
+      }
+      return { "@type": "ok" };
+    };
+
+    const page = await transport.searchGlobal({ query: "layout", filter: "all" });
+
+    expect(page).toMatchObject({ totalCount: 5, nextOffset: "opaque-next" });
+    expect(page.messages.map((message) => message.id)).toEqual(["90"]);
+    expect(page.chats.map((chat) => chat.id).sort()).toEqual(["7", "8"]);
+    expect(requests.find((request) => request["@type"] === "searchMessages")).toMatchObject({
+      chat_list: null,
+      offset: "",
+      limit: 30,
+      filter: null,
+      chat_type_filter: null,
+    });
+
+    requests.length = 0;
+    await transport.searchGlobal({
+      query: "layout",
+      filter: "file",
+      offset: "opaque-next",
+    });
+    expect(requests.some((request) => request["@type"] === "searchChatsOnServer")).toBe(false);
+    expect(requests.find((request) => request["@type"] === "searchMessages")).toMatchObject({
+      offset: "opaque-next",
+      filter: { "@type": "searchMessagesFilterDocument" },
+    });
+  });
+
   it("cancels a TDLib file download without limiting cancellation to pending work", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

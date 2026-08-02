@@ -12,6 +12,8 @@ import type {
   EditMessageInput,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  GlobalSearchInput,
+  GlobalSearchPage,
   Message,
   MessagePermissions,
   ProxySettings,
@@ -273,6 +275,48 @@ export class MockTelegramTransport implements TelegramTransport {
       .slice(0, limit)) {
       this.listener?.({ type: "chat.upsert", chat: clone(chat) });
     }
+  }
+
+  async searchGlobal({ query, filter, offset = "", limit = 30 }: GlobalSearchInput): Promise<GlobalSearchPage> {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return { chats: [], messages: [], totalCount: 0 };
+    const typeMatches = (message: Message) => {
+      const content = message.content;
+      if (filter === "all") return true;
+      if (filter === "message") return ["text", "rich", "service"].includes(content.kind);
+      if (filter === "media") {
+        return content.kind === "media" &&
+          ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
+      }
+      if (filter === "file") return content.kind === "file";
+      if (content.kind !== "text") return false;
+      return content.entities?.some((entity) => entity.kind === "textUrl" || entity.kind === "url") ||
+        /https?:\/\//i.test(content.text);
+    };
+    const matches = this.snapshot.messages.filter((message) => {
+      const content = message.content;
+      const fileName = content.kind === "file" || content.kind === "media"
+        ? content.fileName
+        : "";
+      return typeMatches(message) &&
+        `${messageContentText(content)} ${fileName}`.toLocaleLowerCase().includes(normalized);
+    });
+    const start = Math.max(0, Number.parseInt(offset, 10) || 0);
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const messages = matches.slice(start, start + boundedLimit);
+    const next = start + messages.length;
+    const chatIds = new Set(messages.map((message) => message.chatId));
+    if (!offset) {
+      for (const chat of this.snapshot.chats) {
+        if (`${chat.title} ${chat.preview}`.toLocaleLowerCase().includes(normalized)) chatIds.add(chat.id);
+      }
+    }
+    return {
+      chats: clone(this.snapshot.chats.filter((chat) => chatIds.has(chat.id))),
+      messages: clone(messages),
+      totalCount: matches.length,
+      nextOffset: next < matches.length ? String(next) : undefined,
+    };
   }
 
   async searchChatMessages(chatId: string, query: string, limit = 100) {

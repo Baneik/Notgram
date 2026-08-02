@@ -30,6 +30,8 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "resendMessages",
     "searchChatMessages",
     "searchChatsOnServer",
+    "searchMessages",
+    "searchPublicChats",
     "sendMessage",
     "setAuthenticationEmailAddress",
     "setAuthenticationPhoneNumber",
@@ -223,6 +225,20 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&pinned_chats).is_ok());
+
+        let global_search = json!({
+            "@type": "searchMessages",
+            "chat_list": null,
+            "query": "layout",
+            "offset": "opaque-next",
+            "limit": 30,
+            "filter": { "@type": "searchMessagesFilterDocument" },
+            "chat_type_filter": null,
+            "min_date": 0,
+            "max_date": 0,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&global_search).is_ok());
 
         let privileged = json!({
             "@type": "setTdlibParameters",
