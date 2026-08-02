@@ -491,6 +491,48 @@ describe("TauriTelegramTransport message operations", () => {
     }]);
   });
 
+  it("parses Markdown before sending and uses the parsed TDLib entities", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "parseMarkdown") {
+        return {
+          "@type": "formattedText",
+          text: "bold",
+          entities: [{
+            offset: 0,
+            length: 4,
+            type: { "@type": "textEntityTypeBold" },
+          }],
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    await transport.sendMessage({ chatId: "7", text: "**bold**" });
+
+    expect(requests[0]).toEqual({
+      "@type": "parseMarkdown",
+      text: { "@type": "formattedText", text: "**bold**", entities: [] },
+    });
+    expect(requests[1]).toMatchObject({
+      "@type": "sendMessage",
+      input_message_content: {
+        text: {
+          "@type": "formattedText",
+          text: "bold",
+          entities: [{
+            offset: 0,
+            length: 4,
+            type: { "@type": "textEntityTypeBold" },
+          }],
+        },
+      },
+    });
+  });
+
   it("writes, clears, and publishes chat drafts through the current TDLib schema", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

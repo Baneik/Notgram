@@ -7,9 +7,15 @@ export const numericId = (id: string) => {
   return value;
 };
 
-export const inputMessageText = (text: string, clearDraft: boolean): TdObject => ({
+export const formattedTextObject = (text: string): TdObject => ({
+  "@type": "formattedText",
+  text,
+  entities: [],
+});
+
+export const inputMessageText = (text: string | TdObject, clearDraft: boolean): TdObject => ({
   "@type": "inputMessageText",
-  text: { "@type": "formattedText", text, entities: [] },
+  text: typeof text === "string" ? formattedTextObject(text) : text,
   link_preview_options: null,
   clear_draft: clearDraft,
 });

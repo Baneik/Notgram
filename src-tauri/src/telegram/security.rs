@@ -22,6 +22,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getRepliedMessage",
     "loadChats",
     "logOut",
+    "parseMarkdown",
     "pingProxy",
     "registerUser",
     "requestQrCodeAuthentication",
@@ -33,6 +34,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setAuthenticationEmailAddress",
     "setAuthenticationPhoneNumber",
     "setChatDraftMessage",
+    "setPinnedChats",
     "viewMessages",
 ];
 
@@ -206,6 +208,21 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&replied_message).is_ok());
+
+        let markdown = json!({
+            "@type": "parseMarkdown",
+            "text": { "@type": "formattedText", "text": "**hello**", "entities": [] },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&markdown).is_ok());
+
+        let pinned_chats = json!({
+            "@type": "setPinnedChats",
+            "chat_list": { "@type": "chatListMain" },
+            "chat_ids": [8, 7],
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&pinned_chats).is_ok());
 
         let privileged = json!({
             "@type": "setTdlibParameters",

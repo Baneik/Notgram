@@ -3,7 +3,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type DragEvent,
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
@@ -61,42 +60,100 @@ export function ChatSidebar({
     chatId: string;
     edge: "before" | "after";
   }>();
+  const pinnedDragRef = useRef<{
+    pointerId: number;
+    chatId: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+    element: HTMLButtonElement;
+  } | undefined>(undefined);
+  const pinnedDropTargetRef = useRef<typeof pinnedDropTarget>(undefined);
+  const suppressNextChatClickRef = useRef(false);
 
   const pinnedReorderEnabled = searchQuery.trim().length === 0;
 
-  const beginPinnedDrag = (event: DragEvent<HTMLButtonElement>, chatId: string) => {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", chatId);
-    setDraggedPinnedChatId(chatId);
+  const setDropTarget = (target: typeof pinnedDropTarget) => {
+    const current = pinnedDropTargetRef.current;
+    if (current?.chatId === target?.chatId && current?.edge === target?.edge) return;
+    pinnedDropTargetRef.current = target;
+    setPinnedDropTarget(target);
   };
 
-  const updatePinnedDropTarget = (
-    event: DragEvent<HTMLButtonElement>,
-    chatId: string,
+  const beginPinnedDrag = (event: PointerEvent<HTMLButtonElement>, chatId: string) => {
+    if (event.button !== 0 || !pinnedReorderEnabled) return;
+    pinnedDragRef.current = {
+      pointerId: event.pointerId,
+      chatId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      element: event.currentTarget,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const movePinnedDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = pinnedDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.moved) {
+      const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      if (distance < 6) return;
+      drag.moved = true;
+      setDraggedPinnedChatId(drag.chatId);
+    }
+    event.preventDefault();
+
+    const row = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLButtonElement>(".chat-row[data-chat-id]");
+    const chatId = row?.dataset.chatId;
+    if (
+      !row ||
+      !chatId ||
+      chatId === drag.chatId ||
+      row.dataset.pinned !== "true"
+    ) {
+      setDropTarget(undefined);
+      return;
+    }
+    const bounds = row.getBoundingClientRect();
+    setDropTarget({
+      chatId,
+      edge: event.clientY < bounds.top + bounds.height / 2 ? "before" : "after",
+    });
+  };
+
+  const finishPinnedDrag = (
+    event: PointerEvent<HTMLButtonElement>,
+    cancelled = false,
   ) => {
-    if (!draggedPinnedChatId || draggedPinnedChatId === chatId) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const edge = event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
-    setPinnedDropTarget({ chatId, edge });
-  };
+    const drag = pinnedDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const target = pinnedDropTargetRef.current;
+    pinnedDragRef.current = undefined;
 
-  const dropPinnedChat = (event: DragEvent<HTMLButtonElement>, chatId: string) => {
-    event.preventDefault();
-    const sourceId = draggedPinnedChatId || event.dataTransfer.getData("text/plain");
-    const edge = pinnedDropTarget?.chatId === chatId ? pinnedDropTarget.edge : "before";
-    const pinnedIds = chats
-      .filter((chat) => isChatPinnedInFolder(chat, folderId))
-      .map((chat) => chat.id);
-    const reordered = pinnedIds.filter((id) => id !== sourceId);
-    const targetIndex = reordered.indexOf(chatId);
-    if (sourceId && targetIndex >= 0) {
-      reordered.splice(targetIndex + (edge === "after" ? 1 : 0), 0, sourceId);
-      onReorderPinned(reordered);
+    if (drag.moved) {
+      event.preventDefault();
+      suppressNextChatClickRef.current = true;
+      globalThis.setTimeout(() => { suppressNextChatClickRef.current = false; }, 0);
+      if (!cancelled && target) {
+        const pinnedIds = chats
+          .filter((chat) => isChatPinnedInFolder(chat, folderId))
+          .map((chat) => chat.id);
+        const reordered = pinnedIds.filter((id) => id !== drag.chatId);
+        const targetIndex = reordered.indexOf(target.chatId);
+        if (targetIndex >= 0) {
+          reordered.splice(targetIndex + (target.edge === "after" ? 1 : 0), 0, drag.chatId);
+          onReorderPinned(reordered);
+        }
+      }
+    }
+
+    if (drag.element.hasPointerCapture(event.pointerId)) {
+      drag.element.releasePointerCapture(event.pointerId);
     }
     setDraggedPinnedChatId(undefined);
-    setPinnedDropTarget(undefined);
+    setDropTarget(undefined);
   };
 
   const maximumWidth = () => {
@@ -148,6 +205,11 @@ export function ChatSidebar({
     document.documentElement.classList.toggle("is-resizing-sidebar", resizing);
     return () => document.documentElement.classList.remove("is-resizing-sidebar");
   }, [resizing]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("is-reordering-pinned", Boolean(draggedPinnedChatId));
+    return () => document.documentElement.classList.remove("is-reordering-pinned");
+  }, [draggedPinnedChatId]);
 
   useEffect(() => {
     const list = chatListRef.current;
@@ -213,20 +275,21 @@ export function ChatSidebar({
               folderId={folderId}
               draft={drafts.get(chat.id)}
               active={activeChatId === chat.id}
-              onSelect={onSelect}
               onOpenLatest={onOpenLatest}
               pinnedDraggable={pinnedReorderEnabled && isChatPinnedInFolder(chat, folderId)}
               dragging={draggedPinnedChatId === chat.id}
               dropEdge={pinnedDropTarget?.chatId === chat.id
                 ? pinnedDropTarget.edge
                 : undefined}
-              onDragStart={beginPinnedDrag}
-              onDragOver={updatePinnedDropTarget}
-              onDrop={dropPinnedChat}
-              onDragEnd={() => {
-                setDraggedPinnedChatId(undefined);
-                setPinnedDropTarget(undefined);
+              onSelectChat={(chatId) => {
+                if (suppressNextChatClickRef.current) return;
+                onSelect(chatId);
               }}
+              onPointerDown={beginPinnedDrag}
+              onPointerMove={movePinnedDrag}
+              onPointerUp={finishPinnedDrag}
+              onPointerCancel={(event) => finishPinnedDrag(event, true)}
+              onLostPointerCapture={(event) => finishPinnedDrag(event, true)}
             />
           ))
         )}
@@ -266,29 +329,31 @@ function ChatRow({
   folderId,
   draft,
   active,
-  onSelect,
+  onSelectChat,
   onOpenLatest,
   pinnedDraggable,
   dragging,
   dropEdge,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onLostPointerCapture,
 }: {
   chat: Chat;
   folderId: string;
   draft?: ChatDraft;
   active: boolean;
-  onSelect: (chatId: string) => void;
+  onSelectChat: (chatId: string) => void;
   onOpenLatest: (chatId: string) => void;
   pinnedDraggable: boolean;
   dragging: boolean;
   dropEdge?: "before" | "after";
-  onDragStart: (event: DragEvent<HTMLButtonElement>, chatId: string) => void;
-  onDragOver: (event: DragEvent<HTMLButtonElement>, chatId: string) => void;
-  onDrop: (event: DragEvent<HTMLButtonElement>, chatId: string) => void;
-  onDragEnd: () => void;
+  onPointerDown: (event: PointerEvent<HTMLButtonElement>, chatId: string) => void;
+  onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
+  onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
+  onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void;
+  onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
   const visibleDraft = draft && (draft.text.length > 0 || draft.replyToMessageId)
     ? draft
@@ -297,14 +362,16 @@ function ChatRow({
     <button
       type="button"
       className={`chat-row ${active ? "is-active" : ""} ${chat.muted ? "is-muted" : ""} ${pinnedDraggable ? "is-pinned-draggable" : ""} ${dragging ? "is-dragging" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
-      draggable={pinnedDraggable}
+      data-chat-id={chat.id}
+      data-pinned={pinnedDraggable}
       aria-grabbed={dragging}
-      onClick={() => onSelect(chat.id)}
+      onClick={() => onSelectChat(chat.id)}
       onDoubleClick={() => onOpenLatest(chat.id)}
-      onDragStart={(event) => onDragStart(event, chat.id)}
-      onDragOver={(event) => onDragOver(event, chat.id)}
-      onDrop={(event) => onDrop(event, chat.id)}
-      onDragEnd={onDragEnd}
+      onPointerDown={(event) => pinnedDraggable && onPointerDown(event, chat.id)}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onLostPointerCapture={onLostPointerCapture}
     >
       <Avatar avatar={chat.avatar} />
       <span className="chat-row-body">

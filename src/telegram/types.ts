@@ -74,10 +74,33 @@ export interface ChatDraft {
   pending?: boolean;
 }
 
+export type MessageTextEntityKind =
+  | "bold"
+  | "italic"
+  | "underline"
+  | "strikethrough"
+  | "spoiler"
+  | "code"
+  | "pre"
+  | "blockquote"
+  | "url"
+  | "textUrl"
+  | "email"
+  | "phone";
+
+export interface MessageTextEntity {
+  offset: number;
+  length: number;
+  kind: MessageTextEntityKind;
+  href?: string;
+  language?: string;
+}
+
 interface TransferableMessageContent {
   fileName: string;
   sizeLabel: string;
   caption?: string;
+  captionEntities?: MessageTextEntity[];
   mimeType?: string;
   fileId?: number;
   size?: number;
@@ -98,7 +121,7 @@ interface TransferableMessageContent {
 }
 
 export type MessageContent =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; entities?: MessageTextEntity[] }
   | { kind: "service"; text: string }
   | ({ kind: "file" } & TransferableMessageContent)
   | ({

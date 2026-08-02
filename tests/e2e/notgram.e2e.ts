@@ -81,14 +81,41 @@ test("pinned chats can be dragged into a fixed order", async ({ page }) => {
   const product = page.getByRole("button", { name: /产品讨论/ });
   const mia = page.getByRole("button", { name: /Mia Chen/ });
 
-  await expect(product).toHaveAttribute("draggable", "true");
-  await expect(mia).toHaveAttribute("draggable", "true");
-  await product.dragTo(mia, {
-    targetPosition: { x: 30, y: 65 },
-  });
+  const source = await product.boundingBox();
+  const target = await mia.boundingBox();
+  expect(source).toBeTruthy();
+  expect(target).toBeTruthy();
+  await page.mouse.move(source!.x + 30, source!.y + source!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(source!.x + 30, source!.y + source!.height / 2 + 12, { steps: 3 });
+  await expect(product).toHaveClass(/is-dragging/);
+  await page.mouse.move(target!.x + 30, target!.y + target!.height - 5, { steps: 8 });
+  await expect(mia).toHaveClass(/drop-after/);
+  await page.mouse.up();
 
   await expect(page.locator(".chat-row").first()).toContainText("Mia Chen");
   await expect(page.locator(".chat-row").nth(1)).toContainText("产品讨论");
+});
+
+test("Markdown and TDLib rich text render as structured message content", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+
+  const markdown = page.locator('[data-message-id="p-markdown"] .message-rich-text');
+  await expect(markdown).toHaveAttribute("data-rich-text", "markdown");
+  await expect(markdown.locator("strong")).toHaveText("Markdown 粗体");
+  await expect(markdown.locator("em")).toHaveText("斜体");
+  await expect(markdown.locator("del")).toHaveText("删除线");
+  await expect(markdown.locator("li")).toHaveCount(2);
+  await expect(markdown.locator("code")).toHaveText("code");
+  await expect(markdown.locator('a[href="https://example.com"]')).toHaveText("链接");
+
+  const entities = page.locator('[data-message-id="p-rich-entities"] .message-rich-text');
+  await expect(entities).toHaveAttribute("data-rich-text", "entities");
+  await expect(entities.locator("strong")).toHaveText("bold");
+  await expect(entities.locator('a[href="https://example.com/rich"]')).toHaveText("link");
+  await expect(page.locator('[data-message-id="p-video"] .photo-caption strong'))
+    .toHaveText("昨晚");
 });
 
 test("video uses its poster and custom streaming controls", async ({ page }) => {

@@ -21,6 +21,7 @@ import {
   chatListKey,
   chatListObject,
   effectiveProxy,
+  formattedTextObject,
   inputMessageText,
   listObject,
   mapAuthorizationState,
@@ -416,7 +417,29 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.request(request);
   }
 
+  private async formattedTextInput(text: string) {
+    const fallback = formattedTextObject(text);
+    const hasMarkdown = /(?:\*\*[^*]+\*\*|\*[^*\n]+\*|__[^_]+__|_[^_\n]+_|~~[^~]+~~|\|\|[^|]+\|\||`[^`]+`|^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+\.\s)|\[[^\]]+\]\([^)]+\)|\|[^\n]+\|)/m.test(text);
+    if (!hasMarkdown) return fallback;
+    try {
+      const parsed = await this.request({
+        "@type": "parseMarkdown",
+        text: fallback,
+      });
+      return parsed["@type"] === "formattedText" && typeof parsed.text === "string"
+        ? {
+            "@type": "formattedText",
+            text: parsed.text,
+            entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+          }
+        : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   async sendMessage(input: SendMessageInput) {
+    const text = await this.formattedTextInput(input.text);
     const response = await this.request({
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
@@ -431,18 +454,19 @@ export class TauriTelegramTransport implements TelegramTransport {
         : null,
       options: null,
       reply_markup: null,
-      input_message_content: inputMessageText(input.text, true),
+      input_message_content: inputMessageText(text, true),
     });
     if (response["@type"] === "message") this.emitMessage(response);
   }
 
   async editMessage(input: EditMessageInput) {
+    const text = await this.formattedTextInput(input.text);
     const response = await this.request({
       "@type": "editMessageText",
       chat_id: numericId(input.chatId),
       message_id: numericId(input.messageId),
       reply_markup: null,
-      input_message_content: inputMessageText(input.text, false),
+      input_message_content: inputMessageText(text, false),
     });
     if (response["@type"] === "message") this.emitMessage(response);
   }

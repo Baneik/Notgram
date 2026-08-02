@@ -189,6 +189,34 @@ const messages: Message[] = [
     content: { kind: "text", text: "我把交互稿更新到最新版本了，下午可以直接走查。" },
   },
   {
+    id: "p-markdown",
+    chatId: "chat-product",
+    senderId: "u-jules",
+    outgoing: false,
+    sentAt: "2026-08-01T09:48:20+08:00",
+    delivery: "read",
+    content: {
+      kind: "text",
+      text: "**Markdown 粗体**、*斜体*、~~删除线~~\n\n- 支持列表\n- 支持 `code` 与 [链接](https://example.com)",
+    },
+  },
+  {
+    id: "p-rich-entities",
+    chatId: "chat-product",
+    senderId: "u-jules",
+    outgoing: false,
+    sentAt: "2026-08-01T09:48:40+08:00",
+    delivery: "read",
+    content: {
+      kind: "text",
+      text: "TDLib bold link",
+      entities: [
+        { offset: 6, length: 4, kind: "bold" },
+        { offset: 11, length: 4, kind: "textUrl", href: "https://example.com/rich" },
+      ],
+    },
+  },
+  {
     id: "p-tall",
     chatId: "chat-product",
     senderId: "u-mia",
@@ -248,6 +276,7 @@ const messages: Message[] = [
       width: 640,
       height: 360,
       caption: "这是昨晚导出的交互录屏，麻烦确认最后一段。",
+      captionEntities: [{ offset: 2, length: 2, kind: "bold" }],
       canDownload: true,
       isDownloaded: false,
       isDownloading: false,

@@ -23,6 +23,7 @@ import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { TgsSticker } from "./TgsSticker";
 import { VideoPlayer } from "./VideoPlayer";
+import { MessageRichText } from "./MessageRichText";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
 
@@ -244,7 +245,9 @@ export function MessageBubble({
               <small>{replyPreview.text}</small>
             </span>
           )}
-          {content.kind === "text" || content.kind === "service" ? (
+          {content.kind === "text" ? (
+            <MessageRichText text={content.text} entities={content.entities} />
+          ) : content.kind === "service" ? (
             <p>{content.text}</p>
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
@@ -351,40 +354,64 @@ export function MessageBubble({
                   </span>
                 )}
               </div>
-              {content.caption && <p className="photo-caption">{content.caption}</p>}
+              {content.caption && (
+                <MessageRichText
+                  className="photo-caption"
+                  text={content.caption}
+                  entities={content.captionEntities}
+                />
+              )}
             </div>
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
-            <div className="audio-message">
-              <span className="file-icon"><AudioLines size={19} strokeWidth={1.8} /></span>
-              <span className="file-copy">
-                <strong>{content.fileName}</strong>
-                <small>{content.caption || content.sizeLabel}</small>
-              </span>
-              {fullMediaSource ? (
-                <audio src={fullMediaSource} controls preload="metadata" />
-              ) : canDownload ? (
-                <button className="file-download" type="button" aria-label={`下载 ${content.fileName}`} title="下载音频" onClick={() => void onDownload(downloadFileId!, downloadFileName)}>
-                  <Download size={16} strokeWidth={2} />
-                </button>
-              ) : content.isDownloading ? <LoaderCircle className="spin" size={16} /> : null}
+            <div className="attachment-message">
+              <div className="audio-message">
+                <span className="file-icon"><AudioLines size={19} strokeWidth={1.8} /></span>
+                <span className="file-copy">
+                  <strong>{content.fileName}</strong>
+                  <small>{content.sizeLabel}</small>
+                </span>
+                {fullMediaSource ? (
+                  <audio src={fullMediaSource} controls preload="metadata" />
+                ) : canDownload ? (
+                  <button className="file-download" type="button" aria-label={`下载 ${content.fileName}`} title="下载音频" onClick={() => void onDownload(downloadFileId!, downloadFileName)}>
+                    <Download size={16} strokeWidth={2} />
+                  </button>
+                ) : content.isDownloading ? <LoaderCircle className="spin" size={16} /> : null}
+              </div>
+              {content.caption && (
+                <MessageRichText
+                  className="attachment-caption"
+                  text={content.caption}
+                  entities={content.captionEntities}
+                />
+              )}
             </div>
           ) : (
-            <div className="file-message">
-              <span className="file-icon"><FileText size={19} strokeWidth={1.8} /></span>
-              <span className="file-copy">
-                <strong>{content.fileName}</strong>
-                <small>{content.isUploading ? `上传中 ${fileProgress ?? ""}` : content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : content.isDownloaded ? `已缓存 · ${content.sizeLabel}` : content.sizeLabel}</small>
-              </span>
-              {(canDownload || canCancelUpload) && (
-                <button
-                  className="file-download"
-                  type="button"
-                  aria-label={canCancelUpload ? `取消上传 ${content.fileName}` : `下载 ${content.fileName}`}
-                  title={canCancelUpload ? "取消上传" : "下载到 downloads"}
-                  onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onDownload(downloadFileId!, downloadFileName)}
-                >
-                  {canCancelUpload ? <X size={16} strokeWidth={2.2} /> : <Download size={16} strokeWidth={2} />}
-                </button>
+            <div className="attachment-message">
+              <div className="file-message">
+                <span className="file-icon"><FileText size={19} strokeWidth={1.8} /></span>
+                <span className="file-copy">
+                  <strong>{content.fileName}</strong>
+                  <small>{content.isUploading ? `上传中 ${fileProgress ?? ""}` : content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : content.isDownloaded ? `已缓存 · ${content.sizeLabel}` : content.sizeLabel}</small>
+                </span>
+                {(canDownload || canCancelUpload) && (
+                  <button
+                    className="file-download"
+                    type="button"
+                    aria-label={canCancelUpload ? `取消上传 ${content.fileName}` : `下载 ${content.fileName}`}
+                    title={canCancelUpload ? "取消上传" : "下载到 downloads"}
+                    onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onDownload(downloadFileId!, downloadFileName)}
+                  >
+                    {canCancelUpload ? <X size={16} strokeWidth={2.2} /> : <Download size={16} strokeWidth={2} />}
+                  </button>
+                )}
+              </div>
+              {content.caption && (
+                <MessageRichText
+                  className="attachment-caption"
+                  text={content.caption}
+                  entities={content.captionEntities}
+                />
               )}
             </div>
           )}

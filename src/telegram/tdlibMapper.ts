@@ -11,6 +11,8 @@ import type {
   MessageReaction,
   MessageReactionType,
   MessageReplyTarget,
+  MessageTextEntity,
+  MessageTextEntityKind,
   User,
 } from "./types";
 
@@ -70,9 +72,61 @@ const optionalUnixDate = (value: unknown) => {
   return seconds > 0 ? new Date(seconds * 1000).toISOString() : undefined;
 };
 
-const formattedText = (value: unknown) => {
+const formattedTextDetails = (value: unknown) => {
   const object = asTdObject(value);
-  return typeof object?.text === "string" ? object.text : "";
+  const text = typeof object?.text === "string" ? object.text : "";
+  const entities = asTdObjects(object?.entities).flatMap<MessageTextEntity>((entity) => {
+    const offset = tdNumber(entity.offset);
+    const length = tdNumber(entity.length);
+    const type = asTdObject(entity.type);
+    if (
+      offset === undefined ||
+      length === undefined ||
+      offset < 0 ||
+      length <= 0 ||
+      offset + length > text.length
+    ) return [];
+
+    let kind: MessageTextEntityKind | undefined;
+    switch (type?.["@type"]) {
+      case "textEntityTypeBold": kind = "bold"; break;
+      case "textEntityTypeItalic": kind = "italic"; break;
+      case "textEntityTypeUnderline": kind = "underline"; break;
+      case "textEntityTypeStrikethrough": kind = "strikethrough"; break;
+      case "textEntityTypeSpoiler": kind = "spoiler"; break;
+      case "textEntityTypeCode": kind = "code"; break;
+      case "textEntityTypePre": kind = "pre"; break;
+      case "textEntityTypePreCode": kind = "pre"; break;
+      case "textEntityTypeBlockQuote":
+      case "textEntityTypeExpandableBlockQuote": kind = "blockquote"; break;
+      case "textEntityTypeUrl": kind = "url"; break;
+      case "textEntityTypeTextUrl": kind = "textUrl"; break;
+      case "textEntityTypeEmailAddress": kind = "email"; break;
+      case "textEntityTypePhoneNumber": kind = "phone"; break;
+      default: return [];
+    }
+
+    return [{
+      offset,
+      length,
+      kind,
+      href: kind === "textUrl" && typeof type.url === "string" ? type.url : undefined,
+      language: kind === "pre" && typeof type.language === "string"
+        ? type.language
+        : undefined,
+    }];
+  });
+  return { text, entities };
+};
+
+const formattedText = (value: unknown) => formattedTextDetails(value).text;
+
+const formattedCaption = (value: unknown) => {
+  const { text, entities } = formattedTextDetails(value);
+  return {
+    caption: text || undefined,
+    captionEntities: text && entities.length > 0 ? entities : undefined,
+  };
 };
 
 const localImagePath = (value: unknown) => {
@@ -162,6 +216,7 @@ const fileContent = (
   file: unknown,
   options: {
     caption?: string;
+    captionEntities?: MessageTextEntity[];
     mimeType?: string;
     thumbnailPath?: string;
     thumbnailFileId?: number;
@@ -183,6 +238,7 @@ const mediaContent = (
   file: unknown,
   options: {
     caption?: string;
+    captionEntities?: MessageTextEntity[];
     mimeType?: string;
     thumbnailPath?: string;
     thumbnailFileId?: number;
@@ -231,8 +287,10 @@ const durationText = (secondsValue: unknown) => {
 export const mapTdMessageContent = (value: unknown): MessageContent => {
   const content = asTdObject(value);
   switch (content?.["@type"]) {
-    case "messageText":
-      return { kind: "text", text: formattedText(content.text) };
+    case "messageText": {
+      const { text, entities } = formattedTextDetails(content.text);
+      return { kind: "text", text, entities: entities.length > 0 ? entities : undefined };
+    }
     case "messageDocument": {
       const document = asTdObject(content.document);
       const caption = formattedText(content.caption);
@@ -241,7 +299,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
           ? document.file_name
           : caption || "文档";
       return fileContent(fileName, document?.document, {
-        caption: caption || undefined,
+        ...formattedCaption(content.caption),
         mimeType: typeof document?.mime_type === "string" ? document.mime_type : undefined,
         thumbnailPath: thumbnailPath(document?.thumbnail),
       });
@@ -261,7 +319,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         return area <= bestArea ? candidate : best;
       }, undefined);
       return mediaContent("photo", "图片", largest?.photo, {
-        caption: formattedText(content.caption) || undefined,
+        ...formattedCaption(content.caption),
         thumbnailPath: localImagePath(smallest?.photo),
         previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
         width: tdNumber(largest?.width),
@@ -275,7 +333,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         typeof video?.file_name === "string" && video.file_name ? video.file_name : "视频",
         video?.video,
         {
-          caption: formattedText(content.caption) || undefined,
+          ...formattedCaption(content.caption),
           mimeType: typeof video?.mime_type === "string" ? video.mime_type : undefined,
           ...thumbnailDetails(video?.thumbnail),
           previewDataUrl: minithumbnailDataUrl(video?.minithumbnail),
@@ -291,7 +349,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         typeof animation?.file_name === "string" && animation.file_name ? animation.file_name : "动图",
         animation?.animation,
         {
-          caption: formattedText(content.caption) || undefined,
+          ...formattedCaption(content.caption),
           mimeType: typeof animation?.mime_type === "string" ? animation.mime_type : undefined,
           ...thumbnailDetails(animation?.thumbnail),
           previewDataUrl: minithumbnailDataUrl(animation?.minithumbnail),
@@ -307,7 +365,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : "音频",
         audio?.audio,
         {
-          caption: formattedText(content.caption) || undefined,
+          ...formattedCaption(content.caption),
           mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
           thumbnailPath: thumbnailPath(audio?.album_cover_thumbnail),
         },
@@ -316,7 +374,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
     case "messageVoiceNote": {
       const voice = asTdObject(content.voice_note);
       return mediaContent("voice", "语音消息", voice?.voice, {
-        caption: formattedText(content.caption) || undefined,
+        ...formattedCaption(content.caption),
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
       });
     }

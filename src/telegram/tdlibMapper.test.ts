@@ -198,10 +198,55 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("preserves supported TDLib rich-text entities", () => {
+    const message = mapTdMessage({
+      id: 1003,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      date: 1_700_000_000,
+      content: {
+        "@type": "messageText",
+        text: {
+          "@type": "formattedText",
+          text: "Bold link code",
+          entities: [
+            { offset: 0, length: 4, type: { "@type": "textEntityTypeBold" } },
+            {
+              offset: 5,
+              length: 4,
+              type: { "@type": "textEntityTypeTextUrl", url: "https://example.com" },
+            },
+            { offset: 10, length: 4, type: { "@type": "textEntityTypeCode" } },
+          ],
+        },
+      },
+    });
+
+    expect(message?.content).toEqual({
+      kind: "text",
+      text: "Bold link code",
+      entities: [
+        { offset: 0, length: 4, kind: "bold", href: undefined, language: undefined },
+        {
+          offset: 5,
+          length: 4,
+          kind: "textUrl",
+          href: "https://example.com",
+          language: undefined,
+        },
+        { offset: 10, length: 4, kind: "code", href: undefined, language: undefined },
+      ],
+    });
+  });
+
   it("maps a video cover and its downloadable thumbnail", () => {
     const content = mapTdMessageContent({
       "@type": "messageVideo",
-      caption: { "@type": "formattedText", text: "review", entities: [] },
+      caption: {
+        "@type": "formattedText",
+        text: "review",
+        entities: [{ offset: 0, length: 6, type: { "@type": "textEntityTypeBold" } }],
+      },
       video: {
         file_name: "review.mp4",
         mime_type: "video/mp4",
@@ -232,6 +277,8 @@ describe("TDLib mapper", () => {
       fileId: 32,
       size: 8_000_000,
       mimeType: "video/mp4",
+      caption: "review",
+      captionEntities: [{ offset: 0, length: 6, kind: "bold" }],
       thumbnailFileId: 31,
       thumbnailCanDownload: true,
       thumbnailIsDownloading: false,
