@@ -6,6 +6,7 @@ import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { GlobalSearchView } from "../components/GlobalSearchView";
+import { ProfileDrawer } from "../components/ProfileDrawer";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
@@ -55,6 +56,8 @@ export function App() {
   const outbox = useTelegramStore((state) => state.outbox);
   const histories = useTelegramStore((state) => state.histories);
   const globalSearch = useTelegramStore((state) => state.globalSearch);
+  const profile = useTelegramStore((state) => state.profile);
+  const currentUserId = useTelegramStore((state) => state.currentUserId);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
   const transportKind = useTelegramStore((state) => state.transportKind);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
@@ -64,6 +67,9 @@ export function App() {
   const initialize = useTelegramStore((state) => state.initialize);
   const selectChat = useTelegramStore((state) => state.selectChat);
   const loadMessage = useTelegramStore((state) => state.loadMessage);
+  const loadChatProfile = useTelegramStore((state) => state.loadChatProfile);
+  const clearProfile = useTelegramStore((state) => state.clearProfile);
+  const startPrivateChat = useTelegramStore((state) => state.startPrivateChat);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const markActiveChatRead = useTelegramStore((state) => state.markActiveChatRead);
@@ -146,6 +152,19 @@ export function App() {
       requestId: messageScrollRequestIdRef.current,
     });
   }, [clearGlobalSearch, loadMessage, selectChat]);
+
+  const openProfileMessage = useCallback((chatId: string, messageId: string) => {
+    clearProfile();
+    void openGlobalSearchMessage(chatId, messageId);
+  }, [clearProfile, openGlobalSearchMessage]);
+
+  const openProfilePrivateChat = useCallback(async (userId: string) => {
+    const chatId = await startPrivateChat(userId);
+    if (!chatId) return;
+    clearProfile();
+    await selectChat(chatId);
+    setMobileChatOpen(true);
+  }, [clearProfile, selectChat, startPrivateChat]);
 
   useEffect(() => {
     void initialize();
@@ -424,8 +443,9 @@ export function App() {
           onSendFile={sendFile}
           onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
+          onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
           onBack={() => setMobileChatOpen(false)}
-          />
+        />
           </>
         )}
       </main>
@@ -444,6 +464,19 @@ export function App() {
         </div>
       )}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {profile.target && (
+        <ProfileDrawer
+          state={profile}
+          messages={profile.value?.chatId ? messages.get(profile.value.chatId) ?? [] : []}
+          currentUserId={currentUserId}
+          onClose={clearProfile}
+          onRetry={() => {
+            if (profile.target?.kind === "chat") void loadChatProfile(profile.target.chatId);
+          }}
+          onOpenMessage={openProfileMessage}
+          onStartPrivateChat={openProfilePrivateChat}
+        />
+      )}
     </>
   );
 }

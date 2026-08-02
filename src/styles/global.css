@@ -264,7 +264,13 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .conversation-header .avatar { width: 42px; height: 42px; }
 .conversation-title { min-width: 0; display: grid; gap: 2px; }
-.conversation-title h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; }
+.conversation-profile-trigger {
+  min-width: 0; padding: 0; display: flex; align-items: center; gap: 11px; color: inherit; text-align: left;
+  background: transparent; border: 0; border-radius: 7px; cursor: pointer;
+}
+.conversation-profile-trigger:hover { background: #f2f6f8; }
+.conversation-profile-trigger:focus-visible { outline: 2px solid rgba(51, 144, 236, 0.55); outline-offset: 2px; }
+.conversation-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; }
 .conversation-title span { color: var(--muted); font-size: 12px; }
 .conversation-header.is-selection-header { gap: 8px; }
 .message-selection-title { min-width: 0; display: grid; gap: 2px; }
@@ -879,6 +885,44 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .dialog-secondary { min-width: 92px; padding: 0 13px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--accent); background: #ffffff; border: 1px solid var(--accent); border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
 .dialog-secondary:disabled { opacity: 0.5; cursor: default; }
 
+.profile-backdrop {
+  position: fixed; inset: 0; z-index: 110; display: flex; justify-content: flex-end; background: rgba(20, 26, 30, 0.36);
+}
+.profile-drawer {
+  width: min(390px, 100vw); height: 100%; min-height: 0; display: grid; grid-template-rows: 60px minmax(0, 1fr);
+  color: var(--ink); background: #ffffff; box-shadow: -8px 0 30px rgba(10, 20, 28, 0.18);
+}
+.profile-drawer-header { min-width: 0; padding: 0 12px; display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; align-items: center; border-bottom: 1px solid var(--line); }
+.profile-drawer-header h2 { margin: 0; text-align: center; font-size: 16px; font-weight: 650; }
+.profile-drawer-scroll { min-height: 0; overflow-y: auto; }
+.profile-hero { padding: 30px 22px 20px; display: grid; justify-items: center; gap: 7px; text-align: center; border-bottom: 1px solid var(--line); }
+.profile-hero h3 { margin: 4px 0 0; font-size: 20px; font-weight: 650; }
+.profile-status { color: #278156; font-size: 12px; }
+.profile-hero p { max-width: 330px; margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.profile-actions { padding: 15px 18px; display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--line); }
+.profile-actions button { min-height: 38px; padding: 0 13px; display: inline-flex; align-items: center; gap: 7px; color: var(--accent); background: #f2f8fd; border: 1px solid #cfe5f5; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
+.profile-actions button:hover, .profile-actions button[aria-pressed="true"] { color: #ffffff; background: var(--accent); border-color: var(--accent); }
+.profile-info-section { padding: 18px 18px 20px; border-bottom: 1px solid var(--line); }
+.profile-info-section h4 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 650; }
+.profile-info-section p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.profile-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.profile-section-heading span { color: var(--subtle); font-size: 11px; }
+.profile-member-list, .profile-media-list { margin-top: 10px; display: grid; border-top: 1px solid var(--line); }
+.profile-member-row { min-height: 57px; padding: 7px 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border-bottom: 1px solid var(--line); }
+.profile-member-row > span { min-width: 0; display: grid; gap: 2px; }
+.profile-member-row strong, .profile-member-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-member-row strong { font-size: 12px; }
+.profile-member-row small { color: var(--muted); font-size: 10px; }
+.profile-member-row > button { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; color: var(--accent); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.profile-member-row > button:hover { background: var(--accent-soft); }
+.profile-media-list button { min-width: 0; min-height: 48px; padding: 7px 0; display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 7px; color: var(--ink); text-align: left; background: #ffffff; border: 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.profile-media-list button:hover { background: #f4f8fa; }
+.profile-media-list button > svg { color: #317e68; }
+.profile-media-list button span { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.profile-media-list button time { color: var(--subtle); font-size: 10px; }
+.profile-state { min-height: 230px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.profile-state.is-error { padding: 20px; color: #b23b31; text-align: center; line-height: 1.5; }
+
 @media (max-width: 930px) {
   .app-shell { grid-template-columns: 78px clamp(300px, var(--chat-sidebar-width, 340px), min(520px, calc(100vw - 400px))) minmax(0, 1fr); }
   .message-bubble-shell { max-width: 82%; }
@@ -939,6 +983,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .settings-actions { padding: 12px 15px 16px; }
   .settings-actions .dialog-save { width: 100%; }
   .settings-error { margin-right: 15px; margin-left: 15px; }
+  .profile-drawer { width: 100%; }
 }
 
 @media (max-width: 390px) {

@@ -97,6 +97,7 @@ interface ConversationProps {
   onSendFile: (file?: File) => Promise<boolean>;
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
+  onOpenProfile: () => void;
   onBack: () => void;
 }
 
@@ -133,6 +134,7 @@ export function Conversation({
   onSendFile,
   onCancelFileUpload,
   onLoadOlder,
+  onOpenProfile,
   onBack,
 }: ConversationProps) {
   const [draft, setDraft] = useState("");
@@ -484,11 +486,19 @@ export function Conversation({
             <button className="mobile-back icon-button" type="button" aria-label="返回会话列表" title="返回会话列表" onClick={onBack}>
               <ChevronLeft size={21} strokeWidth={2} />
             </button>
-            <Avatar avatar={chat.avatar} size="medium" />
-            <div className="conversation-title">
-              <h2>{chat.title}</h2>
-              <span>{statusLabel}</span>
-            </div>
+            <button
+              className="conversation-profile-trigger"
+              type="button"
+              aria-label={`查看 ${chat.title} 资料`}
+              title="查看资料"
+              onClick={onOpenProfile}
+            >
+              <Avatar avatar={chat.avatar} size="medium" />
+              <span className="conversation-title">
+                <strong>{chat.title}</strong>
+                <span>{statusLabel}</span>
+              </span>
+            </button>
             <div className="conversation-actions">
               <button className="icon-button" type="button" aria-label="语音通话" title="语音通话">
                 <Phone size={19} strokeWidth={1.8} />

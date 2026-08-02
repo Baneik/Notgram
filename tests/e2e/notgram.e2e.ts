@@ -240,6 +240,31 @@ test("global search paginates, filters, and opens exact message context", async 
   await expect(page.getByRole("button", { name: "全局搜索" })).toBeFocused();
 });
 
+test("chat profiles expose members and shared media with focus restoration", async ({ page }) => {
+  await page.goto("/");
+  const profileTrigger = page.getByRole("button", { name: "查看 产品讨论 资料" });
+  await profileTrigger.click();
+
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await expect(profile).toBeVisible();
+  await expect(profile.getByRole("heading", { name: "产品讨论" })).toBeVisible();
+  await expect(profile.getByText("产品、设计与开发协作群。", { exact: true })).toBeVisible();
+  await expect(profile.locator(".profile-member-row")).toHaveCount(4);
+
+  await profile.getByRole("button", { name: "共享媒体" }).click();
+  await expect(profile.locator(".profile-media-list button")).not.toHaveCount(0);
+  await profile.locator(".profile-media-list button").first().click();
+  await expect(profile).toBeHidden();
+  await expect(page.locator(".conversation")).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await profileTrigger.click();
+  await expect(profile).toBeVisible();
+  expect(await horizontalOverflow(page)).toBe(false);
+  await profile.getByRole("button", { name: "关闭资料" }).click();
+  await expect(profileTrigger).toBeFocused();
+});
+
 test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
