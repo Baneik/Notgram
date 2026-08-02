@@ -648,6 +648,72 @@ describe("TauriTelegramTransport message operations", () => {
     }));
   });
 
+  it("returns deduplicated global search pages and preserves the TDLib cursor", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "searchMessages") {
+        return request.offset
+          ? { "@type": "foundMessages", total_count: -1, messages: [], next_offset: "" }
+          : {
+              "@type": "foundMessages",
+              total_count: 2,
+              messages: [rawMessage(15), rawMessage(15)],
+              next_offset: "page-2",
+            };
+      }
+      if (request["@type"] === "searchChatsOnServer") {
+        return { "@type": "chats", chat_ids: [9] };
+      }
+      if (request["@type"] === "searchPublicChats") {
+        return { "@type": "chats", chat_ids: [10] };
+      }
+      if (request["@type"] === "getChat") {
+        return rawChat(Number(request.chat_id), 1_700_000_100);
+      }
+      return { "@type": "ok" };
+    };
+    internal.finishInitialChatSync();
+
+    const first = await transport.searchGlobal({ query: "project", filter: "all", limit: 500 });
+    const second = await transport.searchGlobal({
+      query: "project",
+      filter: "file",
+      offset: first.nextOffset,
+    });
+
+    expect(first).toMatchObject({
+      totalCount: 2,
+      nextOffset: "page-2",
+      messages: [{ id: "15", chatId: "7" }],
+    });
+    expect(first.chats.map(({ id }) => id)).toEqual(["7", "9", "10"]);
+    expect(second).toEqual({ chats: [], messages: [], totalCount: undefined, nextOffset: undefined });
+    const searchRequests = requests.filter((request) => request["@type"] === "searchMessages");
+    expect(searchRequests).toEqual([
+      {
+        "@type": "searchMessages",
+        chat_list: null,
+        query: "project",
+        offset: "",
+        limit: 100,
+        filter: null,
+        chat_type_filter: null,
+        min_date: 0,
+        max_date: 0,
+      },
+      expect.objectContaining({
+        "@type": "searchMessages",
+        offset: "page-2",
+        filter: { "@type": "searchMessagesFilterDocument" },
+      }),
+    ]);
+    expect(requests.filter((request) => request["@type"] === "searchPublicChats"))
+      .toHaveLength(1);
+  });
+
   it("sends a text reply with the current TDLib reply object", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

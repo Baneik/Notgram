@@ -428,7 +428,18 @@ export class TauriTelegramTransport implements TelegramTransport {
         query: normalized,
       }).catch(() => undefined),
     ]);
-    const messages = asTdObjects(found.messages)
+    const rawMessages = asTdObjects(found.messages);
+    const resultChatIds = new Set(
+      rawMessages.map((message) => tdId(message.chat_id)).filter(Boolean),
+    );
+    await Promise.all([...resultChatIds].map(async (chatId) => {
+      if (this.rawChats.has(chatId)) return;
+      this.upsertChat(await this.request({
+        "@type": "getChat",
+        chat_id: numericId(chatId),
+      }));
+    }));
+    const messages = rawMessages
       .map((raw) => this.mapMessage(raw))
       .filter((message): message is Message => Boolean(message))
       .filter((message) => globalSearchContentMatches(message, filter));
@@ -450,10 +461,13 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.upsertChat(raw);
       return mapTdChat(raw, this.currentUserId);
     }))).filter((chat): chat is Chat => Boolean(chat));
+    const totalCount = tdNumber(found.total_count);
     return {
       chats,
       messages: uniqueMessages,
-      totalCount: tdNumber(found.total_count) ?? uniqueMessages.length,
+      totalCount: filter !== "message" && totalCount !== undefined && totalCount >= 0
+        ? totalCount
+        : undefined,
       nextOffset: typeof found.next_offset === "string" && found.next_offset
         ? found.next_offset
         : undefined,

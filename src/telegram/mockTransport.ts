@@ -293,14 +293,16 @@ export class MockTelegramTransport implements TelegramTransport {
       return content.entities?.some((entity) => entity.kind === "textUrl" || entity.kind === "url") ||
         /https?:\/\//i.test(content.text);
     };
-    const matches = this.snapshot.messages.filter((message) => {
-      const content = message.content;
-      const fileName = content.kind === "file" || content.kind === "media"
-        ? content.fileName
-        : "";
-      return typeMatches(message) &&
-        `${messageContentText(content)} ${fileName}`.toLocaleLowerCase().includes(normalized);
-    });
+    const matches = this.snapshot.messages
+      .filter((message) => {
+        const content = message.content;
+        const fileName = content.kind === "file" || content.kind === "media"
+          ? content.fileName
+          : "";
+        return typeMatches(message) &&
+          `${messageContentText(content)} ${fileName}`.toLocaleLowerCase().includes(normalized);
+      })
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
     const start = Math.max(0, Number.parseInt(offset, 10) || 0);
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const messages = matches.slice(start, start + boundedLimit);

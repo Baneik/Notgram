@@ -387,7 +387,7 @@ export interface GlobalSearchInput {
 export interface GlobalSearchPage {
   chats: Chat[];
   messages: Message[];
-  totalCount: number;
+  totalCount?: number;
   nextOffset?: string;
 }
 
