@@ -314,6 +314,67 @@ describe("TauriTelegramTransport startup", () => {
 });
 
 describe("TauriTelegramTransport message operations", () => {
+  it("restores outgoing read state from the chat snapshot", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat({
+      ...rawChat(7, 1_700_000_007),
+      last_read_outbox_message_id: "6917529027641081856",
+    });
+
+    internal.emitMessage({
+      ...rawMessage(1),
+      id: "6917529027641081855",
+      is_outgoing: true,
+    });
+    internal.emitMessage({
+      ...rawMessage(2),
+      id: "6917529027641081857",
+      is_outgoing: true,
+    });
+    internal.emitMessage({
+      ...rawMessage(3),
+      id: "6917529027641081854",
+      is_outgoing: true,
+      sending_state: { "@type": "messageSendingStatePending" },
+    });
+
+    expect(events.filter((event) => event.type === "message.upsert").map((event) =>
+      event.type === "message.upsert" ? event.message.delivery : undefined,
+    )).toEqual(["read", "sent", "sending"]);
+  });
+
+  it("keeps a live outbox read marker for history loaded afterward", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat(rawChat(7, 1_700_000_007));
+    internal.emitMessage({
+      ...rawMessage(1),
+      id: "6917529027641081856",
+      is_outgoing: true,
+    });
+    events.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updateChatReadOutbox",
+      chat_id: 7,
+      last_read_outbox_message_id: "6917529027641081856",
+    });
+    internal.emitMessage({
+      ...rawMessage(2),
+      id: "6917529027641081855",
+      is_outgoing: true,
+    });
+
+    expect(events.filter((event) => event.type === "message.upsert").map((event) =>
+      event.type === "message.upsert" ? event.message.delivery : undefined,
+    )).toEqual(["read", "read"]);
+  });
+
   it("hydrates missing reply content without duplicating requests", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

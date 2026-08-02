@@ -104,6 +104,14 @@ const replaceFileReference = (
   return { value: changed ? updated : value, changed };
 };
 
+const messageIdAtMost = (messageId: string, lastReadId: string) => {
+  try {
+    return BigInt(messageId) <= BigInt(lastReadId);
+  } catch {
+    return false;
+  }
+};
+
 export class TauriTelegramTransport implements TelegramTransport {
   readonly kind = "tauri" as const;
   readonly label = "TDLib";
@@ -1002,7 +1010,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private emitMessage(raw?: TdObject) {
     if (!raw) return;
-    const message = mapTdMessage(raw);
+    const message = this.mapMessage(raw);
     if (!message) return;
     const chatMessages = this.rawMessages.get(message.chatId) ?? new Map<string, TdObject>();
     chatMessages.set(message.id, raw);
@@ -1015,7 +1023,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const messages = new Map<string, Message>();
     const uniqueRawMessages = new Map<string, TdObject>();
     for (const raw of rawMessages) {
-      const message = mapTdMessage(raw);
+      const message = this.mapMessage(raw);
       if (!message) continue;
       const chatMessages = this.rawMessages.get(message.chatId) ?? new Map<string, TdObject>();
       chatMessages.set(message.id, raw);
@@ -1028,6 +1036,16 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.listener?.({ type: "messages.upserted", messages: [...messages.values()] });
     }
     for (const raw of uniqueRawMessages.values()) this.ensureReplyContent(raw);
+  }
+
+  private mapMessage(raw: TdObject) {
+    const message = mapTdMessage(raw);
+    if (!message?.outgoing || message.delivery !== "sent") return message;
+    const lastReadId = tdId(
+      this.rawChats.get(message.chatId)?.last_read_outbox_message_id,
+    );
+    if (!lastReadId || !messageIdAtMost(message.id, lastReadId)) return message;
+    return { ...message, delivery: "read" as const };
   }
 
   private ensureReplyContent(raw: TdObject) {
@@ -1149,12 +1167,18 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private updateReadOutbox(update: TdObject) {
     const chatId = tdId(update.chat_id);
-    const lastReadId = tdNumber(update.last_read_outbox_message_id) ?? 0;
+    const lastReadId = tdId(update.last_read_outbox_message_id);
+    const chat = this.rawChats.get(chatId);
+    if (chat && lastReadId) {
+      this.rawChats.set(chatId, {
+        ...chat,
+        last_read_outbox_message_id: lastReadId,
+      });
+    }
     for (const raw of this.rawMessages.get(chatId)?.values() ?? []) {
-      const message = mapTdMessage(raw);
-      if (message?.outgoing && (tdNumber(raw.id) ?? 0) <= lastReadId) {
-        const readMessage: Message = { ...message, delivery: "read" };
-        this.listener?.({ type: "message.upsert", message: readMessage });
+      const message = this.mapMessage(raw);
+      if (message?.outgoing && message.delivery === "read") {
+        this.listener?.({ type: "message.upsert", message });
       }
     }
   }
