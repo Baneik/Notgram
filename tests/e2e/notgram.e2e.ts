@@ -56,6 +56,48 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("media cache controls clean selected data and protect active files", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /高级设置/ }).click();
+
+  const cacheSection = page.locator("section", {
+    has: page.getByRole("heading", { name: "媒体缓存", exact: true }),
+  });
+  await expect(cacheSection.locator(".cache-usage-summary")).toContainText("46.5 MB");
+  await expect(cacheSection.locator(".cache-category-row")).toHaveCount(5);
+  for (const category of ["视频", "音频", "文件", "其他"]) {
+    await cacheSection.locator(".cache-category-row", { hasText: category })
+      .getByRole("checkbox").uncheck();
+  }
+  await cacheSection.getByLabel("清理范围").selectOption("30");
+  await cacheSection.getByRole("button", { name: "清理所选" }).click();
+  await expect(cacheSection.locator(".cache-cleanup-result"))
+    .toContainText("已清理 6.0 MB，共 9 个文件；已保护 1 个正在使用的文件");
+  await expect(cacheSection.locator(".cache-usage-summary")).toContainText("40.5 MB");
+
+  const autoSection = page.locator("section", {
+    has: page.getByRole("heading", { name: "自动下载", exact: true }),
+  });
+  await expect(autoSection.getByRole("switch", { name: "图片、贴纸与动画" })).toBeChecked();
+  await expect(autoSection.getByRole("switch", { name: "视频与视频消息" })).not.toBeChecked();
+  await expect(autoSection.getByLabel("单个文件上限")).toHaveValue("10");
+
+  await cacheSection.getByRole("button", { name: "清理全部缓存" }).click();
+  await expect(cacheSection.locator(".cache-usage-summary")).toContainText("0 B");
+  await expect(cacheSection.locator(".cache-cleanup-result"))
+    .toContainText("已清理 40.5 MB，共 9 个文件；已保护 1 个正在使用的文件");
+  expect(await horizontalOverflow(page)).toBe(false);
+
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /高级设置/ }).click();
+  await cacheSection.scrollIntoViewIfNeeded();
+  await expect(cacheSection.locator(".cache-category-row")).toHaveCount(5);
+  expect(await horizontalOverflow(page)).toBe(false);
+});
+
 const chooseMessageMenuItem = async (page: Page, name: string) => {
   const menu = page.getByRole("menu", { name: "消息操作" });
   const item = menu.getByRole("menuitem", { name, exact: true });
