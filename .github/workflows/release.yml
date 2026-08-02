@@ -88,6 +88,9 @@ jobs:
           scripts/verify-windows-signatures.ps1 -Path $signed
           scripts/publish-portable.ps1 -SkipBuild -ChecksPassed
           scripts/publish-installer.ps1 -InstallerPath $installer.FullName
+          $portable = Get-ChildItem artifacts/Notgram-*-portable.zip -File | Select-Object -First 1
+          if (-not $portable) { throw "Portable archive was not produced." }
+          scripts/test-release-lifecycle.ps1 -InstallerPath $installer.FullName -PortableArchive $portable.FullName -ExecuteInstaller
           scripts/publish-update-channel.ps1
       - uses: actions/upload-artifact@v4
         with:
@@ -101,7 +104,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $assets = @(
-            Get-ChildItem artifacts -File | Where-Object { $_.Extension -in @(".zip", ".sha256") }
+            Get-ChildItem artifacts -File | Where-Object { $_.Extension -in @(".zip", ".sha256", ".json") }
             Get-ChildItem artifacts/Notgram-*-installer -File
           )
           if ($assets.Count -eq 0) { throw "No release assets were staged." }

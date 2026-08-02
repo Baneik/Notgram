@@ -17,5 +17,13 @@
     "strategy": "forward-only",
     "retainedSignedVersions": 2,
     "allowDowngrades": false
+  },
+  "dataLifecycle": {
+    "storage": "os-user-profile",
+    "portableStorage": "os-user-profile",
+    "retainOnPortableReplacement": true,
+    "retainOnUpgrade": true,
+    "retainOnUninstall": true,
+    "cleanup": "explicit-user-action"
   }
 }

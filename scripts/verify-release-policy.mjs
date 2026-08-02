@@ -72,4 +72,15 @@ if (policy.rollback?.strategy !== "forward-only" ||
 if (tauri.bundle?.windows?.allowDowngrades !== false) {
   throw new Error("Tauri Windows bundles must reject downgrades.");
 }
+if (tauri.bundle?.windows?.nsis?.installMode !== "currentUser") {
+  throw new Error("NSIS releases must use the current-user installation scope.");
+}
+if (policy.dataLifecycle?.storage !== "os-user-profile" ||
+    policy.dataLifecycle?.portableStorage !== "os-user-profile" ||
+    policy.dataLifecycle?.retainOnPortableReplacement !== true ||
+    policy.dataLifecycle?.retainOnUpgrade !== true ||
+    policy.dataLifecycle?.retainOnUninstall !== true ||
+    policy.dataLifecycle?.cleanup !== "explicit-user-action") {
+  throw new Error("Release data lifecycle policy is invalid.");
+}
 console.log(`Release policy is valid for ${version}.`);
