@@ -59,9 +59,6 @@ jobs:
       - name: Enable Windows signing tools
         shell: pwsh
         run: scripts/enable-windows-signing-tools.ps1
-      - name: Sign native runtime dependencies
-        shell: pwsh
-        run: scripts/sign-windows-files.ps1 -Path (Get-ChildItem src-tauri/tdlib/*.dll).FullName
       - name: Build signed Tauri and NSIS release
         shell: pwsh
         env:
