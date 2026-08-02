@@ -16,6 +16,8 @@ import type {
   CacheCleanupResult,
   CacheUsage,
   CachedTelegramSnapshot,
+  Chat,
+  ChatProfile,
   TelegramEvent,
   TelegramSnapshot,
   TelegramAccount,
@@ -24,6 +26,7 @@ import type {
   StorageSettings,
   Message,
   MessagePermissions,
+  User,
 } from "./types";
 import type { AuthorizationAction } from "./types";
 
@@ -50,6 +53,10 @@ export interface TelegramTransport {
   saveStorageSettings(settings: StorageSettings): Promise<StorageSettings>;
   getCacheUsage(): Promise<CacheUsage>;
   clearMediaCache(input: CacheCleanupInput): Promise<CacheCleanupResult>;
+  getCurrentUserProfile(): Promise<ChatProfile>;
+  getChatProfile(chatId: string): Promise<ChatProfile>;
+  getContacts(): Promise<User[]>;
+  createPrivateChat(userId: string): Promise<Chat>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;

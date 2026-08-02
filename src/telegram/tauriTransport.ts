@@ -39,6 +39,7 @@ import type {
   AuthorizationAction,
   CachedTelegramSnapshot,
   Chat,
+  ChatProfile,
   ChatHistoryPage,
   ChatListPage,
   DeleteMessageInput,
@@ -61,6 +62,7 @@ import type {
   TelegramSnapshot,
   TelegramAccount,
   TelegramAccountState,
+  User,
 } from "./types";
 
 interface RuntimeStatus {
@@ -92,6 +94,19 @@ const globalSearchContentMatches = (message: Message, filter: GlobalSearchFilter
     message.content.entities?.some((entity) => entity.kind === "textUrl" || entity.kind === "url") ||
     /https?:\/\//i.test(message.content.text)
   );
+};
+
+const profileText = (value: unknown) => {
+  const object = asTdObject(value);
+  return typeof object?.text === "string" ? object.text.trim() : "";
+};
+
+const profileMemberRole = (value: unknown) => {
+  switch (asTdObject(value)?.["@type"]) {
+    case "chatMemberStatusCreator": return "owner" as const;
+    case "chatMemberStatusAdministrator": return "administrator" as const;
+    default: return "member" as const;
+  }
 };
 
 const replaceFileReference = (
@@ -374,6 +389,127 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async clearMediaCache(input: import("./types").CacheCleanupInput) {
     return this.accountStorage.clearMediaCache(input);
+  }
+
+  async getCurrentUserProfile(): Promise<ChatProfile> {
+    let userId = this.currentUserId;
+    if (!userId) {
+      const me = await this.request({ "@type": "getMe" });
+      this.upsertUser(me);
+      userId = tdId(me.id);
+      this.currentUserId = userId || undefined;
+    }
+    if (!userId) throw new Error("TDLib 未返回当前用户");
+    return this.loadUserProfile(userId, "self");
+  }
+
+  async getChatProfile(chatId: string): Promise<ChatProfile> {
+    const rawChat = this.rawChats.get(chatId) ?? await this.request({
+      "@type": "getChat",
+      chat_id: numericId(chatId),
+    });
+    this.upsertChat(rawChat);
+    const chat = mapTdChat(rawChat, this.currentUserId);
+    if (!chat) throw new Error("TDLib 未返回聊天资料");
+    const type = asTdObject(rawChat.type);
+    if (type?.["@type"] === "chatTypePrivate") {
+      const userId = tdId(type.user_id);
+      if (!userId) throw new Error("聊天缺少用户标识");
+      const profile = await this.loadUserProfile(
+        userId,
+        userId === this.currentUserId ? "self" : "user",
+      );
+      return { ...profile, chatId: chat.id };
+    }
+    if (type?.["@type"] === "chatTypeSecret") {
+      const secret = await this.request({
+        "@type": "getSecretChat",
+        secret_chat_id: numericId(tdId(type.secret_chat_id)),
+      });
+      const userId = tdId(secret.user_id);
+      if (!userId) throw new Error("秘密聊天缺少用户标识");
+      return { ...await this.loadUserProfile(userId, "user"), chatId: chat.id };
+    }
+    if (type?.["@type"] === "chatTypeBasicGroup") {
+      const full = await this.request({
+        "@type": "getBasicGroupFullInfo",
+        basic_group_id: numericId(tdId(type.basic_group_id)),
+      });
+      const members = await this.loadProfileMembers(asTdObjects(full.members));
+      return {
+        id: `chat:${chat.id}`,
+        kind: "group",
+        chatId: chat.id,
+        title: chat.title,
+        avatar: chat.avatar,
+        statusLabel: `${members.length} 位成员`,
+        bio: typeof full.description === "string" && full.description.trim()
+          ? full.description.trim()
+          : undefined,
+        memberCount: members.length,
+        members,
+        canViewMembers: true,
+      };
+    }
+    if (type?.["@type"] === "chatTypeSupergroup") {
+      const supergroupId = tdId(type.supergroup_id);
+      const full = await this.request({
+        "@type": "getSupergroupFullInfo",
+        supergroup_id: numericId(supergroupId),
+      });
+      const canViewMembers = full.can_get_members === true;
+      const memberResult = canViewMembers
+        ? await this.request({
+            "@type": "getSupergroupMembers",
+            supergroup_id: numericId(supergroupId),
+            filter: null,
+            offset: 0,
+            limit: 50,
+          })
+        : undefined;
+      const members = await this.loadProfileMembers(asTdObjects(memberResult?.members));
+      const memberCount = tdNumber(full.member_count);
+      const isChannel = type.is_channel === true;
+      return {
+        id: `chat:${chat.id}`,
+        kind: isChannel ? "channel" : "group",
+        chatId: chat.id,
+        title: chat.title,
+        avatar: chat.avatar,
+        statusLabel: memberCount
+          ? `${memberCount.toLocaleString("zh-CN")} 位${isChannel ? "订阅者" : "成员"}`
+          : isChannel ? "频道" : "群组",
+        bio: typeof full.description === "string" && full.description.trim()
+          ? full.description.trim()
+          : undefined,
+        memberCount,
+        members,
+        canViewMembers,
+      };
+    }
+    throw new Error("暂不支持此聊天资料类型");
+  }
+
+  async getContacts() {
+    const result = await this.request({ "@type": "getContacts" });
+    const userIds = Array.isArray(result.user_ids)
+      ? result.user_ids.map(tdId).filter(Boolean)
+      : [];
+    const users = await Promise.all(userIds.map((userId) => this.loadUser(userId)));
+    return users.filter((user): user is User => Boolean(user))
+      .sort((left, right) => left.displayName.localeCompare(right.displayName, "zh-CN"));
+  }
+
+  async createPrivateChat(userId: string) {
+    const raw = await this.request({
+      "@type": "createPrivateChat",
+      user_id: numericId(userId),
+      force: false,
+    });
+    this.upsertChat(raw);
+    const chat = mapTdChat(raw, this.currentUserId);
+    if (!chat) throw new Error("TDLib 未返回私聊");
+    return chat;
   }
 
   async searchChats(query: string, limit = 50) {
@@ -992,6 +1128,54 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.listener?.({
       type: "folders.replaced",
       folders: mapTdChatFolders(this.rawFolderInfos, this.mainChatListPosition),
+    });
+  }
+
+  private async loadUser(userId: string) {
+    let raw = this.rawUsers.get(userId);
+    if (!raw) {
+      raw = await this.request({ "@type": "getUser", user_id: numericId(userId) });
+      this.upsertUser(raw);
+    }
+    return mapTdUser(raw);
+  }
+
+  private async loadUserProfile(
+    userId: string,
+    kind: "self" | "user",
+  ): Promise<ChatProfile> {
+    const [user, full] = await Promise.all([
+      this.loadUser(userId),
+      this.request({ "@type": "getUserFullInfo", user_id: numericId(userId) }),
+    ]);
+    if (!user) throw new Error("TDLib 未返回用户资料");
+    const bio = profileText(full.bio);
+    return {
+      id: `user:${user.id}`,
+      kind,
+      userId: user.id,
+      title: user.displayName,
+      avatar: user.avatar,
+      statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
+      bio: bio || undefined,
+      members: [],
+      canViewMembers: false,
+      groupInCommonCount: tdNumber(full.group_in_common_count),
+    };
+  }
+
+  private async loadProfileMembers(values: TdObject[]) {
+    const details = values.flatMap((member) => {
+      const sender = asTdObject(member.member_id);
+      const userId = sender?.["@type"] === "messageSenderUser"
+        ? tdId(sender.user_id)
+        : "";
+      return userId ? [{ userId, role: profileMemberRole(member.status) }] : [];
+    });
+    const users = await Promise.all(details.map(({ userId }) => this.loadUser(userId)));
+    return details.flatMap((detail, index) => {
+      const user = users[index];
+      return user ? [{ user, role: detail.role }] : [];
     });
   }
 

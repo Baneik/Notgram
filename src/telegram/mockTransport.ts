@@ -7,6 +7,7 @@ import type {
   CacheUsage,
   CachedTelegramSnapshot,
   Chat,
+  ChatProfile,
   ConnectionStatus,
   DeleteMessageInput,
   EditMessageInput,
@@ -26,6 +27,7 @@ import type {
   TelegramAccountState,
   TelegramSnapshot,
   ChatHistoryPage,
+  User,
 } from "./types";
 
 const clone = <T,>(value: T): T => structuredClone(value);
@@ -265,6 +267,93 @@ export class MockTelegramTransport implements TelegramTransport {
     const stored = this.loadPinnedOrders();
     stored[chatListId] = [...chatIds];
     browserStorage()?.setItem(this.pinnedOrderKey(), JSON.stringify(stored));
+  }
+
+  async getCurrentUserProfile(): Promise<ChatProfile> {
+    const user = this.snapshot.users.find((item) => item.id === this.snapshot.currentUserId);
+    if (!user) throw new Error("找不到当前账号资料");
+    return {
+      id: `user:${user.id}`,
+      kind: "self",
+      userId: user.id,
+      title: user.displayName,
+      avatar: clone(user.avatar),
+      statusLabel: "在线",
+      bio: "Notgram 演示账号",
+      members: [],
+      canViewMembers: false,
+      groupInCommonCount: 0,
+    };
+  }
+
+  async getChatProfile(chatId: string): Promise<ChatProfile> {
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat) throw new Error("找不到聊天资料");
+    if (chat.kind === "direct" || chat.kind === "saved") {
+      const userId = chat.kind === "saved" ? this.snapshot.currentUserId : chat.peerId;
+      const user = this.snapshot.users.find((item) => item.id === userId);
+      if (!user) throw new Error("找不到用户资料");
+      return {
+        id: `user:${user.id}`,
+        kind: chat.kind === "saved" ? "self" : "user",
+        chatId: chat.id,
+        userId: user.id,
+        title: user.displayName,
+        avatar: clone(user.avatar),
+        statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
+        bio: user.id === "u-mia" ? "产品设计师，关注桌面端体验。" : undefined,
+        members: [],
+        canViewMembers: false,
+        groupInCommonCount: user.id === this.snapshot.currentUserId ? 0 : 2,
+      };
+    }
+    const members = chat.kind === "channel"
+      ? []
+      : this.snapshot.users.slice(0, 4).map((user, index) => ({
+          user: clone(user),
+          role: index === 0 ? "owner" as const : index === 1
+            ? "administrator" as const
+            : "member" as const,
+        }));
+    return {
+      id: `chat:${chat.id}`,
+      kind: chat.kind,
+      chatId: chat.id,
+      title: chat.title,
+      avatar: clone(chat.avatar),
+      statusLabel: chat.kind === "channel" ? "1,248 位订阅者" : `${members.length} 位成员`,
+      bio: chat.kind === "channel" ? "桌面版本更新与发布说明。" : "产品、设计与开发协作群。",
+      memberCount: chat.kind === "channel" ? 1_248 : members.length,
+      members,
+      canViewMembers: chat.kind !== "channel",
+    };
+  }
+
+  async getContacts(): Promise<User[]> {
+    return clone(this.snapshot.users.filter((user) => user.id !== this.snapshot.currentUserId));
+  }
+
+  async createPrivateChat(userId: string): Promise<Chat> {
+    const existing = this.snapshot.chats.find((chat) => chat.peerId === userId);
+    if (existing) return clone(existing);
+    const user = this.snapshot.users.find((item) => item.id === userId);
+    if (!user) throw new Error("找不到联系人");
+    const chat: Chat = {
+      id: `chat-contact-${user.id}`,
+      kind: "direct",
+      folderIds: ["main"],
+      title: user.displayName,
+      avatar: clone(user.avatar),
+      peerId: user.id,
+      preview: "暂无消息",
+      updatedAt: new Date(0).toISOString(),
+      unreadCount: 0,
+      pinned: false,
+      muted: false,
+    };
+    this.snapshot.chats.push(chat);
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+    return clone(chat);
   }
 
   async searchChats(query: string, limit = 50) {

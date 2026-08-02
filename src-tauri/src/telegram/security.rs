@@ -7,6 +7,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "checkAuthenticationCode",
     "checkAuthenticationEmailCode",
     "checkAuthenticationPassword",
+    "createPrivateChat",
     "deleteMessages",
     "disableProxy",
     "downloadFile",
@@ -16,10 +17,17 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChat",
     "getChatHistory",
     "getChats",
+    "getBasicGroupFullInfo",
+    "getContacts",
     "getMe",
     "getMessageProperties",
     "getProxies",
     "getRepliedMessage",
+    "getSecretChat",
+    "getSupergroupFullInfo",
+    "getSupergroupMembers",
+    "getUser",
+    "getUserFullInfo",
     "loadChats",
     "logOut",
     "parseMarkdown",
@@ -93,6 +101,11 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
     validate_webview_extra(extra)?;
     if contains_tdlib_type(request, &["inputFileLocal", "inputFileGenerated"]) {
         return Err("Local files cannot be sent through the generic TDLib bridge".to_string());
+    }
+    if request_type == "createPrivateChat"
+        && request.get("force").and_then(Value::as_bool) != Some(false)
+    {
+        return Err("Private chats must be resolved from the Telegram server".to_string());
     }
     if matches!(request_type, "sendMessage" | "editMessageText") {
         let content_type = request
@@ -239,6 +252,30 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&global_search).is_ok());
+
+        for request_type in [
+            "getUser",
+            "getUserFullInfo",
+            "getBasicGroupFullInfo",
+            "getSupergroupFullInfo",
+            "getSupergroupMembers",
+            "getContacts",
+            "getSecretChat",
+        ] {
+            let request = json!({ "@type": request_type, "@extra": EXTRA });
+            assert!(validate_webview_tdlib_request(&request).is_ok());
+        }
+
+        let private_chat = json!({
+            "@type": "createPrivateChat",
+            "user_id": 7,
+            "force": false,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&private_chat).is_ok());
+        let mut forced_private_chat = private_chat.clone();
+        forced_private_chat["force"] = json!(true);
+        assert!(validate_webview_tdlib_request(&forced_private_chat).is_err());
 
         let privileged = json!({
             "@type": "setTdlibParameters",

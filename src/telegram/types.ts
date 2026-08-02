@@ -45,6 +45,29 @@ export interface User {
   lastSeenLabel?: string;
 }
 
+export type ProfileKind = "self" | "user" | "group" | "channel";
+export type ProfileMemberRole = "owner" | "administrator" | "member";
+
+export interface ProfileMember {
+  user: User;
+  role: ProfileMemberRole;
+}
+
+export interface ChatProfile {
+  id: string;
+  kind: ProfileKind;
+  chatId?: string;
+  userId?: string;
+  title: string;
+  avatar: Avatar;
+  statusLabel: string;
+  bio?: string;
+  memberCount?: number;
+  members: ProfileMember[];
+  canViewMembers: boolean;
+  groupInCommonCount?: number;
+}
+
 export interface TelegramAccount {
   id: string;
   userId: string;
