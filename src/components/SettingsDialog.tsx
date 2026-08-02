@@ -138,6 +138,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const logOutCurrentAccount = useTelegramStore((state) => state.logOutCurrentAccount);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
+  const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const compactMode = usePreferencesStore((state) => state.compactMode);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
@@ -146,6 +147,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const preferences: AppPreferences = {
     notificationsEnabled,
     notificationSound,
+    notificationPreview,
     compactMode,
     sendOnEnter,
     autoplayAnimations,
@@ -335,6 +337,7 @@ function PreferenceSettings({
   }> = category === "notifications"
     ? [
         { key: "notificationsEnabled" as const, label: "桌面通知" },
+        { key: "notificationPreview" as const, label: "显示消息预览", disabled: !preferences.notificationsEnabled },
         { key: "notificationSound" as const, label: "通知声音", disabled: !preferences.notificationsEnabled },
       ]
     : category === "chats"

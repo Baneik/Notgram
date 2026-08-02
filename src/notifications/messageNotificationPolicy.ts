@@ -17,3 +17,21 @@ export const shouldNotifyMessage = ({
   !outgoing &&
   !muted &&
   !(activeChat && appVisible);
+
+export const notificationPresentation = ({
+  showPreview,
+  chatTitle,
+  messageText,
+}: {
+  showPreview: boolean;
+  chatTitle?: string;
+  messageText: string;
+}) => showPreview
+  ? {
+      title: chatTitle?.trim() || "Notgram",
+      body: messageText.trim() || "收到一条新消息",
+    }
+  : {
+      title: "Notgram",
+      body: "收到一条新消息",
+    };

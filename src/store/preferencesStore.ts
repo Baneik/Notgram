@@ -4,6 +4,7 @@ import { useStore } from "zustand";
 export interface AppPreferences {
   notificationsEnabled: boolean;
   notificationSound: boolean;
+  notificationPreview: boolean;
   compactMode: boolean;
   sendOnEnter: boolean;
   autoplayAnimations: boolean;
@@ -22,6 +23,7 @@ const STORAGE_KEY = "notgram:preferences:v1";
 const defaults: AppPreferences = {
   notificationsEnabled: true,
   notificationSound: true,
+  notificationPreview: true,
   compactMode: false,
   sendOnEnter: true,
   autoplayAnimations: true,
@@ -37,6 +39,7 @@ const readPreferences = (): AppPreferences => {
     return {
       notificationsEnabled: stored.notificationsEnabled ?? defaults.notificationsEnabled,
       notificationSound: stored.notificationSound ?? defaults.notificationSound,
+      notificationPreview: stored.notificationPreview ?? defaults.notificationPreview,
       compactMode: stored.compactMode ?? defaults.compactMode,
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
@@ -66,6 +69,7 @@ preferencesStore.subscribe((state) => {
   const preferences: AppPreferences = {
     notificationsEnabled: state.notificationsEnabled,
     notificationSound: state.notificationSound,
+    notificationPreview: state.notificationPreview,
     compactMode: state.compactMode,
     sendOnEnter: state.sendOnEnter,
     autoplayAnimations: state.autoplayAnimations,

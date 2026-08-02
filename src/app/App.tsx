@@ -14,7 +14,10 @@ import {
   showDesktopNotification,
   type DesktopNotificationRoute,
 } from "../notifications/desktopNotifications";
-import { shouldNotifyMessage } from "../notifications/messageNotificationPolicy";
+import {
+  notificationPresentation,
+  shouldNotifyMessage,
+} from "../notifications/messageNotificationPolicy";
 import {
   clearPendingNotificationRoute,
   readPendingNotificationRoute,
@@ -96,6 +99,7 @@ export function App() {
   const messageScrollRequestIdRef = useRef(0);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
+  const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const knownLatestMessagesRef = useRef<Set<string> | undefined>(undefined);
 
   useEffect(() => {
@@ -180,10 +184,13 @@ export function App() {
         activeChat: message.chatId === activeChatId,
         appVisible: document.visibilityState === "visible",
       })) continue;
-      const body = messageContentText(message.content);
+      const presentation = notificationPresentation({
+        showPreview: notificationPreview,
+        chatTitle: chat?.title,
+        messageText: messageContentText(message.content),
+      });
       void showDesktopNotification({
-        title: chat?.title ?? "Notgram",
-        body,
+        ...presentation,
         sound: notificationSound,
         route: {
           accountId: activeAccountId,
@@ -192,7 +199,14 @@ export function App() {
         },
       });
     }
-  }, [activeChatId, chats, messages, notificationSound, notificationsEnabled]);
+  }, [
+    activeChatId,
+    chats,
+    messages,
+    notificationPreview,
+    notificationSound,
+    notificationsEnabled,
+  ]);
 
   useEffect(() => {
     try {
