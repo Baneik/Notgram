@@ -48,6 +48,7 @@ import type {
   User,
 } from "../telegram/types";
 import { Avatar } from "./Avatar";
+import { UpdateSettings } from "./UpdateSettings";
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -58,6 +59,7 @@ type SettingsCategoryId =
   | "notifications"
   | "chats"
   | "advanced"
+  | "updates"
   | "power";
 
 interface SettingsCategory {
@@ -72,6 +74,7 @@ const categories: SettingsCategory[] = [
   { id: "notifications", label: "通知与声音", icon: Bell },
   { id: "chats", label: "聊天设置", icon: MessageCircle },
   { id: "advanced", label: "高级设置", icon: SlidersHorizontal },
+  { id: "updates", label: "软件更新", icon: CloudDownload },
   { id: "power", label: "电池和动画", icon: BatteryCharging },
 ];
 
@@ -358,6 +361,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               developerMode={developerMode}
               onDeveloperModeChange={(enabled) => setPreference("developerMode", enabled)}
             />
+          ) : activeCategory === "updates" ? (
+            <UpdateSettings />
           ) : (
             <PreferenceSettings
               category={activeCategory}

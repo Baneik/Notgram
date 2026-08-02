@@ -54,6 +54,9 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await page.getByRole("button", { name: "重建界面缓存" }).click();
   await expect(page.locator(".settings-dialog .cache-health"))
     .toContainText("缓存状态：刚刚重建");
+  await page.getByRole("button", { name: /软件更新/ }).click();
+  await expect(page.getByRole("heading", { name: /Notgram 0\.5\.0-rc\.1/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "检查更新" })).toBeDisabled();
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
