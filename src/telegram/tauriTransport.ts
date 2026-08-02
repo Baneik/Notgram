@@ -416,6 +416,21 @@ export class TauriTelegramTransport implements TelegramTransport {
     return load;
   }
 
+  async getMessage(chatId: string, messageId: string) {
+    const raw = await this.request({
+      "@type": "getMessage",
+      chat_id: numericId(chatId),
+      message_id: numericId(messageId),
+    });
+    const message = this.mapMessage(raw);
+    if (!message || message.chatId !== chatId || message.id !== messageId) return undefined;
+    const chatMessages = this.rawMessages.get(chatId) ?? new Map<string, TdObject>();
+    chatMessages.set(message.id, raw);
+    this.rawMessages.set(chatId, chatMessages);
+    this.ensureReplyContent(raw);
+    return message;
+  }
+
   async getMessageProperties(
     chatId: string,
     messageId: string,

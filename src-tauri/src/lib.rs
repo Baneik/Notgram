@@ -1,3 +1,4 @@
+mod desktop_notification;
 mod proxy;
 mod storage;
 mod telegram;
@@ -26,6 +27,7 @@ pub fn run() {
             },
         )
         .invoke_handler(tauri::generate_handler![
+            desktop_notification::notgram_show_notification,
             telegram::telegram_runtime_status,
             proxy::telegram_proxy_settings,
             proxy::telegram_save_proxy_settings,

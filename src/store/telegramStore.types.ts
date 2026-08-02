@@ -80,6 +80,7 @@ export interface TelegramState {
   loadMoreChats: (chatListId?: string) => Promise<void>;
   reorderPinnedChats: (chatListId: string, chatIds: string[]) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
+  loadMessage: (chatId: string, messageId: string) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
   loadMessageProperties: (
     chatId: string,

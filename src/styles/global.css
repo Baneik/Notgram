@@ -270,6 +270,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-selection-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
 .message-selection-toggle:disabled { cursor: default; opacity: 0.5; }
 .message-row.is-selected .message-bubble { outline: 2px solid rgba(51, 144, 236, 0.36); outline-offset: 1px; }
+.message-row.is-notification-target .message-bubble { outline: 3px solid rgba(51, 144, 236, 0.58); outline-offset: 2px; }
 .message-bubble-shell { position: relative; min-width: 0; max-width: min(74%, 720px); flex: 0 1 auto; }
 .message-bubble-shell.is-visual-shell { width: var(--visual-media-width, 390px); }
 .message-bubble-shell.is-visual-shell .message-bubble { width: 100%; }

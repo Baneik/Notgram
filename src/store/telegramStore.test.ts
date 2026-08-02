@@ -1445,6 +1445,32 @@ describe("chat filtering", () => {
       .toEqual(["chat-a", "chat-b"]);
   });
 
+  it("loads an exact notification target once and merges it into the chat", async () => {
+    const source = mockSnapshot.messages[0];
+    const target: Message = {
+      ...source,
+      id: "notification-target",
+      content: { kind: "text", text: "notification target" },
+    };
+    class ExactMessageTransport extends MockTelegramTransport {
+      exactMessageRequests = 0;
+
+      override async getMessage(chatId: string, messageId: string) {
+        this.exactMessageRequests += 1;
+        return chatId === target.chatId && messageId === target.id ? target : undefined;
+      }
+    }
+    const transport = new ExactMessageTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await expect(store.getState().loadMessage(target.chatId, target.id)).resolves.toBe(true);
+    await expect(store.getState().loadMessage(target.chatId, target.id)).resolves.toBe(true);
+
+    expect(transport.exactMessageRequests).toBe(1);
+    expect(store.getState().messages.get(target.chatId)).toContainEqual(target);
+  });
+
   it("rebuilds the encrypted UI snapshot from current live state", async () => {
     class RebuildTransport extends MockTelegramTransport {
       clears = 0;

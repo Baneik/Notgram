@@ -29,6 +29,7 @@ import { useConversationSearch } from "../hooks/useConversationSearch";
 import {
   useConversationScroll,
   type LatestConversationScrollRequest,
+  type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { formatMessageDay, localDateKey } from "../utils/formatters";
@@ -56,6 +57,7 @@ interface ConversationProps {
   chat?: Chat;
   scrollScope: string;
   latestScrollRequest?: LatestConversationScrollRequest;
+  messageScrollRequest?: MessageConversationScrollRequest;
   messages: Message[];
   chatDraft?: ChatDraft;
   forwardTargets: Chat[];
@@ -94,6 +96,7 @@ export function Conversation({
   chat,
   scrollScope,
   latestScrollRequest,
+  messageScrollRequest,
   messages,
   chatDraft,
   forwardTargets,
@@ -167,6 +170,10 @@ export function Conversation({
     toggle: toggleMessageSearch,
   } = useConversationSearch(chat?.id, displayMessages, onSearchMessages);
 
+  useEffect(() => {
+    if (messageScrollRequest?.chatId === chat?.id) closeMessageSearch();
+  }, [chat?.id, messageScrollRequest?.chatId, messageScrollRequest?.requestId]);
+
   const visibleMessageGroups = useMemo(
     () => groupConsecutiveMessages(visibleMessages),
     [visibleMessages],
@@ -211,6 +218,7 @@ export function Conversation({
     scope: scrollScope,
     chatId: chat?.id,
     latestRequest: latestScrollRequest,
+    messageRequest: messageScrollRequest,
     visibleMessages,
     search: messageSearch,
     historyLoading,

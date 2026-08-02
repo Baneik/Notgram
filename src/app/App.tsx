@@ -1,16 +1,25 @@
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
-import { filterAndSortChats, useTelegramStore } from "../store/telegramStore";
+import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
 import { connectionPresentation } from "../telegram/connectionState";
-import { showDesktopNotification } from "../notifications/desktopNotifications";
+import {
+  listenForDesktopNotificationOpen,
+  showDesktopNotification,
+  type DesktopNotificationRoute,
+} from "../notifications/desktopNotifications";
 import { shouldNotifyMessage } from "../notifications/messageNotificationPolicy";
+import {
+  clearPendingNotificationRoute,
+  readPendingNotificationRoute,
+  savePendingNotificationRoute,
+} from "../notifications/notificationRouting";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -79,6 +88,12 @@ export function App() {
     requestId: number;
   }>();
   const latestScrollRequestIdRef = useRef(0);
+  const [messageScrollRequest, setMessageScrollRequest] = useState<{
+    chatId: string;
+    messageId: string;
+    requestId: number;
+  }>();
+  const messageScrollRequestIdRef = useRef(0);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const knownLatestMessagesRef = useRef<Set<string> | undefined>(undefined);
@@ -86,6 +101,49 @@ export function App() {
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  const openNotificationRoute = useCallback(async (route: DesktopNotificationRoute) => {
+    const state = telegramStore.getState();
+    if (route.accountId !== state.activeAccountId) {
+      savePendingNotificationRoute(route);
+      if (!await state.switchAccount(route.accountId)) clearPendingNotificationRoute();
+      return;
+    }
+
+    await state.selectChat(route.chatId);
+    await telegramStore.getState().loadMessage(route.chatId, route.messageId);
+    clearPendingNotificationRoute();
+    setMobileChatOpen(true);
+    messageScrollRequestIdRef.current += 1;
+    setMessageScrollRequest({
+      chatId: route.chatId,
+      messageId: route.messageId,
+      requestId: messageScrollRequestIdRef.current,
+    });
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: () => void = () => undefined;
+    void listenForDesktopNotificationOpen((route) => {
+      if (!disposed) void openNotificationRoute(route);
+    }).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlisten = stopListening;
+    });
+    return () => {
+      disposed = true;
+      unlisten();
+    };
+  }, [openNotificationRoute]);
+
+  useEffect(() => {
+    if (!chatListReady || authorization.kind !== "ready") return;
+    const pendingRoute = readPendingNotificationRoute();
+    if (pendingRoute?.accountId === activeAccountId) {
+      void openNotificationRoute(pendingRoute);
+    }
+  }, [activeAccountId, authorization.kind, chatListReady, openNotificationRoute]);
 
   useEffect(() => {
     const markWhenVisible = () => {
@@ -127,6 +185,11 @@ export function App() {
         title: chat?.title ?? "Notgram",
         body,
         sound: notificationSound,
+        route: {
+          accountId: activeAccountId,
+          chatId: message.chatId,
+          messageId: message.id,
+        },
       });
     }
   }, [activeChatId, chats, messages, notificationSound, notificationsEnabled]);
@@ -228,6 +291,7 @@ export function App() {
           chat={activeChat}
           scrollScope={activeAccountId}
           latestScrollRequest={latestScrollRequest}
+          messageScrollRequest={messageScrollRequest}
           messages={activeMessages}
           chatDraft={activeChatId ? drafts.get(activeChatId) : undefined}
           forwardTargets={forwardTargets}

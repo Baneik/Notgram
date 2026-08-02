@@ -965,6 +965,23 @@ export const createTelegramStore = (
         }
       },
       loadMoreHistory: loadHistory,
+      loadMessage: async (chatId, messageId) => {
+        if ((get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
+          return true;
+        }
+        if (get().authorization.kind !== "ready") return false;
+        try {
+          const message = await transport.getMessage(chatId, messageId);
+          if (!message || message.chatId !== chatId || message.id !== messageId) return false;
+          const messages = new Map(get().messages);
+          messages.set(chatId, upsertMessage(messages.get(chatId) ?? [], message));
+          set({ messages, operationError: undefined });
+          scheduleCacheWrite();
+          return true;
+        } catch {
+          return false;
+        }
+      },
       markActiveChatRead: async () => {
         const chatId = get().activeChatId;
         if (chatId) await markChatRead(chatId);

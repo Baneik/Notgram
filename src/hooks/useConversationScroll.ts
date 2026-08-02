@@ -32,10 +32,17 @@ export interface LatestConversationScrollRequest {
   requestId: number;
 }
 
+export interface MessageConversationScrollRequest {
+  chatId: string;
+  messageId: string;
+  requestId: number;
+}
+
 interface ConversationScrollOptions {
   scope: string;
   chatId?: string;
   latestRequest?: LatestConversationScrollRequest;
+  messageRequest?: MessageConversationScrollRequest;
   visibleMessages: Message[];
   search: string;
   historyLoading: boolean;
@@ -124,6 +131,7 @@ export const useConversationScroll = ({
   scope,
   chatId,
   latestRequest,
+  messageRequest,
   visibleMessages,
   search,
   historyLoading,
@@ -135,6 +143,7 @@ export const useConversationScroll = ({
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const previousLayoutRef = useRef<ConversationLayoutSnapshot | undefined>(undefined);
   const handledLatestRequestRef = useRef(0);
+  const handledMessageRequestRef = useRef(0);
   const historyLoadPendingRef = useRef<string | undefined>(undefined);
   const historyTraceRef = useRef<{
     key: string;
@@ -305,6 +314,38 @@ export const useConversationScroll = ({
     handledLatestRequestRef.current = latestRequest.requestId;
     jumpToLatest();
   }, [chatId, latestRequest]);
+
+  useLayoutEffect(() => {
+    if (
+      !messageRequest ||
+      messageRequest.chatId !== chatId ||
+      messageRequest.requestId <= handledMessageRequestRef.current
+    ) return;
+    const element = messageListRef.current;
+    const target = element?.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(messageRequest.messageId)}"]`,
+    );
+    if (!element || !target || !currentScrollKey) return;
+
+    handledMessageRequestRef.current = messageRequest.requestId;
+    target.scrollIntoView({ block: "center", behavior: "auto" });
+    element.focus({ preventScroll: true });
+    target.classList.add("is-notification-target");
+    const memory = captureScrollMemory(element, lastVisibleMessageId, 0, false);
+    conversationScrollMemory.set(currentScrollKey, {
+      ...memory,
+      followLatest: false,
+      pendingNewCount: 0,
+    });
+    updateNewMessageNotice(currentScrollKey, 0);
+    const highlightTimer = globalThis.setTimeout(() => {
+      target.classList.remove("is-notification-target");
+    }, 1_600);
+    return () => {
+      globalThis.clearTimeout(highlightTimer);
+      target.classList.remove("is-notification-target");
+    };
+  }, [chatId, currentScrollKey, lastVisibleMessageId, messageRequest, visibleMessages]);
 
   useEffect(() => {
     const element = messageListRef.current;

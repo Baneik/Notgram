@@ -1,23 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   isPermissionGranted,
   requestPermission,
-  sendNotification,
 } from "@tauri-apps/plugin-notification";
 import {
+  listenForDesktopNotificationOpen,
+  parseDesktopNotificationRoute,
   requestDesktopNotificationPermission,
   showDesktopNotification,
 } from "./desktopNotifications";
 
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
+
 vi.mock("@tauri-apps/plugin-notification", () => ({
   isPermissionGranted: vi.fn(),
   requestPermission: vi.fn(),
-  sendNotification: vi.fn(),
 }));
 
 const permissionGranted = vi.mocked(isPermissionGranted);
 const permissionRequest = vi.mocked(requestPermission);
-const notify = vi.mocked(sendNotification);
+const nativeInvoke = vi.mocked(invoke);
+const nativeListen = vi.mocked(listen);
+const route = { accountId: "default", chatId: "123", messageId: "456" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -34,33 +41,31 @@ describe("desktop notifications", () => {
     await expect(requestDesktopNotificationPermission()).resolves.toBe(true);
   });
 
-  it("does not send without permission and maps the sound preference", async () => {
+  it("does not send without permission and forwards sound plus route to Rust", async () => {
     permissionGranted.mockResolvedValueOnce(false);
     await expect(showDesktopNotification({
       title: "Notgram",
       body: "message",
       sound: true,
+      route,
     })).resolves.toBe(false);
-    expect(notify).not.toHaveBeenCalled();
+    expect(nativeInvoke).not.toHaveBeenCalled();
 
     permissionGranted.mockResolvedValueOnce(true);
+    nativeInvoke.mockResolvedValueOnce(undefined);
     await expect(showDesktopNotification({
       title: "Notgram",
       body: "message",
       sound: false,
+      route,
     })).resolves.toBe(true);
-    expect(notify).toHaveBeenCalledWith({
-      title: "Notgram",
-      body: "message",
-      sound: undefined,
-    });
-
-    permissionGranted.mockResolvedValueOnce(true);
-    await showDesktopNotification({ title: "Notgram", body: "message", sound: true });
-    expect(notify).toHaveBeenLastCalledWith({
-      title: "Notgram",
-      body: "message",
-      sound: "IM",
+    expect(nativeInvoke).toHaveBeenCalledWith("notgram_show_notification", {
+      notification: {
+        title: "Notgram",
+        body: "message",
+        sound: false,
+        route,
+      },
     });
   });
 
@@ -73,6 +78,26 @@ describe("desktop notifications", () => {
       title: "Notgram",
       body: "message",
       sound: true,
+      route,
     })).resolves.toBe(false);
+  });
+
+  it("validates click payloads before routing them", async () => {
+    expect(parseDesktopNotificationRoute(route)).toEqual(route);
+    expect(parseDesktopNotificationRoute({ ...route, messageId: "" })).toBeUndefined();
+    expect(parseDesktopNotificationRoute({ ...route, chatId: 123 })).toBeUndefined();
+
+    let listener: ((event: { payload: unknown }) => void) | undefined;
+    const unlisten = vi.fn();
+    nativeListen.mockImplementationOnce(async (_event, handler) => {
+      listener = handler as (event: { payload: unknown }) => void;
+      return unlisten;
+    });
+    const onOpen = vi.fn();
+    await expect(listenForDesktopNotificationOpen(onOpen)).resolves.toBe(unlisten);
+    listener?.({ payload: route });
+    listener?.({ payload: { ...route, accountId: "" } });
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen).toHaveBeenCalledWith(route);
   });
 });

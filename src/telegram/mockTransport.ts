@@ -294,6 +294,13 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
+  async getMessage(chatId: string, messageId: string) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === chatId && item.id === messageId,
+    );
+    return message ? clone(message) : undefined;
+  }
+
   async getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions> {
     const message = this.snapshot.messages.find(
       (item) => item.chatId === chatId && item.id === messageId,

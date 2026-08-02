@@ -487,6 +487,27 @@ describe("TauriTelegramTransport message operations", () => {
     }]);
   });
 
+  it("loads an exact notification target through TDLib", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return rawMessage(12);
+    };
+
+    await expect(transport.getMessage("7", "12")).resolves.toMatchObject({
+      id: "12",
+      chatId: "7",
+      content: { kind: "text", text: "message 12" },
+    });
+    expect(requests).toEqual([{
+      "@type": "getMessage",
+      chat_id: 7,
+      message_id: 12,
+    }]);
+  });
+
   it("adds and removes emoji reactions through typed TDLib requests", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

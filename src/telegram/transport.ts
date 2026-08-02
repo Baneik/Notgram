@@ -17,6 +17,7 @@ import type {
   TelegramAccountState,
   ProxySettings,
   StorageSettings,
+  Message,
   MessagePermissions,
 } from "./types";
 import type { AuthorizationAction } from "./types";
@@ -47,6 +48,7 @@ export interface TelegramTransport {
   loadMoreChats(chatListId: string, limit?: number): Promise<ChatListPage>;
   setPinnedChats(chatListId: string, chatIds: string[]): Promise<void>;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
+  getMessage(chatId: string, messageId: string): Promise<Message | undefined>;
   getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
   setMessageReaction(input: SetMessageReactionInput): Promise<void>;
   sendMessage(input: SendMessageInput): Promise<void>;
