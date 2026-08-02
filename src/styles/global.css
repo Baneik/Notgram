@@ -920,6 +920,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .update-notes strong { font-size: 12px; }
 .update-notes p { margin: 7px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; color: #4f5a61; font-size: 11px; line-height: 1.55; }
 .update-settings .dialog-save { min-width: 124px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.diagnostics-command-row { min-height: 40px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.diagnostics-status { color: var(--muted); font-size: 11px; }
 .settings-actions {
   padding: 12px 24px 14px; display: flex; justify-content: flex-end;
   background: #ffffff; border-top: 1px solid var(--line);

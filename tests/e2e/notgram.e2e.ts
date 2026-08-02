@@ -57,6 +57,10 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await page.getByRole("button", { name: /软件更新/ }).click();
   await expect(page.getByRole("heading", { name: /Notgram 0\.5\.0-rc\.1/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "检查更新" })).toBeDisabled();
+  await page.getByRole("button", { name: /诊断与隐私/ }).click();
+  await expect(page.getByRole("button", { name: "导出诊断包" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "保留脱敏崩溃报告" })).toBeDisabled();
+  await expect(page.getByText("浏览器预览不生成诊断包")).toBeVisible();
   expect(await horizontalOverflow(page)).toBe(false);
 });
 

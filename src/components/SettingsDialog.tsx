@@ -14,6 +14,7 @@ import {
   Network,
   RotateCcw,
   Save,
+  ShieldCheck,
   SlidersHorizontal,
   Trash2,
   UserCircle,
@@ -48,6 +49,7 @@ import type {
   User,
 } from "../telegram/types";
 import { Avatar } from "./Avatar";
+import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { UpdateSettings } from "./UpdateSettings";
 
 interface SettingsDialogProps {
@@ -59,6 +61,7 @@ type SettingsCategoryId =
   | "notifications"
   | "chats"
   | "advanced"
+  | "diagnostics"
   | "updates"
   | "power";
 
@@ -74,6 +77,7 @@ const categories: SettingsCategory[] = [
   { id: "notifications", label: "通知与声音", icon: Bell },
   { id: "chats", label: "聊天设置", icon: MessageCircle },
   { id: "advanced", label: "高级设置", icon: SlidersHorizontal },
+  { id: "diagnostics", label: "诊断与隐私", icon: ShieldCheck },
   { id: "updates", label: "软件更新", icon: CloudDownload },
   { id: "power", label: "电池和动画", icon: BatteryCharging },
 ];
@@ -363,6 +367,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
             />
           ) : activeCategory === "updates" ? (
             <UpdateSettings />
+          ) : activeCategory === "diagnostics" ? (
+            <DiagnosticsSettings />
           ) : (
             <PreferenceSettings
               category={activeCategory}
