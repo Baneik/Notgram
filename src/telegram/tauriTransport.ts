@@ -614,10 +614,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async sendFile(input: SendFileInput) {
-    const response = await this.requestPreparedFile(input.chatId);
-    if (!response) return false;
-    if (response["@type"] === "message") this.emitMessage(response);
-    return true;
+    return this.requestPreparedFile(input.chatId);
   }
 
   async cancelFileUpload(chatId: string, messageId: string) {
@@ -675,7 +672,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private async requestPreparedFile(chatId: string) {
-    return this.requestBroker.requestPreparedFile(chatId);
+    return this.requestBroker.requestPreparedFile(chatId, (error) => {
+      this.listener?.({ type: "sync.error", message: error.message, fatal: false });
+    });
   }
 
   private async applyProxy(settings: ProxySettings) {

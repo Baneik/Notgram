@@ -8,7 +8,7 @@ type TestableTransport = {
   request: (request: TdObject) => Promise<TdObject>;
   bootstrap: () => Promise<void>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
-  requestPreparedFile: (chatId: string) => Promise<TdObject | undefined>;
+  requestPreparedFile: (chatId: string) => Promise<boolean>;
   emitMessage: (message: TdObject) => void;
   handleUpdate: (update: TdObject) => void;
   upsertChat: (chat: TdObject) => void;
@@ -814,7 +814,7 @@ describe("TauriTelegramTransport message operations", () => {
     const requestedChatIds: string[] = [];
     internal.requestPreparedFile = async (chatId) => {
       requestedChatIds.push(chatId);
-      return rawMessage(31);
+      return true;
     };
 
     await expect(transport.sendFile({ chatId: "7" })).resolves.toBe(true);
@@ -825,7 +825,7 @@ describe("TauriTelegramTransport message operations", () => {
     const cancelledPicker = new TauriTelegramTransport();
     const transport = new TauriTelegramTransport();
     const requests: TdObject[] = [];
-    (cancelledPicker as unknown as TestableTransport).requestPreparedFile = async () => undefined;
+    (cancelledPicker as unknown as TestableTransport).requestPreparedFile = async () => false;
     (transport as unknown as TestableTransport).request = async (request) => {
       requests.push(request);
       return { "@type": "ok" };

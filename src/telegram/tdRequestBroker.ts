@@ -8,50 +8,63 @@ type PendingRequest = {
   timer: ReturnType<typeof globalThis.setTimeout>;
 };
 
+type InvokeCommand = (
+  command: string,
+  args?: Record<string, unknown>,
+) => Promise<unknown>;
+
 export class TdRequestBroker {
   private pending = new Map<string, PendingRequest>();
+  private preparedFiles = new Map<string, (error: Error) => void>();
+
+  constructor(private invokeCommand: InvokeCommand = invoke) {}
 
   async request(request: TdObject) {
     const requestType = typeof request["@type"] === "string" ? request["@type"] : "unknown";
     const extra = crypto.randomUUID();
     const response = this.waitForResponse(extra, `TDLib ${requestType} 请求超时。`);
     try {
-      await invoke("telegram_send", { request: { ...request, "@extra": extra } });
+      await this.invokeCommand("telegram_send", { request: { ...request, "@extra": extra } });
     } catch (error) {
       this.reject(extra, error);
     }
     return response;
   }
 
-  async requestPreparedFile(chatId: string) {
+  async requestPreparedFile(chatId: string, onError: (error: Error) => void) {
     const extra = crypto.randomUUID();
-    const response = this.waitForResponse(extra, "TDLib 文件发送请求超时。");
+    this.preparedFiles.set(extra, onError);
     try {
-      const selected = await invoke<boolean>("telegram_pick_and_send_file", {
+      const selected = await this.invokeCommand("telegram_pick_and_send_file", {
         chatId: numericId(chatId),
         extra,
       });
       if (!selected) {
-        this.clear(extra);
-        return undefined;
+        this.preparedFiles.delete(extra);
+        return false;
       }
     } catch (error) {
-      this.reject(extra, error);
+      this.preparedFiles.delete(extra);
+      throw error;
     }
-    return response;
+    return true;
   }
 
   settle(update: TdObject) {
     const extra = typeof update["@extra"] === "string" ? update["@extra"] : undefined;
     if (!extra) return false;
+    const preparedFileError = this.preparedFiles.get(extra);
+    if (preparedFileError) {
+      this.preparedFiles.delete(extra);
+      if (update["@type"] === "error") preparedFileError(this.responseError(update));
+      return true;
+    }
     const pending = this.pending.get(extra);
     if (!pending) return false;
     globalThis.clearTimeout(pending.timer);
     this.pending.delete(extra);
     if (update["@type"] === "error") {
-      const code = tdNumber(update.code);
-      const suffix = code === undefined ? "" : ` (${code})`;
-      pending.reject(new Error(`${String(update.message ?? "TDLib 请求失败")}${suffix}`));
+      pending.reject(this.responseError(update));
     } else {
       pending.resolve(update);
     }
@@ -63,6 +76,10 @@ export class TdRequestBroker {
       globalThis.clearTimeout(pending.timer);
       pending.reject(error);
       this.pending.delete(extra);
+    }
+    for (const [extra, report] of this.preparedFiles) {
+      report(error);
+      this.preparedFiles.delete(extra);
     }
   }
 
@@ -88,5 +105,11 @@ export class TdRequestBroker {
     globalThis.clearTimeout(pending.timer);
     this.pending.delete(extra);
     pending.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  private responseError(update: TdObject) {
+    const code = tdNumber(update.code);
+    const suffix = code === undefined ? "" : ` (${code})`;
+    return new Error(`${String(update.message ?? "TDLib 请求失败")}${suffix}`);
   }
 }
