@@ -390,6 +390,100 @@ describe("TDLib mapper", () => {
     })).toEqual({ kind: "text", text: "🎲 6" });
   });
 
+  it("maps rich message headings, nested formatting, lists, and quotes", () => {
+    const mapped = mapTdMessageContent({
+      "@type": "messageRichMessage",
+      message: {
+        "@type": "richMessage",
+        is_full: true,
+        is_rtl: false,
+        blocks: [
+          {
+            "@type": "pageBlockSectionHeading",
+            size: 1,
+            text: { "@type": "richTextPlain", text: "今日小贴士" },
+          },
+          {
+            "@type": "pageBlockParagraph",
+            text: { "@type": "richTextPlain", text: "保持专注，也别忘了适当休息。" },
+          },
+          {
+            "@type": "pageBlockList",
+            items: [{
+              "@type": "pageBlockListItem",
+              label: "•",
+              type: "",
+              has_checkbox: false,
+              is_checked: false,
+              blocks: [{
+                "@type": "pageBlockParagraph",
+                text: {
+                  "@type": "richTextBold",
+                  text: { "@type": "richTextPlain", text: "优先处理最重要的一件事" },
+                },
+              }],
+            }],
+          },
+          {
+            "@type": "pageBlockBlockQuote",
+            blocks: [{
+              "@type": "pageBlockParagraph",
+              text: {
+                "@type": "richTexts",
+                texts: [
+                  {
+                    "@type": "richTextBold",
+                    text: { "@type": "richTextPlain", text: "输入" },
+                  },
+                  { "@type": "richTextPlain", text: " " },
+                  {
+                    "@type": "richTextFixed",
+                    text: { "@type": "richTextPlain", text: "5,709 tokens" },
+                  },
+                ],
+              },
+            }],
+          },
+        ],
+      },
+    });
+
+    expect(mapped.kind).toBe("rich");
+    if (mapped.kind !== "rich") return;
+    expect(mapped).toMatchObject({
+      isFull: true,
+      isRtl: false,
+      blocks: [
+        { kind: "heading", level: 1, text: [{ text: "今日小贴士" }] },
+        { kind: "paragraph", text: [{ text: "保持专注，也别忘了适当休息。" }] },
+        {
+          kind: "list",
+          ordered: false,
+          items: [{
+            blocks: [{
+              kind: "paragraph",
+              text: [{ text: "优先处理最重要的一件事", bold: true }],
+            }],
+          }],
+        },
+        {
+          kind: "quote",
+          blocks: [{
+            kind: "paragraph",
+            text: [
+              { text: "输入", bold: true },
+              { text: " " },
+              { text: "5,709 tokens", code: true },
+            ],
+          }],
+        },
+      ],
+    });
+    expect(mapped.text).toContain("今日小贴士\n保持专注，也别忘了适当休息。");
+    expect(mapped.text).toContain("优先处理最重要的一件事");
+    expect(mapped.text).toContain("输入 5,709 tokens");
+  });
+
   it("keeps future TDLib message types diagnosable", () => {
     expect(mapTdMessageContent({ "@type": "messageFutureType" })).toEqual({
       kind: "unsupported",

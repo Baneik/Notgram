@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Message } from "../telegram/types";
+import { messageContentText } from "../telegram/messageContent";
 
 export const useConversationSearch = (
   chatId: string | undefined,
@@ -13,10 +14,7 @@ export const useConversationSearch = (
     const normalized = query.trim().toLocaleLowerCase();
     if (!normalized) return messages;
     return messages.filter((message) => {
-      if (message.content.kind === "file" || message.content.kind === "media") {
-        return message.content.fileName.toLocaleLowerCase().includes(normalized);
-      }
-      return message.content.text.toLocaleLowerCase().includes(normalized);
+      return messageContentText(message.content).toLocaleLowerCase().includes(normalized);
     });
   }, [messages, query]);
 

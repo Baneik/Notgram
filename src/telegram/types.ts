@@ -96,6 +96,45 @@ export interface MessageTextEntity {
   language?: string;
 }
 
+export interface MessageRichTextRun {
+  text: string;
+  bold?: true;
+  italic?: true;
+  underline?: true;
+  strikethrough?: true;
+  spoiler?: true;
+  code?: true;
+  subscript?: true;
+  superscript?: true;
+  marked?: true;
+  href?: string;
+}
+
+export interface MessageRichListItem {
+  blocks: MessageRichBlock[];
+  label?: string;
+  hasCheckbox: boolean;
+  checked: boolean;
+  value?: number;
+}
+
+export interface MessageRichTableCell {
+  text: MessageRichTextRun[];
+  header: boolean;
+  colspan: number;
+  rowspan: number;
+}
+
+export type MessageRichBlock =
+  | { kind: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; text: MessageRichTextRun[] }
+  | { kind: "paragraph"; text: MessageRichTextRun[] }
+  | { kind: "preformatted"; text: MessageRichTextRun[]; language?: string }
+  | { kind: "list"; ordered: boolean; items: MessageRichListItem[] }
+  | { kind: "quote"; blocks: MessageRichBlock[]; credit?: MessageRichTextRun[] }
+  | { kind: "details"; summary: MessageRichTextRun[]; blocks: MessageRichBlock[]; open: boolean }
+  | { kind: "table"; caption?: MessageRichTextRun[]; rows: MessageRichTableCell[][] }
+  | { kind: "divider" };
+
 interface TransferableMessageContent {
   fileName: string;
   sizeLabel: string;
@@ -122,6 +161,13 @@ interface TransferableMessageContent {
 
 export type MessageContent =
   | { kind: "text"; text: string; entities?: MessageTextEntity[] }
+  | {
+      kind: "rich";
+      blocks: MessageRichBlock[];
+      text: string;
+      isRtl: boolean;
+      isFull: boolean;
+    }
   | { kind: "service"; text: string }
   | { kind: "unsupported"; type: string; text: string; raw: string }
   | ({ kind: "file" } & TransferableMessageContent)

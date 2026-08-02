@@ -11,10 +11,14 @@ import type {
   MessageReaction,
   MessageReactionType,
   MessageReplyTarget,
+  MessageRichBlock,
+  MessageRichTableCell,
+  MessageRichTextRun,
   MessageTextEntity,
   MessageTextEntityKind,
   User,
 } from "./types";
+import { messageContentText } from "./messageContent";
 
 export type TdObject = Record<string, unknown>;
 
@@ -280,6 +284,325 @@ const unsupportedContent = (value: unknown, type: string): MessageContent => ({
   raw: serializedTdObject(value),
 });
 
+type RichTextStyle = Omit<MessageRichTextRun, "text">;
+
+const richTextRuns = (
+  value: unknown,
+  style: RichTextStyle = {},
+  depth = 0,
+): MessageRichTextRun[] => {
+  if (depth > 24) return [];
+  if (typeof value === "string") return value ? [{ text: value, ...style }] : [];
+  const richText = asTdObject(value);
+  if (!richText) return [];
+
+  const nested = (nextStyle: RichTextStyle = style) =>
+    richTextRuns(richText.text, nextStyle, depth + 1);
+  const styled = (mark: RichTextStyle) => nested({ ...style, ...mark });
+
+  switch (richText["@type"]) {
+    case "richTextPlain":
+      return typeof richText.text === "string" && richText.text
+        ? [{ text: richText.text, ...style }]
+        : [];
+    case "richTexts":
+      return Array.isArray(richText.texts)
+        ? richText.texts.flatMap((item) => richTextRuns(item, style, depth + 1))
+        : [];
+    case "richTextBold": return styled({ bold: true });
+    case "richTextItalic": return styled({ italic: true });
+    case "richTextUnderline": return styled({ underline: true });
+    case "richTextStrikethrough": return styled({ strikethrough: true });
+    case "richTextSpoiler": return styled({ spoiler: true });
+    case "richTextFixed": return styled({ code: true });
+    case "richTextSubscript": return styled({ subscript: true });
+    case "richTextSuperscript": return styled({ superscript: true });
+    case "richTextMarked": return styled({ marked: true });
+    case "richTextUrl":
+    case "richTextReferenceLink":
+    case "richTextAnchorLink":
+      return styled(typeof richText.url === "string" ? { href: richText.url } : {});
+    case "richTextEmailAddress":
+      return styled(typeof richText.email_address === "string"
+        ? { href: `mailto:${richText.email_address}` }
+        : {});
+    case "richTextPhoneNumber":
+      return styled(typeof richText.phone_number === "string"
+        ? { href: `tel:${richText.phone_number}` }
+        : {});
+    case "richTextMention":
+      return styled(typeof richText.username === "string" && richText.username
+        ? { href: `tg://resolve?domain=${encodeURIComponent(richText.username)}` }
+        : {});
+    case "richTextMentionName": {
+      const userId = tdId(richText.user_id);
+      return styled(userId ? { href: `tg://user?id=${encodeURIComponent(userId)}` } : {});
+    }
+    case "richTextCustomEmoji":
+      return typeof richText.alternative_text === "string" && richText.alternative_text
+        ? [{ text: richText.alternative_text, ...style }]
+        : [];
+    case "richTextMathematicalExpression":
+      return typeof richText.expression === "string" && richText.expression
+        ? [{ text: richText.expression, ...style, code: true }]
+        : [];
+    case "richTextDiff":
+      return richTextRuns(richText.text, style, depth + 1);
+    case "richTextReference":
+    case "richTextDateTime":
+    case "richTextHashtag":
+    case "richTextCashtag":
+    case "richTextBankCardNumber":
+    case "richTextBotCommand":
+      return nested();
+    case "richTextAnchor":
+    case "richTextIcon":
+      return [];
+    default:
+      if (richText.text !== undefined) return nested();
+      if (typeof richText.alternative_text === "string") {
+        return [{ text: richText.alternative_text, ...style }];
+      }
+      return [];
+  }
+};
+
+const richRunsText = (runs: MessageRichTextRun[]) => runs.map(({ text }) => text).join("");
+
+const captionRuns = (value: unknown) => {
+  const caption = asTdObject(value);
+  if (!caption) return [];
+  const text = richTextRuns(caption.text);
+  const credit = richTextRuns(caption.credit);
+  return credit.length > 0
+    ? [...text, ...(text.length > 0 ? [{ text: " — " } as MessageRichTextRun] : []), ...credit]
+    : text;
+};
+
+const paragraph = (text: MessageRichTextRun[]): MessageRichBlock[] =>
+  text.length > 0 ? [{ kind: "paragraph", text }] : [];
+
+const pageBlockText = (block: TdObject, ...keys: string[]) => {
+  for (const key of keys) {
+    const runs = richTextRuns(block[key]);
+    if (runs.length > 0) return runs;
+  }
+  return [];
+};
+
+const pageBlocks = (value: unknown, depth = 0): MessageRichBlock[] => {
+  if (depth > 24) return [];
+  return asTdObjects(value).flatMap((item) => pageBlock(item, depth));
+};
+
+const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
+  if (depth > 24) return [];
+  const type = block["@type"];
+  switch (type) {
+    case "pageBlockTitle":
+      return [{ kind: "heading", level: 1, text: pageBlockText(block, "title") }];
+    case "pageBlockSubtitle":
+      return [{ kind: "heading", level: 2, text: pageBlockText(block, "subtitle") }];
+    case "pageBlockHeader":
+      return [{ kind: "heading", level: 2, text: pageBlockText(block, "header") }];
+    case "pageBlockSubheader":
+      return [{ kind: "heading", level: 3, text: pageBlockText(block, "subheader") }];
+    case "pageBlockSectionHeading": {
+      const size = Math.min(6, Math.max(1, tdNumber(block.size) ?? 2));
+      return [{
+        kind: "heading",
+        level: size as 1 | 2 | 3 | 4 | 5 | 6,
+        text: pageBlockText(block, "text"),
+      }];
+    }
+    case "pageBlockKicker":
+      return [{ kind: "heading", level: 4, text: pageBlockText(block, "kicker") }];
+    case "pageBlockParagraph":
+      return paragraph(pageBlockText(block, "text"));
+    case "pageBlockAuthorDate":
+      return paragraph(pageBlockText(block, "author"));
+    case "pageBlockFooter":
+      return paragraph(pageBlockText(block, "footer"));
+    case "pageBlockThinking":
+      return paragraph(pageBlockText(block, "text"));
+    case "pageBlockPreformatted":
+      return [{
+        kind: "preformatted",
+        text: pageBlockText(block, "text"),
+        language: typeof block.language === "string" && block.language
+          ? block.language
+          : undefined,
+      }];
+    case "pageBlockMathematicalExpression":
+      return typeof block.expression === "string" && block.expression
+        ? [{ kind: "preformatted", text: [{ text: block.expression, code: true }] }]
+        : [];
+    case "pageBlockDivider":
+      return [{ kind: "divider" }];
+    case "pageBlockAnchor":
+      return [];
+    case "pageBlockList": {
+      const items = asTdObjects(block.items).map((item) => ({
+        blocks: pageBlocks(item.blocks, depth + 1),
+        label: typeof item.label === "string" && item.label ? item.label : undefined,
+        hasCheckbox: item.has_checkbox === true,
+        checked: item.is_checked === true,
+        value: tdNumber(item.value),
+      }));
+      const ordered = asTdObjects(block.items).some((item) =>
+        typeof item.type === "string" && item.type.length > 0,
+      );
+      return items.length > 0 ? [{ kind: "list", ordered, items }] : [];
+    }
+    case "pageBlockBlockQuote":
+      return [{
+        kind: "quote",
+        blocks: pageBlocks(block.blocks, depth + 1),
+        credit: richTextRuns(block.credit),
+      }];
+    case "pageBlockPullQuote": {
+      const text = pageBlockText(block, "text");
+      return [{
+        kind: "quote",
+        blocks: paragraph(text),
+        credit: richTextRuns(block.credit),
+      }];
+    }
+    case "pageBlockDetails":
+      return [{
+        kind: "details",
+        summary: pageBlockText(block, "header"),
+        blocks: pageBlocks(block.blocks, depth + 1),
+        open: block.is_open === true,
+      }];
+    case "pageBlockTable": {
+      const rows = Array.isArray(block.cells)
+        ? block.cells.map((row): MessageRichTableCell[] =>
+            asTdObjects(row).map((cell) => ({
+              text: richTextRuns(cell.text),
+              header: cell.is_header === true,
+              colspan: Math.max(1, tdNumber(cell.colspan) ?? 1),
+              rowspan: Math.max(1, tdNumber(cell.rowspan) ?? 1),
+            })))
+        : [];
+      return rows.length > 0 ? [{
+        kind: "table",
+        caption: richTextRuns(block.caption),
+        rows,
+      }] : [];
+    }
+    case "pageBlockCover":
+      return pageBlock(asTdObject(block.cover) ?? {}, depth + 1);
+    case "pageBlockEmbeddedPost":
+      return [
+        ...paragraph(typeof block.author === "string" ? [{ text: block.author, bold: true }] : []),
+        ...pageBlocks(block.blocks, depth + 1),
+        ...paragraph(captionRuns(block.caption)),
+      ];
+    case "pageBlockCollage":
+    case "pageBlockSlideshow":
+      return [
+        ...pageBlocks(block.blocks, depth + 1),
+        ...paragraph(captionRuns(block.caption)),
+      ];
+    case "pageBlockAnimation":
+    case "pageBlockAudio":
+    case "pageBlockPhoto":
+    case "pageBlockVideo":
+    case "pageBlockVoiceNote": {
+      const caption = captionRuns(block.caption);
+      const labels: Record<string, string> = {
+        pageBlockAnimation: "动图",
+        pageBlockAudio: "音频",
+        pageBlockPhoto: "图片",
+        pageBlockVideo: "视频",
+        pageBlockVoiceNote: "语音消息",
+      };
+      return paragraph(caption.length > 0 ? caption : [{ text: labels[String(type)] ?? "媒体" }]);
+    }
+    case "pageBlockChatLink":
+      return paragraph(typeof block.title === "string" ? [{ text: block.title }] : []);
+    case "pageBlockRelatedArticles": {
+      const header = pageBlockText(block, "header");
+      const articles = asTdObjects(block.articles).flatMap((article) => {
+        const title = typeof article.title === "string" ? article.title : "";
+        const description = typeof article.description === "string" ? article.description : "";
+        const text = [title, description].filter(Boolean).join(" — ");
+        return paragraph(text ? [{ text, href: typeof article.url === "string" ? article.url : undefined }] : []);
+      });
+      return [...paragraph(header), ...articles];
+    }
+    case "pageBlockMap": {
+      const caption = captionRuns(block.caption);
+      return paragraph(caption.length > 0 ? caption : [{ text: "位置" }]);
+    }
+    case "pageBlockEmbedded": {
+      const caption = captionRuns(block.caption);
+      return paragraph(caption.length > 0
+        ? caption
+        : typeof block.url === "string" && block.url
+          ? [{ text: block.url, href: block.url }]
+          : []);
+    }
+    default: {
+      const nestedBlocks = pageBlocks(block.blocks, depth + 1);
+      if (nestedBlocks.length > 0) return nestedBlocks;
+      const text = pageBlockText(
+        block,
+        "text",
+        "title",
+        "subtitle",
+        "header",
+        "subheader",
+        "footer",
+        "kicker",
+      );
+      if (text.length > 0) return paragraph(text);
+      return paragraph(captionRuns(block.caption));
+    }
+  }
+};
+
+const richBlockText = (block: MessageRichBlock): string[] => {
+  switch (block.kind) {
+    case "heading":
+    case "paragraph":
+    case "preformatted":
+      return [richRunsText(block.text)];
+    case "list":
+      return block.items.flatMap((item) => item.blocks.flatMap(richBlockText));
+    case "quote":
+      return [
+        ...block.blocks.flatMap(richBlockText),
+        ...(block.credit ? [richRunsText(block.credit)] : []),
+      ];
+    case "details":
+      return [richRunsText(block.summary), ...block.blocks.flatMap(richBlockText)];
+    case "table":
+      return [
+        ...(block.caption ? [richRunsText(block.caption)] : []),
+        ...block.rows.flatMap((row) => row.map((cell) => richRunsText(cell.text))),
+      ];
+    case "divider":
+      return [];
+  }
+};
+
+const richMessageContent = (value: unknown): MessageContent => {
+  const message = asTdObject(asTdObject(value)?.message);
+  let blocks = pageBlocks(message?.blocks);
+  let text = blocks.flatMap(richBlockText).filter(Boolean).join("\n").trim();
+  if (!text) text = "富文本消息";
+  if (blocks.length === 0) blocks = paragraph([{ text }]);
+  return {
+    kind: "rich",
+    blocks,
+    text,
+    isRtl: message?.is_rtl === true,
+    isFull: message?.is_full === true,
+  };
+};
+
 const textValue = (value: unknown) => {
   if (typeof value === "string") return value;
   return formattedText(value);
@@ -306,6 +629,8 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
       const { text, entities } = formattedTextDetails(content.text);
       return { kind: "text", text, entities: entities.length > 0 ? entities : undefined };
     }
+    case "messageRichMessage":
+      return richMessageContent(content);
     case "messageDocument": {
       const document = asTdObject(content.document);
       const caption = formattedText(content.caption);
@@ -650,9 +975,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
 
 export const messagePreview = (value: unknown) => {
   const content = mapTdMessageContent(asTdObject(value)?.content ?? value);
-  return content.kind === "text" || content.kind === "service" || content.kind === "unsupported"
-    ? content.text
-    : content.fileName;
+  return messageContentText(content);
 };
 
 const messageSenderId = (value: unknown) => {

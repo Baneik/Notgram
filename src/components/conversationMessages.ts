@@ -1,4 +1,5 @@
 import type { Chat, Message, MessageContent, User } from "../telegram/types";
+import { messageContentText } from "../telegram/messageContent";
 
 export interface ReplyPreview {
   author: string;
@@ -70,9 +71,7 @@ export const replyPreviewFor = (
 };
 
 export const messageSummary = (content: MessageContent) => {
-  const raw = content.kind === "text" || content.kind === "service" || content.kind === "unsupported"
-    ? content.text
-    : content.caption || content.fileName;
+  const raw = messageContentText(content);
   const normalized = raw.replace(/\s+/g, " ").trim();
   return normalized.length > 72 ? `${normalized.slice(0, 72)}…` : normalized;
 };

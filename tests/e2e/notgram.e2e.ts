@@ -116,6 +116,15 @@ test("Markdown and TDLib rich text render as structured message content", async 
   await expect(entities.locator('a[href="https://example.com/rich"]')).toHaveText("link");
   await expect(page.locator('[data-message-id="p-video"] .photo-caption strong'))
     .toHaveText("昨晚");
+
+  const richMessage = page.locator('[data-message-id="p-rich-message"] .rich-message-content');
+  await expect(richMessage).toHaveAttribute("data-rich-text", "rich-message");
+  await expect(richMessage.locator("h1")).toHaveText("今日小贴士");
+  await expect(richMessage.locator("li")).toHaveCount(3);
+  await expect(richMessage.locator("li").first().locator("strong"))
+    .toHaveText("优先处理最重要的一件事");
+  await expect(richMessage.locator("blockquote")).toHaveCount(2);
+  await expect(richMessage.locator("code").first()).toHaveText("5,709 tokens");
 });
 
 test("video uses its poster and custom streaming controls", async ({ page }) => {
@@ -296,7 +305,7 @@ test("developer mode copies the complete raw unknown message", async ({ page, co
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
 
   const notice = page.locator('[data-message-id="p-unknown"]');
-  await expect(notice).toContainText("收到新类型消息（messageRichMessage）");
+  await expect(notice).toContainText("收到新类型消息（messageFutureType）");
   await expect(notice.locator(".unknown-message-copy")).toHaveCount(0);
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -304,14 +313,14 @@ test("developer mode copies the complete raw unknown message", async ({ page, co
   await page.getByRole("switch", { name: "开发者模式" }).check();
   await page.getByRole("dialog").getByRole("button", { name: "关闭" }).click();
 
-  const copyButton = notice.getByRole("button", { name: "复制 messageRichMessage 原始消息" });
+  const copyButton = notice.getByRole("button", { name: "复制 messageFutureType 原始消息" });
   await copyButton.click();
   await expect(copyButton).toContainText("已复制原始消息");
   const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
   expect(copied).toMatchObject({
     "@type": "message",
     id: "p-unknown",
-    content: { "@type": "messageRichMessage" },
+    content: { "@type": "messageFutureType" },
   });
 });
 
@@ -382,7 +391,7 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   });
 
   expect(before.id).toBeTruthy();
-  await expect(page.locator(".message-row")).toHaveCount(47);
+  await expect(page.locator(".message-row")).toHaveCount(48);
   const offset = await page.locator(`[data-message-id="${before.id}"]`).evaluate(
     (row) => row.getBoundingClientRect().top -
       (row.closest(".message-list")?.getBoundingClientRect().top ?? 0),

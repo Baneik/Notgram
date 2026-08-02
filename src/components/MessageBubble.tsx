@@ -26,6 +26,7 @@ import { writeClipboardText } from "../utils/clipboard";
 import { TgsSticker } from "./TgsSticker";
 import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
+import { RichMessageContent } from "./RichMessageContent";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
 
@@ -262,6 +263,8 @@ function MessageBubbleComponent({
           )}
           {content.kind === "text" ? (
             <MessageRichText text={content.text} entities={content.entities} />
+          ) : content.kind === "rich" ? (
+            <RichMessageContent blocks={content.blocks} isRtl={content.isRtl} isFull={content.isFull} />
           ) : content.kind === "service" ? (
             <p>{content.text}</p>
           ) : content.kind === "unsupported" ? (

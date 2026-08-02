@@ -7,6 +7,7 @@ import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { filterAndSortChats, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { messageContentText } from "../telegram/messageContent";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -114,10 +115,7 @@ export function App() {
         continue;
       }
       const chat = chats.get(message.chatId);
-      const body = message.content.kind === "text" || message.content.kind === "service" ||
-        message.content.kind === "unsupported"
-        ? message.content.text
-        : message.content.caption || message.content.fileName;
+      const body = messageContentText(message.content);
       if ("Notification" in globalThis && Notification.permission === "granted") {
         try {
           new Notification(chat?.title ?? "Notgram", { body });

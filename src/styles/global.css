@@ -371,6 +371,21 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-rich-text th, .message-rich-text td { padding: 3px 6px; border: 1px solid rgba(98, 112, 120, 0.28); text-align: left; }
 .message-rich-text hr { height: 1px; background: rgba(98, 112, 120, 0.28); border: 0; }
 .message-rich-text input[type="checkbox"] { margin: 0 5px 0 0; accent-color: var(--accent); }
+.rich-message-content { min-width: min(240px, 100%); }
+.rich-message-content[dir="rtl"] { text-align: right; }
+.rich-message-content .rich-list-item-content { min-width: 0; }
+.rich-message-content .rich-list-item-content > :last-child { margin-bottom: 0; }
+.rich-message-content .rich-checklist { padding-left: 0; list-style: none; }
+.rich-message-content .rich-checklist > li { display: flex; align-items: flex-start; }
+.rich-message-content blockquote cite {
+  margin-top: 4px; display: block; color: #718087; font-size: 11px; font-style: normal;
+}
+.rich-message-content blockquote cite::before { content: "— "; }
+.rich-message-content details { margin: 0 0 7px; }
+.rich-message-content summary { cursor: pointer; font-weight: 650; }
+.rich-message-content details > :not(summary):first-of-type { margin-top: 5px; }
+.rich-message-content caption { padding: 0 0 4px; text-align: start; font-weight: 650; }
+.rich-message-content mark { padding: 0 1px; background: #fff0a6; }
 .rich-spoiler { color: transparent; background: #737c80; border-radius: 3px; outline: 0; }
 .rich-spoiler:hover, .rich-spoiler:focus { color: inherit; background: rgba(115, 124, 128, 0.18); }
 .rich-image-alt { color: var(--muted); font-style: italic; }

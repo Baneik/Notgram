@@ -1,4 +1,5 @@
 import { mockSnapshot } from "./mockData";
+import { messageContentText } from "./messageContent";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
@@ -255,10 +256,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (!normalized) return 0;
     const matches = this.snapshot.messages.filter((message) => {
       if (message.chatId !== chatId) return false;
-      const searchable = message.content.kind === "text" || message.content.kind === "service" ||
-        message.content.kind === "unsupported"
-        ? message.content.text
-        : `${message.content.fileName} ${message.content.caption ?? ""}`;
+      const searchable = messageContentText(message.content);
       return searchable.toLocaleLowerCase().includes(normalized);
     }).slice(0, limit);
     for (const message of matches) {
@@ -530,11 +528,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
     const updatedChat: Chat = {
       ...chat,
-      preview:
-        message.content.kind === "text" || message.content.kind === "service" ||
-          message.content.kind === "unsupported"
-          ? message.content.text
-          : message.content.fileName,
+      preview: messageContentText(message.content),
       updatedAt: message.sentAt,
       unreadCount: 0,
     };
@@ -551,10 +545,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (!latest) return;
     const updatedChat: Chat = {
       ...chat,
-      preview: latest.content.kind === "text" || latest.content.kind === "service" ||
-        latest.content.kind === "unsupported"
-        ? latest.content.text
-        : latest.content.caption || latest.content.fileName,
+      preview: messageContentText(latest.content),
       updatedAt: latest.sentAt,
     };
     Object.assign(chat, updatedChat);
