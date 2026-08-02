@@ -10,6 +10,9 @@ import type {
   SendMessageInput,
   ChatHistoryPage,
   ChatListPage,
+  CacheCleanupInput,
+  CacheCleanupResult,
+  CacheUsage,
   CachedTelegramSnapshot,
   TelegramEvent,
   TelegramSnapshot,
@@ -43,6 +46,8 @@ export interface TelegramTransport {
   testProxy(settings: ProxySettings): Promise<number>;
   getStorageSettings(): Promise<StorageSettings>;
   saveStorageSettings(settings: StorageSettings): Promise<StorageSettings>;
+  getCacheUsage(): Promise<CacheUsage>;
+  clearMediaCache(input: CacheCleanupInput): Promise<CacheCleanupResult>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;
   loadMoreChats(chatListId: string, limit?: number): Promise<ChatListPage>;

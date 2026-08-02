@@ -401,6 +401,35 @@ export interface StorageSettings {
   defaultDownloadPath: string;
 }
 
+export type CacheCategory = "image" | "video" | "audio" | "document" | "other";
+
+export interface CacheUsageItem {
+  bytes: number;
+  files: number;
+}
+
+export interface CacheUsage {
+  total: CacheUsageItem;
+  images: CacheUsageItem;
+  videos: CacheUsageItem;
+  audio: CacheUsageItem;
+  documents: CacheUsageItem;
+  other: CacheUsageItem;
+}
+
+export interface CacheCleanupInput {
+  categories: CacheCategory[];
+  olderThanDays?: number;
+  protectedPaths: string[];
+}
+
+export interface CacheCleanupResult {
+  removedBytes: number;
+  removedFiles: number;
+  skippedProtectedFiles: number;
+  usage: CacheUsage;
+}
+
 export type AuthorizationAction =
   | { kind: "qr" }
   | { kind: "phone"; phoneNumber: string }

@@ -3,6 +3,8 @@ import { messageContentText } from "./messageContent";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
+  CacheCleanupInput,
+  CacheUsage,
   CachedTelegramSnapshot,
   Chat,
   ConnectionStatus,
@@ -80,6 +82,14 @@ export class MockTelegramTransport implements TelegramTransport {
     downloadPath: "Notgram\\downloads",
     defaultCachePath: "Windows 应用缓存\\Notgram\\tdlib",
     defaultDownloadPath: "Notgram\\downloads",
+  };
+  private cacheUsage: CacheUsage = {
+    total: { bytes: 48_758_784, files: 18 },
+    images: { bytes: 6_291_456, files: 9 },
+    videos: { bytes: 31_457_280, files: 2 },
+    audio: { bytes: 5_242_880, files: 3 },
+    documents: { bytes: 4_718_592, files: 3 },
+    other: { bytes: 1_048_576, files: 1 },
   };
   private proxySettings: ProxySettings = {
     mode: "system",
@@ -366,6 +376,38 @@ export class MockTelegramTransport implements TelegramTransport {
   async saveStorageSettings(settings: StorageSettings) {
     this.storageSettings = structuredClone(settings);
     return structuredClone(this.storageSettings);
+  }
+
+  async getCacheUsage() {
+    return clone(this.cacheUsage);
+  }
+
+  async clearMediaCache(input: CacheCleanupInput) {
+    const keyByCategory = {
+      image: "images",
+      video: "videos",
+      audio: "audio",
+      document: "documents",
+      other: "other",
+    } as const;
+    let removedBytes = 0;
+    let removedFiles = 0;
+    for (const category of input.categories) {
+      const key = keyByCategory[category];
+      removedBytes += this.cacheUsage[key].bytes;
+      removedFiles += this.cacheUsage[key].files;
+      this.cacheUsage[key] = { bytes: 0, files: 0 };
+    }
+    this.cacheUsage.total = {
+      bytes: Math.max(0, this.cacheUsage.total.bytes - removedBytes),
+      files: Math.max(0, this.cacheUsage.total.files - removedFiles),
+    };
+    return {
+      removedBytes,
+      removedFiles,
+      skippedProtectedFiles: input.protectedPaths.length > 0 ? 1 : 0,
+      usage: clone(this.cacheUsage),
+    };
   }
 
   async sendMessage({ chatId, text, replyToMessageId, clearDraft = true }: SendMessageInput) {

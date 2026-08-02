@@ -345,6 +345,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.accountStorage.saveStorageSettings(settings);
   }
 
+  async getCacheUsage() {
+    return this.accountStorage.getCacheUsage();
+  }
+
+  async clearMediaCache(input: import("./types").CacheCleanupInput) {
+    return this.accountStorage.clearMediaCache(input);
+  }
+
   async searchChats(query: string, limit = 50) {
     const normalized = query.trim();
     if (!normalized) return;

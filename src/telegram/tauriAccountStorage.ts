@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   CachedTelegramSnapshot,
+  CacheCleanupInput,
+  CacheCleanupResult,
+  CacheUsage,
   StorageSettings,
   TelegramAccount,
   TelegramAccountState,
@@ -48,5 +51,13 @@ export class TauriAccountStorage {
         downloadPath: settings.downloadPath,
       },
     });
+  }
+
+  getCacheUsage() {
+    return invoke<CacheUsage>("telegram_cache_usage");
+  }
+
+  clearMediaCache(input: CacheCleanupInput) {
+    return invoke<CacheCleanupResult>("telegram_clear_media_cache", { request: input });
   }
 }

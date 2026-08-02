@@ -6,6 +6,9 @@ import type {
   Chat,
   ChatDraft,
   ChatFolder,
+  CacheCategory,
+  CacheCleanupResult,
+  CacheUsage,
   ConnectionStatus,
   ForwardMessagesResult,
   Message,
@@ -46,6 +49,8 @@ export interface TelegramState {
   proxyError?: string;
   proxyLatencyMs?: number;
   storageSettings?: StorageSettings;
+  cacheUsage?: CacheUsage;
+  cacheCleanupResult?: CacheCleanupResult;
   storagePending: boolean;
   storageError?: string;
   cacheHealth: CacheHealth;
@@ -72,6 +77,8 @@ export interface TelegramState {
   testProxy: (settings: ProxySettings) => Promise<void>;
   loadStorageSettings: () => Promise<void>;
   saveStorageSettings: (settings: StorageSettings) => Promise<boolean>;
+  loadCacheUsage: () => Promise<void>;
+  clearMediaCache: (categories: CacheCategory[], olderThanDays?: number) => Promise<boolean>;
   rebuildCachedSnapshot: () => Promise<boolean>;
   addAccount: () => Promise<boolean>;
   switchAccount: (accountId: string) => Promise<boolean>;

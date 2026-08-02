@@ -37,6 +37,7 @@ import {
 } from "./telegramStore.selectors";
 import type { TelegramState } from "./telegramStore.types";
 import { logPerformance } from "../utils/performanceMonitor";
+import { protectedCachePaths } from "./cacheProtection";
 
 export type {
   ChatFilter,
@@ -647,6 +648,8 @@ export const createTelegramStore = (
       accountPending: false,
       proxyPending: false,
       storagePending: false,
+      cacheUsage: undefined,
+      cacheCleanupResult: undefined,
       cacheHealth: "empty",
       users: new Map(),
       folders: [],
@@ -834,6 +837,52 @@ export const createTelegramStore = (
           set({
             storagePending: false,
             storageError: error instanceof Error ? error.message : "无法保存存储路径设置",
+          });
+          return false;
+        }
+      },
+
+      loadCacheUsage: async () => {
+        set({ storagePending: true, storageError: undefined });
+        try {
+          const cacheUsage = await transport.getCacheUsage();
+          set({ cacheUsage, storagePending: false });
+        } catch (error) {
+          set({
+            storagePending: false,
+            storageError: error instanceof Error ? error.message : "无法统计媒体缓存",
+          });
+        }
+      },
+
+      clearMediaCache: async (categories, olderThanDays) => {
+        if (categories.length === 0) {
+          set({ storageError: "至少选择一种缓存类型" });
+          return false;
+        }
+        const current = get();
+        set({ storagePending: true, storageError: undefined, cacheCleanupResult: undefined });
+        try {
+          const result = await transport.clearMediaCache({
+            categories,
+            olderThanDays,
+            protectedPaths: protectedCachePaths({
+              accounts: current.accounts,
+              users: current.users.values(),
+              chats: current.chats.values(),
+              messages: current.messages.values(),
+            }),
+          });
+          set({
+            cacheUsage: result.usage,
+            cacheCleanupResult: result,
+            storagePending: false,
+          });
+          return true;
+        } catch (error) {
+          set({
+            storagePending: false,
+            storageError: error instanceof Error ? error.message : "无法清理媒体缓存",
           });
           return false;
         }

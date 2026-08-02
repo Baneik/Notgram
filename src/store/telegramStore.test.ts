@@ -1344,6 +1344,32 @@ describe("telegram store", () => {
     expect(await store.getState().saveStorageSettings(updated)).toBe(true);
     expect(store.getState().storageSettings).toMatchObject(updated);
   });
+
+  it("loads cache usage and protects referenced files during cleanup", async () => {
+    class TrackingCacheTransport extends MockTelegramTransport {
+      cleanupInput?: Parameters<MockTelegramTransport["clearMediaCache"]>[0];
+
+      override async clearMediaCache(input: Parameters<MockTelegramTransport["clearMediaCache"]>[0]) {
+        this.cleanupInput = input;
+        return super.clearMediaCache(input);
+      }
+    }
+    const transport = new TrackingCacheTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await store.getState().loadCacheUsage();
+    expect(store.getState().cacheUsage?.total.files).toBe(18);
+    expect(await store.getState().clearMediaCache(["image", "video"], 30)).toBe(true);
+
+    expect(transport.cleanupInput).toMatchObject({
+      categories: ["image", "video"],
+      olderThanDays: 30,
+    });
+    expect(transport.cleanupInput?.protectedPaths).toContain("/mock-video.mp4");
+    expect(store.getState().cacheCleanupResult?.removedFiles).toBe(11);
+    expect(store.getState().cacheUsage?.total.files).toBe(7);
+  });
 });
 
 describe("chat filtering", () => {
