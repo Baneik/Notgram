@@ -14,7 +14,12 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .setup(desktop_lifecycle::setup)
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            desktop_lifecycle::setup(app)
+        })
         .on_window_event(desktop_lifecycle::handle_window_event)
         .manage(telegram::TelegramRuntime::new())
         .manage(telegram::media_stream::MediaStreamRegistry::default())
