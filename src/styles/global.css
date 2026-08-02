@@ -243,6 +243,32 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .global-search-state.is-error { color: #b23b31; }
 .global-search-more { min-width: 120px; min-height: 38px; margin: 18px auto 0; padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--accent); background: #ffffff; border: 1px solid var(--accent); border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
 .global-search-more:disabled { opacity: 0.55; cursor: default; }
+.contacts-view {
+  grid-column: 2 / 4; min-width: 0; min-height: 0; display: grid; grid-template-rows: 58px auto minmax(0, 1fr);
+  background: #ffffff;
+}
+.contacts-header { padding: 0 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+.contacts-header h1 { margin: 0; font-size: 17px; font-weight: 650; }
+.contacts-controls { padding: 16px 24px; border-bottom: 1px solid var(--line); }
+.contacts-results { min-height: 0; padding: 12px 24px 28px; overflow-y: auto; }
+.contacts-self {
+  width: min(100%, 760px); min-height: 68px; margin: 0 auto 14px; padding: 8px 10px; display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 36px; align-items: center; gap: 11px; color: var(--ink);
+  text-align: left; background: var(--accent-soft); border: 1px solid #c8e2f5; border-radius: 7px; cursor: pointer;
+}
+.contacts-self:hover { background: #dceefa; }
+.contacts-self > svg { justify-self: center; color: var(--accent); }
+.contacts-list { width: min(100%, 760px); margin: 0 auto; border-top: 1px solid var(--line); }
+.contact-row { width: 100%; min-width: 0; min-height: 68px; padding: 8px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) 36px; align-items: center; gap: 11px; color: var(--ink); text-align: left; background: #ffffff; border: 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.contact-row:hover:not(:disabled) { background: #f4f8fa; }
+.contact-row:disabled { cursor: default; opacity: 0.62; }
+.contact-copy { min-width: 0; display: grid; gap: 3px; }
+.contact-copy strong, .contact-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contact-copy strong { font-size: 13px; }
+.contact-copy small { color: var(--muted); font-size: 11px; }
+.contact-command { width: 32px; height: 32px; display: grid; place-items: center; color: var(--accent); }
+.contacts-state { min-height: 220px; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.contacts-state.is-error { color: #b23b31; }
 .sidebar-resizer {
   position: absolute; z-index: 8; top: 0; right: -4px; width: 8px; height: 100%;
   cursor: col-resize; touch-action: none; outline: 0;
@@ -932,14 +958,18 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .app-shell { min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 62px; }
   .navigation-rail { grid-column: 1; grid-row: 2; height: 62px; padding: 4px 8px; flex-direction: row; border-top: 1px solid var(--line); border-right: 0; }
   .rail-brand, .rail-connection { display: none; }
-  .rail-actions { flex: 1; margin: 0; display: flex; justify-content: space-around; gap: 4px; }
-  .rail-button { width: min(84px, 22vw); min-height: 54px; }
+  .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
+  .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
   .rail-settings { margin: 0; }
   .chat-sidebar, .conversation { grid-column: 1; grid-row: 1; }
   .global-search-view { grid-column: 1; grid-row: 1; }
+  .contacts-view { grid-column: 1; grid-row: 1; }
   .global-search-header { height: 54px; padding: 0 14px; }
   .global-search-controls { padding: 12px 14px; }
   .global-search-results { padding: 5px 14px 20px; }
+  .contacts-header { height: 54px; padding: 0 14px; }
+  .contacts-controls { padding: 12px 14px; }
+  .contacts-results { padding: 8px 14px 20px; }
   .chat-sidebar { min-width: 0; }
   .sidebar-resizer { display: none; }
   .conversation { display: none; }

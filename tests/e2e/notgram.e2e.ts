@@ -229,7 +229,7 @@ test("global search paginates, filters, and opens exact message context", async 
   await page.keyboard.press("Control+K");
   await search.fill("Mia Chen");
   await page.locator(".global-chat-result", { hasText: "Mia Chen" }).click();
-  await expect(page.locator(".conversation-title h2")).toHaveText("Mia Chen");
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.keyboard.press("Control+K");
@@ -263,6 +263,34 @@ test("chat profiles expose members and shared media with focus restoration", asy
   expect(await horizontalOverflow(page)).toBe(false);
   await profile.getByRole("button", { name: "关闭资料" }).click();
   await expect(profileTrigger).toBeFocused();
+});
+
+test("contacts can be filtered and opened as a private chat", async ({ page }) => {
+  await page.goto("/");
+  const contactsButton = page.getByRole("button", { name: "联系人", exact: true });
+  await contactsButton.click();
+
+  const search = page.getByRole("searchbox", { name: "搜索联系人" });
+  await expect(search).toBeFocused();
+  await expect(page.locator(".contact-row")).toHaveCount(3);
+  const myProfile = page.getByRole("button", { name: /我的资料/ });
+  await myProfile.click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await expect(profile.getByRole("heading", { name: "林然" })).toBeVisible();
+  await profile.getByRole("button", { name: "关闭资料" }).click();
+  await expect(myProfile).toBeFocused();
+  await search.fill("Jules");
+  await expect(page.locator(".contact-row")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "关闭联系人" }).click();
+  await expect(contactsButton).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await contactsButton.click();
+  await search.fill("Jules");
+  expect(await horizontalOverflow(page)).toBe(false);
+  await page.locator(".contact-row").click();
+  await expect(page.locator(".contacts-view")).toBeHidden();
+  await expect(page.getByRole("button", { name: "查看 Jules 资料" })).toBeVisible();
 });
 
 test("mobile chat switching has no horizontal overflow", async ({ page }) => {
@@ -310,8 +338,8 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
 
 test("pinned chats can be dragged into a fixed order", async ({ page }) => {
   await page.goto("/");
-  const product = page.getByRole("button", { name: /产品讨论/ });
-  const mia = page.getByRole("button", { name: /Mia Chen/ });
+  const product = page.locator('[data-chat-id="chat-product"]');
+  const mia = page.locator('[data-chat-id="chat-mia"]');
 
   const source = await product.boundingBox();
   const target = await mia.boundingBox();
@@ -588,9 +616,9 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   expect(savedAnchor.id).toBeTruthy();
 
   await page.getByRole("button", { name: /Mia Chen/ }).click();
-  await expect(page.locator(".conversation-title h2")).toHaveText("Mia Chen");
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await page.getByRole("button", { name: /产品讨论/ }).click();
-  await expect(page.locator(".conversation-title h2")).toHaveText("产品讨论");
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await expect.poll(async () => (await visibleMessageAnchor(page)).id).toBe(savedAnchor.id);
   await expect.poll(async () => Math.abs(
     (await visibleMessageAnchor(page)).offset - savedAnchor.offset,
@@ -621,7 +649,7 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await scrollAwayFromBottom(page);
   await page.getByRole("button", { name: /Mia Chen/ }).click();
   await page.getByRole("button", { name: /产品讨论/ }).dblclick();
-  await expect(page.locator(".conversation-title h2")).toHaveText("产品讨论");
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 });
 

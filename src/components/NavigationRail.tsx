@@ -13,6 +13,9 @@ interface NavigationRailProps {
   searchActive: boolean;
   searchButtonRef: RefObject<HTMLButtonElement | null>;
   onOpenSearch: () => void;
+  contactsActive: boolean;
+  contactsButtonRef: RefObject<HTMLButtonElement | null>;
+  onOpenContacts: () => void;
   onOpenSettings: () => void;
 }
 
@@ -25,6 +28,9 @@ export function NavigationRail({
   searchActive,
   searchButtonRef,
   onOpenSearch,
+  contactsActive,
+  contactsButtonRef,
+  onOpenContacts,
   onOpenSettings,
 }: NavigationRailProps) {
   return (
@@ -42,8 +48,19 @@ export function NavigationRail({
         >
           <span className="rail-icon"><Search size={23} strokeWidth={1.8} /></span><span>搜索</span>
         </button>
+        <button
+          ref={contactsButtonRef}
+          className={`rail-button ${contactsActive ? "is-active" : ""}`}
+          type="button"
+          aria-label="联系人"
+          aria-pressed={contactsActive}
+          title="联系人"
+          onClick={onOpenContacts}
+        >
+          <span className="rail-icon"><UserRound size={23} strokeWidth={1.8} /></span><span>联系人</span>
+        </button>
         {folders.map((folder) => (
-          <button className={`rail-button ${!searchActive && filter === folder.id ? "is-active" : ""}`} key={folder.id}
+          <button className={`rail-button ${!searchActive && !contactsActive && filter === folder.id ? "is-active" : ""}`} key={folder.id}
             type="button" aria-label={folder.title} aria-pressed={filter === folder.id} title={folder.title}
             onClick={() => onFilterChange(folder.id)}>
             <span className="rail-icon"><FolderIcon name={folder.iconName} /></span><span>{folder.title}</span>
