@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "publish:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-portable.ps1",
     "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e.ps1",
     "test:e2e:types": "tsc -p tsconfig.e2e.json",
     "test:watch": "vitest",
     "tauri": "tauri"

@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const usesExternalServer = process.env.NOTGRAM_E2E_EXTERNAL_SERVER === "1";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: /\.e2e\.ts/,
@@ -16,7 +18,7 @@ export default defineConfig({
     launchOptions: { args: ["--mute-audio"] },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
+  webServer: usesExternalServer ? undefined : {
     command: "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 1422",
     url: "http://127.0.0.1:1422",
     reuseExistingServer: false,
