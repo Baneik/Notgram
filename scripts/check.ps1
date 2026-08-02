@@ -13,6 +13,9 @@ try {
     npm run version:check
     if ($LASTEXITCODE -ne 0) { throw "Version synchronization check failed." }
 
+    npm run release:policy:check
+    if ($LASTEXITCODE -ne 0) { throw "Release policy check failed." }
+
     npm test
     if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed." }
 

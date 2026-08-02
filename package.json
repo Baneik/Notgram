@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "publish:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-installer.ps1",
     "publish:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-portable.ps1",
+    "release:policy:check": "node scripts/verify-release-policy.mjs",
     "test": "vitest run",
     "test:e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e.ps1",
     "test:e2e:types": "tsc -p tsconfig.e2e.json",

@@ -13,8 +13,11 @@ if (-not $DestinationRoot) {
 }
 $resolvedDestinationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
 $version = (Get-Content -LiteralPath (Join-Path $repositoryRoot "version.json") -Raw | ConvertFrom-Json).version
+$releasePolicyPath = Join-Path $repositoryRoot "release-policy.json"
+$releasePolicy = Get-Content -LiteralPath $releasePolicyPath -Raw | ConvertFrom-Json
 $artifactName = "Notgram-$version-windows-x64-installer"
 $artifactDirectory = Join-Path $resolvedDestinationRoot $artifactName
+$metadataPrefix = "$artifactName-"
 $releaseDirectory = Join-Path $repositoryRoot "src-tauri\target\release"
 $releaseExecutable = Join-Path $releaseDirectory "notgram.exe"
 $runtimeDirectory = Join-Path $releaseDirectory "tdlib"
@@ -27,6 +30,8 @@ Push-Location $repositoryRoot
 try {
     npm.cmd run version:check
     if ($LASTEXITCODE -ne 0) { throw "Version synchronization check failed." }
+    npm.cmd run release:policy:check
+    if ($LASTEXITCODE -ne 0) { throw "Release policy check failed." }
 } finally {
     Pop-Location
 }
@@ -68,10 +73,11 @@ $tdlib = & (Join-Path $PSScriptRoot "verify-tdlib.ps1") -RuntimeDirectory $runti
 New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
 $publishedInstaller = Join-Path $artifactDirectory "Notgram-$version-windows-x64-setup.exe"
 Copy-Item -LiteralPath $resolvedInstallerPath -Destination $publishedInstaller
+Copy-Item -LiteralPath $releasePolicyPath -Destination (Join-Path $artifactDirectory "$($metadataPrefix)RELEASE-POLICY.json")
 
 Push-Location $repositoryRoot
 try {
-    node.exe scripts/generate-dependency-report.mjs --output (Join-Path $artifactDirectory "DEPENDENCIES.json")
+    node.exe scripts/generate-dependency-report.mjs --output (Join-Path $artifactDirectory "$($metadataPrefix)DEPENDENCIES.json")
     if ($LASTEXITCODE -ne 0) { throw "Dependency report generation failed." }
 } finally {
     Pop-Location
@@ -94,6 +100,7 @@ $metadata = [ordered]@{
         sha256 = $installerHash
     }
     tdlib = $tdlib
+    releasePolicy = $releasePolicy
     releaseInputs = [ordered]@{
         apiCredentials = "build-process environment"
         localEnvironmentFileCopied = $false
@@ -103,7 +110,7 @@ $metadata = [ordered]@{
 }
 $metadataJson = $metadata | ConvertTo-Json -Depth 10
 [System.IO.File]::WriteAllText(
-    (Join-Path $artifactDirectory "BUILD-METADATA.json"),
+    (Join-Path $artifactDirectory "$($metadataPrefix)BUILD-METADATA.json"),
     "$metadataJson`n",
     [System.Text.UTF8Encoding]::new($false)
 )
@@ -114,7 +121,7 @@ $hashLines = Get-ChildItem -LiteralPath $artifactDirectory -File |
         "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
     }
 [System.IO.File]::WriteAllLines(
-    (Join-Path $artifactDirectory "SHA256SUMS.txt"),
+    (Join-Path $artifactDirectory "$($metadataPrefix)SHA256SUMS.txt"),
     $hashLines,
     [System.Text.UTF8Encoding]::new($false)
 )

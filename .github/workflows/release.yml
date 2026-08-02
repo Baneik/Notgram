@@ -33,6 +33,10 @@ jobs:
           NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD }}
           NOTGRAM_API_ID: ${{ secrets.NOTGRAM_API_ID }}
           NOTGRAM_API_HASH: ${{ secrets.NOTGRAM_API_HASH }}
+          NOTGRAM_UPDATER_PRIVATE_KEY: ${{ secrets.NOTGRAM_UPDATER_PRIVATE_KEY }}
+          NOTGRAM_UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.NOTGRAM_UPDATER_PRIVATE_KEY_PASSWORD }}
+          NOTGRAM_UPDATER_PUBLIC_KEY: ${{ vars.NOTGRAM_UPDATER_PUBLIC_KEY }}
+          NOTGRAM_UPDATE_BASE_URL: ${{ vars.NOTGRAM_UPDATE_BASE_URL }}
         run: scripts/release-preflight.ps1 -RequireSigning
       - name: Validate release tag
         if: github.ref_type == 'tag'
@@ -52,6 +56,9 @@ jobs:
           NOTGRAM_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.NOTGRAM_WINDOWS_CERTIFICATE_BASE64 }}
           NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD }}
         run: scripts/import-signing-certificate.ps1
+      - name: Enable Windows signing tools
+        shell: pwsh
+        run: scripts/enable-windows-signing-tools.ps1
       - name: Sign native runtime dependencies
         shell: pwsh
         run: scripts/sign-windows-files.ps1 -Path (Get-ChildItem src-tauri/tdlib/*.dll).FullName
@@ -61,12 +68,18 @@ jobs:
           VITE_TELEGRAM_TRANSPORT: tauri
           NOTGRAM_API_ID: ${{ secrets.NOTGRAM_API_ID }}
           NOTGRAM_API_HASH: ${{ secrets.NOTGRAM_API_HASH }}
+          NOTGRAM_UPDATE_BASE_URL: ${{ vars.NOTGRAM_UPDATE_BASE_URL }}
+          NOTGRAM_UPDATER_PUBLIC_KEY: ${{ vars.NOTGRAM_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.NOTGRAM_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.NOTGRAM_UPDATER_PRIVATE_KEY_PASSWORD }}
         run: |
           $config = Join-Path $env:RUNNER_TEMP "notgram-signing.json"
           scripts/new-signing-config.ps1 -OutputPath $config
           npm run tauri build -- --config $config
       - name: Verify and stage release artifacts
         shell: pwsh
+        env:
+          NOTGRAM_UPDATE_BASE_URL: ${{ vars.NOTGRAM_UPDATE_BASE_URL }}
         run: |
           $installer = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe -File | Select-Object -First 1
           if (-not $installer) { throw "NSIS installer was not produced." }
@@ -75,6 +88,7 @@ jobs:
           scripts/verify-windows-signatures.ps1 -Path $signed
           scripts/publish-portable.ps1 -SkipBuild -ChecksPassed
           scripts/publish-installer.ps1 -InstallerPath $installer.FullName
+          scripts/publish-update-channel.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: notgram-${{ github.ref_name }}-windows

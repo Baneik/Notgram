@@ -41,6 +41,9 @@
     "resources": [
       "tdlib/*",
       "tdlib/licenses/*"
-    ]
+    ],
+    "windows": {
+      "allowDowngrades": false
+    }
   }
 }

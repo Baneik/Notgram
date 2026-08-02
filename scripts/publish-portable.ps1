@@ -18,6 +18,8 @@ $releaseDirectory = Join-Path $repositoryRoot "src-tauri\target\release"
 $executable = Join-Path $releaseDirectory "notgram.exe"
 $runtimeSource = Join-Path $releaseDirectory "tdlib"
 $version = (Get-Content -LiteralPath (Join-Path $repositoryRoot "version.json") -Raw | ConvertFrom-Json).version
+$releasePolicyPath = Join-Path $repositoryRoot "release-policy.json"
+$releasePolicy = Get-Content -LiteralPath $releasePolicyPath -Raw | ConvertFrom-Json
 $artifactName = "Notgram-$version-windows-x64-portable"
 $portableDirectory = Join-Path $resolvedDestinationRoot $artifactName
 $portableArchive = Join-Path $resolvedDestinationRoot "$artifactName.zip"
@@ -50,6 +52,7 @@ if ($env:OS -ne "Windows_NT") {
     throw "Portable releases currently require Windows."
 }
 Invoke-CheckedCommand "Version synchronization check failed." { npm.cmd run version:check }
+Invoke-CheckedCommand "Release policy check failed." { npm.cmd run release:policy:check }
 
 $commit = (git -C $repositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the release commit." }
@@ -89,6 +92,7 @@ if ((Test-Path -LiteralPath $portableDirectory) -or (Test-Path -LiteralPath $por
 New-Item -ItemType Directory -Path $portableDirectory -Force | Out-Null
 Copy-Item -LiteralPath $executable -Destination (Join-Path $portableDirectory "Notgram.exe")
 Copy-Item -LiteralPath $runtimeSource -Destination $portableDirectory -Recurse
+Copy-Item -LiteralPath $releasePolicyPath -Destination (Join-Path $portableDirectory "RELEASE-POLICY.json")
 
 Push-Location $repositoryRoot
 try {
@@ -123,6 +127,7 @@ $metadata = [ordered]@{
         tauriCli = $tauriCliVersion
     }
     tdlib = $tdlib
+    releasePolicy = $releasePolicy
     releaseInputs = [ordered]@{
         apiCredentials = "build-process environment"
         localEnvironmentFileCopied = $false

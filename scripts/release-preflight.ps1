@@ -44,7 +44,11 @@ try {
             "NOTGRAM_WINDOWS_CERTIFICATE_BASE64",
             "NOTGRAM_WINDOWS_CERTIFICATE_PASSWORD",
             "NOTGRAM_API_ID",
-            "NOTGRAM_API_HASH"
+            "NOTGRAM_API_HASH",
+            "NOTGRAM_UPDATER_PRIVATE_KEY",
+            "NOTGRAM_UPDATER_PRIVATE_KEY_PASSWORD",
+            "NOTGRAM_UPDATER_PUBLIC_KEY",
+            "NOTGRAM_UPDATE_BASE_URL"
         )) {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
                 throw "Release secret $name is not configured."
@@ -57,6 +61,35 @@ try {
         }
         if ($env:NOTGRAM_API_HASH -notmatch '^[0-9A-Fa-f]{32}$') {
             throw "NOTGRAM_API_HASH must be a 32-character hexadecimal value."
+        }
+        $updateUri = $null
+        if (-not [Uri]::TryCreate($env:NOTGRAM_UPDATE_BASE_URL, [UriKind]::Absolute, [ref]$updateUri) -or
+            $updateUri.Scheme -ne "https" -or $updateUri.UserInfo -or
+            $updateUri.Query -or $updateUri.Fragment) {
+            throw "NOTGRAM_UPDATE_BASE_URL must be an HTTPS URL."
+        }
+        if ($env:NOTGRAM_UPDATER_PUBLIC_KEY.Length -gt 4096 -or
+            $env:NOTGRAM_UPDATER_PRIVATE_KEY.Length -gt 16384) {
+            throw "Updater signing keys are unexpectedly large."
+        }
+        $updaterPublicKeyBytes = $null
+        $updaterPrivateKeyBytes = $null
+        try {
+            $updaterPublicKeyBytes = [Convert]::FromBase64String($env:NOTGRAM_UPDATER_PUBLIC_KEY)
+            $updaterPublicKeyText = [Text.Encoding]::UTF8.GetString($updaterPublicKeyBytes)
+            if (-not $updaterPublicKeyText.StartsWith("untrusted comment: minisign public key")) {
+                throw "unexpected public key format"
+            }
+            $updaterPrivateKeyBytes = [Convert]::FromBase64String($env:NOTGRAM_UPDATER_PRIVATE_KEY)
+            $updaterPrivateKeyText = [Text.Encoding]::UTF8.GetString($updaterPrivateKeyBytes)
+            if (-not $updaterPrivateKeyText.StartsWith("untrusted comment: rsign encrypted secret key")) {
+                throw "unexpected private key format"
+            }
+        } catch {
+            throw "Updater signing keys are not valid Base64 Tauri key data."
+        } finally {
+            if ($updaterPublicKeyBytes) { [Array]::Clear($updaterPublicKeyBytes, 0, $updaterPublicKeyBytes.Length) }
+            if ($updaterPrivateKeyBytes) { [Array]::Clear($updaterPrivateKeyBytes, 0, $updaterPrivateKeyBytes.Length) }
         }
         $certificateBytes = $null
         try {
