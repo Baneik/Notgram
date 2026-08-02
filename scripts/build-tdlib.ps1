@@ -6,8 +6,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$tdlibCommit = "022d60202e446ad1287b9fb68e687c8a0760788b"
-$tdlibRepository = "https://github.com/tdlib/td.git"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sourceDirectory = Join-Path $repositoryRoot "vendor\tdlib-src"
 $buildDirectory = Join-Path $repositoryRoot "vendor\tdlib-build\cmake"
@@ -17,6 +15,9 @@ $tdlibInstall = Join-Path $installRoot "tdlib"
 $runtimeDirectory = Join-Path $repositoryRoot "src-tauri\tdlib"
 $licenseDirectory = Join-Path $runtimeDirectory "licenses"
 $manifestDirectory = Join-Path $PSScriptRoot "tdlib"
+$tdlibMetadata = Get-Content -LiteralPath (Join-Path $manifestDirectory "version.json") -Raw | ConvertFrom-Json
+$tdlibCommit = $tdlibMetadata.commit
+$tdlibRepository = $tdlibMetadata.repository
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
 if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
@@ -97,4 +98,4 @@ Copy-Item -LiteralPath (Join-Path $vcpkgInstalled "x64-windows\share\openssl\cop
 Copy-Item -LiteralPath (Join-Path $vcpkgInstalled "x64-windows\share\zlib\copyright") -Destination (Join-Path $licenseDirectory "zlib.txt") -Force
 
 Write-Host "TDLib runtime is ready in $runtimeDirectory"
-Get-FileHash (Join-Path $runtimeDirectory "*.dll") | Select-Object Path, Hash
+& (Join-Path $PSScriptRoot "verify-tdlib.ps1") -RuntimeDirectory $runtimeDirectory

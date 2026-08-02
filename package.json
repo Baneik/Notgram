@@ -14,6 +14,7 @@
     "test:e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e.ps1",
     "test:e2e:types": "tsc -p tsconfig.e2e.json",
     "test:native-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native-smoke.ps1",
+    "verify:tdlib": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-tdlib.ps1",
     "test:watch": "vitest",
     "tauri": "tauri",
     "version:check": "node scripts/sync-version.mjs --check",

@@ -14,4 +14,6 @@ You can instead set `NOTGRAM_TDLIB_PATH` to the dynamic library or its containin
 
 Windows builds also include the OpenSSL and zlib runtime DLLs required by
 `tdjson.dll`. Dependency licenses are stored in `licenses/` and packaged with
-the application.
+the application. The pinned TDLib commit, vcpkg baseline, and required runtime
+files are recorded in `scripts/tdlib/version.json`; verify a populated runtime
+with `powershell -File scripts/verify-tdlib.ps1`.

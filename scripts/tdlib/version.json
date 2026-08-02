@@ -1,0 +1,27 @@
+{
+  "repository": "https://github.com/tdlib/td.git",
+  "commit": "022d60202e446ad1287b9fb68e687c8a0760788b",
+  "vcpkgBaseline": "bf144d19bbc8b6961b61b8eac107750b698a454a",
+  "runtime": [
+    {
+      "file": "tdjson.dll",
+      "component": "TDLib",
+      "license": "TDLib-LICENSE_1_0.txt"
+    },
+    {
+      "file": "libcrypto-3-x64.dll",
+      "component": "OpenSSL",
+      "license": "OpenSSL.txt"
+    },
+    {
+      "file": "libssl-3-x64.dll",
+      "component": "OpenSSL",
+      "license": "OpenSSL.txt"
+    },
+    {
+      "file": "z.dll",
+      "component": "zlib",
+      "license": "zlib.txt"
+    }
+  ]
+}
