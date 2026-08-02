@@ -1,6 +1,7 @@
 import type { TelegramTransport } from "../telegram/transport";
 import type { CacheHealth } from "./telegramStore.cache";
 import type { GlobalSearchState } from "./globalSearchState";
+import type { ProfileState } from "./profileState";
 import type {
   AuthorizationAction,
   AuthorizationState,
@@ -73,6 +74,11 @@ export interface TelegramState {
   searchQuery: string;
   chatFilter: ChatFilter;
   globalSearch: GlobalSearchState;
+  profile: ProfileState;
+  contacts: User[];
+  contactsLoading: boolean;
+  contactsError?: string;
+  contactPendingUserId?: string;
   initialize: () => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
@@ -101,6 +107,11 @@ export interface TelegramState {
   loadMoreGlobalSearch: () => Promise<void>;
   cancelGlobalSearch: () => void;
   clearGlobalSearch: () => void;
+  loadCurrentUserProfile: () => Promise<void>;
+  loadChatProfile: (chatId: string) => Promise<void>;
+  clearProfile: () => void;
+  loadContacts: () => Promise<void>;
+  startPrivateChat: (userId: string) => Promise<string | undefined>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;

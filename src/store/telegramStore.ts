@@ -39,6 +39,7 @@ import type { TelegramState } from "./telegramStore.types";
 import { logPerformance } from "../utils/performanceMonitor";
 import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
+import { emptyProfileState } from "./profileState";
 
 export type {
   ChatFilter,
@@ -76,6 +77,8 @@ export const createTelegramStore = (
     let chatSearchGeneration = 0;
     let outboxFlush: Promise<void> | undefined;
     let globalSearchGeneration = 0;
+    let profileGeneration = 0;
+    let contactsGeneration = 0;
 
     const scheduleCacheWrite = () => {
       const state = get();
@@ -119,6 +122,9 @@ export const createTelegramStore = (
       if (chatSearchTimer) globalThis.clearTimeout(chatSearchTimer);
       chatSearchTimer = undefined;
       chatSearchGeneration += 1;
+      globalSearchGeneration += 1;
+      profileGeneration += 1;
+      contactsGeneration += 1;
       set({
         currentUserId: undefined,
         users: new Map(),
@@ -132,6 +138,11 @@ export const createTelegramStore = (
         histories: new Map(),
         activeChatId: undefined,
         globalSearch: emptyGlobalSearch(),
+        profile: emptyProfileState(),
+        contacts: [],
+        contactsLoading: false,
+        contactsError: undefined,
+        contactPendingUserId: undefined,
         chatFilter: "main",
         cacheHealth: clearSnapshot ? "empty" : get().cacheHealth,
       });
@@ -666,6 +677,9 @@ export const createTelegramStore = (
       searchQuery: "",
       chatFilter: "main",
       globalSearch: emptyGlobalSearch(),
+      profile: emptyProfileState(),
+      contacts: [],
+      contactsLoading: false,
 
       initialize: async () => {
         if (get().phase !== "idle") return;
@@ -1168,6 +1182,83 @@ export const createTelegramStore = (
       clearGlobalSearch: () => {
         globalSearchGeneration += 1;
         set({ globalSearch: emptyGlobalSearch() });
+      },
+
+      loadCurrentUserProfile: async () => {
+        const generation = ++profileGeneration;
+        set({ profile: { target: { kind: "current" }, loading: true } });
+        try {
+          const value = await transport.getCurrentUserProfile();
+          if (generation !== profileGeneration) return;
+          set({ profile: { target: { kind: "current" }, value, loading: false } });
+        } catch (error) {
+          if (generation !== profileGeneration) return;
+          set({
+            profile: {
+              target: { kind: "current" },
+              loading: false,
+              error: errorMessage(error, "无法读取账号资料"),
+            },
+          });
+        }
+      },
+
+      loadChatProfile: async (chatId) => {
+        const generation = ++profileGeneration;
+        set({ profile: { target: { kind: "chat", chatId }, loading: true } });
+        try {
+          const value = await transport.getChatProfile(chatId);
+          if (generation !== profileGeneration) return;
+          set({ profile: { target: { kind: "chat", chatId }, value, loading: false } });
+        } catch (error) {
+          if (generation !== profileGeneration) return;
+          set({
+            profile: {
+              target: { kind: "chat", chatId },
+              loading: false,
+              error: errorMessage(error, "无法读取聊天资料"),
+            },
+          });
+        }
+      },
+
+      clearProfile: () => {
+        profileGeneration += 1;
+        set({ profile: emptyProfileState() });
+      },
+
+      loadContacts: async () => {
+        const generation = ++contactsGeneration;
+        set({ contactsLoading: true, contactsError: undefined });
+        try {
+          const contacts = await transport.getContacts();
+          if (generation !== contactsGeneration) return;
+          set({ contacts, contactsLoading: false });
+        } catch (error) {
+          if (generation !== contactsGeneration) return;
+          set({
+            contactsLoading: false,
+            contactsError: errorMessage(error, "无法读取联系人"),
+          });
+        }
+      },
+
+      startPrivateChat: async (userId) => {
+        set({ contactPendingUserId: userId, contactsError: undefined });
+        try {
+          const chat = await transport.createPrivateChat(userId);
+          const chats = new Map(get().chats);
+          chats.set(chat.id, chat);
+          set({ chats, contactPendingUserId: undefined });
+          scheduleCacheWrite();
+          return chat.id;
+        } catch (error) {
+          set({
+            contactPendingUserId: undefined,
+            contactsError: errorMessage(error, "无法发起私聊"),
+          });
+          return undefined;
+        }
       },
 
       setMessageReaction: async (messageId, emoji, chosen) => {

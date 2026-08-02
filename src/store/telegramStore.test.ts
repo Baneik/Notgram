@@ -5,6 +5,7 @@ import type { TelegramEventListener } from "../telegram/transport";
 import type {
   CachedTelegramSnapshot,
   Chat,
+  ChatProfile,
   ConnectionStatus,
   GlobalSearchInput,
   GlobalSearchPage,
@@ -1464,6 +1465,57 @@ describe("global search state", () => {
     ]);
     expect(store.getState().globalSearch.totalCount).toBe(2);
     expect(store.getState().globalSearch.nextOffset).toBeUndefined();
+  });
+});
+
+describe("profiles and contacts state", () => {
+  it("discards a profile response after a newer target is requested", async () => {
+    class DelayedProfileTransport extends MockTelegramTransport {
+      requests: Array<{
+        chatId: string;
+        resolve: (profile: ChatProfile) => void;
+      }> = [];
+
+      override getChatProfile(chatId: string) {
+        return new Promise<ChatProfile>((resolve) => {
+          this.requests.push({ chatId, resolve });
+        });
+      }
+    }
+    const transport = new DelayedProfileTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const first = store.getState().loadChatProfile("chat-product");
+    const second = store.getState().loadChatProfile("chat-mia");
+    const product = await new MockTelegramTransport().getChatProfile("chat-product");
+    const mia = await new MockTelegramTransport().getChatProfile("chat-mia");
+
+    transport.requests[0].resolve(product);
+    await first;
+    expect(store.getState().profile).toMatchObject({
+      target: { kind: "chat", chatId: "chat-mia" },
+      loading: true,
+    });
+
+    transport.requests[1].resolve(mia);
+    await second;
+    expect(store.getState().profile).toMatchObject({
+      target: { kind: "chat", chatId: "chat-mia" },
+      value: { title: "Mia Chen" },
+      loading: false,
+    });
+  });
+
+  it("loads contacts and merges a newly resolved private chat", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    await store.getState().loadContacts();
+    const chatId = await store.getState().startPrivateChat("u-jules");
+
+    expect(store.getState().contacts.map(({ id }) => id)).toContain("u-jules");
+    expect(store.getState().chats.get(chatId!)).toMatchObject({ peerId: "u-jules" });
+    expect(store.getState().contactPendingUserId).toBeUndefined();
   });
 });
 
