@@ -59,8 +59,11 @@ jobs:
         run: |
           $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
           $previousVersion = (Get-Content src-tauri/tauri.lifecycle.previous.conf.json -Raw | ConvertFrom-Json).version
+          $fixtureRoot = Join-Path $env:RUNNER_TEMP "notgram-lifecycle-installers"
+          New-Item -ItemType Directory -Path $fixtureRoot | Out-Null
           npm run tauri build -- --config src-tauri/tauri.lifecycle.previous.conf.json
-          $previous = Get-Item "src-tauri/target/release/bundle/nsis/Notgram Lifecycle_$($previousVersion)_x64-setup.exe"
+          $previousBundle = Get-Item "src-tauri/target/release/bundle/nsis/Notgram Lifecycle_$($previousVersion)_x64-setup.exe"
+          $previous = Copy-Item -LiteralPath $previousBundle.FullName -Destination $fixtureRoot -PassThru
           npm run tauri build -- --config src-tauri/tauri.lifecycle.conf.json
           $current = Get-Item "src-tauri/target/release/bundle/nsis/Notgram Lifecycle_$($version)_x64-setup.exe"
           $portableRoot = Join-Path $env:RUNNER_TEMP "notgram-lifecycle-portable"
