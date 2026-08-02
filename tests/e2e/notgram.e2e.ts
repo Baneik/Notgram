@@ -56,6 +56,18 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+const chooseMessageMenuItem = async (page: Page, name: string) => {
+  const menu = page.getByRole("menu", { name: "消息操作" });
+  const item = menu.getByRole("menuitem", { name, exact: true });
+  await expect(item).toBeVisible();
+  for (let step = 0; step < 12; step += 1) {
+    if (await item.evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press("ArrowDown");
+  }
+  await expect(item).toBeFocused();
+  await page.keyboard.press("Enter");
+};
+
 test("offline text messages survive a restart in the snapshot model", async ({ page }) => {
   await page.goto("/?connection=waitingForNetwork");
   const composer = page.getByRole("textbox", { name: "消息内容" });
@@ -72,6 +84,79 @@ test("offline text messages survive a restart in the snapshot model", async ({ p
   await expect(page.getByText("queued across restart", { exact: true })).toBeVisible();
 });
 
+test("keyboard navigation closes modals and completes message workflows", async ({ page }) => {
+  await page.goto("/");
+
+  const settingsButton = page.getByRole("button", { name: "设置", exact: true });
+  await settingsButton.focus();
+  await page.keyboard.press("Enter");
+  const settingsDialog = page.getByRole("dialog", { name: "设置" });
+  await expect(settingsDialog).toBeVisible();
+  const settingsClose = settingsDialog.getByRole("button", { name: "关闭", exact: true });
+  await expect(settingsClose).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(settingsDialog.locator("button:not([disabled]), input:not([disabled])").last())
+    .toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(settingsClose).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(settingsDialog).toBeHidden();
+  await expect(settingsButton).toBeFocused();
+
+  const editableMessage = page.locator('[data-message-id="p-2"]');
+  let actionTrigger = editableMessage.locator(".message-action-trigger");
+  await actionTrigger.focus();
+  await page.keyboard.press("Enter");
+  const actionMenu = page.getByRole("menu", { name: "消息操作" });
+  await expect(actionMenu).toBeVisible();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Escape");
+  await expect(actionMenu).toBeHidden();
+  await expect(actionTrigger).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await chooseMessageMenuItem(page, "编辑");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await expect(composer).toBeFocused();
+  await composer.fill("keyboard edited message");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("keyboard edited message", { exact: true })).toBeVisible();
+
+  actionTrigger = editableMessage.locator(".message-action-trigger");
+  await actionTrigger.focus();
+  await page.keyboard.press("Enter");
+  await chooseMessageMenuItem(page, "回复");
+  await expect(composer).toBeFocused();
+  await composer.fill("keyboard reply");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".message-list").getByText("keyboard reply", { exact: true }))
+    .toBeVisible();
+
+  actionTrigger = editableMessage.locator(".message-action-trigger");
+  await actionTrigger.focus();
+  await page.keyboard.press("Enter");
+  await chooseMessageMenuItem(page, "转发");
+  const forwardButton = page.getByRole("button", { name: "转发", exact: true });
+  await expect(forwardButton).toBeFocused();
+  await page.keyboard.press("Enter");
+  const forwardDialog = page.getByRole("dialog", { name: /转发 1 条消息/ });
+  await expect(forwardDialog.getByRole("searchbox")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(forwardDialog.locator(".forward-target-row").first()).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(forwardDialog).toBeHidden();
+
+  const reactionTrigger = editableMessage.locator(".reaction-add");
+  await reactionTrigger.focus();
+  await page.keyboard.press("Enter");
+  const reactionMenu = page.getByRole("menu", { name: "选择表情回应" });
+  await expect(reactionMenu.getByRole("menuitem").first()).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(reactionMenu).toBeHidden();
+  await expect(reactionTrigger).toBeFocused();
+});
+
 test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
@@ -81,6 +166,25 @@ test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   await expect(page.locator(".mobile-back")).toBeVisible();
   await expect(page.locator(".message-row")).not.toHaveCount(0);
   expect(await horizontalOverflow(page)).toBe(false);
+});
+
+test("minimum window remains operable at Windows 125 and 150 percent scaling", async ({ browser }) => {
+  for (const deviceScaleFactor of [1.25, 1.5]) {
+    const context = await browser.newContext({
+      viewport: { width: 680, height: 560 },
+      deviceScaleFactor,
+    });
+    const page = await context.newPage();
+    await page.goto("/");
+    await page.locator(".chat-row").first().click();
+
+    await expect(page.locator(".conversation")).toBeVisible();
+    await expect(page.locator(".mobile-back")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "消息内容" })).toBeVisible();
+    expect(await page.evaluate(() => devicePixelRatio)).toBe(deviceScaleFactor);
+    expect(await horizontalOverflow(page)).toBe(false);
+    await context.close();
+  }
 });
 
 test("muted chats use a neutral unread badge", async ({ page }) => {

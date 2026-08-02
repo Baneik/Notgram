@@ -127,6 +127,7 @@ export function Conversation({
     messageId: string;
     left: number;
     top: number;
+    returnFocus?: HTMLElement;
   }>();
   const [actionLoadingId, setActionLoadingId] = useState<string>();
   const [replyingTo, setReplyingTo] = useState<Message>();
@@ -138,6 +139,7 @@ export function Conversation({
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const draftBeforeEditRef = useRef<string | undefined>(undefined);
 
   const sendAttachment = async (file?: File) => {
@@ -221,6 +223,14 @@ export function Conversation({
     ? messagesById.get(actionMenu.messageId)
     : undefined;
 
+  const closeActionMenu = useCallback((restoreFocus = true) => {
+    const returnFocus = actionMenu?.returnFocus;
+    setActionMenu(undefined);
+    if (restoreFocus && returnFocus?.isConnected) {
+      globalThis.setTimeout(() => returnFocus.focus(), 0);
+    }
+  }, [actionMenu]);
+
   useEffect(() => {
     setActionMenu(undefined);
     setActionLoadingId(undefined);
@@ -267,10 +277,10 @@ export function Conversation({
     const dismiss = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Element && target.closest(".message-action-menu")) return;
-      setActionMenu(undefined);
+      closeActionMenu(false);
     };
     const dismissWithKeyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setActionMenu(undefined);
+      if (event.key === "Escape") closeActionMenu(true);
     };
     document.addEventListener("pointerdown", dismiss);
     document.addEventListener("keydown", dismissWithKeyboard);
@@ -278,7 +288,7 @@ export function Conversation({
       document.removeEventListener("pointerdown", dismiss);
       document.removeEventListener("keydown", dismissWithKeyboard);
     };
-  }, [actionMenu]);
+  }, [actionMenu, closeActionMenu]);
 
   if (!chat) {
     return (
@@ -315,13 +325,19 @@ export function Conversation({
     globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
   };
 
-  const openActionMenu = useCallback(async (message: Message, left: number, top: number) => {
+  const openActionMenu = useCallback(async (
+    message: Message,
+    left: number,
+    top: number,
+    returnFocus?: HTMLElement,
+  ) => {
     const menuWidth = 184;
     const menuHeight = 170;
     setActionMenu({
       messageId: message.id,
       left: Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8)),
       top: Math.max(8, Math.min(top, window.innerHeight - menuHeight - 8)),
+      returnFocus,
     });
     if (message.permissions || actionLoadingId === message.id) return;
     setActionLoadingId(message.id);
@@ -402,6 +418,7 @@ export function Conversation({
     setActionMenu(undefined);
     closeMessageSearch();
     forwarding.startSelection(message);
+    globalThis.setTimeout(() => selectionForwardButtonRef.current?.focus(), 0);
   };
 
   const toggleMessageSelection = forwarding.toggleSelection;
@@ -578,7 +595,7 @@ export function Conversation({
           message={actionMessage}
           loading={actionLoadingId === actionMessage.id}
           onReaction={(emoji, chosen) => {
-            setActionMenu(undefined);
+            closeActionMenu(true);
             void onSetMessageReaction(actionMessage.id, emoji, chosen);
           }}
           onReply={() => startReply(actionMessage)}
@@ -588,6 +605,7 @@ export function Conversation({
             setDeleteTarget(actionMessage);
             setActionMenu(undefined);
           }}
+          onClose={() => closeActionMenu(true)}
         />
       )}
 
@@ -595,6 +613,7 @@ export function Conversation({
         <div className="message-selection-bar">
           <span>{selectedMessageIds.size} 条消息</span>
           <button
+            ref={selectionForwardButtonRef}
             className="selection-forward-button"
             type="button"
             onClick={forwarding.openDialog}

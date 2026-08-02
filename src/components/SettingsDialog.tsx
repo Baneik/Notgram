@@ -28,6 +28,7 @@ import {
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
 import type { CacheHealth } from "../store/telegramStore.cache";
+import { useModalFocus } from "../hooks/useModalFocus";
 import {
   usePreferencesStore,
   type AppPreferences,
@@ -190,6 +191,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const ActiveIcon = active.icon;
   const activeEndpoint = draft.mode === "system" ? draft.system : draft.custom;
   const busy = pending || storagePending;
+  const dialogRef = useModalFocus<HTMLFormElement>(onClose, busy);
 
   const updatePreference = async <Key extends keyof AppPreferences>(
     key: Key,
@@ -210,13 +212,15 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
+      if (event.target === event.currentTarget && !busy) onClose();
     }}>
       <form
+        ref={dialogRef}
         className={`settings-dialog ${detailOpen ? "show-detail" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
+        tabIndex={-1}
         onSubmit={submit}
       >
         <header className="settings-dialog-header">

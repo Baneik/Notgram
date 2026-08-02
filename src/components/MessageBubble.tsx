@@ -16,13 +16,14 @@ import {
   SmilePlus,
   X,
 } from "lucide-react";
-import { memo, useState, type CSSProperties } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction, User } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { writeClipboardText } from "../utils/clipboard";
+import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { TgsSticker } from "./TgsSticker";
 import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
@@ -47,7 +48,12 @@ interface MessageBubbleProps {
   selectionPending: boolean;
   selectionLimitReached: boolean;
   onToggleSelection: (message: Message) => Promise<void>;
-  onOpenActions: (message: Message, left: number, top: number) => Promise<void>;
+  onOpenActions: (
+    message: Message,
+    left: number,
+    top: number,
+    returnFocus?: HTMLElement,
+  ) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onRetry: (messageId: string) => Promise<void>;
@@ -100,6 +106,8 @@ function MessageBubbleComponent({
     width: number;
     height: number;
   }>();
+  const reactionTriggerRef = useRef<HTMLButtonElement>(null);
+  const reactionMenuRef = useRef<HTMLDivElement>(null);
   const content = message.content;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
@@ -195,14 +203,31 @@ function MessageBubbleComponent({
     (selectionLimitReached && !selected);
   const reactions = message.interaction?.reactions ?? [];
 
+  useEffect(() => {
+    if (!reactionPickerOpen) return;
+    const timer = globalThis.setTimeout(() => {
+      focusFirstMenuButton(reactionMenuRef.current);
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
+  }, [reactionPickerOpen]);
+
+  const closeReactionPicker = () => {
+    setReactionPickerOpen(false);
+    globalThis.setTimeout(() => reactionTriggerRef.current?.focus(), 0);
+  };
+
   const toggleReaction = async (emoji: string, chosen: boolean) => {
     if (reactionPending) return;
+    const restorePickerFocus = reactionPickerOpen;
     setReactionPending(emoji);
     try {
       await onReaction(message.id, emoji, chosen);
       setReactionPickerOpen(false);
     } finally {
       setReactionPending(undefined);
+      if (restorePickerFocus) {
+        globalThis.setTimeout(() => reactionTriggerRef.current?.focus(), 0);
+      }
     }
   };
 
@@ -490,6 +515,7 @@ function MessageBubbleComponent({
             })}
             <div className="reaction-picker-wrap">
               <button
+                ref={reactionTriggerRef}
                 type="button"
                 className="reaction-add"
                 aria-label="添加表情回应"
@@ -500,7 +526,13 @@ function MessageBubbleComponent({
                 <SmilePlus size={14} />
               </button>
               {reactionPickerOpen && (
-                <div className="reaction-picker" role="menu" aria-label="选择表情回应">
+                <div
+                  ref={reactionMenuRef}
+                  className="reaction-picker"
+                  role="menu"
+                  aria-label="选择表情回应"
+                  onKeyDown={(event) => handleMenuKeyboard(event, closeReactionPicker)}
+                >
                   {QUICK_REACTIONS.map((emoji) => {
                     const existing = reactions.find(
                       (reaction) => reaction.type.kind === "emoji" && reaction.type.emoji === emoji,
@@ -531,7 +563,7 @@ function MessageBubbleComponent({
           onClick={(event) => {
             const bounds = event.currentTarget.getBoundingClientRect();
             const left = message.outgoing ? bounds.left - 184 : bounds.right + 4;
-            void onOpenActions(message, left, bounds.top);
+            void onOpenActions(message, left, bounds.top, event.currentTarget);
           }}
         >
           <MoreHorizontal size={18} strokeWidth={1.9} />

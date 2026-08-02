@@ -9,7 +9,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, Message } from "../telegram/types";
+import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { Avatar } from "./Avatar";
 import { messageSummary } from "./conversationMessages";
 
@@ -24,6 +27,7 @@ interface MessageActionMenuProps {
   onEdit: () => void;
   onForward: () => void;
   onDelete: () => void;
+  onClose: () => void;
 }
 
 export function MessageActionMenu({
@@ -35,15 +39,26 @@ export function MessageActionMenu({
   onEdit,
   onForward,
   onDelete,
+  onClose,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const timer = globalThis.setTimeout(() => {
+      if (!focusFirstMenuButton(menuRef.current)) menuRef.current?.focus();
+    }, 0);
+    return () => globalThis.clearTimeout(timer);
+  }, [permissions]);
   return (
     <div
+      ref={menuRef}
       className="message-action-menu"
       role="menu"
       aria-label="消息操作"
+      tabIndex={-1}
       style={{ left: position.left, top: position.top }}
       onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={(event) => handleMenuKeyboard(event, onClose)}
     >
       {!permissions ? (
         <div className="message-action-status" role="status">
@@ -117,14 +132,17 @@ export function DeleteMessageDialog({
   onClose,
 }: DeleteMessageDialogProps) {
   const permissions = message.permissions;
+  const dialogRef = useModalFocus<HTMLElement>(onClose, pending);
   if (!permissions) return null;
   return (
     <div className="message-delete-backdrop" role="presentation">
       <section
+        ref={dialogRef}
         className="message-delete-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="message-delete-title"
+        tabIndex={-1}
       >
         <div className="message-delete-heading">
           <span><Trash2 size={18} strokeWidth={1.9} /></span>
@@ -187,6 +205,8 @@ export function ForwardMessagesDialog({
   onConfirm,
   onClose,
 }: ForwardMessagesDialogProps) {
+  const searchRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useModalFocus<HTMLElement>(onClose, pending, searchRef);
   return (
     <div
       className="message-delete-backdrop"
@@ -196,10 +216,12 @@ export function ForwardMessagesDialog({
       }}
     >
       <section
+        ref={dialogRef}
         className="message-forward-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="message-forward-title"
+        tabIndex={-1}
       >
         <header className="message-forward-heading">
           <span className="message-forward-heading-icon">
@@ -224,15 +246,45 @@ export function ForwardMessagesDialog({
           <Search size={16} strokeWidth={1.8} />
           <span className="sr-only">搜索目标会话</span>
           <input
-            autoFocus
+            ref={searchRef}
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="搜索会话"
             type="search"
             disabled={pending}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowDown") return;
+              event.preventDefault();
+              event.currentTarget.closest(".message-forward-dialog")
+                ?.querySelector<HTMLButtonElement>(".forward-target-row:not([disabled])")
+                ?.focus();
+            }}
           />
         </label>
-        <div className="forward-target-list">
+        <div
+          className="forward-target-list"
+          onKeyDown={(event) => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+              ".forward-target-row:not([disabled])",
+            )];
+            if (rows.length === 0) return;
+            event.preventDefault();
+            const index = rows.indexOf(document.activeElement as HTMLButtonElement);
+            if (event.key === "ArrowUp" && index <= 0) {
+              searchRef.current?.focus();
+              return;
+            }
+            const nextIndex = event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? rows.length - 1
+                : event.key === "ArrowDown"
+                  ? Math.min(rows.length - 1, index + 1)
+                  : Math.max(0, index - 1);
+            rows[nextIndex].focus();
+          }}
+        >
           {targets.length === 0 ? (
             <div className="forward-target-empty">没有匹配的会话</div>
           ) : targets.map((target) => (
