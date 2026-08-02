@@ -235,6 +235,7 @@ export function Conversation({
   const {
     messageListRef,
     currentScrollKey,
+    highlightedMessageId,
     newMessageNotice,
     jumpToLatest,
     messageListHandlers,
@@ -590,6 +591,7 @@ export function Conversation({
                         forwardLabel={forwardLabelFor(message, users, forwardTargetsById)}
                         selectionMode={selectionMode}
                         selected={selectedMessageIds.has(message.id)}
+                        highlighted={highlightedMessageId === message.id}
                         selectionPending={selectionLoadingIds.has(message.id)}
                         selectionLimitReached={selectedMessageIds.size >= 100}
                         onToggleSelection={toggleMessageSelection}

@@ -51,6 +51,7 @@ interface MessageBubbleProps {
   forwardLabel?: string;
   selectionMode: boolean;
   selected: boolean;
+  highlighted: boolean;
   selectionPending: boolean;
   selectionLimitReached: boolean;
   onToggleSelection: (message: Message) => Promise<void>;
@@ -95,6 +96,7 @@ function MessageBubbleComponent({
   forwardLabel,
   selectionMode,
   selected,
+  highlighted,
   selectionPending,
   selectionLimitReached,
   onToggleSelection,
@@ -278,7 +280,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={lazyMediaRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
     >
       {selectionMode && !isService && (

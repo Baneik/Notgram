@@ -144,6 +144,7 @@ export const useConversationScroll = ({
   const previousLayoutRef = useRef<ConversationLayoutSnapshot | undefined>(undefined);
   const handledLatestRequestRef = useRef(0);
   const handledMessageRequestRef = useRef(0);
+  const highlightTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const historyLoadPendingRef = useRef<string | undefined>(undefined);
   const historyTraceRef = useRef<{
     key: string;
@@ -155,6 +156,10 @@ export const useConversationScroll = ({
   const [newMessageNotice, setNewMessageNotice] = useState<{
     key: string;
     count: number;
+  }>();
+  const [highlightedMessage, setHighlightedMessage] = useState<{
+    key: string;
+    messageId: string;
   }>();
   const currentScrollKey = scrollMemoryKey(scope, chatId);
   const lastVisibleMessageId = visibleMessages.at(-1)?.id;
@@ -330,7 +335,7 @@ export const useConversationScroll = ({
     handledMessageRequestRef.current = messageRequest.requestId;
     target.scrollIntoView({ block: "center", behavior: "auto" });
     element.focus({ preventScroll: true });
-    target.classList.add("is-notification-target");
+    setHighlightedMessage({ key: currentScrollKey, messageId: messageRequest.messageId });
     const memory = captureScrollMemory(element, lastVisibleMessageId, 0, false);
     conversationScrollMemory.set(currentScrollKey, {
       ...memory,
@@ -338,14 +343,20 @@ export const useConversationScroll = ({
       pendingNewCount: 0,
     });
     updateNewMessageNotice(currentScrollKey, 0);
-    const highlightTimer = globalThis.setTimeout(() => {
-      target.classList.remove("is-notification-target");
+    if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = globalThis.setTimeout(() => {
+      highlightTimerRef.current = undefined;
+      setHighlightedMessage((current) =>
+        current?.key === currentScrollKey && current.messageId === messageRequest.messageId
+          ? undefined
+          : current
+      );
     }, 1_600);
-    return () => {
-      globalThis.clearTimeout(highlightTimer);
-      target.classList.remove("is-notification-target");
-    };
   }, [chatId, currentScrollKey, lastVisibleMessageId, messageRequest, visibleMessages]);
+
+  useEffect(() => () => {
+    if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
+  }, []);
 
   useEffect(() => {
     const element = messageListRef.current;
@@ -438,6 +449,9 @@ export const useConversationScroll = ({
   return {
     messageListRef,
     currentScrollKey,
+    highlightedMessageId: highlightedMessage && highlightedMessage.key === currentScrollKey
+      ? highlightedMessage.messageId
+      : undefined,
     newMessageNotice,
     jumpToLatest,
     messageListHandlers: {
