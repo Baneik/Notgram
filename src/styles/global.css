@@ -292,7 +292,13 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .media-album-grid .message-bubble.has-caption .message-meta,
 .media-album-grid .message-meta { position: absolute; right: 5px; bottom: 5px; min-height: 17px; margin: 0; padding: 2px 5px; color: #ffffff; background: rgba(24, 37, 35, 0.62); border-radius: 8px; }
 .media-album-grid .message-meta svg { color: #ffffff; }
+.media-album-grid .message-row.is-album-item .message-action-trigger {
+  z-index: 4; left: auto; right: 5px; top: 5px; color: #ffffff; background: rgba(24, 37, 35, 0.62);
+}
+.media-album-grid .message-row.is-album-item .message-action-trigger:hover { color: #ffffff; background: rgba(24, 37, 35, 0.84); }
+.media-album-captions { background: inherit; }
 .media-album-caption { padding: 7px 9px; background: inherit; }
+.media-album-caption-entry + .media-album-caption-entry { border-top: 1px solid rgba(98, 112, 120, 0.18); }
 .message-bubble {
   position: relative; max-width: 100%; padding: 8px 10px 6px; color: var(--ink); background: #ffffff;
   border-radius: 8px; box-shadow: 0 1px 2px rgba(35, 50, 48, 0.16);

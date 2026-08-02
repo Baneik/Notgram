@@ -599,12 +599,9 @@ export function Conversation({
                     );
                     if (segment.kind === "message") return renderBubble(segment.message);
 
-                    const captionMessage = segment.messages.find((message) =>
+                    const captionMessages = segment.messages.filter((message) =>
                       message.content.kind === "media" && Boolean(message.content.caption),
                     );
-                    const caption = captionMessage?.content.kind === "media"
-                      ? captionMessage.content
-                      : undefined;
                     return (
                       <div
                         className={`media-album ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
@@ -619,12 +616,21 @@ export function Conversation({
                         >
                           {segment.messages.map((message) => renderBubble(message, true))}
                         </div>
-                        {caption?.caption && (
-                          <MessageRichText
-                            className="media-album-caption"
-                            text={caption.caption}
-                            entities={caption.captionEntities}
-                          />
+                        {captionMessages.length > 0 && (
+                          <div className="media-album-captions">
+                            {captionMessages.map((message) => {
+                              const content = message.content;
+                              return content.kind === "media" && content.caption ? (
+                                <div className="media-album-caption-entry" data-message-id={message.id} key={message.id}>
+                                  <MessageRichText
+                                    className="media-album-caption"
+                                    text={content.caption}
+                                    entities={content.captionEntities}
+                                  />
+                                </div>
+                              ) : null;
+                            })}
+                          </div>
                         )}
                       </div>
                     );
