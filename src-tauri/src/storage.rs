@@ -12,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -69,16 +70,7 @@ pub fn telegram_save_downloaded_file(
             source.display()
         ));
     }
-    let trusted_files = tdlib_cache_directory(&app)?.join("files");
-    fs::create_dir_all(&trusted_files).map_err(|error| {
-        format!(
-            "Unable to create trusted TDLib files directory {}: {error}",
-            trusted_files.display()
-        )
-    })?;
-    let trusted_files = trusted_files
-        .canonicalize()
-        .map_err(|error| format!("Unable to resolve trusted TDLib files directory: {error}"))?;
+    let trusted_files = trusted_tdlib_files_directory(&app)?;
     if !source.starts_with(&trusted_files) {
         return Err("Downloaded file is outside the active TDLib files directory".to_string());
     }
@@ -91,6 +83,54 @@ pub fn telegram_save_downloaded_file(
         )
     })?;
     Ok(destination.display().to_string())
+}
+
+#[tauri::command]
+pub fn telegram_open_cached_file(app: AppHandle, source_path: String) -> Result<(), String> {
+    let source = trusted_local_file(&app, &source_path)?;
+    open_path(&source)
+}
+
+#[tauri::command]
+pub async fn telegram_save_cached_file_as(
+    app: AppHandle,
+    source_path: String,
+    file_name: String,
+) -> Result<bool, String> {
+    let source = trusted_local_file(&app, &source_path)?;
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .set_title("另存 Telegram 文件")
+        .set_file_name(safe_file_name(&file_name))
+        .blocking_save_file()
+    else {
+        return Ok(false);
+    };
+    let destination = selected
+        .into_path()
+        .map_err(|error| format!("Unable to resolve selected save path: {error}"))?;
+    if !destination.is_absolute() {
+        return Err("Selected save path must be absolute".to_string());
+    }
+    if destination.is_dir() {
+        return Err("Selected save path is a directory".to_string());
+    }
+    if destination == source {
+        return Ok(true);
+    }
+    fs::copy(&source, &destination).map_err(|error| {
+        format!(
+            "Unable to save cached file to {}: {error}",
+            destination.display()
+        )
+    })?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn telegram_open_download_directory(app: AppHandle) -> Result<(), String> {
+    open_path(&download_directory(&app)?)
 }
 
 #[tauri::command]
@@ -209,6 +249,89 @@ pub fn download_directory(app: &AppHandle) -> Result<PathBuf, String> {
         )
     })?;
     Ok(PathBuf::from(resolved.download_path))
+}
+
+fn trusted_tdlib_files_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    let directory = tdlib_cache_directory(app)?.join("files");
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Unable to create trusted TDLib files directory {}: {error}",
+            directory.display()
+        )
+    })?;
+    directory
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve trusted TDLib files directory: {error}"))
+}
+
+fn trusted_local_file(app: &AppHandle, source_path: &str) -> Result<PathBuf, String> {
+    let roots = [
+        trusted_tdlib_files_directory(app)?,
+        download_directory(app)?
+            .canonicalize()
+            .map_err(|error| format!("Unable to resolve configured download directory: {error}"))?,
+    ];
+    canonical_file_within_roots(Path::new(source_path), &roots)
+}
+
+fn canonical_file_within_roots(source: &Path, roots: &[PathBuf]) -> Result<PathBuf, String> {
+    let source = source
+        .canonicalize()
+        .map_err(|_| "Cached file is unavailable".to_string())?;
+    if !source.is_file() {
+        return Err("Cached path is not a file".to_string());
+    }
+    if !roots.iter().any(|root| source.starts_with(root)) {
+        return Err("Cached file is outside trusted storage directories".to_string());
+    }
+    Ok(source)
+}
+
+#[cfg(target_os = "windows")]
+fn open_path(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+
+    let operation = "open\0".encode_utf16().collect::<Vec<_>>();
+    let target = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            target.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result as isize <= 32 {
+        Err(format!("Windows could not open {}", path.display()))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn open_path(path: &Path) -> Result<(), String> {
+    open_with_command("open", path)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_path(path: &Path) -> Result<(), String> {
+    open_with_command("xdg-open", path)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn open_with_command(command: &str, path: &Path) -> Result<(), String> {
+    std::process::Command::new(command)
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Unable to open {}: {error}", path.display()))
 }
 
 fn snapshot_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -466,6 +589,17 @@ fn program_directory() -> Result<PathBuf, String> {
 mod tests {
     use super::*;
 
+    fn unique_test_directory(label: &str) -> PathBuf {
+        env::temp_dir().join(format!(
+            "notgram-storage-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
     #[test]
     fn normalizes_relative_paths_against_program_directory() {
         let expected = program_directory().unwrap().join("downloads");
@@ -478,6 +612,72 @@ mod tests {
     #[test]
     fn sanitizes_download_file_names() {
         assert_eq!(safe_file_name(r#"..\report?.pdf"#), "report_.pdf");
+    }
+
+    #[test]
+    fn accepts_only_canonical_files_inside_trusted_roots() {
+        let directory = unique_test_directory("trusted-file");
+        let trusted = directory.join("trusted");
+        let outside = directory.join("outside");
+        fs::create_dir_all(&trusted).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let accepted = trusted.join("report.txt");
+        let rejected = outside.join("secret.txt");
+        fs::write(&accepted, b"accepted").unwrap();
+        fs::write(&rejected, b"rejected").unwrap();
+        let trusted = trusted.canonicalize().unwrap();
+
+        assert_eq!(
+            canonical_file_within_roots(&accepted, std::slice::from_ref(&trusted)).unwrap(),
+            accepted.canonicalize().unwrap()
+        );
+        assert!(canonical_file_within_roots(&rejected, &[trusted]).is_err());
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn rejects_directories_and_missing_files_from_trusted_roots() {
+        let directory = unique_test_directory("invalid-file");
+        let trusted = directory.join("trusted");
+        fs::create_dir_all(&trusted).unwrap();
+        let trusted = trusted.canonicalize().unwrap();
+
+        assert!(canonical_file_within_roots(&trusted, std::slice::from_ref(&trusted)).is_err());
+        assert!(canonical_file_within_roots(&trusted.join("missing.txt"), &[trusted]).is_err());
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn limits_openable_files_to_canonical_trusted_roots() {
+        let root = env::temp_dir().join(format!(
+            "notgram-open-file-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let trusted = root.join("trusted");
+        let outside = root.join("outside");
+        fs::create_dir_all(&trusted).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let trusted_file = trusted.join("message.txt");
+        let outside_file = outside.join("secret.txt");
+        fs::write(&trusted_file, b"message").unwrap();
+        fs::write(&outside_file, b"secret").unwrap();
+        let roots = [trusted.canonicalize().unwrap()];
+
+        assert_eq!(
+            canonical_file_within_roots(&trusted_file, &roots).unwrap(),
+            trusted_file.canonicalize().unwrap()
+        );
+        assert!(canonical_file_within_roots(&outside_file, &roots).is_err());
+        assert!(canonical_file_within_roots(&trusted, &roots).is_err());
+        assert!(canonical_file_within_roots(&trusted.join("missing"), &roots).is_err());
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
