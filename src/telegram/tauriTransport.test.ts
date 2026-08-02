@@ -824,6 +824,9 @@ describe("TauriTelegramTransport history", () => {
 
     internal.listener = (event) => {
       if (event.type === "message.upsert") emittedIds.push(event.message.id);
+      if (event.type === "messages.upserted") {
+        emittedIds.push(...event.messages.map((message) => message.id));
+      }
     };
     internal.request = async (request) => {
       const cursor = Number(request.from_message_id);

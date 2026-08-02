@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Chat,
   ForwardMessagesResult,
@@ -84,7 +84,7 @@ export const useMessageForwarding = ({
     setSelectedIds(new Set([message.id]));
   };
 
-  const toggleSelection = async (message: Message) => {
+  const toggleSelection = useCallback(async (message: Message) => {
     if (selectedIds.has(message.id)) {
       setSelectedIds((current) => {
         const next = new Set(current);
@@ -109,7 +109,7 @@ export const useMessageForwarding = ({
     setSelectedIds((current) => current.size >= 100
       ? current
       : new Set(current).add(message.id));
-  };
+  }, [loadingIds, onLoadMessageProperties, selectedIds]);
 
   const confirm = async (target: Chat) => {
     if (!chatId || pending) return;

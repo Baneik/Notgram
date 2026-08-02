@@ -1,14 +1,17 @@
 import type { Message } from "../telegram/types";
 
-export const upsertMessage = (messages: Message[], next: Message) => {
-  const index = messages.findIndex((message) => message.id === next.id);
-  const updated = [...messages];
-  if (index >= 0) updated[index] = next;
-  else updated.push(next);
-  return updated.sort(
-    (left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime(),
-  );
+const compareMessages = (left: Message, right: Message) =>
+  Date.parse(left.sentAt) - Date.parse(right.sentAt);
+
+export const upsertMessages = (messages: Message[], incoming: Message[]) => {
+  if (incoming.length === 0) return messages;
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort(compareMessages);
 };
+
+export const upsertMessage = (messages: Message[], next: Message) =>
+  upsertMessages(messages, [next]);
 
 export const withEmojiReaction = (
   message: Message,
@@ -45,9 +48,15 @@ export const withEmojiReaction = (
 };
 
 export const messageMapFrom = (messages: Message[]) => {
-  const result = new Map<string, Message[]>();
+  const grouped = new Map<string, Message[]>();
   for (const message of messages) {
-    result.set(message.chatId, upsertMessage(result.get(message.chatId) ?? [], message));
+    const chatMessages = grouped.get(message.chatId) ?? [];
+    chatMessages.push(message);
+    grouped.set(message.chatId, chatMessages);
+  }
+  const result = new Map<string, Message[]>();
+  for (const [chatId, chatMessages] of grouped) {
+    result.set(chatId, [...chatMessages].sort(compareMessages));
   }
   return result;
 };

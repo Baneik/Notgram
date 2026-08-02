@@ -234,6 +234,7 @@ export type TelegramEvent =
   | { type: "authorization.changed"; state: AuthorizationState }
   | { type: "currentUser.changed"; userId: string }
   | { type: "message.upsert"; message: Message }
+  | { type: "messages.upserted"; messages: Message[] }
   | { type: "message.remove"; chatId: string; messageId: string }
   | { type: "folders.replaced"; folders: ChatFolder[] }
   | { type: "chats.upserted"; chats: Chat[] }

@@ -166,6 +166,12 @@ error, and polls-per-second counts. Structured log values are recursively
 redacted before being written and intentionally omit credentials, authentication
 secrets, phone numbers, paths, and message bodies.
 
+History pagination also writes `ui_history_data`, `ui_history_merge`, and
+`ui_history_render` records with request/merge/render duration, batch sizes,
+and scroll-anchor drift. Main-thread tasks over 50 ms are sampled as
+`ui_long_task` at most once every ten seconds. These records contain only
+numeric and boolean diagnostics and never include chat IDs or message content.
+
 ## Proxy settings
 
 Notgram uses the Windows system proxy by default. On Windows, the current

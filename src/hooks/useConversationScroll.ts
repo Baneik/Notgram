@@ -7,6 +7,7 @@ import {
   type UIEvent,
 } from "react";
 import type { Message } from "../telegram/types";
+import { logPerformance, markHistoryInteraction } from "../utils/performanceMonitor";
 
 const BOTTOM_PROXIMITY_PX = 40;
 
@@ -51,32 +52,63 @@ const scrollMemoryKey = (scope: string, chatId?: string) =>
 const distanceFromBottom = (element: HTMLElement) =>
   Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
 
+const visibleAnchor = (element: HTMLElement) => {
+  const listBounds = element.getBoundingClientRect();
+  const rows = element.querySelectorAll<HTMLElement>("[data-message-id]");
+  for (const row of rows) {
+    const bounds = row.getBoundingClientRect();
+    if (bounds.bottom > listBounds.top + 1) {
+      return {
+        messageId: row.dataset.messageId,
+        offset: bounds.top - listBounds.top,
+      };
+    }
+  }
+  return undefined;
+};
+
+const nearbyVisibleAnchor = (element: HTMLElement) => {
+  const bounds = element.getBoundingClientRect();
+  const x = bounds.left + bounds.width / 2;
+  for (const offset of [1, 8, 20, 40, 64]) {
+    const target = document.elementFromPoint(x, Math.min(bounds.bottom - 1, bounds.top + offset));
+    const row = target?.closest<HTMLElement>("[data-message-id]");
+    if (row && element.contains(row)) {
+      return {
+        messageId: row.dataset.messageId,
+        offset: row.getBoundingClientRect().top - bounds.top,
+      };
+    }
+  }
+  return undefined;
+};
+
 const captureScrollMemory = (
   element: HTMLElement,
   lastKnownMessageId: string | undefined,
   pendingNewCount: number,
   followLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX,
+  captureAnchor = false,
 ): ConversationScrollMemory => {
-  const listBounds = element.getBoundingClientRect();
-  const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
-    .find((row) => row.getBoundingClientRect().bottom > listBounds.top + 1);
   const atBottom = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
   const shouldFollowLatest = atBottom || followLatest;
+  const anchor = captureAnchor ? visibleAnchor(element) : undefined;
   return {
     scrollTop: element.scrollTop,
     followLatest: shouldFollowLatest,
     lastKnownMessageId,
     pendingNewCount: shouldFollowLatest ? 0 : pendingNewCount,
-    anchorMessageId: anchor?.dataset.messageId,
-    anchorOffset: anchor ? anchor.getBoundingClientRect().top - listBounds.top : undefined,
+    anchorMessageId: anchor?.messageId,
+    anchorOffset: anchor?.offset,
   };
 };
 
 const restoreScrollMemory = (element: HTMLElement, memory: ConversationScrollMemory) => {
   element.scrollTop = memory.scrollTop;
   if (!memory.anchorMessageId || memory.anchorOffset === undefined) return;
-  const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
-    .find((row) => row.dataset.messageId === memory.anchorMessageId);
+  const anchor = element.querySelector<HTMLElement>(
+    `[data-message-id="${CSS.escape(memory.anchorMessageId)}"]`,
+  );
   if (!anchor) return;
   const currentOffset = anchor.getBoundingClientRect().top - element.getBoundingClientRect().top;
   element.scrollTop += currentOffset - memory.anchorOffset;
@@ -103,6 +135,12 @@ export const useConversationScroll = ({
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const previousLayoutRef = useRef<ConversationLayoutSnapshot | undefined>(undefined);
   const handledLatestRequestRef = useRef(0);
+  const historyLoadPendingRef = useRef<string | undefined>(undefined);
+  const historyTraceRef = useRef<{
+    key: string;
+    startedAt: number;
+    beforeCount: number;
+  } | undefined>(undefined);
   const scrollPointerActiveRef = useRef(false);
   const userScrollIntentUntilRef = useRef(0);
   const [newMessageNotice, setNewMessageNotice] = useState<{
@@ -111,6 +149,45 @@ export const useConversationScroll = ({
   }>();
   const currentScrollKey = scrollMemoryKey(scope, chatId);
   const lastVisibleMessageId = visibleMessages.at(-1)?.id;
+  const lastVisibleMessageIdRef = useRef(lastVisibleMessageId);
+  lastVisibleMessageIdRef.current = lastVisibleMessageId;
+
+  const updateNewMessageNotice = (key: string, count: number) => {
+    setNewMessageNotice((current) =>
+      current?.key === key && current.count === count ? current : { key, count });
+  };
+
+  const loadOlder = () => {
+    const element = messageListRef.current;
+    if (
+      !element ||
+      !currentScrollKey ||
+      search ||
+      historyLoading ||
+      !hasOlderMessages ||
+      historyLoadPendingRef.current === currentScrollKey
+    ) return;
+    const stored = conversationScrollMemory.get(currentScrollKey);
+    conversationScrollMemory.set(currentScrollKey, captureScrollMemory(
+      element,
+      lastVisibleMessageId,
+      stored?.pendingNewCount ?? 0,
+      false,
+      true,
+    ));
+    historyTraceRef.current = {
+      key: currentScrollKey,
+      startedAt: performance.now(),
+      beforeCount: visibleMessages.length,
+    };
+    markHistoryInteraction();
+    historyLoadPendingRef.current = currentScrollKey;
+    void onLoadOlder().finally(() => {
+      if (historyLoadPendingRef.current === currentScrollKey) {
+        historyLoadPendingRef.current = undefined;
+      }
+    });
+  };
 
   const jumpToLatest = () => {
     const element = messageListRef.current;
@@ -124,25 +201,24 @@ export const useConversationScroll = ({
       followLatest: true,
       pendingNewCount: 0,
     });
-    setNewMessageNotice({ key: currentScrollKey, count: 0 });
+    updateNewMessageNotice(currentScrollKey, 0);
   };
 
   useLayoutEffect(() => {
+    const renderStartedAt = performance.now();
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
     const previous = previousLayoutRef.current;
     const firstId = visibleMessages[0]?.id;
     const lastId = lastVisibleMessageId;
     const stored = conversationScrollMemory.get(currentScrollKey);
+    let restoredHistoryAnchor = false;
 
     if (search) {
       if (!previous || previous.key !== currentScrollKey || previous.search !== search) {
         element.scrollTop = 0;
       }
-      setNewMessageNotice({
-        key: currentScrollKey,
-        count: stored?.pendingNewCount ?? 0,
-      });
+      updateNewMessageNotice(currentScrollKey, stored?.pendingNewCount ?? 0);
       previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
       return;
     }
@@ -168,7 +244,10 @@ export const useConversationScroll = ({
       );
       if (firstMessageChanged && previousFirstStillPresent) {
         if (stored.followLatest) element.scrollTop = element.scrollHeight;
-        else restoreScrollMemory(element, stored);
+        else {
+          restoreScrollMemory(element, stored);
+          restoredHistoryAnchor = historyTraceRef.current?.key === currentScrollKey;
+        }
       }
 
       if (previous.lastId !== lastId) {
@@ -185,8 +264,36 @@ export const useConversationScroll = ({
 
     const memory = captureScrollMemory(element, lastId, pendingNewCount, followLatest);
     conversationScrollMemory.set(currentScrollKey, memory);
-    setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
+    updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
     previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
+    if (restoredHistoryAnchor && historyTraceRef.current && stored) {
+      const trace = historyTraceRef.current;
+      const anchorMessageId = stored.anchorMessageId;
+      const expectedAnchorOffset = stored.anchorOffset;
+      historyTraceRef.current = undefined;
+      const restoreDurationMs = performance.now() - renderStartedAt;
+      requestAnimationFrame(() => {
+        if (messageListRef.current !== element) return;
+        const anchor = anchorMessageId
+          ? element.querySelector<HTMLElement>(
+              `[data-message-id="${CSS.escape(anchorMessageId)}"]`,
+            )
+          : undefined;
+        const anchorOffset = anchor
+          ? anchor.getBoundingClientRect().top - element.getBoundingClientRect().top
+          : undefined;
+        logPerformance("ui_history_render", {
+          durationMs: performance.now() - trace.startedAt,
+          restoreDurationMs,
+          addedCount: Math.max(0, visibleMessages.length - trace.beforeCount),
+          scrollTop: element.scrollTop,
+          scrollHeight: element.scrollHeight,
+          anchorShiftPx: anchorOffset !== undefined && expectedAnchorOffset !== undefined
+            ? Math.abs(anchorOffset - expectedAnchorOffset)
+            : undefined,
+        });
+      });
+    }
   }, [currentScrollKey, lastVisibleMessageId, search, visibleMessages]);
 
   useLayoutEffect(() => {
@@ -209,16 +316,16 @@ export const useConversationScroll = ({
       animationFrame = requestAnimationFrame(() => {
         const stored = conversationScrollMemory.get(currentScrollKey);
         if (!stored) return;
-        if (stored.followLatest) element.scrollTop = element.scrollHeight;
-        else restoreScrollMemory(element, stored);
+        if (!stored.followLatest) return;
+        element.scrollTop = element.scrollHeight;
         const memory = captureScrollMemory(
           element,
-          visibleMessages.at(-1)?.id,
+          lastVisibleMessageIdRef.current,
           stored.pendingNewCount,
           stored.followLatest,
         );
         conversationScrollMemory.set(currentScrollKey, memory);
-        setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
+        updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
       });
     });
     observer.observe(content);
@@ -226,7 +333,7 @@ export const useConversationScroll = ({
       observer.disconnect();
       if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
     };
-  }, [currentScrollKey, search, visibleMessages]);
+  }, [currentScrollKey, search]);
 
   useEffect(() => {
     const element = messageListRef.current;
@@ -240,7 +347,7 @@ export const useConversationScroll = ({
     const attemptKey = `${chatId ?? ""}:${messageCount}`;
     if (autoFillAttemptRef.current === attemptKey) return;
     autoFillAttemptRef.current = attemptKey;
-    void onLoadOlder();
+    loadOlder();
   }, [chatId, hasOlderMessages, historyLoading, messageCount, onLoadOlder, search]);
 
   const onWheel = () => {
@@ -269,17 +376,21 @@ export const useConversationScroll = ({
         performance.now() <= userScrollIntentUntilRef.current;
       const followLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX ||
         (!userInitiated && stored?.followLatest === true);
-      const memory = captureScrollMemory(
-        element,
-        lastVisibleMessageId,
-        stored?.pendingNewCount ?? 0,
-        followLatest,
-      );
+      const shouldFollowLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX || followLatest;
+      const anchor = shouldFollowLatest ? undefined : nearbyVisibleAnchor(element);
+      const memory: ConversationScrollMemory = {
+        scrollTop: element.scrollTop,
+        followLatest: shouldFollowLatest,
+        lastKnownMessageId: lastVisibleMessageId,
+        pendingNewCount: shouldFollowLatest ? 0 : (stored?.pendingNewCount ?? 0),
+        anchorMessageId: anchor?.messageId,
+        anchorOffset: anchor?.offset,
+      };
       conversationScrollMemory.set(currentScrollKey, memory);
-      setNewMessageNotice({ key: currentScrollKey, count: memory.pendingNewCount });
+      updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
     }
     if (element.scrollTop <= 64 && !search && hasOlderMessages && !historyLoading) {
-      void onLoadOlder();
+      loadOlder();
     }
   };
 

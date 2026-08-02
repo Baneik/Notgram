@@ -273,9 +273,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const offset = this.historyOffsets.get(chatId) ?? 0;
     const page = history.slice(offset, offset + limit);
     this.historyOffsets.set(chatId, offset + page.length);
-    for (const message of page) {
-      this.listener?.({ type: "message.upsert", message: clone(message) });
-    }
+    this.listener?.({ type: "messages.upserted", messages: clone(page) });
     return {
       loadedCount: page.length,
       hasMore: offset + page.length < history.length,

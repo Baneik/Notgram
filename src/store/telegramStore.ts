@@ -24,6 +24,7 @@ import {
   messageMapFrom,
   reconcileCachedMessageWindow,
   upsertMessage,
+  upsertMessages,
   withEmojiReaction,
 } from "./telegramStore.messages";
 import {
@@ -32,6 +33,7 @@ import {
   isChatPinnedInFolder,
 } from "./telegramStore.selectors";
 import type { TelegramState } from "./telegramStore.types";
+import { logPerformance } from "../utils/performanceMonitor";
 
 export type {
   ChatFilter,
@@ -223,6 +225,8 @@ export const createTelegramStore = (
       const histories = new Map(get().histories);
       histories.set(chatId, { loading: true, hasMore: current?.hasMore ?? true });
       set({ histories });
+      const startedAt = performance.now();
+      const beforeCount = get().messages.get(chatId)?.length ?? 0;
       try {
         let page = await transport.loadChatHistory(chatId, 30);
         const pendingCachedIds = cachedMessageIds.get(chatId);
@@ -261,6 +265,14 @@ export const createTelegramStore = (
         const nextHistories = new Map(get().histories);
         nextHistories.set(chatId, { loading: false, hasMore: page.hasMore });
         set({ histories: nextHistories, error: undefined });
+        logPerformance("ui_history_data", {
+          durationMs: performance.now() - startedAt,
+          beforeCount,
+          afterCount: get().messages.get(chatId)?.length ?? 0,
+          loadedCount: page.loadedCount,
+          hasMore: page.hasMore,
+          failed: false,
+        });
         scheduleCacheWrite();
       } catch (error) {
         const nextHistories = new Map(get().histories);
@@ -268,6 +280,12 @@ export const createTelegramStore = (
         set({
           histories: nextHistories,
           error: error instanceof Error ? error.message : "无法加载历史消息",
+        });
+        logPerformance("ui_history_data", {
+          durationMs: performance.now() - startedAt,
+          beforeCount,
+          afterCount: get().messages.get(chatId)?.length ?? 0,
+          failed: true,
         });
       }
     };
@@ -418,6 +436,42 @@ export const createTelegramStore = (
           ),
         );
         set({ messages });
+        scheduleCacheWrite();
+        return;
+      }
+
+      if (event.type === "messages.upserted") {
+        if (event.messages.length === 0) return;
+        const mergeStartedAt = performance.now();
+        const messages = new Map(get().messages);
+        const incomingByChat = new Map<string, typeof event.messages>();
+        let beforeCount = 0;
+        for (const message of event.messages) {
+          const chatMessages = incomingByChat.get(message.chatId) ?? [];
+          chatMessages.push(message);
+          incomingByChat.set(message.chatId, chatMessages);
+        }
+        for (const [chatId, incoming] of incomingByChat) {
+          const existing = messages.get(chatId) ?? [];
+          beforeCount += existing.length;
+          messages.set(chatId, upsertMessages(existing, incoming));
+        }
+        set({ messages });
+        logPerformance("ui_history_merge", {
+          durationMs: performance.now() - mergeStartedAt,
+          batchCount: event.messages.length,
+          beforeCount,
+          afterCount: [...incomingByChat.keys()].reduce(
+            (total, chatId) => total + (messages.get(chatId)?.length ?? 0),
+            0,
+          ),
+        });
+        const activeChatId = get().activeChatId;
+        if (activeChatId && event.messages.some(
+          (message) => message.chatId === activeChatId && !message.outgoing,
+        )) {
+          scheduleChatRead(activeChatId);
+        }
         scheduleCacheWrite();
         return;
       }

@@ -15,7 +15,7 @@ import {
   SmilePlus,
   X,
 } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { memo, useState, type CSSProperties } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction, User } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
@@ -64,7 +64,7 @@ const reactionLabel = (reaction: MessageReaction) => {
   return "◇";
 };
 
-export function MessageBubble({
+function MessageBubbleComponent({
   message,
   sender,
   senderName,
@@ -503,3 +503,5 @@ export function MessageBubble({
     </article>
   );
 }
+
+export const MessageBubble = memo(MessageBubbleComponent);

@@ -334,3 +334,31 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await expect(page.locator(".conversation-title h2")).toHaveText("产品讨论");
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 });
+
+test("loading older messages preserves the visible message anchor", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-row")).toHaveCount(30);
+
+  const list = page.locator(".message-list");
+  const before = await list.evaluate((element) => {
+    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
+    element.scrollTop = 40;
+    const listBounds = element.getBoundingClientRect();
+    const row = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((candidate) => candidate.getBoundingClientRect().bottom > listBounds.top + 1);
+    const result = {
+      id: row?.dataset.messageId,
+      offset: row ? row.getBoundingClientRect().top - listBounds.top : 0,
+    };
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    return result;
+  });
+
+  expect(before.id).toBeTruthy();
+  await expect(page.locator(".message-row")).toHaveCount(46);
+  const offset = await page.locator(`[data-message-id="${before.id}"]`).evaluate(
+    (row) => row.getBoundingClientRect().top -
+      (row.closest(".message-list")?.getBoundingClientRect().top ?? 0),
+  );
+  expect(Math.abs(offset - before.offset)).toBeLessThanOrEqual(2);
+});

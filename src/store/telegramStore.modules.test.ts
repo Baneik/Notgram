@@ -11,6 +11,7 @@ import { DraftSyncController } from "./telegramStore.drafts";
 import {
   reconcileCachedMessageWindow,
   upsertMessage,
+  upsertMessages,
   withEmojiReaction,
 } from "./telegramStore.messages";
 import type { TelegramState } from "./telegramStore.types";
@@ -28,6 +29,15 @@ const message = (id: string, sentAt = `2026-08-02T08:00:${id.padStart(2, "0")}Z`
 afterEach(() => vi.useRealTimers());
 
 describe("telegram store message state", () => {
+  it("merges a history page in one chronological batch", () => {
+    const original = [message("10"), message("12")];
+    const replacement = { ...message("12"), delivery: "read" as const };
+    const result = upsertMessages(original, [replacement, message("11"), message("9")]);
+
+    expect(result.map(({ id }) => id)).toEqual(["9", "10", "11", "12"]);
+    expect(result.at(-1)).toBe(replacement);
+  });
+
   it("upserts in chronological order and applies reversible emoji reactions", () => {
     const ordered = upsertMessage([message("2")], message("1"));
     expect(ordered.map(({ id }) => id)).toEqual(["1", "2"]);

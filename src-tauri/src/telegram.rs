@@ -372,6 +372,47 @@ impl TelegramRuntime {
                 .map(|logger| logger.path.display().to_string()),
         }
     }
+
+    fn log_performance(&self, event: &str, details: Value) -> Result<(), String> {
+        const ALLOWED_EVENTS: &[&str] = &[
+            "ui_history_data",
+            "ui_history_merge",
+            "ui_history_render",
+            "ui_long_task",
+        ];
+        if !ALLOWED_EVENTS.contains(&event) {
+            return Err("不支持的性能日志事件".to_string());
+        }
+        let Value::Object(fields) = &details else {
+            return Err("性能日志详情必须是对象".to_string());
+        };
+        if fields.len() > 16
+            || fields
+                .values()
+                .any(|value| !matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null))
+        {
+            return Err("性能日志详情格式无效".to_string());
+        }
+        let duration_ms = fields
+            .iter()
+            .filter(|(key, _)| key.ends_with("Ms"))
+            .filter_map(|(_, value)| value.as_f64())
+            .fold(0.0_f64, f64::max);
+        let logger = self
+            .inner
+            .lock()
+            .expect("telegram runtime mutex poisoned")
+            .logger
+            .clone();
+        if let Some(logger) = logger {
+            logger.write(
+                if duration_ms >= 100.0 { "warn" } else { "info" },
+                event,
+                details,
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize)]
@@ -767,6 +808,29 @@ mod tests {
             )
         });
     }
+
+    #[test]
+    fn performance_logs_accept_only_bounded_numeric_diagnostics() {
+        let runtime = TelegramRuntime::new();
+        assert!(
+            runtime
+                .log_performance(
+                    "ui_history_render",
+                    json!({ "durationMs": 12.5, "addedCount": 30, "failed": false }),
+                )
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .log_performance("arbitrary_event", json!({ "durationMs": 1 }))
+                .is_err()
+        );
+        assert!(
+            runtime
+                .log_performance("ui_history_render", json!({ "text": "message content" }))
+                .is_err()
+        );
+    }
 }
 
 #[tauri::command]
@@ -787,6 +851,17 @@ pub fn telegram_start(app: AppHandle, runtime: State<'_, TelegramRuntime>) -> Re
 pub fn telegram_send(request: Value, runtime: State<'_, TelegramRuntime>) -> Result<(), String> {
     validate_webview_tdlib_request(&request)?;
     runtime.send(&request)
+}
+
+#[tauri::command]
+pub fn telegram_log_performance(
+    app: AppHandle,
+    event: String,
+    details: Value,
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<(), String> {
+    runtime.prepare(&app);
+    runtime.log_performance(&event, details)
 }
 
 #[tauri::command]

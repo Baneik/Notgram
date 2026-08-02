@@ -625,15 +625,17 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatId: string,
     targetCount: number,
   ): Promise<ChatHistoryPage> {
+    const rawMessages: TdObject[] = [];
     const result = await loadHistoryWindow({
       chatId,
       targetCount,
       cursor: this.historyCursors.get(chatId) ?? 0,
       knownMessages: this.rawMessages.get(chatId) ?? new Map<string, TdObject>(),
       request: (request) => this.request(request),
-      emitMessage: (message) => this.emitMessage(message),
+      emitMessage: (message) => rawMessages.push(message),
       onCursor: (cursor) => this.historyCursors.set(chatId, cursor),
     });
+    this.emitMessages(rawMessages);
     if (result.exhausted) this.exhaustedHistories.add(chatId);
 
     return {
@@ -958,6 +960,25 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.set(message.chatId, chatMessages);
     this.listener?.({ type: "message.upsert", message });
     this.ensureReplyContent(raw);
+  }
+
+  private emitMessages(rawMessages: TdObject[]) {
+    const messages = new Map<string, Message>();
+    const uniqueRawMessages = new Map<string, TdObject>();
+    for (const raw of rawMessages) {
+      const message = mapTdMessage(raw);
+      if (!message) continue;
+      const chatMessages = this.rawMessages.get(message.chatId) ?? new Map<string, TdObject>();
+      chatMessages.set(message.id, raw);
+      this.rawMessages.set(message.chatId, chatMessages);
+      const key = `${message.chatId}:${message.id}`;
+      messages.set(key, message);
+      uniqueRawMessages.set(key, raw);
+    }
+    if (messages.size > 0) {
+      this.listener?.({ type: "messages.upserted", messages: [...messages.values()] });
+    }
+    for (const raw of uniqueRawMessages.values()) this.ensureReplyContent(raw);
   }
 
   private ensureReplyContent(raw: TdObject) {

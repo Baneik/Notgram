@@ -40,6 +40,7 @@ pub fn run() {
             storage::account::telegram_remove_account,
             telegram::telegram_start,
             telegram::telegram_send,
+            telegram::telegram_log_performance,
             telegram::telegram_register_media_stream,
             telegram::telegram_pick_and_send_file,
             telegram::telegram_shutdown,

@@ -14,7 +14,7 @@ import {
   Reply,
   X,
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Chat,
   ChatDraft,
@@ -306,7 +306,7 @@ export function Conversation({
     globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
   };
 
-  const openActionMenu = async (message: Message, left: number, top: number) => {
+  const openActionMenu = useCallback(async (message: Message, left: number, top: number) => {
     const menuWidth = 184;
     const menuHeight = 170;
     setActionMenu({
@@ -318,7 +318,7 @@ export function Conversation({
     setActionLoadingId(message.id);
     await onLoadMessageProperties(message.chatId, message.id);
     setActionLoadingId((current) => current === message.id ? undefined : current);
-  };
+  }, [actionLoadingId, onLoadMessageProperties]);
 
   const cancelEditing = () => {
     setEditingMessage(undefined);
