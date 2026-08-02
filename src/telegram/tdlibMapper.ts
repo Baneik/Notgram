@@ -1143,6 +1143,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const id = tdId(raw.id);
   const chatId = tdId(raw.chat_id);
   if (!id || !chatId) return undefined;
+  const mediaAlbumId = tdId(raw.media_album_id);
 
   const senderId = messageSenderId(raw.sender_id) || "unknown";
   const sendingState = asTdObject(raw.sending_state);
@@ -1155,6 +1156,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   return {
     id,
     chatId,
+    mediaAlbumId: mediaAlbumId && mediaAlbumId !== "0" ? mediaAlbumId : undefined,
     senderId,
     outgoing: raw.is_outgoing === true,
     sentAt: unixDate(raw.date),

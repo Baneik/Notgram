@@ -248,6 +248,7 @@ export interface MessagePermissions {
 export interface Message {
   id: string;
   chatId: string;
+  mediaAlbumId?: string;
   senderId: string;
   outgoing: boolean;
   sentAt: string;

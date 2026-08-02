@@ -10,6 +10,24 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("preserves non-zero media album ids without creating zero albums", () => {
+    const base = {
+      id: 1000,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      date: 1_700_000_000,
+      content: {
+        "@type": "messagePhoto",
+        photo: { sizes: [] },
+        caption: { "@type": "formattedText", text: "", entities: [] },
+      },
+    };
+
+    expect(mapTdMessage({ ...base, media_album_id: "9223372036854775000" }))
+      .toMatchObject({ mediaAlbumId: "9223372036854775000" });
+    expect(mapTdMessage({ ...base, media_album_id: "0" })?.mediaAlbumId).toBeUndefined();
+  });
+
   it("maps text drafts and their reply target", () => {
     expect(mapTdChatDraft(7, {
       "@type": "draftMessage",
