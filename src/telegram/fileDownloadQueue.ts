@@ -57,6 +57,25 @@ export class FileDownloadQueue {
     this.pump();
   }
 
+  cancel(fileId: number) {
+    const queuedIndex = this.queue.findIndex((download) => download.fileId === fileId);
+    if (queuedIndex >= 0) {
+      const [download] = this.queue.splice(queuedIndex, 1);
+      this.promises.delete(fileId);
+      download.reject(new Error("TDLib download cancelled"));
+      return true;
+    }
+
+    const download = this.active.get(fileId);
+    if (!download) return false;
+    if (download.stallTimer !== undefined) globalThis.clearTimeout(download.stallTimer);
+    this.active.delete(fileId);
+    this.promises.delete(fileId);
+    download.reject(new Error("TDLib download cancelled"));
+    this.pump();
+    return true;
+  }
+
   handleFile(fileId: number, completed: boolean, active: boolean) {
     if (completed) this.finish(fileId);
     else if (this.active.has(fileId) && !active) {

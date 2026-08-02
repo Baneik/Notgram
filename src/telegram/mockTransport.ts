@@ -483,6 +483,10 @@ export class MockTelegramTransport implements TelegramTransport {
     return;
   }
 
+  async cancelFileDownload(_fileId: number) {
+    return;
+  }
+
   async cacheFile(_fileId: number, _priority?: number) {
     return;
   }

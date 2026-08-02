@@ -1248,6 +1248,15 @@ export const createTelegramStore = (
         }
       },
 
+      cancelFileDownload: async (fileId) => {
+        try {
+          await transport.cancelFileDownload(fileId);
+          set({ operationError: undefined });
+        } catch (error) {
+          set({ operationError: error instanceof Error ? error.message : "取消文件下载失败" });
+        }
+      },
+
       retryMessage: async (messageId) => {
         const chatId = get().activeChatId;
         if (!chatId) return;

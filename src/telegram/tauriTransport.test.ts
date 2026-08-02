@@ -44,6 +44,24 @@ const rawChat = (id: number, date: number): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("cancels a TDLib file download without limiting cancellation to pending work", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.cancelFileDownload(77);
+
+    expect(requests).toEqual([{
+      "@type": "cancelDownloadFile",
+      file_id: 77,
+      only_if_pending: false,
+    }]);
+  });
+
   it("routes connection updates, ignores duplicates, and surfaces a stalled proxy", () => {
     vi.useFakeTimers();
     try {

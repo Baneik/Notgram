@@ -599,9 +599,21 @@ export class TauriTelegramTransport implements TelegramTransport {
       });
       this.updateFile(file);
     } catch (error) {
+      const cancelled = !this.pendingDownloads.has(fileId);
       this.pendingDownloads.delete(fileId);
+      if (cancelled) return;
       throw error;
     }
+  }
+
+  async cancelFileDownload(fileId: number) {
+    this.pendingDownloads.delete(fileId);
+    this.fileDownloads.cancel(fileId);
+    await this.request({
+      "@type": "cancelDownloadFile",
+      file_id: fileId,
+      only_if_pending: false,
+    });
   }
 
   cacheFile(fileId: number, priority = 16) {

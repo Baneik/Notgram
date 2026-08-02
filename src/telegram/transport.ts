@@ -59,6 +59,7 @@ export interface TelegramTransport {
   cacheFile(fileId: number, priority?: number): Promise<void>;
   streamFile(input: StreamFileInput): Promise<string>;
   downloadFile(fileId: number, fileName: string): Promise<void>;
+  cancelFileDownload(fileId: number): Promise<void>;
   retryMessage(chatId: string, messageId: string): Promise<void>;
   sendFile(input: SendFileInput): Promise<boolean>;
   cancelFileUpload(chatId: string, messageId: string): Promise<void>;
