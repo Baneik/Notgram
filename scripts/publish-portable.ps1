@@ -93,6 +93,11 @@ New-Item -ItemType Directory -Path $portableDirectory -Force | Out-Null
 Copy-Item -LiteralPath $executable -Destination (Join-Path $portableDirectory "Notgram.exe")
 Copy-Item -LiteralPath $runtimeSource -Destination $portableDirectory -Recurse
 Copy-Item -LiteralPath $releasePolicyPath -Destination (Join-Path $portableDirectory "RELEASE-POLICY.json")
+[System.IO.File]::WriteAllText(
+    (Join-Path $portableDirectory ".notgram-portable"),
+    "Notgram portable distribution`n",
+    [System.Text.UTF8Encoding]::new($false)
+)
 
 Push-Location $repositoryRoot
 try {
@@ -112,6 +117,7 @@ $metadata = [ordered]@{
     sourceTreeClean = -not $dirty
     builtAtUtc = (Get-Date).ToUniversalTime().ToString("o")
     target = "x86_64-pc-windows-msvc"
+    artifactType = "portable"
     transport = "tauri"
     checks = [ordered]@{
         versionSynchronization = "passed"

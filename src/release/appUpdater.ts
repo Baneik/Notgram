@@ -15,6 +15,8 @@ export interface AppUpdateProgress {
   fraction?: number;
 }
 
+export type AppDistribution = "installed" | "portable" | "unknown" | "browser";
+
 interface NativeDownloadEvent {
   event: "Started" | "Progress" | "Finished";
   data?: { contentLength?: number; chunkLength?: number };
@@ -31,6 +33,7 @@ interface NativeUpdate {
 
 export interface AppUpdaterBridge {
   available: () => boolean;
+  distribution: () => Promise<Exclude<AppDistribution, "browser">>;
   currentVersion: () => Promise<string>;
   check: () => Promise<NativeUpdate | null>;
   relaunch: () => Promise<void>;
@@ -45,12 +48,17 @@ export class AppUpdater {
     return this.bridge.available();
   }
 
+  async distribution(): Promise<AppDistribution> {
+    if (!this.isAvailable()) return "browser";
+    return this.bridge.distribution();
+  }
+
   currentVersion() {
     return this.bridge.currentVersion();
   }
 
   async check(): Promise<AppUpdateInfo | undefined> {
-    if (!this.isAvailable()) return undefined;
+    if (await this.distribution() !== "installed") return undefined;
     if (this.update) {
       await this.update.close();
       this.update = undefined;
@@ -97,6 +105,10 @@ export class AppUpdater {
 
 export const appUpdater = new AppUpdater({
   available: isTauri,
+  distribution: async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<Exclude<AppDistribution, "browser">>("notgram_distribution_kind");
+  },
   currentVersion: async () => isTauri() ? getVersion() : versionSource.version,
   check: async () => {
     const { check } = await import("@tauri-apps/plugin-updater");

@@ -1,6 +1,7 @@
 mod desktop_lifecycle;
 mod desktop_notification;
 mod development;
+mod distribution;
 mod proxy;
 mod storage;
 mod telegram;
@@ -16,8 +17,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            if distribution::supports_native_updater() {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
             desktop_lifecycle::setup(app)
         })
         .on_window_event(desktop_lifecycle::handle_window_event)
@@ -30,6 +33,7 @@ pub fn run() {
             },
         )
         .invoke_handler(tauri::generate_handler![
+            distribution::notgram_distribution_kind,
             desktop_notification::notgram_show_notification,
             telegram::telegram_runtime_status,
             proxy::telegram_proxy_settings,

@@ -2,6 +2,7 @@ import { CheckCircle2, CloudDownload, LoaderCircle, RefreshCw } from "lucide-rea
 import { useEffect, useState } from "react";
 import {
   appUpdater,
+  type AppDistribution,
   type AppUpdateInfo,
   type AppUpdateProgress,
 } from "../release/appUpdater";
@@ -11,7 +12,7 @@ type UpdateState = "idle" | "checking" | "current" | "available" | "installing" 
 const updateChannel = (version: string) => version.includes("-") ? "候选通道" : "稳定通道";
 
 export function UpdateSettings() {
-  const supported = appUpdater.isAvailable();
+  const [distribution, setDistribution] = useState<AppDistribution>();
   const [currentVersion, setCurrentVersion] = useState("-");
   const [state, setState] = useState<UpdateState>("idle");
   const [update, setUpdate] = useState<AppUpdateInfo>();
@@ -19,6 +20,11 @@ export function UpdateSettings() {
 
   useEffect(() => {
     let active = true;
+    void appUpdater.distribution().then((value) => {
+      if (active) setDistribution(value);
+    }).catch(() => {
+      if (active) setDistribution("unknown");
+    });
     void appUpdater.currentVersion().then((version) => {
       if (active) setCurrentVersion(version);
     }).catch(() => {
@@ -26,6 +32,8 @@ export function UpdateSettings() {
     });
     return () => { active = false; };
   }, []);
+
+  const supported = distribution === "installed";
 
   const check = async () => {
     setState("checking");
@@ -69,10 +77,14 @@ export function UpdateSettings() {
             <><LoaderCircle className="spin" size={18} /><span>正在安装 {update?.version}</span></>
           ) : state === "error" ? (
             <><RefreshCw size={18} /><span>更新操作失败，请稍后重试</span></>
-          ) : !supported ? (
+          ) : distribution === "portable" ? (
+            <span>便携版通过新版 ZIP 更新</span>
+          ) : distribution === "browser" ? (
             <span>浏览器预览</span>
+          ) : distribution === "unknown" ? (
+            <span>当前分发方式不支持自动更新</span>
           ) : (
-            <span>尚未检查</span>
+            <span>{supported ? "尚未检查" : "正在读取版本"}</span>
           )}
         </div>
 

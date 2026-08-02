@@ -21,6 +21,7 @@ const update = (overrides: Partial<Awaited<ReturnType<AppUpdaterBridge["check"]>
 
 const bridge = (overrides: Partial<AppUpdaterBridge> = {}): AppUpdaterBridge => ({
   available: () => true,
+  distribution: async () => "installed",
   currentVersion: async () => "0.5.0-rc.1",
   check: async () => null,
   relaunch: async () => undefined,
@@ -31,6 +32,14 @@ describe("AppUpdater", () => {
   it("does not contact the native updater outside Tauri", async () => {
     const check = vi.fn(async () => null);
     const updater = new AppUpdater(bridge({ available: () => false, check }));
+    expect(await updater.check()).toBeUndefined();
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("does not offer an installer update to portable distributions", async () => {
+    const check = vi.fn(async () => null);
+    const updater = new AppUpdater(bridge({ distribution: async () => "portable", check }));
+    expect(await updater.distribution()).toBe("portable");
     expect(await updater.check()).toBeUndefined();
     expect(check).not.toHaveBeenCalled();
   });
