@@ -6,10 +6,11 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import type { Chat, ChatDraft } from "../telegram/types";
+import type { Chat, ChatDraft, ConnectionStatus } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
+import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 
 interface ChatSidebarProps {
   chats: Chat[];
@@ -17,6 +18,7 @@ interface ChatSidebarProps {
   activeChatId?: string;
   folderId: string;
   folderTitle: string;
+  connectionStatus: ConnectionStatus;
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onSelect: (chatId: string) => void;
@@ -39,6 +41,7 @@ export function ChatSidebar({
   activeChatId,
   folderId,
   folderTitle,
+  connectionStatus,
   searchQuery,
   onSearchChange,
   onSelect,
@@ -223,7 +226,10 @@ export function ChatSidebar({
   return (
     <aside ref={sidebarRef} className={`chat-sidebar ${resizing ? "is-resizing" : ""}`} aria-label="会话列表">
       <div className="sidebar-heading">
-        <h1>{folderTitle}</h1>
+        <div>
+          <h1>{folderTitle}</h1>
+          <ConnectionStatusIndicator status={connectionStatus} compact />
+        </div>
       </div>
 
       <label className="search-field">

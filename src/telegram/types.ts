@@ -1,5 +1,12 @@
 export type ChatKind = "direct" | "group" | "channel" | "saved";
 export type DeliveryState = "sending" | "sent" | "read" | "failed";
+export type ConnectionStatus =
+  | "connecting"
+  | "syncing"
+  | "online"
+  | "waitingForNetwork"
+  | "proxyError"
+  | "offline";
 
 export type AuthorizationState =
   | { kind: "preparing" }
@@ -279,6 +286,7 @@ export interface CachedTelegramSnapshot {
 
 export type TelegramEvent =
   | { type: "authorization.changed"; state: AuthorizationState }
+  | { type: "connection.changed"; status: ConnectionStatus }
   | { type: "currentUser.changed"; userId: string }
   | { type: "message.upsert"; message: Message }
   | { type: "messages.upserted"; messages: Message[] }
@@ -289,7 +297,7 @@ export type TelegramEvent =
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
   | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }
   | { type: "user.upsert"; user: User }
-  | { type: "sync.error"; message: string };
+  | { type: "sync.error"; message: string; fatal?: boolean };
 
 export interface SendMessageInput {
   chatId: string;

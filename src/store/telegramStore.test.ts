@@ -5,6 +5,7 @@ import type { TelegramEventListener } from "../telegram/transport";
 import type {
   CachedTelegramSnapshot,
   Chat,
+  ConnectionStatus,
   Message,
   MessagePermissions,
   SetChatDraftInput,
@@ -14,6 +15,75 @@ import type {
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 
 describe("telegram store", () => {
+  it.each([
+    "connecting",
+    "syncing",
+    "online",
+    "waitingForNetwork",
+    "proxyError",
+    "offline",
+  ] satisfies ConnectionStatus[])("accepts the mock %s connection state", async (status) => {
+    const store = createTelegramStore(new MockTelegramTransport({ connectionStatus: status }));
+
+    await store.getState().initialize();
+
+    expect(store.getState().connectionStatus).toBe(status);
+  });
+
+  it("preserves chats, history, and drafts while the network disconnects and recovers", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const before = store.getState();
+
+    transport.setConnectionStatus("waitingForNetwork");
+    transport.setConnectionStatus("waitingForNetwork");
+    transport.setConnectionStatus("connecting");
+    transport.setConnectionStatus("syncing");
+    transport.setConnectionStatus("online");
+
+    const after = store.getState();
+    expect(after.connectionStatus).toBe("online");
+    expect(after.phase).toBe("ready");
+    expect(after.chats).toBe(before.chats);
+    expect(after.messages).toBe(before.messages);
+    expect(after.drafts).toBe(before.drafts);
+    expect(after.histories).toBe(before.histories);
+  });
+
+  it("keeps recoverable sync errors local and reserves the error phase for fatal runtime failures", async () => {
+    class ErrorReportingTransport extends MockTelegramTransport {
+      private events?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.events = listener;
+        return super.connect(listener);
+      }
+
+      report(message: string, fatal = false) {
+        this.events?.({ type: "sync.error", message, fatal });
+      }
+    }
+
+    const transport = new ErrorReportingTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    transport.report("下载保存失败");
+    expect(store.getState()).toMatchObject({
+      phase: "ready",
+      connectionStatus: "online",
+      error: "下载保存失败",
+    });
+
+    transport.report("runtime stopped", true);
+    expect(store.getState()).toMatchObject({
+      phase: "error",
+      connectionStatus: "offline",
+      error: "runtime stopped",
+    });
+  });
+
   it("finishes loading the cached chat list before starting live updates", async () => {
     class CacheFirstTransport extends MockTelegramTransport {
       connectStarted = false;

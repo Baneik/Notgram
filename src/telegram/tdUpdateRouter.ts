@@ -2,6 +2,7 @@ import { asTdObject, type TdObject } from "./tdlibMapper";
 
 export interface TdUpdateHandlers {
   authorization: (update: TdObject) => void;
+  connection: (update: TdObject) => void;
   upsertUser: (user?: TdObject) => void;
   updateUserStatus: (update: TdObject) => void;
   updateChatFolders: (update: TdObject) => void;
@@ -24,6 +25,9 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
   switch (update["@type"]) {
     case "updateAuthorizationState":
       handlers.authorization(update);
+      return;
+    case "updateConnectionState":
+      handlers.connection(update);
       return;
     case "updateUser":
       handlers.upsertUser(asTdObject(update.user));

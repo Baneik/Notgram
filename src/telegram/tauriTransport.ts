@@ -15,6 +15,10 @@ import {
 } from "./tdlibMapper";
 import { FileDownloadQueue } from "./fileDownloadQueue";
 import { loadHistoryWindow } from "./historyPager";
+import {
+  mapTdConnectionStatus,
+  tdConnectionState,
+} from "./connectionState";
 import { TdRequestBroker } from "./tdRequestBroker";
 import { TauriAccountStorage } from "./tauriAccountStorage";
 import {
@@ -43,6 +47,7 @@ import type {
   ForwardMessagesResult,
   Message,
   MessagePermissions,
+  ConnectionStatus,
   ProxySettings,
   SendFileInput,
   SendMessageInput,
@@ -125,6 +130,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   );
   private updateHandlers: TdUpdateHandlers = {
     authorization: (update) => this.handleAuthorizationUpdate(update),
+    connection: (update) => this.handleConnectionUpdate(update),
     upsertUser: (user) => this.upsertUser(user),
     updateUserStatus: (update) => this.updateUserStatus(update),
     updateChatFolders: (update) => this.updateChatFolders(update),
@@ -150,11 +156,15 @@ export class TauriTelegramTransport implements TelegramTransport {
   private currentUserId?: string;
   private bootstrapPromise?: Promise<void>;
   private initialChatSyncPending = true;
+  private connectionStatus?: ConnectionStatus;
+  private proxyConnectionTimer?: ReturnType<typeof setTimeout>;
+  private connectingThroughProxy = false;
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
     this.resetSessionState();
     this.listener = listener;
     this.initialChatSyncPending = true;
+    this.emitConnectionStatus("connecting");
     const status = await invoke<RuntimeStatus>("telegram_runtime_status");
     if (!status.linked) {
       const detail =
@@ -174,7 +184,8 @@ export class TauriTelegramTransport implements TelegramTransport {
       (event) => {
         const error = new Error(event.payload.message);
         this.requestBroker.rejectAll(error);
-        this.listener?.({ type: "sync.error", message: error.message });
+        this.emitConnectionStatus("offline");
+        this.listener?.({ type: "sync.error", message: error.message, fatal: true });
       },
     );
     await invoke("telegram_start");
@@ -193,6 +204,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     try {
       await invoke("telegram_shutdown");
     } finally {
+      this.emitConnectionStatus("offline");
       this.unlistenUpdate?.();
       this.unlistenError?.();
       this.unlistenUpdate = undefined;
@@ -295,10 +307,15 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async saveProxySettings(settings: ProxySettings) {
-    await this.applyProxy(settings);
-    await invoke("telegram_save_proxy_settings", {
-      preferences: { mode: settings.mode, custom: settings.custom },
-    });
+    try {
+      await this.applyProxy(settings);
+      await invoke("telegram_save_proxy_settings", {
+        preferences: { mode: settings.mode, custom: settings.custom },
+      });
+    } catch (error) {
+      if (effectiveProxy(settings)) this.emitConnectionStatus("proxyError");
+      throw error;
+    }
   }
 
   async testProxy(settings: ProxySettings) {
@@ -689,12 +706,44 @@ export class TauriTelegramTransport implements TelegramTransport {
     const mapped = mapAuthorizationState(state);
     this.listener?.({ type: "authorization.changed", state: mapped });
     if (mapped.kind === "ready") this.startBootstrap();
+    if (mapped.kind === "closing" || mapped.kind === "closed") {
+      this.emitConnectionStatus("offline");
+    }
+  }
+
+  private handleConnectionUpdate(update: TdObject) {
+    const state = tdConnectionState(update);
+    const status = mapTdConnectionStatus(state);
+    if (!status) return;
+
+    this.connectingThroughProxy = state?.["@type"] === "connectionStateConnectingToProxy";
+    if (this.proxyConnectionTimer) globalThis.clearTimeout(this.proxyConnectionTimer);
+    this.proxyConnectionTimer = undefined;
+    this.emitConnectionStatus(status);
+
+    if (this.connectingThroughProxy) {
+      this.proxyConnectionTimer = globalThis.setTimeout(() => {
+        this.proxyConnectionTimer = undefined;
+        if (this.connectingThroughProxy) this.emitConnectionStatus("proxyError");
+      }, 15_000);
+    }
+  }
+
+  private emitConnectionStatus(status: ConnectionStatus) {
+    if (status !== "connecting") this.connectingThroughProxy = false;
+    if (this.connectionStatus === status) return;
+    this.connectionStatus = status;
+    this.listener?.({ type: "connection.changed", status });
   }
 
   private startBootstrap() {
     if (this.bootstrapPromise) return;
+    this.emitConnectionStatus("syncing");
     this.bootstrapPromise = this.bootstrap()
-      .then(() => this.finishInitialChatSync())
+      .then(() => {
+        this.finishInitialChatSync();
+        if (this.connectionStatus === "syncing") this.emitConnectionStatus("online");
+      })
       .catch((error) => {
         this.finishInitialChatSync();
         this.listener?.({
@@ -1120,6 +1169,10 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private resetSessionState() {
+    if (this.proxyConnectionTimer) globalThis.clearTimeout(this.proxyConnectionTimer);
+    this.proxyConnectionTimer = undefined;
+    this.connectingThroughProxy = false;
+    this.connectionStatus = undefined;
     this.rawChats.clear();
     this.rawUsers.clear();
     this.rawMessages.clear();

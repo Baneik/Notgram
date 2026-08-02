@@ -1,16 +1,18 @@
 import { Archive, Bell, Bot, Folder, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
 import type { ChatFilter } from "../store/telegramStore";
-import type { ChatFolder } from "../telegram/types";
+import type { ChatFolder, ConnectionStatus } from "../telegram/types";
+import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 
 interface NavigationRailProps {
   filter: ChatFilter;
   folders: ChatFolder[];
   onFilterChange: (filter: ChatFilter) => void;
   transportLabel: string;
+  connectionStatus: ConnectionStatus;
   onOpenSettings: () => void;
 }
 
-export function NavigationRail({ folders, filter, onFilterChange, transportLabel, onOpenSettings }: NavigationRailProps) {
+export function NavigationRail({ folders, filter, onFilterChange, transportLabel, connectionStatus, onOpenSettings }: NavigationRailProps) {
   return (
     <nav className="navigation-rail" aria-label="聊天文件夹">
       <div className="rail-brand"><span className="brand-mark">N</span><span>Notgram</span></div>
@@ -26,7 +28,12 @@ export function NavigationRail({ folders, filter, onFilterChange, transportLabel
       <button className="rail-button rail-settings" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
         <span className="rail-icon"><Settings size={22} strokeWidth={1.8} /></span><span>设置</span>
       </button>
-      <div className="rail-connection" title={`连接：${transportLabel}`}><span className="connection-dot" />{transportLabel}</div>
+      <ConnectionStatusIndicator
+        className="rail-connection"
+        status={connectionStatus}
+        transportLabel={transportLabel}
+        compact
+      />
     </nav>
   );
 }

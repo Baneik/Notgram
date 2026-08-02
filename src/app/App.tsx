@@ -8,6 +8,7 @@ import { SettingsDialog } from "../components/SettingsDialog";
 import { filterAndSortChats, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
+import { connectionPresentation } from "../telegram/connectionState";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -38,6 +39,7 @@ export function App() {
   const histories = useTelegramStore((state) => state.histories);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
   const transportKind = useTelegramStore((state) => state.transportKind);
+  const connectionStatus = useTelegramStore((state) => state.connectionStatus);
   const authorization = useTelegramStore((state) => state.authorization);
   const authorizationPending = useTelegramStore((state) => state.authorizationPending);
   const authorizationError = useTelegramStore((state) => state.authorizationError);
@@ -170,7 +172,7 @@ export function App() {
     ) : (
       <div className="startup-screen" role="status">
         <LoaderCircle className="spin" size={19} />
-        <span>正在载入会话</span>
+        <span>{connectionPresentation(connectionStatus).label}</span>
       </div>
     );
   }
@@ -182,6 +184,7 @@ export function App() {
         state={authorization}
         pending={authorizationPending}
         error={authorizationError}
+        connectionStatus={connectionStatus}
         onSubmit={authenticate}
         onOpenSettings={() => setSettingsOpen(true)}
       />
@@ -203,13 +206,14 @@ export function App() {
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
         style={{ "--chat-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
-        <NavigationRail folders={folders} filter={chatFilter} onFilterChange={setChatFilter} transportLabel={`${transportLabel}${phase === "idle" || phase === "loading" ? " · 同步中" : ""}`} onOpenSettings={() => setSettingsOpen(true)} />
+        <NavigationRail folders={folders} filter={chatFilter} onFilterChange={setChatFilter} transportLabel={transportLabel} connectionStatus={connectionStatus} onOpenSettings={() => setSettingsOpen(true)} />
         <ChatSidebar
           chats={visibleChats}
           drafts={drafts}
           activeChatId={activeChatId}
           folderId={chatFilter}
           folderTitle={folders.find((folder) => folder.id === chatFilter)?.title ?? "聊天"}
+          connectionStatus={connectionStatus}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onSelect={(chatId) => { void selectChat(chatId); setMobileChatOpen(true); }}
@@ -241,6 +245,7 @@ export function App() {
           historyLoading={activeHistory.loading}
           hasOlderMessages={activeHistory.hasMore}
           transportKind={transportKind}
+          connectionStatus={connectionStatus}
           onSendMessage={sendMessage}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}

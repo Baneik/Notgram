@@ -18,6 +18,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import type {
   Chat,
   ChatDraft,
+  ConnectionStatus,
   Message,
   MessagePermissions,
   ForwardMessagesResult,
@@ -49,6 +50,7 @@ import {
 } from "./conversationMessages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 
 interface ConversationProps {
   chat?: Chat;
@@ -61,6 +63,7 @@ interface ConversationProps {
   historyLoading: boolean;
   hasOlderMessages: boolean;
   transportKind: "mock" | "tauri";
+  connectionStatus: ConnectionStatus;
   onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
@@ -96,6 +99,7 @@ export function Conversation({
   historyLoading,
   hasOlderMessages,
   transportKind,
+  connectionStatus,
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
@@ -607,6 +611,12 @@ export function Conversation({
             event.target.value = "";
           }}
         />
+        {connectionStatus !== "online" && (
+          <ConnectionStatusIndicator
+            className="composer-connection-status"
+            status={connectionStatus}
+          />
+        )}
         {composerContextMessage && (
           <div className={`composer-context ${editingMessage ? "is-editing" : "is-replying"}`}>
             <span className="composer-context-icon">

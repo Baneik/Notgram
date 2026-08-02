@@ -5,6 +5,7 @@ import type {
   Chat,
   ChatDraft,
   ChatFolder,
+  ConnectionStatus,
   ForwardMessagesResult,
   Message,
   MessagePermissions,
@@ -32,6 +33,7 @@ export interface TelegramState {
   error?: string;
   transportKind: TelegramTransport["kind"];
   transportLabel: string;
+  connectionStatus: ConnectionStatus;
   currentUserId?: string;
   authorization: AuthorizationState;
   authorizationPending: boolean;

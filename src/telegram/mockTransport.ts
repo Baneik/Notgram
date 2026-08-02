@@ -5,6 +5,7 @@ import type {
   AuthorizationAction,
   CachedTelegramSnapshot,
   Chat,
+  ConnectionStatus,
   DeleteMessageInput,
   EditMessageInput,
   ForwardMessagesInput,
@@ -73,6 +74,7 @@ export class MockTelegramTransport implements TelegramTransport {
   private historyOffsets = new Map<string, number>();
   private drafts = new Map((mockSnapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
   private authFlow: boolean;
+  private connectionStatus: ConnectionStatus;
   private storageSettings: StorageSettings = {
     cachePath: "Windows 应用缓存\\Notgram\\tdlib",
     downloadPath: "Notgram\\downloads",
@@ -101,7 +103,11 @@ export class MockTelegramTransport implements TelegramTransport {
     },
   };
 
-  constructor(options: { authFlow?: boolean; cachedSnapshot?: CachedTelegramSnapshot } = {}) {
+  constructor(options: {
+    authFlow?: boolean;
+    cachedSnapshot?: CachedTelegramSnapshot;
+    connectionStatus?: ConnectionStatus;
+  } = {}) {
     const serializedAccounts = browserStorage()?.getItem(ACCOUNT_STATE_KEY);
     let storedAccounts: TelegramAccountState | undefined;
     if (serializedAccounts) {
@@ -119,6 +125,7 @@ export class MockTelegramTransport implements TelegramTransport {
       (account) => account.id === this.accountState.activeAccountId,
     );
     this.authFlow = options.authFlow ?? !activeAccountExists;
+    this.connectionStatus = options.connectionStatus ?? "online";
     this.cachedSnapshot = options.cachedSnapshot
       ? clone(options.cachedSnapshot)
       : undefined;
@@ -130,11 +137,18 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
     this.listener = listener;
+    this.listener({ type: "connection.changed", status: this.connectionStatus });
     return clone({ ...this.snapshot, messages: [], drafts: [...this.drafts.values()] });
   }
 
   async disconnect() {
+    this.setConnectionStatus("offline");
     this.listener = undefined;
+  }
+
+  setConnectionStatus(status: ConnectionStatus) {
+    this.connectionStatus = status;
+    this.listener?.({ type: "connection.changed", status });
   }
 
   async loadCachedSnapshot() {
@@ -198,6 +212,7 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "authorization.changed", state: { kind: "loggingOut" } });
     this.snapshot.authorization = { kind: "closed" };
     this.listener?.({ type: "authorization.changed", state: { kind: "closed" } });
+    this.setConnectionStatus("offline");
   }
 
   async authenticate(action: AuthorizationAction) {

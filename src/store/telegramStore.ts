@@ -365,8 +365,16 @@ export const createTelegramStore = (
             void loadHistory(activeChatId).then(() => markChatRead(activeChatId));
           }
         } else if (event.state.kind !== "preparing") {
+          if (event.state.kind === "closing" || event.state.kind === "closed") {
+            set({ connectionStatus: "offline" });
+          }
           clearCachedData(!accountTransition);
         }
+        return;
+      }
+
+      if (event.type === "connection.changed") {
+        set({ connectionStatus: event.status });
         return;
       }
 
@@ -378,7 +386,11 @@ export const createTelegramStore = (
       }
 
       if (event.type === "sync.error") {
-        set({ phase: "error", error: event.message });
+        set({
+          phase: event.fatal ? "error" : get().phase,
+          connectionStatus: event.fatal ? "offline" : get().connectionStatus,
+          error: event.message,
+        });
         return;
       }
 
@@ -540,6 +552,7 @@ export const createTelegramStore = (
       phase: "idle",
       transportKind: transport.kind,
       transportLabel: transport.label,
+      connectionStatus: "offline",
       authorization: { kind: "preparing" },
       authorizationPending: false,
       accounts: [],
@@ -560,7 +573,7 @@ export const createTelegramStore = (
 
       initialize: async () => {
         if (get().phase !== "idle") return;
-        set({ phase: "loading", error: undefined });
+        set({ phase: "loading", connectionStatus: "connecting", error: undefined });
         try {
           applyAccountState(await transport.getAccountState());
           try {
@@ -638,6 +651,7 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             phase: "error",
+            connectionStatus: "offline",
             error: errorMessage(error, "无法启动 Telegram runtime"),
           });
         }

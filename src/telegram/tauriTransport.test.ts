@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TelegramEventListener } from "./transport";
 import { TauriTelegramTransport } from "./tauriTransport";
 import type { TdObject } from "./tdlibMapper";
@@ -44,6 +44,43 @@ const rawChat = (id: number, date: number): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("routes connection updates, ignores duplicates, and surfaces a stalled proxy", () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new TauriTelegramTransport();
+      const internal = transport as unknown as TestableTransport;
+      const events: Parameters<TelegramEventListener>[0][] = [];
+      internal.listener = (event) => events.push(event);
+
+      internal.handleUpdate({
+        "@type": "updateConnectionState",
+        state: { "@type": "connectionStateWaitingForNetwork" },
+      });
+      internal.handleUpdate({
+        "@type": "updateConnectionState",
+        state: { "@type": "connectionStateWaitingForNetwork" },
+      });
+      internal.handleUpdate({
+        "@type": "updateConnectionState",
+        state: { "@type": "connectionStateConnectingToProxy" },
+      });
+      vi.advanceTimersByTime(15_000);
+      internal.handleUpdate({
+        "@type": "updateConnectionState",
+        state: { "@type": "connectionStateReady" },
+      });
+
+      expect(events).toEqual([
+        { type: "connection.changed", status: "waitingForNetwork" },
+        { type: "connection.changed", status: "connecting" },
+        { type: "connection.changed", status: "proxyError" },
+        { type: "connection.changed", status: "online" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("publishes the initial chat refresh as one atomic event", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

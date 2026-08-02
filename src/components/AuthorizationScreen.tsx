@@ -11,17 +11,19 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import type { AuthorizationAction, AuthorizationState } from "../telegram/types";
+import type { AuthorizationAction, AuthorizationState, ConnectionStatus } from "../telegram/types";
+import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 
 interface AuthorizationScreenProps {
   state: AuthorizationState;
   pending: boolean;
   error?: string;
+  connectionStatus: ConnectionStatus;
   onSubmit: (action: AuthorizationAction) => Promise<void>;
   onOpenSettings: () => void;
 }
 
-export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenSettings }: AuthorizationScreenProps) {
+export function AuthorizationScreen({ state, pending, error, connectionStatus, onSubmit, onOpenSettings }: AuthorizationScreenProps) {
   const [phoneMode, setPhoneMode] = useState(false);
   const [primary, setPrimary] = useState("");
   const [secondary, setSecondary] = useState("");
@@ -42,7 +44,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenSet
 
   if (state.kind === "waitPhoneNumber" && !phoneMode) {
     return (
-      <AuthLayout onOpenSettings={onOpenSettings}>
+      <AuthLayout connectionStatus={connectionStatus} onOpenSettings={onOpenSettings}>
         <div className="auth-progress" role="status">
           <LoaderCircle className="spin" size={28} />
           <span>正在生成登录二维码</span>
@@ -57,7 +59,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenSet
 
   if (state.kind === "waitOtherDeviceConfirmation" && !phoneMode) {
     return (
-      <AuthLayout onOpenSettings={onOpenSettings}>
+      <AuthLayout connectionStatus={connectionStatus} onOpenSettings={onOpenSettings}>
         <div className="auth-qr-code" aria-label="Telegram 登录二维码">
           <QRCodeSVG value={state.link} size={260} level="M" marginSize={4} bgColor="#ffffff" fgColor="#111111" />
         </div>
@@ -85,7 +87,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenSet
   const definition = getStepDefinition(formState);
   if (!definition) {
     return (
-      <AuthLayout onOpenSettings={onOpenSettings}>
+      <AuthLayout connectionStatus={connectionStatus} onOpenSettings={onOpenSettings}>
         <div className="auth-progress" role="status">
           <LoaderCircle className="spin" size={28} />
           <span>{state.kind === "closed" ? "连接已关闭" : "正在连接 Telegram"}</span>
@@ -101,7 +103,7 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenSet
   };
 
   return (
-    <AuthLayout onOpenSettings={onOpenSettings}>
+    <AuthLayout connectionStatus={connectionStatus} onOpenSettings={onOpenSettings}>
       <form className="auth-form" onSubmit={submit}>
         <span className="auth-heading-icon">{definition.icon}</span>
         <h1>{definition.title}</h1>
@@ -132,7 +134,15 @@ export function AuthorizationScreen({ state, pending, error, onSubmit, onOpenSet
   );
 }
 
-function AuthLayout({ children, onOpenSettings }: { children: ReactNode; onOpenSettings: () => void }) {
+function AuthLayout({
+  children,
+  connectionStatus,
+  onOpenSettings,
+}: {
+  children: ReactNode;
+  connectionStatus: ConnectionStatus;
+  onOpenSettings: () => void;
+}) {
   return (
     <main className="auth-shell">
       <button className="auth-settings icon-button" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
@@ -141,6 +151,7 @@ function AuthLayout({ children, onOpenSettings }: { children: ReactNode; onOpenS
       <section className="auth-panel">
         <div className="auth-brand"><span className="brand-mark">N</span><strong>Notgram</strong></div>
         <div className="auth-content">{children}</div>
+        <ConnectionStatusIndicator className="auth-connection-status" status={connectionStatus} />
       </section>
       <span className="auth-disclaimer">基于 Telegram API 的第三方客户端</span>
     </main>
