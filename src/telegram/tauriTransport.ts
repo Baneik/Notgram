@@ -525,6 +525,24 @@ export class TauriTelegramTransport implements TelegramTransport {
     return load;
   }
 
+  async getMessageContext(chatId: string, messageId: string, limit = 31) {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const newerCount = Math.min(49, Math.floor((boundedLimit - 1) / 2));
+    const result = await this.request({
+      "@type": "getChatHistory",
+      chat_id: numericId(chatId),
+      from_message_id: numericId(messageId),
+      offset: -newerCount,
+      limit: boundedLimit,
+      only_local: false,
+    });
+    const rawMessages = asTdObjects(result.messages);
+    this.emitMessages(rawMessages);
+    return rawMessages
+      .map((raw) => this.mapMessage(raw))
+      .filter((message): message is Message => Boolean(message));
+  }
+
   async getMessage(chatId: string, messageId: string) {
     const raw = await this.request({
       "@type": "getMessage",

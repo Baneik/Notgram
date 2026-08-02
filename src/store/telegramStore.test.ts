@@ -1594,6 +1594,33 @@ describe("chat filtering", () => {
     expect(store.getState().messages.get(target.chatId)).toContainEqual(target);
   });
 
+  it("loads and merges history context around an exact target", async () => {
+    const source = mockSnapshot.messages.find((message) => message.chatId === "chat-product")!;
+    const before = { ...source, id: "context-before", sentAt: "2026-07-29T10:00:00Z" };
+    const target = { ...source, id: "context-target", sentAt: "2026-07-29T10:01:00Z" };
+    const after = { ...source, id: "context-after", sentAt: "2026-07-29T10:02:00Z" };
+    class ContextTransport extends MockTelegramTransport {
+      contextRequests = 0;
+
+      override async getMessageContext(chatId: string, messageId: string) {
+        this.contextRequests += 1;
+        return chatId === target.chatId && messageId === target.id
+          ? [before, target, after]
+          : [];
+      }
+    }
+    const transport = new ContextTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await expect(store.getState().loadMessage(target.chatId, target.id)).resolves.toBe(true);
+
+    expect(transport.contextRequests).toBe(1);
+    expect(store.getState().messages.get(target.chatId)).toEqual(
+      expect.arrayContaining([before, target, after]),
+    );
+  });
+
   it("rebuilds the encrypted UI snapshot from current live state", async () => {
     class RebuildTransport extends MockTelegramTransport {
       clears = 0;

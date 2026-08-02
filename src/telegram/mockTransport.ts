@@ -350,6 +350,19 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
+  async getMessageContext(chatId: string, messageId: string, limit = 31) {
+    const history = this.snapshot.messages
+      .filter((message) => message.chatId === chatId)
+      .sort((left, right) => Date.parse(left.sentAt) - Date.parse(right.sentAt));
+    const targetIndex = history.findIndex((message) => message.id === messageId);
+    if (targetIndex < 0) return [];
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const start = Math.max(0, targetIndex - Math.floor((boundedLimit - 1) / 2));
+    const context = history.slice(start, start + boundedLimit);
+    this.listener?.({ type: "messages.upserted", messages: clone(context) });
+    return clone(context);
+  }
+
   async getMessage(chatId: string, messageId: string) {
     const message = this.snapshot.messages.find(
       (item) => item.chatId === chatId && item.id === messageId,

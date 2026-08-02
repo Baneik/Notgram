@@ -1024,10 +1024,20 @@ export const createTelegramStore = (
         }
         if (get().authorization.kind !== "ready") return false;
         try {
-          const message = await transport.getMessage(chatId, messageId);
+          const context = await transport.getMessageContext(chatId, messageId, 31);
+          let message = context.find((item) =>
+            item.chatId === chatId && item.id === messageId
+          );
+          if (!message) message = await transport.getMessage(chatId, messageId);
           if (!message || message.chatId !== chatId || message.id !== messageId) return false;
           const messages = new Map(get().messages);
-          messages.set(chatId, upsertMessage(messages.get(chatId) ?? [], message));
+          messages.set(
+            chatId,
+            upsertMessages(
+              messages.get(chatId) ?? [],
+              [...context.filter((item) => item.chatId === chatId), message],
+            ),
+          );
           set({ messages, operationError: undefined });
           scheduleCacheWrite();
           return true;
