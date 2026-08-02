@@ -120,6 +120,19 @@ export function MediaViewer({
             <button type="button" aria-label="重置缩放" title="重置缩放" disabled={zoom === MIN_ZOOM} onClick={() => setZoom(MIN_ZOOM)}>
               <RotateCcw size={18} />
             </button>
+            {(canDownload || content.isDownloading) && (
+              <button
+                type="button"
+                aria-label={content.isDownloading ? "原图下载中" : "下载原图"}
+                title={content.isDownloading ? "原图下载中" : "下载原图"}
+                disabled={content.isDownloading}
+                onClick={() => void onDownload(content.fileId!, content.fileName)}
+              >
+                {content.isDownloading
+                  ? <LoaderCircle className="spin" size={18} />
+                  : <Download size={18} />}
+              </button>
+            )}
             <button type="button" aria-label="关闭图片查看器" title="关闭" onClick={onClose}>
               <X size={20} />
             </button>
