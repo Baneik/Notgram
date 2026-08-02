@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Save,
   SlidersHorizontal,
+  Trash2,
   UserCircle,
   UserPlus,
   X,
@@ -36,6 +37,9 @@ import {
   type AppPreferences,
 } from "../store/preferencesStore";
 import type {
+  CacheCategory,
+  CacheCleanupResult,
+  CacheUsage,
   ProxyMode,
   ProxySettings,
   ProxyType,
@@ -111,6 +115,25 @@ const cacheHealthLabels: Record<CacheHealth, string> = {
   rebuilt: "刚刚重建",
 };
 
+const cacheCategories: Array<{
+  id: CacheCategory;
+  key: "images" | "videos" | "audio" | "documents" | "other";
+  label: string;
+}> = [
+  { id: "image", key: "images", label: "图片" },
+  { id: "video", key: "videos", label: "视频" },
+  { id: "audio", key: "audio", label: "音频" },
+  { id: "document", key: "documents", label: "文件" },
+  { id: "other", key: "other", label: "其他" },
+];
+
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+};
+
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const settings = useTelegramStore((state) => state.proxySettings);
   const pending = useTelegramStore((state) => state.proxyPending);
@@ -120,6 +143,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const storagePending = useTelegramStore((state) => state.storagePending);
   const storageError = useTelegramStore((state) => state.storageError);
   const cacheHealth = useTelegramStore((state) => state.cacheHealth);
+  const cacheUsage = useTelegramStore((state) => state.cacheUsage);
+  const cacheCleanupResult = useTelegramStore((state) => state.cacheCleanupResult);
   const accounts = useTelegramStore((state) => state.accounts);
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const accountPending = useTelegramStore((state) => state.accountPending);
@@ -134,6 +159,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const loadStorage = useTelegramStore((state) => state.loadStorageSettings);
   const saveStorage = useTelegramStore((state) => state.saveStorageSettings);
   const rebuildCache = useTelegramStore((state) => state.rebuildCachedSnapshot);
+  const loadCacheUsage = useTelegramStore((state) => state.loadCacheUsage);
+  const clearMediaCache = useTelegramStore((state) => state.clearMediaCache);
   const addAccount = useTelegramStore((state) => state.addAccount);
   const switchAccount = useTelegramStore((state) => state.switchAccount);
   const logOutCurrentAccount = useTelegramStore((state) => state.logOutCurrentAccount);
@@ -184,6 +211,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   useEffect(() => {
     if (storageSettings) setStorageDraft(structuredClone(storageSettings));
   }, [storageSettings]);
+
+  useEffect(() => {
+    if (activeCategory === "advanced") void loadCacheUsage();
+  }, [activeCategory, loadCacheUsage]);
 
   const updateCustom = <K extends keyof ProxySettings["custom"]>(
     key: K,
@@ -304,6 +335,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               error={error}
               storageError={storageError}
               cacheHealth={cacheHealth}
+              cacheUsage={cacheUsage}
+              cacheCleanupResult={cacheCleanupResult}
               latency={latency}
               activeEndpoint={activeEndpoint}
               setDraft={setDraft}
@@ -311,6 +344,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               updateCustom={updateCustom}
               onTest={() => void test(draft)}
               onRebuildCache={() => void rebuildCache()}
+              onRefreshCache={() => void loadCacheUsage()}
+              onClearCache={(categories, olderThanDays) => clearMediaCache(categories, olderThanDays)}
               autoDownload={{
                 autoDownloadImages,
                 autoDownloadVideos,
@@ -509,6 +544,8 @@ interface AdvancedSettingsProps {
   error?: string;
   storageError?: string;
   cacheHealth: CacheHealth;
+  cacheUsage?: CacheUsage;
+  cacheCleanupResult?: CacheCleanupResult;
   latency?: number;
   activeEndpoint?: ProxySettings["custom"];
   developerMode: boolean;
@@ -520,6 +557,8 @@ interface AdvancedSettingsProps {
   ) => void;
   onTest: () => void;
   onRebuildCache: () => void;
+  onRefreshCache: () => void;
+  onClearCache: (categories: CacheCategory[], olderThanDays?: number) => Promise<boolean>;
   autoDownload: Pick<AppPreferences,
     | "autoDownloadImages"
     | "autoDownloadVideos"
@@ -543,6 +582,8 @@ function AdvancedSettings({
   error,
   storageError,
   cacheHealth,
+  cacheUsage,
+  cacheCleanupResult,
   latency,
   activeEndpoint,
   developerMode,
@@ -551,11 +592,23 @@ function AdvancedSettings({
   updateCustom,
   onTest,
   onRebuildCache,
+  onRefreshCache,
+  onClearCache,
   autoDownload,
   onAutoDownloadToggle,
   onAutoDownloadLimitChange,
   onDeveloperModeChange,
 }: AdvancedSettingsProps) {
+  const [selectedCacheCategories, setSelectedCacheCategories] = useState<CacheCategory[]>(
+    cacheCategories.map((category) => category.id),
+  );
+  const [cacheRetentionDays, setCacheRetentionDays] = useState(0);
+  const toggleCacheCategory = (category: CacheCategory, selected: boolean) => {
+    setSelectedCacheCategories((current) => selected
+      ? [...new Set([...current, category])]
+      : current.filter((item) => item !== category));
+  };
+
   return (
     <>
       <div className="settings-detail-scroll">
@@ -717,6 +770,92 @@ function AdvancedSettings({
             缓存状态：{cacheHealthLabels[cacheHealth]}
           </span>
         </div>
+        </section>
+
+        <section className="settings-section" aria-labelledby="media-cache-heading">
+          <div className="settings-section-heading">
+            <HardDrive size={18} strokeWidth={1.8} />
+            <div>
+              <h4 id="media-cache-heading">媒体缓存</h4>
+              <span>当前消息、播放中和下载中的文件会受到保护</span>
+            </div>
+          </div>
+          <div className="cache-usage-summary" aria-live="polite">
+            <strong>{cacheUsage ? formatBytes(cacheUsage.total.bytes) : "正在统计"}</strong>
+            <span>{cacheUsage ? `${cacheUsage.total.files} 个文件` : "请稍候"}</span>
+            <button
+              className="storage-reset"
+              type="button"
+              disabled={busy}
+              onClick={onRefreshCache}
+            >
+              <RotateCcw className={busy ? "spin" : undefined} size={15} strokeWidth={2} />
+              <span>刷新</span>
+            </button>
+          </div>
+          {cacheUsage && (
+            <div className="cache-category-list" aria-label="缓存类型">
+              {cacheCategories.map((category) => {
+                const usage = cacheUsage[category.key];
+                return (
+                  <label className="cache-category-row" key={category.id}>
+                    <input
+                      type="checkbox"
+                      checked={selectedCacheCategories.includes(category.id)}
+                      disabled={busy}
+                      onChange={(event) => toggleCacheCategory(category.id, event.target.checked)}
+                    />
+                    <span>{category.label}</span>
+                    <small>{formatBytes(usage.bytes)} · {usage.files} 个</small>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <label className="auth-field cache-retention-field">
+            <span>清理范围</span>
+            <select
+              value={cacheRetentionDays}
+              disabled={busy}
+              onChange={(event) => setCacheRetentionDays(Number(event.target.value))}
+            >
+              <option value={0}>全部时间</option>
+              <option value={7}>7 天前</option>
+              <option value={30}>30 天前</option>
+              <option value={90}>90 天前</option>
+            </select>
+          </label>
+          <div className="cache-cleanup-actions">
+            <button
+              className="dialog-secondary"
+              type="button"
+              disabled={busy || selectedCacheCategories.length === 0}
+              onClick={() => void onClearCache(
+                selectedCacheCategories,
+                cacheRetentionDays || undefined,
+              )}
+            >
+              {busy ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
+              <span>清理所选</span>
+            </button>
+            <button
+              className="dialog-danger"
+              type="button"
+              disabled={busy || !cacheUsage || cacheUsage.total.files === 0}
+              onClick={() => void onClearCache(cacheCategories.map((category) => category.id))}
+            >
+              <Trash2 size={16} />
+              <span>清理全部缓存</span>
+            </button>
+          </div>
+          {cacheCleanupResult && (
+            <p className="cache-cleanup-result" role="status">
+              已清理 {formatBytes(cacheCleanupResult.removedBytes)}，共 {cacheCleanupResult.removedFiles} 个文件
+              {cacheCleanupResult.skippedProtectedFiles > 0
+                ? `；已保护 ${cacheCleanupResult.skippedProtectedFiles} 个正在使用的文件`
+                : ""}
+            </p>
+          )}
         </section>
 
         <section className="settings-section" aria-labelledby="auto-download-heading">
