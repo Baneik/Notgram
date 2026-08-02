@@ -288,6 +288,33 @@ test("group service messages render as centered notices", async ({ page }) => {
   expect(centerDelta).toBeLessThanOrEqual(1);
 });
 
+test("developer mode copies the complete raw unknown message", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://127.0.0.1:1422",
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+
+  const notice = page.locator('[data-message-id="p-unknown"]');
+  await expect(notice).toContainText("收到新类型消息（messageRichMessage）");
+  await expect(notice.locator(".unknown-message-copy")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /高级设置/ }).click();
+  await page.getByRole("switch", { name: "开发者模式" }).check();
+  await page.getByRole("dialog").getByRole("button", { name: "关闭" }).click();
+
+  const copyButton = notice.getByRole("button", { name: "复制 messageRichMessage 原始消息" });
+  await copyButton.click();
+  await expect(copyButton).toContainText("已复制原始消息");
+  const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
+  expect(copied).toMatchObject({
+    "@type": "message",
+    id: "p-unknown",
+    content: { "@type": "messageRichMessage" },
+  });
+});
+
 test("conversation scroll state follows, restores, counts, and resets to latest", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-row")).not.toHaveCount(0);
@@ -355,7 +382,7 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   });
 
   expect(before.id).toBeTruthy();
-  await expect(page.locator(".message-row")).toHaveCount(46);
+  await expect(page.locator(".message-row")).toHaveCount(47);
   const offset = await page.locator(`[data-message-id="${before.id}"]`).evaluate(
     (row) => row.getBoundingClientRect().top -
       (row.closest(".message-list")?.getBoundingClientRect().top ?? 0),

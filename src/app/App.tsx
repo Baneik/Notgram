@@ -114,7 +114,8 @@ export function App() {
         continue;
       }
       const chat = chats.get(message.chatId);
-      const body = message.content.kind === "text" || message.content.kind === "service"
+      const body = message.content.kind === "text" || message.content.kind === "service" ||
+        message.content.kind === "unsupported"
         ? message.content.text
         : message.content.caption || message.content.fileName;
       if ("Notification" in globalThis && Notification.permission === "granted") {

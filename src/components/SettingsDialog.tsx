@@ -4,6 +4,7 @@ import {
   Bell,
   Check,
   ChevronRight,
+  Code2,
   Gauge,
   HardDrive,
   LoaderCircle,
@@ -128,6 +129,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const reduceMotion = usePreferencesStore((state) => state.reduceMotion);
+  const developerMode = usePreferencesStore((state) => state.developerMode);
   const preferences: AppPreferences = {
     notificationsEnabled,
     notificationSound,
@@ -135,6 +137,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     sendOnEnter,
     autoplayAnimations,
     reduceMotion,
+    developerMode,
   };
   const setPreference = usePreferencesStore((state) => state.setPreference);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
@@ -278,6 +281,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               setStorageDraft={setStorageDraft}
               updateCustom={updateCustom}
               onTest={() => void test(draft)}
+              developerMode={developerMode}
+              onDeveloperModeChange={(enabled) => setPreference("developerMode", enabled)}
             />
           ) : (
             <PreferenceSettings
@@ -463,6 +468,7 @@ interface AdvancedSettingsProps {
   storageError?: string;
   latency?: number;
   activeEndpoint?: ProxySettings["custom"];
+  developerMode: boolean;
   setDraft: Dispatch<SetStateAction<ProxySettings>>;
   setStorageDraft: Dispatch<SetStateAction<StorageSettings>>;
   updateCustom: <K extends keyof ProxySettings["custom"]>(
@@ -470,6 +476,7 @@ interface AdvancedSettingsProps {
     value: ProxySettings["custom"][K],
   ) => void;
   onTest: () => void;
+  onDeveloperModeChange: (enabled: boolean) => void;
 }
 
 function AdvancedSettings({
@@ -481,10 +488,12 @@ function AdvancedSettings({
   storageError,
   latency,
   activeEndpoint,
+  developerMode,
   setDraft,
   setStorageDraft,
   updateCustom,
   onTest,
+  onDeveloperModeChange,
 }: AdvancedSettingsProps) {
   return (
     <>
@@ -633,6 +642,27 @@ function AdvancedSettings({
           <RotateCcw size={15} strokeWidth={2} />
           <span>恢复默认路径</span>
         </button>
+        </section>
+
+        <section className="settings-section" aria-labelledby="developer-heading">
+          <div className="settings-section-heading">
+            <Code2 size={18} strokeWidth={1.8} />
+            <div>
+              <h4 id="developer-heading">开发者选项</h4>
+              <span>消息诊断工具</span>
+            </div>
+          </div>
+          <div className="preference-list">
+            <label className="preference-row">
+              <span>开发者模式</span>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={developerMode}
+                onChange={(event) => onDeveloperModeChange(event.target.checked)}
+              />
+            </label>
+          </div>
         </section>
 
         {error && <div className="auth-error settings-error" role="alert">{error}</div>}

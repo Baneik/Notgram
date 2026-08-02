@@ -13,7 +13,9 @@ const belongsToSameGroup = (left?: Message, right?: Message) => Boolean(
   left &&
   right &&
   left.content.kind !== "service" &&
+  left.content.kind !== "unsupported" &&
   right.content.kind !== "service" &&
+  right.content.kind !== "unsupported" &&
   left.senderId === right.senderId &&
   left.outgoing === right.outgoing &&
   localDay(left.sentAt) === localDay(right.sentAt),

@@ -8,6 +8,7 @@ export interface AppPreferences {
   sendOnEnter: boolean;
   autoplayAnimations: boolean;
   reduceMotion: boolean;
+  developerMode: boolean;
 }
 
 interface PreferencesState extends AppPreferences {
@@ -25,6 +26,7 @@ const defaults: AppPreferences = {
   sendOnEnter: true,
   autoplayAnimations: true,
   reduceMotion: false,
+  developerMode: false,
 };
 
 const readPreferences = (): AppPreferences => {
@@ -39,6 +41,7 @@ const readPreferences = (): AppPreferences => {
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
       reduceMotion: stored.reduceMotion ?? defaults.reduceMotion,
+      developerMode: stored.developerMode ?? defaults.developerMode,
     };
   } catch {
     return defaults;
@@ -67,6 +70,7 @@ preferencesStore.subscribe((state) => {
     sendOnEnter: state.sendOnEnter,
     autoplayAnimations: state.autoplayAnimations,
     reduceMotion: state.reduceMotion,
+    developerMode: state.developerMode,
   };
   applyPreferences(preferences);
   try {

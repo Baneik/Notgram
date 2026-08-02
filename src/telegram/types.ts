@@ -123,6 +123,7 @@ interface TransferableMessageContent {
 export type MessageContent =
   | { kind: "text"; text: string; entities?: MessageTextEntity[] }
   | { kind: "service"; text: string }
+  | { kind: "unsupported"; type: string; text: string; raw: string }
   | ({ kind: "file" } & TransferableMessageContent)
   | ({
       kind: "media";

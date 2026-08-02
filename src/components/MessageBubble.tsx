@@ -4,6 +4,7 @@ import {
   AudioLines,
   Check,
   CheckCheck,
+  Copy,
   Download,
   FileText,
   Forward,
@@ -21,6 +22,7 @@ import type { Message, MessageReaction, User } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
+import { writeClipboardText } from "../utils/clipboard";
 import { TgsSticker } from "./TgsSticker";
 import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
@@ -51,6 +53,7 @@ interface MessageBubbleProps {
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   autoplayAnimations: boolean;
+  developerMode: boolean;
 }
 
 const localSource = (path?: string) => {
@@ -83,9 +86,11 @@ function MessageBubbleComponent({
   onCancelUpload,
   onReaction,
   autoplayAnimations,
+  developerMode,
 }: MessageBubbleProps) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [reactionPending, setReactionPending] = useState<string>();
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -95,7 +100,7 @@ function MessageBubbleComponent({
     height: number;
   }>();
   const content = message.content;
-  const isService = content.kind === "service";
+  const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = content.kind === "media" && Boolean(content.caption);
@@ -200,10 +205,20 @@ function MessageBubbleComponent({
     }
   };
 
+  const copyUnsupportedMessage = async () => {
+    if (content.kind !== "unsupported") return;
+    try {
+      await writeClipboardText(content.raw);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  };
+
   return (
     <article
       ref={lazyMediaRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${isService ? "is-service" : ""} ${selected ? "is-selected" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""}`}
       data-message-id={message.id}
     >
       {selectionMode && !isService && (
@@ -249,6 +264,25 @@ function MessageBubbleComponent({
             <MessageRichText text={content.text} entities={content.entities} />
           ) : content.kind === "service" ? (
             <p>{content.text}</p>
+          ) : content.kind === "unsupported" ? (
+            developerMode ? (
+              <button
+                className="unknown-message-copy"
+                type="button"
+                aria-label={`复制 ${content.type} 原始消息`}
+                title="复制原始消息"
+                onClick={() => void copyUnsupportedMessage()}
+              >
+                {copyState === "copied"
+                  ? <Check size={13} strokeWidth={2.3} />
+                  : copyState === "error"
+                    ? <AlertCircle size={13} strokeWidth={2.1} />
+                    : <Copy size={13} strokeWidth={2} />}
+                <span>{copyState === "copied"
+                  ? "已复制原始消息"
+                  : copyState === "error" ? "复制失败，请重试" : content.text}</span>
+              </button>
+            ) : <p>{content.text}</p>
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
               <div

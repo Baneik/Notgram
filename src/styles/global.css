@@ -288,7 +288,16 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   border-radius: 12px; box-shadow: none; text-align: center;
 }
 .message-row.is-service .message-bubble::after { display: none; }
-.message-row.is-service .message-bubble p { font-size: 11px; line-height: 1.35; }
+.message-row.is-service .message-bubble p,
+.unknown-message-copy { font-size: 11px; line-height: 1.35; }
+.unknown-message-copy {
+  max-width: 100%; padding: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  color: inherit; background: transparent; border: 0; cursor: pointer; font-family: inherit; text-align: center;
+}
+.unknown-message-copy svg { flex: 0 0 auto; }
+.unknown-message-copy span { min-width: 0; overflow-wrap: anywhere; }
+.unknown-message-copy:hover span { text-decoration: underline; text-underline-offset: 2px; }
+.unknown-message-copy:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: 3px; border-radius: 2px; }
 .message-action-trigger {
   position: absolute; top: 2px; width: 30px; height: 30px; padding: 0; display: grid; place-items: center;
   opacity: 0; color: #667077; background: rgba(255, 255, 255, 0.86); border: 0; border-radius: 50%;

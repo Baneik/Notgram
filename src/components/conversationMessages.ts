@@ -70,7 +70,7 @@ export const replyPreviewFor = (
 };
 
 export const messageSummary = (content: MessageContent) => {
-  const raw = content.kind === "text" || content.kind === "service"
+  const raw = content.kind === "text" || content.kind === "service" || content.kind === "unsupported"
     ? content.text
     : content.caption || content.fileName;
   const normalized = raw.replace(/\s+/g, " ").trim();

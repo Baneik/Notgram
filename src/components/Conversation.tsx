@@ -127,6 +127,7 @@ export function Conversation({
   const [deletePending, setDeletePending] = useState(false);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
+  const developerMode = usePreferencesStore((state) => state.developerMode);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const draftBeforeEditRef = useRef<string | undefined>(undefined);
@@ -487,6 +488,7 @@ export function Conversation({
             const startsNewDay = !previousMessage ||
               localDateKey(previousMessage.sentAt) !== localDateKey(firstMessage.sentAt);
             const showSenderAvatar = firstMessage.content.kind !== "service" &&
+              firstMessage.content.kind !== "unsupported" &&
               !firstMessage.outgoing && chat.kind !== "direct";
             const sender = users.get(firstMessage.senderId);
             const senderName = sender?.displayName ??
@@ -534,6 +536,7 @@ export function Conversation({
                       onCancelUpload={onCancelFileUpload}
                       onReaction={onSetMessageReaction}
                       autoplayAnimations={autoplayAnimations}
+                      developerMode={developerMode}
                     />
                   ))}
                 </div>

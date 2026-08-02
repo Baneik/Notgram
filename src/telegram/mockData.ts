@@ -144,6 +144,28 @@ const messages: Message[] = [
     content: { kind: "service", text: "Mia Chen 加入了群聊" },
   },
   {
+    id: "p-unknown",
+    chatId: "chat-product",
+    senderId: "u-mia",
+    outgoing: false,
+    sentAt: "2026-08-01T09:17:30+08:00",
+    delivery: "read",
+    content: {
+      kind: "unsupported",
+      type: "messageRichMessage",
+      text: "收到新类型消息（messageRichMessage）",
+      raw: JSON.stringify({
+        "@type": "message",
+        id: "p-unknown",
+        chat_id: "chat-product",
+        content: {
+          "@type": "messageRichMessage",
+          payload: { example: true },
+        },
+      }, null, 2),
+    },
+  },
+  {
     id: "p-1",
     chatId: "chat-product",
     senderId: "u-jules",

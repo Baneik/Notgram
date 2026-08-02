@@ -265,6 +265,21 @@ const minithumbnailDataUrl = (value: unknown) => {
 
 const serviceContent = (text: string): MessageContent => ({ kind: "service", text });
 
+const serializedTdObject = (value: unknown) => {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const unsupportedContent = (value: unknown, type: string): MessageContent => ({
+  kind: "unsupported",
+  type,
+  text: `收到新类型消息（${type}）`,
+  raw: serializedTdObject(value),
+});
+
 const textValue = (value: unknown) => {
   if (typeof value === "string") return value;
   return formattedText(value);
@@ -628,14 +643,16 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
       return serviceContent("此消息类型当前无法显示");
     default: {
       const type = typeof content?.["@type"] === "string" ? content["@type"] : "unknown";
-      return serviceContent(`收到新类型消息（${type}）`);
+      return unsupportedContent(value, type);
     }
   }
 };
 
 export const messagePreview = (value: unknown) => {
   const content = mapTdMessageContent(asTdObject(value)?.content ?? value);
-  return content.kind === "text" || content.kind === "service" ? content.text : content.fileName;
+  return content.kind === "text" || content.kind === "service" || content.kind === "unsupported"
+    ? content.text
+    : content.fileName;
 };
 
 const messageSenderId = (value: unknown) => {
@@ -807,6 +824,10 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const senderId = messageSenderId(raw.sender_id) || "unknown";
   const sendingState = asTdObject(raw.sending_state);
   const failed = sendingState?.["@type"] === "messageSendingStateFailed";
+  const mappedContent = mapTdMessageContent(raw.content);
+  const content = mappedContent.kind === "unsupported"
+    ? { ...mappedContent, raw: serializedTdObject(raw) }
+    : mappedContent;
 
   return {
     id,
@@ -820,7 +841,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     replyTo: mapTdReplyTarget(raw.reply_to),
     forwardInfo: mapTdForwardInfo(raw.forward_info),
     interaction: mapTdInteraction(raw.interaction_info),
-    content: mapTdMessageContent(raw.content),
+    content,
   };
 };
 
