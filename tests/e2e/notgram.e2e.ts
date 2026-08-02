@@ -199,6 +199,47 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(reactionTrigger).toBeFocused();
 });
 
+test("global search paginates, filters, and opens exact message context", async ({ page }) => {
+  await page.goto("/");
+  await page.keyboard.press("Control+K");
+
+  const search = page.getByRole("searchbox", { name: "搜索聊天和消息" });
+  await expect(search).toBeFocused();
+  await search.fill("产品讨论历史消息");
+  await expect(page.locator("[data-search-message-id]")).toHaveCount(30);
+  await page.getByRole("button", { name: "加载更多" }).click();
+  await expect(page.locator("[data-search-message-id]")).toHaveCount(36);
+
+  await page.getByRole("tab", { name: "媒体" }).click();
+  await search.fill("预览");
+  const target = page.locator('[data-search-message-id="p-5"]');
+  await expect(target).toContainText("新的媒体预览样式");
+  await target.click();
+  await expect(page.locator(".global-search-view")).toBeHidden();
+  const locatedMessage = page.locator('[data-message-id="p-5"]');
+  await expect(locatedMessage).toHaveClass(/is-notification-target/);
+  const centeredOffset = await locatedMessage.evaluate((element) => {
+    const list = element.closest(".message-list")?.getBoundingClientRect();
+    const row = element.getBoundingClientRect();
+    if (!list) return Number.POSITIVE_INFINITY;
+    return Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2);
+  });
+  expect(centeredOffset).toBeLessThan(2);
+
+  await page.keyboard.press("Control+K");
+  await search.fill("Mia Chen");
+  await page.locator(".global-chat-result", { hasText: "Mia Chen" }).click();
+  await expect(page.locator(".conversation-title h2")).toHaveText("Mia Chen");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.keyboard.press("Control+K");
+  await search.fill("预览");
+  await expect(page.locator('[data-search-message-id="p-5"]')).toBeVisible();
+  expect(await horizontalOverflow(page)).toBe(false);
+  await page.getByRole("button", { name: "关闭全局搜索" }).click();
+  await expect(page.getByRole("button", { name: "全局搜索" })).toBeFocused();
+});
+
 test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

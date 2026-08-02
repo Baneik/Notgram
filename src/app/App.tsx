@@ -5,6 +5,7 @@ import { Conversation } from "../components/Conversation";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
+import { GlobalSearchView } from "../components/GlobalSearchView";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
@@ -53,6 +54,7 @@ export function App() {
   const drafts = useTelegramStore((state) => state.drafts);
   const outbox = useTelegramStore((state) => state.outbox);
   const histories = useTelegramStore((state) => state.histories);
+  const globalSearch = useTelegramStore((state) => state.globalSearch);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
   const transportKind = useTelegramStore((state) => state.transportKind);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
@@ -61,6 +63,7 @@ export function App() {
   const authorizationError = useTelegramStore((state) => state.authorizationError);
   const initialize = useTelegramStore((state) => state.initialize);
   const selectChat = useTelegramStore((state) => state.selectChat);
+  const loadMessage = useTelegramStore((state) => state.loadMessage);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const markActiveChatRead = useTelegramStore((state) => state.markActiveChatRead);
@@ -74,6 +77,10 @@ export function App() {
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
   const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
+  const searchGlobal = useTelegramStore((state) => state.searchGlobal);
+  const loadMoreGlobalSearch = useTelegramStore((state) => state.loadMoreGlobalSearch);
+  const cancelGlobalSearch = useTelegramStore((state) => state.cancelGlobalSearch);
+  const clearGlobalSearch = useTelegramStore((state) => state.clearGlobalSearch);
   const downloadFile = useTelegramStore((state) => state.downloadFile);
   const cancelFileDownload = useTelegramStore((state) => state.cancelFileDownload);
   const openFile = useTelegramStore((state) => state.openFile);
@@ -89,6 +96,8 @@ export function App() {
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const globalSearchButtonRef = useRef<HTMLButtonElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
     chatId: string;
@@ -106,9 +115,54 @@ export function App() {
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const knownLatestMessagesRef = useRef<Set<string> | undefined>(undefined);
 
+  const closeGlobalSearch = useCallback((restoreFocus = true) => {
+    cancelGlobalSearch();
+    clearGlobalSearch();
+    setGlobalSearchOpen(false);
+    if (restoreFocus) {
+      globalThis.setTimeout(() => globalSearchButtonRef.current?.focus(), 0);
+    }
+  }, [cancelGlobalSearch, clearGlobalSearch]);
+
+  const openGlobalSearchChat = useCallback(async (chatId: string) => {
+    await selectChat(chatId);
+    clearGlobalSearch();
+    setGlobalSearchOpen(false);
+    setMobileChatOpen(true);
+    latestScrollRequestIdRef.current += 1;
+    setLatestScrollRequest({ chatId, requestId: latestScrollRequestIdRef.current });
+  }, [clearGlobalSearch, selectChat]);
+
+  const openGlobalSearchMessage = useCallback(async (chatId: string, messageId: string) => {
+    await selectChat(chatId);
+    await loadMessage(chatId, messageId);
+    clearGlobalSearch();
+    setGlobalSearchOpen(false);
+    setMobileChatOpen(true);
+    messageScrollRequestIdRef.current += 1;
+    setMessageScrollRequest({
+      chatId,
+      messageId,
+      requestId: messageScrollRequestIdRef.current,
+    });
+  }, [clearGlobalSearch, loadMessage, selectChat]);
+
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    const openSearch = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
+        event.preventDefault();
+        setSettingsOpen(false);
+        setMobileChatOpen(false);
+        setGlobalSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", openSearch);
+    return () => window.removeEventListener("keydown", openSearch);
+  }, []);
 
   const openNotificationRoute = useCallback(async (route: DesktopNotificationRoute) => {
     const state = telegramStore.getState();
@@ -118,6 +172,8 @@ export function App() {
       return;
     }
 
+    state.clearGlobalSearch();
+    setGlobalSearchOpen(false);
     await state.selectChat(route.chatId);
     await telegramStore.getState().loadMessage(route.chatId, route.messageId);
     clearPendingNotificationRoute();
@@ -277,8 +333,38 @@ export function App() {
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
         style={{ "--chat-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
-        <NavigationRail folders={folders} filter={chatFilter} onFilterChange={setChatFilter} transportLabel={transportLabel} connectionStatus={connectionStatus} onOpenSettings={() => setSettingsOpen(true)} />
-        <ChatSidebar
+        <NavigationRail
+          folders={folders}
+          filter={chatFilter}
+          onFilterChange={(filter) => {
+            closeGlobalSearch(false);
+            setChatFilter(filter);
+          }}
+          transportLabel={transportLabel}
+          connectionStatus={connectionStatus}
+          searchActive={globalSearchOpen}
+          searchButtonRef={globalSearchButtonRef}
+          onOpenSearch={() => {
+            setMobileChatOpen(false);
+            setGlobalSearchOpen(true);
+          }}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+        {globalSearchOpen ? (
+          <GlobalSearchView
+            state={globalSearch}
+            knownChats={chats}
+            onSearch={searchGlobal}
+            onLoadMore={loadMoreGlobalSearch}
+            onCancel={cancelGlobalSearch}
+            onClear={clearGlobalSearch}
+            onOpenChat={(chatId) => { void openGlobalSearchChat(chatId); }}
+            onOpenMessage={(chatId, messageId) => { void openGlobalSearchMessage(chatId, messageId); }}
+            onClose={() => closeGlobalSearch()}
+          />
+        ) : (
+          <>
+          <ChatSidebar
           chats={visibleChats}
           drafts={drafts}
           activeChatId={activeChatId}
@@ -305,7 +391,7 @@ export function App() {
           width={sidebarWidth}
           onWidthChange={setSidebarWidth}
         />
-        <Conversation
+          <Conversation
           chat={activeChat}
           scrollScope={activeAccountId}
           latestScrollRequest={latestScrollRequest}
@@ -339,7 +425,9 @@ export function App() {
           onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onBack={() => setMobileChatOpen(false)}
-        />
+          />
+          </>
+        )}
       </main>
       {error && (
         <div className="runtime-error" role="alert">
