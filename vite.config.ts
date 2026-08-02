@@ -9,7 +9,7 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      ignored: ["**/src-tauri/target/**"],
+      ignored: ["**/src-tauri/target/**", "**/.native-smoke/**"],
     },
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
