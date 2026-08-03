@@ -1016,16 +1016,16 @@ test("sidebar context menus close when content outside them scrolls", async ({ p
 
   const chatList = page.locator(".chat-list");
   const scrollChatList = async () => {
-    const movement = await chatList.evaluate((element) => {
-      const before = element.scrollTop;
-      const maximum = element.scrollHeight - element.clientHeight;
-      element.scrollTop = before < maximum
-        ? Math.min(maximum, before + 80)
-        : Math.max(0, before - 80);
-      return { before, after: element.scrollTop, maximum };
-    });
-    expect(movement.maximum).toBeGreaterThan(0);
-    expect(movement.after).not.toBe(movement.before);
+    const metrics = await chatList.evaluate((element) => ({
+      before: element.scrollTop,
+      maximum: element.scrollHeight - element.clientHeight,
+      height: element.clientHeight,
+    }));
+    expect(metrics.maximum).toBeGreaterThan(0);
+    await chatList.hover({ position: { x: 20, y: metrics.height - 10 } });
+    await page.mouse.wheel(0, metrics.before < metrics.maximum ? 80 : -80);
+    await expect.poll(() => chatList.evaluate((element) => element.scrollTop))
+      .not.toBe(metrics.before);
   };
 
   const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
@@ -1049,17 +1049,42 @@ test("sidebar context menus close when content outside them scrolls", async ({ p
   await menu.locator('[data-context-menu-primary] [role="menuitem"]').first().click();
   const submenu = menu.locator(".chat-folder-submenu");
   await expect(submenu).toBeVisible();
-  const submenuMovement = await submenu.evaluate((element) => {
-    const before = element.scrollTop;
-    const maximum = element.scrollHeight - element.clientHeight;
-    element.scrollTop = Math.min(maximum, before + 60);
-    return { before, after: element.scrollTop, maximum };
-  });
+  const submenuMovement = await submenu.evaluate((element) => ({
+    before: element.scrollTop,
+    maximum: element.scrollHeight - element.clientHeight,
+  }));
   expect(submenuMovement.maximum).toBeGreaterThan(0);
-  expect(submenuMovement.after).not.toBe(submenuMovement.before);
+  await submenu.hover();
+  await page.mouse.wheel(0, 60);
+  await expect.poll(() => submenu.evaluate((element) => element.scrollTop))
+    .not.toBe(submenuMovement.before);
   await expect(menu).toBeVisible();
 
   await scrollChatList();
+  await expect(menu).toBeHidden();
+});
+
+test("message context menu closes when the conversation scrolls", async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 420 });
+  await page.goto("/");
+
+  const messageList = page.locator(".message-list");
+  const visibleBubble = page.locator('[data-message-id="p-2"] .message-bubble-shell');
+  await visibleBubble.scrollIntoViewIfNeeded();
+  await visibleBubble.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "消息操作" });
+  await expect(menu).toBeVisible();
+
+  const movement = await messageList.evaluate((element) => ({
+    before: element.scrollTop,
+    maximum: element.scrollHeight - element.clientHeight,
+    height: element.clientHeight,
+  }));
+  expect(movement.maximum).toBeGreaterThan(0);
+  await messageList.hover({ position: { x: 18, y: movement.height - 12 } });
+  await page.mouse.wheel(0, movement.before > 0 ? -80 : 80);
+  await expect.poll(() => messageList.evaluate((element) => element.scrollTop))
+    .not.toBe(movement.before);
   await expect(menu).toBeHidden();
 });
 

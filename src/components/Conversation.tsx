@@ -345,18 +345,11 @@ export function Conversation({
 
   useEffect(() => {
     if (!actionMenu) return;
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Element && target.closest(".message-action-menu")) return;
-      closeActionMenu(false);
-    };
     const dismissWithKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeActionMenu(true);
     };
-    document.addEventListener("pointerdown", dismiss);
     document.addEventListener("keydown", dismissWithKeyboard);
     return () => {
-      document.removeEventListener("pointerdown", dismiss);
       document.removeEventListener("keydown", dismissWithKeyboard);
     };
   }, [actionMenu, closeActionMenu]);
@@ -765,6 +758,7 @@ export function Conversation({
                 );
               }
             : undefined}
+          onDismiss={() => closeActionMenu(false)}
           onClose={() => closeActionMenu(true)}
         />
       )}

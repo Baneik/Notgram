@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import {
   calculateContextMenuLayout,
@@ -61,6 +62,7 @@ export function ContextMenuSurface({
     submenuOffsetY: 0,
     submenuSide: "right",
   });
+  useContextMenuDismiss(menuRef, onClose);
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -87,21 +89,13 @@ export function ContextMenuSurface({
 
   useEffect(() => {
     const timer = globalThis.setTimeout(() => {
-      if (!focusFirstMenuButton(menuRef.current)) menuRef.current?.focus();
+      if (!focusFirstMenuButton(menuRef.current)) menuRef.current?.focus({ preventScroll: true });
     }, 0);
-    const closeOutside = (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof Node) || !menuRef.current?.contains(target)) onClose();
-    };
     const closeForViewportChange = () => onClose();
-    document.addEventListener("pointerdown", closeOutside, true);
-    window.addEventListener("scroll", closeOutside, true);
     window.addEventListener("blur", closeForViewportChange);
     window.addEventListener("resize", closeForViewportChange);
     return () => {
       globalThis.clearTimeout(timer);
-      document.removeEventListener("pointerdown", closeOutside, true);
-      window.removeEventListener("scroll", closeOutside, true);
       window.removeEventListener("blur", closeForViewportChange);
       window.removeEventListener("resize", closeForViewportChange);
     };

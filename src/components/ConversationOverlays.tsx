@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, Message } from "../telegram/types";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
@@ -31,6 +32,7 @@ interface MessageActionMenuProps {
   onDelete: () => void;
   onPlayInWindow?: () => void;
   onDownloadVideo?: () => void;
+  onDismiss: () => void;
   onClose: () => void;
 }
 
@@ -45,13 +47,15 @@ export function MessageActionMenu({
   onDelete,
   onPlayInWindow,
   onDownloadVideo,
+  onDismiss,
   onClose,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
   const menuRef = useRef<HTMLDivElement>(null);
+  useContextMenuDismiss(menuRef, onDismiss);
   useEffect(() => {
     const timer = globalThis.setTimeout(() => {
-      if (!focusFirstMenuButton(menuRef.current)) menuRef.current?.focus();
+      if (!focusFirstMenuButton(menuRef.current)) menuRef.current?.focus({ preventScroll: true });
     }, 0);
     return () => globalThis.clearTimeout(timer);
   }, [permissions]);

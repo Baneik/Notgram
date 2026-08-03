@@ -6,7 +6,7 @@ const enabledButtons = (container: HTMLElement) =>
 export const focusFirstMenuButton = (container: HTMLElement | null) => {
   if (!container) return false;
   const first = enabledButtons(container)[0];
-  first?.focus();
+  first?.focus({ preventScroll: true });
   return Boolean(first);
 };
 
