@@ -1350,6 +1350,82 @@ describe("telegram store", () => {
     expect(store.getState().storageSettings).toMatchObject(updated);
   });
 
+  it("tracks remote typing state, expires it, and sends local typing state", async () => {
+    class TypingTransport extends MockTelegramTransport {
+      eventListener?: TelegramEventListener;
+      typingWrites: Array<{ chatId: string; typing: boolean }> = [];
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async setChatTyping(chatId: string, typing: boolean) {
+        this.typingWrites.push({ chatId, typing });
+      }
+
+      publish(typing: boolean) {
+        this.eventListener?.({
+          type: "chat.typingChanged",
+          chatId: "chat-product",
+          senderId: "u-jules",
+          typing,
+        });
+      }
+    }
+
+    vi.useFakeTimers();
+    try {
+      const transport = new TypingTransport();
+      const store = createTelegramStore(transport);
+      await store.getState().initialize();
+
+      transport.publish(true);
+      expect(store.getState().typingUserIds.get("chat-product")).toEqual(["u-jules"]);
+      await vi.advanceTimersByTimeAsync(5_999);
+      expect(store.getState().typingUserIds.get("chat-product")).toEqual(["u-jules"]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(store.getState().typingUserIds.has("chat-product")).toBe(false);
+
+      await store.getState().setChatTyping("chat-product", true);
+      await store.getState().setChatTyping("chat-product", false);
+      expect(transport.typingWrites).toEqual([
+        { chatId: "chat-product", typing: true },
+        { chatId: "chat-product", typing: false },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves a new draft typed while the previous message is sending", async () => {
+    class DeferredSendTransport extends MockTelegramTransport {
+      resolveSend?: () => void;
+      private resolveStarted?: () => void;
+      readonly sendStarted = new Promise<void>((resolve) => {
+        this.resolveStarted = resolve;
+      });
+
+      override async sendMessage(_input: SendMessageInput) {
+        this.resolveStarted?.();
+        await new Promise<void>((resolve) => { this.resolveSend = resolve; });
+      }
+    }
+
+    const transport = new DeferredSendTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    store.getState().updateChatDraft("chat-product", "first message");
+
+    const sending = store.getState().sendMessage("first message");
+    await transport.sendStarted;
+    store.getState().updateChatDraft("chat-product", "next message");
+    transport.resolveSend?.();
+
+    await expect(sending).resolves.toBe(true);
+    expect(store.getState().drafts.get("chat-product")?.text).toBe("next message");
+  });
+
   it("loads cache usage and protects referenced files during cleanup", async () => {
     class TrackingCacheTransport extends MockTelegramTransport {
       cleanupInput?: Parameters<MockTelegramTransport["clearMediaCache"]>[0];

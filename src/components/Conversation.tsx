@@ -1,17 +1,11 @@
 import {
   ArrowDown,
-  Check,
   ChevronLeft,
   Forward,
-  Edit3,
   MoreVertical,
   LoaderCircle,
-  Paperclip,
   Phone,
   Search,
-  Send,
-  Smile,
-  Reply,
   X,
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +18,6 @@ import type {
   ForwardMessagesResult,
   User,
 } from "../telegram/types";
-import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { useConversationSearch } from "../hooks/useConversationSearch";
 import {
   useConversationScroll,
@@ -45,13 +38,12 @@ import {
 } from "./ConversationOverlays";
 import {
   forwardLabelFor,
-  messageSummary,
   replyPreviewFor,
   senderNameForMessage,
 } from "./conversationMessages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
-import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
+import { ConversationComposer } from "./ConversationComposer";
 import { MediaViewer } from "./MediaViewer";
 import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
@@ -75,12 +67,14 @@ interface ConversationProps {
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
   failedQueuedMessageCount: number;
+  typingUserIds: string[];
   chatListId: string;
   chatManagementPending: boolean;
   onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
   onDraftChange: (chatId: string, text: string, replyToMessageId?: string) => void;
+  onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
   onForwardMessages: (
     fromChatId: string,
     messageIds: string[],
@@ -126,12 +120,14 @@ export function Conversation({
   connectionStatus,
   queuedMessageCount,
   failedQueuedMessageCount,
+  typingUserIds,
   chatListId,
   chatManagementPending,
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
   onDraftChange,
+  onTypingChange,
   onForwardMessages,
   onLoadMessageProperties,
   onLoadRawMessage,
@@ -154,9 +150,6 @@ export function Conversation({
   onSetChatArchived,
   onBack,
 }: ConversationProps) {
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [attachmentPending, setAttachmentPending] = useState(false);
   const [actionMenu, setActionMenu] = useState<{
     messageId: string;
     left: number;
@@ -170,24 +163,11 @@ export function Conversation({
   const [deletePending, setDeletePending] = useState(false);
   const [viewerMessageId, setViewerMessageId] = useState<string>();
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
-  const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const developerMode = usePreferencesStore((state) => state.developerMode);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const draftBeforeEditRef = useRef<string | undefined>(undefined);
-
-  const sendAttachment = async (file?: File) => {
-    if (attachmentPending) return;
-    setAttachmentPending(true);
-    try {
-      await onSendFile(file);
-    } finally {
-      setAttachmentPending(false);
-    }
-  };
 
   const displayMessages = useMemo(
     () => chat?.kind === "saved"
@@ -271,8 +251,6 @@ export function Conversation({
     pendingTargetId: forwardPendingTargetId,
     filteredTargets: filteredForwardTargets,
   } = forwarding;
-  useComposerAutoResize(composerInputRef, draft, !selectionMode, chat?.id);
-
   const {
     messageListRef,
     currentScrollKey,
@@ -312,13 +290,7 @@ export function Conversation({
     setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setDeletePending(false);
-    setDraft(chatDraft?.text ?? "");
-    draftBeforeEditRef.current = undefined;
   }, [chat?.id]);
-
-  useEffect(() => {
-    if (!editingMessage) setDraft(chatDraft?.text ?? "");
-  }, [chat?.id, chatDraft?.text, editingMessage]);
 
   useEffect(() => {
     if (editingMessage) return;
@@ -340,8 +312,6 @@ export function Conversation({
     }
     if (editingMessage && !messagesById.has(editingMessage.id)) {
       setEditingMessage(undefined);
-      setDraft(draftBeforeEditRef.current ?? "");
-      draftBeforeEditRef.current = undefined;
     }
     if (deleteTarget && !messagesById.has(deleteTarget.id)) setDeleteTarget(undefined);
   }, [actionMenu, deleteTarget, editingMessage, messagesById, replyingTo]);
@@ -366,12 +336,21 @@ export function Conversation({
     );
   }
 
-  const composerContextMessage = editingMessage ?? replyingTo;
   const composerContextTitle = editingMessage
     ? "编辑消息"
     : replyingTo
       ? `回复 ${senderNameForMessage(replyingTo, users, chat)}`
       : undefined;
+  const typingNames = typingUserIds.map((userId) => users.get(userId)?.displayName ?? "成员");
+  const typingStatus = typingUserIds.length === 0 || chat.kind === "saved" || chat.kind === "channel"
+    ? undefined
+    : chat.kind === "direct"
+      ? "正在输入..."
+      : typingUserIds.length === 1
+        ? `${typingNames[0]} 正在输入...`
+        : typingUserIds.length === 2
+          ? `${typingNames.join("、")} 正在输入...`
+          : `${typingNames.slice(0, 2).join("、")} 等 ${typingUserIds.length} 人正在输入...`;
 
   const focusComposer = () => {
     globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
@@ -410,58 +389,29 @@ export function Conversation({
 
   const cancelEditing = () => {
     setEditingMessage(undefined);
-    setDraft(chatDraft?.text ?? draftBeforeEditRef.current ?? "");
-    draftBeforeEditRef.current = undefined;
     focusComposer();
   };
 
   const cancelReply = () => {
     setReplyingTo(undefined);
-    onDraftChange(chat.id, draft, undefined);
     focusComposer();
   };
 
   const startReply = (message: Message) => {
     if (editingMessage) {
-      setDraft(chatDraft?.text ?? draftBeforeEditRef.current ?? "");
       setEditingMessage(undefined);
-      draftBeforeEditRef.current = undefined;
     }
     setReplyingTo(message);
-    onDraftChange(chat.id, chatDraft?.text ?? draft, message.id);
     setActionMenu(undefined);
     focusComposer();
   };
 
   const startEditing = (message: Message) => {
     if (message.content.kind !== "text") return;
-    if (!editingMessage) draftBeforeEditRef.current = draft;
     setReplyingTo(undefined);
     setEditingMessage(message);
-    setDraft(message.content.text);
     setActionMenu(undefined);
     focusComposer();
-  };
-
-  const submitMessage = async () => {
-    const submitted = draft.trim();
-    if (!submitted || sending) return;
-    if (editingMessage) {
-      setSending(true);
-      const edited = await onEditMessage(editingMessage.id, submitted);
-      setSending(false);
-      if (edited) cancelEditing();
-      return;
-    }
-    setDraft("");
-    setSending(true);
-    const sent = await onSendMessage(submitted, replyingTo?.id ?? chatDraft?.replyToMessageId);
-    setSending(false);
-    if (sent) {
-      setReplyingTo(undefined);
-    } else {
-      setDraft((current) => current ? `${submitted}\n${current}` : submitted);
-    }
   };
 
   const confirmDelete = async (revoke: boolean) => {
@@ -474,9 +424,7 @@ export function Conversation({
 
   const startForwardSelection = (message: Message) => {
     if (editingMessage) {
-      setDraft(chatDraft?.text ?? draftBeforeEditRef.current ?? "");
       setEditingMessage(undefined);
-      draftBeforeEditRef.current = undefined;
     }
     setActionMenu(undefined);
     closeMessageSearch();
@@ -524,6 +472,7 @@ export function Conversation({
               <Avatar avatar={chat.avatar} size="medium" />
               <span className="conversation-title">
                 <strong>{chat.title}</strong>
+                {typingStatus && <span className="conversation-typing-status" role="status">{typingStatus}</span>}
               </span>
             </button>
             <div className="conversation-actions">
@@ -792,115 +741,26 @@ export function Conversation({
           </button>
         </div>
       ) : (
-      <div className="composer-wrap">
-        <input
-          ref={fileInputRef}
-          className="sr-only"
-          type="file"
-          onChange={async (event) => {
-            const file = event.target.files?.[0];
-            if (file) await sendAttachment(file);
-            event.target.value = "";
-          }}
-        />
-        {connectionStatus !== "online" && (
-          <ConnectionStatusIndicator
-            className="composer-connection-status"
-            status={connectionStatus}
-          />
-        )}
-        {(queuedMessageCount > 0 || failedQueuedMessageCount > 0) && (
-          <div className="composer-outbox-status" role="status">
-            {failedQueuedMessageCount > 0
-              ? `${failedQueuedMessageCount} 条离线消息需要手动重试`
-              : `${queuedMessageCount} 条消息将在联网后发送`}
-          </div>
-        )}
-        {composerContextMessage && (
-          <div className={`composer-context ${editingMessage ? "is-editing" : "is-replying"}`}>
-            <span className="composer-context-icon">
-              {editingMessage
-                ? <Edit3 size={18} strokeWidth={1.9} />
-                : <Reply size={18} strokeWidth={1.9} />}
-            </span>
-            <span className="composer-context-copy">
-              <strong>{composerContextTitle}</strong>
-              <small>{messageSummary(composerContextMessage.content)}</small>
-            </span>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label={editingMessage ? "取消编辑" : "取消回复"}
-              title={editingMessage ? "取消编辑" : "取消回复"}
-              onClick={editingMessage ? cancelEditing : cancelReply}
-            >
-              <X size={17} strokeWidth={1.9} />
-            </button>
-          </div>
-        )}
-        <div className={`composer ${editingMessage ? "is-editing" : ""}`}>
-          <button className="icon-button" type="button" aria-label="表情" title="表情" disabled={Boolean(editingMessage)}>
-            <Smile size={21} strokeWidth={1.8} />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="添加附件"
-            title={composerContextMessage ? "完成当前消息操作后添加附件" : attachmentPending ? "正在选择文件" : "添加附件"}
-            disabled={Boolean(composerContextMessage) || attachmentPending}
-            onClick={() => {
-              if (transportKind === "tauri") void sendAttachment();
-              else fileInputRef.current?.click();
-            }}
-          >
-            {attachmentPending
-              ? <LoaderCircle className="spin" size={19} strokeWidth={1.8} />
-              : <Paperclip size={20} strokeWidth={1.8} />}
-          </button>
-          <textarea
-            ref={composerInputRef}
-            value={draft}
-            onChange={(event) => {
-              const value = event.target.value;
-              setDraft(value);
-              if (!editingMessage) {
-                onDraftChange(
-                  chat.id,
-                  value,
-                  replyingTo?.id ?? chatDraft?.replyToMessageId,
-                );
-              }
-            }}
-            onKeyDown={async (event) => {
-              const submitWithKeyboard = event.key === "Enter" && (
-                (sendOnEnter && !event.shiftKey) ||
-                (!sendOnEnter && (event.ctrlKey || event.metaKey))
-              );
-              if (submitWithKeyboard) {
-                if (event.nativeEvent.isComposing) return;
-                event.preventDefault();
-                await submitMessage();
-              }
-            }}
-            rows={1}
-            placeholder={editingMessage ? "编辑消息" : "写一条消息"}
-            aria-label="消息内容"
-            disabled={sending}
-          />
-          <button
-            className="send-button icon-button"
-            type="button"
-            aria-label={editingMessage ? "保存编辑" : "发送消息"}
-            title={editingMessage ? "保存编辑" : "发送消息"}
-            disabled={!draft.trim() || sending}
-            onClick={submitMessage}
-          >
-            {editingMessage
-              ? <Check size={19} strokeWidth={2.2} />
-              : <Send size={19} strokeWidth={2} />}
-          </button>
-        </div>
-      </div>
+      <ConversationComposer
+        key={chat.id}
+        chat={chat}
+        chatDraft={chatDraft}
+        editingMessage={editingMessage}
+        replyingTo={replyingTo}
+        contextTitle={composerContextTitle}
+        inputRef={composerInputRef}
+        transportKind={transportKind}
+        connectionStatus={connectionStatus}
+        queuedMessageCount={queuedMessageCount}
+        failedQueuedMessageCount={failedQueuedMessageCount}
+        onSendMessage={onSendMessage}
+        onEditMessage={onEditMessage}
+        onDraftChange={onDraftChange}
+        onTypingChange={onTypingChange}
+        onSendFile={onSendFile}
+        onCancelEditing={cancelEditing}
+        onCancelReply={cancelReply}
+      />
       )}
 
       {deleteTarget && (

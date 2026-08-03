@@ -15,6 +15,7 @@ import {
   Network,
   RotateCcw,
   Save,
+  SendHorizontal,
   ShieldCheck,
   SlidersHorizontal,
   Sun,
@@ -60,6 +61,7 @@ interface SettingsDialogProps {
 
 type SettingsCategoryId =
   | "account"
+  | "notgram"
   | "notifications"
   | "chats"
   | "advanced"
@@ -76,6 +78,7 @@ interface SettingsCategory {
 
 const categories: SettingsCategory[] = [
   { id: "account", label: "我的账号", icon: UserCircle },
+  { id: "notgram", label: "Notgram", icon: SendHorizontal },
   { id: "notifications", label: "通知与声音", icon: Bell },
   { id: "chats", label: "聊天设置", icon: MessageCircle },
   { id: "advanced", label: "高级设置", icon: SlidersHorizontal },
@@ -178,6 +181,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const compactMode = usePreferencesStore((state) => state.compactMode);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
+  const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
   const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
@@ -195,6 +199,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     notificationPreview,
     compactMode,
     sendOnEnter,
+    sendTypingStatus,
     autoplayAnimations,
     autoDownloadImages,
     autoDownloadVideos,
@@ -392,7 +397,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 }
 
 interface PreferenceSettingsProps {
-  category: "notifications" | "chats" | "power";
+  category: "notgram" | "notifications" | "chats" | "power";
   preferences: AppPreferences;
   error?: string;
   onChange: <Key extends keyof AppPreferences>(key: Key, value: AppPreferences[Key]) => void;
@@ -412,7 +417,11 @@ function PreferenceSettings({
     key: BooleanPreferenceKey;
     label: string;
     disabled?: boolean;
-  }> = category === "notifications"
+  }> = category === "notgram"
+    ? [
+        { key: "sendTypingStatus" as const, label: "发送输入状态" },
+      ]
+    : category === "notifications"
     ? [
         { key: "notificationsEnabled" as const, label: "桌面通知" },
         { key: "notificationPreview" as const, label: "显示消息预览", disabled: !preferences.notificationsEnabled },

@@ -1233,6 +1233,62 @@ describe("TauriTelegramTransport message operations", () => {
     });
   });
 
+  it("sends and receives typing actions through TDLib", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+    internal.listener = (event) => events.push(event);
+
+    await transport.setChatTyping("7", true);
+    await transport.setChatTyping("7", false);
+    internal.handleUpdate({
+      "@type": "updateChatAction",
+      chat_id: 7,
+      sender_id: { "@type": "messageSenderUser", user_id: 11 },
+      action: { "@type": "chatActionTyping" },
+    });
+    internal.handleUpdate({
+      "@type": "updateChatAction",
+      chat_id: 7,
+      sender_id: { "@type": "messageSenderUser", user_id: 11 },
+      action: { "@type": "chatActionCancel" },
+    });
+
+    expect(requests).toEqual([
+      {
+        "@type": "sendChatAction",
+        chat_id: 7,
+        message_thread_id: 0,
+        business_connection_id: "",
+        action: { "@type": "chatActionTyping" },
+      },
+      {
+        "@type": "sendChatAction",
+        chat_id: 7,
+        message_thread_id: 0,
+        business_connection_id: "",
+        action: { "@type": "chatActionCancel" },
+      },
+    ]);
+    expect(events).toContainEqual({
+      type: "chat.typingChanged",
+      chatId: "7",
+      senderId: "11",
+      typing: true,
+    });
+    expect(events.at(-1)).toEqual({
+      type: "chat.typingChanged",
+      chatId: "7",
+      senderId: "11",
+      typing: false,
+    });
+  });
+
   it("edits and deletes messages through TDLib", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

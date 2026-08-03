@@ -289,7 +289,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   background: #ffffff; border-bottom: 1px solid var(--line);
 }
 .conversation-header .avatar { width: 42px; height: 42px; }
-.conversation-title { min-width: 0; display: grid; }
+.conversation-title { min-width: 0; display: grid; gap: 1px; }
 .conversation-profile-trigger {
   min-width: 0; padding: 0; display: flex; align-items: center; gap: 11px; color: inherit; text-align: left;
   background: transparent; border: 0; border-radius: 7px; cursor: pointer;
@@ -297,6 +297,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .conversation-profile-trigger:hover { background: #f2f6f8; }
 .conversation-profile-trigger:focus-visible { outline: 2px solid rgba(51, 144, 236, 0.55); outline-offset: 2px; }
 .conversation-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; }
+.conversation-typing-status { overflow: hidden; color: var(--accent); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 550; }
 .conversation-header.is-selection-header { gap: 8px; }
 .message-selection-title { min-width: 0; display: grid; gap: 2px; }
 .message-selection-title strong { font-size: 14px; font-weight: 650; }
@@ -377,7 +378,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-group:last-child { margin-bottom: 0; }
 .message-group-stack { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 .message-group-avatar { width: 36px; display: flex; align-items: flex-end; flex: 0 0 36px; }
-.message-group-avatar .avatar { position: sticky; bottom: 10px; }
+.message-group-avatar .avatar { position: sticky; bottom: 4px; }
 .message-row { width: 100%; display: flex; align-items: flex-end; justify-content: flex-start; margin: 1px 0; }
 .message-group:last-child .message-row:last-child { margin-bottom: 0; }
 .message-row.is-outgoing { justify-content: flex-end; }

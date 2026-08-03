@@ -82,6 +82,7 @@ export interface TelegramTransport {
   deleteMessage(input: DeleteMessageInput): Promise<void>;
   forwardMessages(input: ForwardMessagesInput): Promise<ForwardMessagesResult>;
   setChatDraft(input: SetChatDraftInput): Promise<void>;
+  setChatTyping(chatId: string, typing: boolean): Promise<void>;
   cacheFile(fileId: number, priority?: number): Promise<void>;
   streamFile(input: StreamFileInput): Promise<string>;
   suspendFileStream(fileId: number): Promise<void>;

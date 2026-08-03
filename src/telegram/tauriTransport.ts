@@ -8,6 +8,7 @@ import {
   mapTdChatFolders,
   mapTdMessage,
   mapTdMessageProperties,
+  messageSenderId,
   serializeTdObject,
   mapTdUser,
   tdId,
@@ -189,6 +190,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     updateChatFolders: (update) => this.updateChatFolders(update),
     upsertChat: (chat) => this.upsertChat(chat),
     emitDraft: (chatId, draft) => this.emitDraft(chatId, draft),
+    updateChatAction: (update) => this.updateChatAction(update),
     patchChat: (chatId, patch) => this.patchChat(chatId, patch),
     patchChatWithPositions: (chatId, patch, positions) =>
       this.patchChatWithPositions(chatId, patch, positions),
@@ -995,6 +997,16 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
+  async setChatTyping(chatId: string, typing: boolean) {
+    await this.request({
+      "@type": "sendChatAction",
+      chat_id: numericId(chatId),
+      message_thread_id: 0,
+      business_connection_id: "",
+      action: { "@type": typing ? "chatActionTyping" : "chatActionCancel" },
+    });
+  }
+
   async downloadFile(fileId: number, fileName: string) {
     this.pendingDownloads.set(fileId, fileName);
     try {
@@ -1471,6 +1483,18 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
     const draft = mapTdChatDraft(chatId, value);
     if (draft) this.listener?.({ type: "chat.draftChanged", chatId, draft });
+  }
+
+  private updateChatAction(update: TdObject) {
+    const chatId = tdId(update.chat_id);
+    const senderId = messageSenderId(update.sender_id);
+    if (!chatId || !senderId) return;
+    this.listener?.({
+      type: "chat.typingChanged",
+      chatId,
+      senderId,
+      typing: asTdObject(update.action)?.["@type"] === "chatActionTyping",
+    });
   }
 
   private patchChat(idValue: unknown, patch: TdObject) {

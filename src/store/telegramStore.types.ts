@@ -68,6 +68,7 @@ export interface TelegramState {
   chatLists: Map<string, ChatListState>;
   messages: Map<string, Message[]>;
   drafts: Map<string, ChatDraft>;
+  typingUserIds: Map<string, string[]>;
   outbox: QueuedOutgoingMessage[];
   histories: Map<string, HistoryState>;
   activeChatId?: string;
@@ -135,6 +136,7 @@ export interface TelegramState {
   editMessage: (messageId: string, text: string) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
   updateChatDraft: (chatId: string, text: string, replyToMessageId?: string) => void;
+  setChatTyping: (chatId: string, typing: boolean) => Promise<void>;
   forwardMessages: (
     fromChatId: string,
     messageIds: string[],

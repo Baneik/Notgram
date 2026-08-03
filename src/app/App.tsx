@@ -59,6 +59,7 @@ export function App() {
   const users = useTelegramStore((state) => state.users);
   const messages = useTelegramStore((state) => state.messages);
   const drafts = useTelegramStore((state) => state.drafts);
+  const typingUserIds = useTelegramStore((state) => state.typingUserIds);
   const outbox = useTelegramStore((state) => state.outbox);
   const histories = useTelegramStore((state) => state.histories);
   const globalSearch = useTelegramStore((state) => state.globalSearch);
@@ -96,6 +97,7 @@ export function App() {
   const editMessage = useTelegramStore((state) => state.editMessage);
   const deleteMessage = useTelegramStore((state) => state.deleteMessage);
   const updateChatDraft = useTelegramStore((state) => state.updateChatDraft);
+  const setChatTyping = useTelegramStore((state) => state.setChatTyping);
   const forwardMessages = useTelegramStore((state) => state.forwardMessages);
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
   const loadRawMessage = useTelegramStore((state) => state.loadRawMessage);
@@ -445,7 +447,9 @@ export function App() {
         />
         <ChatSidebar
           chats={visibleChats}
+          allChats={chats}
           drafts={drafts}
+          users={users}
           folders={folders}
           activeChatId={activeChatId}
           folderId={chatFilter}
@@ -509,6 +513,7 @@ export function App() {
           connectionStatus={connectionStatus}
           queuedMessageCount={activeOutbox.filter((item) => item.status === "queued").length}
           failedQueuedMessageCount={activeOutbox.filter((item) => item.status === "failed").length}
+          typingUserIds={activeChatId ? typingUserIds.get(activeChatId) ?? [] : []}
           chatListId={activeChat?.folderIds.includes(chatFilter)
             ? chatFilter
             : activeChat?.folderIds.includes("archive") ? "archive" : "main"}
@@ -519,6 +524,7 @@ export function App() {
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}
           onDraftChange={updateChatDraft}
+          onTypingChange={setChatTyping}
           onForwardMessages={forwardMessages}
           onLoadMessageProperties={loadMessageProperties}
           onLoadRawMessage={loadRawMessage}

@@ -88,6 +88,7 @@ export interface Chat {
   avatar: Avatar;
   peerId?: string;
   preview: string;
+  previewSenderId?: string;
   updatedAt: string;
   unreadCount: number;
   pinned: boolean;
@@ -411,6 +412,7 @@ export type TelegramEvent =
   | { type: "chat.upsert"; chat: Chat }
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
   | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }
+  | { type: "chat.typingChanged"; chatId: string; senderId: string; typing: boolean }
   | { type: "user.upsert"; user: User }
   | { type: "sync.error"; message: string; fatal?: boolean };
 

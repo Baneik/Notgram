@@ -1217,7 +1217,7 @@ export const messagePreview = (value: unknown) => {
   return messageContentText(content);
 };
 
-const messageSenderId = (value: unknown) => {
+export const messageSenderId = (value: unknown) => {
   const sender = asTdObject(value);
   if (sender?.["@type"] === "messageSenderUser") return tdId(sender.user_id);
   if (sender?.["@type"] === "messageSenderChat") {
@@ -1511,6 +1511,7 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
     },
     peerId,
     preview: lastMessage ? messagePreview(lastMessage) : "暂无消息",
+    previewSenderId: lastMessage ? messageSenderId(lastMessage.sender_id) || undefined : undefined,
     updatedAt: unixDate(lastMessage?.date),
     unreadCount: tdNumber(raw.unread_count) ?? 0,
     pinned: pinnedFolderIds.length > 0,

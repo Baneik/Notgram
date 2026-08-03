@@ -12,6 +12,7 @@ export interface AppPreferences {
   notificationPreview: boolean;
   compactMode: boolean;
   sendOnEnter: boolean;
+  sendTypingStatus: boolean;
   autoplayAnimations: boolean;
   autoDownloadImages: boolean;
   autoDownloadVideos: boolean;
@@ -39,6 +40,7 @@ const defaults: AppPreferences = {
   notificationPreview: true,
   compactMode: false,
   sendOnEnter: true,
+  sendTypingStatus: true,
   autoplayAnimations: true,
   autoDownloadImages: true,
   autoDownloadVideos: false,
@@ -68,6 +70,7 @@ const readPreferences = (): AppPreferences => {
       notificationPreview: stored.notificationPreview ?? defaults.notificationPreview,
       compactMode: stored.compactMode ?? defaults.compactMode,
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
+      sendTypingStatus: stored.sendTypingStatus ?? defaults.sendTypingStatus,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
       autoDownloadImages: stored.autoDownloadImages ?? defaults.autoDownloadImages,
       autoDownloadVideos: stored.autoDownloadVideos ?? defaults.autoDownloadVideos,
@@ -136,6 +139,7 @@ preferencesStore.subscribe((state) => {
     notificationPreview: state.notificationPreview,
     compactMode: state.compactMode,
     sendOnEnter: state.sendOnEnter,
+    sendTypingStatus: state.sendTypingStatus,
     autoplayAnimations: state.autoplayAnimations,
     autoDownloadImages: state.autoDownloadImages,
     autoDownloadVideos: state.autoDownloadVideos,

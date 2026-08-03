@@ -82,6 +82,7 @@ export class MockTelegramTransport implements TelegramTransport {
   private drafts = new Map((mockSnapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
   private authFlow: boolean;
   private connectionStatus: ConnectionStatus;
+  private initialTyping?: { chatId: string; senderId: string };
   private storageSettings: StorageSettings = {
     cachePath: "Windows 应用缓存\\Notgram\\tdlib",
     downloadPath: "Notgram\\downloads",
@@ -142,6 +143,7 @@ export class MockTelegramTransport implements TelegramTransport {
     authFlow?: boolean;
     cachedSnapshot?: CachedTelegramSnapshot;
     connectionStatus?: ConnectionStatus;
+    initialTyping?: { chatId: string; senderId: string };
   } = {}) {
     const serializedAccounts = browserStorage()?.getItem(ACCOUNT_STATE_KEY);
     let storedAccounts: TelegramAccountState | undefined;
@@ -161,6 +163,7 @@ export class MockTelegramTransport implements TelegramTransport {
     );
     this.authFlow = options.authFlow ?? !activeAccountExists;
     this.connectionStatus = options.connectionStatus ?? "online";
+    this.initialTyping = options.initialTyping;
     this.cachedSnapshot = options.cachedSnapshot
       ? clone(options.cachedSnapshot)
       : undefined;
@@ -173,6 +176,15 @@ export class MockTelegramTransport implements TelegramTransport {
   async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
     this.listener = listener;
     this.listener({ type: "connection.changed", status: this.connectionStatus });
+    if (this.initialTyping) {
+      const { chatId, senderId } = this.initialTyping;
+      globalThis.queueMicrotask(() => this.listener?.({
+        type: "chat.typingChanged",
+        chatId,
+        senderId,
+        typing: true,
+      }));
+    }
     return clone({ ...this.snapshot, messages: [], drafts: [...this.drafts.values()] });
   }
 
@@ -825,6 +837,8 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "chat.draftChanged", chatId, draft: clone(draft) });
   }
 
+  async setChatTyping(_chatId: string, _typing: boolean) {}
+
   async downloadFile(fileId: number, _fileName: string) {
     this.updateFileTransfer(fileId, {
       isDownloading: true,
@@ -926,6 +940,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const updatedChat: Chat = {
       ...chat,
       preview: messageContentText(message.content),
+      previewSenderId: message.senderId,
       updatedAt: message.sentAt,
       unreadCount: 0,
     };
@@ -962,6 +977,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const updatedChat: Chat = {
       ...chat,
       preview: messageContentText(latest.content),
+      previewSenderId: latest.senderId,
       updatedAt: latest.sentAt,
     };
     Object.assign(chat, updatedChat);

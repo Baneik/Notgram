@@ -130,6 +130,37 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(14, 22, 33)");
 });
 
+test("composer keeps focus, typing status is visible, and previews name the sender", async ({ page }) => {
+  await page.goto("/?typing=group");
+
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await expect(page.locator(".conversation-typing-status")).toHaveText("Jules 正在输入...");
+  await expect(page.locator('[data-chat-id="chat-product"] .chat-preview'))
+    .toContainText("Jules: 我把交互稿更新到最新版本了");
+
+  await composer.fill("发送后继续输入");
+  await page.keyboard.press("Enter");
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue("");
+  await composer.fill("第二条消息无需重新点击");
+  await page.keyboard.press("Enter");
+  await expect(composer).toBeFocused();
+  await expect(page.getByText("第二条消息无需重新点击", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /Notgram/ }).click();
+  const typingSwitch = page.getByRole("switch", { name: "发送输入状态" });
+  await expect(typingSwitch).toBeChecked();
+  await typingSwitch.uncheck();
+  await expect(typingSwitch).not.toBeChecked();
+});
+
+test("private chats show incoming typing state", async ({ page }) => {
+  await page.goto("/?typing=direct");
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator(".conversation-typing-status")).toHaveText("正在输入...");
+});
+
 test("sidebar dragging and window resizing keep the responsive layout live", async ({ page }) => {
   await page.goto("/");
   const resizer = page.getByRole("separator", { name: "调整会话列表宽度" });

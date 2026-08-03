@@ -80,6 +80,40 @@ export const createTelegramStore = (
     let globalSearchGeneration = 0;
     let profileGeneration = 0;
     let contactsGeneration = 0;
+    const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    const setTypingUser = (chatId: string, senderId: string, typing: boolean) => {
+      const key = `${chatId}:${senderId}`;
+      const previousTimer = typingTimers.get(key);
+      if (previousTimer) globalThis.clearTimeout(previousTimer);
+      typingTimers.delete(key);
+
+      const currentIds = get().typingUserIds.get(chatId) ?? [];
+      const hasSender = currentIds.includes(senderId);
+      if (typing && !hasSender) {
+        const typingUserIds = new Map(get().typingUserIds);
+        typingUserIds.set(chatId, [...currentIds, senderId]);
+        set({ typingUserIds });
+      } else if (!typing && hasSender) {
+        const typingUserIds = new Map(get().typingUserIds);
+        const nextIds = currentIds.filter((id) => id !== senderId);
+        if (nextIds.length > 0) typingUserIds.set(chatId, nextIds);
+        else typingUserIds.delete(chatId);
+        set({ typingUserIds });
+      }
+
+      if (typing) {
+        typingTimers.set(key, globalThis.setTimeout(() => {
+          typingTimers.delete(key);
+          setTypingUser(chatId, senderId, false);
+        }, 6_000));
+      }
+    };
+
+    const clearTypingUsers = () => {
+      for (const timer of typingTimers.values()) globalThis.clearTimeout(timer);
+      typingTimers.clear();
+    };
 
     const scheduleCacheWrite = () => {
       const state = get();
@@ -117,6 +151,7 @@ export const createTelegramStore = (
       cacheTimer = undefined;
       cachedMessageIds.clear();
       draftSync.clear();
+      clearTypingUsers();
       for (const timer of readTimers.values()) globalThis.clearTimeout(timer);
       readTimers.clear();
       readRequestChains.clear();
@@ -135,6 +170,7 @@ export const createTelegramStore = (
         chatLists: new Map(),
         messages: new Map(),
         drafts: new Map(),
+        typingUserIds: new Map(),
         outbox: [],
         histories: new Map(),
         activeChatId: undefined,
@@ -534,6 +570,13 @@ export const createTelegramStore = (
         return;
       }
 
+      if (event.type === "chat.typingChanged") {
+        if (event.senderId !== get().currentUserId) {
+          setTypingUser(event.chatId, event.senderId, event.typing);
+        }
+        return;
+      }
+
       if (event.type === "message.remove") {
         const messages = new Map(get().messages);
         messages.set(
@@ -594,6 +637,9 @@ export const createTelegramStore = (
       }
 
       const messages = new Map(get().messages);
+      if (!event.message.outgoing) {
+        setTypingUser(event.message.chatId, event.message.senderId, false);
+      }
       messages.set(
         event.message.chatId,
         upsertMessage(messages.get(event.message.chatId) ?? [], event.message),
@@ -725,6 +771,7 @@ export const createTelegramStore = (
       chatLists: new Map(),
       messages: new Map(),
       drafts: new Map(),
+      typingUserIds: new Map(),
       outbox: [],
       histories: new Map(),
       searchQuery: "",
@@ -1532,6 +1579,15 @@ export const createTelegramStore = (
         scheduleCacheWrite();
       },
 
+      setChatTyping: async (chatId, typing) => {
+        if (get().authorization.kind !== "ready") return;
+        try {
+          await transport.setChatTyping(chatId, typing);
+        } catch {
+          // Typing state is ephemeral and must not replace actionable operation errors.
+        }
+      },
+
       sendMessage: async (text, replyToMessageId) => {
         const chatId = get().activeChatId;
         const normalizedText = text.trim();
@@ -1586,14 +1642,20 @@ export const createTelegramStore = (
         try {
           await transport.sendMessage({ chatId, text: normalizedText, replyToMessageId });
           draftSync.markAwaitingAck(chatId, clearGeneration);
-          const drafts = new Map(get().drafts);
-          drafts.delete(chatId);
-          set({ drafts, operationError: undefined });
+          const currentDraft = get().drafts.get(chatId);
+          if (draftSignature(currentDraft) === draftSignature(previousDraft)) {
+            const drafts = new Map(get().drafts);
+            drafts.delete(chatId);
+            set({ drafts, operationError: undefined });
+          } else {
+            set({ operationError: undefined });
+          }
           scheduleCacheWrite();
           return true;
         } catch (error) {
           draftSync.cancelExpectation(chatId, clearGeneration);
-          if (previousDraft) {
+          const currentDraft = get().drafts.get(chatId);
+          if (previousDraft && draftSignature(currentDraft) === draftSignature(previousDraft)) {
             const restored = { ...previousDraft, pending: true };
             const drafts = new Map(get().drafts);
             drafts.set(chatId, restored);

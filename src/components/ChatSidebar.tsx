@@ -10,7 +10,7 @@ import {
   type PointerEvent,
 } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
-import type { Chat, ChatDraft, ChatFolder, GlobalSearchFilter } from "../telegram/types";
+import type { Chat, ChatDraft, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
@@ -20,7 +20,9 @@ import type { ContextMenuPoint } from "./ContextMenuSurface";
 
 interface ChatSidebarProps {
   chats: Chat[];
+  allChats: Map<string, Chat>;
   drafts: Map<string, ChatDraft>;
+  users: Map<string, User>;
   folders: ChatFolder[];
   activeChatId?: string;
   folderId: string;
@@ -59,7 +61,9 @@ const MIN_CONVERSATION_WIDTH = 340;
 
 export function ChatSidebar({
   chats,
+  allChats,
   drafts,
+  users,
   folders,
   activeChatId,
   folderId,
@@ -380,6 +384,15 @@ export function ChatSidebar({
               <ChatRow
                 key={chat.id}
                 chat={chat}
+                previewSenderName={chat.previewSenderId
+                  ? users.get(chat.previewSenderId)?.displayName ?? (
+                      chat.previewSenderId.startsWith("chat:")
+                        ? allChats.get(chat.previewSenderId.slice(5))?.title
+                        : chat.kind === "direct" && chat.previewSenderId === chat.peerId
+                          ? chat.title
+                          : undefined
+                    )
+                  : undefined}
                 folderId={folderId}
                 draft={drafts.get(chat.id)}
                 active={activeChatId === chat.id}
@@ -453,6 +466,7 @@ export function ChatSidebar({
 
 function ChatRow({
   chat,
+  previewSenderName,
   folderId,
   draft,
   active,
@@ -469,6 +483,7 @@ function ChatRow({
   onLostPointerCapture,
 }: {
   chat: Chat;
+  previewSenderName?: string;
   folderId: string;
   draft?: ChatDraft;
   active: boolean;
@@ -536,7 +551,10 @@ function ChatRow({
             {visibleDraft ? (
               <>草稿：{visibleDraft.text || "回复消息"}</>
             ) : (
-              <>{chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}{chat.preview}</>
+              <>
+                {chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}
+                {previewSenderName && chat.kind !== "saved" ? `${previewSenderName}: ${chat.preview}` : chat.preview}
+              </>
             )}
           </span>
           <span className="chat-row-meta">

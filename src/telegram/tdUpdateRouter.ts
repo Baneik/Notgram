@@ -8,6 +8,7 @@ export interface TdUpdateHandlers {
   updateChatFolders: (update: TdObject) => void;
   upsertChat: (chat?: TdObject) => void;
   emitDraft: (chatId: unknown, draft: unknown) => void;
+  updateChatAction: (update: TdObject) => void;
   patchChat: (chatId: unknown, patch: TdObject) => void;
   patchChatWithPositions: (chatId: unknown, patch: TdObject, positions: unknown) => void;
   updateChatPosition: (update: TdObject) => void;
@@ -64,6 +65,9 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
         update.positions,
       );
       handlers.emitDraft(update.chat_id, update.draft_message);
+      return;
+    case "updateChatAction":
+      handlers.updateChatAction(update);
       return;
     case "updateChatPosition":
       handlers.updateChatPosition(update);

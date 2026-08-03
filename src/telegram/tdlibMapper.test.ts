@@ -65,6 +65,7 @@ describe("TDLib mapper", () => {
         unread_count: 2,
         notification_settings: { mute_for: 0 },
         last_message: {
+          sender_id: { "@type": "messageSenderUser", user_id: 7 },
           date: 1_700_000_000,
           content: {
             "@type": "messageText",
@@ -80,6 +81,7 @@ describe("TDLib mapper", () => {
       kind: "saved",
       title: "收藏夹",
       preview: "hello",
+      previewSenderId: "7",
       unreadCount: 2,
       pinned: true,
       pinnedFolderIds: ["main"],
