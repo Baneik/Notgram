@@ -1,11 +1,11 @@
 import {
+  LoaderCircle,
   Maximize2,
   Minimize2,
   Pause,
   Play,
   Volume2,
   VolumeX,
-  LoaderCircle,
 } from "lucide-react";
 import {
   useEffect,
@@ -17,6 +17,7 @@ import {
 } from "react";
 import {
   bufferedSecondsAhead,
+  formatPlaybackTime,
   mediaPlaybackCoordinator,
   STREAM_PAUSE_BUFFER_SECONDS,
 } from "../media/mediaPlayback";
@@ -39,6 +40,7 @@ interface VideoPlayerProps {
 
 const SINGLE_CLICK_DELAY_MS = 180;
 const PAUSED_STREAM_TIMEOUT_MS = 15_000;
+const CONTROL_IDLE_TIMEOUT_MS = 1_000;
 
 export function VideoPlayer({
   source,
@@ -63,6 +65,9 @@ export function VideoPlayer({
   const lastRememberedSecondRef = useRef(0);
   const singleClickTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const suspendTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const controlHideTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const keyboardToggleRef = useRef<() => void>(() => undefined);
+  const stableKeyboardToggleRef = useRef(() => keyboardToggleRef.current());
   const [resolvedSource, setResolvedSource] = useState(source);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -73,6 +78,8 @@ export function VideoPlayer({
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(true);
   const [floating, setFloating] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(false);
 
   const clearSingleClick = () => {
     if (singleClickTimerRef.current !== undefined) {
@@ -88,6 +95,23 @@ export function VideoPlayer({
     }
   };
 
+  const clearControlHideTimer = () => {
+    if (controlHideTimerRef.current !== undefined) {
+      globalThis.clearTimeout(controlHideTimerRef.current);
+      controlHideTimerRef.current = undefined;
+    }
+  };
+
+  const revealControls = () => {
+    if (!floating && !fullscreen) return;
+    clearControlHideTimer();
+    setControlsVisible(true);
+    controlHideTimerRef.current = globalThis.setTimeout(() => {
+      setControlsVisible(false);
+      controlHideTimerRef.current = undefined;
+    }, CONTROL_IDLE_TIMEOUT_MS);
+  };
+
   useEffect(() => {
     if (!source) return;
     clearSuspendTimer();
@@ -96,9 +120,35 @@ export function VideoPlayer({
     setFailed(false);
   }, [source]);
 
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setFullscreen(document.fullscreenElement === shellRef.current);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
+
+  useEffect(() => {
+    clearControlHideTimer();
+    if (!floating && !fullscreen) {
+      setControlsVisible(false);
+      return;
+    }
+    setControlsVisible(true);
+    controlHideTimerRef.current = globalThis.setTimeout(() => {
+      setControlsVisible(false);
+      controlHideTimerRef.current = undefined;
+    }, CONTROL_IDLE_TIMEOUT_MS);
+  }, [floating, fullscreen]);
+
   useEffect(() => () => {
     clearSingleClick();
     clearSuspendTimer();
+    clearControlHideTimer();
+    mediaPlaybackCoordinator.releaseKeyboardTarget(
+      playbackId,
+      stableKeyboardToggleRef.current,
+    );
     const video = videoRef.current;
     if (video) {
       mediaPlaybackCoordinator.remember(playbackId, video.currentTime, video.duration);
@@ -106,6 +156,13 @@ export function VideoPlayer({
     }
     if (streamingRef.current && fileId !== undefined) void onSuspendStream(fileId);
   }, [fileId, onSuspendStream, playbackId]);
+
+  const claimKeyboardTarget = () => {
+    mediaPlaybackCoordinator.claimKeyboardTarget(
+      playbackId,
+      stableKeyboardToggleRef.current,
+    );
+  };
 
   const suspendStream = async () => {
     const video = videoRef.current;
@@ -176,6 +233,12 @@ export function VideoPlayer({
     if (video.paused) void video.play().catch(() => setFailed(true));
     else video.pause();
   };
+  keyboardToggleRef.current = togglePlayback;
+
+  const togglePlaybackFromControl = () => {
+    claimKeyboardTarget();
+    togglePlayback();
+  };
 
   const toggleMuted = () => {
     const video = videoRef.current;
@@ -201,6 +264,7 @@ export function VideoPlayer({
   };
 
   const toggleFullscreen = async () => {
+    claimKeyboardTarget();
     if (document.fullscreenElement === shellRef.current) {
       await document.exitFullscreen?.();
       return;
@@ -208,7 +272,27 @@ export function VideoPlayer({
     await shellRef.current?.requestFullscreen?.();
   };
 
+  const isOutsideRenderedVideo = (clientX: number, clientY: number) => {
+    const video = videoRef.current;
+    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return false;
+    const bounds = video.getBoundingClientRect();
+    const scale = Math.min(bounds.width / video.videoWidth, bounds.height / video.videoHeight);
+    const renderedWidth = video.videoWidth * scale;
+    const renderedHeight = video.videoHeight * scale;
+    const left = bounds.left + (bounds.width - renderedWidth) / 2;
+    const top = bounds.top + (bounds.height - renderedHeight) / 2;
+    return clientX < left || clientX > left + renderedWidth ||
+      clientY < top || clientY > top + renderedHeight;
+  };
+
   const handleSurfaceClick = (event: MouseEvent<HTMLDivElement>) => {
+    claimKeyboardTarget();
+    if (fullscreen && isOutsideRenderedVideo(event.clientX, event.clientY)) {
+      event.preventDefault();
+      clearSingleClick();
+      void document.exitFullscreen?.();
+      return;
+    }
     if (event.altKey) {
       event.preventDefault();
       clearSingleClick();
@@ -226,14 +310,19 @@ export function VideoPlayer({
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     clearSingleClick();
+    if (fullscreen && isOutsideRenderedVideo(event.clientX, event.clientY)) {
+      void document.exitFullscreen?.();
+      return;
+    }
     void toggleFullscreen();
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) return;
-    if (event.key !== " " && event.key !== "Enter") return;
+    if (event.key !== "Enter") return;
     event.preventDefault();
-    togglePlayback();
+    event.currentTarget.blur();
+    togglePlaybackFromControl();
   };
 
   const stopControlClick = (event: MouseEvent) => event.stopPropagation();
@@ -241,16 +330,20 @@ export function VideoPlayer({
   const progressStyle = {
     "--video-progress": `${duration > 0 ? Math.min(100, currentTime / duration * 100) : 0}%`,
   } as CSSProperties;
+  const remainingTime = Math.max(0, duration - currentTime);
 
   return (
     <div
       ref={shellRef}
-      className={`video-player ${playing ? "is-playing" : "is-paused"} ${floating ? "is-floating" : ""} ${round ? "is-round" : ""}`}
+      className={`video-player ${playing ? "is-playing" : "is-paused"} ${floating ? "is-floating" : ""} ${fullscreen ? "is-fullscreen" : ""} ${controlsVisible ? "is-controls-visible" : ""} ${round ? "is-round" : ""}`}
       role="group"
       aria-label={label}
       tabIndex={0}
       onClick={handleSurfaceClick}
       onDoubleClick={handleDoubleClick}
+      onFocus={claimKeyboardTarget}
+      onPointerDown={claimKeyboardTarget}
+      onMouseMove={revealControls}
       onKeyDown={handleKeyDown}
     >
       <video
@@ -281,6 +374,7 @@ export function VideoPlayer({
           void event.currentTarget.play().catch(() => setFailed(true));
         }}
         onPlay={(event) => {
+          claimKeyboardTarget();
           clearSuspendTimer();
           mediaPlaybackCoordinator.activate(playbackId, event.currentTarget);
         }}
@@ -335,6 +429,7 @@ export function VideoPlayer({
         title={muted ? "打开声音" : "静音"}
         onClick={(event) => {
           stopControlClick(event);
+          claimKeyboardTarget();
           toggleMuted();
         }}
       >
@@ -349,7 +444,7 @@ export function VideoPlayer({
           title={failed ? "重试播放" : playing ? "暂停" : "播放"}
           onClick={(event) => {
             stopControlClick(event);
-            togglePlayback();
+            togglePlaybackFromControl();
           }}
         >
           {loading || buffering || downloading
@@ -370,44 +465,55 @@ export function VideoPlayer({
         aria-label="播放进度"
         style={progressStyle}
         onClick={stopControlClick}
+        onFocus={claimKeyboardTarget}
         onChange={(event) => seek(Number(event.currentTarget.value))}
       />
 
       <div className="video-floating-controls" onClick={stopControlClick}>
-        <button type="button" aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"} onClick={togglePlayback}>
-          {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}
-        </button>
-        <input
-          className="video-floating-seek"
-          type="range"
-          min={0}
-          max={duration || 0}
-          step={0.1}
-          value={Math.min(currentTime, duration || 0)}
-          aria-label="浮窗播放进度"
-          onChange={(event) => seek(Number(event.currentTarget.value))}
-        />
-        <button type="button" aria-label={muted ? "打开声音" : "静音"} title={muted ? "打开声音" : "静音"} onClick={toggleMuted}>
-          {muted || volume === 0 ? <VolumeX size={17} /> : <Volume2 size={17} />}
-        </button>
-        <input
-          className="video-floating-volume"
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={muted ? 0 : volume}
-          aria-label="音量"
-          onChange={(event) => updateVolume(Number(event.currentTarget.value))}
-        />
-        <button type="button" aria-label="全屏播放" title="全屏" onClick={() => void toggleFullscreen()}>
-          <Maximize2 size={17} />
-        </button>
-        {floating && (
-          <button className="video-return-inline" type="button" aria-label="返回会话播放" title="返回会话" onClick={() => setFloating(false)}>
-            <Minimize2 size={17} />
+        <div className="video-controls-top">
+          <div className="video-controls-volume">
+            <button type="button" aria-label={muted ? "打开声音" : "静音"} title={muted ? "打开声音" : "静音"} onClick={toggleMuted}>
+              {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            <input
+              className="video-floating-volume"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={muted ? 0 : volume}
+              aria-label="音量"
+              onChange={(event) => updateVolume(Number(event.currentTarget.value))}
+            />
+          </div>
+          <button className="video-controls-play" type="button" aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"} onClick={togglePlaybackFromControl}>
+            {playing ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
           </button>
-        )}
+          <div className="video-controls-actions">
+            {floating && !fullscreen && (
+              <button className="video-return-inline" type="button" aria-label="返回会话播放" title="返回会话" onClick={() => setFloating(false)}>
+                <Minimize2 size={18} />
+              </button>
+            )}
+            <button type="button" aria-label={fullscreen ? "退出全屏" : "全屏播放"} title={fullscreen ? "退出全屏" : "全屏"} onClick={() => void toggleFullscreen()}>
+              {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+          </div>
+        </div>
+        <div className="video-controls-progress">
+          <span>{formatPlaybackTime(currentTime)}</span>
+          <input
+            className="video-floating-seek"
+            type="range"
+            min={0}
+            max={duration || 0}
+            step={0.1}
+            value={Math.min(currentTime, duration || 0)}
+            aria-label="浮窗播放进度"
+            onChange={(event) => seek(Number(event.currentTarget.value))}
+          />
+          <span>-{formatPlaybackTime(remainingTime)}</span>
+        </div>
       </div>
     </div>
   );

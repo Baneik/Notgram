@@ -10,6 +10,7 @@ export const STREAM_PAUSE_BUFFER_SECONDS = 15;
 
 export class MediaPlaybackCoordinator {
   private active?: { id: string; media: CoordinatedMedia };
+  private keyboardTarget?: { id: string; toggle: () => void };
   private readonly resumePositions = new Map<string, number>();
 
   activate(id: string, media: CoordinatedMedia) {
@@ -19,6 +20,22 @@ export class MediaPlaybackCoordinator {
 
   release(media: CoordinatedMedia) {
     if (this.active?.media === media) this.active = undefined;
+  }
+
+  claimKeyboardTarget(id: string, toggle: () => void) {
+    this.keyboardTarget = { id, toggle };
+  }
+
+  releaseKeyboardTarget(id: string, toggle: () => void) {
+    if (this.keyboardTarget?.id === id && this.keyboardTarget.toggle === toggle) {
+      this.keyboardTarget = undefined;
+    }
+  }
+
+  toggleKeyboardTarget() {
+    if (!this.keyboardTarget) return false;
+    this.keyboardTarget.toggle();
+    return true;
   }
 
   remember(id: string, currentTime: number, duration: number) {

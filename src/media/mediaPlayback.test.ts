@@ -20,6 +20,20 @@ describe("media playback coordination", () => {
     expect(second.pause).not.toHaveBeenCalled();
   });
 
+  it("routes the global spacebar only to the claimed playback target", () => {
+    const coordinator = new MediaPlaybackCoordinator();
+    const toggle = vi.fn();
+
+    expect(coordinator.toggleKeyboardTarget()).toBe(false);
+    coordinator.claimKeyboardTarget("video", toggle);
+    expect(coordinator.toggleKeyboardTarget()).toBe(true);
+    expect(toggle).toHaveBeenCalledOnce();
+    coordinator.releaseKeyboardTarget("other", toggle);
+    expect(coordinator.toggleKeyboardTarget()).toBe(true);
+    coordinator.releaseKeyboardTarget("video", toggle);
+    expect(coordinator.toggleKeyboardTarget()).toBe(false);
+  });
+
   it("resumes meaningful positions and clears near either edge", () => {
     const coordinator = new MediaPlaybackCoordinator();
     coordinator.remember("track", 42, 120);

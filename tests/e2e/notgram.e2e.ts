@@ -431,7 +431,8 @@ test("Markdown and TDLib rich text render as structured message content", async 
   await expect(richMessage.locator("code").first()).toHaveText("5,709 tokens");
 });
 
-test("video keeps one playhead across inline and floating playback", async ({ page }) => {
+test("video uses floating fullscreen controls and owns the playback spacebar", async ({ page }) => {
+  await page.setViewportSize({ width: 1_100, height: 720 });
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
   const row = page.locator('[data-message-id="p-video"]');
@@ -452,17 +453,71 @@ test("video keeps one playhead across inline and floating playback", async ({ pa
   await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
     .toBe(true);
 
+  const settingsButton = page.getByRole("button", { name: "设置", exact: true });
+  await settingsButton.focus();
+  await page.keyboard.press("Space");
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused))
+    .toBe(true);
+  await expect(page.getByRole("dialog", { name: "设置" })).toHaveCount(0);
+  await expect.poll(() => settingsButton.evaluate((element) => document.activeElement !== element))
+    .toBe(true);
+
+  await page.keyboard.press("Space");
+  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
+    .toBe(true);
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.focus();
+  await page.keyboard.press("Space");
+  await expect(composer).toHaveValue(" ");
+  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
+    .toBe(true);
+  await composer.fill("");
+
   await video.evaluate((element) => { (element as HTMLVideoElement).currentTime = 0.2; });
   await player.click({ modifiers: ["Alt"], position: { x: 8, y: 8 } });
   await expect(player).toHaveClass(/is-floating/);
   await expect(player.getByRole("slider", { name: "音量" })).toBeVisible();
   await expect(player.getByRole("button", { name: "返回会话播放" })).toBeVisible();
+  await expect.poll(() => player.locator(".video-floating-controls").evaluate(
+    (element) => getComputedStyle(element).opacity,
+  )).toBe("1");
+  await page.waitForTimeout(1_100);
+  await expect.poll(() => player.locator(".video-floating-controls").evaluate(
+    (element) => getComputedStyle(element).opacity,
+  )).toBe("0");
+  await player.hover({ position: { x: 120, y: 60 } });
+  await expect.poll(() => player.locator(".video-floating-controls").evaluate(
+    (element) => getComputedStyle(element).opacity,
+  )).toBe("1");
   const floatingTime = await video.evaluate((element) => (element as HTMLVideoElement).currentTime);
 
   await player.getByRole("button", { name: "返回会话播放" }).click();
   await expect(player).not.toHaveClass(/is-floating/);
   await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).currentTime))
     .toBeGreaterThanOrEqual(floatingTime);
+
+  const inlineBounds = await player.boundingBox();
+  await player.dblclick({
+    position: { x: inlineBounds!.width / 2, y: inlineBounds!.height / 2 },
+  });
+  await expect.poll(() => player.evaluate((element) => document.fullscreenElement === element))
+    .toBe(true);
+  await page.mouse.move(550, 360);
+  const controls = player.locator(".video-floating-controls");
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
+    .toBe("1");
+  const controlsBounds = await controls.boundingBox();
+  expect(Math.round(controlsBounds!.width)).toBe(550);
+  expect(Math.round(controlsBounds!.height)).toBe(80);
+  await expect.poll(() => player.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .toContain("0.8");
+
+  await page.waitForTimeout(1_100);
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
+    .toBe("0");
+  await page.mouse.click(550, 10);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null))
+    .toBe(true);
 });
 
 test("photo albums preserve order, captions, clipping, and tile geometry", async ({ page }) => {

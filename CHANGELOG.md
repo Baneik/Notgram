@@ -17,6 +17,9 @@ with prerelease identifiers used for release candidates.
   the contacts navigation entry until it is assigned a new location.
 - Prefetch image and video covers above the viewport, replace percentage media loaders
   with rotating indicators, and stop paused streams after a bounded buffer window.
+- Present fullscreen video controls in a light 550-by-80 floating panel that hides
+  after pointer inactivity, and route Space to the selected video without activating
+  the currently focused non-text control.
 
 ## [0.5.0-rc.2] - 2026-08-03
 

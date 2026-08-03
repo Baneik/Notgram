@@ -25,6 +25,7 @@ import {
   readPendingNotificationRoute,
   savePendingNotificationRoute,
 } from "../notifications/notificationRouting";
+import { mediaPlaybackCoordinator } from "../media/mediaPlayback";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -185,6 +186,30 @@ export function App() {
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    const routeMediaSpacebar = (event: globalThis.KeyboardEvent) => {
+      if (
+        (event.code !== "Space" && event.key !== " ") ||
+        event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat
+      ) {
+        return;
+      }
+      const target = event.target;
+      const isTextEntry = target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLInputElement && [
+          "text", "search", "email", "url", "tel", "password", "number",
+        ].includes(target.type)) ||
+        (target instanceof HTMLElement && target.isContentEditable);
+      if (isTextEntry || !mediaPlaybackCoordinator.toggleKeyboardTarget()) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    };
+    window.addEventListener("keydown", routeMediaSpacebar, { capture: true });
+    return () => window.removeEventListener("keydown", routeMediaSpacebar, { capture: true });
+  }, []);
 
   useEffect(() => {
     const openSearch = (event: globalThis.KeyboardEvent) => {
