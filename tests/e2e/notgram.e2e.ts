@@ -83,10 +83,10 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await expect(page.locator(".message-day")).not.toHaveCount(0);
 
   const visibleBubble = page.locator(".message-bubble-shell").last();
-  await visibleBubble.hover();
-  await visibleBubble.locator(".reaction-add").click();
-  await visibleBubble.locator(".reaction-picker button").first().click();
+  await visibleBubble.click({ button: "right" });
+  await page.getByRole("button", { name: "回应 👍" }).click();
   await expect(visibleBubble.locator(".message-reactions > button")).toHaveCount(1);
+  await expect(page.locator(".reaction-add, .message-action-trigger")).toHaveCount(0);
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /聊天设置/ }).click();
@@ -196,9 +196,9 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(settingsButton).toBeFocused();
 
   const editableMessage = page.locator('[data-message-id="p-2"]');
-  let actionTrigger = editableMessage.locator(".message-action-trigger");
+  let actionTrigger = editableMessage.locator(".message-bubble-shell");
   await actionTrigger.focus();
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Shift+F10");
   const actionMenu = page.getByRole("menu", { name: "消息操作" });
   await expect(actionMenu).toBeVisible();
   await page.keyboard.press("End");
@@ -206,7 +206,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(actionMenu).toBeHidden();
   await expect(actionTrigger).toBeFocused();
 
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "编辑");
   const composer = page.getByRole("textbox", { name: "消息内容" });
   await expect(composer).toBeFocused();
@@ -214,9 +214,9 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Enter");
   await expect(page.getByText("keyboard edited message", { exact: true })).toBeVisible();
 
-  actionTrigger = editableMessage.locator(".message-action-trigger");
+  actionTrigger = editableMessage.locator(".message-bubble-shell");
   await actionTrigger.focus();
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "回复");
   await expect(composer).toBeFocused();
   await composer.fill("keyboard reply");
@@ -224,9 +224,9 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(page.locator(".message-list").getByText("keyboard reply", { exact: true }))
     .toBeVisible();
 
-  actionTrigger = editableMessage.locator(".message-action-trigger");
+  actionTrigger = editableMessage.locator(".message-bubble-shell");
   await actionTrigger.focus();
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "转发");
   const forwardButton = page.getByRole("button", { name: "转发", exact: true });
   await expect(forwardButton).toBeFocused();
@@ -238,15 +238,15 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Enter");
   await expect(forwardDialog).toBeHidden();
 
-  const reactionTrigger = editableMessage.locator(".reaction-add");
-  await reactionTrigger.focus();
-  await page.keyboard.press("Enter");
-  const reactionMenu = page.getByRole("menu", { name: "选择表情回应" });
-  await expect(reactionMenu.getByRole("menuitem").first()).toBeFocused();
+  actionTrigger = editableMessage.locator(".message-bubble-shell");
+  await actionTrigger.focus();
+  await page.keyboard.press("Shift+F10");
+  const reactionMenu = page.getByRole("menu", { name: "消息操作" });
+  await expect(reactionMenu.getByRole("button", { name: "回应 👍" })).toBeFocused();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Enter");
   await expect(reactionMenu).toBeHidden();
-  await expect(reactionTrigger).toBeFocused();
+  await expect(actionTrigger).toBeFocused();
 });
 
 test("the unified sidebar search paginates, filters, supports regex, and opens exact messages", async ({ page }) => {
@@ -746,7 +746,7 @@ test("group service messages render as centered notices", async ({ page }) => {
   await expect(notice).toBeVisible();
   await expect(notice).toHaveClass(/is-service/);
   await expect(notice.locator(".message-bubble")).toHaveText("Mia Chen 加入了群聊");
-  await expect(notice.locator(".message-meta, .message-action-trigger")).toHaveCount(0);
+  await expect(notice.locator(".message-meta")).toHaveCount(0);
   const centerDelta = await notice.evaluate((row) => {
     const shell = row.querySelector<HTMLElement>(".message-bubble-shell");
     if (!shell) return Number.POSITIVE_INFINITY;

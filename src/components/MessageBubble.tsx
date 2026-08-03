@@ -12,11 +12,9 @@ import {
   Forward,
   Image as ImageIcon,
   LoaderCircle,
-  MoreHorizontal,
   Play,
   RotateCcw,
   Save,
-  SmilePlus,
   X,
 } from "lucide-react";
 import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
@@ -26,7 +24,6 @@ import { formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { writeClipboardText } from "../utils/clipboard";
-import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { TgsSticker } from "./TgsSticker";
 import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
@@ -35,7 +32,6 @@ import { AudioPlayer } from "./AudioPlayer";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { shouldAutoDownload } from "../media/autoDownload";
 
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
 export interface ReplyPreview {
@@ -118,7 +114,6 @@ function MessageBubbleComponent({
   autoplayAnimations,
   developerMode,
 }: MessageBubbleProps) {
-  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
   const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
   const autoDownloadAudio = usePreferencesStore((state) => state.autoDownloadAudio);
@@ -134,8 +129,6 @@ function MessageBubbleComponent({
     width: number;
     height: number;
   }>();
-  const reactionTriggerRef = useRef<HTMLButtonElement>(null);
-  const reactionMenuRef = useRef<HTMLDivElement>(null);
   const content = message.content;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
@@ -242,31 +235,13 @@ function MessageBubbleComponent({
     (selectionLimitReached && !selected);
   const reactions = message.interaction?.reactions ?? [];
 
-  useEffect(() => {
-    if (!reactionPickerOpen) return;
-    const timer = globalThis.setTimeout(() => {
-      focusFirstMenuButton(reactionMenuRef.current);
-    }, 0);
-    return () => globalThis.clearTimeout(timer);
-  }, [reactionPickerOpen]);
-
-  const closeReactionPicker = () => {
-    setReactionPickerOpen(false);
-    globalThis.setTimeout(() => reactionTriggerRef.current?.focus(), 0);
-  };
-
   const toggleReaction = async (emoji: string, chosen: boolean) => {
     if (reactionPending) return;
-    const restorePickerFocus = reactionPickerOpen;
     setReactionPending(emoji);
     try {
       await onReaction(message.id, emoji, chosen);
-      setReactionPickerOpen(false);
     } finally {
       setReactionPending(undefined);
-      if (restorePickerFocus) {
-        globalThis.setTimeout(() => reactionTriggerRef.current?.focus(), 0);
-      }
     }
   };
 
@@ -304,11 +279,20 @@ function MessageBubbleComponent({
       <div
         className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""}`}
         style={visualShellStyle}
+        tabIndex={!selectionMode && !isService ? 0 : undefined}
         onContextMenu={(event) => {
           event.preventDefault();
           if (isService) return;
           if (selectionMode) void onToggleSelection(message);
           else void onOpenActions(message, event.clientX, event.clientY);
+        }}
+        onKeyDown={(event) => {
+          if (selectionMode || isService) return;
+          if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+          event.preventDefault();
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const left = message.outgoing ? bounds.left - 184 : bounds.right + 4;
+          void onOpenActions(message, left, bounds.top, event.currentTarget);
         }}
       >
         <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""}`}>
@@ -580,8 +564,8 @@ function MessageBubbleComponent({
             )}
           </span>}
         </div>
-        {!albumItem && !selectionMode && !isService && (
-          <div className={`message-reactions ${reactions.length === 0 ? "is-empty" : ""}`}>
+        {!albumItem && !selectionMode && !isService && reactions.length > 0 && (
+          <div className="message-reactions">
             {reactions.map((reaction) => {
               const label = reactionLabel(reaction);
               const emoji = reaction.type.kind === "emoji" ? reaction.type.emoji : undefined;
@@ -602,61 +586,8 @@ function MessageBubbleComponent({
                 </button>
               );
             })}
-            <div className="reaction-picker-wrap">
-              <button
-                ref={reactionTriggerRef}
-                type="button"
-                className="reaction-add"
-                aria-label="添加表情回应"
-                title="添加表情回应"
-                aria-expanded={reactionPickerOpen}
-                onClick={() => setReactionPickerOpen((open) => !open)}
-              >
-                <SmilePlus size={14} />
-              </button>
-              {reactionPickerOpen && (
-                <div
-                  ref={reactionMenuRef}
-                  className="reaction-picker"
-                  role="menu"
-                  aria-label="选择表情回应"
-                  onKeyDown={(event) => handleMenuKeyboard(event, closeReactionPicker)}
-                >
-                  {QUICK_REACTIONS.map((emoji) => {
-                    const existing = reactions.find(
-                      (reaction) => reaction.type.kind === "emoji" && reaction.type.emoji === emoji,
-                    );
-                    return (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        key={emoji}
-                        aria-label={`回应 ${emoji}`}
-                        disabled={Boolean(reactionPending)}
-                        onClick={() => void toggleReaction(emoji, !existing?.chosen)}
-                      >
-                        {emoji}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           </div>
         )}
-        {!selectionMode && !isService && <button
-          className="message-action-trigger"
-          type="button"
-          aria-label="消息操作"
-          title="消息操作"
-          onClick={(event) => {
-            const bounds = event.currentTarget.getBoundingClientRect();
-            const left = message.outgoing ? bounds.left - 184 : bounds.right + 4;
-            void onOpenActions(message, left, bounds.top, event.currentTarget);
-          }}
-        >
-          <MoreHorizontal size={18} strokeWidth={1.9} />
-        </button>}
       </div>
     </article>
   );
