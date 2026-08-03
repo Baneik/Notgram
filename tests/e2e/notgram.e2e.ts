@@ -76,6 +76,35 @@ test("webview chrome is suppressed and settings are opened from the Notgram bran
   await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
 });
 
+test("performance monitor captures and inspects a WebView main-thread stall", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    const deadline = performance.now() + 90;
+    while (performance.now() < deadline) {
+      // Keep the WebView main thread busy long enough to emit a long-frame entry.
+    }
+  });
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /性能监控/ }).click();
+  await expect(page.getByRole("heading", { name: "实时会话" })).toBeVisible();
+  await expect(page.locator(".performance-entry")).not.toHaveCount(0);
+
+  const stall = page.locator(".performance-entry")
+    .filter({ hasText: /长动画帧|主线程长任务|掉帧/ })
+    .first();
+  await expect(stall).toBeVisible();
+  await stall.getByRole("button").click();
+  await expect(stall.locator(".performance-entry-details")).toContainText("总耗时");
+
+  const pause = page.getByRole("button", { name: "暂停刷新" });
+  await pause.click();
+  await expect(page.getByRole("button", { name: "继续刷新" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "清空性能记录" }).click();
+  await expect(page.getByText("暂无性能采样")).toBeVisible();
+  expect(await horizontalOverflow(page)).toBe(false);
+});
+
 test("desktop messaging, reactions, and preferences remain usable", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toBeVisible();
@@ -304,10 +333,13 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(composer).toBeFocused();
   await composer.fill("keyboard edited message");
   await page.keyboard.press("Enter");
-  await expect(page.getByText("keyboard edited message", { exact: true })).toBeVisible();
+  await expect(page.locator(".message-list").getByText("keyboard edited message", { exact: true }))
+    .toBeVisible();
+  await expect(composer).toHaveValue("");
 
   actionTrigger = editableMessage.locator(".message-bubble-shell");
   await actionTrigger.focus();
+  await expect(actionTrigger).toBeFocused();
   await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "回复");
   await expect(composer).toBeFocused();
@@ -315,9 +347,11 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Enter");
   await expect(page.locator(".message-list").getByText("keyboard reply", { exact: true }))
     .toBeVisible();
+  await expect(composer).toHaveValue("");
 
   actionTrigger = editableMessage.locator(".message-bubble-shell");
   await actionTrigger.focus();
+  await expect(actionTrigger).toBeFocused();
   await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "转发");
   const forwardButton = page.getByRole("button", { name: "转发", exact: true });
@@ -332,6 +366,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
 
   actionTrigger = editableMessage.locator(".message-bubble-shell");
   await actionTrigger.focus();
+  await expect(actionTrigger).toBeFocused();
   await page.keyboard.press("Shift+F10");
   const reactionMenu = page.getByRole("menu", { name: "消息操作" });
   await expect(reactionMenu.getByRole("button", { name: "回应 👍" })).toBeFocused();

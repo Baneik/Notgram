@@ -80,6 +80,7 @@ interface RuntimeStatus {
   searchedPaths: string[];
   error?: string;
   logPath?: string;
+  performanceLogPath?: string;
 }
 
 const globalSearchFilterObject = (filter: GlobalSearchFilter): TdObject | null => {

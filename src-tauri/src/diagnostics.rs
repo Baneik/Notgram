@@ -57,6 +57,7 @@ struct DiagnosticsManifest {
     crash_reporting_enabled: bool,
     crash_report_included: bool,
     runtime_log_records: usize,
+    performance_log_records: usize,
     message_content_included: bool,
     credentials_included: bool,
     local_paths_included: bool,
@@ -197,9 +198,9 @@ fn read_bounded_tail(path: &Path) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn sanitize_runtime_logs(log_directory: &Path) -> (Vec<u8>, usize) {
+fn sanitize_log_files(log_directory: &Path, file_names: &[&str]) -> (Vec<u8>, usize) {
     let mut records = Vec::new();
-    for file_name in ["notgram.log.1", "notgram.log"] {
+    for file_name in file_names {
         let path = log_directory.join(file_name);
         let Ok(content) = read_bounded_tail(&path) else {
             continue;
@@ -253,6 +254,17 @@ fn sanitize_runtime_logs(log_directory: &Path) -> (Vec<u8>, usize) {
     (payload, records.len())
 }
 
+fn sanitize_runtime_logs(log_directory: &Path) -> (Vec<u8>, usize) {
+    sanitize_log_files(log_directory, &["notgram.log.1", "notgram.log"])
+}
+
+fn sanitize_performance_logs(log_directory: &Path) -> (Vec<u8>, usize) {
+    sanitize_log_files(
+        log_directory,
+        &["notgram-performance.log.1", "notgram-performance.log"],
+    )
+}
+
 fn sanitized_crash_report(path: &Path) -> Option<Vec<u8>> {
     let value: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
     let timestamp_ms = value.get("timestampMs")?.as_u64()?;
@@ -301,12 +313,13 @@ fn export_diagnostics_bundle(
             .open(&temporary)?;
         let mut archive = ZipWriter::new(file);
         let (runtime_logs, runtime_log_records) = sanitize_runtime_logs(log_directory);
+        let (performance_logs, performance_log_records) = sanitize_performance_logs(log_directory);
         let crash_reporting_enabled = state.enabled.load(Ordering::Relaxed);
         let crash_report = crash_reporting_enabled
             .then(|| sanitized_crash_report(&state.crash_report_path))
             .flatten();
         let manifest = DiagnosticsManifest {
-            schema_version: 1,
+            schema_version: 2,
             application: "Notgram",
             version: env!("CARGO_PKG_VERSION"),
             generated_at_ms: SystemTime::now()
@@ -319,6 +332,7 @@ fn export_diagnostics_bundle(
             crash_reporting_enabled,
             crash_report_included: crash_report.is_some(),
             runtime_log_records,
+            performance_log_records,
             message_content_included: false,
             credentials_included: false,
             local_paths_included: false,
@@ -326,6 +340,7 @@ fn export_diagnostics_bundle(
         let manifest = serde_json::to_vec_pretty(&manifest)?;
         add_zip_file(&mut archive, "manifest.json", &manifest)?;
         add_zip_file(&mut archive, "logs/runtime.jsonl", &runtime_logs)?;
+        add_zip_file(&mut archive, "logs/performance.jsonl", &performance_logs)?;
         if let Some(crash_report) = crash_report {
             add_zip_file(&mut archive, "crash/latest.json", &crash_report)?;
         }
@@ -540,6 +555,11 @@ mod tests {
             "{\"timestampMs\":12,\"level\":\"error\",\"event\":\"test_event\",\"details\":{\"token\":\"private-token\",\"messageId\":991,\"count\":2}}\n",
         )
         .expect("runtime log should be written");
+        fs::write(
+            log_directory.join("notgram-performance.log"),
+            "{\"timestampMs\":13,\"level\":\"warn\",\"event\":\"ui_long_frame\",\"details\":{\"durationMs\":72,\"targetId\":991}}\n",
+        )
+        .expect("performance log should be written");
         let settings_path = directory.join("settings.json");
         let crash_report_path = directory.join("crash-report.json");
         write_crash_report(&crash_report_path).expect("crash report should be written");
@@ -554,7 +574,7 @@ mod tests {
 
         let file = fs::File::open(&destination).expect("diagnostics bundle should open");
         let mut archive = zip::ZipArchive::new(file).expect("diagnostics bundle should be a ZIP");
-        assert_eq!(archive.len(), 3);
+        assert_eq!(archive.len(), 4);
         let mut manifest = String::new();
         archive
             .by_name("manifest.json")
@@ -563,6 +583,7 @@ mod tests {
             .expect("manifest should be readable");
         assert!(manifest.contains("\"messageContentIncluded\": false"));
         assert!(manifest.contains("\"crashReportIncluded\": true"));
+        assert!(manifest.contains("\"performanceLogRecords\": 1"));
         let mut log_payload = String::new();
         archive
             .by_name("logs/runtime.jsonl")
@@ -572,6 +593,14 @@ mod tests {
         assert!(log_payload.contains("[REDACTED]"));
         assert!(!log_payload.contains("private-token"));
         assert!(!log_payload.contains("991"));
+        let mut performance_payload = String::new();
+        archive
+            .by_name("logs/performance.jsonl")
+            .expect("sanitized performance logs should exist")
+            .read_to_string(&mut performance_payload)
+            .expect("sanitized performance logs should be readable");
+        assert!(performance_payload.contains("ui_long_frame"));
+        assert!(!performance_payload.contains("991"));
         drop(archive);
 
         state.enabled.store(false, Ordering::Relaxed);
@@ -582,7 +611,7 @@ mod tests {
             .expect("opted-out diagnostics bundle should open");
         let mut archive =
             zip::ZipArchive::new(file).expect("opted-out diagnostics bundle should be a ZIP");
-        assert_eq!(archive.len(), 2);
+        assert_eq!(archive.len(), 3);
         let mut manifest = String::new();
         archive
             .by_name("manifest.json")

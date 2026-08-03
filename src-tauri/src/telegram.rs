@@ -370,6 +370,10 @@ impl TelegramRuntime {
                 .logger
                 .as_ref()
                 .map(|logger| logger.path.display().to_string()),
+            performance_log_path: inner
+                .logger
+                .as_ref()
+                .map(|logger| logger.performance_path.display().to_string()),
         }
     }
 
@@ -378,11 +382,48 @@ impl TelegramRuntime {
             "ui_history_data",
             "ui_history_merge",
             "ui_history_render",
+            "ui_frame_drop",
+            "ui_layout_shift",
+            "ui_long_frame",
             "ui_long_task",
+            "ui_slow_interaction",
+            "ui_startup",
             "video_window_descriptor_received",
             "video_window_initialized",
             "video_window_open_failed",
             "video_window_open_started",
+        ];
+        const ALLOWED_DETAIL_FIELDS: &[&str] = &[
+            "addedCount",
+            "afterCount",
+            "anchorShiftPx",
+            "batchCount",
+            "beforeCount",
+            "blockingDurationMs",
+            "domContentLoadedMs",
+            "domInteractiveMs",
+            "durationMs",
+            "duringHistoryLoad",
+            "failed",
+            "firstContentfulPaintMs",
+            "fullscreen",
+            "hasMore",
+            "inputDelayMs",
+            "interactionKind",
+            "loadEventMs",
+            "loadedCount",
+            "missedFrames",
+            "presentationDelayMs",
+            "processingDurationMs",
+            "renderDurationMs",
+            "restoreDurationMs",
+            "scriptDurationMs",
+            "scrollHeight",
+            "scrollTop",
+            "shiftScore",
+            "startTimeMs",
+            "styleLayoutDurationMs",
+            "targetKind",
         ];
         if !ALLOWED_EVENTS.contains(&event) {
             return Err("不支持的性能日志事件".to_string());
@@ -391,6 +432,9 @@ impl TelegramRuntime {
             return Err("性能日志详情必须是对象".to_string());
         };
         if fields.len() > 16
+            || fields
+                .keys()
+                .any(|key| !ALLOWED_DETAIL_FIELDS.contains(&key.as_str()))
             || fields
                 .values()
                 .any(|value| !matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null))
@@ -409,7 +453,7 @@ impl TelegramRuntime {
             .logger
             .clone();
         if let Some(logger) = logger {
-            logger.write(
+            logger.write_performance(
                 if duration_ms >= 100.0 { "warn" } else { "info" },
                 event,
                 details,
@@ -430,6 +474,7 @@ pub struct TelegramRuntimeStatus {
     searched_paths: Vec<String>,
     error: Option<String>,
     log_path: Option<String>,
+    performance_log_path: Option<String>,
 }
 
 #[derive(Clone)]
@@ -830,6 +875,11 @@ mod tests {
         assert!(
             runtime
                 .log_performance("ui_history_render", json!({ "text": "message content" }))
+                .is_err()
+        );
+        assert!(
+            runtime
+                .log_performance("ui_history_render", json!({ "chatId": 991 }))
                 .is_err()
         );
     }

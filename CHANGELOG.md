@@ -7,6 +7,8 @@ with prerelease identifiers used for release candidates.
 
 ### Added
 
+- Add a lightweight WebView performance timeline for startup, interaction, rendering,
+  history, and media stalls, backed by a separately rotated performance log.
 - Support `reg:` regular expressions in global and current-conversation message search.
 - Add a muted inline video surface, Alt-click floating playback, and progress-preserving
   fullscreen transitions with compact controls for narrow conversations.

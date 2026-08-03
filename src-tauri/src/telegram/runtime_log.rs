@@ -12,6 +12,7 @@ use tauri::AppHandle;
 #[derive(Clone)]
 pub(super) struct RuntimeLogger {
     pub(super) path: Arc<PathBuf>,
+    pub(super) performance_path: Arc<PathBuf>,
     lock: Arc<Mutex<()>>,
 }
 
@@ -24,6 +25,7 @@ impl RuntimeLogger {
             .map_err(|error| format!("无法创建日志目录 {}: {error}", directory.display()))?;
         let logger = Self {
             path: Arc::new(directory.join("notgram.log")),
+            performance_path: Arc::new(directory.join("notgram-performance.log")),
             lock: Arc::new(Mutex::new(())),
         };
         logger.write(
@@ -35,15 +37,34 @@ impl RuntimeLogger {
     }
 
     pub(super) fn write(&self, level: &str, event: &str, details: Value) {
+        self.write_record(self.path.as_ref(), "notgram.log.1", level, event, details);
+    }
+
+    pub(super) fn write_performance(&self, level: &str, event: &str, details: Value) {
+        self.write_record(
+            self.performance_path.as_ref(),
+            "notgram-performance.log.1",
+            level,
+            event,
+            details,
+        );
+    }
+
+    fn write_record(
+        &self,
+        path: &Path,
+        backup_name: &str,
+        level: &str,
+        event: &str,
+        details: Value,
+    ) {
         let _guard = self.lock.lock().expect("runtime logger mutex poisoned");
-        if fs::metadata(self.path.as_ref())
-            .is_ok_and(|metadata| metadata.len() >= Self::MAX_FILE_SIZE)
-        {
-            let backup = self.path.with_file_name("notgram.log.1");
+        if fs::metadata(path).is_ok_and(|metadata| metadata.len() >= Self::MAX_FILE_SIZE) {
+            let backup = path.with_file_name(backup_name);
             if backup.is_file() {
                 let _ = fs::remove_file(&backup);
             }
-            let _ = fs::rename(self.path.as_ref(), backup);
+            let _ = fs::rename(path, backup);
         }
 
         let timestamp_ms = SystemTime::now()
@@ -56,11 +77,7 @@ impl RuntimeLogger {
             "event": event,
             "details": sanitize_log_value(details),
         });
-        if let Ok(mut file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.path.as_ref())
-        {
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
             let _ = serde_json::to_writer(&mut file, &record);
             let _ = writeln!(file);
         }
@@ -148,5 +165,35 @@ mod tests {
         assert_eq!(value["nested"]["password"], "[REDACTED]");
         assert_eq!(value["nested"]["count"], 2);
         assert_eq!(value["items"][0]["text"], "[REDACTED]");
+    }
+
+    #[test]
+    fn runtime_and_performance_records_use_separate_files() {
+        let directory = std::env::temp_dir().join(format!(
+            "notgram-log-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos(),
+        ));
+        fs::create_dir_all(&directory).expect("test directory should be created");
+        let logger = RuntimeLogger {
+            path: Arc::new(directory.join("notgram.log")),
+            performance_path: Arc::new(directory.join("notgram-performance.log")),
+            lock: Arc::new(Mutex::new(())),
+        };
+
+        logger.write("info", "runtime_started", json!({}));
+        logger.write_performance("warn", "ui_long_frame", json!({ "durationMs": 80 }));
+
+        let runtime = fs::read_to_string(logger.path.as_ref()).expect("runtime log should exist");
+        let performance = fs::read_to_string(logger.performance_path.as_ref())
+            .expect("performance log should exist");
+        assert!(runtime.contains("runtime_started"));
+        assert!(!runtime.contains("ui_long_frame"));
+        assert!(performance.contains("ui_long_frame"));
+        assert!(!performance.contains("runtime_started"));
+        fs::remove_dir_all(directory).expect("test directory should be removed");
     }
 }
