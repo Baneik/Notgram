@@ -37,27 +37,25 @@ impl RuntimeLogger {
     }
 
     pub(super) fn write(&self, level: &str, event: &str, details: Value) {
-        self.write_record(self.path.as_ref(), "notgram.log.1", level, event, details);
-    }
-
-    pub(super) fn write_performance(&self, level: &str, event: &str, details: Value) {
-        self.write_record(
-            self.performance_path.as_ref(),
-            "notgram-performance.log.1",
-            level,
-            event,
-            details,
+        self.write_records(
+            self.path.as_ref(),
+            "notgram.log.1",
+            vec![(level.to_string(), event.to_string(), details)],
         );
     }
 
-    fn write_record(
-        &self,
-        path: &Path,
-        backup_name: &str,
-        level: &str,
-        event: &str,
-        details: Value,
-    ) {
+    pub(super) fn write_performance_batch(&self, records: Vec<(String, String, Value)>) {
+        self.write_records(
+            self.performance_path.as_ref(),
+            "notgram-performance.log.1",
+            records,
+        );
+    }
+
+    fn write_records(&self, path: &Path, backup_name: &str, records: Vec<(String, String, Value)>) {
+        if records.is_empty() {
+            return;
+        }
         let _guard = self.lock.lock().expect("runtime logger mutex poisoned");
         if fs::metadata(path).is_ok_and(|metadata| metadata.len() >= Self::MAX_FILE_SIZE) {
             let backup = path.with_file_name(backup_name);
@@ -67,19 +65,21 @@ impl RuntimeLogger {
             let _ = fs::rename(path, backup);
         }
 
-        let timestamp_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let record = json!({
-            "timestampMs": timestamp_ms,
-            "level": level,
-            "event": event,
-            "details": sanitize_log_value(details),
-        });
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-            let _ = serde_json::to_writer(&mut file, &record);
-            let _ = writeln!(file);
+            for (level, event, details) in records {
+                let timestamp_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+                let record = json!({
+                    "timestampMs": timestamp_ms,
+                    "level": level,
+                    "event": event,
+                    "details": sanitize_log_value(details),
+                });
+                let _ = serde_json::to_writer(&mut file, &record);
+                let _ = writeln!(file);
+            }
         }
     }
 }
@@ -185,7 +185,18 @@ mod tests {
         };
 
         logger.write("info", "runtime_started", json!({}));
-        logger.write_performance("warn", "ui_long_frame", json!({ "durationMs": 80 }));
+        logger.write_performance_batch(vec![
+            (
+                "warn".to_string(),
+                "ui_long_frame".to_string(),
+                json!({ "durationMs": 80 }),
+            ),
+            (
+                "error".to_string(),
+                "ui_slow_interaction".to_string(),
+                json!({ "durationMs": 120 }),
+            ),
+        ]);
 
         let runtime = fs::read_to_string(logger.path.as_ref()).expect("runtime log should exist");
         let performance = fs::read_to_string(logger.performance_path.as_ref())
@@ -193,6 +204,8 @@ mod tests {
         assert!(runtime.contains("runtime_started"));
         assert!(!runtime.contains("ui_long_frame"));
         assert!(performance.contains("ui_long_frame"));
+        assert!(performance.contains("ui_slow_interaction"));
+        assert_eq!(performance.lines().count(), 2);
         assert!(!performance.contains("runtime_started"));
         fs::remove_dir_all(directory).expect("test directory should be removed");
     }

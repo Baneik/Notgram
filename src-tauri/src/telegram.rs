@@ -10,7 +10,7 @@ use security::{
     prepared_file_request, request_type_from_extra, validate_webview_extra,
     validate_webview_tdlib_request,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -31,6 +31,110 @@ use tauri_plugin_dialog::DialogExt;
 type TdCreateClientId = unsafe extern "C" fn() -> c_int;
 type TdSend = unsafe extern "C" fn(c_int, *const c_char);
 type TdReceive = unsafe extern "C" fn(c_double) -> *const c_char;
+
+const MAX_PERFORMANCE_LOG_BATCH: usize = 50;
+const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
+    "ui_history_data",
+    "ui_history_merge",
+    "ui_history_render",
+    "ui_frame_drop",
+    "ui_layout_shift",
+    "ui_long_frame",
+    "ui_long_task",
+    "ui_slow_interaction",
+    "ui_startup",
+    "video_window_descriptor_received",
+    "video_window_initialized",
+    "video_window_open_failed",
+    "video_window_open_started",
+];
+const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
+    "addedCount",
+    "afterCount",
+    "anchorShiftPx",
+    "batchCount",
+    "beforeCount",
+    "blockingDurationMs",
+    "domContentLoadedMs",
+    "domInteractiveMs",
+    "durationMs",
+    "duringHistoryLoad",
+    "failed",
+    "firstContentfulPaintMs",
+    "fullscreen",
+    "hasMore",
+    "inputDelayMs",
+    "interactionKind",
+    "loadEventMs",
+    "loadedCount",
+    "missedFrames",
+    "presentationDelayMs",
+    "processingDurationMs",
+    "renderDurationMs",
+    "restoreDurationMs",
+    "scriptDurationMs",
+    "scrollHeight",
+    "scrollTop",
+    "shiftScore",
+    "startTimeMs",
+    "styleLayoutDurationMs",
+    "targetKind",
+];
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerformanceLogRecord {
+    event: String,
+    details: Value,
+}
+
+fn performance_thresholds(event: &str) -> (f64, f64) {
+    match event {
+        "ui_startup" => (1_000.0, 2_500.0),
+        "ui_history_data" => (500.0, 1_500.0),
+        "ui_history_merge" => (16.0, 50.0),
+        "video_window_descriptor_received"
+        | "video_window_initialized"
+        | "video_window_open_started" => (250.0, 1_000.0),
+        "video_window_open_failed" => (0.0, 1.0),
+        _ => (50.0, 100.0),
+    }
+}
+
+fn validate_performance_record(event: &str, details: &Value) -> Result<&'static str, String> {
+    if !ALLOWED_PERFORMANCE_EVENTS.contains(&event) {
+        return Err("不支持的性能日志事件".to_string());
+    }
+    let Value::Object(fields) = details else {
+        return Err("性能日志详情必须是对象".to_string());
+    };
+    if fields.len() > 16
+        || fields
+            .keys()
+            .any(|key| !ALLOWED_PERFORMANCE_DETAIL_FIELDS.contains(&key.as_str()))
+        || fields
+            .values()
+            .any(|value| !matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null))
+    {
+        return Err("性能日志详情格式无效".to_string());
+    }
+
+    let measurement = if event == "ui_layout_shift" {
+        fields.get("shiftScore").and_then(Value::as_f64)
+    } else {
+        fields.get("durationMs").and_then(Value::as_f64)
+    };
+    let (warning, critical) = if event == "ui_layout_shift" {
+        (0.02, 0.1)
+    } else {
+        performance_thresholds(event)
+    };
+    Ok(match measurement {
+        Some(value) if value >= critical => "error",
+        Some(value) if value >= warning => "warn",
+        _ => "info",
+    })
+}
 
 struct TdJson {
     _library: Library,
@@ -377,75 +481,17 @@ impl TelegramRuntime {
         }
     }
 
-    fn log_performance(&self, event: &str, details: Value) -> Result<(), String> {
-        const ALLOWED_EVENTS: &[&str] = &[
-            "ui_history_data",
-            "ui_history_merge",
-            "ui_history_render",
-            "ui_frame_drop",
-            "ui_layout_shift",
-            "ui_long_frame",
-            "ui_long_task",
-            "ui_slow_interaction",
-            "ui_startup",
-            "video_window_descriptor_received",
-            "video_window_initialized",
-            "video_window_open_failed",
-            "video_window_open_started",
-        ];
-        const ALLOWED_DETAIL_FIELDS: &[&str] = &[
-            "addedCount",
-            "afterCount",
-            "anchorShiftPx",
-            "batchCount",
-            "beforeCount",
-            "blockingDurationMs",
-            "domContentLoadedMs",
-            "domInteractiveMs",
-            "durationMs",
-            "duringHistoryLoad",
-            "failed",
-            "firstContentfulPaintMs",
-            "fullscreen",
-            "hasMore",
-            "inputDelayMs",
-            "interactionKind",
-            "loadEventMs",
-            "loadedCount",
-            "missedFrames",
-            "presentationDelayMs",
-            "processingDurationMs",
-            "renderDurationMs",
-            "restoreDurationMs",
-            "scriptDurationMs",
-            "scrollHeight",
-            "scrollTop",
-            "shiftScore",
-            "startTimeMs",
-            "styleLayoutDurationMs",
-            "targetKind",
-        ];
-        if !ALLOWED_EVENTS.contains(&event) {
-            return Err("不支持的性能日志事件".to_string());
+    fn log_performance_batch(&self, records: Vec<PerformanceLogRecord>) -> Result<(), String> {
+        if records.is_empty() || records.len() > MAX_PERFORMANCE_LOG_BATCH {
+            return Err("性能日志批次大小无效".to_string());
         }
-        let Value::Object(fields) = &details else {
-            return Err("性能日志详情必须是对象".to_string());
-        };
-        if fields.len() > 16
-            || fields
-                .keys()
-                .any(|key| !ALLOWED_DETAIL_FIELDS.contains(&key.as_str()))
-            || fields
-                .values()
-                .any(|value| !matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null))
-        {
-            return Err("性能日志详情格式无效".to_string());
-        }
-        let duration_ms = fields
-            .iter()
-            .filter(|(key, _)| key.ends_with("Ms"))
-            .filter_map(|(_, value)| value.as_f64())
-            .fold(0.0_f64, f64::max);
+        let records = records
+            .into_iter()
+            .map(|record| {
+                let level = validate_performance_record(&record.event, &record.details)?;
+                Ok((level.to_string(), record.event, record.details))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let logger = self
             .inner
             .lock()
@@ -453,13 +499,16 @@ impl TelegramRuntime {
             .logger
             .clone();
         if let Some(logger) = logger {
-            logger.write_performance(
-                if duration_ms >= 100.0 { "warn" } else { "info" },
-                event,
-                details,
-            );
+            logger.write_performance_batch(records);
         }
         Ok(())
+    }
+
+    fn log_performance(&self, event: &str, details: Value) -> Result<(), String> {
+        self.log_performance_batch(vec![PerformanceLogRecord {
+            event: event.to_string(),
+            details,
+        }])
     }
 }
 
@@ -882,6 +931,31 @@ mod tests {
                 .log_performance("ui_history_render", json!({ "chatId": 991 }))
                 .is_err()
         );
+        assert_eq!(
+            validate_performance_record(
+                "ui_slow_interaction",
+                &json!({ "startTimeMs": 50_000, "durationMs": 40 }),
+            ),
+            Ok("info")
+        );
+        assert_eq!(
+            validate_performance_record(
+                "ui_slow_interaction",
+                &json!({ "startTimeMs": 50_000, "durationMs": 72 }),
+            ),
+            Ok("warn")
+        );
+        assert_eq!(
+            validate_performance_record(
+                "ui_slow_interaction",
+                &json!({ "startTimeMs": 50_000, "durationMs": 120 }),
+            ),
+            Ok("error")
+        );
+        assert_eq!(
+            validate_performance_record("ui_layout_shift", &json!({ "shiftScore": 0.1 })),
+            Ok("error")
+        );
     }
 }
 
@@ -914,6 +988,16 @@ pub fn telegram_log_performance(
 ) -> Result<(), String> {
     runtime.prepare(&app);
     runtime.log_performance(&event, details)
+}
+
+#[tauri::command]
+pub fn telegram_log_performance_batch(
+    app: AppHandle,
+    records: Vec<PerformanceLogRecord>,
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<(), String> {
+    runtime.prepare(&app);
+    runtime.log_performance_batch(records)
 }
 
 #[tauri::command]

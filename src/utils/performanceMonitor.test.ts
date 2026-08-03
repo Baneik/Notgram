@@ -50,6 +50,18 @@ describe("performance monitor", () => {
     unsubscribe();
   });
 
+  it("never treats the monotonic start timestamp as an event duration", () => {
+    logPerformance("ui_history_render", {
+      startTimeMs: 12_000,
+      restoreDurationMs: 12,
+    });
+
+    expect(getPerformanceRecords()[0]).toEqual(expect.objectContaining({
+      durationMs: 12,
+      severity: "normal",
+    }));
+  });
+
   it("bounds the in-memory timeline", () => {
     for (let index = 0; index < 260; index += 1) {
       logPerformance("ui_frame_drop", { durationMs: 60, missedFrames: index });

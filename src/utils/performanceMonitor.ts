@@ -24,6 +24,11 @@ interface EventMetadata {
   criticalMs: number;
 }
 
+interface NativePerformanceRecord {
+  event: string;
+  details: Readonly<Record<string, number | boolean>>;
+}
+
 interface EventTimingEntry extends PerformanceEntry {
   interactionId?: number;
   processingStart: number;
@@ -48,6 +53,8 @@ const FRAME_BUDGET_MS = 1000 / 60;
 const FRAME_DROP_THRESHOLD_MS = 50;
 const FRAME_DROP_LOG_INTERVAL_MS = 1_000;
 const HISTORY_CONTEXT_MS = 5_000;
+const NATIVE_BATCH_SIZE = 20;
+const NATIVE_FLUSH_DELAY_MS = 250;
 
 const eventMetadata: Record<string, EventMetadata> = {
   ui_startup: { label: "应用启动", category: "startup", warningMs: 1_000, criticalMs: 2_500 },
@@ -70,6 +77,9 @@ let historyInteractionUntil = 0;
 let nextRecordId = 1;
 let records: readonly PerformanceRecord[] = [];
 let lastFrameDropLogAt = Number.NEGATIVE_INFINITY;
+let nativeFlushTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+let nativeFlushInFlight = false;
+const pendingNativeRecords: NativePerformanceRecord[] = [];
 const listeners = new Set<() => void>();
 
 const roundedDetails = (details: PerformanceDetails) => Object.fromEntries(
@@ -89,9 +99,52 @@ const recordDuration = (event: string, details: Readonly<Record<string, number |
   if (event === "ui_layout_shift") return undefined;
   if (typeof details.durationMs === "number") return details.durationMs;
   const durations = Object.entries(details)
-    .filter(([key, value]) => key.endsWith("Ms") && typeof value === "number")
+    .filter(([key, value]) =>
+      key !== "startTimeMs" && key.endsWith("Ms") && typeof value === "number"
+    )
     .map(([, value]) => value as number);
   return durations.length > 0 ? Math.max(...durations) : undefined;
+};
+
+const flushNativePerformanceRecords = async () => {
+  if (nativeFlushInFlight || pendingNativeRecords.length === 0) return;
+  if (nativeFlushTimer !== undefined) {
+    globalThis.clearTimeout(nativeFlushTimer);
+    nativeFlushTimer = undefined;
+  }
+  const batch = pendingNativeRecords.splice(0, NATIVE_BATCH_SIZE);
+  nativeFlushInFlight = true;
+  try {
+    await invoke("telegram_log_performance_batch", { records: batch });
+  } catch {
+    // Performance diagnostics are best-effort and must not affect interaction state.
+  } finally {
+    nativeFlushInFlight = false;
+    if (pendingNativeRecords.length > 0) {
+      if (pendingNativeRecords.length >= NATIVE_BATCH_SIZE) {
+        void flushNativePerformanceRecords();
+      } else {
+        nativeFlushTimer = globalThis.setTimeout(
+          () => void flushNativePerformanceRecords(),
+          NATIVE_FLUSH_DELAY_MS,
+        );
+      }
+    }
+  }
+};
+
+const enqueueNativePerformanceRecord = (record: NativePerformanceRecord) => {
+  pendingNativeRecords.push(record);
+  if (pendingNativeRecords.length >= NATIVE_BATCH_SIZE && !nativeFlushInFlight) {
+    void flushNativePerformanceRecords();
+    return;
+  }
+  if (nativeFlushTimer === undefined && !nativeFlushInFlight) {
+    nativeFlushTimer = globalThis.setTimeout(
+      () => void flushNativePerformanceRecords(),
+      NATIVE_FLUSH_DELAY_MS,
+    );
+  }
 };
 
 const appendRecord = (event: string, details: Readonly<Record<string, number | boolean>>) => {
@@ -143,7 +196,7 @@ export const logPerformance = (event: string, details: PerformanceDetails) => {
   appendRecord(event, normalized);
   if (import.meta.env.DEV) console.info(`[performance] ${event}`, normalized);
   if (hasTauriRuntime()) {
-    void invoke("telegram_log_performance", { event, details: normalized }).catch(() => undefined);
+    enqueueNativePerformanceRecord({ event, details: normalized });
   }
 };
 
