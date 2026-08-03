@@ -79,6 +79,11 @@ export const createPlaybackWindow = async (
   ));
 };
 
+export const closePlaybackWindow = async (id: string) => {
+  if (!isTauri()) return;
+  await invoke("notgram_close_video_window", { id });
+};
+
 export const requestVideoWindowPlayback = (playbackId: string) => {
   globalThis.dispatchEvent(new CustomEvent(VIDEO_WINDOW_REQUEST_EVENT, {
     detail: { playbackId },

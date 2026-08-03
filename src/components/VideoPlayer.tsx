@@ -17,6 +17,7 @@ import {
   STREAM_PAUSE_BUFFER_SECONDS,
 } from "../media/mediaPlayback";
 import {
+  closePlaybackWindow,
   createPlaybackWindow,
   createVideoWindowId,
   listenForVideoWindowRequest,
@@ -27,6 +28,7 @@ import {
   type VideoWindowMode,
   type VideoWindowState,
 } from "../media/videoWindowBridge";
+import { logPerformance } from "../utils/performanceMonitor";
 
 interface VideoPlayerProps {
   source?: string;
@@ -49,11 +51,13 @@ interface VideoPlayerProps {
 interface ExternalPlaybackSession {
   id: string;
   channel: BroadcastChannel;
+  initializationTimer?: ReturnType<typeof globalThis.setTimeout>;
   lastState?: VideoWindowState;
 }
 
 const SINGLE_CLICK_DELAY_MS = 180;
 const PAUSED_STREAM_TIMEOUT_MS = 15_000;
+const VIDEO_WINDOW_INITIALIZATION_TIMEOUT_MS = 8_000;
 
 export function VideoPlayer({
   source,
@@ -156,6 +160,9 @@ export function VideoPlayer({
     );
     const session = externalSessionRef.current;
     if (session) {
+      if (session.initializationTimer !== undefined) {
+        globalThis.clearTimeout(session.initializationTimer);
+      }
       session.channel.postMessage({
         type: "command",
         id: session.id,
@@ -273,6 +280,9 @@ export function VideoPlayer({
 
   const finishExternalSession = (session: ExternalPlaybackSession, state: VideoWindowState) => {
     if (externalSessionRef.current !== session) return;
+    if (session.initializationTimer !== undefined) {
+      globalThis.clearTimeout(session.initializationTimer);
+    }
     externalSessionRef.current = undefined;
     applyExternalState(state, true);
     session.channel.close();
@@ -286,6 +296,9 @@ export function VideoPlayer({
 
     const previous = externalSessionRef.current;
     if (previous) {
+      if (previous.initializationTimer !== undefined) {
+        globalThis.clearTimeout(previous.initializationTimer);
+      }
       previous.channel.postMessage({
         type: "command",
         id: previous.id,
@@ -319,11 +332,22 @@ export function VideoPlayer({
       autoplay: mode === "fullscreen" || wasPlaying,
       mode,
     };
+    let resolveInitialized: (() => void) | undefined;
+    const initialized = new Promise<void>((resolve) => {
+      resolveInitialized = resolve;
+    });
     channel.onmessage = (event: MessageEvent<VideoWindowMessage>) => {
       const message = event.data;
       if (!message || message.id !== id || externalSessionRef.current !== session) return;
       if (message.type === "ready") {
         channel.postMessage({ type: "init", id, descriptor } satisfies VideoWindowMessage);
+        if (resolveInitialized) {
+          resolveInitialized();
+          resolveInitialized = undefined;
+          logPerformance("video_window_initialized", {
+            fullscreen: mode === "fullscreen",
+          });
+        }
       } else if (message.type === "state") {
         session.lastState = message.state;
         applyExternalState(message.state, false);
@@ -335,19 +359,49 @@ export function VideoPlayer({
 
     const naturalWidth = video?.videoWidth || mediaWidth || 16;
     const naturalHeight = video?.videoHeight || mediaHeight || 9;
+    const initializationTimeout = new Promise<never>((_, reject) => {
+      session.initializationTimer = globalThis.setTimeout(() => {
+        reject(new Error("video window initialization timed out"));
+      }, VIDEO_WINDOW_INITIALIZATION_TIMEOUT_MS);
+    });
+    logPerformance("video_window_open_started", {
+      fullscreen: mode === "fullscreen",
+    });
     try {
-      const created = await createPlaybackWindow(
-        id,
-        videoWindowSize(naturalWidth, naturalHeight),
-        mode,
-      );
-      if (!created) throw new Error("video popup was blocked");
+      await Promise.race([
+        (async () => {
+          const created = await createPlaybackWindow(
+            id,
+            videoWindowSize(naturalWidth, naturalHeight),
+            mode,
+          );
+          if (!created) throw new Error("video popup was blocked");
+          await initialized;
+        })(),
+        initializationTimeout,
+      ]);
+      if (session.initializationTimer !== undefined) {
+        globalThis.clearTimeout(session.initializationTimer);
+        session.initializationTimer = undefined;
+      }
     } catch {
       if (externalSessionRef.current === session) {
+        if (session.initializationTimer !== undefined) {
+          globalThis.clearTimeout(session.initializationTimer);
+        }
+        channel.postMessage({
+          type: "command",
+          id,
+          command: "close",
+        } satisfies VideoWindowMessage);
+        void closePlaybackWindow(id).catch(() => undefined);
         externalSessionRef.current = undefined;
         channel.close();
         setPlaying(false);
         if (video && wasPlaying) void video.play().catch(() => setFailed(true));
+        logPerformance("video_window_open_failed", {
+          fullscreen: mode === "fullscreen",
+        });
       }
     }
   };

@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, webview::PageLoadEvent};
 
 const MIN_WINDOW_WIDTH: f64 = 240.0;
 const MIN_WINDOW_HEIGHT: f64 = 135.0;
@@ -18,7 +18,7 @@ fn validate_window_id(id: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn notgram_open_video_window(
+pub async fn notgram_open_video_window(
     app: AppHandle,
     id: String,
     width: f64,
@@ -34,6 +34,7 @@ pub fn notgram_open_video_window(
     let width = width.clamp(MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH);
     let height = height.clamp(MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
     let url = WebviewUrl::App(format!("index.html?videoWindow={id}").into());
+    let show_fullscreen = fullscreen;
     let builder = WebviewWindowBuilder::new(&app, label, url)
         .title("Notgram 视频")
         .inner_size(width, height)
@@ -46,20 +47,34 @@ pub fn notgram_open_video_window(
         .skip_taskbar(true)
         .shadow(false)
         .focused(true)
-        .fullscreen(fullscreen)
+        .visible(false)
+        .fullscreen(false)
         .zoom_hotkeys_enabled(false)
         .center()
-        .prevent_overflow();
+        .prevent_overflow()
+        .on_page_load(move |window, payload| {
+            if payload.event() != PageLoadEvent::Finished {
+                return;
+            }
+            if show_fullscreen {
+                let _ = window.set_fullscreen(true);
+            }
+            let _ = window.show();
+            let _ = window.set_focus();
+        });
     #[cfg(not(target_os = "macos"))]
     let builder = builder.transparent(true);
-    let builder = if let Some(main_window) = app.get_webview_window("main") {
-        builder
-            .parent(&main_window)
-            .map_err(|error| error.to_string())?
-    } else {
-        builder
-    };
     builder.build().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn notgram_close_video_window(app: AppHandle, id: String) -> Result<(), String> {
+    validate_window_id(&id)?;
+    let label = format!("video-player-{id}");
+    if let Some(window) = app.get_webview_window(&label) {
+        window.close().map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 

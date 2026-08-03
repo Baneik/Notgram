@@ -10,8 +10,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$defaultDestinationRoot = Join-Path $repositoryRoot "artifacts\notgram"
+$usingDefaultDestination = -not $DestinationRoot
 if (-not $DestinationRoot) {
-    $DestinationRoot = Join-Path $repositoryRoot "artifacts"
+    $DestinationRoot = $defaultDestinationRoot
 }
 $resolvedDestinationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
 $releaseDirectory = Join-Path $repositoryRoot "src-tauri\target\release"
@@ -86,9 +88,16 @@ if ($executableVersion -ne $version) {
 }
 $tdlib = & (Join-Path $PSScriptRoot "verify-tdlib.ps1") -RuntimeDirectory $runtimeSource | ConvertFrom-Json
 
-if ((Test-Path -LiteralPath $portableDirectory) -or (Test-Path -LiteralPath $portableArchive)) {
+if ($usingDefaultDestination -and (Test-Path -LiteralPath $resolvedDestinationRoot)) {
+    $resolvedDefaultDestination = [System.IO.Path]::GetFullPath($defaultDestinationRoot)
+    if ($resolvedDestinationRoot -ne $resolvedDefaultDestination) {
+        throw "Refusing to replace an unexpected portable destination: $resolvedDestinationRoot"
+    }
+    Remove-Item -LiteralPath $resolvedDestinationRoot -Recurse -Force
+} elseif ((Test-Path -LiteralPath $portableDirectory) -or (Test-Path -LiteralPath $portableArchive)) {
     throw "Release destination already exists. Move it aside or choose another -DestinationRoot: $artifactName"
 }
+New-Item -ItemType Directory -Path $resolvedDestinationRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $portableDirectory -Force | Out-Null
 Copy-Item -LiteralPath $executable -Destination (Join-Path $portableDirectory "Notgram.exe")
 Copy-Item -LiteralPath $runtimeSource -Destination $portableDirectory -Recurse

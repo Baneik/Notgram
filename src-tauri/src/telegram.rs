@@ -379,6 +379,10 @@ impl TelegramRuntime {
             "ui_history_merge",
             "ui_history_render",
             "ui_long_task",
+            "video_window_descriptor_received",
+            "video_window_initialized",
+            "video_window_open_failed",
+            "video_window_open_started",
         ];
         if !ALLOWED_EVENTS.contains(&event) {
             return Err("不支持的性能日志事件".to_string());

@@ -48,6 +48,7 @@ pub fn run() {
             diagnostics::notgram_set_crash_reporting_enabled,
             distribution::notgram_distribution_kind,
             desktop_notification::notgram_show_notification,
+            video_window::notgram_close_video_window,
             video_window::notgram_open_video_window,
             telegram::telegram_runtime_status,
             proxy::telegram_proxy_settings,

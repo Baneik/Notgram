@@ -20,8 +20,10 @@ import {
   type VideoWindowMessage,
   type VideoWindowState,
 } from "../media/videoWindowBridge";
+import { logPerformance } from "../utils/performanceMonitor";
 
 const CONTROL_IDLE_TIMEOUT_MS = 1_000;
+const READY_RETRY_INTERVAL_MS = 250;
 
 interface VideoWindowProps {
   id: string;
@@ -128,10 +130,18 @@ export function VideoWindow({ id }: VideoWindowProps) {
     shellRef.current?.focus({ preventScroll: true });
     const channel = new BroadcastChannel(VIDEO_WINDOW_CHANNEL);
     channelRef.current = channel;
+    let readyTimer: ReturnType<typeof globalThis.setInterval> | undefined;
+    const announceReady = () => {
+      channel.postMessage({ type: "ready", id } satisfies VideoWindowMessage);
+    };
     channel.onmessage = (event: MessageEvent<VideoWindowMessage>) => {
       const message = event.data;
       if (!message || message.id !== id) return;
       if (message.type === "init") {
+        if (readyTimer !== undefined) {
+          globalThis.clearInterval(readyTimer);
+          readyTimer = undefined;
+        }
         const initial = message.descriptor;
         setDescriptor(initial);
         setCurrentTime(initial.currentTime);
@@ -139,6 +149,9 @@ export function VideoWindow({ id }: VideoWindowProps) {
         setVolume(initial.volume);
         setMuted(initial.mode === "fullscreen" ? false : initial.muted);
         setFullscreen(initial.mode === "fullscreen");
+        logPerformance("video_window_descriptor_received", {
+          fullscreen: initial.mode === "fullscreen",
+        });
         return;
       }
       if (message.type === "command") {
@@ -147,7 +160,8 @@ export function VideoWindow({ id }: VideoWindowProps) {
         else void closeWindow();
       }
     };
-    channel.postMessage({ type: "ready", id } satisfies VideoWindowMessage);
+    announceReady();
+    readyTimer = globalThis.setInterval(announceReady, READY_RETRY_INTERVAL_MS);
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return;
@@ -173,6 +187,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => {
       clearHideTimer();
+      if (readyTimer !== undefined) globalThis.clearInterval(readyTimer);
       globalThis.removeEventListener("keydown", handleKeyDown, { capture: true });
       globalThis.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
