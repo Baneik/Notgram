@@ -312,7 +312,16 @@ function MessageBubbleComponent({
           {content.kind === "text" ? (
             <MessageRichText text={content.text} entities={content.entities} />
           ) : content.kind === "rich" ? (
-            <RichMessageContent blocks={content.blocks} isRtl={content.isRtl} isFull={content.isFull} />
+            <RichMessageContent
+              blocks={content.blocks}
+              isRtl={content.isRtl}
+              isFull={content.isFull}
+              messageId={message.id}
+              onDownload={onDownload}
+              onCancelDownload={onCancelDownload}
+              onStream={onStream}
+              onSuspendStream={onSuspendStream}
+            />
           ) : content.kind === "service" ? (
             <p>{content.text}</p>
           ) : content.kind === "unsupported" ? (

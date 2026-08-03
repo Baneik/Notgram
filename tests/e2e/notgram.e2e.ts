@@ -490,6 +490,18 @@ test("Markdown and TDLib rich text render as structured message content", async 
     .toHaveText("优先处理最重要的一件事");
   await expect(richMessage.locator("blockquote")).toHaveCount(2);
   await expect(richMessage.locator("code").first()).toHaveText("5,709 tokens");
+  await expect(richMessage.locator(".katex")).toContainText("E");
+  await expect(richMessage.locator("table caption")).toHaveText("Status");
+  await expect(richMessage.locator("table th")).toHaveText("Metric");
+  await expect(richMessage.locator("table td")).toHaveText("Ready");
+  const anchorLink = richMessage.locator('a[href^="#rich-message-p-rich-message-anchor-"]');
+  await expect(anchorLink).toHaveText("jump");
+  const anchorHref = await anchorLink.getAttribute("href");
+  expect(anchorHref).toBeTruthy();
+  await expect(richMessage.locator(anchorHref!)).toHaveCount(1);
+  await richMessage.locator("details summary").click();
+  await expect(richMessage.locator("details")).toContainText("Advanced details");
+  await expect(richMessage.locator('.rich-media-photo img[alt="Bot chart"]')).toBeVisible();
 });
 
 test("video uses synchronized transparent playback windows and owns the playback spacebar", async ({ page }) => {

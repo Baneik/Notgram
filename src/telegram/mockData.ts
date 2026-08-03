@@ -162,6 +162,10 @@ const messages: Message[] = [
         "晚上给自己留一点放松时间",
         "慢一点没关系，持续前进就很好。",
         "输入　5,709 tokens 缓存输入　3,712 tokens 输出　68 tokens",
+        "Bot API 10.2",
+        "E = mc^2",
+        "Status Ready",
+        "Advanced details",
       ].join("\n"),
       blocks: [
         { kind: "heading", level: 1, text: [{ text: "今日小贴士" }] },
@@ -189,10 +193,12 @@ const messages: Message[] = [
         },
         {
           kind: "quote",
+          pull: false,
           blocks: [{ kind: "paragraph", text: [{ text: "慢一点没关系，持续前进就很好。" }] }],
         },
         {
           kind: "quote",
+          pull: false,
           blocks: [{
             kind: "paragraph",
             text: [
@@ -207,6 +213,64 @@ const messages: Message[] = [
               { text: "68 tokens", code: true },
             ],
           }],
+        },
+        {
+          kind: "paragraph",
+          text: [
+            { text: "", anchor: { kind: "anchor", name: "bot-api" } },
+            { text: "Bot API 10.2", marked: true },
+            { text: " ✨", customEmojiId: "5368324170671202286" },
+            { text: " jump", linkTarget: { kind: "anchor", name: "bot-api" } },
+          ],
+        },
+        { kind: "mathematicalExpression", expression: "E = mc^2" },
+        {
+          kind: "table",
+          caption: [{ text: "Status" }],
+          bordered: true,
+          striped: true,
+          rows: [[
+            {
+              text: [{ text: "Metric", bold: true }],
+              header: true,
+              colspan: 1,
+              rowspan: 1,
+              visible: true,
+              align: "left",
+              valign: "middle",
+            },
+            {
+              text: [{ text: "Ready", spoiler: true }],
+              header: false,
+              colspan: 1,
+              rowspan: 1,
+              visible: true,
+              align: "center",
+              valign: "middle",
+            },
+          ]],
+        },
+        {
+          kind: "details",
+          summary: [{ text: "Advanced" }],
+          blocks: [{ kind: "paragraph", text: [{ text: "Advanced details" }] }],
+          open: false,
+        },
+        {
+          kind: "media",
+          media: {
+            mediaType: "photo",
+            fileName: "Bot chart",
+            sizeLabel: "18 KB",
+            localPath: "/mock-video-poster.jpg",
+            isDownloaded: true,
+            hasSpoiler: false,
+            autoplay: false,
+            loop: false,
+            width: 640,
+            height: 360,
+            caption: { text: [{ text: "Rich media block" }] },
+          },
         },
       ],
     },

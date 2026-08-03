@@ -790,6 +790,59 @@ describe("TauriTelegramTransport message operations", () => {
     });
   });
 
+  it("hydrates partial rich messages without duplicating requests", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "richMessage",
+        is_full: true,
+        is_rtl: false,
+        blocks: [{
+          "@type": "pageBlockParagraph",
+          text: { "@type": "richTextPlain", text: "complete" },
+        }],
+      };
+    };
+    const partial = {
+      ...rawMessage(14),
+      content: {
+        "@type": "messageRichMessage",
+        message: {
+          "@type": "richMessage",
+          is_full: false,
+          is_rtl: false,
+          blocks: [{
+            "@type": "pageBlockThinking",
+            text: { "@type": "richTextPlain", text: "thinking" },
+          }],
+        },
+      },
+    };
+
+    internal.emitMessage(partial);
+    internal.emitMessage(partial);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(requests).toEqual([{
+      "@type": "getFullRichMessage",
+      chat_id: 7,
+      message_id: 14,
+    }]);
+    expect(events.at(-1)).toMatchObject({
+      type: "message.upsert",
+      message: {
+        content: { kind: "rich", isFull: true, text: "complete" },
+      },
+    });
+  });
+
   it("uses a replied message already loaded in the same history page", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

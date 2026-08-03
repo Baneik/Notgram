@@ -172,6 +172,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
   private pendingReplyHydrations = new Map<string, symbol>();
   private unavailableReplyHydrations = new Set<string>();
+  private pendingRichMessageHydrations = new Set<string>();
+  private unavailableRichMessageHydrations = new Set<string>();
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
   private exhaustedChatLists = new Set<string>();
@@ -1590,6 +1592,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.set(message.chatId, chatMessages);
     this.listener?.({ type: "message.upsert", message });
     this.ensureReplyContent(raw);
+    this.ensureFullRichMessage(raw);
   }
 
   private emitMessages(rawMessages: TdObject[]) {
@@ -1609,6 +1612,43 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.listener?.({ type: "messages.upserted", messages: [...messages.values()] });
     }
     for (const raw of uniqueRawMessages.values()) this.ensureReplyContent(raw);
+    for (const raw of uniqueRawMessages.values()) this.ensureFullRichMessage(raw);
+  }
+
+  private ensureFullRichMessage(raw: TdObject) {
+    const content = asTdObject(raw.content);
+    const richMessage = asTdObject(content?.message);
+    if (content?.["@type"] !== "messageRichMessage" || richMessage?.is_full !== false) return;
+    const chatId = tdId(raw.chat_id);
+    const messageId = tdId(raw.id);
+    if (!chatId || !messageId) return;
+    const key = `${chatId}:${messageId}`;
+    if (
+      this.pendingRichMessageHydrations.has(key) ||
+      this.unavailableRichMessageHydrations.has(key)
+    ) return;
+    this.pendingRichMessageHydrations.add(key);
+    void this.request({
+      "@type": "getFullRichMessage",
+      chat_id: numericId(chatId),
+      message_id: numericId(messageId),
+    }).then((fullMessage) => {
+      if (fullMessage["@type"] !== "richMessage") {
+        this.unavailableRichMessageHydrations.add(key);
+        return;
+      }
+      const latest = this.rawMessages.get(chatId)?.get(messageId);
+      const latestContent = asTdObject(latest?.content);
+      if (!latest || latestContent?.["@type"] !== "messageRichMessage") return;
+      this.emitMessage({
+        ...latest,
+        content: { ...latestContent, message: fullMessage },
+      });
+    }).catch(() => {
+      this.unavailableRichMessageHydrations.add(key);
+    }).finally(() => {
+      this.pendingRichMessageHydrations.delete(key);
+    });
   }
 
   private mapMessage(raw: TdObject) {
@@ -1779,6 +1819,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.historyLoads.clear();
     this.pendingReplyHydrations.clear();
     this.unavailableReplyHydrations.clear();
+    this.pendingRichMessageHydrations.clear();
+    this.unavailableRichMessageHydrations.clear();
     this.chatListLoads.clear();
     this.chatListCounts.clear();
     this.exhaustedChatLists.clear();

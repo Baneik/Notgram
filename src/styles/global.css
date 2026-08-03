@@ -522,15 +522,68 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .rich-message-content .rich-list-item-content > :last-child { margin-bottom: 0; }
 .rich-message-content .rich-checklist { padding-left: 0; list-style: none; }
 .rich-message-content .rich-checklist > li { display: flex; align-items: flex-start; }
+.rich-message-content li.has-rich-list-label { display: flex; align-items: flex-start; list-style: none; }
+.rich-message-content .rich-list-label { min-width: 20px; margin-right: 4px; flex: 0 0 auto; }
 .rich-message-content blockquote cite {
   margin-top: 4px; display: block; color: #718087; font-size: 11px; font-style: normal;
 }
 .rich-message-content blockquote cite::before { content: "— "; }
+.rich-message-content .rich-pull-quote {
+  padding: 6px 14px; border-left: 0; border-block: 1px solid rgba(98, 112, 120, 0.28);
+  text-align: center; font-size: 1.04em;
+}
+.rich-message-content > footer { margin: 0 0 7px; color: var(--muted); font-size: 11px; }
+.rich-message-content .rich-thinking { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .rich-message-content details { margin: 0 0 7px; }
 .rich-message-content summary { cursor: pointer; font-weight: 650; }
 .rich-message-content details > :not(summary):first-of-type { margin-top: 5px; }
 .rich-message-content caption { padding: 0 0 4px; text-align: start; font-weight: 650; }
 .rich-message-content mark { padding: 0 1px; background: #fff0a6; }
+.rich-message-content .rich-custom-emoji { display: inline-block; font-family: "Segoe UI Emoji", sans-serif; }
+.rich-message-content .rich-math-inline { display: inline-block; max-width: 100%; vertical-align: middle; }
+.rich-message-content .rich-math-block { margin: 0 0 7px; display: block; max-width: 100%; overflow-x: auto; text-align: center; }
+.rich-message-content table.is-striped tbody tr:nth-child(even) { background: rgba(98, 112, 120, 0.08); }
+.rich-message-content .rich-table-cell-hidden { visibility: hidden; }
+.rich-media-block, .rich-collection, .rich-map-block { margin: 0 0 7px; }
+.rich-media-visual { position: relative; min-width: 180px; overflow: hidden; border-radius: 6px; }
+.rich-media-visual > img, .rich-media-visual > video, .rich-media-link > img, .rich-media-link > video {
+  width: 100%; max-height: 420px; display: block; object-fit: contain;
+  aspect-ratio: var(--rich-media-ratio, auto); background: rgba(25, 37, 43, 0.08);
+}
+.rich-media-block .video-player { width: min(440px, 100%); }
+.rich-media-block figcaption, .rich-collection > figcaption, .rich-map-block figcaption {
+  padding-top: 4px; white-space: pre-wrap;
+}
+.rich-media-block figcaption cite, .rich-collection > figcaption cite, .rich-map-block figcaption cite {
+  margin-left: 5px; color: var(--muted); font-size: 11px; font-style: normal;
+}
+.rich-media-block figcaption cite::before, .rich-collection > figcaption cite::before,
+.rich-map-block figcaption cite::before { content: "— "; }
+.rich-media-placeholder {
+  width: 100%; min-height: 132px; padding: 16px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 5px; border: 0; color: var(--muted);
+  background: rgba(25, 37, 43, 0.08); cursor: pointer;
+}
+.rich-media-placeholder:disabled { cursor: default; }
+.rich-media-placeholder small { font-size: 10px; }
+.rich-media-spoiler {
+  position: absolute; inset: 0; width: 100%; border: 0; color: #fff;
+  background: rgba(32, 39, 43, 0.88); cursor: pointer;
+}
+.rich-collection-items { display: grid; gap: 3px; }
+.rich-collage .rich-collection-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rich-collage .rich-collection-items > :only-child { grid-column: 1 / -1; }
+.rich-slideshow .rich-collection-items {
+  grid-auto-flow: column; grid-auto-columns: min(88%, 420px); overflow-x: auto;
+  scroll-snap-type: x mandatory; overscroll-behavior-inline: contain;
+}
+.rich-slideshow .rich-collection-items > * { scroll-snap-align: start; }
+.rich-collection-items .rich-media-block { min-width: 0; margin: 0; }
+.rich-collection-items .rich-media-visual { min-width: 0; }
+.rich-map-block > a {
+  min-height: 100px; padding: 14px; display: flex; align-items: center; justify-content: center;
+  gap: 7px; color: inherit; background: rgba(49, 117, 146, 0.12); text-decoration: none;
+}
 .rich-spoiler { color: transparent; background: #737c80; border-radius: 3px; outline: 0; }
 .rich-spoiler:hover, .rich-spoiler:focus { color: inherit; background: rgba(115, 124, 128, 0.18); }
 .rich-image-alt { color: var(--muted); font-style: italic; }

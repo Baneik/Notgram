@@ -505,6 +505,235 @@ describe("TDLib mapper", () => {
     expect(mapped.text).toContain("输入 5,709 tokens");
   });
 
+  it("preserves the complete Bot API rich-text semantics", () => {
+    const plain = (text: string) => ({ "@type": "richTextPlain", text });
+    const mapped = mapTdMessageContent({
+      "@type": "messageRichMessage",
+      message: {
+        "@type": "richMessage",
+        is_full: true,
+        is_rtl: false,
+        blocks: [{
+          "@type": "pageBlockParagraph",
+          text: {
+            "@type": "richTexts",
+            texts: [
+              { "@type": "richTextMarked", text: plain("marked") },
+              { "@type": "richTextDateTime", text: plain("tomorrow"), unix_time: 1_800_000_000,
+                formatting_type: { "@type": "dateTimeFormattingTypeRelative" } },
+              { "@type": "richTextMention", text: plain("@notgram"), username: "notgram" },
+              { "@type": "richTextMentionName", text: plain("Mia"), user_id: 7 },
+              { "@type": "richTextHashtag", text: plain("#release"), hashtag: "release" },
+              { "@type": "richTextCashtag", text: plain("$USD"), cashtag: "USD" },
+              { "@type": "richTextBankCardNumber", text: plain("4242"), bank_card_number: "4242" },
+              { "@type": "richTextBotCommand", text: plain("/start"), bot_command: "start" },
+              { "@type": "richTextCustomEmoji", custom_emoji_id: "99", alternative_text: "✨" },
+              { "@type": "richTextMathematicalExpression", expression: "x^2" },
+              { "@type": "richTextAnchor", name: "chapter" },
+              { "@type": "richTextAnchorLink", text: plain("jump"), anchor_name: "chapter" },
+              { "@type": "richTextReference", name: "note", text: plain("definition") },
+              { "@type": "richTextReferenceLink", text: plain("footnote"), reference_name: "note" },
+            ],
+          },
+        }],
+      },
+    });
+
+    expect(mapped.kind).toBe("rich");
+    if (mapped.kind !== "rich" || mapped.blocks[0]?.kind !== "paragraph") return;
+    const runs = mapped.blocks[0].text;
+    expect(runs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "marked", marked: true }),
+      expect.objectContaining({
+        text: "tomorrow",
+        dateTime: { unixTime: 1_800_000_000, mode: "relative" },
+      }),
+      expect.objectContaining({ text: "@notgram", href: "tg://resolve?domain=notgram" }),
+      expect.objectContaining({ text: "Mia", href: "tg://user?id=7" }),
+      expect.objectContaining({ text: "#release", semantic: "hashtag" }),
+      expect.objectContaining({ text: "$USD", semantic: "cashtag" }),
+      expect.objectContaining({ text: "4242", semantic: "bankCard" }),
+      expect.objectContaining({ text: "/start", semantic: "botCommand" }),
+      expect.objectContaining({ text: "✨", customEmojiId: "99" }),
+      expect.objectContaining({ text: "x^2", mathematicalExpression: "x^2" }),
+      expect.objectContaining({ text: "", anchor: { kind: "anchor", name: "chapter" } }),
+      expect.objectContaining({ text: "jump", linkTarget: { kind: "anchor", name: "chapter" } }),
+      expect.objectContaining({ text: "definition", anchor: { kind: "reference", name: "note" } }),
+      expect.objectContaining({ text: "footnote", linkTarget: { kind: "reference", name: "note" } }),
+    ]));
+  });
+
+  it("preserves Bot API rich blocks, layout metadata, and media files", () => {
+    const text = (value: string) => ({ "@type": "richTextPlain", text: value });
+    const file = (id: number) => ({
+      "@type": "file",
+      id,
+      size: 2048,
+      local: {
+        can_be_downloaded: true,
+        is_downloading_active: false,
+        is_downloading_completed: false,
+        downloaded_size: 0,
+      },
+      remote: { is_uploading_active: false, uploaded_size: 0 },
+    });
+    const caption = { "@type": "pageBlockCaption", text: text("caption"), credit: text("credit") };
+    const photo = {
+      "@type": "photo",
+      sizes: [{ "@type": "photoSize", width: 640, height: 480, photo: file(41) }],
+    };
+    const mapped = mapTdMessageContent({
+      "@type": "messageRichMessage",
+      message: {
+        "@type": "richMessage",
+        is_full: true,
+        is_rtl: false,
+        blocks: [
+          { "@type": "pageBlockFooter", footer: text("footer") },
+          { "@type": "pageBlockThinking", text: text("thinking") },
+          { "@type": "pageBlockMathematicalExpression", expression: "E=mc^2" },
+          { "@type": "pageBlockAnchor", name: "start" },
+          {
+            "@type": "pageBlockList",
+            items: [{
+              "@type": "pageBlockListItem",
+              label: "iv.",
+              blocks: [{ "@type": "pageBlockParagraph", text: text("item") }],
+              has_checkbox: true,
+              is_checked: true,
+              value: 4,
+              type: "i",
+            }],
+          },
+          { "@type": "pageBlockPullQuote", text: text("quote"), credit: text("author") },
+          {
+            "@type": "pageBlockTable",
+            caption: text("table"),
+            is_bordered: true,
+            is_striped: true,
+            cells: [[{
+              "@type": "pageBlockTableCell",
+              text: text("cell"),
+              is_header: true,
+              colspan: 2,
+              rowspan: 1,
+              align: { "@type": "pageBlockHorizontalAlignmentCenter" },
+              valign: { "@type": "pageBlockVerticalAlignmentMiddle" },
+            }]],
+          },
+          {
+            "@type": "pageBlockDetails",
+            header: text("summary"),
+            blocks: [{ "@type": "pageBlockParagraph", text: text("details") }],
+            is_open: true,
+          },
+          {
+            "@type": "pageBlockMap",
+            location: { "@type": "location", latitude: 41.9, longitude: 12.5, horizontal_accuracy: 4 },
+            zoom: 14,
+            width: 640,
+            height: 360,
+            caption,
+          },
+          { "@type": "pageBlockPhoto", photo, caption, url: "", has_spoiler: true },
+          {
+            "@type": "pageBlockAnimation",
+            animation: { file_name: "demo.gif", mime_type: "image/gif", animation: file(42) },
+            caption,
+            need_autoplay: true,
+            has_spoiler: false,
+          },
+          {
+            "@type": "pageBlockAudio",
+            audio: { file_name: "demo.mp3", mime_type: "audio/mpeg", audio: file(43), duration: 12 },
+            caption,
+          },
+          {
+            "@type": "pageBlockVideo",
+            video: {
+              file_name: "demo.mp4",
+              mime_type: "video/mp4",
+              video: file(44),
+              width: 1280,
+              height: 720,
+              duration: 20,
+            },
+            caption,
+            need_autoplay: false,
+            is_looped: true,
+            has_spoiler: true,
+          },
+          {
+            "@type": "pageBlockVoiceNote",
+            voice_note: { mime_type: "audio/ogg", voice: file(45), duration: 8 },
+            caption,
+          },
+          {
+            "@type": "pageBlockCollage",
+            blocks: [{ "@type": "pageBlockPhoto", photo, caption: null, url: "", has_spoiler: false }],
+            caption,
+          },
+        ],
+      },
+    });
+
+    expect(mapped.kind).toBe("rich");
+    if (mapped.kind !== "rich") return;
+    expect(mapped.blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "footer", text: [{ text: "footer" }] }),
+      expect.objectContaining({ kind: "thinking", text: [{ text: "thinking" }] }),
+      { kind: "mathematicalExpression", expression: "E=mc^2" },
+      { kind: "anchor", name: "start" },
+      expect.objectContaining({
+        kind: "list",
+        ordered: true,
+        items: [expect.objectContaining({ label: "iv.", value: 4, type: "i", checked: true })],
+      }),
+      expect.objectContaining({ kind: "quote", pull: true, credit: [{ text: "author" }] }),
+      expect.objectContaining({
+        kind: "table",
+        bordered: true,
+        striped: true,
+        rows: [[expect.objectContaining({ align: "center", valign: "middle", visible: true })]],
+      }),
+      expect.objectContaining({ kind: "details", open: true }),
+      expect.objectContaining({ kind: "map", latitude: 41.9, longitude: 12.5, zoom: 14 }),
+      expect.objectContaining({
+        kind: "media",
+        media: expect.objectContaining({
+          mediaType: "photo",
+          fileId: 41,
+          width: 640,
+          height: 480,
+          hasSpoiler: true,
+          caption: { text: [{ text: "caption" }], credit: [{ text: "credit" }] },
+        }),
+      }),
+      expect.objectContaining({
+        kind: "media",
+        media: expect.objectContaining({ mediaType: "animation", fileId: 42, autoplay: true }),
+      }),
+      expect.objectContaining({
+        kind: "media",
+        media: expect.objectContaining({ mediaType: "audio", fileId: 43, duration: 12 }),
+      }),
+      expect.objectContaining({
+        kind: "media",
+        media: expect.objectContaining({
+          mediaType: "video",
+          fileId: 44,
+          loop: true,
+          hasSpoiler: true,
+        }),
+      }),
+      expect.objectContaining({
+        kind: "media",
+        media: expect.objectContaining({ mediaType: "voice", fileId: 45, duration: 8 }),
+      }),
+      expect.objectContaining({ kind: "collection", layout: "collage" }),
+    ]));
+  });
+
   it("keeps future TDLib message types diagnosable", () => {
     expect(mapTdMessageContent({ "@type": "messageFutureType" })).toEqual({
       kind: "unsupported",

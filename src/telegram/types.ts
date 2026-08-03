@@ -138,6 +138,18 @@ export interface MessageRichTextRun {
   superscript?: true;
   marked?: true;
   href?: string;
+  anchor?: { kind: "anchor" | "reference"; name: string };
+  linkTarget?: { kind: "anchor" | "reference"; name: string };
+  semantic?: "hashtag" | "cashtag" | "bankCard" | "botCommand";
+  customEmojiId?: string;
+  mathematicalExpression?: string;
+  dateTime?: {
+    unixTime: number;
+    mode: "relative" | "absolute" | "original";
+    timePrecision?: "none" | "short" | "long";
+    datePrecision?: "none" | "short" | "long";
+    showDayOfWeek?: boolean;
+  };
 }
 
 export interface MessageRichListItem {
@@ -146,6 +158,7 @@ export interface MessageRichListItem {
   hasCheckbox: boolean;
   checked: boolean;
   value?: number;
+  type?: "a" | "A" | "i" | "I" | "1";
 }
 
 export interface MessageRichTableCell {
@@ -153,16 +166,84 @@ export interface MessageRichTableCell {
   header: boolean;
   colspan: number;
   rowspan: number;
+  visible: boolean;
+  align: "left" | "center" | "right";
+  valign: "top" | "middle" | "bottom";
+}
+
+export interface MessageRichCaption {
+  text: MessageRichTextRun[];
+  credit?: MessageRichTextRun[];
+}
+
+export interface MessageRichMedia {
+  mediaType: "photo" | "video" | "audio" | "voice" | "animation";
+  fileName: string;
+  sizeLabel: string;
+  mimeType?: string;
+  fileId?: number;
+  size?: number;
+  localPath?: string;
+  thumbnailPath?: string;
+  thumbnailFileId?: number;
+  thumbnailCanDownload?: boolean;
+  thumbnailIsDownloading?: boolean;
+  canDownload?: boolean;
+  isDownloading?: boolean;
+  isDownloaded?: boolean;
+  downloadedSize?: number;
+  progress?: number;
+  previewDataUrl?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  hasSpoiler: boolean;
+  autoplay: boolean;
+  loop: boolean;
+  caption?: MessageRichCaption;
+  url?: string;
 }
 
 export type MessageRichBlock =
   | { kind: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; text: MessageRichTextRun[] }
   | { kind: "paragraph"; text: MessageRichTextRun[] }
   | { kind: "preformatted"; text: MessageRichTextRun[]; language?: string }
+  | { kind: "footer"; text: MessageRichTextRun[] }
+  | { kind: "thinking"; text: MessageRichTextRun[] }
+  | { kind: "mathematicalExpression"; expression: string }
+  | { kind: "anchor"; name: string }
   | { kind: "list"; ordered: boolean; items: MessageRichListItem[] }
-  | { kind: "quote"; blocks: MessageRichBlock[]; credit?: MessageRichTextRun[] }
+  | {
+      kind: "quote";
+      blocks: MessageRichBlock[];
+      credit?: MessageRichTextRun[];
+      pull: boolean;
+    }
   | { kind: "details"; summary: MessageRichTextRun[]; blocks: MessageRichBlock[]; open: boolean }
-  | { kind: "table"; caption?: MessageRichTextRun[]; rows: MessageRichTableCell[][] }
+  | {
+      kind: "table";
+      caption?: MessageRichTextRun[];
+      rows: MessageRichTableCell[][];
+      bordered: boolean;
+      striped: boolean;
+    }
+  | { kind: "media"; media: MessageRichMedia }
+  | {
+      kind: "collection";
+      layout: "collage" | "slideshow";
+      blocks: MessageRichBlock[];
+      caption?: MessageRichCaption;
+    }
+  | {
+      kind: "map";
+      latitude: number;
+      longitude: number;
+      horizontalAccuracy?: number;
+      zoom: number;
+      width: number;
+      height: number;
+      caption?: MessageRichCaption;
+    }
   | { kind: "divider" };
 
 interface TransferableMessageContent {

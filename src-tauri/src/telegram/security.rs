@@ -26,6 +26,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getContacts",
     "getMe",
     "getMessageProperties",
+    "getFullRichMessage",
     "getProxies",
     "getRepliedMessage",
     "getSecretChat",

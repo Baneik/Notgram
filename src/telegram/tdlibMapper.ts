@@ -12,6 +12,9 @@ import type {
   MessageReactionType,
   MessageReplyTarget,
   MessageRichBlock,
+  MessageRichCaption,
+  MessageRichListItem,
+  MessageRichMedia,
   MessageRichTableCell,
   MessageRichTextRun,
   MessageTextEntity,
@@ -288,6 +291,34 @@ const unsupportedContent = (value: unknown, type: string): MessageContent => ({
 
 type RichTextStyle = Omit<MessageRichTextRun, "text">;
 
+const richDateTime = (richText: TdObject): MessageRichTextRun["dateTime"] => {
+  const unixTime = tdNumber(richText.unix_time);
+  if (unixTime === undefined) return undefined;
+  const formatting = asTdObject(richText.formatting_type);
+  if (!formatting) return { unixTime, mode: "original" };
+  if (formatting["@type"] === "dateTimeFormattingTypeRelative") {
+    return { unixTime, mode: "relative" };
+  }
+  if (formatting["@type"] !== "dateTimeFormattingTypeAbsolute") {
+    return { unixTime, mode: "original" };
+  }
+  const precision = (value: unknown) => {
+    switch (asTdObject(value)?.["@type"]) {
+      case "dateTimePartPrecisionNone": return "none" as const;
+      case "dateTimePartPrecisionShort": return "short" as const;
+      case "dateTimePartPrecisionLong": return "long" as const;
+      default: return undefined;
+    }
+  };
+  return {
+    unixTime,
+    mode: "absolute",
+    timePrecision: precision(formatting.time_precision),
+    datePrecision: precision(formatting.date_precision),
+    showDayOfWeek: formatting.show_day_of_week === true,
+  };
+};
+
 const richTextRuns = (
   value: unknown,
   style: RichTextStyle = {},
@@ -320,10 +351,17 @@ const richTextRuns = (
     case "richTextSubscript": return styled({ subscript: true });
     case "richTextSuperscript": return styled({ superscript: true });
     case "richTextMarked": return styled({ marked: true });
+    case "richTextDateTime": return styled({ dateTime: richDateTime(richText) });
     case "richTextUrl":
-    case "richTextReferenceLink":
-    case "richTextAnchorLink":
       return styled(typeof richText.url === "string" ? { href: richText.url } : {});
+    case "richTextReferenceLink":
+      return styled(typeof richText.reference_name === "string"
+        ? { linkTarget: { kind: "reference", name: richText.reference_name } }
+        : {});
+    case "richTextAnchorLink":
+      return styled(typeof richText.anchor_name === "string"
+        ? { linkTarget: { kind: "anchor", name: richText.anchor_name } }
+        : {});
     case "richTextEmailAddress":
       return styled(typeof richText.email_address === "string"
         ? { href: `mailto:${richText.email_address}` }
@@ -342,22 +380,34 @@ const richTextRuns = (
     }
     case "richTextCustomEmoji":
       return typeof richText.alternative_text === "string" && richText.alternative_text
-        ? [{ text: richText.alternative_text, ...style }]
+        ? [{
+            text: richText.alternative_text,
+            ...style,
+            customEmojiId: tdId(richText.custom_emoji_id) || undefined,
+          }]
         : [];
     case "richTextMathematicalExpression":
       return typeof richText.expression === "string" && richText.expression
-        ? [{ text: richText.expression, ...style, code: true }]
+        ? [{
+            text: richText.expression,
+            ...style,
+            mathematicalExpression: richText.expression,
+          }]
         : [];
     case "richTextDiff":
       return richTextRuns(richText.text, style, depth + 1);
     case "richTextReference":
-    case "richTextDateTime":
-    case "richTextHashtag":
-    case "richTextCashtag":
-    case "richTextBankCardNumber":
-    case "richTextBotCommand":
-      return nested();
+      return styled(typeof richText.name === "string"
+        ? { anchor: { kind: "reference", name: richText.name } }
+        : {});
+    case "richTextHashtag": return styled({ semantic: "hashtag" });
+    case "richTextCashtag": return styled({ semantic: "cashtag" });
+    case "richTextBankCardNumber": return styled({ semantic: "bankCard" });
+    case "richTextBotCommand": return styled({ semantic: "botCommand" });
     case "richTextAnchor":
+      return typeof richText.name === "string"
+        ? [{ text: "", ...style, anchor: { kind: "anchor", name: richText.name } }]
+        : [];
     case "richTextIcon":
       return [];
     default:
@@ -372,13 +422,25 @@ const richTextRuns = (
 const richRunsText = (runs: MessageRichTextRun[]) => runs.map(({ text }) => text).join("");
 
 const captionRuns = (value: unknown) => {
-  const caption = asTdObject(value);
+  const caption = richCaption(value);
   if (!caption) return [];
+  return caption.credit && caption.credit.length > 0
+    ? [
+        ...caption.text,
+        ...(caption.text.length > 0 ? [{ text: " — " } as MessageRichTextRun] : []),
+        ...caption.credit,
+      ]
+    : caption.text;
+};
+
+const richCaption = (value: unknown): MessageRichCaption | undefined => {
+  const caption = asTdObject(value);
+  if (!caption) return undefined;
   const text = richTextRuns(caption.text);
   const credit = richTextRuns(caption.credit);
-  return credit.length > 0
-    ? [...text, ...(text.length > 0 ? [{ text: " — " } as MessageRichTextRun] : []), ...credit]
-    : text;
+  return text.length > 0 || credit.length > 0
+    ? { text, credit: credit.length > 0 ? credit : undefined }
+    : undefined;
 };
 
 const paragraph = (text: MessageRichTextRun[]): MessageRichBlock[] =>
@@ -390,6 +452,137 @@ const pageBlockText = (block: TdObject, ...keys: string[]) => {
     if (runs.length > 0) return runs;
   }
   return [];
+};
+
+const richMedia = (
+  mediaType: MessageRichMedia["mediaType"],
+  fileName: string,
+  file: unknown,
+  options: Partial<MessageRichMedia> = {},
+): MessageRichMedia => ({
+  mediaType,
+  fileName,
+  ...fileDetails(file),
+  hasSpoiler: false,
+  autoplay: false,
+  loop: false,
+  ...options,
+});
+
+const richPageMedia = (block: TdObject): MessageRichMedia => {
+  switch (block["@type"]) {
+    case "pageBlockAnimation": {
+      const animation = asTdObject(block.animation);
+      return richMedia(
+        "animation",
+        typeof animation?.file_name === "string" && animation.file_name
+          ? animation.file_name
+          : "动图",
+        animation?.animation,
+        {
+          mimeType: typeof animation?.mime_type === "string" ? animation.mime_type : undefined,
+          ...thumbnailDetails(animation?.thumbnail),
+          previewDataUrl: minithumbnailDataUrl(animation?.minithumbnail),
+          width: tdNumber(animation?.width),
+          height: tdNumber(animation?.height),
+          duration: tdNumber(animation?.duration),
+          hasSpoiler: block.has_spoiler === true,
+          autoplay: block.need_autoplay === true,
+          loop: true,
+          caption: richCaption(block.caption),
+        },
+      );
+    }
+    case "pageBlockAudio": {
+      const audio = asTdObject(block.audio);
+      return richMedia(
+        "audio",
+        typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : "音频",
+        audio?.audio,
+        {
+          mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
+          ...thumbnailDetails(audio?.album_cover_thumbnail),
+          duration: tdNumber(audio?.duration),
+          caption: richCaption(block.caption),
+        },
+      );
+    }
+    case "pageBlockPhoto": {
+      const photo = asTdObject(block.photo);
+      const sizes = asTdObjects(photo?.sizes);
+      const largest = sizes.reduce<TdObject | undefined>((best, candidate) => {
+        const area = (tdNumber(candidate.width) ?? 0) * (tdNumber(candidate.height) ?? 0);
+        const bestArea = (tdNumber(best?.width) ?? 0) * (tdNumber(best?.height) ?? 0);
+        return area >= bestArea ? candidate : best;
+      }, undefined);
+      const smallest = sizes.reduce<TdObject | undefined>((best, candidate) => {
+        const area = (tdNumber(candidate.width) ?? 0) * (tdNumber(candidate.height) ?? 0);
+        const bestArea = (tdNumber(best?.width) ?? Number.POSITIVE_INFINITY) *
+          (tdNumber(best?.height) ?? Number.POSITIVE_INFINITY);
+        return area <= bestArea ? candidate : best;
+      }, undefined);
+      const largestFileId = tdNumber(asTdObject(largest?.photo)?.id);
+      const smallestFile = asTdObject(smallest?.photo);
+      const preview = tdNumber(smallestFile?.id) !== largestFileId
+        ? thumbnailFileDetails(smallestFile)
+        : { thumbnailPath: localImagePath(smallestFile) };
+      return richMedia("photo", "图片", largest?.photo, {
+        ...preview,
+        previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
+        width: tdNumber(largest?.width),
+        height: tdNumber(largest?.height),
+        hasSpoiler: block.has_spoiler === true,
+        caption: richCaption(block.caption),
+        url: typeof block.url === "string" && block.url ? block.url : undefined,
+      });
+    }
+    case "pageBlockVideo": {
+      const video = asTdObject(block.video);
+      return richMedia(
+        "video",
+        typeof video?.file_name === "string" && video.file_name ? video.file_name : "视频",
+        video?.video,
+        {
+          mimeType: typeof video?.mime_type === "string" ? video.mime_type : undefined,
+          ...thumbnailDetails(video?.thumbnail),
+          previewDataUrl: minithumbnailDataUrl(video?.minithumbnail),
+          width: tdNumber(video?.width),
+          height: tdNumber(video?.height),
+          duration: tdNumber(video?.duration),
+          hasSpoiler: block.has_spoiler === true,
+          autoplay: block.need_autoplay === true,
+          loop: block.is_looped === true,
+          caption: richCaption(block.caption),
+        },
+      );
+    }
+    case "pageBlockVoiceNote": {
+      const voice = asTdObject(block.voice_note);
+      return richMedia("voice", "语音消息", voice?.voice, {
+        mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
+        duration: tdNumber(voice?.duration),
+        caption: richCaption(block.caption),
+      });
+    }
+    default:
+      return richMedia("photo", "媒体", undefined);
+  }
+};
+
+const tableAlignment = (value: unknown): MessageRichTableCell["align"] => {
+  switch (asTdObject(value)?.["@type"]) {
+    case "pageBlockHorizontalAlignmentCenter": return "center";
+    case "pageBlockHorizontalAlignmentRight": return "right";
+    default: return "left";
+  }
+};
+
+const tableVerticalAlignment = (value: unknown): MessageRichTableCell["valign"] => {
+  switch (asTdObject(value)?.["@type"]) {
+    case "pageBlockVerticalAlignmentMiddle": return "middle";
+    case "pageBlockVerticalAlignmentBottom": return "bottom";
+    default: return "top";
+  }
 };
 
 const pageBlocks = (value: unknown, depth = 0): MessageRichBlock[] => {
@@ -424,9 +617,9 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
     case "pageBlockAuthorDate":
       return paragraph(pageBlockText(block, "author"));
     case "pageBlockFooter":
-      return paragraph(pageBlockText(block, "footer"));
+      return [{ kind: "footer", text: pageBlockText(block, "footer") }];
     case "pageBlockThinking":
-      return paragraph(pageBlockText(block, "text"));
+      return [{ kind: "thinking", text: pageBlockText(block, "text") }];
     case "pageBlockPreformatted":
       return [{
         kind: "preformatted",
@@ -437,12 +630,12 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
       }];
     case "pageBlockMathematicalExpression":
       return typeof block.expression === "string" && block.expression
-        ? [{ kind: "preformatted", text: [{ text: block.expression, code: true }] }]
+        ? [{ kind: "mathematicalExpression", expression: block.expression }]
         : [];
     case "pageBlockDivider":
       return [{ kind: "divider" }];
     case "pageBlockAnchor":
-      return [];
+      return typeof block.name === "string" ? [{ kind: "anchor", name: block.name }] : [];
     case "pageBlockList": {
       const items = asTdObjects(block.items).map((item) => ({
         blocks: pageBlocks(item.blocks, depth + 1),
@@ -450,6 +643,9 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
         hasCheckbox: item.has_checkbox === true,
         checked: item.is_checked === true,
         value: tdNumber(item.value),
+        type: ["a", "A", "i", "I", "1"].includes(String(item.type))
+          ? item.type as MessageRichListItem["type"]
+          : undefined,
       }));
       const ordered = asTdObjects(block.items).some((item) =>
         typeof item.type === "string" && item.type.length > 0,
@@ -461,6 +657,7 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
         kind: "quote",
         blocks: pageBlocks(block.blocks, depth + 1),
         credit: richTextRuns(block.credit),
+        pull: false,
       }];
     case "pageBlockPullQuote": {
       const text = pageBlockText(block, "text");
@@ -468,6 +665,7 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
         kind: "quote",
         blocks: paragraph(text),
         credit: richTextRuns(block.credit),
+        pull: true,
       }];
     }
     case "pageBlockDetails":
@@ -485,12 +683,17 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
               header: cell.is_header === true,
               colspan: Math.max(1, tdNumber(cell.colspan) ?? 1),
               rowspan: Math.max(1, tdNumber(cell.rowspan) ?? 1),
+              visible: asTdObject(cell.text) !== undefined,
+              align: tableAlignment(cell.align),
+              valign: tableVerticalAlignment(cell.valign),
             })))
         : [];
       return rows.length > 0 ? [{
         kind: "table",
         caption: richTextRuns(block.caption),
         rows,
+        bordered: block.is_bordered === true,
+        striped: block.is_striped === true,
       }] : [];
     }
     case "pageBlockCover":
@@ -502,26 +705,21 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
         ...paragraph(captionRuns(block.caption)),
       ];
     case "pageBlockCollage":
-    case "pageBlockSlideshow":
-      return [
-        ...pageBlocks(block.blocks, depth + 1),
-        ...paragraph(captionRuns(block.caption)),
-      ];
+    case "pageBlockSlideshow": {
+      const blocks = pageBlocks(block.blocks, depth + 1);
+      return blocks.length > 0 ? [{
+        kind: "collection",
+        layout: type === "pageBlockCollage" ? "collage" : "slideshow",
+        blocks,
+        caption: richCaption(block.caption),
+      }] : paragraph(captionRuns(block.caption));
+    }
     case "pageBlockAnimation":
     case "pageBlockAudio":
     case "pageBlockPhoto":
     case "pageBlockVideo":
-    case "pageBlockVoiceNote": {
-      const caption = captionRuns(block.caption);
-      const labels: Record<string, string> = {
-        pageBlockAnimation: "动图",
-        pageBlockAudio: "音频",
-        pageBlockPhoto: "图片",
-        pageBlockVideo: "视频",
-        pageBlockVoiceNote: "语音消息",
-      };
-      return paragraph(caption.length > 0 ? caption : [{ text: labels[String(type)] ?? "媒体" }]);
-    }
+    case "pageBlockVoiceNote":
+      return [{ kind: "media", media: richPageMedia(block) }];
     case "pageBlockChatLink":
       return paragraph(typeof block.title === "string" ? [{ text: block.title }] : []);
     case "pageBlockRelatedArticles": {
@@ -535,8 +733,23 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
       return [...paragraph(header), ...articles];
     }
     case "pageBlockMap": {
-      const caption = captionRuns(block.caption);
-      return paragraph(caption.length > 0 ? caption : [{ text: "位置" }]);
+      const location = asTdObject(block.location);
+      const latitude = tdNumber(location?.latitude);
+      const longitude = tdNumber(location?.longitude);
+      if (latitude === undefined || longitude === undefined) {
+        const caption = captionRuns(block.caption);
+        return paragraph(caption.length > 0 ? caption : [{ text: "位置" }]);
+      }
+      return [{
+        kind: "map",
+        latitude,
+        longitude,
+        horizontalAccuracy: tdNumber(location?.horizontal_accuracy),
+        zoom: tdNumber(block.zoom) ?? 13,
+        width: tdNumber(block.width) ?? 0,
+        height: tdNumber(block.height) ?? 0,
+        caption: richCaption(block.caption),
+      }];
     }
     case "pageBlockEmbedded": {
       const caption = captionRuns(block.caption);
@@ -570,7 +783,13 @@ const richBlockText = (block: MessageRichBlock): string[] => {
     case "heading":
     case "paragraph":
     case "preformatted":
+    case "footer":
+    case "thinking":
       return [richRunsText(block.text)];
+    case "mathematicalExpression":
+      return [block.expression];
+    case "anchor":
+      return [];
     case "list":
       return block.items.flatMap((item) => item.blocks.flatMap(richBlockText));
     case "quote":
@@ -585,6 +804,18 @@ const richBlockText = (block: MessageRichBlock): string[] => {
         ...(block.caption ? [richRunsText(block.caption)] : []),
         ...block.rows.flatMap((row) => row.map((cell) => richRunsText(cell.text))),
       ];
+    case "media":
+      return [
+        ...(block.media.caption ? [richRunsText(block.media.caption.text)] : []),
+        block.media.fileName,
+      ];
+    case "collection":
+      return [
+        ...block.blocks.flatMap(richBlockText),
+        ...(block.caption ? [richRunsText(block.caption.text)] : []),
+      ];
+    case "map":
+      return block.caption ? [richRunsText(block.caption.text)] : ["位置"];
     case "divider":
       return [];
   }
