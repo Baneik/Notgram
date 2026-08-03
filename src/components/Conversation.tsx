@@ -207,6 +207,7 @@ export function Conversation({
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const [messageListScrolling, setMessageListScrolling] = useState(false);
 
   const displayMessages = useMemo(
     () => chat?.kind === "saved"
@@ -587,9 +588,10 @@ export function Conversation({
         )}
         <Virtuoso
           key={currentScrollKey}
-          className="message-list"
+          className={`message-list ${messageListScrolling ? "is-scrolling" : ""}`}
           ref={virtuosoRef}
           scrollerRef={setMessageListRef}
+          isScrolling={setMessageListScrolling}
           role="log"
           aria-label="消息列表"
           tabIndex={0}

@@ -227,6 +227,50 @@ test("sidebar dragging and window resizing keep the responsive layout live", asy
   }
 });
 
+test("conversation suppresses horizontal scrolling and reveals its vertical scrollbar only while scrolling", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toBeVisible();
+  await expect(messageList).not.toHaveClass(/is-scrolling/);
+
+  const idle = await messageList.evaluate((element) => {
+    const content = element.querySelector<HTMLElement>(".message-list-content");
+    return {
+      clientWidth: element.clientWidth,
+      contentWidth: content?.getBoundingClientRect().width,
+      horizontalOverflow: element.scrollWidth > (element as HTMLElement).offsetWidth,
+      overflowX: getComputedStyle(element).overflowX,
+      scrollbarColor: getComputedStyle(element).scrollbarColor,
+    };
+  });
+  expect(idle.overflowX).toBe("hidden");
+  expect(idle.horizontalOverflow).toBe(false);
+  expect(idle.scrollbarColor).toContain("rgba(0, 0, 0, 0)");
+
+  await messageList.evaluate((element) => {
+    element.scrollTop = Math.min(
+      element.scrollHeight - element.clientHeight,
+      Math.max(1, element.scrollTop + 160),
+    );
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(messageList).toHaveClass(/is-scrolling/);
+
+  const scrolling = await messageList.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    contentWidth: element.querySelector<HTMLElement>(".message-list-content")
+      ?.getBoundingClientRect().width,
+    scrollbarColor: getComputedStyle(element).scrollbarColor,
+  }));
+  expect(scrolling.clientWidth).toBe(idle.clientWidth);
+  expect(scrolling.contentWidth).toBe(idle.contentWidth);
+  expect(scrolling.scrollbarColor).not.toBe(idle.scrollbarColor);
+
+  await expect(messageList).not.toHaveClass(/is-scrolling/, { timeout: 2_000 });
+  await expect.poll(() => messageList.evaluate((element) => element.clientWidth))
+    .toBe(idle.clientWidth);
+});
+
 test("media cache controls clean selected data and protect active files", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
