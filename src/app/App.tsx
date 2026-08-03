@@ -60,7 +60,6 @@ export function App() {
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const chatManagementPending = useTelegramStore((state) => state.chatManagementPending);
   const folderManagementPending = useTelegramStore((state) => state.folderManagementPending);
-  const transportLabel = useTelegramStore((state) => state.transportLabel);
   const transportKind = useTelegramStore((state) => state.transportKind);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
   const authorization = useTelegramStore((state) => state.authorization);
@@ -379,8 +378,6 @@ export function App() {
             closeSearch();
             setChatFilter(filter);
           }}
-          transportLabel={transportLabel}
-          connectionStatus={connectionStatus}
           onManageFolders={() => setFolderManagerOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
@@ -390,7 +387,6 @@ export function App() {
           activeChatId={activeChatId}
           folderId={chatFilter}
           folderTitle={folders.find((folder) => folder.id === chatFilter)?.title ?? "聊天"}
-          connectionStatus={connectionStatus}
           searchQuery={searchQuery}
           searchInputRef={searchInputRef}
           onSearchChange={updateSearchQuery}

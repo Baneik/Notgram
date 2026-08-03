@@ -367,21 +367,6 @@ export function Conversation({
     );
   }
 
-  const peer = chat.peerId ? users.get(chat.peerId) : undefined;
-  const statusLabel =
-    chat.kind === "channel"
-      ? "频道"
-      : chat.kind === "group"
-        ? "群组"
-        : chat.kind === "saved"
-          ? "仅自己可见"
-          : peer?.presence === "typing"
-            ? "正在输入"
-            : peer?.presence === "online"
-              ? "在线"
-              : peer?.lastSeenLabel
-                ? `最后上线：${peer.lastSeenLabel}`
-                : "离线";
   const composerContextMessage = editingMessage ?? replyingTo;
   const composerContextTitle = editingMessage
     ? "编辑消息"
@@ -529,7 +514,6 @@ export function Conversation({
               <Avatar avatar={chat.avatar} size="medium" />
               <span className="conversation-title">
                 <strong>{chat.title}</strong>
-                <span>{statusLabel}</span>
               </span>
             </button>
             <div className="conversation-actions">

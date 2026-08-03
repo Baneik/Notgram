@@ -1,14 +1,11 @@
-import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
+import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, UserRound, Users } from "lucide-react";
 import type { ChatFilter } from "../store/telegramStore";
-import type { ChatFolder, ConnectionStatus } from "../telegram/types";
-import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
+import type { ChatFolder } from "../telegram/types";
 
 interface NavigationRailProps {
   filter: ChatFilter;
   folders: ChatFolder[];
   onFilterChange: (filter: ChatFilter) => void;
-  transportLabel: string;
-  connectionStatus: ConnectionStatus;
   onManageFolders: () => void;
   onOpenSettings: () => void;
 }
@@ -17,14 +14,20 @@ export function NavigationRail({
   folders,
   filter,
   onFilterChange,
-  transportLabel,
-  connectionStatus,
   onManageFolders,
   onOpenSettings,
 }: NavigationRailProps) {
   return (
     <nav className="navigation-rail" aria-label="聊天文件夹">
-      <div className="rail-brand"><span className="brand-mark">N</span><span>Notgram</span></div>
+      <button
+        className="rail-brand"
+        type="button"
+        aria-label="设置"
+        title="设置"
+        onClick={onOpenSettings}
+      >
+        <span className="brand-mark">N</span><span>Notgram</span>
+      </button>
       <div className="rail-actions">
         {folders.map((folder) => (
           <button className={`rail-button ${filter === folder.id ? "is-active" : ""}`} key={folder.id}
@@ -37,15 +40,6 @@ export function NavigationRail({
           <span className="rail-icon"><FolderCog size={23} strokeWidth={1.8} /></span><span>管理</span>
         </button>
       </div>
-      <button className="rail-button rail-settings" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
-        <span className="rail-icon"><Settings size={22} strokeWidth={1.8} /></span><span>设置</span>
-      </button>
-      <ConnectionStatusIndicator
-        className="rail-connection"
-        status={connectionStatus}
-        transportLabel={transportLabel}
-        compact
-      />
     </nav>
   );
 }

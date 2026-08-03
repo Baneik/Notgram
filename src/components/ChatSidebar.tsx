@@ -8,11 +8,10 @@ import {
   type PointerEvent,
 } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
-import type { Chat, ChatDraft, ConnectionStatus, GlobalSearchFilter } from "../telegram/types";
+import type { Chat, ChatDraft, GlobalSearchFilter } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
-import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { GlobalSearchResults } from "./GlobalSearchView";
 
 interface ChatSidebarProps {
@@ -21,7 +20,6 @@ interface ChatSidebarProps {
   activeChatId?: string;
   folderId: string;
   folderTitle: string;
-  connectionStatus: ConnectionStatus;
   searchQuery: string;
   searchInputRef: RefObject<HTMLInputElement | null>;
   onSearchChange: (value: string) => void;
@@ -50,7 +48,6 @@ export function ChatSidebar({
   activeChatId,
   folderId,
   folderTitle,
-  connectionStatus,
   searchQuery,
   searchInputRef,
   onSearchChange,
@@ -249,7 +246,6 @@ export function ChatSidebar({
       <div className="sidebar-heading">
         <div>
           <h1>{folderTitle}</h1>
-          <ConnectionStatusIndicator status={connectionStatus} compact />
         </div>
       </div>
 

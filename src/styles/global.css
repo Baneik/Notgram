@@ -125,9 +125,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   padding: 12px 7px 10px; background: #f2f3f4; border-right: 1px solid var(--line);
 }
 .rail-brand {
-  min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  color: #565d62; font-size: 10px; font-weight: 600;
+  width: 100%; min-height: 58px; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: #565d62; background: transparent; border: 0; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600;
 }
+.rail-brand:hover { color: #333a3f; background: #e7e9eb; }
 .rail-brand .brand-mark { width: 36px; height: 36px; font-size: 15px; }
 .rail-actions { min-height: 0; display: grid; align-content: start; gap: 4px; margin-top: 13px; overflow-y: auto; scrollbar-width: none; }
 .rail-button {
@@ -137,11 +138,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .rail-button:hover { color: #333a3f; background: #e7e9eb; }
 .rail-button.is-active { color: var(--accent); background: #e3eef8; font-weight: 650; }
 .rail-icon { width: 28px; height: 28px; display: grid; place-items: center; }
-.rail-settings { margin-top: auto; }
-.rail-connection {
-  min-height: 30px; display: flex; align-items: center; justify-content: center; gap: 5px;
-  overflow: hidden; color: #92999e; font-size: 9px; text-overflow: ellipsis; white-space: nowrap;
-}
 
 .chat-sidebar {
   position: relative; grid-column: 2; min-width: 300px; height: 100%; min-height: 0; display: grid;
@@ -292,7 +288,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   background: #ffffff; border-bottom: 1px solid var(--line);
 }
 .conversation-header .avatar { width: 42px; height: 42px; }
-.conversation-title { min-width: 0; display: grid; gap: 2px; }
+.conversation-title { min-width: 0; display: grid; }
 .conversation-profile-trigger {
   min-width: 0; padding: 0; display: flex; align-items: center; gap: 11px; color: inherit; text-align: left;
   background: transparent; border: 0; border-radius: 7px; cursor: pointer;
@@ -300,7 +296,6 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .conversation-profile-trigger:hover { background: #f2f6f8; }
 .conversation-profile-trigger:focus-visible { outline: 2px solid rgba(51, 144, 236, 0.55); outline-offset: 2px; }
 .conversation-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; }
-.conversation-title span { color: var(--muted); font-size: 12px; }
 .conversation-header.is-selection-header { gap: 8px; }
 .message-selection-title { min-width: 0; display: grid; gap: 2px; }
 .message-selection-title strong { font-size: 14px; font-weight: 650; }
@@ -1037,10 +1032,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 @media (max-width: 720px) {
   .app-shell { min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 62px; }
   .navigation-rail { grid-column: 1; grid-row: 2; height: 62px; padding: 4px 8px; flex-direction: row; border-top: 1px solid var(--line); border-right: 0; }
-  .rail-brand, .rail-connection { display: none; }
   .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
+  .rail-brand { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
+  .rail-brand .brand-mark { width: 28px; height: 28px; font-size: 12px; }
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
-  .rail-settings { margin: 0; }
   .chat-sidebar, .conversation { grid-column: 1; grid-row: 1; }
   .contacts-view { grid-column: 1; grid-row: 1; }
   .global-search-controls { padding: 12px 14px; }

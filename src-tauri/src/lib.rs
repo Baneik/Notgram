@@ -6,6 +6,7 @@ mod distribution;
 mod proxy;
 mod storage;
 mod telegram;
+mod webview_security;
 
 use tauri::Manager;
 
@@ -23,6 +24,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            webview_security::setup(app)?;
             app.manage(diagnostics::setup(app.handle())?);
             if distribution::supports_native_updater() {
                 app.handle()

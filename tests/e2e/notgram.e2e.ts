@@ -34,6 +34,48 @@ const scrollAwayFromBottom = (page: Page) => page.locator(".message-list").evalu
   element.dispatchEvent(new Event("scroll"));
 });
 
+test("webview chrome is suppressed and settings are opened from the Notgram brand", async ({ page }) => {
+  await page.goto("/");
+
+  const settingsButton = page.locator(".rail-brand");
+  await expect(settingsButton).toHaveRole("button");
+  await expect(settingsButton).toHaveAccessibleName("设置");
+  await expect(settingsButton).toContainText("Notgram");
+  await expect(page.locator(".rail-settings, .rail-connection")).toHaveCount(0);
+  await expect(page.locator(".sidebar-heading .connection-status")).toHaveCount(0);
+  await expect(page.locator(".conversation-title > span")).toHaveCount(0);
+
+  const contextMenu = await page.locator(".app-shell").evaluate((element) => {
+    let propagated = false;
+    element.addEventListener("contextmenu", () => { propagated = true; }, { once: true });
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      button: 2,
+      cancelable: true,
+    });
+    const dispatched = element.dispatchEvent(event);
+    return { defaultPrevented: event.defaultPrevented, dispatched, propagated };
+  });
+  expect(contextMenu).toEqual({ defaultPrevented: true, dispatched: false, propagated: true });
+
+  const shortcut = await page.locator("body").evaluate((element) => {
+    let propagated = false;
+    window.addEventListener("keydown", () => { propagated = true; }, { once: true });
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+      shiftKey: true,
+    });
+    const dispatched = element.dispatchEvent(event);
+    return { defaultPrevented: event.defaultPrevented, dispatched, propagated };
+  });
+  expect(shortcut).toEqual({ defaultPrevented: true, dispatched: false, propagated: false });
+
+  await settingsButton.click();
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
+});
+
 test("desktop messaging, reactions, and preferences remain usable", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toBeVisible();
