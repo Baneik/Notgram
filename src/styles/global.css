@@ -315,12 +315,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .chat-action-menu button:hover:not(:disabled), .chat-action-menu button:focus-visible { background: #eef4f7; }
 .chat-action-menu button:disabled { opacity: 0.45; cursor: default; }
 .context-menu-surface {
-  position: fixed; z-index: 120; display: flex; align-items: flex-start; gap: 4px;
+  position: fixed; z-index: 120; width: max-content; pointer-events: none;
   filter: drop-shadow(0 9px 24px rgba(24, 34, 40, 0.22));
 }
 .context-menu-panel {
   width: 204px; padding: 5px; display: grid; gap: 2px; color: var(--ink);
-  background: #ffffff; border: 1px solid #d9dfe2; border-radius: 7px;
+  pointer-events: auto; background: #ffffff; border: 1px solid #d9dfe2; border-radius: 7px;
+}
+.context-menu-submenu {
+  position: absolute; z-index: 1; left: var(--context-submenu-x); top: var(--context-submenu-y);
 }
 .context-menu-panel button {
   width: 100%; min-height: 40px; padding: 0 9px; display: grid;
@@ -335,6 +338,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .context-menu-panel button.is-danger:hover:not(:disabled),
 .context-menu-panel button.is-danger:focus-visible { background: #fff0f1; }
 .context-menu-chevron { color: var(--subtle); }
+.context-menu-surface[data-context-submenu-side="left"] .context-menu-chevron { transform: rotate(180deg); }
 .chat-folder-submenu { width: 190px; max-height: min(360px, calc(100vh - 16px)); overflow-y: auto; }
 .icon-button {
   width: 38px; height: 38px; padding: 0; display: inline-grid; place-items: center; flex: 0 0 auto;

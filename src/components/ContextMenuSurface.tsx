@@ -3,15 +3,19 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
+  type HTMLAttributes,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
+import {
+  calculateContextMenuLayout,
+  type ContextMenuLayout,
+  type ContextMenuPoint,
+} from "../utils/contextMenuLayout";
 
-export interface ContextMenuPoint {
-  x: number;
-  y: number;
-}
+export type { ContextMenuPoint } from "../utils/contextMenuLayout";
 
 interface ContextMenuSurfaceProps {
   label: string;
@@ -22,7 +26,24 @@ interface ContextMenuSurfaceProps {
   onClose: () => void;
 }
 
-const VIEWPORT_MARGIN = 8;
+interface ContextMenuPanelProps extends HTMLAttributes<HTMLDivElement> {
+  submenu?: boolean;
+}
+
+export function ContextMenuPanel({
+  submenu = false,
+  className = "",
+  ...props
+}: ContextMenuPanelProps) {
+  return (
+    <div
+      {...props}
+      className={`context-menu-panel ${submenu ? "context-menu-submenu" : ""} ${className}`.trim()}
+      data-context-menu-primary={submenu ? undefined : "true"}
+      data-context-menu-submenu={submenu ? "true" : undefined}
+    />
+  );
+}
 
 export function ContextMenuSurface({
   label,
@@ -33,23 +54,35 @@ export function ContextMenuSurface({
   onClose,
 }: ContextMenuSurfaceProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState(point);
+  const [layout, setLayout] = useState<ContextMenuLayout>({
+    x: point.x,
+    y: point.y,
+    submenuOffsetX: 0,
+    submenuOffsetY: 0,
+    submenuSide: "right",
+  });
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!menu) return;
-    const bounds = menu.getBoundingClientRect();
-    const next = {
-      x: Math.max(
-        VIEWPORT_MARGIN,
-        Math.min(point.x, window.innerWidth - bounds.width - VIEWPORT_MARGIN),
-      ),
-      y: Math.max(
-        VIEWPORT_MARGIN,
-        Math.min(point.y, window.innerHeight - bounds.height - VIEWPORT_MARGIN),
-      ),
-    };
-    setPosition((current) => current.x === next.x && current.y === next.y ? current : next);
+    const primary = menu.querySelector<HTMLElement>("[data-context-menu-primary]");
+    if (!primary) return;
+    const submenu = menu.querySelector<HTMLElement>("[data-context-menu-submenu]");
+    const next = calculateContextMenuLayout(
+      point,
+      { width: window.innerWidth, height: window.innerHeight },
+      { width: primary.offsetWidth, height: primary.offsetHeight },
+      submenu ? { width: submenu.offsetWidth, height: submenu.offsetHeight } : undefined,
+    );
+    setLayout((current) =>
+      current.x === next.x &&
+        current.y === next.y &&
+        current.submenuOffsetX === next.submenuOffsetX &&
+        current.submenuOffsetY === next.submenuOffsetY &&
+        current.submenuSide === next.submenuSide
+        ? current
+        : next
+    );
   });
 
   useEffect(() => {
@@ -75,7 +108,13 @@ export function ContextMenuSurface({
     <div
       ref={menuRef}
       className={`context-menu-surface ${className}`}
-      style={{ left: position.x, top: position.y }}
+      style={{
+        left: layout.x,
+        top: layout.y,
+        "--context-submenu-x": `${layout.submenuOffsetX}px`,
+        "--context-submenu-y": `${layout.submenuOffsetY}px`,
+      } as CSSProperties}
+      data-context-submenu-side={layout.submenuSide}
       role="menu"
       aria-label={label}
       tabIndex={-1}

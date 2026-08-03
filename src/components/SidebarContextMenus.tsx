@@ -14,7 +14,11 @@ import {
 import { useState, type KeyboardEvent } from "react";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import type { Chat, ChatFolder } from "../telegram/types";
-import { ContextMenuSurface, type ContextMenuPoint } from "./ContextMenuSurface";
+import {
+  ContextMenuPanel,
+  ContextMenuSurface,
+  type ContextMenuPoint,
+} from "./ContextMenuSurface";
 
 interface ChatContextMenuProps {
   chat: Chat;
@@ -71,11 +75,10 @@ export function ChatContextMenu({
     <ContextMenuSurface
       label={`会话操作：${chat.title}`}
       point={point}
-      className={foldersOpen ? "has-submenu" : ""}
       restoreFocus={restoreFocus}
       onClose={onClose}
     >
-      <div className="context-menu-panel">
+      <ContextMenuPanel>
         <button
           type="button"
           role="menuitem"
@@ -118,9 +121,9 @@ export function ChatContextMenu({
             <span>退出群组</span>
           </button>
         )}
-      </div>
+      </ContextMenuPanel>
       {foldersOpen && (
-        <div className="context-menu-panel chat-folder-submenu" role="menu" aria-label="选择分组">
+        <ContextMenuPanel submenu className="chat-folder-submenu" role="menu" aria-label="选择分组">
           {customFolders.map((folder) => {
             const included = chat.folderIds.includes(folder.id);
             const key = `folder:${folder.id}`;
@@ -146,7 +149,7 @@ export function ChatContextMenu({
               </button>
             );
           })}
-        </div>
+        </ContextMenuPanel>
       )}
     </ContextMenuSurface>
   );
@@ -193,7 +196,7 @@ export function FolderContextMenu({
       restoreFocus={restoreFocus}
       onClose={onClose}
     >
-      <div className="context-menu-panel">
+      <ContextMenuPanel>
         {custom && (
           <button type="button" role="menuitem" disabled={busy} onClick={() => {
             onClose();
@@ -224,7 +227,7 @@ export function FolderContextMenu({
             <span>删除</span>
           </button>
         )}
-      </div>
+      </ContextMenuPanel>
     </ContextMenuSurface>
   );
 }

@@ -954,6 +954,59 @@ test("chat context menu manages folders, pinning, and group exit", async ({ page
   await expect(page.locator(".conversation-title strong")).not.toHaveText("产品讨论");
 });
 
+test("nested context menus keep the primary anchor stable and leave transparent areas clickable", async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 420 });
+  await page.goto("/");
+  await page.addStyleTag({
+    content: ".chat-folder-submenu { height: min(360px, calc(100vh - 16px)); }",
+  });
+
+  const releaseRow = page.locator('.chat-row[data-chat-id="chat-release"]');
+  await releaseRow.scrollIntoViewIfNeeded();
+  const releaseBounds = await releaseRow.boundingBox();
+  expect(releaseBounds).not.toBeNull();
+  await releaseRow.click({
+    button: "right",
+    position: {
+      x: Math.min(340, (releaseBounds?.width ?? 360) - 12),
+      y: (releaseBounds?.height ?? 74) - 8,
+    },
+  });
+
+  let menu = page.getByRole("menu", { name: "会话操作：Release Notes" });
+  let primary = menu.locator("[data-context-menu-primary]");
+  const before = await primary.boundingBox();
+  expect(before).not.toBeNull();
+  await menu.getByRole("menuitem", { name: "分组" }).click();
+  const submenu = page.getByRole("menu", { name: "选择分组" });
+  await expect(submenu).toBeVisible();
+  const after = await primary.boundingBox();
+  const submenuBounds = await submenu.boundingBox();
+  expect(after).not.toBeNull();
+  expect(submenuBounds).not.toBeNull();
+  expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0))).toBeLessThan(1);
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(1);
+  expect((submenuBounds?.y ?? -1)).toBeGreaterThanOrEqual(8);
+  expect((submenuBounds?.y ?? 0) + (submenuBounds?.height ?? 0)).toBeLessThanOrEqual(412);
+  await expect(menu).toHaveAttribute("data-context-submenu-side", "left");
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.reload();
+  await page.addStyleTag({
+    content: ".chat-folder-submenu { height: 360px; }",
+  });
+  const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
+  await productRow.click({ button: "right", position: { x: 50, y: 24 } });
+  menu = page.getByRole("menu", { name: "会话操作：产品讨论" });
+  await menu.getByRole("menuitem", { name: "分组" }).click();
+  await expect(page.getByRole("menu", { name: "选择分组" })).toBeVisible();
+
+  const chenName = page.locator('.chat-row[data-chat-id="chat-chen"] strong');
+  await chenName.click({ timeout: 1_000 });
+  await expect(page.locator(".conversation-title strong")).toHaveText("陈默", { timeout: 1_000 });
+  await expect(menu).toBeHidden();
+});
+
 test("folder context menu edits, marks read, and deletes a custom folder", async ({ page }) => {
   await page.goto("/");
   const workButton = page.getByRole("button", { name: "工作", exact: true });
