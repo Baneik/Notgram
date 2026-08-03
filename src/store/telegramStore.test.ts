@@ -1829,6 +1829,19 @@ describe("chat filtering", () => {
     expect(store.getState().chatManagementPending.size).toBe(0);
   });
 
+  it("leaves confirmed group chats and rejects non-group chats", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    await expect(store.getState().leaveGroup("chat-mia")).resolves.toBe(false);
+    expect(store.getState().operationError).toBe("只能退出群组会话");
+
+    await expect(store.getState().leaveGroup("chat-product")).resolves.toBe(true);
+    expect(store.getState().chats.get("chat-product")?.folderIds).toEqual([]);
+    expect(store.getState().activeChatId).not.toBe("chat-product");
+    expect(store.getState().chatManagementPending.size).toBe(0);
+  });
+
   it("serializes management changes per chat and clears pending state after failure", async () => {
     let releaseMute: () => void = () => undefined;
     class DeferredManagementTransport extends MockTelegramTransport {
@@ -1919,6 +1932,20 @@ describe("chat filtering", () => {
     expect([...store.getState().chats.values()].every(
       (chat) => !chat.folderIds.includes(folderId!),
     )).toBe(true);
+    expect(store.getState().folderManagementPending).toBe(false);
+  });
+
+  it("marks every unread chat in a folder as read", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    expect(store.getState().chats.get("chat-release")?.unreadCount).toBe(8);
+    expect(store.getState().chats.get("chat-mia")?.unreadCount).toBe(1);
+    await expect(store.getState().markChatFolderRead("folder:work")).resolves.toBe(true);
+
+    expect(store.getState().chats.get("chat-product")?.unreadCount).toBe(0);
+    expect(store.getState().chats.get("chat-release")?.unreadCount).toBe(0);
+    expect(store.getState().chats.get("chat-mia")?.unreadCount).toBe(1);
     expect(store.getState().folderManagementPending).toBe(false);
   });
 

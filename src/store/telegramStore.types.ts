@@ -100,6 +100,7 @@ export interface TelegramState {
   reorderPinnedChats: (chatListId: string, chatIds: string[]) => Promise<boolean>;
   setChatMuted: (chatId: string, muted: boolean) => Promise<boolean>;
   setChatArchived: (chatId: string, archived: boolean) => Promise<boolean>;
+  leaveGroup: (chatId: string) => Promise<boolean>;
   createChatFolder: (title: string, chatIds: string[]) => Promise<string | undefined>;
   renameChatFolder: (folderId: string, title: string) => Promise<boolean>;
   deleteChatFolder: (folderId: string) => Promise<boolean>;
@@ -108,6 +109,7 @@ export interface TelegramState {
     chatId: string,
     included: boolean,
   ) => Promise<boolean>;
+  markChatFolderRead: (folderId: string) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
   loadMessage: (chatId: string, messageId: string) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;

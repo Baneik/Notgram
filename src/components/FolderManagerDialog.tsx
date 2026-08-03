@@ -7,6 +7,7 @@ import { Avatar } from "./Avatar";
 interface FolderManagerDialogProps {
   folders: ChatFolder[];
   chats: Chat[];
+  initialFolderId?: string;
   pending: boolean;
   onCreate: (title: string, chatIds: string[]) => Promise<string | undefined>;
   onRename: (folderId: string, title: string) => Promise<boolean>;
@@ -20,6 +21,7 @@ const NEW_FOLDER = "new";
 export function FolderManagerDialog({
   folders,
   chats,
+  initialFolderId,
   pending,
   onCreate,
   onRename,
@@ -28,11 +30,13 @@ export function FolderManagerDialog({
   onClose,
 }: FolderManagerDialogProps) {
   const customFolders = folders.filter((folder) => folder.id.startsWith("folder:"));
-  const [activeId, setActiveId] = useState(customFolders[0]?.id ?? NEW_FOLDER);
-  const [title, setTitle] = useState(customFolders[0]?.title ?? "");
+  const initialFolder = customFolders.find((folder) => folder.id === initialFolderId) ??
+    customFolders[0];
+  const [activeId, setActiveId] = useState(initialFolder?.id ?? NEW_FOLDER);
+  const [title, setTitle] = useState(initialFolder?.title ?? "");
   const [selectedChatIds, setSelectedChatIds] = useState(() => new Set(
-    customFolders[0]
-      ? chats.filter((chat) => chat.folderIds.includes(customFolders[0].id)).map((chat) => chat.id)
+    initialFolder
+      ? chats.filter((chat) => chat.folderIds.includes(initialFolder.id)).map((chat) => chat.id)
       : [],
   ));
   const [query, setQuery] = useState("");

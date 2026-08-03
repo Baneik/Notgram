@@ -314,6 +314,28 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .chat-action-menu button:hover:not(:disabled), .chat-action-menu button:focus-visible { background: #eef4f7; }
 .chat-action-menu button:disabled { opacity: 0.45; cursor: default; }
+.context-menu-surface {
+  position: fixed; z-index: 120; display: flex; align-items: flex-start; gap: 4px;
+  filter: drop-shadow(0 9px 24px rgba(24, 34, 40, 0.22));
+}
+.context-menu-panel {
+  width: 204px; padding: 5px; display: grid; gap: 2px; color: var(--ink);
+  background: #ffffff; border: 1px solid #d9dfe2; border-radius: 7px;
+}
+.context-menu-panel button {
+  width: 100%; min-height: 40px; padding: 0 9px; display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  color: #30363a; background: transparent; border: 0; border-radius: 5px;
+  text-align: left; cursor: pointer;
+}
+.context-menu-panel button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-menu-panel button:hover:not(:disabled), .context-menu-panel button:focus-visible { background: #eef4f7; }
+.context-menu-panel button:disabled { opacity: 0.45; cursor: default; }
+.context-menu-panel button.is-danger { color: #d7323f; }
+.context-menu-panel button.is-danger:hover:not(:disabled),
+.context-menu-panel button.is-danger:focus-visible { background: #fff0f1; }
+.context-menu-chevron { color: var(--subtle); }
+.chat-folder-submenu { width: 190px; max-height: min(360px, calc(100vh - 16px)); overflow-y: auto; }
 .icon-button {
   width: 38px; height: 38px; padding: 0; display: inline-grid; place-items: center; flex: 0 0 auto;
   color: #70777c; background: transparent; border: 0; border-radius: 50%; cursor: pointer;
@@ -816,6 +838,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .message-delete-heading > span { width: 36px; height: 36px; display: grid; place-items: center; color: #c1463b; background: #fff0ee; border-radius: 50%; }
 .message-delete-heading h3 { margin: 0 0 5px; font-size: 17px; font-weight: 650; }
 .message-delete-heading p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.confirm-action-dialog .message-delete-heading p { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.5; }
 .message-delete-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .message-forward-dialog {
   width: min(440px, calc(100vw - 40px)); max-height: min(640px, calc(100vh - 40px)); min-height: 0;
@@ -1212,7 +1235,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .media-viewer-backdrop { background: Canvas; }
   .chat-row, .message-bubble, .settings-category, .preference-list,
   .account-row, .folder-list-item, .dialog-secondary,
-  .folder-dialog, .settings-dialog, .profile-drawer {
+  .folder-dialog, .settings-dialog, .profile-drawer, .context-menu-panel {
     border: 1px solid CanvasText;
     box-shadow: none;
   }

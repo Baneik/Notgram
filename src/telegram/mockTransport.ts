@@ -342,6 +342,16 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
+  async leaveChat(chatId: string) {
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat || chat.kind !== "group") throw new Error("只能退出群组会话");
+    chat.folderIds = [];
+    chat.pinnedFolderIds = [];
+    chat.listOrderByFolder = {};
+    chat.pinned = false;
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+  }
+
   async createChatFolder(title: string, chatIds: string[]) {
     const normalized = this.folderTitle(title);
     const nextId = Math.max(0, ...this.snapshot.folders.flatMap((folder) => {

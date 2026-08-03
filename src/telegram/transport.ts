@@ -66,6 +66,7 @@ export interface TelegramTransport {
   setPinnedChats(chatListId: string, chatIds: string[]): Promise<void>;
   setChatMuted(chatId: string, muted: boolean): Promise<void>;
   setChatArchived(chatId: string, archived: boolean): Promise<void>;
+  leaveChat(chatId: string): Promise<void>;
   createChatFolder(title: string, chatIds: string[]): Promise<ChatFolder>;
   renameChatFolder(folderId: string, title: string): Promise<ChatFolder>;
   deleteChatFolder(folderId: string): Promise<void>;

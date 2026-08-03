@@ -407,19 +407,21 @@ export const createTelegramStore = (
     const documentIsVisible = () =>
       typeof document === "undefined" || document.visibilityState === "visible";
 
-    const markChatRead = (chatId: string) => {
+    const markChatRead = (chatId: string, activeOnly = true) => {
       const previous = readRequestChains.get(chatId) ?? Promise.resolve();
+      let succeeded = false;
       const operation = previous
         .catch(() => undefined)
         .then(async () => {
           if (
             get().authorization.kind !== "ready" ||
-            get().activeChatId !== chatId ||
+            (activeOnly && get().activeChatId !== chatId) ||
             !documentIsVisible()
           ) {
             return;
           }
           await transport.markChatRead(chatId);
+          succeeded = true;
         })
         .catch((error) => {
           set({ operationError: error instanceof Error ? error.message : "无法更新已读状态" });
@@ -428,7 +430,7 @@ export const createTelegramStore = (
         if (readRequestChains.get(chatId) === tracked) readRequestChains.delete(chatId);
       });
       readRequestChains.set(chatId, tracked);
-      return tracked;
+      return tracked.then(() => succeeded);
     };
 
     const scheduleChatRead = (chatId: string, delayMs = 120) => {
@@ -1116,6 +1118,34 @@ export const createTelegramStore = (
           archived ? "archive" : "main",
         ) === true,
       ),
+      leaveGroup: async (chatId) => {
+        const chat = get().chats.get(chatId);
+        if (chat?.kind !== "group") {
+          set({ operationError: "只能退出群组会话" });
+          return false;
+        }
+        const succeeded = await manageChat(
+          chatId,
+          "无法退出群组",
+          "Telegram 未确认退出群组",
+          () => transport.leaveChat(chatId),
+          () => get().chats.get(chatId)?.folderIds.length === 0,
+        );
+        if (!succeeded || get().activeChatId !== chatId) return succeeded;
+
+        const nextChat = filterAndSortChats(
+          get().chats.values(),
+          get().chatFilter,
+          "",
+        )[0];
+        set({ activeChatId: nextChat?.id });
+        scheduleCacheWrite();
+        if (nextChat) {
+          await loadHistory(nextChat.id);
+          await markChatRead(nextChat.id);
+        }
+        return true;
+      },
       createChatFolder: async (title, chatIds) => {
         const uniqueChatIds = [...new Set(chatIds)].filter((chatId) => get().chats.has(chatId));
         if (uniqueChatIds.length === 0) {
@@ -1163,6 +1193,30 @@ export const createTelegramStore = (
           () => get().chats.get(chatId)?.folderIds.includes(folderId) === included,
         )
       ),
+      markChatFolderRead: async (folderId) => {
+        const state = get();
+        if (
+          state.authorization.kind !== "ready" ||
+          state.folderManagementPending ||
+          !state.folders.some((folder) => folder.id === folderId)
+        ) return false;
+        const unreadChatIds = [...state.chats.values()]
+          .filter((chat) => chat.folderIds.includes(folderId) && chat.unreadCount > 0)
+          .map((chat) => chat.id);
+        if (unreadChatIds.length === 0) return true;
+
+        set({ folderManagementPending: true, operationError: undefined });
+        try {
+          const results = await Promise.all(
+            unreadChatIds.map((chatId) => markChatRead(chatId, false)),
+          );
+          if (results.some((result) => !result)) return false;
+          scheduleCacheWrite();
+          return true;
+        } finally {
+          set({ folderManagementPending: false });
+        }
+      },
       loadMoreHistory: loadHistory,
       loadMessage: async (chatId, messageId) => {
         if ((get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {

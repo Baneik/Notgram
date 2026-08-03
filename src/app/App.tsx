@@ -7,6 +7,7 @@ import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { ProfileDrawer } from "../components/ProfileDrawer";
 import { FolderManagerDialog } from "../components/FolderManagerDialog";
+import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
@@ -29,6 +30,10 @@ import { mediaPlaybackCoordinator } from "../media/mediaPlayback";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
+
+type PendingConfirmation =
+  | { kind: "leaveGroup"; chatId: string; title: string }
+  | { kind: "deleteFolder"; folderId: string; title: string };
 
 const readSidebarWidth = () => {
   try {
@@ -78,10 +83,12 @@ export function App() {
   const setChatPinned = useTelegramStore((state) => state.setChatPinned);
   const setChatMuted = useTelegramStore((state) => state.setChatMuted);
   const setChatArchived = useTelegramStore((state) => state.setChatArchived);
+  const leaveGroup = useTelegramStore((state) => state.leaveGroup);
   const createChatFolder = useTelegramStore((state) => state.createChatFolder);
   const renameChatFolder = useTelegramStore((state) => state.renameChatFolder);
   const deleteChatFolder = useTelegramStore((state) => state.deleteChatFolder);
   const setChatFolderMembership = useTelegramStore((state) => state.setChatFolderMembership);
+  const markChatFolderRead = useTelegramStore((state) => state.markChatFolderRead);
   const markActiveChatRead = useTelegramStore((state) => state.markActiveChatRead);
   const setSearchQuery = useTelegramStore((state) => state.setSearchQuery);
   const setChatFilter = useTelegramStore((state) => state.setChatFilter);
@@ -114,6 +121,8 @@ export function App() {
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
+  const [folderManagerInitialId, setFolderManagerInitialId] = useState<string>();
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
@@ -148,6 +157,16 @@ export function App() {
     }
     setSearchQuery(value);
   }, [cancelGlobalSearch, clearGlobalSearch, setSearchQuery]);
+
+  const openFolderManager = useCallback((folderId?: string) => {
+    setFolderManagerInitialId(folderId);
+    setFolderManagerOpen(true);
+  }, []);
+
+  const closeFolderManager = useCallback(() => {
+    setFolderManagerOpen(false);
+    setFolderManagerInitialId(undefined);
+  }, []);
 
   const openGlobalSearchChat = useCallback(async (chatId: string) => {
     await selectChat(chatId);
@@ -392,24 +411,34 @@ export function App() {
   return (
     <>
       <main
-        inert={folderManagerOpen}
-        aria-hidden={folderManagerOpen || undefined}
+        inert={folderManagerOpen || Boolean(pendingConfirmation)}
+        aria-hidden={folderManagerOpen || Boolean(pendingConfirmation) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
         style={{ "--chat-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
         <NavigationRail
           folders={folders}
+          chats={[...chats.values()]}
           filter={chatFilter}
+          folderManagementPending={folderManagementPending}
           onFilterChange={(filter) => {
             closeSearch();
             setChatFilter(filter);
           }}
-          onManageFolders={() => setFolderManagerOpen(true)}
+          onManageFolders={() => openFolderManager()}
+          onEditFolder={openFolderManager}
+          onMarkFolderRead={markChatFolderRead}
+          onRequestDeleteFolder={(folder) => setPendingConfirmation({
+            kind: "deleteFolder",
+            folderId: folder.id,
+            title: folder.title,
+          })}
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <ChatSidebar
           chats={visibleChats}
           drafts={drafts}
+          folders={folders}
           activeChatId={activeChatId}
           folderId={chatFilter}
           folderTitle={folders.find((folder) => folder.id === chatFilter)?.title ?? "聊天"}
@@ -444,6 +473,15 @@ export function App() {
           hasMore={activeChatList.hasMore}
           onLoadMore={() => loadMoreChats(chatFilter)}
           onReorderPinned={(chatIds) => { void reorderPinnedChats(chatFilter, chatIds); }}
+          chatManagementPending={chatManagementPending}
+          folderManagementPending={folderManagementPending}
+          onSetPinned={setChatPinned}
+          onSetFolderMembership={setChatFolderMembership}
+          onRequestLeaveGroup={(chat) => setPendingConfirmation({
+            kind: "leaveGroup",
+            chatId: chat.id,
+            title: chat.title,
+          })}
           width={sidebarWidth}
           onWidthChange={setSidebarWidth}
         />
@@ -525,12 +563,28 @@ export function App() {
         <FolderManagerDialog
           folders={folders}
           chats={[...chats.values()]}
+          initialFolderId={folderManagerInitialId}
           pending={folderManagementPending}
           onCreate={createChatFolder}
           onRename={renameChatFolder}
           onDelete={deleteChatFolder}
           onSetMembership={setChatFolderMembership}
-          onClose={() => setFolderManagerOpen(false)}
+          onClose={closeFolderManager}
+        />
+      )}
+      {pendingConfirmation && (
+        <ConfirmActionDialog
+          title={pendingConfirmation.kind === "leaveGroup"
+            ? `退出“${pendingConfirmation.title}”？`
+            : `删除“${pendingConfirmation.title}”？`}
+          description={pendingConfirmation.kind === "leaveGroup"
+            ? "退出后，您将无法继续在这个群组中收发消息。"
+            : "只会删除文件夹，不会删除其中的聊天。"}
+          confirmLabel={pendingConfirmation.kind === "leaveGroup" ? "退出群组" : "删除"}
+          onConfirm={() => pendingConfirmation.kind === "leaveGroup"
+            ? leaveGroup(pendingConfirmation.chatId)
+            : deleteChatFolder(pendingConfirmation.folderId)}
+          onClose={() => setPendingConfirmation(undefined)}
         />
       )}
       {profile.target && (

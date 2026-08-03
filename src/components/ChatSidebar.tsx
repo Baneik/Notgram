@@ -1,22 +1,27 @@
 import { Archive, CheckCheck, LoaderCircle, Pin, Search } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
   type RefObject,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent,
 } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
-import type { Chat, ChatDraft, GlobalSearchFilter } from "../telegram/types";
+import type { Chat, ChatDraft, ChatFolder, GlobalSearchFilter } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
 import { GlobalSearchResults } from "./GlobalSearchView";
+import { ChatContextMenu } from "./SidebarContextMenus";
+import type { ContextMenuPoint } from "./ContextMenuSurface";
 
 interface ChatSidebarProps {
   chats: Chat[];
   drafts: Map<string, ChatDraft>;
+  folders: ChatFolder[];
   activeChatId?: string;
   folderId: string;
   folderTitle: string;
@@ -34,6 +39,15 @@ interface ChatSidebarProps {
   hasMore: boolean;
   onLoadMore: () => Promise<void>;
   onReorderPinned: (chatIds: string[]) => void;
+  chatManagementPending: Set<string>;
+  folderManagementPending: boolean;
+  onSetPinned: (chatListId: string, chatId: string, pinned: boolean) => Promise<boolean>;
+  onSetFolderMembership: (
+    folderId: string,
+    chatId: string,
+    included: boolean,
+  ) => Promise<boolean>;
+  onRequestLeaveGroup: (chat: Chat) => void;
   width: number;
   onWidthChange: (width: number) => void;
 }
@@ -45,6 +59,7 @@ const MIN_CONVERSATION_WIDTH = 340;
 export function ChatSidebar({
   chats,
   drafts,
+  folders,
   activeChatId,
   folderId,
   folderTitle,
@@ -62,6 +77,11 @@ export function ChatSidebar({
   hasMore,
   onLoadMore,
   onReorderPinned,
+  chatManagementPending,
+  folderManagementPending,
+  onSetPinned,
+  onSetFolderMembership,
+  onRequestLeaveGroup,
   width,
   onWidthChange,
 }: ChatSidebarProps) {
@@ -85,6 +105,20 @@ export function ChatSidebar({
   } | undefined>(undefined);
   const pinnedDropTargetRef = useRef<typeof pinnedDropTarget>(undefined);
   const suppressNextChatClickRef = useRef(false);
+  const [contextMenu, setContextMenu] = useState<{
+    chatId: string;
+    point: ContextMenuPoint;
+    anchor: HTMLButtonElement;
+  }>();
+
+  const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
+  const openContextMenu = useCallback((
+    chatId: string,
+    point: ContextMenuPoint,
+    anchor: HTMLButtonElement,
+  ) => {
+    setContextMenu({ chatId, point, anchor });
+  }, []);
 
   const pinnedReorderEnabled = searchQuery.trim().length === 0;
 
@@ -241,7 +275,12 @@ export function ChatSidebar({
     void onLoadMore();
   }, [chats.length, hasMore, loadingMore, onLoadMore, searchQuery]);
 
+  const contextChat = contextMenu
+    ? chats.find((chat) => chat.id === contextMenu.chatId)
+    : undefined;
+
   return (
+    <>
     <aside ref={sidebarRef} className={`chat-sidebar ${resizing ? "is-resizing" : ""}`} aria-label="会话列表">
       <div className="sidebar-heading">
         <div>
@@ -315,6 +354,7 @@ export function ChatSidebar({
                 draft={drafts.get(chat.id)}
                 active={activeChatId === chat.id}
                 onOpenLatest={onOpenLatest}
+                onOpenContextMenu={openContextMenu}
                 pinnedDraggable={pinnedReorderEnabled && isChatPinnedInFolder(chat, folderId)}
                 dragging={draggedPinnedChatId === chat.id}
                 dropEdge={pinnedDropTarget?.chatId === chat.id
@@ -361,6 +401,23 @@ export function ChatSidebar({
         onLostPointerCapture={endResize}
       />
     </aside>
+    {contextMenu && contextChat && (
+      <ChatContextMenu
+        chat={contextChat}
+        chatListId={folderId}
+        folders={folders}
+        point={contextMenu.point}
+        chatPending={chatManagementPending.has(contextChat.id)}
+        folderPending={folderManagementPending}
+        restoreFocus={() => contextMenu.anchor.focus()}
+        onSetPinned={(pinned) => onSetPinned(folderId, contextChat.id, pinned)}
+        onSetFolderMembership={(targetFolderId, included) =>
+          onSetFolderMembership(targetFolderId, contextChat.id, included)}
+        onRequestLeave={() => onRequestLeaveGroup(contextChat)}
+        onClose={closeContextMenu}
+      />
+    )}
+    </>
   );
 }
 
@@ -371,6 +428,7 @@ function ChatRow({
   active,
   onSelectChat,
   onOpenLatest,
+  onOpenContextMenu,
   pinnedDraggable,
   dragging,
   dropEdge,
@@ -386,6 +444,11 @@ function ChatRow({
   active: boolean;
   onSelectChat: (chatId: string) => void;
   onOpenLatest: (chatId: string) => void;
+  onOpenContextMenu: (
+    chatId: string,
+    point: ContextMenuPoint,
+    anchor: HTMLButtonElement,
+  ) => void;
   pinnedDraggable: boolean;
   dragging: boolean;
   dropEdge?: "before" | "after";
@@ -408,6 +471,24 @@ function ChatRow({
       aria-current={active ? "true" : undefined}
       onClick={() => onSelectChat(chat.id)}
       onDoubleClick={() => onOpenLatest(chat.id)}
+      onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        onOpenContextMenu(
+          chat.id,
+          { x: event.clientX, y: event.clientY },
+          event.currentTarget,
+        );
+      }}
+      onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+        event.preventDefault();
+        const bounds = event.currentTarget.getBoundingClientRect();
+        onOpenContextMenu(
+          chat.id,
+          { x: bounds.left + Math.min(72, bounds.width / 2), y: bounds.top + bounds.height / 2 },
+          event.currentTarget,
+        );
+      }}
       onPointerDown={(event) => pinnedDraggable && onPointerDown(event, chat.id)}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

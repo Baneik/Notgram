@@ -698,6 +698,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.refreshChat(chatId);
   }
 
+  async leaveChat(chatId: string) {
+    await this.request({
+      "@type": "leaveChat",
+      chat_id: numericId(chatId),
+    });
+    await this.refreshChat(chatId);
+  }
+
   async createChatFolder(title: string, chatIds: string[]) {
     const includedChatIds = [...new Set(chatIds)].map(numericId);
     if (includedChatIds.length === 0) throw new Error("请至少选择一个会话");
@@ -1061,20 +1069,23 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async markChatRead(chatId: string) {
-    const messages = [...(this.rawMessages.get(chatId)?.values() ?? [])];
-    const messageIds = messages
-      .filter((message) => message.is_outgoing !== true)
-      .map((message) => tdNumber(message.id))
-      .filter((id): id is number => id !== undefined);
-    if (messageIds.length === 0) return;
-
+    const rawChat = this.rawChats.get(chatId) ?? await this.refreshChat(chatId);
+    const lastMessageId = tdNumber(asTdObject(rawChat.last_message)?.id);
+    if (lastMessageId !== undefined) {
+      await this.request({
+        "@type": "viewMessages",
+        chat_id: numericId(chatId),
+        message_ids: [lastMessageId],
+        source: { "@type": "messageSourceChatHistory" },
+        force_read: true,
+      });
+    }
     await this.request({
-      "@type": "viewMessages",
+      "@type": "toggleChatIsMarkedAsUnread",
       chat_id: numericId(chatId),
-      message_ids: messageIds,
-      source: { "@type": "messageSourceChatHistory" },
-      force_read: true,
+      is_marked_as_unread: false,
     });
+    await this.refreshChat(chatId);
   }
 
   private async loadNextHistoryPage(

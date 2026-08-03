@@ -423,6 +423,44 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(3);
   });
 
+  it("leaves chats and marks the latest message as read through TDLib", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const managedChat = {
+      ...rawChat(7, 1_700_000_007),
+      type: { "@type": "chatTypeBasicGroup", basic_group_id: 17 },
+      unread_count: 4,
+    };
+    internal.finishInitialChatSync();
+    internal.upsertChat(managedChat);
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getChat") return managedChat;
+      return { "@type": "ok" };
+    };
+
+    await transport.leaveChat("7");
+    await transport.markChatRead("7");
+
+    expect(requests.filter((request) => request["@type"] !== "getChat")).toEqual([
+      { "@type": "leaveChat", chat_id: 7 },
+      {
+        "@type": "viewMessages",
+        chat_id: 7,
+        message_ids: [7],
+        source: { "@type": "messageSourceChatHistory" },
+        force_read: true,
+      },
+      {
+        "@type": "toggleChatIsMarkedAsUnread",
+        chat_id: 7,
+        is_marked_as_unread: false,
+      },
+    ]);
+    expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(2);
+  });
+
   it("creates and renames folders with complete TDLib folder objects", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

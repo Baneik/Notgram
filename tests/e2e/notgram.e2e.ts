@@ -914,6 +914,74 @@ test("chat organization menu confirms pin, mute, and archive changes", async ({ 
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("chat context menu manages folders, pinning, and group exit", async ({ page }) => {
+  await page.goto("/");
+  const miaRow = page.locator('.chat-row[data-chat-id="chat-mia"]');
+
+  await miaRow.click({ button: "right" });
+  let menu = page.getByRole("menu", { name: "会话操作：Mia Chen" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "退出群组" })).toHaveCount(0);
+  await menu.getByRole("menuitem", { name: "分组" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "添加到工作" }).click();
+
+  await page.getByRole("button", { name: "工作", exact: true }).click();
+  await expect(miaRow).toBeVisible();
+  await miaRow.click({ button: "right" });
+  menu = page.getByRole("menu", { name: "会话操作：Mia Chen" });
+  await menu.getByRole("menuitem", { name: "分组" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "从工作" }).click();
+  await expect(miaRow).toHaveCount(0);
+
+  await page.getByRole("button", { name: "全部聊天", exact: true }).click();
+  await miaRow.click({ button: "right" });
+  await page.getByRole("menu", { name: "会话操作：Mia Chen" })
+    .getByRole("menuitem", { name: "取消置顶", exact: true }).click();
+  await expect(miaRow).toHaveAttribute("data-pinned", "false");
+  await miaRow.click({ button: "right" });
+  await page.getByRole("menu", { name: "会话操作：Mia Chen" })
+    .getByRole("menuitem", { name: "置顶", exact: true }).click();
+  await expect(miaRow).toHaveAttribute("data-pinned", "true");
+
+  const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
+  await productRow.click({ button: "right" });
+  await page.getByRole("menu", { name: "会话操作：产品讨论" })
+    .getByRole("menuitem", { name: "退出群组" }).click();
+  const confirm = page.getByRole("dialog", { name: "退出“产品讨论”？" });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "退出群组" }).click();
+  await expect(productRow).toHaveCount(0);
+  await expect(page.locator(".conversation-title strong")).not.toHaveText("产品讨论");
+});
+
+test("folder context menu edits, marks read, and deletes a custom folder", async ({ page }) => {
+  await page.goto("/");
+  const workButton = page.getByRole("button", { name: "工作", exact: true });
+  await workButton.click();
+  await expect(page.locator('.chat-row[data-chat-id="chat-release"] .unread-count')).toHaveText("8");
+
+  await workButton.click({ button: "right" });
+  let menu = page.getByRole("menu", { name: "分组操作：工作" });
+  await expect(menu.getByRole("menuitem", { name: "编辑文件夹" })).toBeVisible();
+  await menu.getByRole("menuitem", { name: "标记为已读" }).click();
+  await expect(page.locator(".chat-list .unread-count")).toHaveCount(0);
+
+  await workButton.click({ button: "right" });
+  menu = page.getByRole("menu", { name: "分组操作：工作" });
+  await menu.getByRole("menuitem", { name: "编辑文件夹" }).click();
+  const manager = page.getByRole("dialog", { name: "聊天文件夹" });
+  await expect(manager.getByLabel("名称")).toHaveValue("工作");
+  await manager.getByRole("button", { name: "关闭" }).click();
+
+  await workButton.click({ button: "right" });
+  await page.getByRole("menu", { name: "分组操作：工作" })
+    .getByRole("menuitem", { name: "删除" }).click();
+  const confirm = page.getByRole("dialog", { name: "删除“工作”？" });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(workButton).toHaveCount(0);
+});
+
 test("folder manager creates, edits, and deletes confirmed server folders", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "管理文件夹" }).click();

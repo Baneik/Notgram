@@ -33,6 +33,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getSupergroupMembers",
     "getUser",
     "getUserFullInfo",
+    "leaveChat",
     "loadChats",
     "logOut",
     "parseMarkdown",
@@ -51,6 +52,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setChatDraftMessage",
     "setChatNotificationSettings",
     "setPinnedChats",
+    "toggleChatIsMarkedAsUnread",
     "toggleChatIsPinned",
     "viewMessages",
 ];
@@ -274,6 +276,21 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&archive_chat).is_ok());
+
+        let leave_chat = json!({
+            "@type": "leaveChat",
+            "chat_id": 7,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&leave_chat).is_ok());
+
+        let mark_chat_read = json!({
+            "@type": "toggleChatIsMarkedAsUnread",
+            "chat_id": 7,
+            "is_marked_as_unread": false,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&mark_chat_read).is_ok());
 
         for request in [
             json!({ "@type": "getChatFolder", "chat_folder_id": 12, "@extra": EXTRA }),
