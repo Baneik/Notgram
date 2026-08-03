@@ -229,6 +229,11 @@ const main = async () => {
     }
     await delay(750);
     const seedFinishedAt = await webviewTimestamp();
+    const seedDom = await evaluate(`({
+      activeChatId: document.querySelector('.chat-row.is-active')?.getAttribute('data-chat-id'),
+      renderedMessages: document.querySelectorAll('[data-message-id]').length,
+      renderedVirtualItems: document.querySelectorAll('.message-list [data-item-index]').length,
+    })`);
 
     const phases = [];
     const closedPhase = {
@@ -302,6 +307,7 @@ const main = async () => {
         startedAt: seedStartedAt,
         finishedAt: seedFinishedAt,
         requestedMessages: options.messages,
+        dom: seedDom,
       },
       phases,
       records: finalRecords,

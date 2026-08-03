@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -6,6 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type UIEvent,
 } from "react";
+import type { VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
 import { logPerformance, markHistoryInteraction } from "../utils/performanceMonitor";
 
@@ -44,6 +46,8 @@ interface ConversationScrollOptions {
   latestRequest?: LatestConversationScrollRequest;
   messageRequest?: MessageConversationScrollRequest;
   visibleMessages: Message[];
+  messageItemIndexes: ReadonlyMap<string, number>;
+  virtualItemCount: number;
   search: string;
   historyLoading: boolean;
   hasOlderMessages: boolean;
@@ -110,15 +114,33 @@ const captureScrollMemory = (
   };
 };
 
-const restoreScrollMemory = (element: HTMLElement, memory: ConversationScrollMemory) => {
+const restoreScrollMemory = (
+  element: HTMLElement,
+  memory: ConversationScrollMemory,
+  virtuoso: VirtuosoHandle | null,
+  messageItemIndexes: ReadonlyMap<string, number>,
+) => {
   element.scrollTop = memory.scrollTop;
   if (!memory.anchorMessageId || memory.anchorOffset === undefined) return;
+  const restoreAnchorOffset = () => {
+    const anchor = element.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(memory.anchorMessageId!)}"]`,
+    );
+    if (!anchor) return;
+    const currentOffset = anchor.getBoundingClientRect().top - element.getBoundingClientRect().top;
+    element.scrollTop += currentOffset - memory.anchorOffset!;
+  };
   const anchor = element.querySelector<HTMLElement>(
     `[data-message-id="${CSS.escape(memory.anchorMessageId)}"]`,
   );
-  if (!anchor) return;
-  const currentOffset = anchor.getBoundingClientRect().top - element.getBoundingClientRect().top;
-  element.scrollTop += currentOffset - memory.anchorOffset;
+  if (anchor) {
+    restoreAnchorOffset();
+    return;
+  }
+  const itemIndex = messageItemIndexes.get(memory.anchorMessageId);
+  if (itemIndex === undefined) return;
+  virtuoso?.scrollToIndex({ index: itemIndex, align: "start", behavior: "auto" });
+  requestAnimationFrame(restoreAnchorOffset);
 };
 
 const appendedMessageCount = (messages: Message[], previousLastId?: string) => {
@@ -133,6 +155,8 @@ export const useConversationScroll = ({
   latestRequest,
   messageRequest,
   visibleMessages,
+  messageItemIndexes,
+  virtualItemCount,
   search,
   historyLoading,
   hasOlderMessages,
@@ -140,6 +164,7 @@ export const useConversationScroll = ({
   onLoadOlder,
 }: ConversationScrollOptions) => {
   const messageListRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const previousLayoutRef = useRef<ConversationLayoutSnapshot | undefined>(undefined);
   const handledLatestRequestRef = useRef(0);
@@ -165,6 +190,10 @@ export const useConversationScroll = ({
   const lastVisibleMessageId = visibleMessages.at(-1)?.id;
   const lastVisibleMessageIdRef = useRef(lastVisibleMessageId);
   lastVisibleMessageIdRef.current = lastVisibleMessageId;
+
+  const setMessageListRef = useCallback((ref: HTMLElement | Window | null) => {
+    messageListRef.current = ref instanceof HTMLDivElement ? ref : null;
+  }, []);
 
   const updateNewMessageNotice = (key: string, count: number) => {
     setNewMessageNotice((current) =>
@@ -208,7 +237,15 @@ export const useConversationScroll = ({
     if (!element || !currentScrollKey) return;
     scrollPointerActiveRef.current = false;
     userScrollIntentUntilRef.current = 0;
-    element.scrollTop = element.scrollHeight;
+    if (virtualItemCount > 0) {
+      virtuosoRef.current?.scrollToIndex({
+        index: virtualItemCount - 1,
+        align: "end",
+        behavior: "auto",
+      });
+    } else {
+      element.scrollTop = element.scrollHeight;
+    }
     const memory = captureScrollMemory(element, lastVisibleMessageId, 0, true);
     conversationScrollMemory.set(currentScrollKey, {
       ...memory,
@@ -230,7 +267,7 @@ export const useConversationScroll = ({
 
     if (search) {
       if (!previous || previous.key !== currentScrollKey || previous.search !== search) {
-        element.scrollTop = 0;
+        virtuosoRef.current?.scrollToIndex({ index: 0, align: "start", behavior: "auto" });
       }
       updateNewMessageNotice(currentScrollKey, stored?.pendingNewCount ?? 0);
       previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
@@ -243,11 +280,17 @@ export const useConversationScroll = ({
     const leavingSearch = previous?.key === currentScrollKey && Boolean(previous.search);
     if (enteringChat || leavingSearch) {
       if (!stored || stored.followLatest) {
-        element.scrollTop = element.scrollHeight;
+        if (virtualItemCount > 0) {
+          virtuosoRef.current?.scrollToIndex({
+            index: virtualItemCount - 1,
+            align: "end",
+            behavior: "auto",
+          });
+        }
         pendingNewCount = 0;
         followLatest = true;
       } else {
-        restoreScrollMemory(element, stored);
+        restoreScrollMemory(element, stored, virtuosoRef.current, messageItemIndexes);
         pendingNewCount += appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
         followLatest = false;
       }
@@ -257,16 +300,28 @@ export const useConversationScroll = ({
         previous.firstId && visibleMessages.some((message) => message.id === previous.firstId),
       );
       if (firstMessageChanged && previousFirstStillPresent) {
-        if (stored.followLatest) element.scrollTop = element.scrollHeight;
+        if (stored.followLatest && virtualItemCount > 0) {
+          virtuosoRef.current?.scrollToIndex({
+            index: virtualItemCount - 1,
+            align: "end",
+            behavior: "auto",
+          });
+        }
         else {
-          restoreScrollMemory(element, stored);
+          restoreScrollMemory(element, stored, virtuosoRef.current, messageItemIndexes);
           restoredHistoryAnchor = historyTraceRef.current?.key === currentScrollKey;
         }
       }
 
       if (previous.lastId !== lastId) {
         if (stored.followLatest) {
-          element.scrollTop = element.scrollHeight;
+          if (virtualItemCount > 0) {
+            virtuosoRef.current?.scrollToIndex({
+              index: virtualItemCount - 1,
+              align: "end",
+              behavior: "auto",
+            });
+          }
           pendingNewCount = 0;
           followLatest = true;
         } else {
@@ -308,7 +363,14 @@ export const useConversationScroll = ({
         });
       });
     }
-  }, [currentScrollKey, lastVisibleMessageId, search, visibleMessages]);
+  }, [
+    currentScrollKey,
+    lastVisibleMessageId,
+    messageItemIndexes,
+    search,
+    virtualItemCount,
+    visibleMessages,
+  ]);
 
   useLayoutEffect(() => {
     if (
@@ -327,32 +389,64 @@ export const useConversationScroll = ({
       messageRequest.requestId <= handledMessageRequestRef.current
     ) return;
     const element = messageListRef.current;
-    const target = element?.querySelector<HTMLElement>(
-      `[data-message-id="${CSS.escape(messageRequest.messageId)}"]`,
-    );
-    if (!element || !target || !currentScrollKey) return;
-
-    handledMessageRequestRef.current = messageRequest.requestId;
-    target.scrollIntoView({ block: "center", behavior: "auto" });
-    element.focus({ preventScroll: true });
-    setHighlightedMessage({ key: currentScrollKey, messageId: messageRequest.messageId });
-    const memory = captureScrollMemory(element, lastVisibleMessageId, 0, false);
-    conversationScrollMemory.set(currentScrollKey, {
-      ...memory,
-      followLatest: false,
-      pendingNewCount: 0,
-    });
-    updateNewMessageNotice(currentScrollKey, 0);
-    if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
-    highlightTimerRef.current = globalThis.setTimeout(() => {
-      highlightTimerRef.current = undefined;
-      setHighlightedMessage((current) =>
-        current?.key === currentScrollKey && current.messageId === messageRequest.messageId
-          ? undefined
-          : current
+    if (!element || !currentScrollKey) return;
+    let animationFrame: number | undefined;
+    let cancelled = false;
+    const revealMessage = (attempt: number) => {
+      if (cancelled) return;
+      const target = element.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(messageRequest.messageId)}"]`,
       );
-    }, 1_600);
-  }, [chatId, currentScrollKey, lastVisibleMessageId, messageRequest, visibleMessages]);
+      if (!target) {
+        if (attempt === 0) {
+          const itemIndex = messageItemIndexes.get(messageRequest.messageId);
+          if (itemIndex === undefined) return;
+          virtuosoRef.current?.scrollToIndex({
+            index: itemIndex,
+            align: "center",
+            behavior: "auto",
+          });
+        }
+        if (attempt < 6) {
+          animationFrame = requestAnimationFrame(() => revealMessage(attempt + 1));
+        }
+        return;
+      }
+
+      handledMessageRequestRef.current = messageRequest.requestId;
+      target.scrollIntoView({ block: "center", behavior: "auto" });
+      element.focus({ preventScroll: true });
+      setHighlightedMessage({ key: currentScrollKey, messageId: messageRequest.messageId });
+      const memory = captureScrollMemory(element, lastVisibleMessageId, 0, false);
+      conversationScrollMemory.set(currentScrollKey, {
+        ...memory,
+        followLatest: false,
+        pendingNewCount: 0,
+      });
+      updateNewMessageNotice(currentScrollKey, 0);
+      if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = globalThis.setTimeout(() => {
+        highlightTimerRef.current = undefined;
+        setHighlightedMessage((current) =>
+          current?.key === currentScrollKey && current.messageId === messageRequest.messageId
+            ? undefined
+            : current
+        );
+      }, 1_600);
+    };
+    revealMessage(0);
+    return () => {
+      cancelled = true;
+      if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
+    };
+  }, [
+    chatId,
+    currentScrollKey,
+    lastVisibleMessageId,
+    messageItemIndexes,
+    messageRequest,
+    visibleMessages,
+  ]);
 
   useEffect(() => () => {
     if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
@@ -369,7 +463,13 @@ export const useConversationScroll = ({
         const stored = conversationScrollMemory.get(currentScrollKey);
         if (!stored) return;
         if (!stored.followLatest) return;
-        element.scrollTop = element.scrollHeight;
+        if (virtualItemCount > 0) {
+          virtuosoRef.current?.scrollToIndex({
+            index: virtualItemCount - 1,
+            align: "end",
+            behavior: "auto",
+          });
+        }
         conversationScrollMemory.set(currentScrollKey, {
           ...stored,
           lastKnownMessageId: lastVisibleMessageIdRef.current,
@@ -381,7 +481,7 @@ export const useConversationScroll = ({
       observer.disconnect();
       if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
     };
-  }, [currentScrollKey, search]);
+  }, [currentScrollKey, search, virtualItemCount]);
 
   useEffect(() => {
     const element = messageListRef.current;
@@ -444,6 +544,8 @@ export const useConversationScroll = ({
 
   return {
     messageListRef,
+    setMessageListRef,
+    virtuosoRef,
     currentScrollKey,
     highlightedMessageId: highlightedMessage && highlightedMessage.key === currentScrollKey
       ? highlightedMessage.messageId

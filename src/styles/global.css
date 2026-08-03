@@ -368,12 +368,14 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   display: inline-grid; place-items: center; color: #ffffff; background: var(--accent); border: 2px solid #ffffff;
   border-radius: 10px; font-size: 10px; font-weight: 700;
 }
-.history-loading { position: absolute; top: -9px; left: 50%; z-index: 4; width: 32px; height: 24px; display: grid; place-items: center; color: #ffffff; background: rgba(92, 117, 112, 0.72); border-radius: 12px; transform: translateX(-50%); }
+.history-loading { position: absolute; top: 6px; left: 50%; z-index: 4; width: 32px; height: 24px; display: grid; place-items: center; color: #ffffff; background: rgba(92, 117, 112, 0.72); border-radius: 12px; transform: translateX(-50%); }
 .message-day {
   width: fit-content; margin: 0 auto 14px; padding: 4px 10px; color: #ffffff; background: rgba(92, 117, 112, 0.72);
   border-radius: 12px; font-size: 10px; font-weight: 600;
 }
 .message-group { width: 100%; display: flex; align-items: stretch; gap: 8px; margin: 10px 0; }
+.message-group.continues-before { margin-top: 1px; }
+.message-group.continues-after { margin-bottom: 1px; }
 .chat-row { contain: layout style; }
 .message-group:last-child { margin-bottom: 0; }
 .message-group-stack { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }

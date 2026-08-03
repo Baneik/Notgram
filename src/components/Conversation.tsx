@@ -8,7 +8,16 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Virtuoso, type Components, type ListProps } from "react-virtuoso";
 import type {
   Chat,
   ChatDraft,
@@ -25,11 +34,7 @@ import {
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
-import { formatMessageDay, localDateKey } from "../utils/formatters";
-import {
-  groupConsecutiveMessages,
-  messageGroupPosition,
-} from "../utils/messageGrouping";
+import { formatMessageDay } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 import {
   DeleteMessageDialog,
@@ -47,10 +52,26 @@ import { ConversationComposer } from "./ConversationComposer";
 import { MediaViewer } from "./MediaViewer";
 import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
-import { segmentMediaAlbums } from "../utils/mediaAlbums";
+import {
+  indexMessagesByVirtualBlock,
+  virtualizeMessageGroups,
+  type VirtualMessageBlock,
+} from "../utils/messageVirtualization";
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
 import { writeClipboardText } from "../utils/clipboard";
+
+const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
+  <div {...props} className="message-list-content" ref={ref} />
+));
+VirtualMessageListContent.displayName = "VirtualMessageListContent";
+
+const EmptyMessageList = () => <div className="messages-empty">没有匹配的消息</div>;
+
+const messageListComponents: Components<VirtualMessageBlock> = {
+  EmptyPlaceholder: EmptyMessageList,
+  List: VirtualMessageListContent,
+};
 
 interface ConversationProps {
   chat?: Chat;
@@ -206,24 +227,13 @@ export function Conversation({
     if (messageScrollRequest?.chatId === chat?.id) closeMessageSearch();
   }, [chat?.id, messageScrollRequest?.chatId, messageScrollRequest?.requestId]);
 
-  const visibleMessageGroups = useMemo(
-    () => groupConsecutiveMessages(visibleMessages),
+  const visibleMessageBlocks = useMemo(
+    () => virtualizeMessageGroups(visibleMessages),
     [visibleMessages],
   );
-  const visibleMessageGroupModels = useMemo(
-    () => visibleMessageGroups.map((messages, groupIndex) => ({
-      messages,
-      firstMessage: messages[0]!,
-      startsNewDay: groupIndex === 0 || localDateKey(
-        visibleMessageGroups[groupIndex - 1]![0]!.sentAt,
-      ) !== localDateKey(messages[0]!.sentAt),
-      segments: segmentMediaAlbums(messages),
-      positions: new Map(messages.map((message, messageIndex) => [
-        message.id,
-        messageGroupPosition(messages, messageIndex),
-      ])),
-    })),
-    [visibleMessageGroups],
+  const messageItemIndexes = useMemo(
+    () => indexMessagesByVirtualBlock(visibleMessageBlocks),
+    [visibleMessageBlocks],
   );
   const viewerPhotos = useMemo(() => photoMessages(displayMessages), [displayMessages]);
 
@@ -285,7 +295,8 @@ export function Conversation({
     filteredTargets: filteredForwardTargets,
   } = forwarding;
   const {
-    messageListRef,
+    setMessageListRef,
+    virtuosoRef,
     currentScrollKey,
     highlightedMessageId,
     newMessageNotice,
@@ -297,6 +308,8 @@ export function Conversation({
     latestRequest: latestScrollRequest,
     messageRequest: messageScrollRequest,
     visibleMessages,
+    messageItemIndexes,
+    virtualItemCount: visibleMessageBlocks.length,
     search: messageSearch,
     historyLoading,
     hasOlderMessages,
@@ -567,24 +580,35 @@ export function Conversation({
       )}
 
       <div className="message-list-shell">
-        <div
+        {historyLoading && (
+          <div className="history-loading" aria-label="正在加载更早消息">
+            <LoaderCircle className="spin" size={16} />
+          </div>
+        )}
+        <Virtuoso
+          key={currentScrollKey}
           className="message-list"
-          ref={messageListRef}
+          ref={virtuosoRef}
+          scrollerRef={setMessageListRef}
           role="log"
           aria-label="消息列表"
           tabIndex={0}
+          alignToBottom
+          components={messageListComponents}
+          computeItemKey={(_, block) => block.id}
+          data={visibleMessageBlocks}
+          defaultItemHeight={52}
+          followOutput="auto"
+          increaseViewportBy={{ top: 280, bottom: 280 }}
+          initialTopMostItemIndex={Math.max(0, visibleMessageBlocks.length - 1)}
+          minOverscanItemCount={{ top: 2, bottom: 2 }}
           {...messageListHandlers}
-        >
-          <div className="message-list-content">
-          {historyLoading && <div className="history-loading" aria-label="正在加载更早消息"><LoaderCircle className="spin" size={16} /></div>}
-          {visibleMessages.length === 0 ? (
-            <div className="messages-empty">没有匹配的消息</div>
-          ) : (
-            visibleMessageGroupModels.map((groupModel) => {
+          itemContent={(_, groupModel) => {
             const { firstMessage, messages: messageGroup, positions, startsNewDay } = groupModel;
             const showSenderAvatar = firstMessage.content.kind !== "service" &&
               firstMessage.content.kind !== "unsupported" &&
-              !firstMessage.outgoing && chat.kind !== "direct";
+              !firstMessage.outgoing && chat.kind !== "direct" &&
+              !groupModel.continuesAfter;
             const sender = users.get(firstMessage.senderId);
             const senderName = sender?.displayName ??
               (chat.kind === "direct" ? chat.title : "Telegram 用户");
@@ -596,7 +620,7 @@ export function Conversation({
                 <div className="message-day">{formatMessageDay(firstMessage.sentAt)}</div>
               )}
               <div
-                className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
+                className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${groupModel.continuesBefore ? "continues-before" : ""} ${groupModel.continuesAfter ? "continues-after" : ""}`}
               >
                 {showSenderAvatar && (
                   <span className="message-group-avatar">
@@ -689,10 +713,8 @@ export function Conversation({
               </div>
               </Fragment>
             );
-            })
-          )}
-          </div>
-        </div>
+          }}
+        />
         {!messageSearch &&
           currentScrollKey &&
           newMessageNotice?.key === currentScrollKey &&
