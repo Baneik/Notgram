@@ -523,6 +523,10 @@ test("video uses synchronized transparent playback windows and owns the playback
 
   await popup.keyboard.press("f");
   await expect(popupPlayer).toHaveClass(/is-fullscreen/);
+  await popupVideo.evaluate((element) => {
+    element.style.width = "70%";
+    element.style.margin = "0 auto";
+  });
   await expect.poll(() => popupVideo.evaluate((element) => (element as HTMLVideoElement).muted))
     .toBe(false);
   await expect.poll(() => popupVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
@@ -543,11 +547,8 @@ test("video uses synchronized transparent playback windows and owns the playback
   await popup.waitForTimeout(1_100);
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
     .toBe("0");
-  await popup.keyboard.press("f");
-  await expect(popupPlayer).toHaveClass(/is-windowed/);
-  await popup.mouse.move(120, 80);
   const popupClosed = popup.waitForEvent("close");
-  await popup.getByRole("button", { name: "关闭小窗" }).click();
+  await popup.mouse.click(20, 20);
   await popupClosed;
   await expect(player).toBeVisible();
   await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))

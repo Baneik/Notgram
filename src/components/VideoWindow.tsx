@@ -400,7 +400,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
     if (target instanceof Element && target.closest("button, input, .video-window-controls")) return;
     if (fullscreenRef.current && isOutsideRenderedVideo(event.clientX, event.clientY)) {
       event.preventDefault();
-      void toggleFullscreen();
+      void closeWindow();
       return;
     }
     if (isTauri() && !fullscreenRef.current) {
