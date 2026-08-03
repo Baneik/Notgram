@@ -2,6 +2,9 @@ import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+export type ColorTheme = "light" | "dark";
 
 export interface AppPreferences {
   notificationsEnabled: boolean;
@@ -19,6 +22,7 @@ export interface AppPreferences {
   developerMode: boolean;
   chatFontSize: number;
   interfaceScale: number;
+  colorTheme: ColorTheme;
 }
 
 interface PreferencesState extends AppPreferences {
@@ -45,6 +49,7 @@ const defaults: AppPreferences = {
   developerMode: false,
   chatFontSize: 14,
   interfaceScale: 100,
+  colorTheme: "light",
 };
 
 const boundedInteger = (value: unknown, fallback: number, minimum: number, maximum: number) =>
@@ -78,6 +83,7 @@ const readPreferences = (): AppPreferences => {
       developerMode: stored.developerMode ?? defaults.developerMode,
       chatFontSize: boundedInteger(stored.chatFontSize, defaults.chatFontSize, 12, 20),
       interfaceScale: boundedInteger(stored.interfaceScale, defaults.interfaceScale, 80, 150),
+      colorTheme: stored.colorTheme === "dark" ? "dark" : defaults.colorTheme,
     };
   } catch {
     return defaults;
@@ -86,6 +92,7 @@ const readPreferences = (): AppPreferences => {
 
 const initialPreferences = readPreferences();
 let appliedInterfaceScale: number | undefined;
+let appliedColorTheme: ColorTheme | undefined;
 
 export const preferencesStore = createStore<PreferencesState>((set) => ({
   ...initialPreferences,
@@ -97,18 +104,27 @@ const applyPreferences = (preferences: AppPreferences) => {
   document.documentElement.classList.toggle("compact-chat", preferences.compactMode);
   document.documentElement.classList.toggle("reduce-motion", preferences.reduceMotion);
   document.documentElement.style.setProperty("--chat-font-size", `${preferences.chatFontSize}px`);
-  if (appliedInterfaceScale === preferences.interfaceScale) return;
-  appliedInterfaceScale = preferences.interfaceScale;
-  const scale = preferences.interfaceScale / 100;
-  if (isTauri()) {
-    document.documentElement.style.removeProperty("zoom");
-    void getCurrentWebview().setZoom(scale).catch(() => {
-      if (appliedInterfaceScale === preferences.interfaceScale) {
-        document.documentElement.style.setProperty("zoom", String(scale));
-      }
-    });
-  } else {
-    document.documentElement.style.setProperty("zoom", String(scale));
+  if (appliedInterfaceScale !== preferences.interfaceScale) {
+    appliedInterfaceScale = preferences.interfaceScale;
+    const scale = preferences.interfaceScale / 100;
+    if (isTauri()) {
+      document.documentElement.style.removeProperty("zoom");
+      void getCurrentWebview().setZoom(scale).catch(() => {
+        if (appliedInterfaceScale === preferences.interfaceScale) {
+          document.documentElement.style.setProperty("zoom", String(scale));
+        }
+      });
+    } else {
+      document.documentElement.style.setProperty("zoom", String(scale));
+    }
+  }
+  if (appliedColorTheme !== preferences.colorTheme) {
+    appliedColorTheme = preferences.colorTheme;
+    document.documentElement.classList.toggle("theme-dark", preferences.colorTheme === "dark");
+    document.documentElement.style.colorScheme = preferences.colorTheme;
+    if (isTauri()) {
+      void getCurrentWindow().setTheme(preferences.colorTheme).catch(() => undefined);
+    }
   }
 };
 
@@ -130,6 +146,7 @@ preferencesStore.subscribe((state) => {
     developerMode: state.developerMode,
     chatFontSize: state.chatFontSize,
     interfaceScale: state.interfaceScale,
+    colorTheme: state.colorTheme,
   };
   applyPreferences(preferences);
   try {

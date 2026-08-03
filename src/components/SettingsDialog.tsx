@@ -11,11 +11,13 @@ import {
   LoaderCircle,
   LogOut,
   MessageCircle,
+  Moon,
   Network,
   RotateCcw,
   Save,
   ShieldCheck,
   SlidersHorizontal,
+  Sun,
   Trash2,
   UserCircle,
   UserPlus,
@@ -186,6 +188,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const chatFontSize = usePreferencesStore((state) => state.chatFontSize);
   const interfaceScale = usePreferencesStore((state) => state.interfaceScale);
+  const colorTheme = usePreferencesStore((state) => state.colorTheme);
   const preferences: AppPreferences = {
     notificationsEnabled,
     notificationSound,
@@ -202,6 +205,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     developerMode,
     chatFontSize,
     interfaceScale,
+    colorTheme,
   };
   const setPreference = usePreferencesStore((state) => state.setPreference);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
@@ -432,10 +436,31 @@ function PreferenceSettings({
             <Gauge size={18} strokeWidth={1.8} />
             <div>
               <h4 id="chat-display-heading">显示</h4>
-              <span>字体与界面比例</span>
+              <span>主题、字体与界面比例</span>
             </div>
           </div>
           <div className="display-preference-list">
+            <div className="theme-preference">
+              <strong>界面样式</strong>
+              <div className="theme-segmented-control" aria-label="界面样式">
+                <button
+                  type="button"
+                  aria-pressed={preferences.colorTheme === "light"}
+                  onClick={() => onChange("colorTheme", "light")}
+                >
+                  <Sun size={15} />
+                  浅色
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={preferences.colorTheme === "dark"}
+                  onClick={() => onChange("colorTheme", "dark")}
+                >
+                  <Moon size={15} />
+                  深色
+                </button>
+              </div>
+            </div>
             <label className="range-preference">
               <span><strong>消息字体大小</strong><output>{preferences.chatFontSize} px</output></span>
               <input
@@ -464,8 +489,13 @@ function PreferenceSettings({
           <button
             className="storage-reset display-reset"
             type="button"
-            disabled={preferences.chatFontSize === 14 && preferences.interfaceScale === 100}
+            disabled={
+              preferences.colorTheme === "light" &&
+              preferences.chatFontSize === 14 &&
+              preferences.interfaceScale === 100
+            }
             onClick={() => {
+              onChange("colorTheme", "light");
               onChange("chatFontSize", 14);
               onChange("interfaceScale", 100);
             }}

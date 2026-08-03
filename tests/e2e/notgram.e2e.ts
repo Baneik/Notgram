@@ -100,6 +100,19 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await expect(page.locator(".range-preference").filter({ hasText: "界面缩放比例" }))
     .toContainText("110%");
   await expect(page.locator("html")).toHaveCSS("zoom", "1.1");
+  const lightTheme = page.getByRole("button", { name: "浅色", exact: true });
+  const darkTheme = page.getByRole("button", { name: "深色", exact: true });
+  await expect(lightTheme).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(223, 231, 228)");
+  await darkTheme.click();
+  await expect(page.locator("html")).toHaveClass(/theme-dark/);
+  await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".settings-dialog")).toHaveCSS("background-color", "rgb(23, 33, 43)");
+  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(14, 22, 33)");
+  await expect(page.locator(".message-row.is-incoming .message-bubble").first())
+    .toHaveCSS("background-color", "rgb(24, 37, 51)");
+  await expect(page.locator(".message-row.is-outgoing .message-bubble").first())
+    .toHaveCSS("background-color", "rgb(43, 82, 120)");
   await page.getByRole("button", { name: /高级设置/ }).click();
   await page.getByRole("button", { name: "重建界面缓存" }).click();
   await expect(page.locator(".settings-dialog .cache-health"))
@@ -112,6 +125,9 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await expect(page.getByRole("switch", { name: "保留脱敏崩溃报告" })).toBeDisabled();
   await expect(page.getByText("浏览器预览不生成诊断包")).toBeVisible();
   expect(await horizontalOverflow(page)).toBe(false);
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(/theme-dark/);
+  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(14, 22, 33)");
 });
 
 test("sidebar dragging and window resizing keep the responsive layout live", async ({ page }) => {
