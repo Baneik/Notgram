@@ -271,6 +271,53 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
     .toBe(idle.clientWidth);
 });
 
+test("outgoing messages stay inside the conversation at narrow widths and interface zoom", async ({ page }) => {
+  for (const scenario of [
+    { width: 464, zoom: "1" },
+    { width: 580, zoom: "1.25" },
+  ]) {
+    await page.setViewportSize({ width: scenario.width, height: 620 });
+    await page.goto("/");
+    await page.locator('[data-chat-id="chat-product"]').click();
+    await expect(page.locator(".message-row.is-outgoing").last()).toBeVisible();
+    await page.locator("html").evaluate((element, zoom) => { element.style.zoom = zoom; }, scenario.zoom);
+
+    const layout = await page.locator(".message-list").evaluate((list) => {
+      const content = list.querySelector<HTMLElement>(".message-list-content");
+      const outgoing = [...list.querySelectorAll<HTMLElement>(".message-row.is-outgoing")];
+      const listBounds = list.getBoundingClientRect();
+      const contentBounds = content?.getBoundingClientRect();
+      const scale = listBounds.width / (list as HTMLElement).offsetWidth;
+      const paddingRight = Number.parseFloat(getComputedStyle(list).paddingRight) * scale;
+      const contentRightLimit = listBounds.left
+        + ((list as HTMLElement).clientWidth * scale)
+        - paddingRight;
+      return {
+        contentRight: contentBounds?.right ?? Number.POSITIVE_INFINITY,
+        contentRightLimit,
+        listRight: listBounds.right,
+        overflowX: getComputedStyle(list).overflowX,
+        outgoingRightEdges: outgoing.map((row) => {
+          const shell = row.querySelector<HTMLElement>(".message-bubble-shell");
+          const bubble = row.querySelector<HTMLElement>(".message-bubble");
+          return {
+            shell: shell?.getBoundingClientRect().right ?? Number.POSITIVE_INFINITY,
+            bubble: bubble?.getBoundingClientRect().right ?? Number.POSITIVE_INFINITY,
+          };
+        }),
+      };
+    });
+
+    expect(layout.overflowX).toBe("hidden");
+    expect(layout.contentRight).toBeLessThanOrEqual(layout.contentRightLimit + 1);
+    expect(layout.contentRight).toBeLessThan(layout.listRight);
+    for (const edge of layout.outgoingRightEdges) {
+      expect(edge.shell).toBeLessThanOrEqual(layout.contentRight + 1);
+      expect(edge.bubble).toBeLessThanOrEqual(layout.contentRight + 1);
+    }
+  }
+});
+
 test("media cache controls clean selected data and protect active files", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();

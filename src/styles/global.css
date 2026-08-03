@@ -356,7 +356,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
 .message-list {
   --message-scrollbar-thumb: #869892;
-  height: 100%; min-height: 0; padding: 20px 10px 10px;
+  --message-list-inline-padding: 10px;
+  height: 100%; min-height: 0; padding: 20px var(--message-list-inline-padding) 10px;
   overflow-x: hidden; overflow-y: auto; overflow-anchor: none;
   scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: transparent transparent;
 }
@@ -369,7 +370,11 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list.is-scrolling { scrollbar-color: var(--message-scrollbar-thumb) transparent; }
 .message-list.is-scrolling::-webkit-scrollbar-thumb { background-color: var(--message-scrollbar-thumb); }
 .message-list:focus-visible { outline: 2px solid rgba(51, 144, 236, 0.55); outline-offset: -2px; }
-.message-list-content { position: relative; width: 100%; min-width: 0; max-width: 100%; min-height: 100%; overflow-x: clip; }
+.message-list-content {
+  position: relative;
+  width: calc(100% - var(--message-list-inline-padding) - var(--message-list-inline-padding));
+  min-width: 0; max-width: 100%; min-height: 100%; overflow-x: clip;
+}
 .jump-to-latest {
   position: absolute; right: 18px; bottom: 16px; z-index: 20; width: 46px; height: 46px; padding: 0;
   display: grid; place-items: center; color: #5f686d; background: #ffffff; border: 1px solid #d9e0e3;
@@ -1285,7 +1290,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .mobile-chat-open { grid-template-rows: minmax(0, 1fr); }
   .mobile-chat-open .conversation { display: grid; }
   .mobile-back { display: inline-grid; }
-  .message-list { padding: 14px 10px 10px; }
+  .message-list { padding-top: 14px; }
   .jump-to-latest { right: 12px; bottom: 12px; }
   .message-group { gap: 6px; }
   .message-bubble-shell { max-width: 88%; }
