@@ -9,7 +9,7 @@ import {
 import { cachedSnapshotFrom, migrateCachedSnapshot } from "./telegramStore.cache";
 import { DraftSyncController } from "./telegramStore.drafts";
 import {
-  reconcileCachedMessageWindow,
+  pendingCachedIdsAfterConfirmation,
   upsertMessage,
   upsertMessages,
   withEmojiReaction,
@@ -59,6 +59,16 @@ describe("telegram store message state", () => {
     expect(result.at(-1)).toBe(replacement);
   });
 
+  it("orders numeric Telegram messages deterministically within the same second", () => {
+    const sentAt = "2026-08-02T08:00:00Z";
+    const result = upsertMessages(
+      [message("12", sentAt)],
+      [message("11", sentAt), message("13", sentAt), message("10", sentAt)],
+    );
+
+    expect(result.map(({ id }) => id)).toEqual(["10", "11", "12", "13"]);
+  });
+
   it("upserts in chronological order and applies reversible emoji reactions", () => {
     const ordered = upsertMessage([message("2")], message("1"));
     expect(ordered.map(({ id }) => id)).toEqual(["1", "2"]);
@@ -70,15 +80,13 @@ describe("telegram store message state", () => {
     expect(withEmojiReaction(reacted, "👍", false).interaction?.reactions).toEqual([]);
   });
 
-  it("only removes cached messages covered by the confirmed numeric window", () => {
-    const result = reconcileCachedMessageWindow(
-      [message("8"), message("9"), message("10"), message("11")],
+  it("acknowledges confirmed cache entries without inferring deletion from gaps", () => {
+    const result = pendingCachedIdsAfterConfirmation(
       new Set(["8", "9", "10", "11"]),
       new Set(["9", "11"]),
     );
 
-    expect(result.messages.map(({ id }) => id)).toEqual(["8", "9", "11"]);
-    expect([...result.pendingCachedIds]).toEqual(["8"]);
+    expect([...result]).toEqual(["8", "10"]);
   });
 });
 

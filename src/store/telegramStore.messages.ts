@@ -1,7 +1,30 @@
 import type { Message } from "../telegram/types";
 
-const compareMessages = (left: Message, right: Message) =>
-  Date.parse(left.sentAt) - Date.parse(right.sentAt);
+const numericMessageId = (messageId: string) => {
+  if (!/^-?\d+$/.test(messageId)) return undefined;
+  try {
+    return BigInt(messageId);
+  } catch {
+    return undefined;
+  }
+};
+
+const compareMessages = (left: Message, right: Message) => {
+  const leftTimestamp = Date.parse(left.sentAt);
+  const rightTimestamp = Date.parse(right.sentAt);
+  if (
+    Number.isFinite(leftTimestamp) &&
+    Number.isFinite(rightTimestamp) &&
+    leftTimestamp !== rightTimestamp
+  ) {
+    return leftTimestamp - rightTimestamp;
+  }
+
+  const leftId = numericMessageId(left.id);
+  const rightId = numericMessageId(right.id);
+  if (leftId === undefined || rightId === undefined || leftId === rightId) return 0;
+  return leftId < rightId ? -1 : 1;
+};
 
 export const upsertMessages = (messages: Message[], incoming: Message[]) => {
   if (incoming.length === 0) return messages;
@@ -61,47 +84,11 @@ export const messageMapFrom = (messages: Message[]) => {
   return result;
 };
 
-const numericMessageId = (messageId: string) => {
-  if (!/^-?\d+$/.test(messageId)) return undefined;
-  try {
-    return BigInt(messageId);
-  } catch {
-    return undefined;
-  }
-};
-
-export const reconcileCachedMessageWindow = (
-  messages: Message[],
+export const pendingCachedIdsAfterConfirmation = (
   pendingCachedIds: Set<string>,
   confirmedIds: Set<string>,
 ) => {
-  const confirmedNumericIds = [...confirmedIds]
-    .map(numericMessageId)
-    .filter((messageId): messageId is bigint => messageId !== undefined);
-  const oldestConfirmedId = confirmedNumericIds.length > 0
-    ? confirmedNumericIds.reduce((oldest, messageId) => messageId < oldest ? messageId : oldest)
-    : undefined;
-  const newestConfirmedId = confirmedNumericIds.length > 0
-    ? confirmedNumericIds.reduce((newest, messageId) => messageId > newest ? messageId : newest)
-    : undefined;
   const remainingCachedIds = new Set(pendingCachedIds);
-  const reconciledMessages = messages.filter((message) => {
-    if (!pendingCachedIds.has(message.id)) return true;
-    if (confirmedIds.has(message.id)) {
-      remainingCachedIds.delete(message.id);
-      return true;
-    }
-
-    const messageId = numericMessageId(message.id);
-    const coveredByServerWindow =
-      messageId !== undefined &&
-      oldestConfirmedId !== undefined &&
-      newestConfirmedId !== undefined &&
-      messageId >= oldestConfirmedId &&
-      messageId <= newestConfirmedId;
-    if (!coveredByServerWindow) return true;
-    remainingCachedIds.delete(message.id);
-    return false;
-  });
-  return { messages: reconciledMessages, pendingCachedIds: remainingCachedIds };
+  for (const messageId of confirmedIds) remainingCachedIds.delete(messageId);
+  return remainingCachedIds;
 };

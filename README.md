@@ -155,8 +155,9 @@ cached chat, folder, user, and message state. The generated local archive folder
 is not shown or loaded. History requests are deferred until authorization is
 ready. Each chat keeps an independent server-history cursor and always starts
 its first refresh from TDLib's latest window, even if a live message arrived
-first. Cached continuity cleanup runs only after a complete recent window is
-confirmed; partial or stalled responses preserve the existing cache and remain
+first. History refreshes acknowledge cached messages that TDLib returns but do
+not infer deletion from gaps in a page. Only non-cache deletion updates remove
+messages; partial or stalled responses preserve the existing cache and remain
 retryable instead of marking history complete.
 Documents and Telegram media messages are mapped separately: image documents
 remain file cards, while photos, videos, video notes, animations, audio, voice,

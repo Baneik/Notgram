@@ -5,6 +5,14 @@ with prerelease identifiers used for release candidates.
 
 ## [Unreleased]
 
+## [0.5.0-rc.2] - 2026-08-03
+
+### Fixed
+
+- Preserve messages when TDLib evicts them only from its local cache, avoid
+  inferring deletions from incomplete history windows, and stabilize ordering
+  for messages sent within the same second.
+
 ## [0.5.0-rc.1] - 2026-08-03
 
 ### Added

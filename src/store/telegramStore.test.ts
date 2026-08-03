@@ -403,7 +403,7 @@ describe("telegram store", () => {
     expect(transport.historyRequests).toBe(1);
   });
 
-  it("only removes cached messages inside the confirmed server window", async () => {
+  it("preserves cached messages absent from a history window until an explicit delete", async () => {
     const missingMessage: Message = {
       id: "75",
       chatId: "chat-product",
@@ -411,7 +411,7 @@ describe("telegram store", () => {
       outgoing: false,
       sentAt: "2026-08-01T11:15:00+08:00",
       delivery: "read",
-      content: { kind: "text", text: "deleted inside confirmed window" },
+      content: { kind: "text", text: "temporarily absent inside history window" },
     };
     const olderMessage: Message = {
       id: "10",
@@ -475,8 +475,8 @@ describe("telegram store", () => {
 
     const messages = store.getState().messages.get("chat-product") ?? [];
     expect(transport.historyRequests).toBe(2);
-    expect(messages).toHaveLength(60);
-    expect(messages.some((message) => message.id === missingMessage.id)).toBe(false);
+    expect(messages).toHaveLength(61);
+    expect(messages.some((message) => message.id === missingMessage.id)).toBe(true);
     expect(messages.some((message) => message.id === olderMessage.id)).toBe(true);
     expect(messages.map((message) => message.id)).toContain("100");
     expect(messages.map((message) => message.id)).toContain("41");

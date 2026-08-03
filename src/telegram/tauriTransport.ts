@@ -1703,6 +1703,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private deleteMessages(update: TdObject) {
     const chatId = tdId(update.chat_id);
     const ids = Array.isArray(update.message_ids) ? update.message_ids.map(tdId) : [];
+    if (update.from_cache === true && update.is_permanent !== true) return;
     for (const messageId of ids) {
       this.rawMessages.get(chatId)?.delete(messageId);
       this.listener?.({ type: "message.remove", chatId, messageId });

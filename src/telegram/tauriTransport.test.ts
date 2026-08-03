@@ -1303,6 +1303,38 @@ describe("TauriTelegramTransport message operations", () => {
       messageId: "13",
     }]);
   });
+
+  it("keeps messages that TDLib removes only from its local cache", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.emitMessage(rawMessage(13));
+    events.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updateDeleteMessages",
+      chat_id: 7,
+      message_ids: [13],
+      is_permanent: false,
+      from_cache: true,
+    });
+    internal.handleUpdate({
+      "@type": "updateMessageEdited",
+      chat_id: 7,
+      message_id: 13,
+      edit_date: 1_700_000_500,
+      reply_markup: null,
+    });
+
+    expect(events).toEqual([expect.objectContaining({
+      type: "message.upsert",
+      message: expect.objectContaining({
+        id: "13",
+        editedAt: "2023-11-14T22:21:40.000Z",
+      }),
+    })]);
+  });
 });
 
 describe("TauriTelegramTransport history", () => {

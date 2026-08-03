@@ -24,7 +24,7 @@ import {
 } from "./telegramStore.drafts";
 import {
   messageMapFrom,
-  reconcileCachedMessageWindow,
+  pendingCachedIdsAfterConfirmation,
   upsertMessage,
   upsertMessages,
   withEmojiReaction,
@@ -341,21 +341,14 @@ export const createTelegramStore = (
             };
           }
 
-          const currentMessages = get().messages.get(chatId) ?? [];
-          const reconciled = reconcileCachedMessageWindow(
-            currentMessages,
+          const remainingCachedIds = pendingCachedIdsAfterConfirmation(
             pendingCachedIds,
             confirmedIds,
           );
-          if (reconciled.messages.length !== currentMessages.length) {
-            const nextMessages = new Map(get().messages);
-            nextMessages.set(chatId, reconciled.messages);
-            set({ messages: nextMessages });
-          }
-          if (reconciled.pendingCachedIds.size === 0) {
+          if (remainingCachedIds.size === 0) {
             cachedMessageIds.delete(chatId);
           } else {
-            cachedMessageIds.set(chatId, reconciled.pendingCachedIds);
+            cachedMessageIds.set(chatId, remainingCachedIds);
           }
         }
         const nextHistories = new Map(get().histories);
