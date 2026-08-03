@@ -318,6 +318,61 @@ test("outgoing messages stay inside the conversation at narrow widths and interf
   }
 });
 
+test("incoming virtual blocks preserve the sender avatar column", async ({ page }) => {
+  await page.setViewportSize({ width: 525, height: 812 });
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.locator(".message-list")).toBeVisible();
+  await page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => {
+          messages: Map<string, unknown[]>;
+          histories: Map<string, unknown>;
+        };
+        setState: (partial: {
+          messages: Map<string, unknown[]>;
+          histories: Map<string, unknown>;
+        }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", Array.from({ length: 6 }, (_, index) => ({
+      id: `virtual-incoming-${index + 1}`,
+      chatId: "chat-product",
+      senderId: "u-mia",
+      outgoing: false,
+      sentAt: new Date(Date.UTC(2026, 7, 4, 0, 0, index)).toISOString(),
+      delivery: "read",
+      content: { kind: "text", text: `连续来信 ${index + 1}` },
+    })));
+    const histories = new Map(state.histories);
+    histories.set("chat-product", { loading: false, hasMore: false });
+    storeModule.telegramStore.setState({ messages, histories });
+  }, "/src/store/telegramStore.ts");
+
+  await expect(page.locator('[data-message-id="virtual-incoming-6"]')).toBeVisible();
+  const incomingGroups = page.locator(".message-group.is-incoming");
+  await expect(incomingGroups).toHaveCount(2);
+  const alignment = await incomingGroups.evaluateAll((groups) => {
+    const content = groups[0]?.closest(".message-list-content");
+    const contentLeft = content?.getBoundingClientRect().left ?? Number.NEGATIVE_INFINITY;
+    return groups.map((group) => ({
+      avatarSlots: group.querySelectorAll(".message-group-avatar").length,
+      avatars: group.querySelectorAll(".message-group-avatar .avatar").length,
+      stackOffset: Math.round(
+        (group.querySelector<HTMLElement>(".message-group-stack")?.getBoundingClientRect().left
+          ?? Number.POSITIVE_INFINITY) - contentLeft,
+      ),
+    }));
+  });
+  expect(alignment).toEqual([
+    { avatarSlots: 1, avatars: 0, stackOffset: 42 },
+    { avatarSlots: 1, avatars: 1, stackOffset: 42 },
+  ]);
+});
+
 test("media cache controls clean selected data and protect active files", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -1073,6 +1128,29 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await page.getByRole("button", { name: /产品讨论/ }).dblclick();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+});
+
+test("double-clicking a conversation repeatedly converges to its latest message", async ({ page }) => {
+  await page.goto("/");
+  const product = page.locator('[data-chat-id="chat-product"]');
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: /Mia Chen/ }).click();
+  await product.dblclick();
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+
+  const messageList = page.locator(".message-list");
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    await messageList.hover();
+    await page.mouse.wheel(0, -900);
+    await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+      .toBeGreaterThan(100);
+    await product.dblclick();
+    await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+      .toBeLessThanOrEqual(1);
+    await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
+  }
 });
 
 test("loading older messages preserves the visible message anchor", async ({ page }) => {

@@ -514,8 +514,13 @@ function ChatRow({
       data-pinned={pinnedDraggable}
       aria-grabbed={dragging}
       aria-current={active ? "true" : undefined}
-      onClick={() => onSelectChat(chat.id)}
-      onDoubleClick={() => onOpenLatest(chat.id)}
+      onClick={(event) => {
+        if (event.detail < 2) onSelectChat(chat.id);
+      }}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        onOpenLatest(chat.id);
+      }}
       onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         onOpenContextMenu(

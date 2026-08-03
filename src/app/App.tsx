@@ -467,13 +467,16 @@ export function App() {
           onSelect={(chatId) => {
             if (searchQuery.trim()) void openGlobalSearchChat(chatId);
             else {
-              void selectChat(chatId);
+              if (telegramStore.getState().activeChatId !== chatId) void selectChat(chatId);
               setMobileChatOpen(true);
             }
           }}
           onOpenLatest={(chatId) => {
             setMobileChatOpen(true);
-            void selectChat(chatId).finally(() => {
+            const selection = telegramStore.getState().activeChatId === chatId
+              ? Promise.resolve()
+              : selectChat(chatId);
+            void selection.finally(() => {
               latestScrollRequestIdRef.current += 1;
               setLatestScrollRequest({
                 chatId,

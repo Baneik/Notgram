@@ -602,15 +602,14 @@ export function Conversation({
           defaultItemHeight={52}
           followOutput="auto"
           increaseViewportBy={{ top: 280, bottom: 280 }}
-          initialTopMostItemIndex={Math.max(0, visibleMessageBlocks.length - 1)}
           minOverscanItemCount={{ top: 2, bottom: 2 }}
           {...messageListHandlers}
           itemContent={(_, groupModel) => {
             const { firstMessage, messages: messageGroup, positions, startsNewDay } = groupModel;
-            const showSenderAvatar = firstMessage.content.kind !== "service" &&
+            const reserveSenderAvatar = firstMessage.content.kind !== "service" &&
               firstMessage.content.kind !== "unsupported" &&
-              !firstMessage.outgoing && chat.kind !== "direct" &&
-              !groupModel.continuesAfter;
+              !firstMessage.outgoing && chat.kind !== "direct";
+            const showSenderAvatar = reserveSenderAvatar && !groupModel.continuesAfter;
             const sender = users.get(firstMessage.senderId);
             const senderName = sender?.displayName ??
               (chat.kind === "direct" ? chat.title : "Telegram 用户");
@@ -624,15 +623,17 @@ export function Conversation({
               <div
                 className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${groupModel.continuesBefore ? "continues-before" : ""} ${groupModel.continuesAfter ? "continues-after" : ""}`}
               >
-                {showSenderAvatar && (
+                {reserveSenderAvatar && (
                   <span className="message-group-avatar">
-                    <Avatar
-                      avatar={senderAvatar ?? {
-                        label: Array.from(senderName.trim())[0] ?? "?",
-                        color: "#73828c",
-                      }}
-                      size="small"
-                    />
+                    {showSenderAvatar && (
+                      <Avatar
+                        avatar={senderAvatar ?? {
+                          label: Array.from(senderName.trim())[0] ?? "?",
+                          color: "#73828c",
+                        }}
+                        size="small"
+                      />
+                    )}
                   </span>
                 )}
                 <div className="message-group-stack">
