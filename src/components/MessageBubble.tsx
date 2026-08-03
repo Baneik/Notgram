@@ -29,8 +29,7 @@ import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
 import { AudioPlayer } from "./AudioPlayer";
-import { usePreferencesStore } from "../store/preferencesStore";
-import { shouldAutoDownload } from "../media/autoDownload";
+import { shouldAutoDownload, type AutoDownloadPolicy } from "../media/autoDownload";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
@@ -71,6 +70,7 @@ interface MessageBubbleProps {
   onOpenMedia?: (messageId: string) => void;
   albumItem?: boolean;
   autoplayAnimations: boolean;
+  autoDownloadPolicy: AutoDownloadPolicy;
   developerMode: boolean;
 }
 
@@ -112,13 +112,9 @@ function MessageBubbleComponent({
   onOpenMedia,
   albumItem = false,
   autoplayAnimations,
+  autoDownloadPolicy,
   developerMode,
 }: MessageBubbleProps) {
-  const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
-  const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
-  const autoDownloadAudio = usePreferencesStore((state) => state.autoDownloadAudio);
-  const autoDownloadFiles = usePreferencesStore((state) => state.autoDownloadFiles);
-  const autoDownloadLimitMb = usePreferencesStore((state) => state.autoDownloadLimitMb);
   const [reactionPending, setReactionPending] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
@@ -211,13 +207,8 @@ function MessageBubbleComponent({
     content.thumbnailCanDownload === true && !content.thumbnailPath && !content.thumbnailIsDownloading
     ? content.thumbnailFileId
     : undefined;
-  const automaticFileId = shouldAutoDownload(content, {
-    images: autoDownloadImages,
-    videos: autoDownloadVideos,
-    audio: autoDownloadAudio,
-    files: autoDownloadFiles,
-    limitMb: autoDownloadLimitMb,
-  }) && (content.kind === "file" || content.kind === "media")
+  const automaticFileId = shouldAutoDownload(content, autoDownloadPolicy) &&
+    (content.kind === "file" || content.kind === "media")
     ? content.fileId
     : undefined;
   const lazyMediaFileId = previewFileId ?? automaticFileId;

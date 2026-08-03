@@ -165,6 +165,24 @@ export function Conversation({
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const developerMode = usePreferencesStore((state) => state.developerMode);
+  const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
+  const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
+  const autoDownloadAudio = usePreferencesStore((state) => state.autoDownloadAudio);
+  const autoDownloadFiles = usePreferencesStore((state) => state.autoDownloadFiles);
+  const autoDownloadLimitMb = usePreferencesStore((state) => state.autoDownloadLimitMb);
+  const autoDownloadPolicy = useMemo(() => ({
+    images: autoDownloadImages,
+    videos: autoDownloadVideos,
+    audio: autoDownloadAudio,
+    files: autoDownloadFiles,
+    limitMb: autoDownloadLimitMb,
+  }), [
+    autoDownloadAudio,
+    autoDownloadFiles,
+    autoDownloadImages,
+    autoDownloadLimitMb,
+    autoDownloadVideos,
+  ]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -191,6 +209,21 @@ export function Conversation({
   const visibleMessageGroups = useMemo(
     () => groupConsecutiveMessages(visibleMessages),
     [visibleMessages],
+  );
+  const visibleMessageGroupModels = useMemo(
+    () => visibleMessageGroups.map((messages, groupIndex) => ({
+      messages,
+      firstMessage: messages[0]!,
+      startsNewDay: groupIndex === 0 || localDateKey(
+        visibleMessageGroups[groupIndex - 1]![0]!.sentAt,
+      ) !== localDateKey(messages[0]!.sentAt),
+      segments: segmentMediaAlbums(messages),
+      positions: new Map(messages.map((message, messageIndex) => [
+        message.id,
+        messageGroupPosition(messages, messageIndex),
+      ])),
+    })),
+    [visibleMessageGroups],
   );
   const viewerPhotos = useMemo(() => photoMessages(displayMessages), [displayMessages]);
 
@@ -547,11 +580,8 @@ export function Conversation({
           {visibleMessages.length === 0 ? (
             <div className="messages-empty">没有匹配的消息</div>
           ) : (
-            visibleMessageGroups.map((messageGroup, groupIndex) => {
-            const firstMessage = messageGroup[0];
-            const previousMessage = visibleMessageGroups[groupIndex - 1]?.[0];
-            const startsNewDay = !previousMessage ||
-              localDateKey(previousMessage.sentAt) !== localDateKey(firstMessage.sentAt);
+            visibleMessageGroupModels.map((groupModel) => {
+            const { firstMessage, messages: messageGroup, positions, startsNewDay } = groupModel;
             const showSenderAvatar = firstMessage.content.kind !== "service" &&
               firstMessage.content.kind !== "unsupported" &&
               !firstMessage.outgoing && chat.kind !== "direct";
@@ -582,7 +612,7 @@ export function Conversation({
                 <div className="message-group-stack">
                   {(selectionMode
                     ? messageGroup.map((message) => ({ kind: "message" as const, message }))
-                    : segmentMediaAlbums(messageGroup)
+                    : groupModel.segments
                   ).map((segment) => {
                     const renderBubble = (message: Message, albumItem = false) => (
                       <RichMessageBubble
@@ -590,10 +620,7 @@ export function Conversation({
                         message={message}
                         sender={sender}
                         senderName={senderName}
-                        groupPosition={messageGroupPosition(
-                          messageGroup,
-                          messageGroup.findIndex((candidate) => candidate.id === message.id),
-                        )}
+                        groupPosition={positions.get(message.id) ?? "single"}
                         replyPreview={replyPreviewFor(message, messagesById, users, chat)}
                         forwardLabel={forwardLabelFor(message, users, forwardTargetsById)}
                         selectionMode={selectionMode}
@@ -616,6 +643,7 @@ export function Conversation({
                         onOpenMedia={selectionMode ? undefined : setViewerMessageId}
                         albumItem={albumItem}
                         autoplayAnimations={autoplayAnimations}
+                        autoDownloadPolicy={autoDownloadPolicy}
                         developerMode={developerMode}
                       />
                     );

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useTelegramStore } from "../store/telegramStore";
+import { telegramStore } from "../store/telegramStore";
 
 export const useVisibleFile = <T extends Element>(
   fileId: number | undefined,
@@ -9,7 +9,6 @@ export const useVisibleFile = <T extends Element>(
 ) => {
   const targetRef = useRef<T>(null);
   const retryStateRef = useRef({ fileId: undefined as number | undefined, failures: 0, notBefore: 0 });
-  const cacheFile = useTelegramStore((state) => state.cacheFile);
 
   useEffect(() => {
     const target = targetRef.current;
@@ -31,7 +30,7 @@ export const useVisibleFile = <T extends Element>(
         return;
       }
       requested = true;
-      void cacheFile(fileId, priority)
+      void telegramStore.getState().cacheFile(fileId, priority)
         .then(() => {
           retryStateRef.current = { fileId, failures: 0, notBefore: 0 };
         })
@@ -66,7 +65,7 @@ export const useVisibleFile = <T extends Element>(
       observer.disconnect();
       if (retryTimer) globalThis.clearTimeout(retryTimer);
     };
-  }, [cacheFile, enabled, fileId, priority, rootMargin]);
+  }, [enabled, fileId, priority, rootMargin]);
 
   return targetRef;
 };
