@@ -7,8 +7,8 @@ const MIN_RESUME_SECONDS = 2;
 const END_THRESHOLD_SECONDS = 5;
 const VIDEO_VOLUME_STORAGE_KEY = "notgram.video.volume";
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const;
-export const STREAM_PAUSE_BUFFER_SECONDS = 15;
-export const STREAM_RESUME_BUFFER_SECONDS = 15;
+export const STREAM_PAUSE_BUFFER_SECONDS = 10;
+export const STREAM_RESUME_BUFFER_SECONDS = 5;
 export const DEFAULT_VIDEO_VOLUME = 0.2;
 
 export const normalizeVideoVolume = (volume: number) => (

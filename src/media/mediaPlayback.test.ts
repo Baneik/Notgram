@@ -8,6 +8,8 @@ import {
   MediaPlaybackCoordinator,
   nextPlaybackRate,
   normalizeVideoVolume,
+  STREAM_PAUSE_BUFFER_SECONDS,
+  STREAM_RESUME_BUFFER_SECONDS,
 } from "./mediaPlayback";
 
 describe("media playback coordination", () => {
@@ -63,7 +65,10 @@ describe("media playback coordination", () => {
     expect(bufferedSecondsAhead({ buffered, currentTime: 42 })).toBe(13);
     expect(bufferedSecondsAhead({ buffered, currentTime: 20 })).toBe(0);
     expect(bufferedMediaEnd({ buffered, currentTime: 42 })).toBe(55);
-    expect(hasPlaybackBuffer({ buffered, currentTime: 42, duration: 120 })).toBe(false);
+    expect(STREAM_RESUME_BUFFER_SECONDS).toBe(5);
+    expect(STREAM_PAUSE_BUFFER_SECONDS).toBe(10);
+    expect(hasPlaybackBuffer({ buffered, currentTime: 42, duration: 120 })).toBe(true);
+    expect(hasPlaybackBuffer({ buffered, currentTime: 42, duration: 120 }, 15)).toBe(false);
     expect(hasPlaybackBuffer({ buffered, currentTime: 42, duration: 55 })).toBe(true);
   });
 

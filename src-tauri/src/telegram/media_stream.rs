@@ -21,7 +21,7 @@ const READY_RESPONSE_BYTES: u64 = 256 * 1024;
 const INITIAL_STREAM_WINDOW_BYTES: u64 = 8 * 1024 * 1024;
 const STREAM_RANGE_SAFETY_BYTES: u64 = 2 * 1024 * 1024;
 const STREAM_METADATA_TAIL_BYTES: u64 = 2 * 1024 * 1024;
-const STREAM_BUFFER_SECONDS: f64 = 15.0;
+const STREAM_BUFFER_SECONDS: f64 = 10.0;
 const RANGE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
@@ -658,6 +658,10 @@ mod tests {
         assert!(permitted_response_bytes(&media, 0, MAX_RESPONSE_BYTES) > 0);
         assert_eq!(
             permitted_response_bytes(&media, 100 * 1024 * 1024, MAX_RESPONSE_BYTES),
+            0
+        );
+        assert_eq!(
+            permitted_response_bytes(&media, 3 * 1024 * 1024, MAX_RESPONSE_BYTES),
             0
         );
         assert_eq!(
