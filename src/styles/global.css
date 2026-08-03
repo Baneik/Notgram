@@ -141,7 +141,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .chat-sidebar {
   position: relative; grid-column: 2; min-width: 300px; height: 100%; min-height: 0; display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr); background: #ffffff; border-right: 1px solid var(--line);
+  grid-template-rows: auto auto minmax(0, 1fr); contain: layout style; background: #ffffff; border-right: 1px solid var(--line);
 }
 .sidebar-heading { height: 60px; display: flex; align-items: center; padding: 0 18px; }
 .sidebar-heading > div { min-width: 0; display: grid; gap: 2px; }
@@ -351,7 +351,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   min-height: 44px; padding: 0 12px 0 20px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center; gap: 9px; color: #858c91; background: #ffffff; border-bottom: 1px solid var(--line);
 }
-.message-list-shell { position: relative; min-height: 0; overflow: hidden; }
+.message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
 .message-list { height: 100%; min-height: 0; padding: 20px 10px 10px; overflow-y: auto; overflow-anchor: none; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #9ba9a5 transparent; }
 .message-list:focus-visible { outline: 2px solid rgba(51, 144, 236, 0.55); outline-offset: -2px; }
 .message-list-content { position: relative; min-height: 100%; }
@@ -372,7 +372,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   border-radius: 12px; font-size: 10px; font-weight: 600;
 }
 .message-group { width: 100%; display: flex; align-items: stretch; gap: 8px; margin: 10px 0; }
-.chat-row { content-visibility: auto; contain-intrinsic-size: auto 72px; }
+.chat-row { contain: layout style; }
 .message-group:last-child { margin-bottom: 0; }
 .message-group-stack { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 .message-group-avatar { width: 36px; display: flex; align-items: flex-end; flex: 0 0 36px; }

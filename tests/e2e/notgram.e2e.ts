@@ -106,6 +106,43 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("sidebar dragging and window resizing keep the responsive layout live", async ({ page }) => {
+  await page.goto("/");
+  const resizer = page.getByRole("separator", { name: "调整会话列表宽度" });
+  const before = await page.evaluate(() => ({
+    stored: localStorage.getItem("notgram.sidebar-width"),
+    width: getComputedStyle(document.documentElement).getPropertyValue("--chat-sidebar-width"),
+  }));
+  const bounds = await resizer.boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(bounds!.x + 42, bounds!.y + 80, { steps: 5 });
+  await expect.poll(() => page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue("--chat-sidebar-width"),
+  )).not.toBe(before.width);
+  expect(await page.evaluate(() => localStorage.getItem("notgram.sidebar-width")))
+    .toBe(before.stored);
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("notgram.sidebar-width")))
+    .not.toBe(before.stored);
+
+  for (const viewport of [
+    { width: 940, height: 680 },
+    { width: 780, height: 620 },
+    { width: 1280, height: 800 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect(page.locator(".conversation")).toBeVisible();
+    await expect(page.locator(".message-list-content .message-row").first()).toBeVisible();
+    const layout = await page.locator(".app-shell").evaluate((shell) => ({
+      width: shell.getBoundingClientRect().width,
+      scrollWidth: shell.scrollWidth,
+    }));
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.width + 1);
+  }
+});
+
 test("media cache controls clean selected data and protect active files", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();

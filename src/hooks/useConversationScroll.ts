@@ -370,14 +370,10 @@ export const useConversationScroll = ({
         if (!stored) return;
         if (!stored.followLatest) return;
         element.scrollTop = element.scrollHeight;
-        const memory = captureScrollMemory(
-          element,
-          lastVisibleMessageIdRef.current,
-          stored.pendingNewCount,
-          stored.followLatest,
-        );
-        conversationScrollMemory.set(currentScrollKey, memory);
-        updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
+        conversationScrollMemory.set(currentScrollKey, {
+          ...stored,
+          lastKnownMessageId: lastVisibleMessageIdRef.current,
+        });
       });
     });
     observer.observe(content);

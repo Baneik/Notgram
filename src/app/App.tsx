@@ -1,5 +1,5 @@
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
 import { NavigationRail } from "../components/NavigationRail";
@@ -358,6 +358,14 @@ export function App() {
     }
   }, [sidebarWidth]);
 
+  const previewSidebarWidth = useCallback((width: number) => {
+    document.documentElement.style.setProperty("--chat-sidebar-width", `${width}px`);
+  }, []);
+
+  useLayoutEffect(() => {
+    previewSidebarWidth(sidebarWidth);
+  }, [previewSidebarWidth, sidebarWidth]);
+
   const visibleChats = useMemo(
     () => filterAndSortChats(chats.values(), chatFilter, searchQuery),
     [chatFilter, chats, searchQuery],
@@ -415,7 +423,6 @@ export function App() {
         inert={folderManagerOpen || Boolean(pendingConfirmation)}
         aria-hidden={folderManagerOpen || Boolean(pendingConfirmation) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
-        style={{ "--chat-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
         <NavigationRail
           folders={folders}
@@ -484,6 +491,7 @@ export function App() {
             title: chat.title,
           })}
           width={sidebarWidth}
+          onWidthPreview={previewSidebarWidth}
           onWidthChange={setSidebarWidth}
         />
           <Conversation

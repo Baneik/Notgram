@@ -49,6 +49,7 @@ interface ChatSidebarProps {
   ) => Promise<boolean>;
   onRequestLeaveGroup: (chat: Chat) => void;
   width: number;
+  onWidthPreview: (width: number) => void;
   onWidthChange: (width: number) => void;
 }
 
@@ -83,12 +84,15 @@ export function ChatSidebar({
   onSetFolderMembership,
   onRequestLeaveGroup,
   width,
+  onWidthPreview,
   onWidthChange,
 }: ChatSidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
   const chatListRef = useRef<HTMLDivElement>(null);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const resizeStartRef = useRef<{ x: number; width: number } | undefined>(undefined);
+  const resizeFrameRef = useRef<number | undefined>(undefined);
+  const pendingResizeWidthRef = useRef(width);
   const [resizing, setResizing] = useState(false);
   const [draggedPinnedChatId, setDraggedPinnedChatId] = useState<string>();
   const [pinnedDropTarget, setPinnedDropTarget] = useState<{
@@ -213,8 +217,23 @@ export function ChatSidebar({
     );
   };
 
-  const updateWidth = (nextWidth: number) => {
-    onWidthChange(Math.round(Math.min(maximumWidth(), Math.max(MIN_SIDEBAR_WIDTH, nextWidth))));
+  const boundedWidth = (nextWidth: number) =>
+    Math.round(Math.min(maximumWidth(), Math.max(MIN_SIDEBAR_WIDTH, nextWidth)));
+
+  const commitWidth = (nextWidth: number) => {
+    const bounded = boundedWidth(nextWidth);
+    pendingResizeWidthRef.current = bounded;
+    onWidthPreview(bounded);
+    onWidthChange(bounded);
+  };
+
+  const previewWidth = (nextWidth: number) => {
+    pendingResizeWidthRef.current = boundedWidth(nextWidth);
+    if (resizeFrameRef.current !== undefined) return;
+    resizeFrameRef.current = requestAnimationFrame(() => {
+      resizeFrameRef.current = undefined;
+      onWidthPreview(pendingResizeWidthRef.current);
+    });
   };
 
   const beginResize = (event: PointerEvent<HTMLDivElement>) => {
@@ -224,6 +243,7 @@ export function ChatSidebar({
       x: event.clientX,
       width: sidebarRef.current?.getBoundingClientRect().width ?? width,
     };
+    pendingResizeWidthRef.current = resizeStartRef.current.width;
     event.currentTarget.setPointerCapture(event.pointerId);
     setResizing(true);
   };
@@ -231,10 +251,16 @@ export function ChatSidebar({
   const continueResize = (event: PointerEvent<HTMLDivElement>) => {
     const start = resizeStartRef.current;
     if (!start) return;
-    updateWidth(start.width + event.clientX - start.x);
+    previewWidth(start.width + event.clientX - start.x);
   };
 
   const endResize = () => {
+    if (!resizeStartRef.current) return;
+    if (resizeFrameRef.current !== undefined) {
+      cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = undefined;
+    }
+    commitWidth(pendingResizeWidthRef.current);
     resizeStartRef.current = undefined;
     setResizing(false);
   };
@@ -247,8 +273,12 @@ export function ChatSidebar({
     if (event.key === "End") nextWidth = maximumWidth();
     if (nextWidth === undefined) return;
     event.preventDefault();
-    updateWidth(nextWidth);
+    commitWidth(nextWidth);
   };
+
+  useEffect(() => () => {
+    if (resizeFrameRef.current !== undefined) cancelAnimationFrame(resizeFrameRef.current);
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("is-resizing-sidebar", resizing);
@@ -392,7 +422,7 @@ export function ChatSidebar({
         )))}
         tabIndex={0}
         title="拖动调整会话列表宽度"
-        onDoubleClick={() => updateWidth(360)}
+        onDoubleClick={() => commitWidth(360)}
         onKeyDown={handleResizeKey}
         onPointerDown={beginResize}
         onPointerMove={continueResize}
