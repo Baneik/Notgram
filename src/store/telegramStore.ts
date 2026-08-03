@@ -1613,6 +1613,15 @@ export const createTelegramStore = (
         }
       },
 
+      suspendFileStream: async (fileId) => {
+        try {
+          await transport.suspendFileStream(fileId);
+        } catch {
+          // Pausing playback is best-effort and should not surface a global
+          // operation error when the stream already finished or disappeared.
+        }
+      },
+
       downloadFile: async (fileId, fileName) => {
         try {
           await transport.downloadFile(fileId, fileName);

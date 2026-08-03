@@ -96,6 +96,7 @@ interface ConversationProps {
   onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
   onOpenDownloadDirectory: () => Promise<void>;
   onStreamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
+  onSuspendFileStream: (fileId: number) => Promise<void>;
   onRetryMessage: (messageId: string) => Promise<void>;
   onSendFile: (file?: File) => Promise<boolean>;
   onCancelFileUpload: (messageId: string) => Promise<void>;
@@ -138,6 +139,7 @@ export function Conversation({
   onSaveFileAs,
   onOpenDownloadDirectory,
   onStreamFile,
+  onSuspendFileStream,
   onRetryMessage,
   onSendFile,
   onCancelFileUpload,
@@ -650,6 +652,7 @@ export function Conversation({
                         onSaveFileAs={onSaveFileAs}
                         onOpenDownloadDirectory={onOpenDownloadDirectory}
                         onStream={onStreamFile}
+                        onSuspendStream={onSuspendFileStream}
                         onRetry={onRetryMessage}
                         onCancelUpload={onCancelFileUpload}
                         onReaction={onSetMessageReaction}

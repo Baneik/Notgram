@@ -102,6 +102,7 @@ export function App() {
   const saveFileAs = useTelegramStore((state) => state.saveFileAs);
   const openDownloadDirectory = useTelegramStore((state) => state.openDownloadDirectory);
   const streamFile = useTelegramStore((state) => state.streamFile);
+  const suspendFileStream = useTelegramStore((state) => state.suspendFileStream);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
   const sendFile = useTelegramStore((state) => state.sendFile);
   const cancelFileUpload = useTelegramStore((state) => state.cancelFileUpload);
@@ -456,6 +457,7 @@ export function App() {
           onSaveFileAs={saveFileAs}
           onOpenDownloadDirectory={openDownloadDirectory}
           onStreamFile={streamFile}
+          onSuspendFileStream={suspendFileStream}
           onRetryMessage={retryMessage}
           onSendFile={sendFile}
           onCancelFileUpload={cancelFileUpload}

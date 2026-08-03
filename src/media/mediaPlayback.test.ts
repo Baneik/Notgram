@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  bufferedSecondsAhead,
   formatPlaybackTime,
   MediaPlaybackCoordinator,
   nextPlaybackRate,
@@ -32,5 +33,16 @@ describe("media playback coordination", () => {
   it("cycles supported playback rates and formats long durations", () => {
     expect([1, 1.25, 1.5, 2].map(nextPlaybackRate)).toEqual([1.25, 1.5, 2, 1]);
     expect(formatPlaybackTime(3_661.9)).toBe("61:01");
+  });
+
+  it("measures buffered media ahead of the current playhead", () => {
+    const buffered = {
+      length: 2,
+      start: (index: number) => [0, 30][index],
+      end: (index: number) => [10, 55][index],
+    } as TimeRanges;
+
+    expect(bufferedSecondsAhead({ buffered, currentTime: 42 })).toBe(13);
+    expect(bufferedSecondsAhead({ buffered, currentTime: 20 })).toBe(0);
   });
 });

@@ -190,9 +190,8 @@ const thumbnailPath = (value: unknown) => {
   return localImagePath(thumbnail?.file);
 };
 
-const thumbnailDetails = (value: unknown) => {
-  const thumbnail = asTdObject(value);
-  const file = asTdObject(thumbnail?.file);
+const thumbnailFileDetails = (value: unknown) => {
+  const file = asTdObject(value);
   const local = asTdObject(file?.local);
   return {
     thumbnailPath: localImagePath(file),
@@ -201,6 +200,9 @@ const thumbnailDetails = (value: unknown) => {
     thumbnailIsDownloading: local?.is_downloading_active === true,
   };
 };
+
+const thumbnailDetails = (value: unknown) =>
+  thumbnailFileDetails(asTdObject(value)?.file);
 
 const stickerMimeType = (value: unknown) => {
   switch (asTdObject(value)?.["@type"]) {
@@ -658,9 +660,15 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
           (tdNumber(best?.height) ?? Number.POSITIVE_INFINITY);
         return area <= bestArea ? candidate : best;
       }, undefined);
+      const largestFileId = tdNumber(asTdObject(largest?.photo)?.id);
+      const smallestFile = asTdObject(smallest?.photo);
+      const smallestFileId = tdNumber(smallestFile?.id);
+      const previewDetails = smallestFileId !== undefined && smallestFileId !== largestFileId
+        ? thumbnailFileDetails(smallestFile)
+        : { thumbnailPath: localImagePath(smallestFile) };
       return mediaContent("photo", "图片", largest?.photo, {
         ...formattedCaption(content.caption),
-        thumbnailPath: localImagePath(smallest?.photo),
+        ...previewDetails,
         previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
         width: tdNumber(largest?.width),
         height: tdNumber(largest?.height),

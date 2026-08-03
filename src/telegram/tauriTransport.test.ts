@@ -1540,6 +1540,41 @@ describe("TauriTelegramTransport history", () => {
 });
 
 describe("TauriTelegramTransport media", () => {
+  it("cancels an idle stream without interrupting an explicit file download", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "file",
+        id: request.file_id,
+        local: {
+          can_be_downloaded: true,
+          is_downloading_active: true,
+          is_downloading_completed: false,
+        },
+        remote: {},
+      };
+    };
+
+    await transport.suspendFileStream(70);
+    await transport.downloadFile(71, "video.mp4");
+    await transport.suspendFileStream(71);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      "@type": "cancelDownloadFile",
+      file_id: 70,
+      only_if_pending: false,
+    });
+    expect(requests[1]).toMatchObject({
+      "@type": "downloadFile",
+      file_id: 71,
+      limit: 0,
+    });
+  });
+
   it("caches photo media only after a visible-file request", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

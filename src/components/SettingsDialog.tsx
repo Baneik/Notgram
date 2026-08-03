@@ -874,7 +874,7 @@ function AdvancedSettings({
             <CloudDownload size={18} strokeWidth={1.8} />
             <div>
               <h4 id="auto-download-heading">自动下载</h4>
-              <span>仅在消息进入可视区域时缓存，下载目录不受影响</span>
+              <span>浏览会话时会提前缓存上方约 1.5 屏的封面，下载目录不受影响</span>
             </div>
           </div>
           <div className="preference-list">

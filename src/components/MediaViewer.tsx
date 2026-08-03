@@ -184,7 +184,7 @@ export function MediaViewer({
         {(content.caption || content.isDownloading) && (
           <footer className="media-viewer-caption">
             <span>{content.caption}</span>
-            {content.isDownloading && <small>{content.progress === undefined ? "下载中" : `${Math.round(content.progress * 100)}%`}</small>}
+            {content.isDownloading && <small>下载中</small>}
           </footer>
         )}
       </div>

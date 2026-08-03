@@ -431,7 +431,7 @@ test("Markdown and TDLib rich text render as structured message content", async 
   await expect(richMessage.locator("code").first()).toHaveText("5,709 tokens");
 });
 
-test("video uses its poster and custom streaming controls", async ({ page }) => {
+test("video keeps one playhead across inline and floating playback", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
   const row = page.locator('[data-message-id="p-video"]');
@@ -442,12 +442,27 @@ test("video uses its poster and custom streaming controls", async ({ page }) => 
   await expect(video).toHaveAttribute("poster", /mock-video-poster\.jpg/);
   await expect(video).not.toHaveAttribute("controls", "");
   await expect(player.getByRole("slider", { name: "播放进度" })).toBeVisible();
-  await expect(player.getByRole("slider", { name: "音量" })).toBeVisible();
+  await expect(player.getByRole("slider", { name: "音量" })).toBeHidden();
+  await expect(player.getByRole("button", { name: "打开声音" })).toBeVisible();
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
+    .toBe(true);
 
   await player.getByRole("button", { name: /播放 交互预览/ }).click();
   await expect(video).toHaveAttribute("src", /mock-video\.mp4/);
   await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
     .toBe(true);
+
+  await video.evaluate((element) => { (element as HTMLVideoElement).currentTime = 0.2; });
+  await player.click({ modifiers: ["Alt"], position: { x: 8, y: 8 } });
+  await expect(player).toHaveClass(/is-floating/);
+  await expect(player.getByRole("slider", { name: "音量" })).toBeVisible();
+  await expect(player.getByRole("button", { name: "返回会话播放" })).toBeVisible();
+  const floatingTime = await video.evaluate((element) => (element as HTMLVideoElement).currentTime);
+
+  await player.getByRole("button", { name: "返回会话播放" }).click();
+  await expect(player).not.toHaveClass(/is-floating/);
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).currentTime))
+    .toBeGreaterThanOrEqual(floatingTime);
 });
 
 test("photo albums preserve order, captions, clipping, and tile geometry", async ({ page }) => {

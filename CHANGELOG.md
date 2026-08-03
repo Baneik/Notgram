@@ -8,11 +8,15 @@ with prerelease identifiers used for release candidates.
 ### Added
 
 - Support `reg:` regular expressions in global and current-conversation message search.
+- Add a muted inline video surface, Alt-click floating playback, and progress-preserving
+  fullscreen transitions with compact controls for narrow conversations.
 
 ### Changed
 
 - Merge chat and message search into the single conversation-sidebar field, and hide
   the contacts navigation entry until it is assigned a new location.
+- Prefetch image and video covers above the viewport, replace percentage media loaders
+  with rotating indicators, and stop paused streams after a bounded buffer window.
 
 ## [0.5.0-rc.2] - 2026-08-03
 

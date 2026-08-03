@@ -6,6 +6,7 @@ const MAX_RESUME_ENTRIES = 200;
 const MIN_RESUME_SECONDS = 2;
 const END_THRESHOLD_SECONDS = 5;
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const;
+export const STREAM_PAUSE_BUFFER_SECONDS = 15;
 
 export class MediaPlaybackCoordinator {
   private active?: { id: string; media: CoordinatedMedia };
@@ -58,6 +59,19 @@ export const formatPlaybackTime = (seconds: number) => {
   const wholeSeconds = Math.floor(seconds);
   const minutes = Math.floor(wholeSeconds / 60);
   return `${minutes}:${String(wholeSeconds % 60).padStart(2, "0")}`;
+};
+
+export const bufferedSecondsAhead = (
+  media: Pick<HTMLMediaElement, "buffered" | "currentTime">,
+) => {
+  for (let index = 0; index < media.buffered.length; index += 1) {
+    const start = media.buffered.start(index);
+    const end = media.buffered.end(index);
+    if (media.currentTime >= start && media.currentTime <= end) {
+      return Math.max(0, end - media.currentTime);
+    }
+  }
+  return 0;
 };
 
 export const mediaPlaybackCoordinator = new MediaPlaybackCoordinator();

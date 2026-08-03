@@ -36,6 +36,7 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { shouldAutoDownload } from "../media/autoDownload";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
+const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
 export interface ReplyPreview {
   author: string;
@@ -67,6 +68,7 @@ interface MessageBubbleProps {
   onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
   onOpenDownloadDirectory: () => Promise<void>;
   onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
+  onSuspendStream: (fileId: number) => Promise<void>;
   onRetry: (messageId: string) => Promise<void>;
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
@@ -107,6 +109,7 @@ function MessageBubbleComponent({
   onSaveFileAs,
   onOpenDownloadDirectory,
   onStream,
+  onSuspendStream,
   onRetry,
   onCancelUpload,
   onReaction,
@@ -231,8 +234,8 @@ function MessageBubbleComponent({
     lazyMediaFileId,
     lazyMediaFileId !== undefined &&
       (lazyMediaIsThumbnail || automaticFileId !== undefined),
-    18,
-    "320px 0px",
+    lazyMediaIsThumbnail ? 20 : 18,
+    MEDIA_PREFETCH_ROOT_MARGIN,
   );
   const selectionDisabled = selectionPending ||
     message.permissions?.canForward === false ||
@@ -364,12 +367,10 @@ function MessageBubbleComponent({
                     fileId={content.fileId}
                     size={content.size}
                     mimeType={content.mimeType}
-                    downloadProgress={content.progress}
+                    downloading={content.isDownloading === true}
                     round={content.mediaType === "videoNote"}
                     onRequestStream={onStream}
-                    onDownload={canDownload && downloadFileId !== undefined
-                      ? () => void onDownload(downloadFileId, downloadFileName)
-                      : undefined}
+                    onSuspendStream={onSuspendStream}
                     onLoadedMetadata={rememberMediaSize}
                     onError={markMediaSourceFailed}
                   />
@@ -473,13 +474,14 @@ function MessageBubbleComponent({
                 )}
                 {(content.isDownloading || content.isUploading) && (
                   <span className="media-progress">
-                    <span>{content.progress === undefined
-                      ? <LoaderCircle className="spin" size={15} />
-                      : `${Math.round(content.progress * 100)}%`}</span>
                     {(canCancelUpload || canCancelDownload) && (
                       <button type="button" aria-label={`${canCancelUpload ? "取消上传" : "取消下载"} ${downloadFileName}`} title={canCancelUpload ? "取消上传" : "取消下载"} onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onCancelDownload(downloadFileId!)}>
-                        <X size={14} strokeWidth={2.2} />
+                        <LoaderCircle className="spin" size={30} strokeWidth={1.8} />
+                        <X className="media-progress-cancel" size={14} strokeWidth={2.2} />
                       </button>
+                    )}
+                    {!canCancelUpload && !canCancelDownload && (
+                      <span><LoaderCircle className="spin" size={28} strokeWidth={1.8} /></span>
                     )}
                   </span>
                 )}

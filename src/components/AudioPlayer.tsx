@@ -168,15 +168,20 @@ export function AudioPlayer({
       </button>
       {onCancelDownload ? (
         <button className="audio-download" type="button" aria-label={`取消下载 ${label}`} title="取消下载" onClick={onCancelDownload}>
-          <X size={15} />
+          <span className="audio-transfer-indicator">
+            <LoaderCircle className="spin" size={22} strokeWidth={1.8} />
+            <X className="audio-transfer-cancel" size={12} />
+          </span>
         </button>
       ) : onDownload && (
         <button className="audio-download" type="button" aria-label={`下载 ${label}`} title="下载音频" onClick={onDownload}>
           <Download size={15} />
         </button>
       )}
-      {!resolvedSource && downloadProgress !== undefined && downloadProgress > 0 && (
-        <span className="audio-download-progress">{Math.round(downloadProgress * 100)}%</span>
+      {!resolvedSource && downloadProgress !== undefined && downloadProgress > 0 && !onCancelDownload && (
+        <span className="audio-transfer-indicator" aria-label="音频加载中">
+          <LoaderCircle className="spin" size={22} strokeWidth={1.8} />
+        </span>
       )}
     </div>
   );

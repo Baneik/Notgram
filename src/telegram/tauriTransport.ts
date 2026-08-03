@@ -1026,6 +1026,15 @@ export class TauriTelegramTransport implements TelegramTransport {
     return convertFileSrc(String(fileId), "notgram-media");
   }
 
+  async suspendFileStream(fileId: number) {
+    if (this.pendingDownloads.has(fileId)) return;
+    await this.request({
+      "@type": "cancelDownloadFile",
+      file_id: fileId,
+      only_if_pending: false,
+    });
+  }
+
   async retryMessage(chatId: string, messageId: string) {
     const response = await this.request({
       "@type": "resendMessages",
