@@ -90,15 +90,18 @@ export function ContextMenuSurface({
       if (!focusFirstMenuButton(menuRef.current)) menuRef.current?.focus();
     }, 0);
     const closeOutside = (event: Event) => {
-      if (!menuRef.current?.contains(event.target as Node)) onClose();
+      const target = event.target;
+      if (!(target instanceof Node) || !menuRef.current?.contains(target)) onClose();
     };
     const closeForViewportChange = () => onClose();
     document.addEventListener("pointerdown", closeOutside, true);
+    window.addEventListener("scroll", closeOutside, true);
     window.addEventListener("blur", closeForViewportChange);
     window.addEventListener("resize", closeForViewportChange);
     return () => {
       globalThis.clearTimeout(timer);
       document.removeEventListener("pointerdown", closeOutside, true);
+      window.removeEventListener("scroll", closeOutside, true);
       window.removeEventListener("blur", closeForViewportChange);
       window.removeEventListener("resize", closeForViewportChange);
     };

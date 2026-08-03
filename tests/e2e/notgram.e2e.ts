@@ -1007,6 +1007,62 @@ test("nested context menus keep the primary anchor stable and leave transparent 
   await expect(menu).toBeHidden();
 });
 
+test("sidebar context menus close when content outside them scrolls", async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 420 });
+  await page.goto("/");
+  await page.addStyleTag({
+    content: ".chat-row { min-height: 92px; } .chat-folder-submenu { height: 32px; max-height: 32px; }",
+  });
+
+  const chatList = page.locator(".chat-list");
+  const scrollChatList = async () => {
+    const movement = await chatList.evaluate((element) => {
+      const before = element.scrollTop;
+      const maximum = element.scrollHeight - element.clientHeight;
+      element.scrollTop = before < maximum
+        ? Math.min(maximum, before + 80)
+        : Math.max(0, before - 80);
+      return { before, after: element.scrollTop, maximum };
+    });
+    expect(movement.maximum).toBeGreaterThan(0);
+    expect(movement.after).not.toBe(movement.before);
+  };
+
+  const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
+  await productRow.scrollIntoViewIfNeeded();
+  await productRow.click({ button: "right" });
+  let menu = page.locator(".context-menu-surface");
+  await expect(menu).toBeVisible();
+  await scrollChatList();
+  await expect(menu).toBeHidden();
+
+  const workFolder = page.getByRole("button", { name: "工作", exact: true });
+  await workFolder.click({ button: "right" });
+  menu = page.locator(".context-menu-surface");
+  await expect(menu).toBeVisible();
+  await scrollChatList();
+  await expect(menu).toBeHidden();
+
+  await productRow.scrollIntoViewIfNeeded();
+  await productRow.click({ button: "right" });
+  menu = page.locator(".context-menu-surface");
+  await menu.locator('[data-context-menu-primary] [role="menuitem"]').first().click();
+  const submenu = menu.locator(".chat-folder-submenu");
+  await expect(submenu).toBeVisible();
+  const submenuMovement = await submenu.evaluate((element) => {
+    const before = element.scrollTop;
+    const maximum = element.scrollHeight - element.clientHeight;
+    element.scrollTop = Math.min(maximum, before + 60);
+    return { before, after: element.scrollTop, maximum };
+  });
+  expect(submenuMovement.maximum).toBeGreaterThan(0);
+  expect(submenuMovement.after).not.toBe(submenuMovement.before);
+  await expect(menu).toBeVisible();
+
+  await scrollChatList();
+  await expect(menu).toBeHidden();
+});
+
 test("folder context menu edits, marks read, and deletes a custom folder", async ({ page }) => {
   await page.goto("/");
   const workButton = page.getByRole("button", { name: "工作", exact: true });
