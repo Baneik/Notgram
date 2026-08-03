@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  Copy,
   ChevronLeft,
   Download,
   Edit3,
@@ -32,6 +33,7 @@ interface MessageActionMenuProps {
   onDelete: () => void;
   onPlayInWindow?: () => void;
   onDownloadVideo?: () => void;
+  onCopyRaw?: () => void;
   onDismiss: () => void;
   onClose: () => void;
 }
@@ -47,6 +49,7 @@ export function MessageActionMenu({
   onDelete,
   onPlayInWindow,
   onDownloadVideo,
+  onCopyRaw,
   onDismiss,
   onClose,
 }: MessageActionMenuProps) {
@@ -80,6 +83,12 @@ export function MessageActionMenu({
         <button type="button" role="menuitem" onClick={onDownloadVideo}>
           <Download size={16} strokeWidth={1.9} />
           <span>下载视频</span>
+        </button>
+      )}
+      {onCopyRaw && (
+        <button type="button" role="menuitem" onClick={onCopyRaw}>
+          <Copy size={16} strokeWidth={1.9} />
+          <span>复制原始消息</span>
         </button>
       )}
       {!permissions ? (

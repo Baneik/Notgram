@@ -8,6 +8,7 @@ import {
   mapTdChatFolders,
   mapTdMessage,
   mapTdMessageProperties,
+  serializeTdObject,
   mapTdUser,
   tdId,
   tdNumber,
@@ -822,6 +823,25 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.set(chatId, chatMessages);
     this.ensureReplyContent(raw);
     return message;
+  }
+
+  async getRawMessage(chatId: string, messageId: string) {
+    let raw = this.rawMessages.get(chatId)?.get(messageId);
+    if (!raw) {
+      const requested = await this.request({
+        "@type": "getMessage",
+        chat_id: numericId(chatId),
+        message_id: numericId(messageId),
+      });
+      if (tdId(requested.chat_id) !== chatId || tdId(requested.id) !== messageId) {
+        return undefined;
+      }
+      const chatMessages = this.rawMessages.get(chatId) ?? new Map<string, TdObject>();
+      chatMessages.set(messageId, requested);
+      this.rawMessages.set(chatId, chatMessages);
+      raw = requested;
+    }
+    return serializeTdObject(raw);
   }
 
   async getMessageProperties(

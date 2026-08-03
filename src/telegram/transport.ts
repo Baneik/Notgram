@@ -74,6 +74,7 @@ export interface TelegramTransport {
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
   getMessageContext(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
   getMessage(chatId: string, messageId: string): Promise<Message | undefined>;
+  getRawMessage(chatId: string, messageId: string): Promise<string | undefined>;
   getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
   setMessageReaction(input: SetMessageReactionInput): Promise<void>;
   sendMessage(input: SendMessageInput): Promise<void>;

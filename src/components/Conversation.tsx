@@ -58,6 +58,7 @@ import { photoMessages } from "../utils/mediaViewerModel";
 import { segmentMediaAlbums } from "../utils/mediaAlbums";
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
+import { writeClipboardText } from "../utils/clipboard";
 
 interface ConversationProps {
   chat?: Chat;
@@ -89,6 +90,7 @@ interface ConversationProps {
     chatId: string,
     messageId: string,
   ) => Promise<MessagePermissions | undefined>;
+  onLoadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onSearchMessages: (query: string) => Promise<void>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
@@ -132,6 +134,7 @@ export function Conversation({
   onDraftChange,
   onForwardMessages,
   onLoadMessageProperties,
+  onLoadRawMessage,
   onSetMessageReaction,
   onSearchMessages,
   onDownloadFile,
@@ -381,7 +384,7 @@ export function Conversation({
     returnFocus?: HTMLElement,
   ) => {
     const menuWidth = 184;
-    const menuHeight = 170;
+    const menuHeight = developerMode ? 206 : 170;
     setActionMenu({
       messageId: message.id,
       left: Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8)),
@@ -392,7 +395,18 @@ export function Conversation({
     setActionLoadingId(message.id);
     await onLoadMessageProperties(message.chatId, message.id);
     setActionLoadingId((current) => current === message.id ? undefined : current);
-  }, [actionLoadingId, onLoadMessageProperties]);
+  }, [actionLoadingId, developerMode, onLoadMessageProperties]);
+
+  const copyRawMessage = async (message: Message) => {
+    const raw = await onLoadRawMessage(message.chatId, message.id);
+    if (!raw) return;
+    try {
+      await writeClipboardText(raw);
+      closeActionMenu(false);
+    } catch {
+      // Keep the menu open so the user can retry after clipboard access is restored.
+    }
+  };
 
   const cancelEditing = () => {
     setEditingMessage(undefined);
@@ -758,6 +772,7 @@ export function Conversation({
                 );
               }
             : undefined}
+          onCopyRaw={developerMode ? () => void copyRawMessage(actionMessage) : undefined}
           onDismiss={() => closeActionMenu(false)}
           onClose={() => closeActionMenu(true)}
         />

@@ -98,6 +98,7 @@ export function App() {
   const updateChatDraft = useTelegramStore((state) => state.updateChatDraft);
   const forwardMessages = useTelegramStore((state) => state.forwardMessages);
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
+  const loadRawMessage = useTelegramStore((state) => state.loadRawMessage);
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
   const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
   const searchGlobal = useTelegramStore((state) => state.searchGlobal);
@@ -512,6 +513,7 @@ export function App() {
           onDraftChange={updateChatDraft}
           onForwardMessages={forwardMessages}
           onLoadMessageProperties={loadMessageProperties}
+          onLoadRawMessage={loadRawMessage}
           onSetMessageReaction={setMessageReaction}
           onSearchMessages={searchChatMessages}
           onDownloadFile={downloadFile}

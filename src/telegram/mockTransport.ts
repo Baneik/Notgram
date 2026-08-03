@@ -598,6 +598,23 @@ export class MockTelegramTransport implements TelegramTransport {
     return message ? clone(message) : undefined;
   }
 
+  async getRawMessage(chatId: string, messageId: string) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === chatId && item.id === messageId,
+    );
+    if (!message) return undefined;
+    if (message.content.kind === "unsupported") return message.content.raw;
+    return JSON.stringify({
+      "@type": "message",
+      id: message.id,
+      chat_id: message.chatId,
+      sender_id: message.senderId,
+      is_outgoing: message.outgoing,
+      date: Math.floor(Date.parse(message.sentAt) / 1_000),
+      content: message.content,
+    }, null, 2);
+  }
+
   async getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions> {
     const message = this.snapshot.messages.find(
       (item) => item.chatId === chatId && item.id === messageId,

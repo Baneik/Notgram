@@ -271,7 +271,7 @@ const minithumbnailDataUrl = (value: unknown) => {
 
 const serviceContent = (text: string): MessageContent => ({ kind: "service", text });
 
-const serializedTdObject = (value: unknown) => {
+export const serializeTdObject = (value: unknown) => {
   try {
     return JSON.stringify(value, null, 2) ?? String(value);
   } catch {
@@ -283,7 +283,7 @@ const unsupportedContent = (value: unknown, type: string): MessageContent => ({
   kind: "unsupported",
   type,
   text: `收到新类型消息（${type}）`,
-  raw: serializedTdObject(value),
+  raw: serializeTdObject(value),
 });
 
 type RichTextStyle = Omit<MessageRichTextRun, "text">;
@@ -1158,7 +1158,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const failed = sendingState?.["@type"] === "messageSendingStateFailed";
   const mappedContent = mapTdMessageContent(raw.content);
   const content = mappedContent.kind === "unsupported"
-    ? { ...mappedContent, raw: serializedTdObject(raw) }
+    ? { ...mappedContent, raw: serializeTdObject(raw) }
     : mappedContent;
 
   return {

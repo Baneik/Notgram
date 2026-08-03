@@ -784,6 +784,18 @@ test("developer mode copies the complete raw unknown message", async ({ page, co
     id: "p-unknown",
     content: { "@type": "messageFutureType" },
   });
+
+  const regularMessage = page.locator('[data-message-id="p-2"]');
+  await regularMessage.locator(".message-bubble-shell").click({ button: "right" });
+  const rawMenuItem = page.getByRole("menuitem", { name: "复制原始消息" });
+  await expect(rawMenuItem).toBeVisible();
+  await rawMenuItem.click();
+  const regularRaw = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
+  expect(regularRaw).toMatchObject({
+    "@type": "message",
+    id: "p-2",
+    chat_id: "chat-product",
+  });
 });
 
 test("conversation scroll state follows, restores, counts, and resets to latest", async ({ page }) => {

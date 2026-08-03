@@ -117,6 +117,7 @@ export interface TelegramState {
     chatId: string,
     messageId: string,
   ) => Promise<MessagePermissions | undefined>;
+  loadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   searchChatMessages: (query: string) => Promise<void>;
   searchGlobal: (query: string, filter?: GlobalSearchFilter) => Promise<void>;
   loadMoreGlobalSearch: () => Promise<void>;
