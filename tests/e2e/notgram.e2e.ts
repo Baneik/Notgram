@@ -92,6 +92,14 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await page.getByRole("button", { name: /聊天设置/ }).click();
   await page.getByRole("switch", { name: "紧凑会话密度" }).check();
   await expect(page.locator("html")).toHaveClass(/compact-chat/);
+  await page.getByRole("slider", { name: "消息字体大小" }).fill("18");
+  await expect(page.locator(".range-preference").filter({ hasText: "消息字体大小" }))
+    .toContainText("18 px");
+  await expect(page.locator(".message-rich-text").first()).toHaveCSS("font-size", "18px");
+  await page.getByRole("slider", { name: "界面缩放比例" }).fill("110");
+  await expect(page.locator(".range-preference").filter({ hasText: "界面缩放比例" }))
+    .toContainText("110%");
+  await expect(page.locator("html")).toHaveCSS("zoom", "1.1");
   await page.getByRole("button", { name: /高级设置/ }).click();
   await page.getByRole("button", { name: "重建界面缓存" }).click();
   await expect(page.locator(".settings-dialog .cache-health"))

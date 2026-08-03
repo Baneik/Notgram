@@ -184,6 +184,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const autoDownloadLimitMb = usePreferencesStore((state) => state.autoDownloadLimitMb);
   const reduceMotion = usePreferencesStore((state) => state.reduceMotion);
   const developerMode = usePreferencesStore((state) => state.developerMode);
+  const chatFontSize = usePreferencesStore((state) => state.chatFontSize);
+  const interfaceScale = usePreferencesStore((state) => state.interfaceScale);
   const preferences: AppPreferences = {
     notificationsEnabled,
     notificationSound,
@@ -198,6 +200,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     autoDownloadLimitMb,
     reduceMotion,
     developerMode,
+    chatFontSize,
+    interfaceScale,
   };
   const setPreference = usePreferencesStore((state) => state.setPreference);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
@@ -390,7 +394,9 @@ interface PreferenceSettingsProps {
   onChange: <Key extends keyof AppPreferences>(key: Key, value: AppPreferences[Key]) => void;
 }
 
-type BooleanPreferenceKey = Exclude<keyof AppPreferences, "autoDownloadLimitMb">;
+type BooleanPreferenceKey = {
+  [Key in keyof AppPreferences]: AppPreferences[Key] extends boolean ? Key : never;
+}[keyof AppPreferences];
 
 function PreferenceSettings({
   category,
@@ -420,6 +426,55 @@ function PreferenceSettings({
 
   return (
     <div className="settings-detail-scroll preference-settings">
+      {category === "chats" && (
+        <section className="settings-section" aria-labelledby="chat-display-heading">
+          <div className="settings-section-heading">
+            <Gauge size={18} strokeWidth={1.8} />
+            <div>
+              <h4 id="chat-display-heading">显示</h4>
+              <span>字体与界面比例</span>
+            </div>
+          </div>
+          <div className="display-preference-list">
+            <label className="range-preference">
+              <span><strong>消息字体大小</strong><output>{preferences.chatFontSize} px</output></span>
+              <input
+                type="range"
+                min={12}
+                max={20}
+                step={1}
+                value={preferences.chatFontSize}
+                aria-label="消息字体大小"
+                onChange={(event) => onChange("chatFontSize", Number(event.target.value))}
+              />
+            </label>
+            <label className="range-preference">
+              <span><strong>界面缩放比例</strong><output>{preferences.interfaceScale}%</output></span>
+              <input
+                type="range"
+                min={80}
+                max={150}
+                step={5}
+                value={preferences.interfaceScale}
+                aria-label="界面缩放比例"
+                onChange={(event) => onChange("interfaceScale", Number(event.target.value))}
+              />
+            </label>
+          </div>
+          <button
+            className="storage-reset display-reset"
+            type="button"
+            disabled={preferences.chatFontSize === 14 && preferences.interfaceScale === 100}
+            onClick={() => {
+              onChange("chatFontSize", 14);
+              onChange("interfaceScale", 100);
+            }}
+          >
+            <RotateCcw size={15} strokeWidth={2} />
+            恢复显示默认值
+          </button>
+        </section>
+      )}
       <section className="settings-section">
         <div className="preference-list">
           {options.map((option) => (

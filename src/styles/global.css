@@ -17,6 +17,7 @@
   --accent-soft: #e5f2fc;
   --outgoing: #e7ffdb;
   --chat-canvas: #dfe7e4;
+  --chat-font-size: 14px;
 }
 
 * { box-sizing: border-box; letter-spacing: 0; }
@@ -483,8 +484,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-reply-preview strong, .message-reply-preview small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-reply-preview strong { color: var(--accent-strong); font-size: 11px; }
 .message-reply-preview small { color: #5f686d; font-size: 11px; }
-.message-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.48; }
-.message-rich-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.48; }
+.message-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--chat-font-size); line-height: 1.48; }
+.message-rich-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--chat-font-size); line-height: 1.48; }
 .message-rich-text > :first-child { margin-top: 0; }
 .message-rich-text > :last-child { margin-bottom: 0; }
 .message-rich-text p, .message-rich-text ul, .message-rich-text ol,
@@ -495,17 +496,17 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-rich-text li > p { display: inline; }
 .message-rich-text h1, .message-rich-text h2, .message-rich-text h3,
 .message-rich-text h4, .message-rich-text h5, .message-rich-text h6 {
-  margin: 0 0 5px; font-size: 14px; line-height: 1.4; font-weight: 750;
+  margin: 0 0 5px; font-size: var(--chat-font-size); line-height: 1.4; font-weight: 750;
 }
 .message-rich-text a { color: #1976bd; text-decoration: underline; text-underline-offset: 2px; }
 .is-outgoing .message-rich-text a { color: #176ba5; }
 .message-rich-text code {
   padding: 1px 4px; color: #a33a31; background: rgba(25, 37, 43, 0.08);
-  border-radius: 3px; font-family: Consolas, "Courier New", monospace; font-size: 12px;
+  border-radius: 3px; font-family: Consolas, "Courier New", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
 }
 .message-rich-text pre, .message-rich-text .rich-pre {
   padding: 7px 8px; display: block; overflow-x: auto; color: #263238; background: rgba(25, 37, 43, 0.08);
-  border-radius: 5px; white-space: pre; font-family: Consolas, "Courier New", monospace; font-size: 12px;
+  border-radius: 5px; white-space: pre; font-family: Consolas, "Courier New", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
 }
 .message-rich-text pre code { padding: 0; color: inherit; background: transparent; white-space: inherit; }
 .message-rich-text blockquote, .message-rich-text .rich-blockquote {
@@ -1067,6 +1068,14 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .preference-row input[role="switch"]:checked { background: var(--accent); }
 .preference-row input[role="switch"]:checked::after { transform: translateX(16px); }
 .preference-row input[role="switch"]:disabled { opacity: 0.45; cursor: default; }
+.display-preference-list { display: grid; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.range-preference { min-height: 72px; padding: 10px 13px; display: grid; align-content: center; gap: 8px; background: #ffffff; }
+.range-preference + .range-preference { border-top: 1px solid var(--line); }
+.range-preference > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.range-preference strong { color: var(--ink); font-size: 13px; font-weight: 500; }
+.range-preference output { min-width: 48px; color: var(--accent); text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.range-preference input { width: 100%; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.display-reset { justify-self: end; }
 .dialog-secondary, .dialog-save { height: 40px; }
 .dialog-secondary { min-width: 92px; padding: 0 13px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--accent); background: #ffffff; border: 1px solid var(--accent); border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
 .dialog-secondary:disabled { opacity: 0.5; cursor: default; }

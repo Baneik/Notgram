@@ -1,5 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 export interface AppPreferences {
   notificationsEnabled: boolean;
@@ -15,6 +17,8 @@ export interface AppPreferences {
   autoDownloadLimitMb: number;
   reduceMotion: boolean;
   developerMode: boolean;
+  chatFontSize: number;
+  interfaceScale: number;
 }
 
 interface PreferencesState extends AppPreferences {
@@ -39,7 +43,14 @@ const defaults: AppPreferences = {
   autoDownloadLimitMb: 10,
   reduceMotion: false,
   developerMode: false,
+  chatFontSize: 14,
+  interfaceScale: 100,
 };
+
+const boundedInteger = (value: unknown, fallback: number, minimum: number, maximum: number) =>
+  Number.isFinite(value)
+    ? Math.round(Math.max(minimum, Math.min(maximum, Number(value))))
+    : fallback;
 
 const readPreferences = (): AppPreferences => {
   try {
@@ -57,11 +68,16 @@ const readPreferences = (): AppPreferences => {
       autoDownloadVideos: stored.autoDownloadVideos ?? defaults.autoDownloadVideos,
       autoDownloadAudio: stored.autoDownloadAudio ?? defaults.autoDownloadAudio,
       autoDownloadFiles: stored.autoDownloadFiles ?? defaults.autoDownloadFiles,
-      autoDownloadLimitMb: Number.isFinite(stored.autoDownloadLimitMb)
-        ? Math.max(1, Math.min(2_048, Number(stored.autoDownloadLimitMb)))
-        : defaults.autoDownloadLimitMb,
+      autoDownloadLimitMb: boundedInteger(
+        stored.autoDownloadLimitMb,
+        defaults.autoDownloadLimitMb,
+        1,
+        2_048,
+      ),
       reduceMotion: stored.reduceMotion ?? defaults.reduceMotion,
       developerMode: stored.developerMode ?? defaults.developerMode,
+      chatFontSize: boundedInteger(stored.chatFontSize, defaults.chatFontSize, 12, 20),
+      interfaceScale: boundedInteger(stored.interfaceScale, defaults.interfaceScale, 80, 150),
     };
   } catch {
     return defaults;
@@ -69,6 +85,7 @@ const readPreferences = (): AppPreferences => {
 };
 
 const initialPreferences = readPreferences();
+let appliedInterfaceScale: number | undefined;
 
 export const preferencesStore = createStore<PreferencesState>((set) => ({
   ...initialPreferences,
@@ -79,6 +96,20 @@ const applyPreferences = (preferences: AppPreferences) => {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle("compact-chat", preferences.compactMode);
   document.documentElement.classList.toggle("reduce-motion", preferences.reduceMotion);
+  document.documentElement.style.setProperty("--chat-font-size", `${preferences.chatFontSize}px`);
+  if (appliedInterfaceScale === preferences.interfaceScale) return;
+  appliedInterfaceScale = preferences.interfaceScale;
+  const scale = preferences.interfaceScale / 100;
+  if (isTauri()) {
+    document.documentElement.style.removeProperty("zoom");
+    void getCurrentWebview().setZoom(scale).catch(() => {
+      if (appliedInterfaceScale === preferences.interfaceScale) {
+        document.documentElement.style.setProperty("zoom", String(scale));
+      }
+    });
+  } else {
+    document.documentElement.style.setProperty("zoom", String(scale));
+  }
 };
 
 applyPreferences(initialPreferences);
@@ -97,6 +128,8 @@ preferencesStore.subscribe((state) => {
     autoDownloadLimitMb: state.autoDownloadLimitMb,
     reduceMotion: state.reduceMotion,
     developerMode: state.developerMode,
+    chatFontSize: state.chatFontSize,
+    interfaceScale: state.interfaceScale,
   };
   applyPreferences(preferences);
   try {
