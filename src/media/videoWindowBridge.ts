@@ -13,6 +13,11 @@ export interface VideoWindowDescriptor {
   muted: boolean;
   autoplay: boolean;
   mode: VideoWindowMode;
+  fileId?: number;
+  fileName?: string;
+  downloadable?: boolean;
+  streaming?: boolean;
+  aspectRatio?: number;
 }
 
 export interface VideoWindowState {
@@ -29,7 +34,7 @@ export type VideoWindowMessage =
   | { type: "init"; id: string; descriptor: VideoWindowDescriptor }
   | { type: "state"; id: string; state: VideoWindowState }
   | { type: "closed"; id: string; state: VideoWindowState }
-  | { type: "command"; id: string; command: "toggle" | "close" | "seek"; value?: number };
+  | { type: "command"; id: string; command: "toggle" | "close" | "seek" | "download"; value?: number };
 
 export const VIDEO_WINDOW_CHANNEL = "notgram-video-window-v1";
 const VIDEO_WINDOW_REQUEST_EVENT = "notgram:open-video-window";

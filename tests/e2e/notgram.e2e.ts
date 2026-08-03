@@ -492,6 +492,7 @@ test("video uses synchronized transparent playback windows and owns the playback
   await row.click({ button: "right" });
   const actionMenu = page.getByRole("menu", { name: "消息操作" });
   await expect(actionMenu.getByRole("menuitem").first()).toHaveText("以小窗播放");
+  await expect(actionMenu.getByRole("menuitem").nth(1)).toHaveText("下载视频");
   const popupPromise = page.waitForEvent("popup");
   await actionMenu.getByRole("menuitem", { name: "以小窗播放" }).click();
   const popup = await popupPromise;
@@ -530,11 +531,14 @@ test("video uses synchronized transparent playback windows and owns the playback
   const controls = popup.locator(".video-fullscreen-controls");
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
     .toBe("1");
+  await expect(popup.getByRole("button", { name: "下载视频" })).toBeVisible();
   const controlsBounds = await controls.boundingBox();
   expect(Math.round(controlsBounds!.width)).toBe(550);
   expect(Math.round(controlsBounds!.height)).toBe(80);
   await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgba(0, 0, 0, 0)");
+  await expect.poll(() => popupPlayer.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .toBe("rgba(12, 18, 20, 0.62)");
 
   await popup.waitForTimeout(1_100);
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))

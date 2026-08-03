@@ -1,6 +1,9 @@
 import { isTauri } from "@tauri-apps/api/core";
+import { PhysicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  Download,
+  LoaderCircle,
   Maximize2,
   Minimize2,
   Pause,
@@ -11,9 +14,16 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import {
+  bufferedMediaEnd,
   formatPlaybackTime,
+  hasPlaybackBuffer,
   rememberVideoVolume,
 } from "../media/mediaPlayback";
+import {
+  formatTransferSpeed,
+  readMediaStreamStatus,
+  updateMediaStreamPlayback,
+} from "../media/mediaStream";
 import {
   VIDEO_WINDOW_CHANNEL,
   type VideoWindowDescriptor,
@@ -24,6 +34,10 @@ import { logPerformance } from "../utils/performanceMonitor";
 
 const CONTROL_IDLE_TIMEOUT_MS = 1_000;
 const READY_RETRY_INTERVAL_MS = 250;
+const STREAM_SYNC_INTERVAL_MS = 500;
+const MIN_WINDOW_LONG_EDGE = 320;
+const MAX_WINDOW_WIDTH = 960;
+const MAX_WINDOW_HEIGHT = 720;
 
 interface VideoWindowProps {
   id: string;
@@ -33,11 +47,19 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const channelRef = useRef<BroadcastChannel | undefined>(undefined);
+  const descriptorRef = useRef<VideoWindowDescriptor | undefined>(undefined);
   const hideTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const fullscreenRef = useRef(false);
   const closedRef = useRef(false);
+  const rebufferingRef = useRef(false);
+  const shouldResumeAfterBufferRef = useRef(false);
+  const lastStreamSyncAtRef = useRef(0);
+  const lastStreamStatusRef = useRef<{ bytes: number; at: number } | undefined>(undefined);
   const [descriptor, setDescriptor] = useState<VideoWindowDescriptor>();
   const [playing, setPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [bufferedEnd, setBufferedEnd] = useState(0);
+  const [downloadSpeed, setDownloadSpeed] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.2);
@@ -86,11 +108,59 @@ export function VideoWindow({ id }: VideoWindowProps) {
     } satisfies VideoWindowMessage);
   };
 
+  const refreshBufferedState = (video: HTMLVideoElement) => {
+    setBufferedEnd(bufferedMediaEnd(video));
+  };
+
+  const syncStreamPlayback = (video: HTMLVideoElement, force = false) => {
+    const currentDescriptor = descriptorRef.current;
+    if (!currentDescriptor?.streaming || currentDescriptor.fileId === undefined) return;
+    const now = performance.now();
+    if (!force && now - lastStreamSyncAtRef.current < STREAM_SYNC_INTERVAL_MS) return;
+    lastStreamSyncAtRef.current = now;
+    void updateMediaStreamPlayback(
+      currentDescriptor.fileId,
+      video.currentTime,
+      Number.isFinite(video.duration) ? video.duration : 0,
+      video.paused,
+    ).catch(() => undefined);
+  };
+
+  const resumeWhenBuffered = (video: HTMLVideoElement) => {
+    refreshBufferedState(video);
+    if (!rebufferingRef.current || !hasPlaybackBuffer(video)) return false;
+    rebufferingRef.current = false;
+    setBuffering(false);
+    if (shouldResumeAfterBufferRef.current) void video.play().catch(() => undefined);
+    return true;
+  };
+
+  const waitForPlaybackBuffer = (video: HTMLVideoElement) => {
+    if (!descriptorRef.current?.streaming) return false;
+    rebufferingRef.current = true;
+    shouldResumeAfterBufferRef.current = true;
+    setBuffering(true);
+    if (!video.paused) video.pause();
+    syncStreamPlayback(video, true);
+    return true;
+  };
+
   const togglePlayback = async () => {
     const video = videoRef.current;
     if (!video) return;
-    if (video.paused) await video.play().catch(() => undefined);
-    else video.pause();
+    if (video.paused) {
+      shouldResumeAfterBufferRef.current = true;
+      if (descriptorRef.current?.streaming && !hasPlaybackBuffer(video)) {
+        waitForPlaybackBuffer(video);
+        return;
+      }
+      await video.play().catch(() => undefined);
+    } else {
+      shouldResumeAfterBufferRef.current = false;
+      rebufferingRef.current = false;
+      setBuffering(false);
+      video.pause();
+    }
   };
 
   const toggleFullscreen = async () => {
@@ -99,7 +169,9 @@ export function VideoWindow({ id }: VideoWindowProps) {
     if (next && video) {
       video.muted = false;
       setMuted(false);
-      await video.play().catch(() => undefined);
+      shouldResumeAfterBufferRef.current = true;
+      if (descriptorRef.current?.streaming && !hasPlaybackBuffer(video)) waitForPlaybackBuffer(video);
+      else await video.play().catch(() => undefined);
     }
     try {
       if (isTauri()) {
@@ -124,6 +196,15 @@ export function VideoWindow({ id }: VideoWindowProps) {
     else globalThis.close();
   };
 
+  const requestDownload = () => {
+    if (!descriptorRef.current?.downloadable) return;
+    channelRef.current?.postMessage({
+      type: "command",
+      id,
+      command: "download",
+    } satisfies VideoWindowMessage);
+  };
+
   useEffect(() => {
     document.documentElement.classList.add("video-window-page");
     document.body.classList.add("video-window-page");
@@ -143,6 +224,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
           readyTimer = undefined;
         }
         const initial = message.descriptor;
+        descriptorRef.current = initial;
         setDescriptor(initial);
         setCurrentTime(initial.currentTime);
         setDuration(initial.duration);
@@ -157,7 +239,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
       if (message.type === "command") {
         if (message.command === "toggle") void togglePlayback();
         else if (message.command === "seek" && typeof message.value === "number") seek(message.value);
-        else void closeWindow();
+        else if (message.command === "close") void closeWindow();
       }
     };
     announceReady();
@@ -198,6 +280,77 @@ export function VideoWindow({ id }: VideoWindowProps) {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!descriptor?.streaming || descriptor.fileId === undefined) {
+      lastStreamStatusRef.current = undefined;
+      setDownloadSpeed(0);
+      return;
+    }
+    let active = true;
+    const sample = async () => {
+      const status = await readMediaStreamStatus(descriptor.fileId).catch(() => undefined);
+      if (!active || !status) return;
+      const now = performance.now();
+      const previous = lastStreamStatusRef.current;
+      if (previous && status.downloadedBytes >= previous.bytes && now > previous.at) {
+        const speed = (status.downloadedBytes - previous.bytes) * 1000 / (now - previous.at);
+        if (speed > 0) setDownloadSpeed(speed);
+        else if (!status.active) setDownloadSpeed(0);
+      }
+      lastStreamStatusRef.current = { bytes: status.downloadedBytes, at: now };
+    };
+    void sample();
+    const timer = globalThis.setInterval(() => { void sample(); }, STREAM_SYNC_INTERVAL_MS);
+    return () => {
+      active = false;
+      globalThis.clearInterval(timer);
+    };
+  }, [descriptor?.fileId, descriptor?.streaming]);
+
+  useEffect(() => {
+    const ratio = descriptor?.aspectRatio;
+    if (!isTauri() || fullscreen || !ratio || !Number.isFinite(ratio) || ratio <= 0) return;
+    const appWindow = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    let correcting = false;
+    let previous: { width: number; height: number } | undefined;
+
+    void (async () => {
+      const initial = await appWindow.innerSize();
+      previous = initial;
+      unlisten = await appWindow.onResized(async ({ payload }) => {
+        if (disposed || correcting || !previous) return;
+        const widthDelta = Math.abs(payload.width - previous.width);
+        const heightDelta = Math.abs(payload.height - previous.height);
+        let nextWidth = payload.width;
+        let nextHeight = payload.height;
+        if (widthDelta >= heightDelta) nextHeight = nextWidth / ratio;
+        else nextWidth = nextHeight * ratio;
+
+        const scaleUp = Math.max(1, MIN_WINDOW_LONG_EDGE / Math.max(nextWidth, nextHeight));
+        nextWidth *= scaleUp;
+        nextHeight *= scaleUp;
+        const scaleDown = Math.min(1, MAX_WINDOW_WIDTH / nextWidth, MAX_WINDOW_HEIGHT / nextHeight);
+        nextWidth = Math.max(1, Math.round(nextWidth * scaleDown));
+        nextHeight = Math.max(1, Math.round(nextHeight * scaleDown));
+        previous = { width: nextWidth, height: nextHeight };
+        if (Math.abs(payload.width - nextWidth) <= 1 && Math.abs(payload.height - nextHeight) <= 1) return;
+        correcting = true;
+        try {
+          await appWindow.setSize(new PhysicalSize(nextWidth, nextHeight));
+        } finally {
+          correcting = false;
+        }
+      });
+    })().catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [descriptor?.aspectRatio, fullscreen]);
+
   const updateVolume = (nextVolume: number) => {
     const normalized = rememberVideoVolume(nextVolume);
     const video = videoRef.current;
@@ -219,7 +372,11 @@ export function VideoWindow({ id }: VideoWindowProps) {
   };
 
   const seek = (nextTime: number) => {
-    if (videoRef.current) videoRef.current.currentTime = nextTime;
+    if (videoRef.current) {
+      videoRef.current.currentTime = nextTime;
+      refreshBufferedState(videoRef.current);
+      syncStreamPlayback(videoRef.current, true);
+    }
     setCurrentTime(nextTime);
     publishState();
   };
@@ -255,6 +412,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const remainingTime = Math.max(0, duration - currentTime);
   const progressStyle = {
     "--video-progress": `${duration > 0 ? Math.min(100, currentTime / duration * 100) : 0}%`,
+    "--video-buffered": `${duration > 0 ? Math.min(100, bufferedEnd / duration * 100) : 0}%`,
   } as CSSProperties;
 
   return (
@@ -271,7 +429,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
           ref={videoRef}
           src={descriptor.source}
           poster={descriptor.poster}
-          preload="metadata"
+          preload={descriptor.streaming ? "auto" : "metadata"}
           playsInline
           aria-label={descriptor.label}
           onLoadedMetadata={(event) => {
@@ -284,33 +442,70 @@ export function VideoWindow({ id }: VideoWindowProps) {
             }
             setDuration(nextDuration);
             setCurrentTime(video.currentTime);
+            refreshBufferedState(video);
+            syncStreamPlayback(video, true);
             if (descriptor.autoplay || descriptor.mode === "fullscreen") {
-              void video.play().catch(() => undefined);
+              shouldResumeAfterBufferRef.current = true;
+              if (descriptor.streaming && !hasPlaybackBuffer(video)) waitForPlaybackBuffer(video);
+              else void video.play().catch(() => undefined);
             }
             publishState();
           }}
-          onPlay={() => {
+          onCanPlay={(event) => {
+            refreshBufferedState(event.currentTarget);
+            resumeWhenBuffered(event.currentTarget);
+          }}
+          onPlay={(event) => {
+            shouldResumeAfterBufferRef.current = true;
+            syncStreamPlayback(event.currentTarget, true);
             setPlaying(true);
+            setBuffering(false);
             publishState();
           }}
-          onPause={() => {
+          onPlaying={() => {
+            setPlaying(true);
+            setBuffering(false);
+          }}
+          onPause={(event) => {
+            syncStreamPlayback(event.currentTarget, true);
             setPlaying(false);
             publishState();
           }}
+          onProgress={(event) => {
+            refreshBufferedState(event.currentTarget);
+            syncStreamPlayback(event.currentTarget);
+            resumeWhenBuffered(event.currentTarget);
+          }}
+          onWaiting={(event) => {
+            if (!waitForPlaybackBuffer(event.currentTarget)) setBuffering(true);
+          }}
           onTimeUpdate={(event) => {
             setCurrentTime(event.currentTarget.currentTime);
+            refreshBufferedState(event.currentTarget);
+            syncStreamPlayback(event.currentTarget);
             publishState();
           }}
           onDurationChange={(event) => {
             if (Number.isFinite(event.currentTarget.duration)) setDuration(event.currentTarget.duration);
           }}
           onEnded={() => {
+            rebufferingRef.current = false;
+            shouldResumeAfterBufferRef.current = false;
             setPlaying(false);
+            setBuffering(false);
             setCurrentTime(0);
+            setBufferedEnd(0);
             publishState();
           }}
         />
       ) : <div className="video-window-loading" aria-label="正在准备视频" />}
+
+      {buffering && (
+        <div className="video-window-buffering" aria-live="polite">
+          <LoaderCircle className="spin" size={32} />
+          <span>{formatTransferSpeed(downloadSpeed)}</span>
+        </div>
+      )}
 
       <div className="video-window-controls video-windowed-controls">
         <div className="video-window-topbar">
@@ -325,7 +520,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
             <button type="button" aria-label="关闭小窗" title="关闭" onClick={() => void closeWindow()}><X size={20} /></button>
           </div>
         </div>
-        {!playing && (
+        {!playing && !buffering && (
           <button className="video-window-center-play" type="button" aria-label="播放" title="播放" onClick={() => void togglePlayback()}>
             <Play size={34} fill="currentColor" />
           </button>
@@ -346,9 +541,16 @@ export function VideoWindow({ id }: VideoWindowProps) {
             <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="音量" onChange={(event) => updateVolume(Number(event.currentTarget.value))} />
           </div>
           <button className="video-fullscreen-play" type="button" aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"} onClick={() => void togglePlayback()}>
-            {playing ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
+            {buffering
+              ? <LoaderCircle className="spin" size={24} />
+              : playing
+                ? <Pause size={24} fill="currentColor" />
+                : <Play size={24} fill="currentColor" />}
           </button>
           <div className="video-window-actions">
+            {descriptor?.downloadable && (
+              <button type="button" aria-label="下载视频" title="下载视频" onClick={requestDownload}><Download size={18} /></button>
+            )}
             <button type="button" aria-label="退出全屏" title="退出全屏（F）" onClick={() => void toggleFullscreen()}><Minimize2 size={18} /></button>
             <button type="button" aria-label="关闭播放窗口" title="关闭" onClick={() => void closeWindow()}><X size={19} /></button>
           </div>
@@ -358,6 +560,11 @@ export function VideoWindow({ id }: VideoWindowProps) {
           <input type="range" min={0} max={duration || 0} step={0.1} value={Math.min(currentTime, duration || 0)} aria-label="全屏播放进度" style={progressStyle} onChange={(event) => seek(Number(event.currentTarget.value))} />
           <span>-{formatPlaybackTime(remainingTime)}</span>
         </div>
+        {descriptor?.streaming && (
+          <span className="video-fullscreen-speed">
+            {buffering ? "缓冲中" : "加载"} · {formatTransferSpeed(downloadSpeed)}
+          </span>
+        )}
       </div>
     </div>
   );

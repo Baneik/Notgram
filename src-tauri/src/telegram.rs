@@ -877,6 +877,33 @@ pub fn telegram_register_media_stream(
 }
 
 #[tauri::command]
+pub fn telegram_update_media_stream(
+    file_id: i32,
+    current_time: f64,
+    duration: f64,
+    paused: bool,
+    registry: State<'_, media_stream::MediaStreamRegistry>,
+) -> Result<(), String> {
+    registry.update_playback(file_id, current_time, duration, paused)
+}
+
+#[tauri::command]
+pub fn telegram_suspend_media_stream(
+    file_id: i32,
+    registry: State<'_, media_stream::MediaStreamRegistry>,
+) {
+    registry.suspend(file_id);
+}
+
+#[tauri::command]
+pub fn telegram_media_stream_status(
+    file_id: i32,
+    registry: State<'_, media_stream::MediaStreamRegistry>,
+) -> Option<media_stream::MediaStreamStatus> {
+    registry.status(file_id)
+}
+
+#[tauri::command]
 pub async fn telegram_pick_and_send_file(
     app: AppHandle,
     chat_id: i64,

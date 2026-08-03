@@ -1028,6 +1028,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async suspendFileStream(fileId: number) {
     if (this.pendingDownloads.has(fileId)) return;
+    await invoke("telegram_suspend_media_stream", { fileId }).catch(() => undefined);
     await this.request({
       "@type": "cancelDownloadFile",
       file_id: fileId,

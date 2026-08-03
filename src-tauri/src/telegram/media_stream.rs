@@ -1,3 +1,4 @@
+use serde::Serialize;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -17,6 +18,10 @@ use super::TelegramRuntime;
 
 const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 const READY_RESPONSE_BYTES: u64 = 256 * 1024;
+const INITIAL_STREAM_WINDOW_BYTES: u64 = 8 * 1024 * 1024;
+const STREAM_RANGE_SAFETY_BYTES: u64 = 2 * 1024 * 1024;
+const STREAM_METADATA_TAIL_BYTES: u64 = 2 * 1024 * 1024;
+const STREAM_BUFFER_SECONDS: f64 = 15.0;
 const RANGE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
@@ -24,7 +29,28 @@ struct FileProgress {
     path: PathBuf,
     offset: u64,
     prefix_size: u64,
+    downloaded_size: u64,
+    active: bool,
     completed: bool,
+}
+
+#[derive(Clone)]
+struct StreamPlayback {
+    current_time: f64,
+    duration: f64,
+    paused: bool,
+    active: bool,
+}
+
+impl Default for StreamPlayback {
+    fn default() -> Self {
+        Self {
+            current_time: 0.0,
+            duration: 0.0,
+            paused: true,
+            active: true,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -32,6 +58,15 @@ struct RegisteredMedia {
     size: u64,
     mime_type: String,
     progress: Option<FileProgress>,
+    playback: StreamPlayback,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaStreamStatus {
+    downloaded_bytes: u64,
+    active: bool,
+    completed: bool,
 }
 
 #[derive(Default)]
@@ -70,13 +105,70 @@ impl MediaStreamRegistry {
             .and_modify(|media| {
                 media.size = size;
                 media.mime_type.clone_from(&mime_type);
+                media.playback.active = true;
             })
             .or_insert(RegisteredMedia {
                 size,
                 mime_type,
                 progress: None,
+                playback: StreamPlayback::default(),
             });
+        drop(inner);
+        self.changed.notify_all();
         Ok(())
+    }
+
+    pub fn update_playback(
+        &self,
+        file_id: i32,
+        current_time: f64,
+        duration: f64,
+        paused: bool,
+    ) -> Result<(), String> {
+        if !current_time.is_finite()
+            || current_time < 0.0
+            || !duration.is_finite()
+            || duration < 0.0
+        {
+            return Err("Invalid Telegram media playback state".to_string());
+        }
+        let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        let media = inner
+            .files
+            .get_mut(&file_id)
+            .ok_or_else(|| "Media stream is not registered".to_string())?;
+        media.playback = StreamPlayback {
+            current_time,
+            duration,
+            paused,
+            active: true,
+        };
+        drop(inner);
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    pub fn suspend(&self, file_id: i32) {
+        let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        if let Some(media) = inner.files.get_mut(&file_id) {
+            media.playback.active = false;
+        }
+        drop(inner);
+        self.changed.notify_all();
+    }
+
+    pub fn status(&self, file_id: i32) -> Option<MediaStreamStatus> {
+        let inner = self.inner.lock().expect("media stream registry poisoned");
+        let media = inner.files.get(&file_id)?;
+        let progress = media.progress.as_ref();
+        let completed = media_is_complete(media);
+        Some(MediaStreamStatus {
+            downloaded_bytes: progress
+                .map_or(0, |value| value.downloaded_size.max(value.prefix_size))
+                .min(media.size),
+            active: media.playback.active && progress.is_some_and(|value| value.active),
+            completed,
+        })
     }
 
     pub fn clear(&self) {
@@ -139,6 +231,45 @@ impl MediaStreamRegistry {
             .map(|media| media.size)
     }
 
+    fn wait_for_permitted_range(
+        &self,
+        file_id: i32,
+        start: u64,
+        requested: u64,
+    ) -> Result<u64, String> {
+        let deadline = Instant::now() + RANGE_WAIT_TIMEOUT;
+        let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        loop {
+            let media = inner
+                .files
+                .get(&file_id)
+                .ok_or_else(|| "Media stream is not registered".to_string())?;
+            if start >= media.size {
+                return Err("Requested media range is outside the file".to_string());
+            }
+            if !media.playback.active && !media_is_complete(media) {
+                return Err("Telegram media stream is suspended".to_string());
+            }
+            let wanted = permitted_response_bytes(
+                media,
+                start,
+                requested.min(media.size - start).min(MAX_RESPONSE_BYTES),
+            );
+            if wanted > 0 {
+                return Ok(wanted);
+            }
+            if Instant::now() >= deadline {
+                return Err("Timed out while waiting for the video buffer window".to_string());
+            }
+            let wait = deadline.saturating_duration_since(Instant::now());
+            let (next, _) = self
+                .changed
+                .wait_timeout(inner, wait)
+                .expect("media stream registry poisoned while waiting");
+            inner = next;
+        }
+    }
+
     fn read_range(&self, file_id: i32, start: u64, requested: u64) -> Result<MediaChunk, String> {
         let deadline = Instant::now() + RANGE_WAIT_TIMEOUT;
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
@@ -150,10 +281,26 @@ impl MediaStreamRegistry {
             if start >= media.size {
                 return Err("Requested media range is outside the file".to_string());
             }
-            let wanted = requested.min(media.size - start).min(MAX_RESPONSE_BYTES);
+            if !media.playback.active && !media_is_complete(media) {
+                return Err("Telegram media stream is suspended".to_string());
+            }
+            let requested_bytes = requested.min(media.size - start).min(MAX_RESPONSE_BYTES);
+            let wanted = permitted_response_bytes(media, start, requested_bytes);
+            if wanted == 0 {
+                if Instant::now() >= deadline {
+                    return Err("Timed out while waiting for the video buffer window".to_string());
+                }
+                let wait = deadline.saturating_duration_since(Instant::now());
+                let (next, _) = self
+                    .changed
+                    .wait_timeout(inner, wait)
+                    .expect("media stream registry poisoned while waiting");
+                inner = next;
+                continue;
+            }
             let available = media.progress.as_ref().map_or(0, |progress| {
                 let prefix_end = progress.offset.saturating_add(progress.prefix_size);
-                if progress.completed {
+                if media_is_complete(media) {
                     media.size.saturating_sub(start)
                 } else if start >= progress.offset && start < prefix_end {
                     prefix_end - start
@@ -163,10 +310,7 @@ impl MediaStreamRegistry {
             });
             let timed_out = Instant::now() >= deadline;
             let ready = available >= wanted.min(READY_RESPONSE_BYTES)
-                || media
-                    .progress
-                    .as_ref()
-                    .is_some_and(|progress| progress.completed)
+                || media_is_complete(media)
                 || (timed_out && available > 0);
             if ready {
                 let progress = media.progress.clone().expect("ready media has progress");
@@ -229,6 +373,12 @@ fn collect_file_progress(value: &Value, files: &mut Vec<(i32, FileProgress, bool
                             .get("downloaded_prefix_size")
                             .and_then(Value::as_u64)
                             .unwrap_or(0),
+                        downloaded_size: local
+                            .get("downloaded_size")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
+                        active: local.get("is_downloading_active").and_then(Value::as_bool)
+                            == Some(true),
                         completed: local
                             .get("is_downloading_completed")
                             .and_then(Value::as_bool)
@@ -247,6 +397,39 @@ fn collect_file_progress(value: &Value, files: &mut Vec<(i32, FileProgress, bool
             }
         }
         _ => {}
+    }
+}
+
+fn media_is_complete(media: &RegisteredMedia) -> bool {
+    media
+        .progress
+        .as_ref()
+        .is_some_and(|progress| progress.completed && progress.downloaded_size >= media.size)
+}
+
+fn permitted_response_bytes(media: &RegisteredMedia, start: u64, requested: u64) -> u64 {
+    if media_is_complete(media) || start >= media.size.saturating_sub(STREAM_METADATA_TAIL_BYTES) {
+        return requested;
+    }
+    let allowed_end = if media.playback.duration > 0.0 {
+        let buffered_until =
+            (media.playback.current_time + STREAM_BUFFER_SECONDS).min(media.playback.duration);
+        let timed_bytes =
+            (media.size as f64 * buffered_until / media.playback.duration).ceil() as u64;
+        let safety_bytes = if media.playback.paused {
+            STREAM_RANGE_SAFETY_BYTES / 2
+        } else {
+            STREAM_RANGE_SAFETY_BYTES
+        };
+        timed_bytes.saturating_add(safety_bytes)
+    } else {
+        INITIAL_STREAM_WINDOW_BYTES
+    }
+    .min(media.size);
+    if start >= allowed_end {
+        0
+    } else {
+        requested.min(allowed_end - start)
     }
 }
 
@@ -326,13 +509,17 @@ fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
         }
     };
 
-    if let Err(message) = app
-        .state::<TelegramRuntime>()
-        .request_media_range(file_id, start, length)
+    let permitted_length = match registry.wait_for_permitted_range(file_id, start, length) {
+        Ok(value) => value,
+        Err(message) => return error_response(StatusCode::GATEWAY_TIMEOUT, &message),
+    };
+    if let Err(message) =
+        app.state::<TelegramRuntime>()
+            .request_media_range(file_id, start, permitted_length)
     {
         return error_response(StatusCode::SERVICE_UNAVAILABLE, &message);
     }
-    match registry.read_range(file_id, start, length) {
+    match registry.read_range(file_id, start, permitted_length) {
         Ok(chunk) => Response::builder()
             .status(StatusCode::PARTIAL_CONTENT)
             .header(header::CONTENT_TYPE, chunk.mime_type)
@@ -393,6 +580,7 @@ mod tests {
                 "path": path.display().to_string(),
                 "download_offset": 0,
                 "downloaded_prefix_size": 12,
+                "downloaded_size": 12,
                 "is_downloading_completed": true
             }
         }));
@@ -451,6 +639,43 @@ mod tests {
             !registry
                 .protected_paths()
                 .contains(&PathBuf::from("download.jpg"))
+        );
+    }
+
+    #[test]
+    fn limits_ranges_to_the_playhead_buffer_window_but_allows_metadata_tail() {
+        let mut media = RegisteredMedia {
+            size: 600 * 1024 * 1024,
+            mime_type: "video/mp4".to_string(),
+            progress: None,
+            playback: StreamPlayback {
+                current_time: 0.0,
+                duration: 3_600.0,
+                paused: true,
+                active: true,
+            },
+        };
+        assert!(permitted_response_bytes(&media, 0, MAX_RESPONSE_BYTES) > 0);
+        assert_eq!(
+            permitted_response_bytes(&media, 100 * 1024 * 1024, MAX_RESPONSE_BYTES),
+            0
+        );
+        assert_eq!(
+            permitted_response_bytes(&media, media.size - 1024, 1024),
+            1024,
+        );
+        media.progress = Some(FileProgress {
+            path: PathBuf::from("partial-video.mp4"),
+            offset: 0,
+            prefix_size: 1024,
+            downloaded_size: 1024,
+            active: false,
+            completed: true,
+        });
+        assert!(!media_is_complete(&media));
+        assert_eq!(
+            permitted_response_bytes(&media, 100 * 1024 * 1024, MAX_RESPONSE_BYTES),
+            0
         );
     }
 }

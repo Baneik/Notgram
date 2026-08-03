@@ -749,6 +749,22 @@ export function Conversation({
                 requestVideoWindowPlayback(`${actionMessage.chatId}:${actionMessage.id}`);
               }
             : undefined}
+          onDownloadVideo={actionMessage.content.kind === "media" &&
+            ["video", "videoNote"].includes(actionMessage.content.mediaType) &&
+            actionMessage.content.fileId !== undefined &&
+            actionMessage.content.canDownload !== false &&
+            actionMessage.content.isDownloaded !== true &&
+            actionMessage.content.isDownloading !== true
+            ? () => {
+                const content = actionMessage.content;
+                if (content.kind !== "media" || content.fileId === undefined) return;
+                closeActionMenu(false);
+                void onDownloadFile(
+                  content.fileId,
+                  content.fileName,
+                );
+              }
+            : undefined}
           onClose={() => closeActionMenu(true)}
         />
       )}

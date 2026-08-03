@@ -371,6 +371,10 @@ function MessageBubbleComponent({
                     mediaHeight={content.height}
                     downloading={content.isDownloading === true}
                     round={content.mediaType === "videoNote"}
+                    canDownload={canDownload && downloadFileId !== undefined}
+                    onDownload={canDownload && downloadFileId !== undefined
+                      ? () => onDownload(downloadFileId, content.fileName)
+                      : undefined}
                     onRequestStream={onStream}
                     onSuspendStream={onSuspendStream}
                     onLoadedMetadata={rememberMediaSize}

@@ -8,6 +8,7 @@ const END_THRESHOLD_SECONDS = 5;
 const VIDEO_VOLUME_STORAGE_KEY = "notgram.video.volume";
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const;
 export const STREAM_PAUSE_BUFFER_SECONDS = 15;
+export const STREAM_RESUME_BUFFER_SECONDS = 15;
 export const DEFAULT_VIDEO_VOLUME = 0.2;
 
 export const normalizeVideoVolume = (volume: number) => (
@@ -116,6 +117,28 @@ export const bufferedSecondsAhead = (
     }
   }
   return 0;
+};
+
+export const bufferedMediaEnd = (
+  media: Pick<HTMLMediaElement, "buffered" | "currentTime">,
+) => {
+  for (let index = 0; index < media.buffered.length; index += 1) {
+    const start = media.buffered.start(index);
+    const end = media.buffered.end(index);
+    if (media.currentTime >= start && media.currentTime <= end) return end;
+  }
+  return 0;
+};
+
+export const hasPlaybackBuffer = (
+  media: Pick<HTMLMediaElement, "buffered" | "currentTime" | "duration">,
+  targetSeconds = STREAM_RESUME_BUFFER_SECONDS,
+) => {
+  const remaining = Number.isFinite(media.duration)
+    ? Math.max(0, media.duration - media.currentTime)
+    : targetSeconds;
+  const required = Math.min(targetSeconds, remaining);
+  return required <= 0.25 || bufferedSecondsAhead(media) >= Math.max(0, required - 0.25);
 };
 
 export const mediaPlaybackCoordinator = new MediaPlaybackCoordinator();

@@ -72,6 +72,9 @@ pub fn run() {
             telegram::telegram_send,
             telegram::telegram_log_performance,
             telegram::telegram_register_media_stream,
+            telegram::telegram_update_media_stream,
+            telegram::telegram_suspend_media_stream,
+            telegram::telegram_media_stream_status,
             telegram::telegram_pick_and_send_file,
             telegram::telegram_shutdown,
         ])

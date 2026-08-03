@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   ChevronLeft,
+  Download,
   Edit3,
   Forward,
   LoaderCircle,
@@ -29,6 +30,7 @@ interface MessageActionMenuProps {
   onForward: () => void;
   onDelete: () => void;
   onPlayInWindow?: () => void;
+  onDownloadVideo?: () => void;
   onClose: () => void;
 }
 
@@ -42,6 +44,7 @@ export function MessageActionMenu({
   onForward,
   onDelete,
   onPlayInWindow,
+  onDownloadVideo,
   onClose,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
@@ -67,6 +70,12 @@ export function MessageActionMenu({
         <button type="button" role="menuitem" onClick={onPlayInWindow}>
           <PictureInPicture2 size={16} strokeWidth={1.9} />
           <span>以小窗播放</span>
+        </button>
+      )}
+      {onDownloadVideo && (
+        <button type="button" role="menuitem" onClick={onDownloadVideo}>
+          <Download size={16} strokeWidth={1.9} />
+          <span>下载视频</span>
         </button>
       )}
       {!permissions ? (
