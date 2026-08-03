@@ -367,6 +367,8 @@ function MessageBubbleComponent({
                     fileId={content.fileId}
                     size={content.size}
                     mimeType={content.mimeType}
+                    mediaWidth={content.width}
+                    mediaHeight={content.height}
                     downloading={content.isDownloading === true}
                     round={content.mediaType === "videoNote"}
                     onRequestStream={onStream}

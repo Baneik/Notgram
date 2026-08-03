@@ -4,6 +4,7 @@ import {
   Edit3,
   Forward,
   LoaderCircle,
+  PictureInPicture2,
   Reply,
   Search,
   Trash2,
@@ -27,6 +28,7 @@ interface MessageActionMenuProps {
   onEdit: () => void;
   onForward: () => void;
   onDelete: () => void;
+  onPlayInWindow?: () => void;
   onClose: () => void;
 }
 
@@ -39,6 +41,7 @@ export function MessageActionMenu({
   onEdit,
   onForward,
   onDelete,
+  onPlayInWindow,
   onClose,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
@@ -60,6 +63,12 @@ export function MessageActionMenu({
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => handleMenuKeyboard(event, onClose)}
     >
+      {onPlayInWindow && (
+        <button type="button" role="menuitem" onClick={onPlayInWindow}>
+          <PictureInPicture2 size={16} strokeWidth={1.9} />
+          <span>以小窗播放</span>
+        </button>
+      )}
       {!permissions ? (
         <div className="message-action-status" role="status">
           {loading ? (

@@ -56,6 +56,7 @@ import { MediaViewer } from "./MediaViewer";
 import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
 import { segmentMediaAlbums } from "../utils/mediaAlbums";
+import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
 
 interface ConversationProps {
@@ -741,6 +742,13 @@ export function Conversation({
             setDeleteTarget(actionMessage);
             setActionMenu(undefined);
           }}
+          onPlayInWindow={actionMessage.content.kind === "media" &&
+            ["video", "videoNote"].includes(actionMessage.content.mediaType)
+            ? () => {
+                closeActionMenu(false);
+                requestVideoWindowPlayback(`${actionMessage.chatId}:${actionMessage.id}`);
+              }
+            : undefined}
           onClose={() => closeActionMenu(true)}
         />
       )}

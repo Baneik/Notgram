@@ -5,8 +5,35 @@ export interface CoordinatedMedia {
 const MAX_RESUME_ENTRIES = 200;
 const MIN_RESUME_SECONDS = 2;
 const END_THRESHOLD_SECONDS = 5;
+const VIDEO_VOLUME_STORAGE_KEY = "notgram.video.volume";
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const;
 export const STREAM_PAUSE_BUFFER_SECONDS = 15;
+export const DEFAULT_VIDEO_VOLUME = 0.2;
+
+export const normalizeVideoVolume = (volume: number) => (
+  Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : DEFAULT_VIDEO_VOLUME
+);
+
+export const readRememberedVideoVolume = () => {
+  try {
+    const stored = globalThis.localStorage?.getItem(VIDEO_VOLUME_STORAGE_KEY);
+    return stored === null || stored === undefined
+      ? DEFAULT_VIDEO_VOLUME
+      : normalizeVideoVolume(Number(stored));
+  } catch {
+    return DEFAULT_VIDEO_VOLUME;
+  }
+};
+
+export const rememberVideoVolume = (volume: number) => {
+  const normalized = normalizeVideoVolume(volume);
+  try {
+    globalThis.localStorage?.setItem(VIDEO_VOLUME_STORAGE_KEY, String(normalized));
+  } catch {
+    // A blocked preference store should not affect video playback.
+  }
+  return normalized;
+};
 
 export class MediaPlaybackCoordinator {
   private active?: { id: string; media: CoordinatedMedia };

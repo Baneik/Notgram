@@ -6,6 +6,7 @@ mod distribution;
 mod proxy;
 mod storage;
 mod telegram;
+mod video_window;
 mod webview_security;
 
 use tauri::Manager;
@@ -47,6 +48,7 @@ pub fn run() {
             diagnostics::notgram_set_crash_reporting_enabled,
             distribution::notgram_distribution_kind,
             desktop_notification::notgram_show_notification,
+            video_window::notgram_open_video_window,
             telegram::telegram_runtime_status,
             proxy::telegram_proxy_settings,
             proxy::telegram_save_proxy_settings,

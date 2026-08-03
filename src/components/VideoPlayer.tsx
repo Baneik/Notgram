@@ -1,12 +1,4 @@
-import {
-  LoaderCircle,
-  Maximize2,
-  Minimize2,
-  Pause,
-  Play,
-  Volume2,
-  VolumeX,
-} from "lucide-react";
+import { LoaderCircle, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -17,10 +9,24 @@ import {
 } from "react";
 import {
   bufferedSecondsAhead,
-  formatPlaybackTime,
+  DEFAULT_VIDEO_VOLUME,
   mediaPlaybackCoordinator,
+  normalizeVideoVolume,
+  readRememberedVideoVolume,
+  rememberVideoVolume,
   STREAM_PAUSE_BUFFER_SECONDS,
 } from "../media/mediaPlayback";
+import {
+  createPlaybackWindow,
+  createVideoWindowId,
+  listenForVideoWindowRequest,
+  VIDEO_WINDOW_CHANNEL,
+  videoWindowSize,
+  type VideoWindowDescriptor,
+  type VideoWindowMessage,
+  type VideoWindowMode,
+  type VideoWindowState,
+} from "../media/videoWindowBridge";
 
 interface VideoPlayerProps {
   source?: string;
@@ -30,6 +36,8 @@ interface VideoPlayerProps {
   fileId?: number;
   size?: number;
   mimeType?: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
   downloading?: boolean;
   round?: boolean;
   onRequestStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
@@ -38,9 +46,14 @@ interface VideoPlayerProps {
   onError: (source: string) => void;
 }
 
+interface ExternalPlaybackSession {
+  id: string;
+  channel: BroadcastChannel;
+  lastState?: VideoWindowState;
+}
+
 const SINGLE_CLICK_DELAY_MS = 180;
 const PAUSED_STREAM_TIMEOUT_MS = 15_000;
-const CONTROL_IDLE_TIMEOUT_MS = 1_000;
 
 export function VideoPlayer({
   source,
@@ -50,6 +63,8 @@ export function VideoPlayer({
   fileId,
   size,
   mimeType,
+  mediaWidth,
+  mediaHeight,
   downloading = false,
   round = false,
   onRequestStream,
@@ -62,12 +77,15 @@ export function VideoPlayer({
   const pendingPlayRef = useRef(false);
   const streamingRef = useRef(false);
   const suspendingRef = useRef(false);
+  const loadingRef = useRef(false);
+  const inlineSoundEnabledRef = useRef(false);
   const lastRememberedSecondRef = useRef(0);
   const singleClickTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const suspendTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
-  const controlHideTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const keyboardToggleRef = useRef<() => void>(() => undefined);
   const stableKeyboardToggleRef = useRef(() => keyboardToggleRef.current());
+  const externalOpenRef = useRef<(mode: VideoWindowMode) => void>(() => undefined);
+  const externalSessionRef = useRef<ExternalPlaybackSession | undefined>(undefined);
   const [resolvedSource, setResolvedSource] = useState(source);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -75,11 +93,8 @@ export function VideoPlayer({
   const [failed, setFailed] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [volume, setVolume] = useState(1);
+  const [volume, setVolume] = useState(readRememberedVideoVolume);
   const [muted, setMuted] = useState(true);
-  const [floating, setFloating] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
-  const [controlsVisible, setControlsVisible] = useState(false);
 
   const clearSingleClick = () => {
     if (singleClickTimerRef.current !== undefined) {
@@ -95,23 +110,6 @@ export function VideoPlayer({
     }
   };
 
-  const clearControlHideTimer = () => {
-    if (controlHideTimerRef.current !== undefined) {
-      globalThis.clearTimeout(controlHideTimerRef.current);
-      controlHideTimerRef.current = undefined;
-    }
-  };
-
-  const revealControls = () => {
-    if (!floating && !fullscreen) return;
-    clearControlHideTimer();
-    setControlsVisible(true);
-    controlHideTimerRef.current = globalThis.setTimeout(() => {
-      setControlsVisible(false);
-      controlHideTimerRef.current = undefined;
-    }, CONTROL_IDLE_TIMEOUT_MS);
-  };
-
   useEffect(() => {
     if (!source) return;
     clearSuspendTimer();
@@ -121,34 +119,51 @@ export function VideoPlayer({
   }, [source]);
 
   useEffect(() => {
-    const syncFullscreenState = () => {
-      setFullscreen(document.fullscreenElement === shellRef.current);
-    };
-    document.addEventListener("fullscreenchange", syncFullscreenState);
-    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
-  }, []);
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = volume;
+    video.muted = !inlineSoundEnabledRef.current || volume === 0;
+  }, [volume]);
 
   useEffect(() => {
-    clearControlHideTimer();
-    if (!floating && !fullscreen) {
-      setControlsVisible(false);
-      return;
-    }
-    setControlsVisible(true);
-    controlHideTimerRef.current = globalThis.setTimeout(() => {
-      setControlsVisible(false);
-      controlHideTimerRef.current = undefined;
-    }, CONTROL_IDLE_TIMEOUT_MS);
-  }, [floating, fullscreen]);
+    const shell = shellRef.current;
+    if (!shell || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      const visibleHeightRatio = entry && entry.boundingClientRect.height > 0
+        ? entry.intersectionRect.height / entry.boundingClientRect.height
+        : 0;
+      const video = videoRef.current;
+      if (visibleHeightRatio < 0.5 && video && !video.paused && !externalSessionRef.current) {
+        video.pause();
+      }
+    }, { threshold: [0, 0.5, 1] });
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => listenForVideoWindowRequest(
+    playbackId,
+    () => externalOpenRef.current("window"),
+  ), [playbackId]);
 
   useEffect(() => () => {
     clearSingleClick();
     clearSuspendTimer();
-    clearControlHideTimer();
     mediaPlaybackCoordinator.releaseKeyboardTarget(
       playbackId,
       stableKeyboardToggleRef.current,
     );
+    const session = externalSessionRef.current;
+    if (session) {
+      session.channel.postMessage({
+        type: "command",
+        id: session.id,
+        command: "close",
+      } satisfies VideoWindowMessage);
+      session.channel.close();
+      externalSessionRef.current = undefined;
+    }
     const video = videoRef.current;
     if (video) {
       mediaPlaybackCoordinator.remember(playbackId, video.currentTime, video.duration);
@@ -166,7 +181,8 @@ export function VideoPlayer({
 
   const suspendStream = async () => {
     const video = videoRef.current;
-    if (!video || !streamingRef.current || fileId === undefined || suspendingRef.current) return;
+    if (!video || externalSessionRef.current || !streamingRef.current ||
+      fileId === undefined || suspendingRef.current) return;
     suspendingRef.current = true;
     clearSuspendTimer();
     mediaPlaybackCoordinator.remember(playbackId, video.currentTime, video.duration);
@@ -187,7 +203,7 @@ export function VideoPlayer({
 
   const scheduleStreamSuspension = (video: HTMLVideoElement) => {
     clearSuspendTimer();
-    if (!streamingRef.current) return;
+    if (externalSessionRef.current || !streamingRef.current) return;
     if (bufferedSecondsAhead(video) >= STREAM_PAUSE_BUFFER_SECONDS) {
       void suspendStream();
       return;
@@ -197,6 +213,32 @@ export function VideoPlayer({
     }, PAUSED_STREAM_TIMEOUT_MS);
   };
 
+  const requestStreamSource = async (playInline: boolean) => {
+    if (resolvedSource) return resolvedSource;
+    if (loadingRef.current || fileId === undefined || !size) return undefined;
+    loadingRef.current = true;
+    setLoading(true);
+    setFailed(false);
+    try {
+      const streamSource = await onRequestStream(fileId, size, mimeType);
+      if (!streamSource) {
+        setFailed(true);
+        return undefined;
+      }
+      streamingRef.current = true;
+      pendingPlayRef.current = playInline;
+      setResolvedSource(streamSource);
+      setBuffering(playInline);
+      return streamSource;
+    } catch {
+      setFailed(true);
+      return undefined;
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  };
+
   const startPlayback = async () => {
     const video = videoRef.current;
     clearSuspendTimer();
@@ -204,27 +246,123 @@ export function VideoPlayer({
       await video.play().catch(() => setFailed(true));
       return;
     }
-    if (loading || fileId === undefined || !size) return;
-    setLoading(true);
-    setFailed(false);
-    try {
-      const streamSource = await onRequestStream(fileId, size, mimeType);
-      if (!streamSource) {
-        setFailed(true);
-        return;
-      }
-      streamingRef.current = true;
-      pendingPlayRef.current = true;
-      setResolvedSource(streamSource);
-      setBuffering(true);
-    } catch {
-      setFailed(true);
-    } finally {
-      setLoading(false);
-    }
+    await requestStreamSource(true);
   };
 
+  const applyExternalState = (state: VideoWindowState, closed: boolean) => {
+    const rememberedVolume = closed
+      ? rememberVideoVolume(state.volume)
+      : normalizeVideoVolume(state.volume);
+    setVolume(rememberedVolume);
+    setCurrentTime(state.currentTime);
+    setDuration(state.duration);
+    setPlaying(closed ? false : !state.paused);
+    mediaPlaybackCoordinator.remember(playbackId, state.currentTime, state.duration);
+    const video = videoRef.current;
+    if (!closed || !video) return;
+    video.pause();
+    if (state.currentTime >= 0 && Number.isFinite(state.currentTime)) {
+      video.currentTime = state.currentTime;
+    }
+    video.volume = rememberedVolume;
+    const nextMuted = !inlineSoundEnabledRef.current || rememberedVolume === 0;
+    video.muted = nextMuted;
+    setMuted(nextMuted);
+    scheduleStreamSuspension(video);
+  };
+
+  const finishExternalSession = (session: ExternalPlaybackSession, state: VideoWindowState) => {
+    if (externalSessionRef.current !== session) return;
+    externalSessionRef.current = undefined;
+    applyExternalState(state, true);
+    session.channel.close();
+  };
+
+  const openPlaybackWindow = async (mode: VideoWindowMode) => {
+    claimKeyboardTarget();
+    let playbackSource = resolvedSource;
+    if (!playbackSource) playbackSource = await requestStreamSource(false);
+    if (!playbackSource) return;
+
+    const previous = externalSessionRef.current;
+    if (previous) {
+      previous.channel.postMessage({
+        type: "command",
+        id: previous.id,
+        command: "close",
+      } satisfies VideoWindowMessage);
+      previous.channel.close();
+      externalSessionRef.current = undefined;
+    }
+
+    const video = videoRef.current;
+    const wasPlaying = Boolean(video && !video.paused);
+    const initialTime = video?.currentTime ?? currentTime;
+    const initialDuration = Number.isFinite(video?.duration) ? video?.duration ?? duration : duration;
+    const id = createVideoWindowId();
+    const channel = new BroadcastChannel(VIDEO_WINDOW_CHANNEL);
+    const session: ExternalPlaybackSession = { id, channel };
+    externalSessionRef.current = session;
+    clearSuspendTimer();
+    video?.pause();
+    setPlaying(mode === "fullscreen" || wasPlaying);
+
+    const descriptor: VideoWindowDescriptor = {
+      id,
+      source: playbackSource,
+      poster,
+      label,
+      currentTime: initialTime,
+      duration: initialDuration,
+      volume,
+      muted: mode === "fullscreen" ? false : muted,
+      autoplay: mode === "fullscreen" || wasPlaying,
+      mode,
+    };
+    channel.onmessage = (event: MessageEvent<VideoWindowMessage>) => {
+      const message = event.data;
+      if (!message || message.id !== id || externalSessionRef.current !== session) return;
+      if (message.type === "ready") {
+        channel.postMessage({ type: "init", id, descriptor } satisfies VideoWindowMessage);
+      } else if (message.type === "state") {
+        session.lastState = message.state;
+        applyExternalState(message.state, false);
+      } else if (message.type === "closed") {
+        session.lastState = message.state;
+        finishExternalSession(session, message.state);
+      }
+    };
+
+    const naturalWidth = video?.videoWidth || mediaWidth || 16;
+    const naturalHeight = video?.videoHeight || mediaHeight || 9;
+    try {
+      const created = await createPlaybackWindow(
+        id,
+        videoWindowSize(naturalWidth, naturalHeight),
+        mode,
+      );
+      if (!created) throw new Error("video popup was blocked");
+    } catch {
+      if (externalSessionRef.current === session) {
+        externalSessionRef.current = undefined;
+        channel.close();
+        setPlaying(false);
+        if (video && wasPlaying) void video.play().catch(() => setFailed(true));
+      }
+    }
+  };
+  externalOpenRef.current = (mode) => { void openPlaybackWindow(mode); };
+
   const togglePlayback = () => {
+    const session = externalSessionRef.current;
+    if (session) {
+      session.channel.postMessage({
+        type: "command",
+        id: session.id,
+        command: "toggle",
+      } satisfies VideoWindowMessage);
+      return;
+    }
     const video = videoRef.current;
     if (!video || !resolvedSource) {
       void startPlayback();
@@ -243,62 +381,36 @@ export function VideoPlayer({
   const toggleMuted = () => {
     const video = videoRef.current;
     const nextMuted = !muted;
-    if (video) video.muted = nextMuted;
-    setMuted(nextMuted);
-  };
-
-  const updateVolume = (nextVolume: number) => {
-    const video = videoRef.current;
-    const nextMuted = nextVolume === 0;
+    inlineSoundEnabledRef.current = !nextMuted;
+    let nextVolume = volume;
+    if (!nextMuted && nextVolume === 0) {
+      nextVolume = rememberVideoVolume(DEFAULT_VIDEO_VOLUME);
+      setVolume(nextVolume);
+    }
     if (video) {
       video.volume = nextVolume;
       video.muted = nextMuted;
     }
-    setVolume(nextVolume);
     setMuted(nextMuted);
   };
 
   const seek = (nextTime: number) => {
-    if (videoRef.current) videoRef.current.currentTime = nextTime;
-    setCurrentTime(nextTime);
-  };
-
-  const toggleFullscreen = async () => {
-    claimKeyboardTarget();
-    if (document.fullscreenElement === shellRef.current) {
-      await document.exitFullscreen?.();
-      return;
+    const session = externalSessionRef.current;
+    if (session) {
+      session.channel.postMessage({
+        type: "command",
+        id: session.id,
+        command: "seek",
+        value: nextTime,
+      } satisfies VideoWindowMessage);
+    } else if (videoRef.current) {
+      videoRef.current.currentTime = nextTime;
     }
-    await shellRef.current?.requestFullscreen?.();
-  };
-
-  const isOutsideRenderedVideo = (clientX: number, clientY: number) => {
-    const video = videoRef.current;
-    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return false;
-    const bounds = video.getBoundingClientRect();
-    const scale = Math.min(bounds.width / video.videoWidth, bounds.height / video.videoHeight);
-    const renderedWidth = video.videoWidth * scale;
-    const renderedHeight = video.videoHeight * scale;
-    const left = bounds.left + (bounds.width - renderedWidth) / 2;
-    const top = bounds.top + (bounds.height - renderedHeight) / 2;
-    return clientX < left || clientX > left + renderedWidth ||
-      clientY < top || clientY > top + renderedHeight;
+    setCurrentTime(nextTime);
   };
 
   const handleSurfaceClick = (event: MouseEvent<HTMLDivElement>) => {
     claimKeyboardTarget();
-    if (fullscreen && isOutsideRenderedVideo(event.clientX, event.clientY)) {
-      event.preventDefault();
-      clearSingleClick();
-      void document.exitFullscreen?.();
-      return;
-    }
-    if (event.altKey) {
-      event.preventDefault();
-      clearSingleClick();
-      setFloating((current) => !current);
-      return;
-    }
     if (event.detail !== 1) return;
     clearSingleClick();
     singleClickTimerRef.current = globalThis.setTimeout(() => {
@@ -310,11 +422,7 @@ export function VideoPlayer({
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     clearSingleClick();
-    if (fullscreen && isOutsideRenderedVideo(event.clientX, event.clientY)) {
-      void document.exitFullscreen?.();
-      return;
-    }
-    void toggleFullscreen();
+    void openPlaybackWindow("fullscreen");
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -330,12 +438,11 @@ export function VideoPlayer({
   const progressStyle = {
     "--video-progress": `${duration > 0 ? Math.min(100, currentTime / duration * 100) : 0}%`,
   } as CSSProperties;
-  const remainingTime = Math.max(0, duration - currentTime);
 
   return (
     <div
       ref={shellRef}
-      className={`video-player ${playing ? "is-playing" : "is-paused"} ${floating ? "is-floating" : ""} ${fullscreen ? "is-fullscreen" : ""} ${controlsVisible ? "is-controls-visible" : ""} ${round ? "is-round" : ""}`}
+      className={`video-player ${playing ? "is-playing" : "is-paused"} ${round ? "is-round" : ""}`}
       role="group"
       aria-label={label}
       tabIndex={0}
@@ -343,7 +450,6 @@ export function VideoPlayer({
       onDoubleClick={handleDoubleClick}
       onFocus={claimKeyboardTarget}
       onPointerDown={claimKeyboardTarget}
-      onMouseMove={revealControls}
       onKeyDown={handleKeyDown}
     >
       <video
@@ -359,7 +465,8 @@ export function VideoPlayer({
           const nextDuration = Number.isFinite(video.duration) ? video.duration : 0;
           setDuration(nextDuration);
           video.volume = volume;
-          video.muted = muted;
+          video.muted = !inlineSoundEnabledRef.current || volume === 0;
+          setMuted(video.muted);
           const resume = mediaPlaybackCoordinator.resumePosition(playbackId, nextDuration);
           if (resume > 0) {
             video.currentTime = resume;
@@ -384,20 +491,21 @@ export function VideoPlayer({
           setFailed(false);
         }}
         onPause={(event) => {
-          setPlaying(false);
+          if (!externalSessionRef.current) setPlaying(false);
           mediaPlaybackCoordinator.remember(playbackId, event.currentTarget.currentTime, event.currentTarget.duration);
           mediaPlaybackCoordinator.release(event.currentTarget);
           if (!suspendingRef.current) scheduleStreamSuspension(event.currentTarget);
         }}
         onProgress={(event) => {
           const video = event.currentTarget;
-          if (video.paused && streamingRef.current &&
+          if (!externalSessionRef.current && video.paused && streamingRef.current &&
             bufferedSecondsAhead(video) >= STREAM_PAUSE_BUFFER_SECONDS) {
             void suspendStream();
           }
         }}
         onWaiting={() => setBuffering(true)}
         onTimeUpdate={(event) => {
+          if (externalSessionRef.current) return;
           const video = event.currentTarget;
           setCurrentTime(video.currentTime);
           const wholeSecond = Math.floor(video.currentTime);
@@ -468,53 +576,6 @@ export function VideoPlayer({
         onFocus={claimKeyboardTarget}
         onChange={(event) => seek(Number(event.currentTarget.value))}
       />
-
-      <div className="video-floating-controls" onClick={stopControlClick}>
-        <div className="video-controls-top">
-          <div className="video-controls-volume">
-            <button type="button" aria-label={muted ? "打开声音" : "静音"} title={muted ? "打开声音" : "静音"} onClick={toggleMuted}>
-              {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
-            <input
-              className="video-floating-volume"
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={muted ? 0 : volume}
-              aria-label="音量"
-              onChange={(event) => updateVolume(Number(event.currentTarget.value))}
-            />
-          </div>
-          <button className="video-controls-play" type="button" aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"} onClick={togglePlaybackFromControl}>
-            {playing ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
-          </button>
-          <div className="video-controls-actions">
-            {floating && !fullscreen && (
-              <button className="video-return-inline" type="button" aria-label="返回会话播放" title="返回会话" onClick={() => setFloating(false)}>
-                <Minimize2 size={18} />
-              </button>
-            )}
-            <button type="button" aria-label={fullscreen ? "退出全屏" : "全屏播放"} title={fullscreen ? "退出全屏" : "全屏"} onClick={() => void toggleFullscreen()}>
-              {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-            </button>
-          </div>
-        </div>
-        <div className="video-controls-progress">
-          <span>{formatPlaybackTime(currentTime)}</span>
-          <input
-            className="video-floating-seek"
-            type="range"
-            min={0}
-            max={duration || 0}
-            step={0.1}
-            value={Math.min(currentTime, duration || 0)}
-            aria-label="浮窗播放进度"
-            onChange={(event) => seek(Number(event.currentTarget.value))}
-          />
-          <span>-{formatPlaybackTime(remainingTime)}</span>
-        </div>
-      </div>
     </div>
   );
 }

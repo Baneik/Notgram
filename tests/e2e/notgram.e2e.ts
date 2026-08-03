@@ -431,7 +431,7 @@ test("Markdown and TDLib rich text render as structured message content", async 
   await expect(richMessage.locator("code").first()).toHaveText("5,709 tokens");
 });
 
-test("video uses floating fullscreen controls and owns the playback spacebar", async ({ page }) => {
+test("video uses synchronized transparent playback windows and owns the playback spacebar", async ({ page }) => {
   await page.setViewportSize({ width: 1_100, height: 720 });
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
@@ -443,10 +443,11 @@ test("video uses floating fullscreen controls and owns the playback spacebar", a
   await expect(video).toHaveAttribute("poster", /mock-video-poster\.jpg/);
   await expect(video).not.toHaveAttribute("controls", "");
   await expect(player.getByRole("slider", { name: "播放进度" })).toBeVisible();
-  await expect(player.getByRole("slider", { name: "音量" })).toBeHidden();
   await expect(player.getByRole("button", { name: "打开声音" })).toBeVisible();
   await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
     .toBe(true);
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).volume))
+    .toBe(0.2);
 
   await player.getByRole("button", { name: /播放 交互预览/ }).click();
   await expect(video).toHaveAttribute("src", /mock-video\.mp4/);
@@ -473,50 +474,110 @@ test("video uses floating fullscreen controls and owns the playback spacebar", a
     .toBe(true);
   await composer.fill("");
 
-  await video.evaluate((element) => { (element as HTMLVideoElement).currentTime = 0.2; });
-  await player.click({ modifiers: ["Alt"], position: { x: 8, y: 8 } });
-  await expect(player).toHaveClass(/is-floating/);
-  await expect(player.getByRole("slider", { name: "音量" })).toBeVisible();
-  await expect(player.getByRole("button", { name: "返回会话播放" })).toBeVisible();
-  await expect.poll(() => player.locator(".video-floating-controls").evaluate(
+  const messageList = page.locator(".message-list");
+  await messageList.evaluate((list, messageId) => {
+    const playerElement = list.querySelector<HTMLElement>(`[data-message-id="${messageId}"] .video-player`);
+    if (!playerElement) return;
+    const listBounds = list.getBoundingClientRect();
+    const playerBounds = playerElement.getBoundingClientRect();
+    list.scrollTop += playerBounds.top - listBounds.top + playerBounds.height * 0.6;
+  }, "p-video");
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused))
+    .toBe(true);
+  await row.scrollIntoViewIfNeeded();
+  await player.getByRole("button", { name: /播放 交互预览/ }).click();
+  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
+    .toBe(true);
+
+  await row.click({ button: "right" });
+  const actionMenu = page.getByRole("menu", { name: "消息操作" });
+  await expect(actionMenu.getByRole("menuitem").first()).toHaveText("以小窗播放");
+  const popupPromise = page.waitForEvent("popup");
+  await actionMenu.getByRole("menuitem", { name: "以小窗播放" }).click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  const popupPlayer = popup.locator(".video-window");
+  const popupVideo = popupPlayer.locator("video");
+  await expect(popupPlayer).toHaveClass(/is-windowed/);
+  await expect(popupVideo).toHaveAttribute("src", /mock-video\.mp4/);
+  await expect(player).toBeVisible();
+  await expect(player).not.toHaveClass(/is-floating/);
+  await expect.poll(() => popupVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
+    .toBe(true);
+
+  const windowedControls = popup.locator(".video-windowed-controls");
+  await popup.mouse.move(120, 80);
+  await expect.poll(() => windowedControls.evaluate(
     (element) => getComputedStyle(element).opacity,
   )).toBe("1");
-  await page.waitForTimeout(1_100);
-  await expect.poll(() => player.locator(".video-floating-controls").evaluate(
+  await popup.getByRole("slider", { name: "音量" }).fill("0.35");
+  await popup.waitForTimeout(1_100);
+  await expect.poll(() => windowedControls.evaluate(
     (element) => getComputedStyle(element).opacity,
   )).toBe("0");
-  await player.hover({ position: { x: 120, y: 60 } });
-  await expect.poll(() => player.locator(".video-floating-controls").evaluate(
-    (element) => getComputedStyle(element).opacity,
-  )).toBe("1");
-  const floatingTime = await video.evaluate((element) => (element as HTMLVideoElement).currentTime);
-
-  await player.getByRole("button", { name: "返回会话播放" }).click();
-  await expect(player).not.toHaveClass(/is-floating/);
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).currentTime))
-    .toBeGreaterThanOrEqual(floatingTime);
-
-  const inlineBounds = await player.boundingBox();
-  await player.dblclick({
-    position: { x: inlineBounds!.width / 2, y: inlineBounds!.height / 2 },
-  });
-  await expect.poll(() => player.evaluate((element) => document.fullscreenElement === element))
+  const popupBounds = await popupPlayer.boundingBox();
+  await popup.mouse.click(40, popupBounds!.height / 2);
+  await expect.poll(() => popupVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
     .toBe(true);
-  await page.mouse.move(550, 360);
-  const controls = player.locator(".video-floating-controls");
+
+  await popup.keyboard.press("f");
+  await expect(popupPlayer).toHaveClass(/is-fullscreen/);
+  await expect.poll(() => popupVideo.evaluate((element) => (element as HTMLVideoElement).muted))
+    .toBe(false);
+  await expect.poll(() => popupVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
+    .toBe(true);
+  await popup.mouse.move(550, 360);
+  const controls = popup.locator(".video-fullscreen-controls");
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
     .toBe("1");
   const controlsBounds = await controls.boundingBox();
   expect(Math.round(controlsBounds!.width)).toBe(550);
   expect(Math.round(controlsBounds!.height)).toBe(80);
-  await expect.poll(() => player.evaluate((element) => getComputedStyle(element).backgroundColor))
-    .toContain("0.8");
+  await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    .toBe("rgba(0, 0, 0, 0)");
 
-  await page.waitForTimeout(1_100);
+  await popup.waitForTimeout(1_100);
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
     .toBe("0");
-  await page.mouse.click(550, 10);
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null))
+  await popup.keyboard.press("f");
+  await expect(popupPlayer).toHaveClass(/is-windowed/);
+  await popup.mouse.move(120, 80);
+  const popupClosed = popup.waitForEvent("close");
+  await popup.getByRole("button", { name: "关闭小窗" }).click();
+  await popupClosed;
+  await expect(player).toBeVisible();
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
+    .toBe(true);
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).volume))
+    .toBe(0.35);
+
+  const fullscreenPopupPromise = page.waitForEvent("popup");
+  const inlineBounds = await player.boundingBox();
+  await player.dblclick({ position: { x: inlineBounds!.width / 2, y: inlineBounds!.height / 2 } });
+  const fullscreenPopup = await fullscreenPopupPromise;
+  await fullscreenPopup.waitForLoadState("domcontentloaded");
+  const fullscreenVideo = fullscreenPopup.locator("video");
+  await expect(fullscreenPopup.locator(".video-window")).toHaveClass(/is-fullscreen/);
+  await expect.poll(() => fullscreenVideo.evaluate((element) => (element as HTMLVideoElement).muted))
+    .toBe(false);
+  await expect.poll(() => fullscreenVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
+    .toBe(true);
+  const secondFullscreenControls = fullscreenPopup.locator(".video-fullscreen-controls");
+  await fullscreenPopup.locator(".video-window").hover({ position: { x: 100, y: 100 } });
+  await expect.poll(() => secondFullscreenControls.evaluate(
+    (element) => getComputedStyle(element).opacity,
+  )).toBe("1");
+  const fullscreenClosed = fullscreenPopup.waitForEvent("close");
+  await fullscreenPopup.getByRole("button", { name: "关闭播放窗口" }).click();
+  await fullscreenClosed;
+  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
+    .toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  const restoredVideo = page.locator('[data-message-id="p-video"] video');
+  await expect.poll(() => restoredVideo.evaluate((element) => (element as HTMLVideoElement).volume))
+    .toBe(0.35);
+  await expect.poll(() => restoredVideo.evaluate((element) => (element as HTMLVideoElement).muted))
     .toBe(true);
 });
 

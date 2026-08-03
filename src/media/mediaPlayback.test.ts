@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   bufferedSecondsAhead,
+  DEFAULT_VIDEO_VOLUME,
   formatPlaybackTime,
   MediaPlaybackCoordinator,
   nextPlaybackRate,
+  normalizeVideoVolume,
 } from "./mediaPlayback";
 
 describe("media playback coordination", () => {
@@ -58,5 +60,12 @@ describe("media playback coordination", () => {
 
     expect(bufferedSecondsAhead({ buffered, currentTime: 42 })).toBe(13);
     expect(bufferedSecondsAhead({ buffered, currentTime: 20 })).toBe(0);
+  });
+
+  it("uses a safe twenty-percent default for remembered video volume", () => {
+    expect(DEFAULT_VIDEO_VOLUME).toBe(0.2);
+    expect(normalizeVideoVolume(Number.NaN)).toBe(0.2);
+    expect(normalizeVideoVolume(-1)).toBe(0);
+    expect(normalizeVideoVolume(2)).toBe(1);
   });
 });
