@@ -40,6 +40,7 @@ import { logPerformance } from "../utils/performanceMonitor";
 import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
 import { emptyProfileState } from "./profileState";
+import { isRegexMessageSearchQuery } from "../telegram/messageSearch";
 
 export type {
   ChatFilter,
@@ -1429,7 +1430,11 @@ export const createTelegramStore = (
         chatSearchTimer = undefined;
         const normalized = searchQuery.trim();
         const generation = ++chatSearchGeneration;
-        if (!normalized || get().authorization.kind !== "ready") return;
+        if (
+          !normalized ||
+          isRegexMessageSearchQuery(normalized) ||
+          get().authorization.kind !== "ready"
+        ) return;
         chatSearchTimer = globalThis.setTimeout(() => {
           chatSearchTimer = undefined;
           void transport.searchChats(normalized, 50).catch((error) => {

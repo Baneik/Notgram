@@ -990,11 +990,13 @@ describe("telegram store", () => {
       store.getState().setSearchQuery("pro");
       store.getState().setSearchQuery("project");
       await vi.advanceTimersByTimeAsync(251);
-      await store.getState().searchChatMessages("needle");
+      store.getState().setSearchQuery("reg:pro.*");
+      await vi.advanceTimersByTimeAsync(251);
+      await store.getState().searchChatMessages("reg:^needle$");
 
       expect(transport.chatQueries).toEqual(["project"]);
       expect(transport.messageQueries).toEqual([
-        { chatId: "chat-product", query: "needle" },
+        { chatId: "chat-product", query: "reg:^needle$" },
       ]);
     } finally {
       vi.useRealTimers();

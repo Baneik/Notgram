@@ -5,9 +5,7 @@ import { Conversation } from "../components/Conversation";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
-import { GlobalSearchView } from "../components/GlobalSearchView";
 import { ProfileDrawer } from "../components/ProfileDrawer";
-import { ContactsView } from "../components/ContactsView";
 import { FolderManagerDialog } from "../components/FolderManagerDialog";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
@@ -60,10 +58,6 @@ export function App() {
   const globalSearch = useTelegramStore((state) => state.globalSearch);
   const profile = useTelegramStore((state) => state.profile);
   const currentUserId = useTelegramStore((state) => state.currentUserId);
-  const contacts = useTelegramStore((state) => state.contacts);
-  const contactsLoading = useTelegramStore((state) => state.contactsLoading);
-  const contactsError = useTelegramStore((state) => state.contactsError);
-  const contactPendingUserId = useTelegramStore((state) => state.contactPendingUserId);
   const chatManagementPending = useTelegramStore((state) => state.chatManagementPending);
   const folderManagementPending = useTelegramStore((state) => state.folderManagementPending);
   const transportLabel = useTelegramStore((state) => state.transportLabel);
@@ -79,7 +73,6 @@ export function App() {
   const loadCurrentUserProfile = useTelegramStore((state) => state.loadCurrentUserProfile);
   const clearProfile = useTelegramStore((state) => state.clearProfile);
   const startPrivateChat = useTelegramStore((state) => state.startPrivateChat);
-  const loadContacts = useTelegramStore((state) => state.loadContacts);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const setChatPinned = useTelegramStore((state) => state.setChatPinned);
@@ -119,11 +112,8 @@ export function App() {
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  const [contactsOpen, setContactsOpen] = useState(false);
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
-  const globalSearchButtonRef = useRef<HTMLButtonElement>(null);
-  const contactsButtonRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
     chatId: string;
@@ -141,34 +131,35 @@ export function App() {
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const knownLatestMessagesRef = useRef<Set<string> | undefined>(undefined);
 
-  const closeGlobalSearch = useCallback((restoreFocus = true) => {
+  const closeSearch = useCallback((restoreFocus = false) => {
     cancelGlobalSearch();
     clearGlobalSearch();
-    setGlobalSearchOpen(false);
+    setSearchQuery("");
     if (restoreFocus) {
-      globalThis.setTimeout(() => globalSearchButtonRef.current?.focus(), 0);
+      globalThis.setTimeout(() => searchInputRef.current?.focus(), 0);
     }
-  }, [cancelGlobalSearch, clearGlobalSearch]);
+  }, [cancelGlobalSearch, clearGlobalSearch, setSearchQuery]);
 
-  const closeContacts = useCallback((restoreFocus = true) => {
-    setContactsOpen(false);
-    if (restoreFocus) globalThis.setTimeout(() => contactsButtonRef.current?.focus(), 0);
-  }, []);
+  const updateSearchQuery = useCallback((value: string) => {
+    if (!value.trim()) {
+      cancelGlobalSearch();
+      clearGlobalSearch();
+    }
+    setSearchQuery(value);
+  }, [cancelGlobalSearch, clearGlobalSearch, setSearchQuery]);
 
   const openGlobalSearchChat = useCallback(async (chatId: string) => {
     await selectChat(chatId);
-    clearGlobalSearch();
-    setGlobalSearchOpen(false);
+    closeSearch();
     setMobileChatOpen(true);
     latestScrollRequestIdRef.current += 1;
     setLatestScrollRequest({ chatId, requestId: latestScrollRequestIdRef.current });
-  }, [clearGlobalSearch, selectChat]);
+  }, [closeSearch, selectChat]);
 
   const openGlobalSearchMessage = useCallback(async (chatId: string, messageId: string) => {
     await selectChat(chatId);
     await loadMessage(chatId, messageId);
-    clearGlobalSearch();
-    setGlobalSearchOpen(false);
+    closeSearch();
     setMobileChatOpen(true);
     messageScrollRequestIdRef.current += 1;
     setMessageScrollRequest({
@@ -176,7 +167,7 @@ export function App() {
       messageId,
       requestId: messageScrollRequestIdRef.current,
     });
-  }, [clearGlobalSearch, loadMessage, selectChat]);
+  }, [closeSearch, loadMessage, selectChat]);
 
   const openProfileMessage = useCallback((chatId: string, messageId: string) => {
     clearProfile();
@@ -191,14 +182,6 @@ export function App() {
     setMobileChatOpen(true);
   }, [clearProfile, selectChat, startPrivateChat]);
 
-  const openContactChat = useCallback(async (userId: string) => {
-    const chatId = await startPrivateChat(userId);
-    if (!chatId) return;
-    closeContacts(false);
-    await selectChat(chatId);
-    setMobileChatOpen(true);
-  }, [closeContacts, selectChat, startPrivateChat]);
-
   useEffect(() => {
     void initialize();
   }, [initialize]);
@@ -209,9 +192,8 @@ export function App() {
         event.preventDefault();
         setSettingsOpen(false);
         setMobileChatOpen(false);
-        setContactsOpen(false);
         clearProfile();
-        setGlobalSearchOpen(true);
+        globalThis.setTimeout(() => searchInputRef.current?.focus(), 0);
       }
     };
     window.addEventListener("keydown", openSearch);
@@ -227,9 +209,8 @@ export function App() {
     }
 
     state.clearGlobalSearch();
+    state.setSearchQuery("");
     state.clearProfile();
-    setGlobalSearchOpen(false);
-    setContactsOpen(false);
     await state.selectChat(route.chatId);
     await telegramStore.getState().loadMessage(route.chatId, route.messageId);
     clearPendingNotificationRoute();
@@ -377,7 +358,6 @@ export function App() {
   }
 
   const activeChat = activeChatId ? chats.get(activeChatId) : undefined;
-  const currentUser = currentUserId ? users.get(currentUserId) : undefined;
   const activeMessages = activeChatId ? messages.get(activeChatId) ?? [] : [];
   const activeHistory = activeChatId
     ? histories.get(activeChatId) ?? { loading: false, hasMore: true }
@@ -396,57 +376,15 @@ export function App() {
           folders={folders}
           filter={chatFilter}
           onFilterChange={(filter) => {
-            closeGlobalSearch(false);
-            closeContacts(false);
+            closeSearch();
             setChatFilter(filter);
           }}
           transportLabel={transportLabel}
           connectionStatus={connectionStatus}
-          searchActive={globalSearchOpen}
-          searchButtonRef={globalSearchButtonRef}
-          onOpenSearch={() => {
-            setMobileChatOpen(false);
-            setContactsOpen(false);
-            setGlobalSearchOpen(true);
-          }}
-          contactsActive={contactsOpen}
-          contactsButtonRef={contactsButtonRef}
-          onOpenContacts={() => {
-            closeGlobalSearch(false);
-            setMobileChatOpen(false);
-            setContactsOpen(true);
-            void loadContacts();
-          }}
           onManageFolders={() => setFolderManagerOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
-        {globalSearchOpen ? (
-          <GlobalSearchView
-            state={globalSearch}
-            knownChats={chats}
-            onSearch={searchGlobal}
-            onLoadMore={loadMoreGlobalSearch}
-            onCancel={cancelGlobalSearch}
-            onClear={clearGlobalSearch}
-            onOpenChat={(chatId) => { void openGlobalSearchChat(chatId); }}
-            onOpenMessage={(chatId, messageId) => { void openGlobalSearchMessage(chatId, messageId); }}
-            onClose={() => closeGlobalSearch()}
-          />
-        ) : contactsOpen ? (
-          <ContactsView
-            contacts={contacts}
-            currentUser={currentUser}
-            loading={contactsLoading}
-            error={contactsError}
-            pendingUserId={contactPendingUserId}
-            onRetry={() => { void loadContacts(); }}
-            onOpenCurrentProfile={() => { void loadCurrentUserProfile(); }}
-            onOpen={(userId) => { void openContactChat(userId); }}
-            onClose={() => closeContacts()}
-          />
-        ) : (
-          <>
-          <ChatSidebar
+        <ChatSidebar
           chats={visibleChats}
           drafts={drafts}
           activeChatId={activeChatId}
@@ -454,8 +392,22 @@ export function App() {
           folderTitle={folders.find((folder) => folder.id === chatFilter)?.title ?? "聊天"}
           connectionStatus={connectionStatus}
           searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          onSelect={(chatId) => { void selectChat(chatId); setMobileChatOpen(true); }}
+          searchInputRef={searchInputRef}
+          onSearchChange={updateSearchQuery}
+          globalSearch={globalSearch}
+          onSearchMessages={searchGlobal}
+          onLoadMoreSearchMessages={loadMoreGlobalSearch}
+          onCancelMessageSearch={cancelGlobalSearch}
+          onOpenSearchMessage={(chatId, messageId) => {
+            void openGlobalSearchMessage(chatId, messageId);
+          }}
+          onSelect={(chatId) => {
+            if (searchQuery.trim()) void openGlobalSearchChat(chatId);
+            else {
+              void selectChat(chatId);
+              setMobileChatOpen(true);
+            }
+          }}
           onOpenLatest={(chatId) => {
             setMobileChatOpen(true);
             void selectChat(chatId).finally(() => {
@@ -530,8 +482,6 @@ export function App() {
             : Promise.resolve(false)}
           onBack={() => setMobileChatOpen(false)}
         />
-          </>
-        )}
       </main>
       {error && (
         <div className="runtime-error" role="alert">

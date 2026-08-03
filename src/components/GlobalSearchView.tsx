@@ -4,26 +4,24 @@ import {
   Link,
   LoaderCircle,
   MessageSquare,
-  Search,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { messageContentText } from "../telegram/messageContent";
+import { isRegexMessageSearchQuery } from "../telegram/messageSearch";
 import type { Chat, GlobalSearchFilter, Message } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 
-interface GlobalSearchViewProps {
+interface GlobalSearchResultsProps {
+  query: string;
   state: GlobalSearchState;
   knownChats: Map<string, Chat>;
   onSearch: (query: string, filter: GlobalSearchFilter) => Promise<void>;
   onLoadMore: () => Promise<void>;
   onCancel: () => void;
-  onClear: () => void;
   onOpenChat: (chatId: string) => void;
   onOpenMessage: (chatId: string, messageId: string) => void;
-  onClose: () => void;
 }
 
 const filters: Array<{ id: GlobalSearchFilter; label: string }> = [
@@ -34,25 +32,26 @@ const filters: Array<{ id: GlobalSearchFilter; label: string }> = [
   { id: "link", label: "链接" },
 ];
 
-export function GlobalSearchView({
+export function GlobalSearchResults({
+  query,
   state,
   knownChats,
   onSearch,
   onLoadMore,
   onCancel,
-  onClear,
   onOpenChat,
   onOpenMessage,
-  onClose,
-}: GlobalSearchViewProps) {
-  const [query, setQuery] = useState(state.query);
+}: GlobalSearchResultsProps) {
   const [filter, setFilter] = useState<GlobalSearchFilter>(state.filter);
   const normalizedQuery = query.trim();
   const current = state.query === normalizedQuery && state.filter === filter;
   const chats = current ? state.chats : [];
   const messages = current ? state.messages : [];
-  const matchingChats = filter === "all"
-    ? chats.filter((chat) =>
+  const matchingChats = filter === "all" && !isRegexMessageSearchQuery(normalizedQuery)
+    ? [...new Map([
+        ...knownChats,
+        ...chats.map((chat) => [chat.id, chat] as const),
+      ]).values()].filter((chat) =>
       `${chat.title} ${chat.preview}`.toLocaleLowerCase().includes(
         normalizedQuery.toLocaleLowerCase(),
       )
@@ -64,22 +63,15 @@ export function GlobalSearchView({
   ]), [chats, knownChats]);
 
   useEffect(() => {
-    if (!normalizedQuery) {
-      onClear();
-      return;
-    }
+    if (!normalizedQuery) return;
     const timer = globalThis.setTimeout(() => {
       void onSearch(normalizedQuery, filter);
     }, 250);
     return () => globalThis.clearTimeout(timer);
-  }, [filter, normalizedQuery, onClear, onSearch]);
+  }, [filter, normalizedQuery, onSearch]);
 
   useEffect(() => () => onCancel(), [onCancel]);
 
-  const updateQuery = (value: string) => {
-    onCancel();
-    setQuery(value);
-  };
   const updateFilter = (value: GlobalSearchFilter) => {
     if (value === filter) return;
     onCancel();
@@ -88,35 +80,10 @@ export function GlobalSearchView({
 
   return (
     <section
-      className="global-search-view"
-      aria-labelledby="global-search-title"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onClose();
-      }}
+      className="global-search-results-panel"
+      aria-label="搜索结果"
     >
-      <header className="global-search-header">
-        <h1 id="global-search-title">搜索</h1>
-        <button className="icon-button" type="button" aria-label="关闭全局搜索" title="关闭" onClick={onClose}>
-          <X size={19} />
-        </button>
-      </header>
       <div className="global-search-controls">
-        <label className="global-search-field">
-          <Search size={18} strokeWidth={1.8} />
-          <span className="sr-only">搜索聊天和消息</span>
-          <input
-            autoFocus
-            type="search"
-            value={query}
-            placeholder="搜索聊天和消息"
-            onChange={(event) => updateQuery(event.target.value)}
-          />
-          {query && (
-            <button type="button" aria-label="清除全局搜索" title="清除" onClick={() => updateQuery("")}>
-              <X size={16} />
-            </button>
-          )}
-        </label>
         <div className="global-search-filters" role="tablist" aria-label="搜索类型">
           {filters.map((option) => (
             <button
@@ -174,6 +141,11 @@ export function GlobalSearchView({
           </div>
         )}
         {current && state.loading && messages.length === 0 && matchingChats.length === 0 && (
+          <div className="global-search-state" role="status" aria-label="正在搜索">
+            <LoaderCircle className="spin" size={21} />
+          </div>
+        )}
+        {!current && (
           <div className="global-search-state" role="status" aria-label="正在搜索">
             <LoaderCircle className="spin" size={21} />
           </div>

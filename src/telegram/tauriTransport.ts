@@ -35,6 +35,8 @@ import {
   sameProxy,
 } from "./tdlibRequests";
 import { routeTdUpdate, type TdUpdateHandlers } from "./tdUpdateRouter";
+import { messageContentText } from "./messageContent";
+import { messageSearchMatches, parseMessageSearchQuery } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
@@ -540,15 +542,15 @@ export class TauriTelegramTransport implements TelegramTransport {
     offset = "",
     limit = 30,
   }: GlobalSearchInput): Promise<GlobalSearchPage> {
-    const normalized = query.trim();
-    if (!normalized) return { chats: [], messages: [], totalCount: 0 };
+    const pattern = parseMessageSearchQuery(query);
+    if (!pattern.query) return { chats: [], messages: [], totalCount: 0 };
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const filterObject = globalSearchFilterObject(filter);
     const [found, serverChats, publicChats] = await Promise.all([
       this.request({
         "@type": "searchMessages",
         chat_list: null,
-        query: normalized,
+        query: pattern.serverQuery,
         offset,
         limit: boundedLimit,
         filter: filterObject,
@@ -556,14 +558,14 @@ export class TauriTelegramTransport implements TelegramTransport {
         min_date: 0,
         max_date: 0,
       }),
-      offset ? Promise.resolve(undefined) : this.request({
+      offset || pattern.kind === "regex" ? Promise.resolve(undefined) : this.request({
         "@type": "searchChatsOnServer",
-        query: normalized,
+        query: pattern.serverQuery,
         limit: 50,
       }).catch(() => undefined),
-      offset ? Promise.resolve(undefined) : this.request({
+      offset || pattern.kind === "regex" ? Promise.resolve(undefined) : this.request({
         "@type": "searchPublicChats",
-        query: normalized,
+        query: pattern.serverQuery,
       }).catch(() => undefined),
     ]);
     const rawMessages = asTdObjects(found.messages);
@@ -580,7 +582,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     const messages = rawMessages
       .map((raw) => this.mapMessage(raw))
       .filter((message): message is Message => Boolean(message))
-      .filter((message) => globalSearchContentMatches(message, filter));
+      .filter((message) => globalSearchContentMatches(message, filter))
+      .filter((message) => pattern.kind === "text" || messageSearchMatches(
+        messageContentText(message.content),
+        pattern,
+      ));
     const uniqueMessages = [...new Map(messages.map((message) => [
       `${message.chatId}:${message.id}`,
       message,
@@ -603,7 +609,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     return {
       chats,
       messages: uniqueMessages,
-      totalCount: filter !== "message" && totalCount !== undefined && totalCount >= 0
+      totalCount: pattern.kind === "text" && filter !== "message" && totalCount !== undefined && totalCount >= 0
         ? totalCount
         : undefined,
       nextOffset: typeof found.next_offset === "string" && found.next_offset
@@ -613,13 +619,13 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async searchChatMessages(chatId: string, query: string, limit = 100) {
-    const normalized = query.trim();
-    if (!normalized) return 0;
+    const pattern = parseMessageSearchQuery(query);
+    if (!pattern.query) return 0;
     const result = await this.request({
       "@type": "searchChatMessages",
       chat_id: numericId(chatId),
       topic_id: null,
-      query: normalized,
+      query: pattern.serverQuery,
       sender_id: null,
       from_message_id: 0,
       offset: 0,
@@ -627,8 +633,17 @@ export class TauriTelegramTransport implements TelegramTransport {
       filter: null,
     });
     const messages = asTdObjects(result.messages);
-    for (const message of messages) this.emitMessage(message);
-    return messages.length;
+    const matches = pattern.kind === "text"
+      ? messages
+      : messages.filter((raw) => {
+          const message = this.mapMessage(raw);
+          return Boolean(message && messageSearchMatches(
+            messageContentText(message.content),
+            pattern,
+          ));
+        });
+    for (const message of matches) this.emitMessage(message);
+    return matches.length;
   }
 
   async loadMoreChats(chatListId: string, limit = 100) {

@@ -3,14 +3,17 @@ import {
   useEffect,
   useRef,
   useState,
+  type RefObject,
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import type { Chat, ChatDraft, ConnectionStatus } from "../telegram/types";
+import type { GlobalSearchState } from "../store/globalSearchState";
+import type { Chat, ChatDraft, ConnectionStatus, GlobalSearchFilter } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
+import { GlobalSearchResults } from "./GlobalSearchView";
 
 interface ChatSidebarProps {
   chats: Chat[];
@@ -20,7 +23,13 @@ interface ChatSidebarProps {
   folderTitle: string;
   connectionStatus: ConnectionStatus;
   searchQuery: string;
+  searchInputRef: RefObject<HTMLInputElement | null>;
   onSearchChange: (value: string) => void;
+  globalSearch: GlobalSearchState;
+  onSearchMessages: (query: string, filter: GlobalSearchFilter) => Promise<void>;
+  onLoadMoreSearchMessages: () => Promise<void>;
+  onCancelMessageSearch: () => void;
+  onOpenSearchMessage: (chatId: string, messageId: string) => void;
   onSelect: (chatId: string) => void;
   onOpenLatest: (chatId: string) => void;
   loadingMore: boolean;
@@ -43,7 +52,13 @@ export function ChatSidebar({
   folderTitle,
   connectionStatus,
   searchQuery,
+  searchInputRef,
   onSearchChange,
+  globalSearch,
+  onSearchMessages,
+  onLoadMoreSearchMessages,
+  onCancelMessageSearch,
+  onOpenSearchMessage,
   onSelect,
   onOpenLatest,
   loadingMore,
@@ -216,7 +231,13 @@ export function ChatSidebar({
 
   useEffect(() => {
     const list = chatListRef.current;
-    if (!list || loadingMore || !hasMore || list.scrollHeight > list.clientHeight + 1) return;
+    if (
+      searchQuery.trim() ||
+      !list ||
+      loadingMore ||
+      !hasMore ||
+      list.scrollHeight > list.clientHeight + 1
+    ) return;
     const attempt = `${searchQuery}:${chats.length}`;
     if (autoFillAttemptRef.current === attempt) return;
     autoFillAttemptRef.current = attempt;
@@ -234,11 +255,15 @@ export function ChatSidebar({
 
       <label className="search-field">
         <Search size={17} strokeWidth={1.8} />
-        <span className="sr-only">搜索会话</span>
+        <span className="sr-only">搜索会话和消息</span>
         <input
+          ref={searchInputRef}
           value={searchQuery}
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="搜索会话"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") onSearchChange("");
+          }}
+          placeholder="搜索会话和消息"
           type="search"
         />
         {searchQuery && (
@@ -254,57 +279,70 @@ export function ChatSidebar({
         )}
       </label>
 
-      <div
-        className="chat-list"
-        ref={chatListRef}
-        onScroll={(event) => {
-          const list = event.currentTarget;
-          if (
-            list.scrollHeight - list.clientHeight - list.scrollTop <= 96 &&
-            hasMore &&
-            !loadingMore
-          ) {
-            void onLoadMore();
-          }
-        }}
-      >
-        {chats.length === 0 ? (
-          <div className="list-empty">
-            <Search size={22} strokeWidth={1.6} />
-            <span>没有匹配的会话</span>
-          </div>
-        ) : (
-          chats.map((chat) => (
-            <ChatRow
-              key={chat.id}
-              chat={chat}
-              folderId={folderId}
-              draft={drafts.get(chat.id)}
-              active={activeChatId === chat.id}
-              onOpenLatest={onOpenLatest}
-              pinnedDraggable={pinnedReorderEnabled && isChatPinnedInFolder(chat, folderId)}
-              dragging={draggedPinnedChatId === chat.id}
-              dropEdge={pinnedDropTarget?.chatId === chat.id
-                ? pinnedDropTarget.edge
-                : undefined}
-              onSelectChat={(chatId) => {
-                if (suppressNextChatClickRef.current) return;
-                onSelect(chatId);
-              }}
-              onPointerDown={beginPinnedDrag}
-              onPointerMove={movePinnedDrag}
-              onPointerUp={finishPinnedDrag}
-              onPointerCancel={(event) => finishPinnedDrag(event, true)}
-              onLostPointerCapture={(event) => finishPinnedDrag(event, true)}
-            />
-          ))
-        )}
-        {loadingMore && (
-          <div className="chat-list-loading" role="status" aria-label="正在加载更多会话">
-            <LoaderCircle className="spin" size={17} />
-          </div>
-        )}
-      </div>
+      {searchQuery.trim() ? (
+        <GlobalSearchResults
+          query={searchQuery}
+          state={globalSearch}
+          knownChats={new Map(chats.map((chat) => [chat.id, chat]))}
+          onSearch={onSearchMessages}
+          onLoadMore={onLoadMoreSearchMessages}
+          onCancel={onCancelMessageSearch}
+          onOpenChat={onSelect}
+          onOpenMessage={onOpenSearchMessage}
+        />
+      ) : (
+        <div
+          className="chat-list"
+          ref={chatListRef}
+          onScroll={(event) => {
+            const list = event.currentTarget;
+            if (
+              list.scrollHeight - list.clientHeight - list.scrollTop <= 96 &&
+              hasMore &&
+              !loadingMore
+            ) {
+              void onLoadMore();
+            }
+          }}
+        >
+          {chats.length === 0 ? (
+            <div className="list-empty">
+              <Search size={22} strokeWidth={1.6} />
+              <span>没有匹配的会话</span>
+            </div>
+          ) : (
+            chats.map((chat) => (
+              <ChatRow
+                key={chat.id}
+                chat={chat}
+                folderId={folderId}
+                draft={drafts.get(chat.id)}
+                active={activeChatId === chat.id}
+                onOpenLatest={onOpenLatest}
+                pinnedDraggable={pinnedReorderEnabled && isChatPinnedInFolder(chat, folderId)}
+                dragging={draggedPinnedChatId === chat.id}
+                dropEdge={pinnedDropTarget?.chatId === chat.id
+                  ? pinnedDropTarget.edge
+                  : undefined}
+                onSelectChat={(chatId) => {
+                  if (suppressNextChatClickRef.current) return;
+                  onSelect(chatId);
+                }}
+                onPointerDown={beginPinnedDrag}
+                onPointerMove={movePinnedDrag}
+                onPointerUp={finishPinnedDrag}
+                onPointerCancel={(event) => finishPinnedDrag(event, true)}
+                onLostPointerCapture={(event) => finishPinnedDrag(event, true)}
+              />
+            ))
+          )}
+          {loadingMore && (
+            <div className="chat-list-loading" role="status" aria-label="正在加载更多会话">
+              <LoaderCircle className="spin" size={17} />
+            </div>
+          )}
+        </div>
+      )}
       <div
         className="sidebar-resizer"
         role="separator"

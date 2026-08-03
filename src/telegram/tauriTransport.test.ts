@@ -153,6 +153,47 @@ describe("TauriTelegramTransport startup", () => {
     });
   });
 
+  it("uses empty TDLib queries as regex candidates and emits only matching messages", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "searchMessages") {
+        return {
+          "@type": "foundMessages",
+          total_count: 200,
+          messages: [rawMessage(90), rawMessage(81)],
+          next_offset: "regex-next",
+        };
+      }
+      if (request["@type"] === "searchChatMessages") {
+        return { "@type": "messages", messages: [rawMessage(90), rawMessage(81)] };
+      }
+      if (request["@type"] === "getChat") return rawChat(7, 1_700_000_000);
+      return { "@type": "ok" };
+    };
+
+    const page = await transport.searchGlobal({
+      query: "reg:^message 9\\d$",
+      filter: "message",
+    });
+    const count = await transport.searchChatMessages("7", "reg:^message 9\\d$");
+
+    expect(page.messages.map(({ id }) => id)).toEqual(["90"]);
+    expect(page).toMatchObject({ nextOffset: "regex-next" });
+    expect(page.totalCount).toBeUndefined();
+    expect(count).toBe(1);
+    expect(events).toMatchObject([{ type: "message.upsert", message: { id: "90" } }]);
+    expect(requests.filter((request) => request["@type"] === "searchChatsOnServer"))
+      .toEqual([]);
+    expect(requests.filter((request) =>
+      request["@type"] === "searchMessages" || request["@type"] === "searchChatMessages"
+    ).map((request) => request.query)).toEqual(["", ""]);
+  });
+
   it("cancels a TDLib file download without limiting cancellation to pending work", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

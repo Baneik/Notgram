@@ -156,6 +156,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .search-field:focus-within { color: var(--accent); background: #ffffff; border-color: var(--accent); }
 .search-field input, .message-search-row input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 14px; }
+.search-field input::-webkit-search-cancel-button { appearance: none; }
 .search-field input::placeholder, .message-search-row input::placeholder, .composer textarea::placeholder { color: #9aa0a5; }
 .clear-search {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center; color: #8d9499;
@@ -195,12 +196,6 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .unread-count.is-muted,
 .chat-row.is-active .unread-count.is-muted { color: #ffffff; background: #929a9e; }
 .list-empty { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--subtle); font-size: 12px; }
-.global-search-view {
-  grid-column: 2 / 4; min-width: 0; min-height: 0; display: grid; grid-template-rows: 58px auto minmax(0, 1fr);
-  background: #ffffff;
-}
-.global-search-header { padding: 0 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
-.global-search-header h1 { margin: 0; color: var(--ink); font-size: 17px; font-weight: 650; }
 .global-search-controls { padding: 16px 24px 14px; display: grid; gap: 12px; border-bottom: 1px solid var(--line); }
 .global-search-field {
   width: min(100%, 820px); height: 44px; margin: 0 auto; padding: 0 11px; display: grid;
@@ -243,6 +238,14 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .global-search-state.is-error { color: #b23b31; }
 .global-search-more { min-width: 120px; min-height: 38px; margin: 18px auto 0; padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--accent); background: #ffffff; border: 1px solid var(--accent); border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
 .global-search-more:disabled { opacity: 0.55; cursor: default; }
+.global-search-results-panel { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.global-search-results-panel .global-search-controls { padding: 0 12px 9px; }
+.global-search-results-panel .global-search-filters { width: 100%; }
+.global-search-results-panel .global-search-results { padding: 0 8px 18px; }
+.global-search-results-panel .global-result-section { padding-top: 10px; }
+.global-search-results-panel .global-chat-result,
+.global-search-results-panel .global-message-result { padding-right: 6px; padding-left: 6px; }
+.global-search-results-panel .global-search-state { min-height: 150px; }
 .contacts-view {
   grid-column: 2 / 4; min-width: 0; min-height: 0; display: grid; grid-template-rows: 58px auto minmax(0, 1fr);
   background: #ffffff;
@@ -1039,9 +1042,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
   .rail-settings { margin: 0; }
   .chat-sidebar, .conversation { grid-column: 1; grid-row: 1; }
-  .global-search-view { grid-column: 1; grid-row: 1; }
   .contacts-view { grid-column: 1; grid-row: 1; }
-  .global-search-header { height: 54px; padding: 0 14px; }
   .global-search-controls { padding: 12px 14px; }
   .global-search-results { padding: 5px 14px 20px; }
   .contacts-header { height: 54px; padding: 0 14px; }

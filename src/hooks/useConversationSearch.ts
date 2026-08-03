@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Message } from "../telegram/types";
 import { messageContentText } from "../telegram/messageContent";
+import { messageSearchMatches, parseMessageSearchQuery } from "../telegram/messageSearch";
 
 export const useConversationSearch = (
   chatId: string | undefined,
@@ -11,10 +12,16 @@ export const useConversationSearch = (
   const [query, setQuery] = useState("");
 
   const visibleMessages = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase();
+    const normalized = query.trim();
     if (!normalized) return messages;
+    let pattern;
+    try {
+      pattern = parseMessageSearchQuery(normalized);
+    } catch {
+      return [];
+    }
     return messages.filter((message) => {
-      return messageContentText(message.content).toLocaleLowerCase().includes(normalized);
+      return messageSearchMatches(messageContentText(message.content), pattern);
     });
   }, [messages, query]);
 

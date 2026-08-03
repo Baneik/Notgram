@@ -1,5 +1,6 @@
 import { mockSnapshot } from "./mockData";
 import { messageContentText } from "./messageContent";
+import { messageSearchMatches, parseMessageSearchQuery } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
@@ -494,8 +495,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async searchGlobal({ query, filter, offset = "", limit = 30 }: GlobalSearchInput): Promise<GlobalSearchPage> {
-    const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return { chats: [], messages: [], totalCount: 0 };
+    const pattern = parseMessageSearchQuery(query);
+    if (!pattern.query) return { chats: [], messages: [], totalCount: 0 };
     const typeMatches = (message: Message) => {
       const content = message.content;
       if (filter === "all") return true;
@@ -515,8 +516,10 @@ export class MockTelegramTransport implements TelegramTransport {
         const fileName = content.kind === "file" || content.kind === "media"
           ? content.fileName
           : "";
-        return typeMatches(message) &&
-          `${messageContentText(content)} ${fileName}`.toLocaleLowerCase().includes(normalized);
+        const searchable = [messageContentText(content), fileName]
+          .filter(Boolean)
+          .join(" ");
+        return typeMatches(message) && messageSearchMatches(searchable, pattern);
       })
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
     const start = Math.max(0, Number.parseInt(offset, 10) || 0);
@@ -524,9 +527,9 @@ export class MockTelegramTransport implements TelegramTransport {
     const messages = matches.slice(start, start + boundedLimit);
     const next = start + messages.length;
     const chatIds = new Set(messages.map((message) => message.chatId));
-    if (!offset) {
+    if (!offset && pattern.kind === "text") {
       for (const chat of this.snapshot.chats) {
-        if (`${chat.title} ${chat.preview}`.toLocaleLowerCase().includes(normalized)) chatIds.add(chat.id);
+        if (messageSearchMatches(`${chat.title} ${chat.preview}`, pattern)) chatIds.add(chat.id);
       }
     }
     return {
@@ -538,12 +541,11 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async searchChatMessages(chatId: string, query: string, limit = 100) {
-    const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return 0;
+    const pattern = parseMessageSearchQuery(query);
+    if (!pattern.query) return 0;
     const matches = this.snapshot.messages.filter((message) => {
       if (message.chatId !== chatId) return false;
-      const searchable = messageContentText(message.content);
-      return searchable.toLocaleLowerCase().includes(normalized);
+      return messageSearchMatches(messageContentText(message.content), pattern);
     }).slice(0, limit);
     for (const message of matches) {
       this.listener?.({ type: "message.upsert", message: clone(message) });

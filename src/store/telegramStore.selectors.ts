@@ -1,4 +1,5 @@
 import type { Chat } from "../telegram/types";
+import { isRegexMessageSearchQuery } from "../telegram/messageSearch";
 import type { ChatFilter, TelegramState } from "./telegramStore.types";
 
 export const compareChats = (left: Chat, right: Chat) =>
@@ -39,10 +40,12 @@ export const filterAndSortChats = (
   searchQuery: string,
 ) => {
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const messageRegexSearch = isRegexMessageSearchQuery(searchQuery);
   return [...chats]
     .filter((chat) => normalizedQuery || chat.folderIds.includes(folderId))
     .filter((chat) => {
       if (!normalizedQuery) return true;
+      if (messageRegexSearch) return false;
       return `${chat.title} ${chat.preview}`
         .toLocaleLowerCase()
         .includes(normalizedQuery);

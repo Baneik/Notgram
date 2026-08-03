@@ -5,6 +5,15 @@ with prerelease identifiers used for release candidates.
 
 ## [Unreleased]
 
+### Added
+
+- Support `reg:` regular expressions in global and current-conversation message search.
+
+### Changed
+
+- Merge chat and message search into the single conversation-sidebar field, and hide
+  the contacts navigation entry until it is assigned a new location.
+
 ## [0.5.0-rc.2] - 2026-08-03
 
 ### Fixed

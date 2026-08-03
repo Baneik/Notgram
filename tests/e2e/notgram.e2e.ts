@@ -55,7 +55,7 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await expect(page.locator(".settings-dialog .cache-health"))
     .toContainText("缓存状态：刚刚重建");
   await page.getByRole("button", { name: /软件更新/ }).click();
-  await expect(page.getByRole("heading", { name: /Notgram 0\.5\.0-rc\.1/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Notgram 0\.5\.0-rc\.2/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "检查更新" })).toBeDisabled();
   await page.getByRole("button", { name: /诊断与隐私/ }).click();
   await expect(page.getByRole("button", { name: "导出诊断包" })).toBeDisabled();
@@ -207,23 +207,29 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(reactionTrigger).toBeFocused();
 });
 
-test("global search paginates, filters, and opens exact message context", async ({ page }) => {
+test("the unified sidebar search paginates, filters, supports regex, and opens exact messages", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByRole("searchbox")).toHaveCount(1);
   await page.keyboard.press("Control+K");
 
-  const search = page.getByRole("searchbox", { name: "搜索聊天和消息" });
+  const search = page.getByRole("searchbox", { name: "搜索会话和消息" });
   await expect(search).toBeFocused();
   await search.fill("产品讨论历史消息");
   await expect(page.locator("[data-search-message-id]")).toHaveCount(30);
   await page.getByRole("button", { name: "加载更多" }).click();
   await expect(page.locator("[data-search-message-id]")).toHaveCount(36);
 
+  await search.fill("reg:^产品讨论历史消息 3[0-6]$");
+  await expect(page.locator("[data-search-message-id]")).toHaveCount(7);
+  await search.fill("reg:[");
+  await expect(page.getByRole("alert").getByText("无效的正则表达式")).toBeVisible();
+
   await page.getByRole("tab", { name: "媒体" }).click();
   await search.fill("预览");
   const target = page.locator('[data-search-message-id="p-5"]');
   await expect(target).toContainText("新的媒体预览样式");
   await target.click();
-  await expect(page.locator(".global-search-view")).toBeHidden();
+  await expect(page.locator(".global-search-results-panel")).toBeHidden();
   const locatedMessage = page.locator('[data-message-id="p-5"]');
   await expect(locatedMessage).toHaveClass(/is-notification-target/);
   const centeredOffset = await locatedMessage.evaluate((element) => {
@@ -233,6 +239,16 @@ test("global search paginates, filters, and opens exact message context", async 
     return Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2);
   });
   expect(centeredOffset).toBeLessThan(2);
+
+  await page.getByRole("button", { name: "搜索消息" }).click();
+  const conversationSearch = page.getByRole("searchbox", { name: "搜索当前对话" });
+  await conversationSearch.fill("reg:^新的媒体预览样式$");
+  await expect(page.locator('[data-message-id="p-5"]')).toBeVisible();
+  await conversationSearch.fill("reg:[");
+  await expect(page.locator(".messages-empty")).toHaveText("没有匹配的消息");
+  await expect(page.getByRole("alert").getByText("无效的正则表达式")).toBeVisible();
+  await page.getByRole("button", { name: "关闭消息搜索" }).click();
+  await page.getByRole("button", { name: "关闭操作提示" }).click();
 
   await page.keyboard.press("Control+K");
   await search.fill("Mia Chen");
@@ -244,8 +260,8 @@ test("global search paginates, filters, and opens exact message context", async 
   await search.fill("预览");
   await expect(page.locator('[data-search-message-id="p-5"]')).toBeVisible();
   expect(await horizontalOverflow(page)).toBe(false);
-  await page.getByRole("button", { name: "关闭全局搜索" }).click();
-  await expect(page.getByRole("button", { name: "全局搜索" })).toBeFocused();
+  await page.getByRole("button", { name: "清除搜索" }).click();
+  await expect(page.locator(".global-search-results-panel")).toBeHidden();
 });
 
 test("chat profiles expose members and shared media with focus restoration", async ({ page }) => {
@@ -273,32 +289,10 @@ test("chat profiles expose members and shared media with focus restoration", asy
   await expect(profileTrigger).toBeFocused();
 });
 
-test("contacts can be filtered and opened as a private chat", async ({ page }) => {
+test("contacts are hidden from the navigation rail", async ({ page }) => {
   await page.goto("/");
-  const contactsButton = page.getByRole("button", { name: "联系人", exact: true });
-  await contactsButton.click();
-
-  const search = page.getByRole("searchbox", { name: "搜索联系人" });
-  await expect(search).toBeFocused();
-  await expect(page.locator(".contact-row")).toHaveCount(3);
-  const myProfile = page.getByRole("button", { name: /我的资料/ });
-  await myProfile.click();
-  const profile = page.getByRole("dialog", { name: "资料" });
-  await expect(profile.getByRole("heading", { name: "林然" })).toBeVisible();
-  await profile.getByRole("button", { name: "关闭资料" }).click();
-  await expect(myProfile).toBeFocused();
-  await search.fill("Jules");
-  await expect(page.locator(".contact-row")).toHaveCount(1);
-
-  await page.getByRole("button", { name: "关闭联系人" }).click();
-  await expect(contactsButton).toBeFocused();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await contactsButton.click();
-  await search.fill("Jules");
-  expect(await horizontalOverflow(page)).toBe(false);
-  await page.locator(".contact-row").click();
-  await expect(page.locator(".contacts-view")).toBeHidden();
-  await expect(page.getByRole("button", { name: "查看 Jules 资料" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "联系人", exact: true })).toHaveCount(0);
+  await expect(page.locator(".contacts-view")).toHaveCount(0);
 });
 
 test("mobile chat switching has no horizontal overflow", async ({ page }) => {
