@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TelegramEventListener } from "./transport";
 import { TauriTelegramTransport } from "./tauriTransport";
 import type { TdObject } from "./tdlibMapper";
+import { clearPerformanceRecords, getPerformanceRecords } from "../utils/performanceMonitor";
 
 type TestableTransport = {
   listener?: TelegramEventListener;
@@ -11,6 +12,7 @@ type TestableTransport = {
   requestPreparedFile: (chatId: string) => Promise<boolean>;
   emitMessage: (message: TdObject) => void;
   handleUpdate: (update: TdObject) => void;
+  handleUpdateBatch: (updates: TdObject[]) => void;
   upsertChat: (chat: TdObject) => void;
   upsertUser: (user: TdObject) => void;
   finishInitialChatSync: () => void;
@@ -76,6 +78,30 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("attributes slow TDLib batches by update category", () => {
+    clearPerformanceRecords();
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.handleUpdateBatch([
+      { "@type": "updateFile" },
+      { "@type": "updateChatTitle" },
+      { "@type": "updateMessageContent" },
+      ...Array.from({ length: 29 }, () => ({ "@type": "updateUnknown" })),
+    ]);
+
+    expect(getPerformanceRecords()).toContainEqual(expect.objectContaining({
+      event: "ui_tdlib_update_batch",
+      details: expect.objectContaining({
+        batchCount: 32,
+        fileUpdateCount: 1,
+        chatUpdateCount: 1,
+        messageUpdateCount: 1,
+        otherUpdateCount: 29,
+      }),
+    }));
+  });
+
   it("loads history context on both sides of an exact message", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

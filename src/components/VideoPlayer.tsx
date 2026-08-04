@@ -388,6 +388,12 @@ export function VideoPlayer({
   };
 
   const openPlaybackWindow = async (mode: VideoWindowMode) => {
+    const openStartedAt = performance.now();
+    logPerformance("video_window_open_started", {
+      startTimeMs: openStartedAt,
+      durationMs: 0,
+      fullscreen: mode === "fullscreen",
+    });
     claimKeyboardTarget();
     let playbackSource = resolvedSource;
     if (!playbackSource) playbackSource = await requestStreamSource(false);
@@ -451,6 +457,8 @@ export function VideoPlayer({
           resolveInitialized();
           resolveInitialized = undefined;
           logPerformance("video_window_initialized", {
+            startTimeMs: openStartedAt,
+            durationMs: performance.now() - openStartedAt,
             fullscreen: mode === "fullscreen",
           });
         }
@@ -469,9 +477,6 @@ export function VideoPlayer({
       session.initializationTimer = globalThis.setTimeout(() => {
         reject(new Error("video window initialization timed out"));
       }, VIDEO_WINDOW_INITIALIZATION_TIMEOUT_MS);
-    });
-    logPerformance("video_window_open_started", {
-      fullscreen: mode === "fullscreen",
     });
     try {
       await Promise.race([
@@ -506,6 +511,8 @@ export function VideoPlayer({
         setPlaying(false);
         if (video && wasPlaying) void video.play().catch(() => setFailed(true));
         logPerformance("video_window_open_failed", {
+          startTimeMs: openStartedAt,
+          durationMs: performance.now() - openStartedAt,
           fullscreen: mode === "fullscreen",
         });
       }

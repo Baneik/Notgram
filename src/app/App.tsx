@@ -1,5 +1,13 @@
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Profiler,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
@@ -29,6 +37,12 @@ import {
 } from "../notifications/notificationRouting";
 import { mediaPlaybackCoordinator } from "../media/mediaPlayback";
 import { hasConversationScrollMemory } from "../hooks/useConversationScroll";
+import {
+  beginConversationSwitch,
+  isConversationSwitchActive,
+  logPerformance,
+  markConversationSwitch,
+} from "../utils/performanceMonitor";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -142,12 +156,14 @@ export function App() {
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
     chatId: string;
     requestId: number;
+    performanceTraceId?: number;
   }>();
   const latestScrollRequestIdRef = useRef(0);
   const [entryScrollRequest, setEntryScrollRequest] = useState<{
     chatId: string;
     serverMessageId?: string;
     requestId: number;
+    performanceTraceId?: number;
   }>();
   const entryScrollRequestIdRef = useRef(0);
   const chatOpenGenerationRef = useRef(0);
@@ -155,6 +171,7 @@ export function App() {
     chatId: string;
     messageId: string;
     requestId: number;
+    performanceTraceId?: number;
   }>();
   const messageScrollRequestIdRef = useRef(0);
   const conversationViewTransitionGenerationRef = useRef(0);
@@ -193,14 +210,41 @@ export function App() {
   }, []);
 
   const openGlobalSearchChat = useCallback(async (chatId: string) => {
+    const state = telegramStore.getState();
+    const targetMessages = state.messages.get(chatId) ?? [];
+    const performanceTraceId = beginConversationSwitch({
+      cached: targetMessages.length > 0,
+      messageCount: targetMessages.length,
+      viewTransition: false,
+      navigationKind: 3,
+    });
+    markConversationSwitch(performanceTraceId, "transitionStarted");
+    markConversationSwitch(performanceTraceId, "selectionCommitted");
     await selectChat(chatId);
     closeSearch();
     setMobileChatOpen(true);
     latestScrollRequestIdRef.current += 1;
-    setLatestScrollRequest({ chatId, requestId: latestScrollRequestIdRef.current });
+    setLatestScrollRequest({
+      chatId,
+      requestId: latestScrollRequestIdRef.current,
+      performanceTraceId,
+    });
+    requestAnimationFrame(() => {
+      markConversationSwitch(performanceTraceId, "transitionFinished");
+    });
   }, [closeSearch, selectChat]);
 
   const openGlobalSearchMessage = useCallback(async (chatId: string, messageId: string) => {
+    const state = telegramStore.getState();
+    const targetMessages = state.messages.get(chatId) ?? [];
+    const performanceTraceId = beginConversationSwitch({
+      cached: targetMessages.some((message) => message.id === messageId),
+      messageCount: targetMessages.length,
+      viewTransition: false,
+      navigationKind: 3,
+    });
+    markConversationSwitch(performanceTraceId, "transitionStarted");
+    markConversationSwitch(performanceTraceId, "selectionCommitted");
     await selectChat(chatId);
     await loadMessage(chatId, messageId);
     closeSearch();
@@ -210,6 +254,10 @@ export function App() {
       chatId,
       messageId,
       requestId: messageScrollRequestIdRef.current,
+      performanceTraceId,
+    });
+    requestAnimationFrame(() => {
+      markConversationSwitch(performanceTraceId, "transitionFinished");
     });
   }, [closeSearch, loadMessage, selectChat]);
 
@@ -504,8 +552,23 @@ export function App() {
                 ),
               );
               const restoreLocally = hasConversationScrollMemory(activeAccountId, chatId);
+              const transitionDocument = document as ViewTransitionDocument;
+              const targetMessages = state.messages.get(chatId) ?? [];
+              const warmTransition = Boolean(
+                state.activeChatId &&
+                targetMessages.length > 0 &&
+                globalThis.matchMedia("(min-width: 761px)").matches &&
+                transitionDocument.startViewTransition,
+              );
+              const performanceTraceId = beginConversationSwitch({
+                cached: targetMessages.length > 0,
+                messageCount: targetMessages.length,
+                viewTransition: warmTransition,
+                navigationKind: 1,
+              });
               entryScrollRequestIdRef.current += 1;
               const commitSelection = () => {
+                markConversationSwitch(performanceTraceId, "selectionCommitted");
                 flushSync(() => {
                   if (latestConversationIntentChatIdRef.current !== chatId) {
                     setLatestScrollRequest(undefined);
@@ -514,17 +577,11 @@ export function App() {
                     chatId,
                     serverMessageId,
                     requestId: entryScrollRequestIdRef.current,
+                    performanceTraceId,
                   });
                   void state.selectChat(chatId);
                 });
               };
-              const transitionDocument = document as ViewTransitionDocument;
-              const warmTransition = Boolean(
-                state.activeChatId &&
-                (state.messages.get(chatId)?.length ?? 0) > 0 &&
-                globalThis.matchMedia("(min-width: 761px)").matches &&
-                transitionDocument.startViewTransition,
-              );
               if (warmTransition && transitionDocument.startViewTransition) {
                 const viewTransitionGeneration =
                   conversationViewTransitionGenerationRef.current + 1;
@@ -537,12 +594,14 @@ export function App() {
                     pendingConversationTransitionChatIdRef.current !== chatId
                   ) return;
                   document.documentElement.classList.add("is-conversation-view-transition");
+                  markConversationSwitch(performanceTraceId, "transitionStarted");
                   try {
                     const transition = transitionDocument.startViewTransition!.call(
                       transitionDocument,
                       commitSelection,
                     );
                     void transition.finished.catch(() => undefined).finally(() => {
+                      markConversationSwitch(performanceTraceId, "transitionFinished");
                       if (
                         conversationViewTransitionGenerationRef.current ===
                           viewTransitionGeneration
@@ -559,11 +618,16 @@ export function App() {
                       "is-conversation-view-transition",
                     );
                     commitSelection();
+                    markConversationSwitch(performanceTraceId, "transitionFinished");
                   }
                 }, 0);
               } else {
                 pendingConversationTransitionChatIdRef.current = undefined;
+                markConversationSwitch(performanceTraceId, "transitionStarted");
                 commitSelection();
+                requestAnimationFrame(() => {
+                  markConversationSwitch(performanceTraceId, "transitionFinished");
+                });
               }
               if (serverMessageId && !serverMessageLoaded && !restoreLocally) {
                 void (async () => {
@@ -577,6 +641,7 @@ export function App() {
                     setEntryScrollRequest({
                       chatId,
                       requestId: entryScrollRequestIdRef.current,
+                      performanceTraceId,
                     });
                   });
                 })();
@@ -587,19 +652,33 @@ export function App() {
             chatOpenGenerationRef.current += 1;
             latestConversationIntentChatIdRef.current = chatId;
             setMobileChatOpen(true);
+            const state = telegramStore.getState();
+            const targetMessages = state.messages.get(chatId) ?? [];
+            const performanceTraceId = beginConversationSwitch({
+              cached: targetMessages.length > 0,
+              messageCount: targetMessages.length,
+              viewTransition: false,
+              navigationKind: 2,
+            });
+            markConversationSwitch(performanceTraceId, "transitionStarted");
+            markConversationSwitch(performanceTraceId, "selectionCommitted");
             flushSync(() => {
               setEntryScrollRequest(undefined);
               latestScrollRequestIdRef.current += 1;
               setLatestScrollRequest({
                 chatId,
                 requestId: latestScrollRequestIdRef.current,
+                performanceTraceId,
               });
             });
+            requestAnimationFrame(() => {
+              markConversationSwitch(performanceTraceId, "transitionFinished");
+            });
             if (
-              telegramStore.getState().activeChatId !== chatId &&
+              state.activeChatId !== chatId &&
               pendingConversationTransitionChatIdRef.current !== chatId
             ) {
-              void selectChat(chatId);
+              void state.selectChat(chatId);
             }
           }}
           loadingMore={activeChatList.loading}
@@ -619,7 +698,36 @@ export function App() {
           onWidthPreview={previewSidebarWidth}
           onWidthChange={setSidebarWidth}
         />
-          <Conversation
+          <Profiler
+            id="conversation"
+            onRender={(_id, phase, actualDuration, baseDuration, startTime) => {
+              const performanceTraceId = messageScrollRequest?.chatId === activeChatId
+                ? messageScrollRequest?.performanceTraceId
+                : latestScrollRequest?.chatId === activeChatId
+                  ? latestScrollRequest?.performanceTraceId
+                  : entryScrollRequest?.chatId === activeChatId
+                    ? entryScrollRequest?.performanceTraceId
+                    : undefined;
+              queueMicrotask(() => {
+                const tracing = isConversationSwitchActive(performanceTraceId);
+                markConversationSwitch(performanceTraceId, "reactCommitted", {
+                  durationMs: actualDuration,
+                });
+                if (actualDuration >= 4) {
+                  logPerformance("ui_react_commit", {
+                    startTimeMs: startTime,
+                    durationMs: actualDuration,
+                    baseDurationMs: baseDuration,
+                    phaseKind: phase === "mount" ? 1 : 2,
+                    componentKind: 1,
+                    traceId: tracing ? performanceTraceId : undefined,
+                    duringConversationSwitch: tracing,
+                  });
+                }
+              });
+            }}
+          >
+            <Conversation
           chat={activeChat}
           scrollScope={activeAccountId}
           entryScrollRequest={entryScrollRequest}
@@ -679,7 +787,8 @@ export function App() {
             ? setChatArchived(activeChatId, archived)
             : Promise.resolve(false)}
           onBack={() => setMobileChatOpen(false)}
-        />
+            />
+          </Profiler>
       </main>
       {error && (
         <div className="runtime-error" role="alert">

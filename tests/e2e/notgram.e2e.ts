@@ -114,6 +114,30 @@ test("performance monitor captures and inspects a WebView main-thread stall", as
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("performance monitor attributes a conversation switch to its slowest stage", async ({ page }) => {
+  await page.goto("/");
+  const title = page.locator(".conversation-title strong");
+  const initialTitle = await title.innerText();
+  const targetChatId = initialTitle === "产品讨论" ? "chat-mia" : "chat-product";
+
+  await page.locator(`.chat-row[data-chat-id="${targetChatId}"]`).click();
+  await expect(title).not.toHaveText(initialTitle);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /性能监控/ }).click();
+
+  const switchEntry = page.locator(".performance-entry")
+    .filter({ hasText: /会话切换 ·/ })
+    .first();
+  await expect(switchEntry).toBeVisible();
+  await switchEntry.getByRole("button").click();
+  const details = switchEntry.locator(".performance-entry-details");
+  await expect(details).toContainText("最大瓶颈");
+  await expect(details).toContainText("瓶颈耗时");
+  await expect(details).toContainText("React 提交");
+  await expect(details).toContainText("滚动定位");
+  await expect(details).not.toContainText("链路超时");
+});
+
 test("desktop messaging, reactions, and preferences remain usable", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toBeVisible();

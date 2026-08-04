@@ -55,6 +55,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const shouldResumeAfterBufferRef = useRef(false);
   const lastStreamSyncAtRef = useRef(0);
   const lastStreamStatusRef = useRef<{ bytes: number; at: number } | undefined>(undefined);
+  const windowStartedAtRef = useRef(performance.now());
   const [descriptor, setDescriptor] = useState<VideoWindowDescriptor>();
   const [playing, setPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
@@ -232,6 +233,8 @@ export function VideoWindow({ id }: VideoWindowProps) {
         setMuted(initial.mode === "fullscreen" ? false : initial.muted);
         setFullscreen(initial.mode === "fullscreen");
         logPerformance("video_window_descriptor_received", {
+          startTimeMs: windowStartedAtRef.current,
+          durationMs: performance.now() - windowStartedAtRef.current,
           fullscreen: initial.mode === "fullscreen",
         });
         return;

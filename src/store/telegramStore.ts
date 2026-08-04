@@ -36,7 +36,10 @@ import {
   isChatPinnedInFolder,
 } from "./telegramStore.selectors";
 import type { TelegramState } from "./telegramStore.types";
-import { logPerformance } from "../utils/performanceMonitor";
+import {
+  getActiveConversationTraceId,
+  logPerformance,
+} from "../utils/performanceMonitor";
 import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
 import { emptyProfileState } from "./profileState";
@@ -437,6 +440,8 @@ export const createTelegramStore = (
           loadedCount: page.loadedCount,
           hasMore: page.hasMore,
           failed: false,
+          traceId: getActiveConversationTraceId(),
+          duringConversationSwitch: getActiveConversationTraceId() !== undefined,
         });
         scheduleCacheWrite();
       } catch (error) {
@@ -455,6 +460,8 @@ export const createTelegramStore = (
           beforeCount,
           afterCount: get().messages.get(chatId)?.length ?? 0,
           failed: true,
+          traceId: getActiveConversationTraceId(),
+          duringConversationSwitch: getActiveConversationTraceId() !== undefined,
         });
       }
     };
@@ -658,6 +665,8 @@ export const createTelegramStore = (
             (total, chatId) => total + (messages.get(chatId)?.length ?? 0),
             0,
           ),
+          traceId: getActiveConversationTraceId(),
+          duringConversationSwitch: getActiveConversationTraceId() !== undefined,
         });
         const activeChatId = get().activeChatId;
         if (activeChatId && event.messages.some(

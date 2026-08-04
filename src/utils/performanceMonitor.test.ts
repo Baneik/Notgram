@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  beginConversationSwitch,
   clearPerformanceRecords,
   getPerformanceRecords,
   logPerformance,
+  markConversationSwitch,
   subscribePerformanceRecords,
 } from "./performanceMonitor";
 
 describe("performance monitor", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     clearPerformanceRecords();
     vi.spyOn(console, "info").mockImplementation(() => undefined);
   });
@@ -27,11 +30,14 @@ describe("performance monitor", () => {
         category: "data",
         severity: "critical",
         durationMs: 52.3,
-        details: {
+        details: expect.objectContaining({
           durationMs: 52.3,
           batchCount: 30,
           failed: false,
-        },
+          observedAtMs: expect.any(Number),
+          windowKind: 0,
+          windowId: expect.any(Number),
+        }),
       }),
     ]);
   });
@@ -70,5 +76,48 @@ describe("performance monitor", () => {
     expect(getPerformanceRecords()).toHaveLength(240);
     expect(getPerformanceRecords()[0]?.details.missedFrames).toBe(20);
     expect(getPerformanceRecords()[239]?.details.missedFrames).toBe(259);
+  });
+
+  it("summarizes a conversation switch and identifies its largest stage", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const traceId = beginConversationSwitch({
+      cached: true,
+      messageCount: 60,
+      viewTransition: true,
+      navigationKind: 1,
+    });
+
+    markConversationSwitch(traceId, "transitionStarted");
+    now = 5;
+    markConversationSwitch(traceId, "selectionCommitted");
+    now = 45;
+    markConversationSwitch(traceId, "dataReady", { messageCount: 62, blockCount: 31 });
+    now = 47;
+    markConversationSwitch(traceId, "messageProjected", { durationMs: 2 });
+    now = 55;
+    markConversationSwitch(traceId, "reactCommitted", { durationMs: 8 });
+    markConversationSwitch(traceId, "virtuosoRange");
+    now = 70;
+    markConversationSwitch(traceId, "positioned");
+    now = 96;
+    markConversationSwitch(traceId, "transitionFinished");
+
+    expect(getPerformanceRecords()).toEqual([
+      expect.objectContaining({
+        event: "ui_conversation_switch",
+        durationMs: 96,
+        details: expect.objectContaining({
+          traceId,
+          messageCount: 62,
+          blockCount: 31,
+          dataDurationMs: 40,
+          reactDurationMs: 8,
+          transitionDurationMs: 96,
+          bottleneckStage: 7,
+          bottleneckDurationMs: 96,
+        }),
+      }),
+    ]);
   });
 });

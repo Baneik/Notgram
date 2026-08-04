@@ -4,6 +4,7 @@ import {
   clearPerformanceRecords,
   getPerformanceRecords,
   subscribePerformanceRecords,
+  conversationBottleneckStages,
   type PerformanceCategory,
   type PerformanceRecord,
 } from "../utils/performanceMonitor";
@@ -47,8 +48,38 @@ const detailLabels: Record<string, string> = {
   failed: "是否失败",
   hasMore: "仍有历史",
   duringHistoryLoad: "历史加载期间",
+  duringConversationSwitch: "会话切换期间",
   targetKind: "目标类型",
   interactionKind: "交互类型",
+  traceId: "链路编号",
+  windowKind: "窗口类型",
+  navigationKind: "导航类型",
+  messageCount: "消息数量",
+  blockCount: "虚拟块数量",
+  cached: "缓存命中",
+  viewTransition: "视图过渡",
+  selectionDurationMs: "选择提交",
+  dataDurationMs: "数据等待",
+  projectionDurationMs: "消息投影",
+  reactDurationMs: "React 提交",
+  baseDurationMs: "React 基准耗时",
+  virtualListDurationMs: "虚拟列表首帧",
+  positionDurationMs: "滚动定位",
+  transitionDurationMs: "视觉呈现耗时",
+  bottleneckStage: "最大瓶颈",
+  bottleneckDurationMs: "瓶颈耗时",
+  timedOut: "链路超时",
+  cancelled: "链路被替代",
+  phaseKind: "React 阶段",
+  componentKind: "组件区域",
+  sourceCount: "偏移元素数量",
+  movedDistancePx: "最大移动距离",
+  impactedAreaPx: "最大影响面积",
+  droppedCount: "丢失记录",
+  messageUpdateCount: "消息更新",
+  chatUpdateCount: "会话更新",
+  fileUpdateCount: "文件更新",
+  otherUpdateCount: "其他更新",
 };
 
 const targetLabels: Record<number, string> = {
@@ -69,6 +100,28 @@ const interactionLabels: Record<number, string> = {
   4: "输入",
 };
 
+const windowLabels: Record<number, string> = {
+  0: "未知",
+  1: "主窗口",
+  2: "视频窗口",
+};
+
+const navigationLabels: Record<number, string> = {
+  0: "未知",
+  1: "打开会话",
+  2: "跳到最新",
+  3: "搜索结果",
+};
+
+const phaseLabels: Record<number, string> = {
+  1: "挂载",
+  2: "更新",
+};
+
+const componentLabels: Record<number, string> = {
+  1: "会话视图",
+};
+
 const formatDuration = (durationMs?: number) => {
   if (durationMs === undefined) return "--";
   if (durationMs < 1) return `${durationMs.toFixed(1)} ms`;
@@ -85,6 +138,11 @@ const formatDetail = (key: string, value: number | boolean) => {
   if (typeof value === "boolean") return value ? "是" : "否";
   if (key === "targetKind") return targetLabels[value] ?? "其他";
   if (key === "interactionKind") return interactionLabels[value] ?? "其他";
+  if (key === "windowKind") return windowLabels[value] ?? "其他";
+  if (key === "navigationKind") return navigationLabels[value] ?? "其他";
+  if (key === "phaseKind") return phaseLabels[value] ?? "其他";
+  if (key === "componentKind") return componentLabels[value] ?? "其他";
+  if (key === "bottleneckStage") return conversationBottleneckStages[value] ?? "未确定";
   if (key.endsWith("Ms")) return formatDuration(value);
   if (key.endsWith("Px")) return `${value.toFixed(1)} px`;
   if (key === "shiftScore") return value.toFixed(3);
@@ -92,7 +150,13 @@ const formatDetail = (key: string, value: number | boolean) => {
 };
 
 const visibleDetails = (record: PerformanceRecord) => Object.entries(record.details)
-  .filter(([key]) => key !== "startTimeMs" && key in detailLabels);
+  .filter(([key]) => !["startTimeMs", "observedAtMs", "windowId"].includes(key) && key in detailLabels);
+
+const performanceLabel = (record: PerformanceRecord) => {
+  if (record.event !== "ui_conversation_switch") return record.label;
+  const stage = Number(record.details.bottleneckStage ?? 0);
+  return `${record.label} · ${conversationBottleneckStages[stage] ?? "未确定"}`;
+};
 
 const formatRecordMetric = (record: PerformanceRecord) => record.event === "ui_layout_shift"
   ? Number(record.details.shiftScore ?? 0).toFixed(3)
@@ -157,7 +221,9 @@ export function PerformanceMonitor() {
           </div>
           <div>
             <span>最慢阶段</span>
-            <strong title={slowest?.label}>{slowest?.label ?? "--"}</strong>
+            <strong title={slowest ? performanceLabel(slowest) : undefined}>
+              {slowest ? performanceLabel(slowest) : "--"}
+            </strong>
           </div>
         </div>
         <div className="performance-toolbar">
@@ -218,7 +284,7 @@ export function PerformanceMonitor() {
                   onClick={() => setExpandedId(expanded ? undefined : record.id)}
                 >
                   <span className="performance-entry-time">{formatTimestamp(record.timestampMs)}</span>
-                  <span className="performance-entry-label">{record.label}</span>
+                  <span className="performance-entry-label">{performanceLabel(record)}</span>
                   <span className="performance-entry-duration">{formatRecordMetric(record)}</span>
                   <span className="performance-entry-track" aria-hidden="true">
                     <span style={{ width: `${Math.max(2, ((record.durationMs ?? 0) / maxDuration) * 100)}%` }} />

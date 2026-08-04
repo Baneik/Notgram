@@ -39,6 +39,10 @@ import {
 import { routeTdUpdate, type TdUpdateHandlers } from "./tdUpdateRouter";
 import { messageContentText } from "./messageContent";
 import { messageSearchMatches, parseMessageSearchQuery } from "./messageSearch";
+import {
+  getActiveConversationTraceId,
+  logPerformance,
+} from "../utils/performanceMonitor";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
@@ -253,11 +257,11 @@ export class TauriTelegramTransport implements TelegramTransport {
       throw new Error("TDLib 已加载，但缺少 NOTGRAM_API_ID / NOTGRAM_API_HASH。");
     }
 
-    this.unlistenUpdate = await listen<TdObject>("telegram://update", (event) =>
-      this.handleUpdate(event.payload),
-    );
+    this.unlistenUpdate = await listen<TdObject>("telegram://update", (event) => {
+      this.handleUpdateBatch([event.payload]);
+    });
     this.unlistenUpdates = await listen<TdObject[]>("telegram://updates", (event) => {
-      for (const update of event.payload) this.handleUpdate(update);
+      this.handleUpdateBatch(event.payload);
     });
     this.unlistenError = await listen<{ message: string }>(
       "telegram://bridge-error",
@@ -294,6 +298,38 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.requestBroker.rejectAll(new Error("TDLib runtime 已关闭。"));
       this.listener = undefined;
       this.resetSessionState();
+    }
+  }
+
+  private handleUpdateBatch(updates: TdObject[]) {
+    if (updates.length === 0) return;
+    const startedAt = performance.now();
+    for (const update of updates) this.handleUpdate(update);
+    const durationMs = performance.now() - startedAt;
+    if (durationMs >= 4 || updates.length >= 32) {
+      const traceId = getActiveConversationTraceId();
+      let messageUpdateCount = 0;
+      let chatUpdateCount = 0;
+      let fileUpdateCount = 0;
+      let otherUpdateCount = 0;
+      for (const update of updates) {
+        const type = typeof update["@type"] === "string" ? update["@type"] : "";
+        if (type === "updateFile") fileUpdateCount += 1;
+        else if (type.startsWith("updateChat")) chatUpdateCount += 1;
+        else if (type.includes("Message") || type === "updateNewMessage") messageUpdateCount += 1;
+        else otherUpdateCount += 1;
+      }
+      logPerformance("ui_tdlib_update_batch", {
+        startTimeMs: startedAt,
+        durationMs,
+        batchCount: updates.length,
+        traceId,
+        duringConversationSwitch: traceId !== undefined,
+        messageUpdateCount,
+        chatUpdateCount,
+        fileUpdateCount,
+        otherUpdateCount,
+      });
     }
   }
 

@@ -37,12 +37,17 @@ const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_history_data",
     "ui_history_merge",
     "ui_history_render",
+    "ui_conversation_switch",
     "ui_frame_drop",
     "ui_layout_shift",
     "ui_long_frame",
     "ui_long_task",
+    "ui_message_projection",
+    "ui_performance_log_drop",
+    "ui_react_commit",
     "ui_slow_interaction",
     "ui_startup",
+    "ui_tdlib_update_batch",
     "video_window_descriptor_received",
     "video_window_initialized",
     "video_window_open_failed",
@@ -52,13 +57,23 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "addedCount",
     "afterCount",
     "anchorShiftPx",
+    "baseDurationMs",
     "batchCount",
     "beforeCount",
+    "blockCount",
     "blockingDurationMs",
+    "bottleneckDurationMs",
+    "bottleneckStage",
+    "cached",
+    "cancelled",
+    "componentKind",
+    "dataDurationMs",
     "domContentLoadedMs",
     "domInteractiveMs",
     "durationMs",
+    "duringConversationSwitch",
     "duringHistoryLoad",
+    "droppedCount",
     "failed",
     "firstContentfulPaintMs",
     "fullscreen",
@@ -67,18 +82,40 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "interactionKind",
     "loadEventMs",
     "loadedCount",
+    "messageUpdateCount",
+    "chatUpdateCount",
+    "fileUpdateCount",
+    "otherUpdateCount",
+    "messageCount",
     "missedFrames",
+    "movedDistancePx",
+    "navigationKind",
+    "observedAtMs",
+    "phaseKind",
     "presentationDelayMs",
+    "positionDurationMs",
     "processingDurationMs",
+    "projectionDurationMs",
+    "reactDurationMs",
     "renderDurationMs",
     "restoreDurationMs",
     "scriptDurationMs",
     "scrollHeight",
     "scrollTop",
     "shiftScore",
+    "sourceCount",
     "startTimeMs",
     "styleLayoutDurationMs",
     "targetKind",
+    "timedOut",
+    "traceId",
+    "transitionDurationMs",
+    "viewTransition",
+    "virtualListDurationMs",
+    "windowId",
+    "windowKind",
+    "impactedAreaPx",
+    "selectionDurationMs",
 ];
 
 #[derive(Deserialize)]
@@ -93,6 +130,10 @@ fn performance_thresholds(event: &str) -> (f64, f64) {
         "ui_startup" => (1_000.0, 2_500.0),
         "ui_history_data" => (500.0, 1_500.0),
         "ui_history_merge" => (16.0, 50.0),
+        "ui_conversation_switch" => (100.0, 250.0),
+        "ui_message_projection" => (8.0, 16.0),
+        "ui_react_commit" | "ui_tdlib_update_batch" => (16.0, 50.0),
+        "ui_performance_log_drop" => (0.0, 1.0),
         "video_window_descriptor_received"
         | "video_window_initialized"
         | "video_window_open_started" => (250.0, 1_000.0),
@@ -108,7 +149,7 @@ fn validate_performance_record(event: &str, details: &Value) -> Result<&'static 
     let Value::Object(fields) = details else {
         return Err("性能日志详情必须是对象".to_string());
     };
-    if fields.len() > 16
+    if fields.len() > 24
         || fields
             .keys()
             .any(|key| !ALLOWED_PERFORMANCE_DETAIL_FIELDS.contains(&key.as_str()))
@@ -939,6 +980,22 @@ mod tests {
                 .log_performance(
                     "ui_history_render",
                     json!({ "durationMs": 12.5, "addedCount": 30, "failed": false }),
+                )
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .log_performance(
+                    "ui_conversation_switch",
+                    json!({
+                        "durationMs": 132.0,
+                        "traceId": 4,
+                        "cached": true,
+                        "reactDurationMs": 28.0,
+                        "bottleneckStage": 4,
+                        "bottleneckDurationMs": 28.0,
+                        "windowKind": 1,
+                    }),
                 )
                 .is_ok()
         );

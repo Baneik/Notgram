@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
+        atomic::{AtomicU64, Ordering},
         mpsc::{self, SyncSender, TrySendError},
     },
     thread,
@@ -27,6 +28,8 @@ pub(super) struct RuntimeLogger {
     pub(super) path: Arc<PathBuf>,
     pub(super) performance_path: Arc<PathBuf>,
     sender: SyncSender<LogCommand>,
+    dropped_runtime_records: Arc<AtomicU64>,
+    dropped_performance_records: Arc<AtomicU64>,
 }
 
 impl RuntimeLogger {
@@ -68,6 +71,10 @@ impl RuntimeLogger {
         let (sender, receiver) = mpsc::sync_channel(256);
         let writer_path = Arc::clone(&path);
         let writer_performance_path = Arc::clone(&performance_path);
+        let dropped_runtime_records = Arc::new(AtomicU64::new(0));
+        let dropped_performance_records = Arc::new(AtomicU64::new(0));
+        let writer_dropped_runtime_records = Arc::clone(&dropped_runtime_records);
+        let writer_dropped_performance_records = Arc::clone(&dropped_performance_records);
         thread::Builder::new()
             .name("notgram-log-writer".to_string())
             .spawn(move || {
@@ -99,6 +106,23 @@ impl RuntimeLogger {
                             Err(_) => break,
                         }
                     }
+                    let dropped_runtime = writer_dropped_runtime_records.swap(0, Ordering::AcqRel);
+                    if dropped_runtime > 0 {
+                        runtime_records.push((
+                            "warn".to_string(),
+                            "runtime_log_drop".to_string(),
+                            json!({ "droppedCount": dropped_runtime }),
+                        ));
+                    }
+                    let dropped_performance =
+                        writer_dropped_performance_records.swap(0, Ordering::AcqRel);
+                    if dropped_performance > 0 {
+                        performance_records.push((
+                            "error".to_string(),
+                            "ui_performance_log_drop".to_string(),
+                            json!({ "droppedCount": dropped_performance }),
+                        ));
+                    }
                     write_records(writer_path.as_ref(), "notgram.log.1", runtime_records);
                     write_records(
                         writer_performance_path.as_ref(),
@@ -115,12 +139,27 @@ impl RuntimeLogger {
             path,
             performance_path,
             sender,
+            dropped_runtime_records,
+            dropped_performance_records,
         })
     }
 
     fn enqueue(&self, command: LogCommand) {
         match self.sender.try_send(command) {
-            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+            Ok(()) => {}
+            Err(TrySendError::Full(command)) => match command {
+                LogCommand::Runtime(records) => {
+                    self.dropped_runtime_records
+                        .fetch_add(records.len() as u64, Ordering::Relaxed);
+                }
+                LogCommand::Performance(records) => {
+                    self.dropped_performance_records
+                        .fetch_add(records.len() as u64, Ordering::Relaxed);
+                }
+                #[cfg(test)]
+                LogCommand::Flush(_) => {}
+            },
+            Err(TrySendError::Disconnected(_)) => {}
         }
     }
 
@@ -167,10 +206,15 @@ fn write_records(path: &Path, backup_name: &str, records: Vec<LogRecord>) {
 
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         for (level, event, details) in records {
-            let timestamp_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis();
+            let timestamp_ms = details
+                .get("observedAtMs")
+                .and_then(Value::as_u64)
+                .unwrap_or_else(|| {
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64
+                });
             let record = json!({
                 "timestampMs": timestamp_ms,
                 "level": level,
@@ -288,7 +332,7 @@ mod tests {
             (
                 "warn".to_string(),
                 "ui_long_frame".to_string(),
-                json!({ "durationMs": 80 }),
+                json!({ "durationMs": 80, "observedAtMs": 1_700_000_000_123_u64 }),
             ),
             (
                 "error".to_string(),
@@ -307,6 +351,14 @@ mod tests {
         assert!(performance.contains("ui_slow_interaction"));
         assert_eq!(performance.lines().count(), 2);
         assert!(!performance.contains("runtime_started"));
+        let first_performance: Value = serde_json::from_str(
+            performance
+                .lines()
+                .next()
+                .expect("performance record should exist"),
+        )
+        .expect("performance record should be valid JSON");
+        assert_eq!(first_performance["timestampMs"], 1_700_000_000_123_u64);
         fs::remove_dir_all(directory).expect("test directory should be removed");
     }
 }

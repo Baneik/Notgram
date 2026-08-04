@@ -13,6 +13,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -61,6 +62,11 @@ import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
 import { writeClipboardText } from "../utils/clipboard";
 import { useTelegramStore } from "../store/telegramStore";
+import {
+  isConversationSwitchActive,
+  logPerformance,
+  markConversationSwitch,
+} from "../utils/performanceMonitor";
 
 const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
   <div {...props} className="message-list-content" ref={ref} />
@@ -212,6 +218,11 @@ export function Conversation({
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
+  const performanceTraceId = latestScrollRequest?.chatId === chat?.id
+    ? latestScrollRequest?.performanceTraceId
+    : entryScrollRequest?.chatId === chat?.id
+      ? entryScrollRequest?.performanceTraceId
+      : undefined;
 
   const displayMessages = useMemo(
     () => chat?.kind === "saved"
@@ -232,15 +243,39 @@ export function Conversation({
     if (messageScrollRequest?.chatId === chat?.id) closeMessageSearch();
   }, [chat?.id, messageScrollRequest?.chatId, messageScrollRequest?.requestId]);
 
-  const visibleMessageBlocks = useMemo(
-    () => virtualizeMessageGroups(visibleMessages),
-    [visibleMessages],
-  );
+  const messageProjection = useMemo(() => {
+    const startedAt = performance.now();
+    const blocks = virtualizeMessageGroups(visibleMessages);
+    return { blocks, durationMs: performance.now() - startedAt };
+  }, [visibleMessages]);
+  const visibleMessageBlocks = messageProjection.blocks;
   const messageItemIndexes = useMemo(
     () => indexMessagesByVirtualBlock(visibleMessageBlocks),
     [visibleMessageBlocks],
   );
   const viewerPhotos = useMemo(() => photoMessages(displayMessages), [displayMessages]);
+
+  useLayoutEffect(() => {
+    const tracing = isConversationSwitchActive(performanceTraceId);
+    markConversationSwitch(performanceTraceId, "messageProjected", {
+      durationMs: messageProjection.durationMs,
+      messageCount: visibleMessages.length,
+      blockCount: visibleMessageBlocks.length,
+    });
+    if (tracing || messageProjection.durationMs >= 4) {
+      logPerformance("ui_message_projection", {
+        durationMs: messageProjection.durationMs,
+        traceId: tracing ? performanceTraceId : undefined,
+        messageCount: visibleMessages.length,
+        blockCount: visibleMessageBlocks.length,
+      });
+    }
+  }, [
+    messageProjection,
+    performanceTraceId,
+    visibleMessageBlocks.length,
+    visibleMessages.length,
+  ]);
 
   useEffect(() => {
     setViewerMessageId(undefined);

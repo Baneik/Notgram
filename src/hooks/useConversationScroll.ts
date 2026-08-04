@@ -10,7 +10,11 @@ import {
 } from "react";
 import type { IndexLocationWithAlign, StateSnapshot, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
-import { logPerformance, markHistoryInteraction } from "../utils/performanceMonitor";
+import {
+  logPerformance,
+  markConversationSwitch,
+  markHistoryInteraction,
+} from "../utils/performanceMonitor";
 
 const BOTTOM_PROXIMITY_PX = 40;
 
@@ -33,18 +37,21 @@ interface ConversationLayoutSnapshot {
 export interface LatestConversationScrollRequest {
   chatId: string;
   requestId: number;
+  performanceTraceId?: number;
 }
 
 export interface EntryConversationScrollRequest {
   chatId: string;
   serverMessageId?: string;
   requestId: number;
+  performanceTraceId?: number;
 }
 
 export interface MessageConversationScrollRequest {
   chatId: string;
   messageId: string;
   requestId: number;
+  performanceTraceId?: number;
 }
 
 interface ConversationScrollOptions {
@@ -241,6 +248,10 @@ export const useConversationScroll = ({
   lastVisibleMessageIdRef.current = lastVisibleMessageId;
   const matchingEntryRequest = entryRequest?.chatId === chatId ? entryRequest : undefined;
   const matchingLatestRequest = latestRequest?.chatId === chatId ? latestRequest : undefined;
+  const matchingMessageRequest = messageRequest?.chatId === chatId ? messageRequest : undefined;
+  const performanceTraceId = matchingMessageRequest?.performanceTraceId ??
+    matchingLatestRequest?.performanceTraceId ??
+    matchingEntryRequest?.performanceTraceId;
   const initialDataPhase = virtualItemCount > 0 ? "ready" : "empty";
   const requestedEntryTarget = matchingEntryRequest?.serverMessageId;
   const entryTargetPhase = !requestedEntryTarget
@@ -912,10 +923,44 @@ export const useConversationScroll = ({
   ]);
 
   const scheduleInitialPositionVerification = useCallback(() => {
+    if (!historyLoading) {
+      markConversationSwitch(performanceTraceId, "virtuosoRange", {
+        messageCount: visibleMessages.length,
+        blockCount: virtualItemCount,
+      });
+    }
     if (initialPositionFrameRef.current !== undefined) return;
     initialPositionFrameRef.current = requestAnimationFrame(verifyInitialPosition);
-  }, [verifyInitialPosition]);
+  }, [historyLoading, performanceTraceId, verifyInitialPosition, virtualItemCount, visibleMessages.length]);
   initialPositionVerifierRef.current = scheduleInitialPositionVerification;
+
+  useLayoutEffect(() => {
+    if (historyLoading) return;
+    markConversationSwitch(performanceTraceId, "dataReady", {
+      messageCount: visibleMessages.length,
+      blockCount: virtualItemCount,
+    });
+  }, [historyLoading, performanceTraceId, virtualItemCount, visibleMessages.length]);
+
+  useLayoutEffect(() => {
+    if (
+      historyLoading ||
+      matchingMessageRequest?.performanceTraceId === performanceTraceId ||
+      positionedScrollIdentity !== initialLocationIdentity
+    ) return;
+    markConversationSwitch(performanceTraceId, "positioned", {
+      messageCount: visibleMessages.length,
+      blockCount: virtualItemCount,
+    });
+  }, [
+    historyLoading,
+    initialLocationIdentity,
+    matchingMessageRequest?.performanceTraceId,
+    performanceTraceId,
+    positionedScrollIdentity,
+    virtualItemCount,
+    visibleMessages.length,
+  ]);
 
   useLayoutEffect(() => {
     if (!currentScrollKey) return;
@@ -1009,6 +1054,11 @@ export const useConversationScroll = ({
         remainingCorrections -= 1;
         if (remainingCorrections > 0) {
           animationFrame = requestAnimationFrame(settleTargetPosition);
+        } else {
+          markConversationSwitch(messageRequest.performanceTraceId, "positioned", {
+            messageCount: visibleMessages.length,
+            blockCount: virtualItemCount,
+          });
         }
       };
       animationFrame = requestAnimationFrame(settleTargetPosition);
@@ -1034,6 +1084,7 @@ export const useConversationScroll = ({
     lastVisibleMessageId,
     messageItemIndexes,
     messageRequest,
+    virtualItemCount,
     visibleMessages,
   ]);
 
