@@ -926,7 +926,11 @@ export class MockTelegramTransport implements TelegramTransport {
   async markChatRead(chatId: string) {
     const chat = this.snapshot.chats.find((item) => item.id === chatId);
     if (!chat || chat.unreadCount === 0) return;
+    const latestIncomingMessage = this.snapshot.messages
+      .filter((message) => message.chatId === chatId && !message.outgoing)
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt))[0];
     chat.unreadCount = 0;
+    chat.lastReadInboxMessageId = latestIncomingMessage?.id ?? chat.lastReadInboxMessageId;
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 

@@ -52,6 +52,7 @@ const chats: Chat[] = [
     previewSenderId: "u-jules",
     updatedAt: "2026-08-01T09:48:00+08:00",
     unreadCount: 3,
+    lastReadInboxMessageId: "p-tall",
     pinned: true,
     pinnedFolderIds: ["main", "folder:work"],
     listOrderByFolder: { main: "200", "folder:work": "200" },
@@ -68,6 +69,7 @@ const chats: Chat[] = [
     previewSenderId: "u-mia",
     updatedAt: "2026-08-01T09:32:00+08:00",
     unreadCount: 1,
+    lastReadInboxMessageId: "m-2",
     pinned: true,
     pinnedFolderIds: ["main"],
     listOrderByFolder: { main: "100" },
@@ -97,6 +99,7 @@ const chats: Chat[] = [
     previewSenderId: "u-chen",
     updatedAt: "2026-07-31T22:40:00+08:00",
     unreadCount: 0,
+    lastReadInboxMessageId: "c-old-25",
     pinned: false,
     muted: true,
   },
@@ -136,6 +139,16 @@ const olderProductMessages: Message[] = Array.from({ length: 36 }, (_, index) =>
   sentAt: new Date(Date.UTC(2026, 6, 30, 0, index)).toISOString(),
   delivery: "read",
   content: { kind: "text", text: `产品讨论历史消息 ${index + 1}` },
+}));
+
+const olderChenMessages: Message[] = Array.from({ length: 48 }, (_, index) => ({
+  id: `c-old-${index + 1}`,
+  chatId: "chat-chen",
+  senderId: index % 2 === 0 ? "u-chen" : "self",
+  outgoing: index % 2 !== 0,
+  sentAt: new Date(Date.UTC(2026, 6, 30, 1, index)).toISOString(),
+  delivery: "read",
+  content: { kind: "text", text: `陈默历史消息 ${index + 1}` },
 }));
 
 const messages: Message[] = [
@@ -534,6 +547,7 @@ const messages: Message[] = [
       sizeLabel: "18 KB",
     },
   },
+  ...olderChenMessages,
   {
     id: "c-1",
     chatId: "chat-chen",

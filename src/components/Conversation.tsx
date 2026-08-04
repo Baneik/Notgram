@@ -30,6 +30,7 @@ import type {
 import { useConversationSearch } from "../hooks/useConversationSearch";
 import {
   useConversationScroll,
+  type EntryConversationScrollRequest,
   type LatestConversationScrollRequest,
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
@@ -76,6 +77,7 @@ const messageListComponents: Components<VirtualMessageBlock> = {
 interface ConversationProps {
   chat?: Chat;
   scrollScope: string;
+  entryScrollRequest?: EntryConversationScrollRequest;
   latestScrollRequest?: LatestConversationScrollRequest;
   messageScrollRequest?: MessageConversationScrollRequest;
   messages: Message[];
@@ -129,6 +131,7 @@ interface ConversationProps {
 export function Conversation({
   chat,
   scrollScope,
+  entryScrollRequest,
   latestScrollRequest,
   messageScrollRequest,
   messages,
@@ -299,13 +302,18 @@ export function Conversation({
     setMessageListRef,
     virtuosoRef,
     currentScrollKey,
+    positioning,
+    initialTopMostItemIndex,
     highlightedMessageId,
     newMessageNotice,
     jumpToLatest,
+    onTotalListHeightChanged,
+    onAtBottomStateChange,
     messageListHandlers,
   } = useConversationScroll({
     scope: scrollScope,
     chatId: chat?.id,
+    entryRequest: entryScrollRequest,
     latestRequest: latestScrollRequest,
     messageRequest: messageScrollRequest,
     visibleMessages,
@@ -580,7 +588,7 @@ export function Conversation({
         </div>
       )}
 
-      <div className="message-list-shell">
+      <div className={`message-list-shell ${positioning ? "is-positioning" : ""}`}>
         {historyLoading && (
           <div className="history-loading" aria-label="正在加载更早消息">
             <LoaderCircle className="spin" size={16} />
@@ -594,6 +602,7 @@ export function Conversation({
           isScrolling={setMessageListScrolling}
           role="log"
           aria-label="消息列表"
+          aria-busy={positioning}
           tabIndex={0}
           alignToBottom
           components={messageListComponents}
@@ -601,7 +610,10 @@ export function Conversation({
           data={visibleMessageBlocks}
           defaultItemHeight={52}
           followOutput="auto"
-          increaseViewportBy={{ top: 280, bottom: 280 }}
+          initialTopMostItemIndex={initialTopMostItemIndex}
+          totalListHeightChanged={onTotalListHeightChanged}
+          atBottomStateChange={onAtBottomStateChange}
+          increaseViewportBy={{ top: 4_000, bottom: 280 }}
           minOverscanItemCount={{ top: 2, bottom: 2 }}
           {...messageListHandlers}
           itemContent={(_, groupModel) => {
@@ -621,7 +633,7 @@ export function Conversation({
                 <div className="message-day">{formatMessageDay(firstMessage.sentAt)}</div>
               )}
               <div
-                className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${groupModel.continuesBefore ? "continues-before" : ""} ${groupModel.continuesAfter ? "continues-after" : ""}`}
+                className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${groupModel.continuesBefore ? "continues-before" : ""} ${groupModel.continuesAfter ? "continues-after" : ""} ${groupModel.id === visibleMessageBlocks.at(-1)?.id ? "is-last-visible" : ""}`}
               >
                 {reserveSenderAvatar && (
                   <span className="message-group-avatar">

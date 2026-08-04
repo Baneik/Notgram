@@ -27,12 +27,21 @@ const visibleMessageAnchor = (page: Page) => page.locator(".message-list").evalu
   };
 });
 
-const scrollAwayFromBottom = (page: Page) => page.locator(".message-list").evaluate((element) => {
-  const maximum = element.scrollHeight - element.clientHeight;
-  element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -500 }));
-  element.scrollTop = Math.max(100, Math.floor(maximum * 0.45));
-  element.dispatchEvent(new Event("scroll"));
-});
+const scrollAwayFromBottom = async (page: Page) => {
+  await expect.poll(async () => {
+    const metrics = await messageListMetrics(page);
+    return metrics.scrollHeight - metrics.clientHeight;
+  }).toBeGreaterThan(200);
+  await page.locator(".message-list").evaluate((element) => {
+    const maximum = element.scrollHeight - element.clientHeight;
+    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -500 }));
+    element.scrollTop = Math.max(100, Math.floor(maximum * 0.45));
+    element.dispatchEvent(new Event("scroll"));
+  });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  }));
+};
 
 test("webview chrome is suppressed and settings are opened from the Notgram brand", async ({ page }) => {
   await page.goto("/");
@@ -231,6 +240,7 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toBeVisible();
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
   await expect(messageList).not.toHaveClass(/is-scrolling/);
 
   const idle = await messageList.evaluate((element) => {
@@ -248,10 +258,8 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
   expect(idle.scrollbarColor).toContain("rgba(0, 0, 0, 0)");
 
   await messageList.evaluate((element) => {
-    element.scrollTop = Math.min(
-      element.scrollHeight - element.clientHeight,
-      Math.max(1, element.scrollTop + 160),
-    );
+    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -160 }));
+    element.scrollTop = Math.max(0, element.scrollTop - 160);
     element.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
   await expect(messageList).toHaveClass(/is-scrolling/);
@@ -269,6 +277,90 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
   await expect(messageList).not.toHaveClass(/is-scrolling/, { timeout: 2_000 });
   await expect.poll(() => messageList.evaluate((element) => element.clientWidth))
     .toBe(idle.clientWidth);
+});
+
+test("latest message keeps a fixed gap above the composer", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+
+  const gap = await page.evaluate(() => {
+    const latest = document.querySelector<HTMLElement>('[data-message-id="p-video"]');
+    const composer = document.querySelector<HTMLElement>(".composer-wrap");
+    if (!latest || !composer) return -1;
+    return composer.getBoundingClientRect().top - latest.getBoundingClientRect().bottom;
+  });
+  expect(gap).toBeGreaterThanOrEqual(11);
+  expect(gap).toBeLessThanOrEqual(13);
+});
+
+test("single-click entry restores the server read marker without exposing intermediate jumps", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(() => {
+    const diagnosticWindow = window as typeof window & {
+      __notgramEntryFrames?: Array<{ busy: string | null; masked: boolean; scrollTop: number }>;
+    };
+    diagnosticWindow.__notgramEntryFrames = [];
+    const startedAt = performance.now();
+    const sample = () => {
+      const activeChatId = document.querySelector<HTMLElement>(
+        '.chat-row[aria-current="true"]',
+      )?.dataset.chatId;
+      const list = document.querySelector<HTMLElement>(".message-list");
+      const shell = document.querySelector<HTMLElement>(".message-list-shell");
+      if (activeChatId === "chat-chen" && list && shell) {
+        diagnosticWindow.__notgramEntryFrames?.push({
+          busy: list.getAttribute("aria-busy"),
+          masked: shell.classList.contains("is-positioning"),
+          scrollTop: Math.round(list.scrollTop),
+        });
+      }
+      if (performance.now() - startedAt < 2_000) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+
+  const serverChat = page.locator('[data-chat-id="chat-chen"]');
+  await serverChat.click();
+  await expect(serverChat).toHaveAttribute("aria-current", "true");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator('[data-message-id="c-old-25"]')).toBeVisible();
+
+  const result = await page.evaluate(() => {
+    const list = document.querySelector<HTMLElement>(".message-list")!;
+    const target = document.querySelector<HTMLElement>('[data-message-id="c-old-25"]')!;
+    const latest = document.querySelector<HTMLElement>('[data-message-id="c-2"]');
+    const listBounds = list.getBoundingClientRect();
+    const targetBounds = target.getBoundingClientRect();
+    const frames = (window as typeof window & {
+      __notgramEntryFrames?: Array<{ busy: string | null; masked: boolean; scrollTop: number }>;
+    }).__notgramEntryFrames ?? [];
+    const exposedBusyFrames = frames.filter((frame) => frame.busy === "true" && !frame.masked);
+    const exposedPositions = new Set(
+      frames.filter((frame) => frame.busy === "false" && !frame.masked)
+        .map((frame) => frame.scrollTop),
+    );
+    return {
+      targetOffset: targetBounds.top - listBounds.top,
+      listHeight: listBounds.height,
+      latestVisible: Boolean(
+        latest && latest.getBoundingClientRect().top < listBounds.bottom &&
+        latest.getBoundingClientRect().bottom > listBounds.top,
+      ),
+      exposedBusyFrameCount: exposedBusyFrames.length,
+      exposedPositionCount: exposedPositions.size,
+      scrollBehavior: getComputedStyle(list).scrollBehavior,
+    };
+  });
+  expect(result.targetOffset).toBeGreaterThanOrEqual(-1);
+  expect(result.targetOffset).toBeLessThan(result.listHeight);
+  expect(result.latestVisible).toBe(false);
+  expect(result.exposedBusyFrameCount).toBe(0);
+  expect(result.exposedPositionCount).toBeLessThanOrEqual(1);
+  expect(result.scrollBehavior).toBe("auto");
 });
 
 test("outgoing messages stay inside the conversation at narrow widths and interface zoom", async ({ page }) => {
@@ -547,13 +639,12 @@ test("the unified sidebar search paginates, filters, supports regex, and opens e
   await expect(page.locator(".global-search-results-panel")).toBeHidden();
   const locatedMessage = page.locator('[data-message-id="p-5"]');
   await expect(locatedMessage).toHaveClass(/is-notification-target/);
-  const centeredOffset = await locatedMessage.evaluate((element) => {
+  await expect.poll(() => locatedMessage.evaluate((element) => {
     const list = element.closest(".message-list")?.getBoundingClientRect();
     const row = element.getBoundingClientRect();
     if (!list) return Number.POSITIVE_INFINITY;
     return Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2);
-  });
-  expect(centeredOffset).toBeLessThan(2);
+  })).toBeLessThan(2);
 
   await page.getByRole("button", { name: "搜索消息" }).click();
   const conversationSearch = page.getByRole("searchbox", { name: "搜索当前对话" });
@@ -901,8 +992,13 @@ test("photo albums preserve order, captions, clipping, and tile geometry", async
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    }));
     for (const row of [tallRow, squareRow]) {
-      await row.scrollIntoViewIfNeeded();
+      await row.evaluate((element) => {
+        element.scrollIntoView({ block: "center", behavior: "auto" });
+      });
       await expect.poll(() => row.locator("img").evaluate((image) => {
         const media = image as HTMLImageElement;
         return media.complete && media.naturalWidth > 0 && media.naturalHeight > 0;
@@ -999,6 +1095,7 @@ test("saved and direct messages align to the conversation edges", async ({ page 
   await expect(savedMessage).toHaveClass(/is-outgoing/);
 
   await page.getByRole("button", { name: /Mia Chen/ }).click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await expect(page.locator(".message-group-avatar")).toHaveCount(0);
   const alignment = await page.locator(".message-list").evaluate((list) => {
     const content = list.querySelector<HTMLElement>(".message-list-content");
@@ -1086,6 +1183,7 @@ test("developer mode copies the complete raw unknown message", async ({ page, co
 test("conversation scroll state follows, restores, counts, and resets to latest", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-row")).not.toHaveCount(0);
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 
   await scrollAwayFromBottom(page);
@@ -1125,7 +1223,7 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
 
   await scrollAwayFromBottom(page);
   await page.getByRole("button", { name: /Mia Chen/ }).click();
-  await page.getByRole("button", { name: /产品讨论/ }).dblclick();
+  await page.locator('[data-chat-id="chat-product"]').dblclick();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 });
@@ -1133,6 +1231,7 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
 test("double-clicking a conversation repeatedly converges to its latest message", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 
   await page.getByRole("button", { name: /Mia Chen/ }).click();
@@ -1142,6 +1241,10 @@ test("double-clicking a conversation repeatedly converges to its latest message"
 
   const messageList = page.locator(".message-list");
   for (let iteration = 0; iteration < 3; iteration += 1) {
+    await expect.poll(async () => {
+      const metrics = await messageListMetrics(page);
+      return metrics.scrollHeight - metrics.clientHeight;
+    }).toBeGreaterThan(200);
     await messageList.hover();
     await page.mouse.wheel(0, -900);
     await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
@@ -1158,6 +1261,7 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   await expect(page.locator(".message-row")).toHaveCount(30);
 
   const list = page.locator(".message-list");
+  await expect(list).toHaveAttribute("aria-busy", "false");
   const before = await list.evaluate((element) => {
     element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
     element.scrollTop = 40;
@@ -1173,16 +1277,18 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   });
 
   expect(before.id).toBeTruthy();
-  await expect.poll(() => page.locator(".message-row").count()).toBeGreaterThan(30);
+  await expect(page.locator('[data-message-id="p-old-1"]')).toBeAttached();
   const loadedIds = await page.locator(".message-row").evaluateAll((rows) =>
     rows.map((row) => (row as HTMLElement).dataset.messageId),
   );
   expect(new Set(loadedIds).size).toBe(loadedIds.length);
-  const offset = await page.locator(`.message-row[data-message-id="${before.id}"]`).evaluate(
-    (row) => row.getBoundingClientRect().top -
-      (row.closest(".message-list")?.getBoundingClientRect().top ?? 0),
-  );
-  expect(Math.abs(offset - before.offset)).toBeLessThanOrEqual(2);
+  await expect.poll(() => page.locator(
+    `.message-row[data-message-id="${before.id}"]`,
+  ).evaluate((row, expectedOffset) => Math.abs(
+    row.getBoundingClientRect().top -
+    (row.closest(".message-list")?.getBoundingClientRect().top ?? 0) -
+    expectedOffset,
+  ), before.offset)).toBeLessThanOrEqual(2);
 });
 
 test("chat organization menu confirms pin, mute, and archive changes", async ({ page }) => {

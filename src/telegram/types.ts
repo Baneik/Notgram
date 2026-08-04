@@ -91,6 +91,7 @@ export interface Chat {
   previewSenderId?: string;
   updatedAt: string;
   unreadCount: number;
+  lastReadInboxMessageId?: string;
   pinned: boolean;
   pinnedFolderIds?: string[];
   listOrderByFolder?: Record<string, string>;

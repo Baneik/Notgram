@@ -113,6 +113,9 @@ export function ChatSidebar({
   } | undefined>(undefined);
   const pinnedDropTargetRef = useRef<typeof pinnedDropTarget>(undefined);
   const suppressNextChatClickRef = useRef(false);
+  const pendingChatSelectionRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(
+    undefined,
+  );
   const [contextMenu, setContextMenu] = useState<{
     chatId: string;
     point: ContextMenuPoint;
@@ -120,6 +123,22 @@ export function ChatSidebar({
   }>();
 
   const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
+  const cancelPendingChatSelection = useCallback(() => {
+    if (!pendingChatSelectionRef.current) return;
+    globalThis.clearTimeout(pendingChatSelectionRef.current);
+    pendingChatSelectionRef.current = undefined;
+  }, []);
+  const selectChatFromClick = useCallback((chatId: string, immediate = false) => {
+    cancelPendingChatSelection();
+    const select = () => {
+      pendingChatSelectionRef.current = undefined;
+      if (suppressNextChatClickRef.current) return;
+      onSelect(chatId);
+    };
+    if (immediate) select();
+    else pendingChatSelectionRef.current = globalThis.setTimeout(select, 240);
+  }, [cancelPendingChatSelection, onSelect]);
+  useEffect(() => cancelPendingChatSelection, [cancelPendingChatSelection]);
   const openContextMenu = useCallback((
     chatId: string,
     point: ContextMenuPoint,
@@ -396,17 +415,18 @@ export function ChatSidebar({
                 folderId={folderId}
                 draft={drafts.get(chat.id)}
                 active={activeChatId === chat.id}
-                onOpenLatest={onOpenLatest}
+                onOpenLatest={(chatId) => {
+                  cancelPendingChatSelection();
+                  onOpenLatest(chatId);
+                }}
+                onCancelPendingSelection={cancelPendingChatSelection}
                 onOpenContextMenu={openContextMenu}
                 pinnedDraggable={pinnedReorderEnabled && isChatPinnedInFolder(chat, folderId)}
                 dragging={draggedPinnedChatId === chat.id}
                 dropEdge={pinnedDropTarget?.chatId === chat.id
                   ? pinnedDropTarget.edge
                   : undefined}
-                onSelectChat={(chatId) => {
-                  if (suppressNextChatClickRef.current) return;
-                  onSelect(chatId);
-                }}
+                onSelectChat={selectChatFromClick}
                 onPointerDown={beginPinnedDrag}
                 onPointerMove={movePinnedDrag}
                 onPointerUp={finishPinnedDrag}
@@ -472,6 +492,7 @@ function ChatRow({
   active,
   onSelectChat,
   onOpenLatest,
+  onCancelPendingSelection,
   onOpenContextMenu,
   pinnedDraggable,
   dragging,
@@ -487,8 +508,9 @@ function ChatRow({
   folderId: string;
   draft?: ChatDraft;
   active: boolean;
-  onSelectChat: (chatId: string) => void;
+  onSelectChat: (chatId: string, immediate?: boolean) => void;
   onOpenLatest: (chatId: string) => void;
+  onCancelPendingSelection: () => void;
   onOpenContextMenu: (
     chatId: string,
     point: ContextMenuPoint,
@@ -515,14 +537,20 @@ function ChatRow({
       aria-grabbed={dragging}
       aria-current={active ? "true" : undefined}
       onClick={(event) => {
-        if (event.detail < 2) onSelectChat(chat.id);
+        if (event.detail === 0) {
+          onSelectChat(chat.id, true);
+          return;
+        }
+        if (event.detail === 1) onSelectChat(chat.id);
       }}
       onDoubleClick={(event) => {
         event.preventDefault();
+        onCancelPendingSelection();
         onOpenLatest(chat.id);
       }}
       onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
+        onCancelPendingSelection();
         onOpenContextMenu(
           chat.id,
           { x: event.clientX, y: event.clientY },
@@ -532,6 +560,7 @@ function ChatRow({
       onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
         if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
         event.preventDefault();
+        onCancelPendingSelection();
         const bounds = event.currentTarget.getBoundingClientRect();
         onOpenContextMenu(
           chat.id,

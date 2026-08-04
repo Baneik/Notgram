@@ -1514,6 +1514,7 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
     previewSenderId: lastMessage ? messageSenderId(lastMessage.sender_id) || undefined : undefined,
     updatedAt: unixDate(lastMessage?.date),
     unreadCount: tdNumber(raw.unread_count) ?? 0,
+    lastReadInboxMessageId: tdId(raw.last_read_inbox_message_id) || undefined,
     pinned: pinnedFolderIds.length > 0,
     pinnedFolderIds,
     listOrderByFolder,

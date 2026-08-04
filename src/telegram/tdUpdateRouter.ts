@@ -79,7 +79,10 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
       handlers.updateChatList(update, false);
       return;
     case "updateChatReadInbox":
-      handlers.patchChat(update.chat_id, { unread_count: update.unread_count });
+      handlers.patchChat(update.chat_id, {
+        last_read_inbox_message_id: update.last_read_inbox_message_id,
+        unread_count: update.unread_count,
+      });
       return;
     case "updateChatNotificationSettings":
       handlers.patchChat(update.chat_id, {

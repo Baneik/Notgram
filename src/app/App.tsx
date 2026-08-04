@@ -1,5 +1,6 @@
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
 import { NavigationRail } from "../components/NavigationRail";
@@ -133,6 +134,13 @@ export function App() {
     requestId: number;
   }>();
   const latestScrollRequestIdRef = useRef(0);
+  const [entryScrollRequest, setEntryScrollRequest] = useState<{
+    chatId: string;
+    serverMessageId?: string;
+    requestId: number;
+  }>();
+  const entryScrollRequestIdRef = useRef(0);
+  const chatOpenGenerationRef = useRef(0);
   const [messageScrollRequest, setMessageScrollRequest] = useState<{
     chatId: string;
     messageId: string;
@@ -467,22 +475,45 @@ export function App() {
           onSelect={(chatId) => {
             if (searchQuery.trim()) void openGlobalSearchChat(chatId);
             else {
-              if (telegramStore.getState().activeChatId !== chatId) void selectChat(chatId);
               setMobileChatOpen(true);
+              const state = telegramStore.getState();
+              if (state.activeChatId === chatId) return;
+              const generation = chatOpenGenerationRef.current + 1;
+              chatOpenGenerationRef.current = generation;
+              const serverMessageId = state.chats.get(chatId)?.lastReadInboxMessageId;
+              void (async () => {
+                if (
+                  serverMessageId &&
+                  !(telegramStore.getState().messages.get(chatId) ?? [])
+                    .some((message) => message.id === serverMessageId)
+                ) {
+                  await telegramStore.getState().loadMessage(chatId, serverMessageId);
+                }
+                if (chatOpenGenerationRef.current !== generation) return;
+                entryScrollRequestIdRef.current += 1;
+                flushSync(() => {
+                  setEntryScrollRequest({
+                    chatId,
+                    serverMessageId,
+                    requestId: entryScrollRequestIdRef.current,
+                  });
+                });
+                await telegramStore.getState().selectChat(chatId);
+              })();
             }
           }}
           onOpenLatest={(chatId) => {
+            chatOpenGenerationRef.current += 1;
             setMobileChatOpen(true);
-            const selection = telegramStore.getState().activeChatId === chatId
-              ? Promise.resolve()
-              : selectChat(chatId);
-            void selection.finally(() => {
+            flushSync(() => {
+              setEntryScrollRequest(undefined);
               latestScrollRequestIdRef.current += 1;
               setLatestScrollRequest({
                 chatId,
                 requestId: latestScrollRequestIdRef.current,
               });
             });
+            if (telegramStore.getState().activeChatId !== chatId) void selectChat(chatId);
           }}
           loadingMore={activeChatList.loading}
           hasMore={activeChatList.hasMore}
@@ -504,6 +535,7 @@ export function App() {
           <Conversation
           chat={activeChat}
           scrollScope={activeAccountId}
+          entryScrollRequest={entryScrollRequest}
           latestScrollRequest={latestScrollRequest}
           messageScrollRequest={messageScrollRequest}
           messages={activeMessages}
