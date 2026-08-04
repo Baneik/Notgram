@@ -504,6 +504,7 @@ export function App() {
         <NavigationRail
           folders={folders}
           chats={[...chats.values()]}
+          account={currentUserId ? users.get(currentUserId) : undefined}
           filter={chatFilter}
           folderManagementPending={folderManagementPending}
           onFilterChange={(filter) => {

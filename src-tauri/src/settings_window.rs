@@ -13,13 +13,13 @@ pub async fn notgram_open_settings_window(app: AppHandle) -> Result<(), String> 
 
     let url = WebviewUrl::App("index.html?settingsWindow=1".into());
     let mut builder = WebviewWindowBuilder::new(&app, "settings", url)
-        .title("设置")
+        .title("")
         .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .min_inner_size(720.0, 540.0)
         .resizable(true)
         .maximizable(true)
         .minimizable(true)
-        .decorations(true)
+        .decorations(false)
         .always_on_top(false)
         .skip_taskbar(false)
         .focused(true)
@@ -34,7 +34,7 @@ pub async fn notgram_open_settings_window(app: AppHandle) -> Result<(), String> 
             let _ = window.set_focus();
         });
     builder = if let Some((x, y)) =
-        crate::window_placement::centered_on_main_monitor(&app, WINDOW_WIDTH, WINDOW_HEIGHT)
+        crate::window_placement::centered_on_main_window(&app, WINDOW_WIDTH, WINDOW_HEIGHT)
     {
         builder.position(x, y)
     } else {

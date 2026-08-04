@@ -43,12 +43,15 @@ const scrollAwayFromBottom = async (page: Page) => {
   }));
 };
 
-test("the top bar keeps only window controls and settings remain reachable", async ({ page }) => {
+test("the top bar keeps only window controls and the account entry opens settings", async ({ page }) => {
   await page.goto("/");
 
-  const settingsButton = page.locator(".rail-footer").getByRole("button", { name: "设置" });
+  const settingsButton = page.locator(".rail-account");
   await expect(settingsButton).toHaveRole("button");
   await expect(settingsButton).toHaveAccessibleName("设置");
+  await expect(settingsButton).toContainText("林然");
+  await expect(settingsButton.locator(".avatar")).toBeVisible();
+  await expect(page.locator(".rail-footer")).toHaveCount(0);
   await expect(page.locator(".rail-brand")).toHaveCount(0);
   await expect(page.locator(".window-chrome")).toBeVisible();
   await expect(page.locator(".window-chrome")).not.toContainText("Notgram");
@@ -116,6 +119,11 @@ test("standalone settings update the still-interactive main window", async ({ pa
   await settings.goto("/?settingsWindow");
   await expect(settings.locator(".settings-window-shell")).toBeVisible();
   await expect(settings.locator(".app-shell")).toHaveCount(0);
+  await expect(settings.locator(".window-chrome")).toBeVisible();
+  await expect(settings.locator(".window-chrome")).not.toContainText("设置");
+  await expect(settings.locator(".window-controls > button")).toHaveCount(3);
+  await expect(settings.getByRole("button", { name: "关闭", exact: true })).toHaveCount(0);
+  await expect(settings.getByRole("heading", { name: "设置", exact: true })).toHaveCount(1);
   await settings.getByRole("button", { name: /聊天设置/ }).click();
   await settings.getByRole("spinbutton", { name: "消息字体大小" }).fill("19");
   await expect(page.locator(".message-rich-text").first()).toHaveCSS("font-size", "19px");

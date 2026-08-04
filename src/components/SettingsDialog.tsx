@@ -310,9 +310,11 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
       >
         <header className="settings-dialog-header">
           <h2 id="settings-title">设置</h2>
-          <button className="icon-button" type="button" aria-label="关闭" title="关闭" onClick={onClose}>
-            <X size={19} />
-          </button>
+          {!standalone && (
+            <button className="icon-button" type="button" aria-label="关闭" title="关闭" onClick={onClose}>
+              <X size={19} />
+            </button>
+          )}
         </header>
 
         <nav className="settings-categories" aria-label="设置分类">

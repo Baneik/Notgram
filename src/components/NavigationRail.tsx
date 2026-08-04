@@ -1,7 +1,8 @@
-import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
+import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, UserRound, Users } from "lucide-react";
 import { useCallback, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { ChatFilter } from "../store/telegramStore";
-import type { Chat, ChatFolder } from "../telegram/types";
+import type { Chat, ChatFolder, User } from "../telegram/types";
+import { Avatar } from "./Avatar";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { FolderContextMenu } from "./SidebarContextMenus";
 
@@ -9,6 +10,7 @@ interface NavigationRailProps {
   filter: ChatFilter;
   folders: ChatFolder[];
   chats: Chat[];
+  account?: User;
   folderManagementPending: boolean;
   onFilterChange: (filter: ChatFilter) => void;
   onManageFolders: () => void;
@@ -21,6 +23,7 @@ interface NavigationRailProps {
 export function NavigationRail({
   folders,
   chats,
+  account,
   filter,
   folderManagementPending,
   onFilterChange,
@@ -39,6 +42,8 @@ export function NavigationRail({
   const contextFolder = contextMenu
     ? folders.find((folder) => folder.id === contextMenu.folderId)
     : undefined;
+  const accountName = account?.displayName ?? "Telegram";
+  const accountAvatar = account?.avatar ?? { label: "T", color: "#3390ec" };
 
   const openContextMenu = (
     folderId: string,
@@ -63,6 +68,16 @@ export function NavigationRail({
   return (
     <>
     <nav className="navigation-rail" aria-label="聊天文件夹">
+      <button
+        className="rail-account"
+        type="button"
+        aria-label="设置"
+        title={`当前账号：${accountName}`}
+        onClick={onOpenSettings}
+      >
+        <Avatar avatar={accountAvatar} size="small" />
+        <span>{accountName}</span>
+      </button>
       <div className="rail-actions">
         {folders.map((folder) => (
           <button className={`rail-button ${filter === folder.id ? "is-active" : ""}`} key={folder.id}
@@ -78,11 +93,6 @@ export function NavigationRail({
         ))}
         <button className="rail-button" type="button" aria-label="管理文件夹" title="管理文件夹" onClick={onManageFolders}>
           <span className="rail-icon"><FolderCog size={23} strokeWidth={1.8} /></span><span>管理</span>
-        </button>
-      </div>
-      <div className="rail-footer">
-        <button className="rail-button" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
-          <span className="rail-icon"><Settings size={23} strokeWidth={1.8} /></span><span>设置</span>
         </button>
       </div>
     </nav>
