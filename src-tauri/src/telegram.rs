@@ -625,7 +625,12 @@ fn receive_loop(
     while !stop.load(Ordering::Acquire) {
         poll_count += 1;
         let poll_started = Instant::now();
-        match engine.receive_value(1.0) {
+        let receive_timeout = if pending_updates.is_empty() {
+            1.0
+        } else {
+            0.008
+        };
+        match engine.receive_value(receive_timeout) {
             Ok(Some(update)) => {
                 update_count += 1;
                 consecutive_errors = 0;
@@ -771,11 +776,12 @@ fn receive_loop(
                 }
             }
             Ok(None) => {
+                let had_pending_updates = !pending_updates.is_empty();
                 flush_pending_updates(&app, &mut pending_updates);
                 last_update_emit = Instant::now();
                 consecutive_errors = 0;
                 let elapsed = poll_started.elapsed();
-                if elapsed < Duration::from_millis(100) {
+                if !had_pending_updates && elapsed < Duration::from_millis(100) {
                     thread::sleep(Duration::from_millis(100) - elapsed);
                 }
             }
