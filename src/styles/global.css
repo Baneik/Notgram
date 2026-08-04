@@ -359,6 +359,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   justify-items: center; gap: 8px; color: var(--muted); background: var(--chat-canvas);
   pointer-events: none;
 }
+.message-positioning-placeholder.is-warm > * { display: none; }
 .message-list {
   --message-scrollbar-thumb: #869892;
   --message-list-inline-padding: 10px;

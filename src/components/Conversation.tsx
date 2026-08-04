@@ -304,6 +304,7 @@ export function Conversation({
     virtuosoRef,
     currentScrollKey,
     positioning,
+    virtuosoKey,
     initialTopMostItemIndex,
     restoreStateFrom,
     highlightedMessageId,
@@ -311,6 +312,8 @@ export function Conversation({
     jumpToLatest,
     followOutput,
     onTotalListHeightChanged,
+    onInitialRangeChanged,
+    onInitialAtBottomStateChange,
     messageListHandlers,
   } = useConversationScroll({
     scope: scrollScope,
@@ -591,8 +594,11 @@ export function Conversation({
       )}
 
       <div className={`message-list-shell ${positioning ? "is-positioning" : ""}`}>
-        {positioning && (visibleMessages.length === 0 || !restoreStateFrom) && (
-          <div className="message-positioning-placeholder" role="status">
+        {positioning && (
+          <div
+            className={`message-positioning-placeholder ${visibleMessages.length > 0 ? "is-warm" : ""}`}
+            role="status"
+          >
             <LoaderCircle className="spin" size={18} />
             <span>正在加载消息</span>
           </div>
@@ -603,7 +609,7 @@ export function Conversation({
           </div>
         )}
         <Virtuoso
-          key={currentScrollKey}
+          key={virtuosoKey}
           className={`message-list ${messageListScrolling ? "is-scrolling" : ""}`}
           ref={virtuosoRef}
           scrollerRef={setMessageListRef}
@@ -618,6 +624,8 @@ export function Conversation({
           data={visibleMessageBlocks}
           defaultItemHeight={52}
           followOutput={followOutput}
+          rangeChanged={onInitialRangeChanged}
+          atBottomStateChange={onInitialAtBottomStateChange}
           initialTopMostItemIndex={restoreStateFrom ? undefined : initialTopMostItemIndex}
           restoreStateFrom={restoreStateFrom}
           skipAnimationFrameInResizeObserver

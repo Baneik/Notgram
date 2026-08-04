@@ -215,7 +215,15 @@ export const useConversationScroll = ({
   const initialLocationRef = useRef<{
     identity: string;
     location: IndexLocationWithAlign | number;
+    mode: "empty" | "pending" | "bottom" | "anchor";
+    targetMessageId?: string;
   } | undefined>(undefined);
+  const initialPositionFrameRef = useRef<number | undefined>(undefined);
+  const initialPositionStableFramesRef = useRef(0);
+  const initialPositionSignatureRef = useRef<string | undefined>(undefined);
+  const initialPositionVerifierRef = useRef<() => void>(() => undefined);
+  const initialPositionCancelledIdentityRef = useRef<string | undefined>(undefined);
+  const latestJumpFrameRef = useRef<number | undefined>(undefined);
   const [newMessageNotice, setNewMessageNotice] = useState<{
     key: string;
     count: number;
@@ -232,7 +240,13 @@ export const useConversationScroll = ({
   const lastVisibleMessageIdRef = useRef(lastVisibleMessageId);
   lastVisibleMessageIdRef.current = lastVisibleMessageId;
   const matchingEntryRequest = entryRequest?.chatId === chatId ? entryRequest : undefined;
-  const initialLocationIdentity = `${currentScrollKey ?? ""}:${matchingEntryRequest?.requestId ?? 0}`;
+  const matchingLatestRequest = latestRequest?.chatId === chatId ? latestRequest : undefined;
+  const initialDataPhase = virtualItemCount > 0 ? "ready" : "empty";
+  const requestedEntryTarget = matchingEntryRequest?.serverMessageId;
+  const entryTargetPhase = !requestedEntryTarget
+    ? "no-target"
+    : messageItemIndexes.has(requestedEntryTarget) ? "target-ready" : "target-pending";
+  const initialLocationIdentity = `${currentScrollKey ?? ""}:${matchingEntryRequest?.requestId ?? 0}:${matchingLatestRequest?.requestId ?? 0}:${initialDataPhase}:${entryTargetPhase}`;
   if (initialLocationRef.current?.identity !== initialLocationIdentity) {
     const stored = currentScrollKey ? conversationScrollMemory.get(currentScrollKey) : undefined;
     const storedAnchorIndex = stored?.anchorMessageId
@@ -246,49 +260,81 @@ export const useConversationScroll = ({
       ? messageItemIndexes.get(matchingEntryRequest.serverMessageId)
       : undefined;
     let location: IndexLocationWithAlign | number = 0;
+    let mode: "empty" | "pending" | "bottom" | "anchor" = "empty";
+    let targetMessageId: string | undefined;
     if (virtualItemCount > 0) {
-      if (stored?.followLatest === false && storedAnchorIndex !== undefined) {
+      if (matchingLatestRequest) {
+        location = {
+          index: "LAST",
+          align: "end",
+          behavior: "auto",
+        };
+        mode = "bottom";
+      } else if (stored?.followLatest === false && storedAnchorIndex !== undefined) {
         location = {
           index: storedAnchorIndex,
           align: "start",
           offset: -(stored.anchorOffset ?? 0),
           behavior: "auto",
         };
+        mode = "anchor";
+        targetMessageId = stored.anchorMessageId;
       } else if (storedLatestBoundaryIndex !== undefined) {
         location = {
           index: storedLatestBoundaryIndex,
           align: "center",
           behavior: "auto",
         };
+        mode = "anchor";
+        targetMessageId = stored?.lastKnownMessageId;
       } else if (stored?.followLatest === true) {
         location = {
           index: "LAST",
           align: "end",
           behavior: "auto",
         };
+        mode = "bottom";
+      } else if (requestedEntryTarget && serverAnchorIndex === undefined) {
+        location = {
+          index: "LAST",
+          align: "end",
+          behavior: "auto",
+        };
+        mode = "pending";
+        targetMessageId = requestedEntryTarget;
       } else if (serverAnchorIndex !== undefined) {
         location = { index: serverAnchorIndex, align: "center", behavior: "auto" };
+        mode = "anchor";
+        targetMessageId = requestedEntryTarget;
       } else {
         location = {
           index: "LAST",
           align: "end",
           behavior: "auto",
         };
+        mode = "bottom";
       }
     }
-    initialLocationRef.current = { identity: initialLocationIdentity, location };
+    initialLocationRef.current = {
+      identity: initialLocationIdentity,
+      location,
+      mode,
+      targetMessageId,
+    };
   }
   const initialTopMostItemIndex = initialLocationRef.current!.location;
   const storedVirtuosoSnapshot = currentScrollKey
     ? conversationVirtuosoSnapshots.get(currentScrollKey)
     : undefined;
-  const restoreStateFrom = storedVirtuosoSnapshot &&
+  const storedMemory = currentScrollKey
+    ? conversationScrollMemory.get(currentScrollKey)
+    : undefined;
+  const restoreStateFrom = storedMemory?.followLatest === false && storedVirtuosoSnapshot &&
       storedVirtuosoSnapshot.firstMessageId === firstVisibleMessageId &&
       storedVirtuosoSnapshot.lastMessageId === lastVisibleMessageId &&
       storedVirtuosoSnapshot.virtualItemCount === virtualItemCount
     ? storedVirtuosoSnapshot.state
     : undefined;
-
   const setMessageListRef = useCallback((ref: HTMLElement | Window | null) => {
     const element = ref instanceof HTMLDivElement ? ref : null;
     messageListRef.current = element;
@@ -392,6 +438,21 @@ export const useConversationScroll = ({
 
   const stopFollowingLatest = useCallback(() => {
     cancelHistoryRestore();
+    initialPositionCancelledIdentityRef.current = initialLocationIdentity;
+    if (latestJumpFrameRef.current !== undefined) {
+      cancelAnimationFrame(latestJumpFrameRef.current);
+      latestJumpFrameRef.current = undefined;
+    }
+    if (initialPositionFrameRef.current !== undefined) {
+      cancelAnimationFrame(initialPositionFrameRef.current);
+      initialPositionFrameRef.current = undefined;
+    }
+    if (positionCorrectionIdentityRef.current === initialLocationIdentity) {
+      positionCorrectionIdentityRef.current = undefined;
+      initialPositionStableFramesRef.current = 0;
+      initialPositionSignatureRef.current = undefined;
+      setPositionedScrollIdentity(initialLocationIdentity);
+    }
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
     const stored = conversationScrollMemory.get(currentScrollKey);
@@ -404,11 +465,12 @@ export const useConversationScroll = ({
       anchorMessageId: anchor?.messageId ?? stored?.anchorMessageId,
       anchorOffset: anchor?.offset ?? stored?.anchorOffset,
     });
-  }, [cancelHistoryRestore, currentScrollKey]);
+  }, [cancelHistoryRestore, currentScrollKey, initialLocationIdentity]);
 
   const jumpToLatest = useCallback(() => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
+    initialPositionCancelledIdentityRef.current = undefined;
     scrollPointerActiveRef.current = false;
     userScrollIntentUntilRef.current = 0;
     conversationScrollMemory.set(currentScrollKey, {
@@ -417,7 +479,32 @@ export const useConversationScroll = ({
       lastKnownMessageId: lastVisibleMessageId,
       pendingNewCount: 0,
     });
-    scrollToLatestPosition();
+    const initial = initialLocationRef.current;
+    if (initial) {
+      initialLocationRef.current = {
+        ...initial,
+        location: { index: "LAST", align: "end", behavior: "auto" },
+        mode: "bottom",
+        targetMessageId: undefined,
+      };
+      initialPositionStableFramesRef.current = 0;
+      initialPositionSignatureRef.current = undefined;
+    }
+    if (latestJumpFrameRef.current !== undefined) {
+      cancelAnimationFrame(latestJumpFrameRef.current);
+    }
+    let remainingFrames = 4;
+    const settleLatest = () => {
+      scrollToLatestPosition();
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        latestJumpFrameRef.current = requestAnimationFrame(settleLatest);
+      } else {
+        latestJumpFrameRef.current = undefined;
+      }
+    };
+    settleLatest();
+    initialPositionVerifierRef.current();
     updateNewMessageNotice(currentScrollKey, 0);
   }, [currentScrollKey, lastVisibleMessageId, scrollToLatestPosition]);
 
@@ -429,6 +516,7 @@ export const useConversationScroll = ({
   }, [currentScrollKey]);
 
   const onTotalListHeightChanged = useCallback(() => {
+    initialPositionVerifierRef.current();
     if (!currentScrollKey || search) return;
     const stored = conversationScrollMemory.get(currentScrollKey);
     if (!stored?.followLatest) return;
@@ -682,58 +770,164 @@ export const useConversationScroll = ({
     visibleMessages,
   ]);
 
-  useLayoutEffect(() => {
-    if (!currentScrollKey) return;
-    let firstFrame: number | undefined;
-    let secondFrame: number | undefined;
-    let settleTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-    let cancelled = false;
-    positionCorrectionIdentityRef.current = initialLocationIdentity;
-    // Virtuoso owns initial positioning through restoreStateFrom or
-    // initialTopMostItemIndex. Two frames only gate user scroll recording while
-    // the restored range mounts; they deliberately do not write scrollTop.
-    firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => {
-        if (cancelled) return;
-        const element = messageListRef.current;
-        const memory = conversationScrollMemory.get(currentScrollKey);
-        if (element && memory) {
-          if (memory.followLatest) scrollToLatestPosition();
-          else restoreScrollMemory(
+  const verifyInitialPosition = useCallback(() => {
+    initialPositionFrameRef.current = undefined;
+    const element = messageListRef.current;
+    const initial = initialLocationRef.current;
+    if (
+      !element ||
+      !currentScrollKey ||
+      initial?.identity !== initialLocationIdentity ||
+      initialPositionCancelledIdentityRef.current === initialLocationIdentity ||
+      (
+        positionedScrollIdentity === initialLocationIdentity &&
+        positionCorrectionIdentityRef.current !== initialLocationIdentity
+      )
+    ) return;
+
+    if (initial.mode === "pending") {
+      initialPositionStableFramesRef.current = 0;
+      initialPositionSignatureRef.current = undefined;
+      return;
+    }
+    let signature: string;
+    if (initial.mode === "empty") {
+      if (historyLoading || virtualItemCount > 0) {
+        initialPositionStableFramesRef.current = 0;
+        initialPositionSignatureRef.current = undefined;
+        return;
+      }
+      signature = "empty";
+    } else if (initial.mode === "bottom") {
+      const latestMessageId = lastVisibleMessageIdRef.current;
+      const latest = latestMessageId
+        ? element.querySelector<HTMLElement>(
+            `[data-message-id="${CSS.escape(latestMessageId)}"]`,
+          )
+        : undefined;
+      if (!latest || distanceFromBottom(element) > BOTTOM_PROXIMITY_PX) {
+        scrollToLatestPosition();
+        initialPositionStableFramesRef.current = 0;
+        initialPositionSignatureRef.current = undefined;
+        initialPositionFrameRef.current = requestAnimationFrame(() => verifyInitialPosition());
+        return;
+      }
+      signature = `${Math.round(element.scrollHeight)}:${Math.round(element.scrollTop)}:${Math.round(element.clientHeight)}`;
+    } else {
+      const target = initial.targetMessageId
+        ? element.querySelector<HTMLElement>(
+            `[data-message-id="${CSS.escape(initial.targetMessageId)}"]`,
+          )
+        : undefined;
+      if (!target) {
+        const memory = currentScrollKey
+          ? conversationScrollMemory.get(currentScrollKey)
+          : undefined;
+        if (memory && memory.anchorMessageId === initial.targetMessageId) {
+          restoreScrollMemory(
             element,
             memory,
             virtuosoRef.current,
             messageItemIndexesRef.current,
           );
         }
-        settleTimer = globalThis.setTimeout(() => {
-          if (cancelled) return;
-          const settledElement = messageListRef.current;
-          const settledMemory = conversationScrollMemory.get(currentScrollKey);
-          if (settledElement && settledMemory) {
-            if (settledMemory.followLatest) scrollToLatestPosition();
-            else restoreScrollMemory(
-              settledElement,
-              settledMemory,
-              virtuosoRef.current,
-              messageItemIndexesRef.current,
-            );
-          }
-          setPositionedScrollIdentity(initialLocationIdentity);
-          positionCorrectionIdentityRef.current = undefined;
-        }, 180);
-      });
-    });
+        initialPositionStableFramesRef.current = 0;
+        initialPositionSignatureRef.current = undefined;
+        initialPositionFrameRef.current = requestAnimationFrame(() => verifyInitialPosition());
+        return;
+      }
+      const listBounds = element.getBoundingClientRect();
+      const targetBounds = target.getBoundingClientRect();
+      if (targetBounds.bottom <= listBounds.top + 1 || targetBounds.top >= listBounds.bottom - 1) {
+        const memory = currentScrollKey
+          ? conversationScrollMemory.get(currentScrollKey)
+          : undefined;
+        if (memory && memory.anchorMessageId === initial.targetMessageId) {
+          restoreScrollMemory(
+            element,
+            memory,
+            virtuosoRef.current,
+            messageItemIndexesRef.current,
+          );
+        }
+        initialPositionStableFramesRef.current = 0;
+        initialPositionSignatureRef.current = undefined;
+        initialPositionFrameRef.current = requestAnimationFrame(() => verifyInitialPosition());
+        return;
+      }
+      const memory = currentScrollKey
+        ? conversationScrollMemory.get(currentScrollKey)
+        : undefined;
+      const targetOffset = targetBounds.top - listBounds.top;
+      if (
+        element.scrollHeight > element.clientHeight + 1 &&
+        memory &&
+        memory.anchorMessageId === initial.targetMessageId &&
+        memory.anchorOffset !== undefined &&
+        Math.abs(targetOffset - memory.anchorOffset) > 2
+      ) {
+        element.scrollTop += targetOffset - memory.anchorOffset;
+        initialPositionStableFramesRef.current = 0;
+        initialPositionSignatureRef.current = undefined;
+        initialPositionFrameRef.current = requestAnimationFrame(() => verifyInitialPosition());
+        return;
+      }
+      signature = `${Math.round(element.scrollHeight)}:${Math.round(targetOffset)}:${Math.round(element.clientHeight)}`;
+    }
+
+    if (initialPositionSignatureRef.current === signature) {
+      initialPositionStableFramesRef.current += 1;
+    } else {
+      initialPositionSignatureRef.current = signature;
+      initialPositionStableFramesRef.current = 1;
+    }
+    if (initialPositionStableFramesRef.current < 3) {
+      initialPositionFrameRef.current = requestAnimationFrame(() => verifyInitialPosition());
+      return;
+    }
+
+    setPositionedScrollIdentity(initialLocationIdentity);
+    if (positionCorrectionIdentityRef.current === initialLocationIdentity) {
+      positionCorrectionIdentityRef.current = undefined;
+    }
+  }, [
+    currentScrollKey,
+    historyLoading,
+    initialLocationIdentity,
+    positionedScrollIdentity,
+    scrollToLatestPosition,
+    virtualItemCount,
+  ]);
+
+  const scheduleInitialPositionVerification = useCallback(() => {
+    if (initialPositionFrameRef.current !== undefined) return;
+    initialPositionFrameRef.current = requestAnimationFrame(verifyInitialPosition);
+  }, [verifyInitialPosition]);
+  initialPositionVerifierRef.current = scheduleInitialPositionVerification;
+
+  useLayoutEffect(() => {
+    if (!currentScrollKey) return;
+    initialPositionCancelledIdentityRef.current = undefined;
+    initialPositionStableFramesRef.current = 0;
+    initialPositionSignatureRef.current = undefined;
+    positionCorrectionIdentityRef.current = initialLocationIdentity;
+    initialPositionVerifierRef.current();
     return () => {
-      cancelled = true;
       if (positionCorrectionIdentityRef.current === initialLocationIdentity) {
         positionCorrectionIdentityRef.current = undefined;
       }
-      if (firstFrame !== undefined) cancelAnimationFrame(firstFrame);
-      if (secondFrame !== undefined) cancelAnimationFrame(secondFrame);
-      if (settleTimer !== undefined) globalThis.clearTimeout(settleTimer);
+      if (initialPositionFrameRef.current !== undefined) {
+        cancelAnimationFrame(initialPositionFrameRef.current);
+        initialPositionFrameRef.current = undefined;
+      }
+      initialPositionStableFramesRef.current = 0;
+      initialPositionSignatureRef.current = undefined;
     };
-  }, [currentScrollKey, initialLocationIdentity, messageListElement, scrollToLatestPosition]);
+  }, [currentScrollKey, initialLocationIdentity, messageListElement]);
+
+  const onInitialAtBottomStateChange = useCallback((atBottom: boolean) => {
+    if (atBottom) scheduleInitialPositionVerification();
+  }, [scheduleInitialPositionVerification]);
 
   useLayoutEffect(() => {
     if (
@@ -836,13 +1030,17 @@ export const useConversationScroll = ({
     if (heightCorrectionTimerRef.current !== undefined) {
       globalThis.clearTimeout(heightCorrectionTimerRef.current);
     }
+    if (latestJumpFrameRef.current !== undefined) {
+      cancelAnimationFrame(latestJumpFrameRef.current);
+      latestJumpFrameRef.current = undefined;
+    }
     cancelHistoryRestore();
   }, [cancelHistoryRestore]);
 
   useLayoutEffect(() => {
     if (!currentScrollKey || search) return;
     const handle = virtuosoRef.current;
-    if (!handle) return;
+    if (!handle || conversationScrollMemory.get(currentScrollKey)?.followLatest !== false) return;
     return () => {
       handle.getState((state) => {
         conversationVirtuosoSnapshots.set(currentScrollKey, {
@@ -945,6 +1143,7 @@ export const useConversationScroll = ({
     positioning: Boolean(
       currentScrollKey && positionedScrollIdentity !== initialLocationIdentity
     ),
+    virtuosoKey: initialLocationIdentity,
     initialTopMostItemIndex,
     restoreStateFrom,
     highlightedMessageId: highlightedMessage && highlightedMessage.key === currentScrollKey
@@ -954,6 +1153,8 @@ export const useConversationScroll = ({
     jumpToLatest,
     followOutput,
     onTotalListHeightChanged,
+    onInitialRangeChanged: scheduleInitialPositionVerification,
+    onInitialAtBottomStateChange,
     messageListHandlers: {
       onWheel,
       onPointerDown,

@@ -479,7 +479,10 @@ export function App() {
               if (state.activeChatId === chatId) return;
               const generation = chatOpenGenerationRef.current + 1;
               chatOpenGenerationRef.current = generation;
-              const serverMessageId = state.chats.get(chatId)?.lastReadInboxMessageId;
+              const targetChat = state.chats.get(chatId);
+              const serverMessageId = targetChat && targetChat.unreadCount > 0
+                ? targetChat.lastReadInboxMessageId
+                : undefined;
               const serverMessageLoaded = Boolean(
                 serverMessageId &&
                 (state.messages.get(chatId) ?? []).some(
@@ -489,6 +492,7 @@ export function App() {
               const restoreLocally = hasConversationScrollMemory(activeAccountId, chatId);
               entryScrollRequestIdRef.current += 1;
               flushSync(() => {
+                setLatestScrollRequest(undefined);
                 setEntryScrollRequest({
                   chatId,
                   serverMessageId,

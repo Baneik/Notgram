@@ -410,6 +410,19 @@ test("latest message keeps a fixed gap above the composer", async ({ page }) => 
 test("single-click entry restores the server read marker without exposing intermediate jumps", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { chats: Map<string, { unreadCount: number }> };
+        setState: (partial: { chats: Map<string, { unreadCount: number }> }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const chats = new Map(state.chats);
+    const chat = chats.get("chat-chen");
+    if (chat) chats.set("chat-chen", { ...chat, unreadCount: 1 });
+    storeModule.telegramStore.setState({ chats });
+  }, "/src/store/telegramStore.ts");
   await page.evaluate(() => {
     const diagnosticWindow = window as typeof window & {
       __notgramEntryFrames?: Array<{
@@ -496,6 +509,56 @@ test("single-click entry restores the server read marker without exposing interm
   expect(result.pseudoOverlayContent).toBe("none");
 });
 
+test("read conversations expose only their final bottom position while switching", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const sampleChenSwitch = () => page.evaluate(async () => {
+    const row = document.querySelector<HTMLElement>('[data-chat-id="chat-chen"]')!;
+    row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
+    const samples: Array<{
+      busy: string | null;
+      placeholder: boolean;
+      messageCount: number;
+      distanceBottom: number;
+    }> = [];
+    let settledFrames = 0;
+    for (let frame = 0; frame < 120; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const activeChatId = document.querySelector<HTMLElement>(
+        '.chat-row[aria-current="true"]',
+      )?.dataset.chatId;
+      const list = document.querySelector<HTMLElement>(".message-list");
+      const shell = document.querySelector<HTMLElement>(".message-list-shell");
+      if (activeChatId !== "chat-chen" || !list || !shell) continue;
+      const sample = {
+        busy: list.getAttribute("aria-busy"),
+        placeholder: Boolean(shell.querySelector(".message-positioning-placeholder")),
+        messageCount: list.querySelectorAll("[data-message-id]").length,
+        distanceBottom: Math.round(list.scrollHeight - list.clientHeight - list.scrollTop),
+      };
+      samples.push(sample);
+      settledFrames = sample.busy === "false" && sample.messageCount > 0
+        ? settledFrames + 1
+        : 0;
+      if (settledFrames >= 8) break;
+    }
+    return samples;
+  });
+  const expectOnlyBottomFrames = (frames: Awaited<ReturnType<typeof sampleChenSwitch>>) => {
+    const exposed = frames.filter((frame) => !frame.placeholder && frame.messageCount > 0);
+    expect(exposed.length, JSON.stringify(frames)).toBeGreaterThan(0);
+    expect(Math.max(...exposed.map((frame) => Math.abs(frame.distanceBottom))))
+      .toBeLessThanOrEqual(40);
+  };
+
+  expectOnlyBottomFrames(await sampleChenSwitch());
+  await expect(page.locator('[data-message-id="c-2"]')).toBeVisible();
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  expectOnlyBottomFrames(await sampleChenSwitch());
+});
+
 test("warm conversation switches reuse messages and reveal content promptly", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');
@@ -541,8 +604,11 @@ test("warm conversation switches reuse messages and reveal content promptly", as
       }
       const list = document.querySelector(".message-list");
       const messageCount = list?.querySelectorAll("[data-message-id]").length ?? 0;
-      if (document.querySelector(".message-positioning-placeholder")) placeholderFrames += 1;
-      if (headerMs !== undefined && messageCount === 0) emptyFramesAfterHeader += 1;
+      const placeholderVisible = Boolean(document.querySelector(".message-positioning-placeholder"));
+      if (placeholderVisible) placeholderFrames += 1;
+      if (headerMs !== undefined && messageCount === 0 && !placeholderVisible) {
+        emptyFramesAfterHeader += 1;
+      }
       if (headerMs !== undefined && firstMessageMs === undefined && messageCount > 0) {
         firstMessageMs = performance.now() - startedAt;
       }
@@ -563,7 +629,7 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   expect(timing.firstMessageMs!).toBeLessThan(100);
   expect(timing.contentMs).toBeDefined();
   expect(timing.contentMs!).toBeLessThan(300);
-  expect(timing.placeholderFrames).toBe(0);
+  expect(timing.placeholderFrames).toBeLessThanOrEqual(12);
   expect(timing.emptyFramesAfterHeader).toBeLessThanOrEqual(1);
 
   await product.click();
