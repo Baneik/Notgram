@@ -5,6 +5,7 @@ import {
   getPerformanceRecords,
   logPerformance,
   markConversationSwitch,
+  mergePersistedPerformanceRecords,
   subscribePerformanceRecords,
 } from "./performanceMonitor";
 
@@ -76,6 +77,27 @@ describe("performance monitor", () => {
     expect(getPerformanceRecords()).toHaveLength(240);
     expect(getPerformanceRecords()[0]?.details.missedFrames).toBe(20);
     expect(getPerformanceRecords()[239]?.details.missedFrames).toBe(259);
+  });
+
+  it("merges persisted native records without duplicating live samples", () => {
+    logPerformance("ui_long_frame", { durationMs: 72 });
+    const live = getPerformanceRecords()[0]!;
+    mergePersistedPerformanceRecords([{
+      timestampMs: live.timestampMs,
+      event: live.event,
+      details: live.details,
+    }, {
+      timestampMs: live.timestampMs + 1,
+      event: "ui_conversation_switch",
+      details: { durationMs: 38, observedAtMs: live.timestampMs + 1, cached: true },
+    }]);
+
+    expect(getPerformanceRecords()).toHaveLength(2);
+    expect(getPerformanceRecords()[1]).toMatchObject({
+      event: "ui_conversation_switch",
+      timestampMs: live.timestampMs + 1,
+      details: { cached: true },
+    });
   });
 
   it("summarizes a conversation switch and identifies its largest stage", () => {

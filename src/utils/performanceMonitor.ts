@@ -29,6 +29,10 @@ interface NativePerformanceRecord {
   details: Readonly<Record<string, number | boolean>>;
 }
 
+export interface PersistedPerformanceRecord extends NativePerformanceRecord {
+  timestampMs: number;
+}
+
 interface EventTimingEntry extends PerformanceEntry {
   interactionId?: number;
   processingStart: number;
@@ -223,9 +227,23 @@ const enqueueNativePerformanceRecord = (record: NativePerformanceRecord) => {
   }
 };
 
-const appendRecord = (event: string, details: Readonly<Record<string, number | boolean>>) => {
+const recordFingerprint = (
+  event: string,
+  timestampMs: number,
+  details: Readonly<Record<string, number | boolean>>,
+) => JSON.stringify([
+  event,
+  timestampMs,
+  Object.entries(details).sort(([left], [right]) => left.localeCompare(right)),
+]);
+
+const createRecord = (
+  event: string,
+  details: Readonly<Record<string, number | boolean>>,
+  timestampMs = typeof details.observedAtMs === "number" ? details.observedAtMs : Date.now(),
+) => {
   const metadata = eventMetadata[event];
-  if (!metadata) return;
+  if (!metadata) return undefined;
   const durationMs = recordDuration(event, details);
   const shiftScore = typeof details.shiftScore === "number" ? details.shiftScore : 0;
   const severity: PerformanceSeverity = event === "ui_layout_shift"
@@ -238,9 +256,9 @@ const appendRecord = (event: string, details: Readonly<Record<string, number | b
   const startTimeMs = typeof details.startTimeMs === "number"
     ? details.startTimeMs
     : performance.now();
-  const next: PerformanceRecord = {
+  return {
     id: nextRecordId++,
-    timestampMs: Date.now(),
+    timestampMs,
     startTimeMs,
     event,
     label: metadata.label,
@@ -248,7 +266,12 @@ const appendRecord = (event: string, details: Readonly<Record<string, number | b
     severity,
     durationMs,
     details,
-  };
+  } satisfies PerformanceRecord;
+};
+
+const appendRecord = (event: string, details: Readonly<Record<string, number | boolean>>) => {
+  const next = createRecord(event, details);
+  if (!next) return;
   records = [...records.slice(-(MAX_RECORDS - 1)), next];
   for (const listener of listeners) listener();
 };
@@ -270,6 +293,51 @@ export const clearPerformanceRecords = () => {
   activeConversationTraceId = undefined;
   nextConversationTraceId = 1;
   for (const listener of listeners) listener();
+};
+
+export const mergePersistedPerformanceRecords = (
+  persistedRecords: readonly PersistedPerformanceRecord[],
+) => {
+  const known = new Set(records.map((record) =>
+    recordFingerprint(record.event, record.timestampMs, record.details)));
+  const additions: PerformanceRecord[] = [];
+  for (const persisted of persistedRecords) {
+    if (
+      !Number.isFinite(persisted.timestampMs) ||
+      !persisted.details ||
+      typeof persisted.details !== "object"
+    ) continue;
+    const details = roundedDetails(persisted.details);
+    const fingerprint = recordFingerprint(persisted.event, persisted.timestampMs, details);
+    if (known.has(fingerprint)) continue;
+    const record = createRecord(persisted.event, details, persisted.timestampMs);
+    if (!record) continue;
+    known.add(fingerprint);
+    additions.push(record);
+  }
+  if (additions.length === 0) return records;
+  records = [...records, ...additions]
+    .sort((left, right) => left.timestampMs - right.timestampMs || left.id - right.id)
+    .slice(-MAX_RECORDS);
+  for (const listener of listeners) listener();
+  return records;
+};
+
+export const refreshPersistedPerformanceRecords = async () => {
+  if (!hasTauriRuntime()) return records;
+  const persisted = await invoke<PersistedPerformanceRecord[]>(
+    "telegram_read_performance_records",
+  );
+  return mergePersistedPerformanceRecords(persisted);
+};
+
+export const clearPersistedPerformanceRecords = async () => {
+  if (nativeFlushTimer !== undefined) {
+    globalThis.clearTimeout(nativeFlushTimer);
+    nativeFlushTimer = undefined;
+  }
+  pendingNativeRecords.length = 0;
+  if (hasTauriRuntime()) await invoke("telegram_clear_performance_records");
 };
 
 export const logPerformance = (event: string, details: PerformanceDetails) => {

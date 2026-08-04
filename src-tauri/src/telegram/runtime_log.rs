@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 use std::{
     env,
     fs::{self, OpenOptions},
-    io::Write,
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -19,7 +19,6 @@ type LogRecord = (String, String, Value);
 enum LogCommand {
     Runtime(Vec<LogRecord>),
     Performance(Vec<LogRecord>),
-    #[cfg(test)]
     Flush(mpsc::Sender<()>),
 }
 
@@ -63,6 +62,30 @@ impl RuntimeLogger {
         if !records.is_empty() {
             self.enqueue(LogCommand::Performance(records));
         }
+    }
+
+    pub(super) fn read_performance_records(&self, limit: usize) -> Vec<Value> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let backup = self
+            .performance_path
+            .with_file_name("notgram-performance.log.1");
+        read_json_log_records(&[backup.as_path(), self.performance_path.as_path()], limit)
+    }
+
+    pub(super) fn clear_performance_records(&self) -> Result<(), String> {
+        self.flush()?;
+        let backup = self
+            .performance_path
+            .with_file_name("notgram-performance.log.1");
+        for path in [backup.as_path(), self.performance_path.as_path()] {
+            if path.is_file() {
+                fs::remove_file(path)
+                    .map_err(|error| format!("无法清空性能日志 {}: {error}", path.display()))?;
+            }
+        }
+        Ok(())
     }
 
     fn with_paths(path: PathBuf, performance_path: PathBuf) -> Result<Self, String> {
@@ -156,19 +179,20 @@ impl RuntimeLogger {
                     self.dropped_performance_records
                         .fetch_add(records.len() as u64, Ordering::Relaxed);
                 }
-                #[cfg(test)]
                 LogCommand::Flush(_) => {}
             },
             Err(TrySendError::Disconnected(_)) => {}
         }
     }
 
-    #[cfg(test)]
-    fn flush(&self) {
+    fn flush(&self) -> Result<(), String> {
         let (sender, receiver) = mpsc::channel();
-        if self.sender.send(LogCommand::Flush(sender)).is_ok() {
-            let _ = receiver.recv_timeout(Duration::from_secs(2));
-        }
+        self.sender
+            .send(LogCommand::Flush(sender))
+            .map_err(|_| "性能日志写入线程不可用".to_string())?;
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|_| "等待性能日志写入超时".to_string())
     }
 }
 
@@ -187,9 +211,28 @@ fn collect_command(
             performance_records.extend(records);
             None
         }
-        #[cfg(test)]
         LogCommand::Flush(sender) => Some(sender),
     }
+}
+
+fn read_json_log_records(paths: &[&Path], limit: usize) -> Vec<Value> {
+    let mut records = Vec::new();
+    for path in paths {
+        let Ok(file) = fs::File::open(path) else {
+            continue;
+        };
+        for line in BufReader::new(file).lines().map_while(Result::ok) {
+            if let Ok(record) = serde_json::from_str::<Value>(&line)
+                && record.is_object()
+            {
+                records.push(record);
+            }
+        }
+    }
+    if records.len() > limit {
+        records.drain(..records.len() - limit);
+    }
+    records
 }
 
 fn write_records(path: &Path, backup_name: &str, records: Vec<LogRecord>) {
@@ -340,7 +383,7 @@ mod tests {
                 json!({ "durationMs": 120 }),
             ),
         ]);
-        logger.flush();
+        logger.flush().expect("logger should flush");
 
         let runtime = fs::read_to_string(logger.path.as_ref()).expect("runtime log should exist");
         let performance = fs::read_to_string(logger.performance_path.as_ref())
@@ -359,6 +402,13 @@ mod tests {
         )
         .expect("performance record should be valid JSON");
         assert_eq!(first_performance["timestampMs"], 1_700_000_000_123_u64);
+        let records = logger.read_performance_records(1);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["event"], "ui_slow_interaction");
+        logger
+            .clear_performance_records()
+            .expect("performance logs should clear");
+        assert!(logger.read_performance_records(10).is_empty());
         fs::remove_dir_all(directory).expect("test directory should be removed");
     }
 }

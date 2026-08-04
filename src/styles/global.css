@@ -367,32 +367,6 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   align-items: center; gap: 9px; color: #858c91; background: #ffffff; border-bottom: 1px solid var(--line);
 }
 .message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
-html.is-conversation-view-transition .message-list-shell {
-  view-transition-name: conversation-messages;
-}
-::view-transition,
-::view-transition-group(root),
-::view-transition-group(conversation-messages),
-::view-transition-old(root),
-::view-transition-new(root),
-::view-transition-old(conversation-messages),
-::view-transition-new(conversation-messages) { pointer-events: none; }
-::view-transition-old(root),
-::view-transition-new(root) { animation: none; }
-::view-transition-old(conversation-messages) {
-  animation: conversation-frame-hold 96ms steps(1, end) both;
-}
-::view-transition-new(conversation-messages) {
-  animation: conversation-frame-reveal 96ms steps(1, end) both;
-}
-@keyframes conversation-frame-hold {
-  0%, 99% { opacity: 1; }
-  100% { opacity: 0; }
-}
-@keyframes conversation-frame-reveal {
-  0%, 99% { opacity: 0; }
-  100% { opacity: 1; }
-}
 .message-positioning-placeholder {
   position: absolute; inset: 0; z-index: 30; display: grid; place-content: center;
   justify-items: center; gap: 8px; color: var(--muted); background: var(--chat-canvas);
@@ -915,7 +889,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .composer-context-copy small { color: var(--muted); font-size: 11px; }
 .composer {
   width: 100%; min-height: 50px; max-height: 300px; margin: 0; padding: 5px 6px; display: grid; overflow: hidden;
-  grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: end; gap: 1px; background: #ffffff;
+  grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: end; gap: 1px; background: #ffffff;
   border-radius: 0; box-shadow: inset 0 1px var(--line);
 }
 .composer-context + .composer { border-radius: 0; box-shadow: inset 0 1px #e6ebed; }
@@ -927,7 +901,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .send-button { color: #ffffff; background: var(--accent); }
 .send-button:hover:not(:disabled) { color: #ffffff; background: var(--accent-strong); }
 .emoji-picker {
-  position: absolute; left: 6px; bottom: 56px; z-index: 92;
+  position: absolute; right: 6px; bottom: 56px; z-index: 92;
   width: min(430px, calc(100vw - 84px)); height: min(510px, calc(100vh - 110px)); min-height: 320px;
   display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden;
   color: var(--ink); background: #ffffff; border: 1px solid #d7dee2; border-radius: 10px;
@@ -976,6 +950,8 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .emoji-asset-button img, .emoji-asset-button video, .emoji-asset-button .tgs-sticker { width: 100%; height: 100%; display: block; object-fit: contain; }
 .emoji-asset-fallback { font-size: 26px; font-weight: 700; }
 .emoji-picker-empty { min-height: 170px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.emoji-picker-error { flex-direction: column; }
+.emoji-picker-error button { min-width: 72px; height: 30px; padding: 0 12px; color: #ffffff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
 .emoji-picker-packs {
   min-width: 0; height: 45px; padding: 4px 7px; display: flex; align-items: center; gap: 3px; overflow-x: auto;
   color: var(--muted); background: #f8fafb; border-top: 1px solid var(--line); scrollbar-width: none;

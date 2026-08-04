@@ -52,16 +52,6 @@ type PendingConfirmation =
   | { kind: "leaveGroup"; chatId: string; title: string }
   | { kind: "deleteFolder"; folderId: string; title: string };
 
-interface ConversationViewTransition {
-  finished: Promise<void>;
-}
-
-type ViewTransitionDocument = Document & {
-  startViewTransition?: (
-    update: () => void,
-  ) => ConversationViewTransition;
-};
-
 const readSidebarWidth = () => {
   try {
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
@@ -175,8 +165,6 @@ export function App() {
     performanceTraceId?: number;
   }>();
   const messageScrollRequestIdRef = useRef(0);
-  const conversationViewTransitionGenerationRef = useRef(0);
-  const pendingConversationTransitionChatIdRef = useRef<string | undefined>(undefined);
   const latestConversationIntentChatIdRef = useRef<string | undefined>(undefined);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
@@ -559,83 +547,31 @@ export function App() {
                 ),
               );
               const restoreLocally = hasConversationScrollMemory(activeAccountId, chatId);
-              const transitionDocument = document as ViewTransitionDocument;
               const targetMessages = state.messages.get(chatId) ?? [];
-              const warmTransition = Boolean(
-                state.activeChatId &&
-                targetMessages.length > 0 &&
-                globalThis.matchMedia("(min-width: 761px)").matches &&
-                transitionDocument.startViewTransition,
-              );
               const performanceTraceId = beginConversationSwitch({
                 cached: targetMessages.length > 0,
                 messageCount: targetMessages.length,
-                viewTransition: warmTransition,
+                viewTransition: false,
                 navigationKind: 1,
               });
               entryScrollRequestIdRef.current += 1;
-              const commitSelection = () => {
-                markConversationSwitch(performanceTraceId, "selectionCommitted");
-                flushSync(() => {
-                  if (latestConversationIntentChatIdRef.current !== chatId) {
-                    setLatestScrollRequest(undefined);
-                  }
-                  setEntryScrollRequest({
-                    chatId,
-                    serverMessageId,
-                    requestId: entryScrollRequestIdRef.current,
-                    performanceTraceId,
-                  });
-                  void state.selectChat(chatId);
+              markConversationSwitch(performanceTraceId, "transitionStarted");
+              markConversationSwitch(performanceTraceId, "selectionCommitted");
+              flushSync(() => {
+                if (latestConversationIntentChatIdRef.current !== chatId) {
+                  setLatestScrollRequest(undefined);
+                }
+                setEntryScrollRequest({
+                  chatId,
+                  serverMessageId,
+                  requestId: entryScrollRequestIdRef.current,
+                  performanceTraceId,
                 });
-              };
-              if (warmTransition && transitionDocument.startViewTransition) {
-                const viewTransitionGeneration =
-                  conversationViewTransitionGenerationRef.current + 1;
-                conversationViewTransitionGenerationRef.current = viewTransitionGeneration;
-                pendingConversationTransitionChatIdRef.current = chatId;
-                globalThis.setTimeout(() => {
-                  if (
-                    conversationViewTransitionGenerationRef.current !==
-                      viewTransitionGeneration ||
-                    pendingConversationTransitionChatIdRef.current !== chatId
-                  ) return;
-                  document.documentElement.classList.add("is-conversation-view-transition");
-                  markConversationSwitch(performanceTraceId, "transitionStarted");
-                  try {
-                    const transition = transitionDocument.startViewTransition!.call(
-                      transitionDocument,
-                      commitSelection,
-                    );
-                    void transition.finished.catch(() => undefined).finally(() => {
-                      markConversationSwitch(performanceTraceId, "transitionFinished");
-                      if (
-                        conversationViewTransitionGenerationRef.current ===
-                          viewTransitionGeneration
-                      ) {
-                        pendingConversationTransitionChatIdRef.current = undefined;
-                        document.documentElement.classList.remove(
-                          "is-conversation-view-transition",
-                        );
-                      }
-                    });
-                  } catch {
-                    pendingConversationTransitionChatIdRef.current = undefined;
-                    document.documentElement.classList.remove(
-                      "is-conversation-view-transition",
-                    );
-                    commitSelection();
-                    markConversationSwitch(performanceTraceId, "transitionFinished");
-                  }
-                }, 0);
-              } else {
-                pendingConversationTransitionChatIdRef.current = undefined;
-                markConversationSwitch(performanceTraceId, "transitionStarted");
-                commitSelection();
-                requestAnimationFrame(() => {
-                  markConversationSwitch(performanceTraceId, "transitionFinished");
-                });
-              }
+                void state.selectChat(chatId);
+              });
+              requestAnimationFrame(() => {
+                markConversationSwitch(performanceTraceId, "transitionFinished");
+              });
               if (serverMessageId && !serverMessageLoaded && !restoreLocally) {
                 void (async () => {
                   const loaded = await telegramStore.getState().loadMessage(
@@ -681,10 +617,7 @@ export function App() {
             requestAnimationFrame(() => {
               markConversationSwitch(performanceTraceId, "transitionFinished");
             });
-            if (
-              state.activeChatId !== chatId &&
-              pendingConversationTransitionChatIdRef.current !== chatId
-            ) {
+            if (state.activeChatId !== chatId) {
               void state.selectChat(chatId);
             }
           }}

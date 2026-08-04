@@ -372,8 +372,8 @@ export function Conversation({
   const preservePositioningFrame = Boolean(
     visibleMessages.length > 0 &&
     (
-      latestScrollRequest?.chatId === chat?.id ||
-      document.documentElement.classList.contains("is-conversation-view-transition")
+      entryScrollRequest?.chatId === chat?.id ||
+      latestScrollRequest?.chatId === chat?.id
     )
   );
 

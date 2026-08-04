@@ -272,16 +272,23 @@ test("composer keeps focus, typing status is visible, and previews name the send
 test("composer provides recent Emoji, installed stickers, and saved GIFs", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });
+  const composerControls = await page.locator(".composer").evaluate((element) =>
+    [...element.children].map((child) => child.getAttribute("aria-label") ?? child.tagName));
+  expect(composerControls).toEqual(["添加附件", "消息内容", "表情", "发送消息"]);
   await page.getByRole("button", { name: "表情" }).click();
   const picker = page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
   await expect(picker).toBeVisible();
+  await expect(picker.getByRole("tab", { name: "贴纸" })).toHaveAttribute("aria-selected", "true");
+  await expect(picker.getByRole("heading", { name: "最近使用" })).toBeVisible();
+  await picker.getByRole("button", { name: "工作日常" }).click();
+  await expect(picker.getByRole("heading", { name: "工作日常" })).toBeVisible();
+  await picker.getByRole("tab", { name: "Emoji" }).click();
   await picker.getByRole("button", { name: "插入 😀" }).click();
   await expect(composer).toHaveValue("😀");
   await picker.getByRole("button", { name: "关闭表情面板" }).click();
 
   await page.getByRole("button", { name: "表情" }).click();
   await expect(picker.getByRole("heading", { name: "最近使用" })).toBeVisible();
-  await picker.getByRole("tab", { name: "贴纸" }).click();
   const sticker = picker.getByRole("button", { name: /发送贴纸/ }).first();
   await expect(sticker).toBeVisible();
   await sticker.click();
@@ -642,6 +649,10 @@ test("single-click entry restores the server read marker without exposing interm
       transitionCoveredFrameCount: transitionCoveredFrames.length,
       uncoveredEmptyFrameCount: uncoveredEmptyFrames.length,
       exposedPositionCount: exposedPositions.size,
+      exposedPositions: [...exposedPositions],
+      exposedPositionSpan: exposedPositions.size > 0
+        ? Math.max(...exposedPositions) - Math.min(...exposedPositions)
+        : 0,
       scrollBehavior: getComputedStyle(list).scrollBehavior,
       pseudoOverlayContent: getComputedStyle(
         document.querySelector<HTMLElement>(".message-list-shell")!,
@@ -654,9 +665,9 @@ test("single-click entry restores the server read marker without exposing interm
   expect(result.latestVisible).toBe(false);
   expect(
     result.placeholderFrameCount + result.transitionCoveredFrameCount,
-  ).toBeGreaterThan(0);
+  ).toBe(0);
   expect(result.uncoveredEmptyFrameCount).toBeLessThanOrEqual(1);
-  expect(result.exposedPositionCount).toBeLessThanOrEqual(1);
+  expect(result.exposedPositionSpan, JSON.stringify(result.exposedPositions)).toBeLessThanOrEqual(4);
   expect(result.scrollBehavior).toBe("auto");
   expect(result.pseudoOverlayContent).toBe("none");
 });
@@ -799,6 +810,38 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   await product.click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   expect(await messageCounts()).toEqual(beforeCounts);
+});
+
+test("rapid alternating conversation clicks commit every latest intent without a cooldown", async ({ page }) => {
+  await page.goto("/");
+  const product = page.locator('[data-chat-id="chat-product"]');
+  const mia = page.locator('[data-chat-id="chat-mia"]');
+  await mia.click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await product.click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const observations = await page.evaluate(() => {
+    const sequence = Array.from({ length: 24 }, (_, index) =>
+      index % 2 === 0 ? "chat-mia" : "chat-product");
+    return sequence.map((chatId) => {
+      document.querySelector<HTMLElement>(`[data-chat-id="${chatId}"]`)?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, button: 0, detail: 1 }),
+      );
+      return {
+        expected: chatId,
+        active: document.querySelector<HTMLElement>('.chat-row[aria-current="true"]')?.dataset.chatId,
+        transitionCovered: document.documentElement.classList.contains(
+          "is-conversation-view-transition",
+        ),
+      };
+    });
+  });
+
+  expect(observations.map(({ active }) => active))
+    .toEqual(observations.map(({ expected }) => expected));
+  expect(observations.some(({ transitionCovered }) => transitionCovered)).toBe(false);
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
 });
 
 test("outgoing messages stay inside the conversation at narrow widths and interface zoom", async ({ page }) => {

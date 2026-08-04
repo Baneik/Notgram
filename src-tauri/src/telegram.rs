@@ -33,6 +33,7 @@ type TdSend = unsafe extern "C" fn(c_int, *const c_char);
 type TdReceive = unsafe extern "C" fn(c_double) -> *const c_char;
 
 const MAX_PERFORMANCE_LOG_BATCH: usize = 50;
+const MAX_VISIBLE_PERFORMANCE_LOG_RECORDS: usize = 240;
 const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_history_data",
     "ui_history_merge",
@@ -550,6 +551,29 @@ impl TelegramRuntime {
             event: event.to_string(),
             details,
         }])
+    }
+
+    fn read_performance_records(&self) -> Vec<Value> {
+        self.inner
+            .lock()
+            .expect("telegram runtime mutex poisoned")
+            .logger
+            .clone()
+            .map(|logger| logger.read_performance_records(MAX_VISIBLE_PERFORMANCE_LOG_RECORDS))
+            .unwrap_or_default()
+    }
+
+    fn clear_performance_records(&self) -> Result<(), String> {
+        let logger = self
+            .inner
+            .lock()
+            .expect("telegram runtime mutex poisoned")
+            .logger
+            .clone();
+        if let Some(logger) = logger {
+            logger.clear_performance_records()?;
+        }
+        Ok(())
     }
 }
 
@@ -1084,6 +1108,24 @@ pub fn telegram_log_performance_batch(
 ) -> Result<(), String> {
     runtime.prepare(&app);
     runtime.log_performance_batch(records)
+}
+
+#[tauri::command]
+pub fn telegram_read_performance_records(
+    app: AppHandle,
+    runtime: State<'_, TelegramRuntime>,
+) -> Vec<Value> {
+    runtime.prepare(&app);
+    runtime.read_performance_records()
+}
+
+#[tauri::command]
+pub fn telegram_clear_performance_records(
+    app: AppHandle,
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<(), String> {
+    runtime.prepare(&app);
+    runtime.clear_performance_records()
 }
 
 #[tauri::command]

@@ -323,18 +323,6 @@ export const ConversationComposer = memo(function ConversationComposer({
       )}
       <div className={`composer ${editingMessage ? "is-editing" : ""}`}>
         <button
-          className={`icon-button emoji-trigger ${emojiPickerOpen ? "is-active" : ""}`}
-          type="button"
-          aria-label="表情"
-          aria-expanded={emojiPickerOpen}
-          aria-controls="emoji-picker"
-          title="表情"
-          disabled={Boolean(editingMessage)}
-          onClick={() => setEmojiPickerOpen((open) => !open)}
-        >
-          <Smile size={21} strokeWidth={1.8} />
-        </button>
-        <button
           className="icon-button"
           type="button"
           aria-label="添加附件"
@@ -387,6 +375,18 @@ export const ConversationComposer = memo(function ConversationComposer({
           aria-label="消息内容"
           aria-busy={sending}
         />
+        <button
+          className={`icon-button emoji-trigger ${emojiPickerOpen ? "is-active" : ""}`}
+          type="button"
+          aria-label="表情"
+          aria-expanded={emojiPickerOpen}
+          aria-controls="emoji-picker"
+          title="表情"
+          disabled={Boolean(editingMessage)}
+          onClick={() => setEmojiPickerOpen((open) => !open)}
+        >
+          <Smile size={21} strokeWidth={1.8} />
+        </button>
         <button
           className="send-button icon-button"
           type="button"

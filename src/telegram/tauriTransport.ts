@@ -151,6 +151,7 @@ const mapEmojiSticker = (value: unknown): EmojiPickerAsset | undefined => {
     previewMimeType: "image/webp",
     localPath: tdLocalFilePath(file),
     previewPath: tdLocalFilePath(thumbnailFile),
+    previewDataUrl: emojiPreviewDataUrl(sticker.minithumbnail),
     width: tdNumber(sticker.width),
     height: tdNumber(sticker.height),
   };
@@ -1050,9 +1051,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async getStickerSet(stickerSetId: string): Promise<StickerSet> {
-    const setId = Number(stickerSetId);
-    if (!Number.isFinite(setId)) throw new Error("无效的贴纸包标识符");
-    const response = await this.request({ "@type": "getStickerSet", set_id: setId });
+    if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error("无效的贴纸包标识符");
+    const response = await this.request({ "@type": "getStickerSet", set_id: stickerSetId });
     const summary = mapStickerSetSummary(response);
     if (!summary) throw new Error("找不到贴纸包");
     return {
@@ -1077,10 +1077,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async loadEmojiAsset(asset: EmojiPickerAsset) {
-    if (asset.previewPath || asset.localPath) return asset.previewPath ?? asset.localPath;
-    const fileId = asset.previewFileId ?? asset.fileId;
-    await this.fileDownloads.cache(fileId, 24);
-    const file = await this.request({ "@type": "getFile", file_id: fileId });
+    if (asset.localPath) return asset.localPath;
+    await this.fileDownloads.cache(asset.fileId, 24);
+    const file = await this.request({ "@type": "getFile", file_id: asset.fileId });
     return tdLocalFilePath(file);
   }
 

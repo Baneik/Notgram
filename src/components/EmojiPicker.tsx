@@ -85,7 +85,7 @@ function LazyEmojiAsset({
 }) {
   const loadEmojiAsset = useTelegramStore((state) => state.loadEmojiAsset);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const [visible, setVisible] = useState(Boolean(asset.previewDataUrl || asset.previewPath));
+  const [visible, setVisible] = useState(false);
   const [loadedPath, setLoadedPath] = useState<string>();
   const [failed, setFailed] = useState(false);
 
@@ -106,16 +106,24 @@ function LazyEmojiAsset({
   }, [visible]);
 
   useEffect(() => {
-    if (!visible || asset.previewDataUrl || asset.previewPath || asset.localPath) return;
+    if (!visible || asset.localPath || loadedPath) return;
     let active = true;
     void loadEmojiAsset(asset).then((path) => {
-      if (active) setLoadedPath(path);
+      if (!active) return;
+      if (path) {
+        setLoadedPath(path);
+        setFailed(false);
+      } else if (!asset.previewDataUrl && !asset.previewPath) {
+        setFailed(true);
+      }
     });
     return () => { active = false; };
-  }, [asset, loadEmojiAsset, visible]);
+  }, [asset, loadEmojiAsset, loadedPath, visible]);
 
-  const source = assetSource(asset.previewPath ?? asset.localPath ?? loadedPath) ?? asset.previewDataUrl;
-  const usingFullAsset = !asset.previewPath && !asset.previewDataUrl && !asset.previewFileId;
+  const fullSource = assetSource(asset.localPath ?? loadedPath);
+  const previewSource = assetSource(asset.previewPath) ?? asset.previewDataUrl;
+  const source = fullSource ?? previewSource;
+  const usingFullAsset = Boolean(fullSource);
   const label = asset.kind === "animation" ? "发送 GIF" : `发送贴纸 ${asset.emoji ?? ""}`.trim();
 
   return (
@@ -127,7 +135,7 @@ function LazyEmojiAsset({
       title={label}
       onClick={() => onSelect(asset)}
     >
-      {!visible || (!source && !failed) ? <LoaderCircle className="spin" size={18} /> : failed ? (
+      {!source && !failed ? <LoaderCircle className="spin" size={18} /> : failed ? (
         <span className="emoji-asset-fallback">{asset.emoji ?? "GIF"}</span>
       ) : usingFullAsset && asset.mimeType === "application/x-tgsticker" ? (
         <TgsSticker src={source!} label={label} autoplay onError={() => setFailed(true)} />
@@ -153,7 +161,7 @@ export function EmojiPicker({
   const sendAnimation = useTelegramStore((state) => state.sendAnimation);
   const panelRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const [tab, setTab] = useState<PickerTab>("emoji");
+  const [tab, setTab] = useState<PickerTab>("sticker");
   const [query, setQuery] = useState("");
   const [catalog, setCatalog] = useState<EmojiPickerCatalog>();
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -161,6 +169,7 @@ export function EmojiPicker({
   const [selectedStickerSetId, setSelectedStickerSetId] = useState(RECENT_STICKERS);
   const [stickerSets, setStickerSets] = useState<Map<string, StickerSet>>(() => new Map());
   const [stickerSetLoading, setStickerSetLoading] = useState<string>();
+  const [failedStickerSetIds, setFailedStickerSetIds] = useState<Set<string>>(() => new Set());
   const [stickerSearchResults, setStickerSearchResults] = useState<EmojiPickerAsset[]>([]);
   const [sendingAssetId, setSendingAssetId] = useState<string>();
 
@@ -194,14 +203,17 @@ export function EmojiPicker({
   useEffect(() => {
     if (tab !== "sticker" || selectedStickerSetId === RECENT_STICKERS) return;
     if (stickerSets.has(selectedStickerSetId) || stickerSetLoading === selectedStickerSetId) return;
+    if (failedStickerSetIds.has(selectedStickerSetId)) return;
     setStickerSetLoading(selectedStickerSetId);
     void loadStickerSet(selectedStickerSetId).then((stickerSet) => {
       if (stickerSet) {
         setStickerSets((current) => new Map(current).set(stickerSet.id, stickerSet));
+      } else {
+        setFailedStickerSetIds((current) => new Set(current).add(selectedStickerSetId));
       }
       setStickerSetLoading((current) => current === selectedStickerSetId ? undefined : current);
     });
-  }, [loadStickerSet, selectedStickerSetId, stickerSetLoading, stickerSets, tab]);
+  }, [failedStickerSetIds, loadStickerSet, selectedStickerSetId, stickerSetLoading, stickerSets, tab]);
 
   useEffect(() => {
     if (tab !== "sticker" || !query.trim()) {
@@ -306,6 +318,18 @@ export function EmojiPicker({
             <h3>{normalizedQuery ? "搜索结果" : selectedStickerSetId === RECENT_STICKERS ? "最近使用" : stickerSets.get(selectedStickerSetId)?.title ?? "贴纸包"}</h3>
             {stickerSetLoading === selectedStickerSetId ? (
               <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />正在加载贴纸包</div>
+            ) : failedStickerSetIds.has(selectedStickerSetId) ? (
+              <div className="emoji-picker-empty emoji-picker-error">
+                <span>贴纸包加载失败</span>
+                <button
+                  type="button"
+                  onClick={() => setFailedStickerSetIds((current) => {
+                    const next = new Set(current);
+                    next.delete(selectedStickerSetId);
+                    return next;
+                  })}
+                >重试</button>
+              </div>
             ) : stickerAssets.length > 0 ? (
               <div className="emoji-asset-grid">
                 {stickerAssets.map((asset) => <LazyEmojiAsset key={asset.id} asset={asset} onSelect={(value) => void sendAsset(value)} />)}
@@ -338,10 +362,12 @@ export function EmojiPicker({
           </>
         ) : tab === "sticker" ? (
           <>
-            <button className={selectedStickerSetId === RECENT_STICKERS ? "is-active" : ""} type="button" title="最近使用" onClick={() => setSelectedStickerSetId(RECENT_STICKERS)}><Clock3 size={18} /></button>
+            <button className={selectedStickerSetId === RECENT_STICKERS ? "is-active" : ""} type="button" title="最近使用" onClick={() => { setQuery(""); setSelectedStickerSetId(RECENT_STICKERS); }}><Clock3 size={18} /></button>
             {(catalog?.stickerSets ?? []).map((stickerSet) => (
-              <button className={selectedStickerSetId === stickerSet.id ? "is-active" : ""} type="button" key={stickerSet.id} title={stickerSet.title} onClick={() => setSelectedStickerSetId(stickerSet.id)}>
-                {stickerSet.covers[0]?.previewDataUrl ? <img src={stickerSet.covers[0].previewDataUrl} alt="" /> : <Sticker size={18} />}
+              <button className={selectedStickerSetId === stickerSet.id ? "is-active" : ""} type="button" key={stickerSet.id} title={stickerSet.title} onClick={() => { setQuery(""); setSelectedStickerSetId(stickerSet.id); }}>
+                {assetSource(stickerSet.covers[0]?.previewPath) ?? stickerSet.covers[0]?.previewDataUrl
+                  ? <img src={assetSource(stickerSet.covers[0]?.previewPath) ?? stickerSet.covers[0]?.previewDataUrl} alt="" />
+                  : <Sticker size={18} />}
               </button>
             ))}
           </>

@@ -2,7 +2,9 @@ import { Activity, Gauge, Pause, Play, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   clearPerformanceRecords,
+  clearPersistedPerformanceRecords,
   getPerformanceRecords,
+  refreshPersistedPerformanceRecords,
   subscribePerformanceRecords,
   conversationBottleneckStages,
   type PerformanceCategory,
@@ -167,12 +169,27 @@ export function PerformanceMonitor() {
   const [live, setLive] = useState(true);
   const [filter, setFilter] = useState<CategoryFilter>("all");
   const [expandedId, setExpandedId] = useState<number>();
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
-    if (!live) return;
-    setRecords(getPerformanceRecords());
-    return subscribePerformanceRecords(() => setRecords(getPerformanceRecords()));
-  }, [live]);
+    if (!live || clearing) return;
+    let active = true;
+    const update = () => {
+      if (active) setRecords(getPerformanceRecords());
+    };
+    const refresh = () => {
+      void refreshPersistedPerformanceRecords().then(update).catch(() => undefined);
+    };
+    update();
+    refresh();
+    const interval = globalThis.setInterval(refresh, 750);
+    const unsubscribe = subscribePerformanceRecords(update);
+    return () => {
+      active = false;
+      globalThis.clearInterval(interval);
+      unsubscribe();
+    };
+  }, [clearing, live]);
 
   const filtered = useMemo(
     () => records.filter((record) => filter === "all" || record.category === filter).reverse(),
@@ -190,10 +207,16 @@ export function PerformanceMonitor() {
     .reduce((total, record) => total + (record.durationMs ?? 0), 0);
   const maxDuration = Math.max(1, ...filtered.map((record) => record.durationMs ?? 0));
 
-  const clear = () => {
+  const clear = async () => {
+    setClearing(true);
     clearPerformanceRecords();
     setRecords([]);
     setExpandedId(undefined);
+    try {
+      await clearPersistedPerformanceRecords();
+    } finally {
+      setClearing(false);
+    }
   };
 
   return (
@@ -241,8 +264,8 @@ export function PerformanceMonitor() {
             type="button"
             aria-label="清空性能记录"
             title="清空性能记录"
-            disabled={records.length === 0}
-            onClick={clear}
+            disabled={records.length === 0 || clearing}
+            onClick={() => void clear()}
           >
             <Trash2 size={17} />
           </button>

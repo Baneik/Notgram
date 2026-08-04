@@ -987,6 +987,47 @@ describe("TauriTelegramTransport message operations", () => {
     ]);
   });
 
+  it("preserves 64-bit sticker set identifiers and maps animated sticker assets", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const stickerSetId = "5368324170671202286";
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "stickerSet",
+        id: stickerSetId,
+        title: "Animated set",
+        name: "animated_set",
+        size: 1,
+        covers: [],
+        stickers: [{
+          id: "5368324170671202287",
+          emoji: "🙂",
+          width: 512,
+          height: 512,
+          format: { "@type": "stickerFormatTgs" },
+          minithumbnail: { data: "cHJldmlldw==" },
+          sticker: { id: 71, local: { path: "", is_downloading_completed: false } },
+        }],
+      };
+    };
+
+    await expect(transport.getStickerSet(stickerSetId)).resolves.toMatchObject({
+      id: stickerSetId,
+      stickers: [{
+        id: "sticker:5368324170671202287",
+        fileId: 71,
+        mimeType: "application/x-tgsticker",
+        previewDataUrl: "data:image/jpeg;base64,cHJldmlldw==",
+      }],
+    });
+    expect(requests).toEqual([{
+      "@type": "getStickerSet",
+      set_id: stickerSetId,
+    }]);
+  });
+
   it("loads server chat and message search results into the live maps", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
