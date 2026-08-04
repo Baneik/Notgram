@@ -87,10 +87,6 @@ export function MessageActionMenu({
           <span>下载视频</span>
         </button>
       )}
-      <button type="button" role="menuitem" onClick={onCopy}>
-        <Copy size={16} strokeWidth={1.9} />
-        <span>复制</span>
-      </button>
       {onCopyRaw && (
         <button type="button" role="menuitem" onClick={onCopyRaw}>
           <Copy size={16} strokeWidth={1.9} />
@@ -98,13 +94,19 @@ export function MessageActionMenu({
         </button>
       )}
       {!permissions ? (
-        <div className="message-action-status" role="status">
-          {loading ? (
-            <><LoaderCircle className="spin" size={15} />正在读取操作权限</>
-          ) : (
-            <><AlertCircle size={15} />无法读取操作权限</>
-          )}
-        </div>
+        <>
+          <button type="button" role="menuitem" onClick={onCopy}>
+            <Copy size={16} strokeWidth={1.9} />
+            <span>复制</span>
+          </button>
+          <div className="message-action-status" role="status">
+            {loading ? (
+              <><LoaderCircle className="spin" size={15} />正在读取操作权限</>
+            ) : (
+              <><AlertCircle size={15} />无法读取操作权限</>
+            )}
+          </div>
+        </>
       ) : (
         <>
           <div className="message-action-reactions" role="group" aria-label="表情回应">
@@ -125,6 +127,10 @@ export function MessageActionMenu({
               );
             })}
           </div>
+          <button type="button" role="menuitem" onClick={onCopy}>
+            <Copy size={16} strokeWidth={1.9} />
+            <span>复制</span>
+          </button>
           {permissions.canReply && (
             <button type="button" role="menuitem" onClick={onReply}>
               <Reply size={16} strokeWidth={1.9} />
