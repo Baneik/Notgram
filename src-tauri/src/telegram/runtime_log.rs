@@ -75,12 +75,11 @@ impl RuntimeLogger {
                     let mut runtime_records = Vec::new();
                     let mut performance_records = Vec::new();
                     let mut flushes = Vec::new();
-                    collect_command(
-                        first,
-                        &mut runtime_records,
-                        &mut performance_records,
-                        &mut flushes,
-                    );
+                    if let Some(flush) =
+                        collect_command(first, &mut runtime_records, &mut performance_records)
+                    {
+                        flushes.push(flush);
+                    }
                     let deadline = Instant::now() + Duration::from_millis(10);
                     while runtime_records.len() + performance_records.len() < 256 {
                         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -88,12 +87,15 @@ impl RuntimeLogger {
                             break;
                         }
                         match receiver.recv_timeout(remaining) {
-                            Ok(command) => collect_command(
-                                command,
-                                &mut runtime_records,
-                                &mut performance_records,
-                                &mut flushes,
-                            ),
+                            Ok(command) => {
+                                if let Some(flush) = collect_command(
+                                    command,
+                                    &mut runtime_records,
+                                    &mut performance_records,
+                                ) {
+                                    flushes.push(flush);
+                                }
+                            }
                             Err(_) => break,
                         }
                     }
@@ -136,13 +138,18 @@ fn collect_command(
     command: LogCommand,
     runtime_records: &mut Vec<LogRecord>,
     performance_records: &mut Vec<LogRecord>,
-    flushes: &mut Vec<mpsc::Sender<()>>,
-) {
+) -> Option<mpsc::Sender<()>> {
     match command {
-        LogCommand::Runtime(records) => runtime_records.extend(records),
-        LogCommand::Performance(records) => performance_records.extend(records),
+        LogCommand::Runtime(records) => {
+            runtime_records.extend(records);
+            None
+        }
+        LogCommand::Performance(records) => {
+            performance_records.extend(records);
+            None
+        }
         #[cfg(test)]
-        LogCommand::Flush(sender) => flushes.push(sender),
+        LogCommand::Flush(sender) => Some(sender),
     }
 }
 
