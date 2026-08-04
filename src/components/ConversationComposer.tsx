@@ -9,6 +9,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -18,12 +19,12 @@ import {
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
-import type { Chat, ConnectionStatus, Message } from "../telegram/types";
+import type { ConnectionStatus, Message } from "../telegram/types";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 
 interface ConversationComposerProps {
-  chat: Chat;
+  chatId: string;
   editingMessage?: Message;
   replyingTo?: Message;
   contextTitle?: string;
@@ -41,12 +42,12 @@ interface ConversationComposerProps {
   onCancelReply: () => void;
 }
 
-const LOCAL_DRAFT_DELAY_MS = 250;
+const LOCAL_DRAFT_DELAY_MS = 750;
 const TYPING_REFRESH_MS = 4_000;
 const TYPING_IDLE_MS = 5_000;
 
-export function ConversationComposer({
-  chat,
+export const ConversationComposer = memo(function ConversationComposer({
+  chatId,
   editingMessage,
   replyingTo,
   contextTitle,
@@ -63,14 +64,16 @@ export function ConversationComposer({
   onCancelEditing,
   onCancelReply,
 }: ConversationComposerProps) {
-  const chatDraft = useTelegramStore((state) => state.drafts.get(chat.id));
+  const chatDraft = useTelegramStore((state) => state.drafts.get(chatId));
   const [draft, setDraft] = useState(chatDraft?.text ?? "");
+  const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);
   const [attachmentPending, setAttachmentPending] = useState(false);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(draft);
+  const composingRef = useRef(false);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pendingDraftRef = useRef<{ text: string; replyToMessageId?: string } | undefined>(undefined);
   const localDraftDirtyRef = useRef(false);
@@ -81,7 +84,7 @@ export function ConversationComposer({
   const typingIdleRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const replyToMessageIdRef = useRef(replyingTo?.id ?? chatDraft?.replyToMessageId);
 
-  useComposerAutoResize(inputRef, draft, true, chat.id);
+  useComposerAutoResize(inputRef, draft, !composing, chatId);
 
   const focusComposer = useCallback(() => {
     globalThis.setTimeout(() => inputRef.current?.focus(), 0);
@@ -94,8 +97,8 @@ export function ConversationComposer({
     pendingDraftRef.current = undefined;
     if (!pending) return;
     localDraftDirtyRef.current = false;
-    onDraftChange(chat.id, pending.text, pending.replyToMessageId);
-  }, [chat.id, onDraftChange]);
+    onDraftChange(chatId, pending.text, pending.replyToMessageId);
+  }, [chatId, onDraftChange]);
 
   const scheduleDraft = useCallback((text: string, replyToMessageId?: string) => {
     if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
@@ -111,8 +114,8 @@ export function ConversationComposer({
     typingIdleRef.current = undefined;
     if (!typingActiveRef.current) return;
     typingActiveRef.current = false;
-    void onTypingChange(chat.id, false);
-  }, [chat.id, onTypingChange]);
+    void onTypingChange(chatId, false);
+  }, [chatId, onTypingChange]);
 
   const keepTyping = useCallback((text: string) => {
     if (!sendTypingStatus || editingMessage || !text.trim()) {
@@ -121,14 +124,29 @@ export function ConversationComposer({
     }
     if (!typingActiveRef.current) {
       typingActiveRef.current = true;
-      void onTypingChange(chat.id, true);
+      void onTypingChange(chatId, true);
       typingRefreshRef.current = globalThis.setInterval(() => {
-        if (typingActiveRef.current) void onTypingChange(chat.id, true);
+        if (typingActiveRef.current) void onTypingChange(chatId, true);
       }, TYPING_REFRESH_MS);
     }
     if (typingIdleRef.current) globalThis.clearTimeout(typingIdleRef.current);
     typingIdleRef.current = globalThis.setTimeout(stopTyping, TYPING_IDLE_MS);
-  }, [chat.id, editingMessage, onTypingChange, sendTypingStatus, stopTyping]);
+  }, [chatId, editingMessage, onTypingChange, sendTypingStatus, stopTyping]);
+
+  const commitInputSideEffects = useCallback((value: string) => {
+    if (editingMessage) return;
+    scheduleDraft(value, replyingTo?.id ?? chatDraft?.replyToMessageId);
+    keepTyping(value);
+  }, [chatDraft?.replyToMessageId, editingMessage, keepTyping, replyingTo?.id, scheduleDraft]);
+
+  const finishComposition = useCallback((value: string) => {
+    if (!composingRef.current) return;
+    composingRef.current = false;
+    setComposing(false);
+    draftRef.current = value;
+    setDraft(value);
+    commitInputSideEffects(value);
+  }, [commitInputSideEffects]);
 
   useEffect(() => {
     const previous = previousEditingRef.current;
@@ -168,9 +186,15 @@ export function ConversationComposer({
   }, [editingMessage, sendTypingStatus, stopTyping]);
 
   useEffect(() => () => {
+    if (composingRef.current && !editingMessage) {
+      pendingDraftRef.current = {
+        text: draftRef.current,
+        replyToMessageId: replyToMessageIdRef.current,
+      };
+    }
     flushDraft();
     stopTyping();
-  }, [flushDraft, stopTyping]);
+  }, [editingMessage, flushDraft, stopTyping]);
 
   const sendAttachment = async (file?: File) => {
     if (attachmentPending) return;
@@ -200,7 +224,7 @@ export function ConversationComposer({
     localDraftDirtyRef.current = false;
     draftRef.current = "";
     setDraft("");
-    onDraftChange(chat.id, "", undefined);
+    onDraftChange(chatId, "", undefined);
     stopTyping();
     focusComposer();
     setSending(true);
@@ -295,19 +319,29 @@ export function ConversationComposer({
             const value = event.target.value;
             draftRef.current = value;
             setDraft(value);
-            if (!editingMessage) {
-              scheduleDraft(value, replyingTo?.id ?? chatDraft?.replyToMessageId);
-              keepTyping(value);
-            }
+            if (!composingRef.current) commitInputSideEffects(value);
           }}
-          onFocus={() => keepTyping(draftRef.current)}
-          onBlur={stopTyping}
+          onCompositionStart={() => {
+            composingRef.current = true;
+            setComposing(true);
+            if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
+            draftTimerRef.current = undefined;
+            stopTyping();
+          }}
+          onCompositionEnd={(event) => finishComposition(event.currentTarget.value)}
+          onFocus={() => {
+            if (!composingRef.current) keepTyping(draftRef.current);
+          }}
+          onBlur={(event) => {
+            finishComposition(event.currentTarget.value);
+            stopTyping();
+          }}
           onKeyDown={(event) => {
             const submitWithKeyboard = event.key === "Enter" && (
               (sendOnEnter && !event.shiftKey) ||
               (!sendOnEnter && (event.ctrlKey || event.metaKey))
             );
-            if (!submitWithKeyboard || event.nativeEvent.isComposing) return;
+            if (!submitWithKeyboard || event.nativeEvent.isComposing || composingRef.current) return;
             event.preventDefault();
             void submitMessage();
           }}
@@ -331,4 +365,4 @@ export function ConversationComposer({
       </div>
     </div>
   );
-}
+});

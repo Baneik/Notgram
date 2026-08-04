@@ -244,6 +244,67 @@ test("composer coalesces resizing and persists drafts without blocking input", a
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 });
 
+test("IME composition defers draft persistence and layout work until commit", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.locator(".composer textarea");
+  await expect(composer).toBeVisible();
+
+  const result = await composer.evaluate(async (textarea) => {
+    const input = textarea as HTMLTextAreaElement;
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (!valueSetter) throw new Error("Textarea value setter is unavailable");
+    input.focus();
+    input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    const observer = new MutationObserver(() => undefined);
+    observer.observe(input, { attributes: true, attributeFilter: ["style"] });
+    for (const value of ["n", "ni", "你"]) {
+      input.dispatchEvent(new CompositionEvent("compositionupdate", {
+        bubbles: true,
+        data: value,
+      }));
+      valueSetter.call(input, value);
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: value,
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    const storeModule = await import("/src/store/telegramStore.ts" as string) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, { text: string }> };
+      };
+    };
+    const duringCompositionDraft = storeModule.telegramStore
+      .getState().drafts.get("chat-product")?.text;
+    const styleMutationCount = observer.takeRecords().length;
+    observer.disconnect();
+    input.dispatchEvent(new CompositionEvent("compositionend", {
+      bubbles: true,
+      data: "你",
+    }));
+    return { duringCompositionDraft, styleMutationCount, value: input.value };
+  });
+
+  expect(result.value).toBe("你");
+  expect(result.duringCompositionDraft).toBeUndefined();
+  expect(result.styleMutationCount).toBeLessThanOrEqual(1);
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, { text: string }> };
+      };
+    };
+    return storeModule.telegramStore.getState().drafts.get("chat-product")?.text;
+  }, "/src/store/telegramStore.ts")).toBe("你");
+});
+
 test("private chats show incoming typing state", async ({ page }) => {
   await page.goto("/?typing=direct");
   await page.locator('[data-chat-id="chat-mia"]').click();

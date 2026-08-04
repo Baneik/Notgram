@@ -817,7 +817,7 @@ export function Conversation({
       ) : (
       <ConversationComposer
         key={chat.id}
-        chat={chat}
+        chatId={chat.id}
         editingMessage={editingMessage}
         replyingTo={replyingTo}
         contextTitle={composerContextTitle}

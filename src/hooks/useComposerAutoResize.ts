@@ -28,6 +28,7 @@ export const useComposerAutoResize = (
   scope?: string,
 ) => {
   const resizeFrameRef = useRef<number | undefined>(undefined);
+  const resizeTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const scheduleResize = useCallback((input: HTMLTextAreaElement) => {
     if (resizeFrameRef.current !== undefined) {
       globalThis.cancelAnimationFrame(resizeFrameRef.current);
@@ -47,14 +48,31 @@ export const useComposerAutoResize = (
   useEffect(() => {
     const input = inputRef.current;
     if (!input || !enabled) return;
-    const observer = new ResizeObserver(() => scheduleResize(input));
-    observer.observe(input);
-    return () => observer.disconnect();
+    const handleWindowResize = () => {
+      if (resizeTimerRef.current !== undefined) {
+        globalThis.clearTimeout(resizeTimerRef.current);
+      }
+      resizeTimerRef.current = globalThis.setTimeout(() => {
+        resizeTimerRef.current = undefined;
+        scheduleResize(input);
+      }, 100);
+    };
+    globalThis.addEventListener("resize", handleWindowResize);
+    return () => {
+      globalThis.removeEventListener("resize", handleWindowResize);
+      if (resizeTimerRef.current !== undefined) {
+        globalThis.clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = undefined;
+      }
+    };
   }, [enabled, inputRef, scheduleResize, scope]);
 
   useEffect(() => () => {
     if (resizeFrameRef.current !== undefined) {
       globalThis.cancelAnimationFrame(resizeFrameRef.current);
+    }
+    if (resizeTimerRef.current !== undefined) {
+      globalThis.clearTimeout(resizeTimerRef.current);
     }
   }, []);
 };
