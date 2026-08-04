@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type RefObject,
+} from "react";
 
 const COMPOSER_TEXTAREA_MIN_HEIGHT = 40;
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 290;
@@ -21,17 +27,34 @@ export const useComposerAutoResize = (
   enabled: boolean,
   scope?: string,
 ) => {
+  const resizeFrameRef = useRef<number | undefined>(undefined);
+  const scheduleResize = useCallback((input: HTMLTextAreaElement) => {
+    if (resizeFrameRef.current !== undefined) {
+      globalThis.cancelAnimationFrame(resizeFrameRef.current);
+    }
+    resizeFrameRef.current = globalThis.requestAnimationFrame(() => {
+      resizeFrameRef.current = undefined;
+      resizeComposerInput(input);
+    });
+  }, []);
+
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input || !enabled) return;
-    resizeComposerInput(input);
-  }, [content, enabled, inputRef, scope]);
+    scheduleResize(input);
+  }, [content, enabled, inputRef, scheduleResize, scope]);
 
   useEffect(() => {
     const input = inputRef.current;
     if (!input || !enabled) return;
-    const observer = new ResizeObserver(() => resizeComposerInput(input));
+    const observer = new ResizeObserver(() => scheduleResize(input));
     observer.observe(input);
     return () => observer.disconnect();
-  }, [enabled, inputRef, scope]);
+  }, [enabled, inputRef, scheduleResize, scope]);
+
+  useEffect(() => () => {
+    if (resizeFrameRef.current !== undefined) {
+      globalThis.cancelAnimationFrame(resizeFrameRef.current);
+    }
+  }, []);
 };

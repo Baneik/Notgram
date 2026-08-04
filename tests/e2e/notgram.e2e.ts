@@ -193,6 +193,57 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await expect(typingSwitch).not.toBeChecked();
 });
 
+test("composer coalesces resizing and persists drafts without blocking input", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.locator(".composer textarea");
+  await expect(composer).toBeVisible();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const result = await composer.evaluate(async (textarea) => {
+    const input = textarea as HTMLTextAreaElement;
+    const text = "responsive-input-".repeat(12);
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (!valueSetter) throw new Error("Textarea value setter is unavailable");
+
+    const observer = new MutationObserver(() => undefined);
+    observer.observe(input, { attributes: true, attributeFilter: ["style"] });
+    const startedAt = performance.now();
+    for (const character of text) {
+      valueSetter.call(input, input.value + character);
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        data: character,
+        inputType: "insertText",
+      }));
+    }
+    const dispatchMs = performance.now() - startedAt;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const styleMutationCount = observer.takeRecords().length;
+    observer.disconnect();
+    return { dispatchMs, styleMutationCount, text, value: input.value };
+  });
+
+  expect(result.value).toBe(result.text);
+  expect(result.dispatchMs).toBeLessThan(300);
+  expect(result.styleMutationCount).toBeLessThanOrEqual(6);
+  await expect.poll(() => page.evaluate(async ({ chatId, modulePath }) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, { text: string }> };
+      };
+    };
+    return storeModule.telegramStore.getState().drafts.get(chatId)?.text;
+  }, {
+    chatId: "chat-product",
+    modulePath: "/src/store/telegramStore.ts",
+  })).toBe(result.text);
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+});
+
 test("private chats show incoming typing state", async ({ page }) => {
   await page.goto("/?typing=direct");
   await page.locator('[data-chat-id="chat-mia"]').click();
@@ -300,7 +351,12 @@ test("single-click entry restores the server read marker without exposing interm
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await page.evaluate(() => {
     const diagnosticWindow = window as typeof window & {
-      __notgramEntryFrames?: Array<{ busy: string | null; masked: boolean; scrollTop: number }>;
+      __notgramEntryFrames?: Array<{
+        busy: string | null;
+        placeholder: boolean;
+        messageCount: number;
+        scrollTop: number;
+      }>;
     };
     diagnosticWindow.__notgramEntryFrames = [];
     const startedAt = performance.now();
@@ -313,7 +369,8 @@ test("single-click entry restores the server read marker without exposing interm
       if (activeChatId === "chat-chen" && list && shell) {
         diagnosticWindow.__notgramEntryFrames?.push({
           busy: list.getAttribute("aria-busy"),
-          masked: shell.classList.contains("is-positioning"),
+          placeholder: Boolean(shell.querySelector(".message-positioning-placeholder")),
+          messageCount: list.querySelectorAll("[data-message-id]").length,
           scrollTop: Math.round(list.scrollTop),
         });
       }
@@ -336,11 +393,19 @@ test("single-click entry restores the server read marker without exposing interm
     const listBounds = list.getBoundingClientRect();
     const targetBounds = target.getBoundingClientRect();
     const frames = (window as typeof window & {
-      __notgramEntryFrames?: Array<{ busy: string | null; masked: boolean; scrollTop: number }>;
+      __notgramEntryFrames?: Array<{
+        busy: string | null;
+        placeholder: boolean;
+        messageCount: number;
+        scrollTop: number;
+      }>;
     }).__notgramEntryFrames ?? [];
-    const exposedBusyFrames = frames.filter((frame) => frame.busy === "true" && !frame.masked);
+    const placeholderFrames = frames.filter((frame) => frame.placeholder);
+    const uncoveredEmptyFrames = frames.filter(
+      (frame) => frame.messageCount === 0 && !frame.placeholder,
+    );
     const exposedPositions = new Set(
-      frames.filter((frame) => frame.busy === "false" && !frame.masked)
+      frames.filter((frame) => !frame.placeholder && frame.messageCount > 0)
         .map((frame) => frame.scrollTop),
     );
     return {
@@ -350,17 +415,24 @@ test("single-click entry restores the server read marker without exposing interm
         latest && latest.getBoundingClientRect().top < listBounds.bottom &&
         latest.getBoundingClientRect().bottom > listBounds.top,
       ),
-      exposedBusyFrameCount: exposedBusyFrames.length,
+      placeholderFrameCount: placeholderFrames.length,
+      uncoveredEmptyFrameCount: uncoveredEmptyFrames.length,
       exposedPositionCount: exposedPositions.size,
       scrollBehavior: getComputedStyle(list).scrollBehavior,
+      pseudoOverlayContent: getComputedStyle(
+        document.querySelector<HTMLElement>(".message-list-shell")!,
+        "::after",
+      ).content,
     };
   });
   expect(result.targetOffset).toBeGreaterThanOrEqual(-1);
   expect(result.targetOffset).toBeLessThan(result.listHeight);
   expect(result.latestVisible).toBe(false);
-  expect(result.exposedBusyFrameCount).toBe(0);
+  expect(result.placeholderFrameCount).toBeGreaterThan(0);
+  expect(result.uncoveredEmptyFrameCount).toBeLessThanOrEqual(1);
   expect(result.exposedPositionCount).toBeLessThanOrEqual(1);
   expect(result.scrollBehavior).toBe("auto");
+  expect(result.pseudoOverlayContent).toBe("none");
 });
 
 test("warm conversation switches reuse messages and reveal content promptly", async ({ page }) => {
@@ -394,7 +466,10 @@ test("warm conversation switches reuse messages and reveal content promptly", as
     const startedAt = performance.now();
     row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
     let headerMs: number | undefined;
+    let firstMessageMs: number | undefined;
     let contentMs: number | undefined;
+    let placeholderFrames = 0;
+    let emptyFramesAfterHeader = 0;
     while (performance.now() - startedAt < 2_000) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (
@@ -403,21 +478,32 @@ test("warm conversation switches reuse messages and reveal content promptly", as
       ) {
         headerMs = performance.now() - startedAt;
       }
+      const list = document.querySelector(".message-list");
+      const messageCount = list?.querySelectorAll("[data-message-id]").length ?? 0;
+      if (document.querySelector(".message-positioning-placeholder")) placeholderFrames += 1;
+      if (headerMs !== undefined && messageCount === 0) emptyFramesAfterHeader += 1;
+      if (headerMs !== undefined && firstMessageMs === undefined && messageCount > 0) {
+        firstMessageMs = performance.now() - startedAt;
+      }
       if (
-        headerMs !== undefined &&
-        document.querySelector(".message-list")?.getAttribute("aria-busy") === "false"
+        firstMessageMs !== undefined &&
+        list?.getAttribute("aria-busy") === "false"
       ) {
         contentMs = performance.now() - startedAt;
         break;
       }
     }
-    return { headerMs, contentMs };
+    return { headerMs, firstMessageMs, contentMs, placeholderFrames, emptyFramesAfterHeader };
   });
 
   expect(timing.headerMs).toBeDefined();
   expect(timing.headerMs!).toBeLessThan(100);
+  expect(timing.firstMessageMs).toBeDefined();
+  expect(timing.firstMessageMs!).toBeLessThan(100);
   expect(timing.contentMs).toBeDefined();
   expect(timing.contentMs!).toBeLessThan(300);
+  expect(timing.placeholderFrames).toBe(0);
+  expect(timing.emptyFramesAfterHeader).toBeLessThanOrEqual(1);
 
   await product.click();
   await mia.click();

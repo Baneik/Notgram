@@ -354,9 +354,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   align-items: center; gap: 9px; color: #858c91; background: #ffffff; border-bottom: 1px solid var(--line);
 }
 .message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
-.message-list-shell.is-positioning::after {
-  content: ""; position: absolute; inset: 0; z-index: 30;
-  background: var(--chat-canvas); pointer-events: none;
+.message-positioning-placeholder {
+  position: absolute; inset: 0; z-index: 30; display: grid; place-content: center;
+  justify-items: center; gap: 8px; color: var(--muted); background: var(--chat-canvas);
+  pointer-events: none;
 }
 .message-list {
   --message-scrollbar-thumb: #869892;

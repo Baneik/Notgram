@@ -10,7 +10,8 @@ import {
   type PointerEvent,
 } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
-import type { Chat, ChatDraft, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
+import { useTelegramStore } from "../store/telegramStore";
+import type { Chat, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
@@ -21,7 +22,6 @@ import type { ContextMenuPoint } from "./ContextMenuSurface";
 interface ChatSidebarProps {
   chats: Chat[];
   allChats: Map<string, Chat>;
-  drafts: Map<string, ChatDraft>;
   users: Map<string, User>;
   folders: ChatFolder[];
   activeChatId?: string;
@@ -62,7 +62,6 @@ const MIN_CONVERSATION_WIDTH = 340;
 export function ChatSidebar({
   chats,
   allChats,
-  drafts,
   users,
   folders,
   activeChatId,
@@ -398,7 +397,6 @@ export function ChatSidebar({
                     )
                   : undefined}
                 folderId={folderId}
-                draft={drafts.get(chat.id)}
                 active={activeChatId === chat.id}
                 onOpenLatest={onOpenLatest}
                 onOpenContextMenu={openContextMenu}
@@ -469,7 +467,6 @@ function ChatRow({
   chat,
   previewSenderName,
   folderId,
-  draft,
   active,
   onSelectChat,
   onOpenLatest,
@@ -486,7 +483,6 @@ function ChatRow({
   chat: Chat;
   previewSenderName?: string;
   folderId: string;
-  draft?: ChatDraft;
   active: boolean;
   onSelectChat: (chatId: string) => void;
   onOpenLatest: (chatId: string) => void;
@@ -504,6 +500,7 @@ function ChatRow({
   onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void;
   onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
+  const draft = useTelegramStore((state) => state.drafts.get(chat.id));
   const visibleDraft = draft && (draft.text.length > 0 || draft.replyToMessageId)
     ? draft
     : undefined;

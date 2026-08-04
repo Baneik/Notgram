@@ -17,18 +17,13 @@ import {
 } from "react";
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { usePreferencesStore } from "../store/preferencesStore";
-import type {
-  Chat,
-  ChatDraft,
-  ConnectionStatus,
-  Message,
-} from "../telegram/types";
+import { useTelegramStore } from "../store/telegramStore";
+import type { Chat, ConnectionStatus, Message } from "../telegram/types";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 
 interface ConversationComposerProps {
   chat: Chat;
-  chatDraft?: ChatDraft;
   editingMessage?: Message;
   replyingTo?: Message;
   contextTitle?: string;
@@ -52,7 +47,6 @@ const TYPING_IDLE_MS = 5_000;
 
 export function ConversationComposer({
   chat,
-  chatDraft,
   editingMessage,
   replyingTo,
   contextTitle,
@@ -69,6 +63,7 @@ export function ConversationComposer({
   onCancelEditing,
   onCancelReply,
 }: ConversationComposerProps) {
+  const chatDraft = useTelegramStore((state) => state.drafts.get(chat.id));
   const [draft, setDraft] = useState(chatDraft?.text ?? "");
   const [sending, setSending] = useState(false);
   const [attachmentPending, setAttachmentPending] = useState(false);

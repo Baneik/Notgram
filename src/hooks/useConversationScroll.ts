@@ -9,7 +9,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { flushSync } from "react-dom";
-import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
+import type { IndexLocationWithAlign, StateSnapshot, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
 import { logPerformance, markHistoryInteraction } from "../utils/performanceMonitor";
 
@@ -67,6 +67,12 @@ interface ConversationScrollOptions {
 }
 
 const conversationScrollMemory = new Map<string, ConversationScrollMemory>();
+const conversationVirtuosoSnapshots = new Map<string, {
+  state: StateSnapshot;
+  firstMessageId?: string;
+  lastMessageId?: string;
+  virtualItemCount: number;
+}>();
 
 const scrollMemoryKey = (scope: string, chatId?: string) =>
   chatId ? `${scope}:${chatId}` : undefined;
@@ -222,6 +228,7 @@ export const useConversationScroll = ({
   const [positionedScrollIdentity, setPositionedScrollIdentity] = useState<string>();
   const positionCorrectionIdentityRef = useRef<string | undefined>(undefined);
   const lastVisibleMessageId = visibleMessages.at(-1)?.id;
+  const firstVisibleMessageId = visibleMessages[0]?.id;
   const lastVisibleMessageIdRef = useRef(lastVisibleMessageId);
   lastVisibleMessageIdRef.current = lastVisibleMessageId;
   const matchingEntryRequest = entryRequest?.chatId === chatId ? entryRequest : undefined;
@@ -272,6 +279,15 @@ export const useConversationScroll = ({
     initialLocationRef.current = { identity: initialLocationIdentity, location };
   }
   const initialTopMostItemIndex = initialLocationRef.current!.location;
+  const storedVirtuosoSnapshot = currentScrollKey
+    ? conversationVirtuosoSnapshots.get(currentScrollKey)
+    : undefined;
+  const restoreStateFrom = storedVirtuosoSnapshot &&
+      storedVirtuosoSnapshot.firstMessageId === firstVisibleMessageId &&
+      storedVirtuosoSnapshot.lastMessageId === lastVisibleMessageId &&
+      storedVirtuosoSnapshot.virtualItemCount === virtualItemCount
+    ? storedVirtuosoSnapshot.state
+    : undefined;
 
   const setMessageListRef = useCallback((ref: HTMLElement | Window | null) => {
     const element = ref instanceof HTMLDivElement ? ref : null;
@@ -403,6 +419,13 @@ export const useConversationScroll = ({
     scrollToLatestPosition();
     updateNewMessageNotice(currentScrollKey, 0);
   }, [currentScrollKey, lastVisibleMessageId, scrollToLatestPosition]);
+
+  const followOutput = useCallback((): "auto" | false => {
+    if (!currentScrollKey) return false;
+    return conversationScrollMemory.get(currentScrollKey)?.followLatest === true
+      ? "auto"
+      : false;
+  }, [currentScrollKey]);
 
   const onTotalListHeightChanged = useCallback(() => {
     const element = messageListRef.current;
@@ -857,6 +880,22 @@ export const useConversationScroll = ({
     cancelHistoryRestore();
   }, [cancelHistoryRestore]);
 
+  useLayoutEffect(() => {
+    if (!currentScrollKey || search) return;
+    const handle = virtuosoRef.current;
+    if (!handle) return;
+    return () => {
+      handle.getState((state) => {
+        conversationVirtuosoSnapshots.set(currentScrollKey, {
+          state,
+          firstMessageId: firstVisibleMessageId,
+          lastMessageId: lastVisibleMessageId,
+          virtualItemCount,
+        });
+      });
+    };
+  }, [currentScrollKey, firstVisibleMessageId, lastVisibleMessageId, search, virtualItemCount]);
+
   useEffect(() => {
     const element = messageListRef.current;
     const content = element?.querySelector<HTMLElement>(".message-list-content");
@@ -973,11 +1012,13 @@ export const useConversationScroll = ({
       currentScrollKey && positionedScrollIdentity !== initialLocationIdentity
     ),
     initialTopMostItemIndex,
+    restoreStateFrom,
     highlightedMessageId: highlightedMessage && highlightedMessage.key === currentScrollKey
       ? highlightedMessage.messageId
       : undefined,
     newMessageNotice,
     jumpToLatest,
+    followOutput,
     onTotalListHeightChanged,
     onAtBottomStateChange,
     messageListHandlers: {

@@ -60,7 +60,6 @@ export function App() {
   const folders = useTelegramStore((state) => state.folders);
   const users = useTelegramStore((state) => state.users);
   const messages = useTelegramStore((state) => state.messages);
-  const drafts = useTelegramStore((state) => state.drafts);
   const typingUserIds = useTelegramStore((state) => state.typingUserIds);
   const outbox = useTelegramStore((state) => state.outbox);
   const histories = useTelegramStore((state) => state.histories);
@@ -457,7 +456,6 @@ export function App() {
         <ChatSidebar
           chats={visibleChats}
           allChats={chats}
-          drafts={drafts}
           users={users}
           folders={folders}
           activeChatId={activeChatId}
@@ -553,7 +551,6 @@ export function App() {
           latestScrollRequest={latestScrollRequest}
           messageScrollRequest={messageScrollRequest}
           messages={activeMessages}
-          chatDraft={activeChatId ? drafts.get(activeChatId) : undefined}
           forwardTargets={forwardTargets}
           users={users}
           historyLoading={activeHistory.loading}

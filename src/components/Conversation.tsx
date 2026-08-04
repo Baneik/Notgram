@@ -20,7 +20,6 @@ import {
 import { Virtuoso, type Components, type ListProps } from "react-virtuoso";
 import type {
   Chat,
-  ChatDraft,
   ConnectionStatus,
   Message,
   MessagePermissions,
@@ -61,6 +60,7 @@ import {
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
 import { writeClipboardText } from "../utils/clipboard";
+import { useTelegramStore } from "../store/telegramStore";
 
 const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
   <div {...props} className="message-list-content" ref={ref} />
@@ -81,7 +81,6 @@ interface ConversationProps {
   latestScrollRequest?: LatestConversationScrollRequest;
   messageScrollRequest?: MessageConversationScrollRequest;
   messages: Message[];
-  chatDraft?: ChatDraft;
   forwardTargets: Chat[];
   users: Map<string, User>;
   historyLoading: boolean;
@@ -135,7 +134,6 @@ export function Conversation({
   latestScrollRequest,
   messageScrollRequest,
   messages,
-  chatDraft,
   forwardTargets,
   users,
   historyLoading,
@@ -187,6 +185,9 @@ export function Conversation({
   const [deletePending, setDeletePending] = useState(false);
   const [viewerMessageId, setViewerMessageId] = useState<string>();
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const draftReplyToMessageId = useTelegramStore((state) =>
+    chat ? state.drafts.get(chat.id)?.replyToMessageId : undefined,
+  );
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
@@ -304,9 +305,11 @@ export function Conversation({
     currentScrollKey,
     positioning,
     initialTopMostItemIndex,
+    restoreStateFrom,
     highlightedMessageId,
     newMessageNotice,
     jumpToLatest,
+    followOutput,
     onTotalListHeightChanged,
     onAtBottomStateChange,
     messageListHandlers,
@@ -349,7 +352,7 @@ export function Conversation({
 
   useEffect(() => {
     if (editingMessage) return;
-    const replyToMessageId = chatDraft?.replyToMessageId;
+    const replyToMessageId = draftReplyToMessageId;
     if (!replyToMessageId) {
       setReplyingTo(undefined);
       return;
@@ -358,7 +361,7 @@ export function Conversation({
     if (target) {
       setReplyingTo((current) => current?.id === target.id ? current : target);
     }
-  }, [chat?.id, chatDraft?.replyToMessageId, editingMessage, messagesById]);
+  }, [chat?.id, draftReplyToMessageId, editingMessage, messagesById]);
 
   useEffect(() => {
     if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
@@ -589,6 +592,12 @@ export function Conversation({
       )}
 
       <div className={`message-list-shell ${positioning ? "is-positioning" : ""}`}>
+        {positioning && (visibleMessages.length === 0 || !restoreStateFrom) && (
+          <div className="message-positioning-placeholder" role="status">
+            <LoaderCircle className="spin" size={18} />
+            <span>正在加载消息</span>
+          </div>
+        )}
         {historyLoading && (
           <div className="history-loading" aria-label="正在加载更早消息">
             <LoaderCircle className="spin" size={16} />
@@ -609,8 +618,10 @@ export function Conversation({
           computeItemKey={(_, block) => block.id}
           data={visibleMessageBlocks}
           defaultItemHeight={52}
-          followOutput="auto"
-          initialTopMostItemIndex={initialTopMostItemIndex}
+          followOutput={followOutput}
+          initialTopMostItemIndex={restoreStateFrom ? undefined : initialTopMostItemIndex}
+          restoreStateFrom={restoreStateFrom}
+          skipAnimationFrameInResizeObserver
           totalListHeightChanged={onTotalListHeightChanged}
           atBottomStateChange={onAtBottomStateChange}
           increaseViewportBy={{ top: 900, bottom: 280 }}
@@ -809,7 +820,6 @@ export function Conversation({
       <ConversationComposer
         key={chat.id}
         chat={chat}
-        chatDraft={chatDraft}
         editingMessage={editingMessage}
         replyingTo={replyingTo}
         contextTitle={composerContextTitle}
