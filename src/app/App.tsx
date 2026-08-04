@@ -43,6 +43,7 @@ import {
   logPerformance,
   markConversationSwitch,
 } from "../utils/performanceMonitor";
+import { openSettingsWindow } from "../windows/settingsWindow";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -64,7 +65,7 @@ type ViewTransitionDocument = Document & {
 const readSidebarWidth = () => {
   try {
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
-    return Number.isFinite(stored) && stored >= 300 ? stored : DEFAULT_SIDEBAR_WIDTH;
+    return Number.isFinite(stored) && stored >= 250 ? stored : DEFAULT_SIDEBAR_WIDTH;
   } catch {
     return DEFAULT_SIDEBAR_WIDTH;
   }
@@ -181,6 +182,11 @@ export function App() {
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const knownLatestMessagesRef = useRef<Set<string> | undefined>(undefined);
+  const openSettings = useCallback(() => {
+    void openSettingsWindow()
+      .then((opened) => { if (!opened) setSettingsOpen(true); })
+      .catch(() => setSettingsOpen(true));
+  }, []);
 
   const closeSearch = useCallback((restoreFocus = false) => {
     cancelGlobalSearch();
@@ -474,7 +480,7 @@ export function App() {
         error={authorizationError}
         connectionStatus={connectionStatus}
         onSubmit={authenticate}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={openSettings}
       />
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       </>
@@ -491,8 +497,8 @@ export function App() {
   return (
     <>
       <main
-        inert={folderManagerOpen || Boolean(pendingConfirmation)}
-        aria-hidden={folderManagerOpen || Boolean(pendingConfirmation) || undefined}
+        inert={settingsOpen || folderManagerOpen || Boolean(pendingConfirmation)}
+        aria-hidden={settingsOpen || folderManagerOpen || Boolean(pendingConfirmation) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
         <NavigationRail
@@ -512,7 +518,7 @@ export function App() {
             folderId: folder.id,
             title: folder.title,
           })}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={openSettings}
         />
         <ChatSidebar
           chats={visibleChats}

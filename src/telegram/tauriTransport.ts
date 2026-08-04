@@ -11,8 +11,10 @@ import {
   messageSenderId,
   serializeTdObject,
   mapTdUser,
+  tdLocalFilePath,
   tdId,
   tdNumber,
+  tdStickerMimeType,
   type TdObject,
 } from "./tdlibMapper";
 import { FileDownloadQueue } from "./fileDownloadQueue";
@@ -43,7 +45,7 @@ import {
   getActiveConversationTraceId,
   logPerformance,
 } from "../utils/performanceMonitor";
-import type { TelegramEventListener, TelegramTransport } from "./transport";
+import type { TelegramConnectOptions, TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
   CachedTelegramSnapshot,
@@ -54,6 +56,8 @@ import type {
   ChatListPage,
   DeleteMessageInput,
   EditMessageInput,
+  EmojiPickerAsset,
+  EmojiPickerCatalog,
   ForwardMessagesInput,
   ForwardMessagesResult,
   GlobalSearchFilter,
@@ -63,11 +67,14 @@ import type {
   MessagePermissions,
   ConnectionStatus,
   ProxySettings,
+  SendEmojiAssetInput,
   SendFileInput,
   SendMessageInput,
   SetChatDraftInput,
   SetMessageReactionInput,
   StorageSettings,
+  StickerSet,
+  StickerSetSummary,
   StreamFileInput,
   TelegramSnapshot,
   TelegramAccount,
@@ -110,6 +117,84 @@ const globalSearchContentMatches = (message: Message, filter: GlobalSearchFilter
 const profileText = (value: unknown) => {
   const object = asTdObject(value);
   return typeof object?.text === "string" ? object.text.trim() : "";
+};
+
+const emojiPreviewDataUrl = (value: unknown) => {
+  const minithumbnail = asTdObject(value);
+  return typeof minithumbnail?.data === "string" && minithumbnail.data
+    ? `data:image/jpeg;base64,${minithumbnail.data}`
+    : undefined;
+};
+
+const stickerFileName = (mimeType?: string) => {
+  if (mimeType === "video/webm") return "sticker.webm";
+  if (mimeType === "application/x-tgsticker") return "sticker.tgs";
+  return "sticker.webp";
+};
+
+const mapEmojiSticker = (value: unknown): EmojiPickerAsset | undefined => {
+  const sticker = asTdObject(value);
+  const file = asTdObject(sticker?.sticker);
+  const fileId = tdNumber(file?.id);
+  if (!sticker || fileId === undefined) return undefined;
+  const thumbnail = asTdObject(sticker.thumbnail);
+  const thumbnailFile = asTdObject(thumbnail?.file);
+  const mimeType = tdStickerMimeType(sticker.format);
+  return {
+    id: `sticker:${tdId(sticker.id) || fileId}`,
+    kind: "sticker",
+    fileId,
+    previewFileId: tdNumber(thumbnailFile?.id),
+    emoji: typeof sticker.emoji === "string" ? sticker.emoji : undefined,
+    fileName: stickerFileName(mimeType),
+    mimeType,
+    previewMimeType: "image/webp",
+    localPath: tdLocalFilePath(file),
+    previewPath: tdLocalFilePath(thumbnailFile),
+    width: tdNumber(sticker.width),
+    height: tdNumber(sticker.height),
+  };
+};
+
+const mapEmojiAnimation = (value: unknown): EmojiPickerAsset | undefined => {
+  const animation = asTdObject(value);
+  const file = asTdObject(animation?.animation);
+  const fileId = tdNumber(file?.id);
+  if (!animation || fileId === undefined) return undefined;
+  const thumbnail = asTdObject(animation.thumbnail);
+  const thumbnailFile = asTdObject(thumbnail?.file);
+  return {
+    id: `animation:${fileId}`,
+    kind: "animation",
+    fileId,
+    previewFileId: tdNumber(thumbnailFile?.id),
+    fileName: typeof animation.file_name === "string" && animation.file_name
+      ? animation.file_name
+      : "animation.mp4",
+    mimeType: typeof animation.mime_type === "string" ? animation.mime_type : undefined,
+    previewMimeType: "image/jpeg",
+    localPath: tdLocalFilePath(file),
+    previewPath: tdLocalFilePath(thumbnailFile),
+    previewDataUrl: emojiPreviewDataUrl(animation.minithumbnail),
+    width: tdNumber(animation.width),
+    height: tdNumber(animation.height),
+    duration: tdNumber(animation.duration),
+  };
+};
+
+const mapStickerSetSummary = (value: unknown): StickerSetSummary | undefined => {
+  const stickerSet = asTdObject(value);
+  const id = tdId(stickerSet?.id);
+  if (!stickerSet || !id) return undefined;
+  return {
+    id,
+    title: typeof stickerSet.title === "string" ? stickerSet.title : "贴纸包",
+    name: typeof stickerSet.name === "string" ? stickerSet.name : "",
+    size: tdNumber(stickerSet.size) ?? asTdObjects(stickerSet.stickers).length,
+    covers: asTdObjects(stickerSet.covers ?? stickerSet.stickers)
+      .map(mapEmojiSticker)
+      .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
+  };
 };
 
 const profileMemberRole = (value: unknown) => {
@@ -238,11 +323,16 @@ export class TauriTelegramTransport implements TelegramTransport {
   private bootstrapPromise?: Promise<void>;
   private initialChatSyncPending = true;
   private connectionStatus?: ConnectionStatus;
+  private settingsOnly = false;
   private proxyConnectionTimer?: ReturnType<typeof setTimeout>;
   private connectingThroughProxy = false;
 
-  async connect(listener: TelegramEventListener): Promise<TelegramSnapshot> {
+  async connect(
+    listener: TelegramEventListener,
+    options: TelegramConnectOptions = {},
+  ): Promise<TelegramSnapshot> {
     this.resetSessionState();
+    this.settingsOnly = options.settingsOnly === true;
     this.listener = listener;
     this.initialChatSyncPending = true;
     this.emitConnectionStatus("connecting");
@@ -273,6 +363,8 @@ export class TauriTelegramTransport implements TelegramTransport {
       },
     );
     await invoke("telegram_start");
+    const authorizationState = await this.request({ "@type": "getAuthorizationState" });
+    this.handleAuthorizationUpdate({ authorization_state: authorizationState });
 
     return {
       currentUserId: "self",
@@ -937,6 +1029,122 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.request(request);
   }
 
+  async getEmojiPickerCatalog(): Promise<EmojiPickerCatalog> {
+    const stickerType = { "@type": "stickerTypeRegular" };
+    const [recent, installed, saved] = await Promise.all([
+      this.request({ "@type": "getRecentStickers", is_attached: false }),
+      this.request({ "@type": "getInstalledStickerSets", sticker_type: stickerType }),
+      this.request({ "@type": "getSavedAnimations" }),
+    ]);
+    return {
+      recentStickers: asTdObjects(recent.stickers)
+        .map(mapEmojiSticker)
+        .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
+      stickerSets: asTdObjects(installed.sets)
+        .map(mapStickerSetSummary)
+        .filter((stickerSet): stickerSet is StickerSetSummary => Boolean(stickerSet)),
+      savedAnimations: asTdObjects(saved.animations)
+        .map(mapEmojiAnimation)
+        .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
+    };
+  }
+
+  async getStickerSet(stickerSetId: string): Promise<StickerSet> {
+    const setId = Number(stickerSetId);
+    if (!Number.isFinite(setId)) throw new Error("无效的贴纸包标识符");
+    const response = await this.request({ "@type": "getStickerSet", set_id: setId });
+    const summary = mapStickerSetSummary(response);
+    if (!summary) throw new Error("找不到贴纸包");
+    return {
+      ...summary,
+      stickers: asTdObjects(response.stickers)
+        .map(mapEmojiSticker)
+        .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
+    };
+  }
+
+  async searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]> {
+    const response = await this.request({
+      "@type": "getStickers",
+      sticker_type: { "@type": "stickerTypeRegular" },
+      query,
+      limit: 100,
+      chat_id: numericId(chatId),
+    });
+    return asTdObjects(response.stickers)
+      .map(mapEmojiSticker)
+      .filter((asset): asset is EmojiPickerAsset => Boolean(asset));
+  }
+
+  async loadEmojiAsset(asset: EmojiPickerAsset) {
+    if (asset.previewPath || asset.localPath) return asset.previewPath ?? asset.localPath;
+    const fileId = asset.previewFileId ?? asset.fileId;
+    await this.fileDownloads.cache(fileId, 24);
+    const file = await this.request({ "@type": "getFile", file_id: fileId });
+    return tdLocalFilePath(file);
+  }
+
+  private emojiReplyTarget(replyToMessageId?: string) {
+    return replyToMessageId
+      ? {
+          "@type": "inputMessageReplyToMessage",
+          message_id: numericId(replyToMessageId),
+          quote: null,
+          checklist_task_id: 0,
+        }
+      : null;
+  }
+
+  async sendSticker(input: SendEmojiAssetInput) {
+    const response = await this.request({
+      "@type": "sendMessage",
+      chat_id: numericId(input.chatId),
+      topic_id: null,
+      reply_to: this.emojiReplyTarget(input.replyToMessageId),
+      options: null,
+      reply_markup: null,
+      input_message_content: {
+        "@type": "inputMessageSticker",
+        sticker: {
+          "@type": "inputSticker",
+          sticker: { "@type": "inputFileId", id: input.asset.fileId },
+          thumbnail: null,
+          width: input.asset.width ?? 0,
+          height: input.asset.height ?? 0,
+        },
+        emoji: input.asset.emoji ?? "",
+      },
+    });
+    if (response["@type"] === "message") this.emitMessage(response);
+  }
+
+  async sendAnimation(input: SendEmojiAssetInput) {
+    const response = await this.request({
+      "@type": "sendMessage",
+      chat_id: numericId(input.chatId),
+      topic_id: null,
+      reply_to: this.emojiReplyTarget(input.replyToMessageId),
+      options: null,
+      reply_markup: null,
+      input_message_content: {
+        "@type": "inputMessageAnimation",
+        animation: {
+          "@type": "inputAnimation",
+          animation: { "@type": "inputFileId", id: input.asset.fileId },
+          thumbnail: null,
+          added_sticker_file_ids: [],
+          duration: input.asset.duration ?? 0,
+          width: input.asset.width ?? 0,
+          height: input.asset.height ?? 0,
+        },
+        caption: formattedTextObject(""),
+        show_caption_above_media: false,
+        has_spoiler: false,
+      },
+    });
+    if (response["@type"] === "message") this.emitMessage(response);
+  }
+
   private async formattedTextInput(text: string) {
     const fallback = formattedTextObject(text);
     const hasMarkdown = /(?:\*\*[^*]+\*\*|\*[^*\n]+\*|__[^_]+__|_[^_\n]+_|~~[^~]+~~|\|\|[^|]+\|\||`[^`]+`|^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+\.\s)|\[[^\]]+\]\([^)]+\)|\|[^\n]+\|)/m.test(text);
@@ -1319,6 +1527,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (this.currentUserId) {
       this.listener?.({ type: "currentUser.changed", userId: this.currentUserId });
     }
+
+    if (this.settingsOnly) return;
 
     this.emitFolders();
     await this.loadChatList(listObject("chatListMain"), 100);

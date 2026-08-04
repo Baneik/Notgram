@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   LogOut,
   MessageCircle,
+  Minus,
   Moon,
   Network,
   RotateCcw,
@@ -23,6 +24,7 @@ import {
   Trash2,
   UserCircle,
   UserPlus,
+  Plus,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -59,6 +61,7 @@ import { UpdateSettings } from "./UpdateSettings";
 
 interface SettingsDialogProps {
   onClose: () => void;
+  standalone?: boolean;
 }
 
 type SettingsCategoryId =
@@ -150,7 +153,7 @@ const formatBytes = (bytes: number) => {
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 };
 
-export function SettingsDialog({ onClose }: SettingsDialogProps) {
+export function SettingsDialog({ onClose, standalone = false }: SettingsDialogProps) {
   const settings = useTelegramStore((state) => state.proxySettings);
   const pending = useTelegramStore((state) => state.proxyPending);
   const error = useTelegramStore((state) => state.proxyError);
@@ -183,7 +186,6 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
-  const compactMode = usePreferencesStore((state) => state.compactMode);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
@@ -196,12 +198,15 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const chatFontSize = usePreferencesStore((state) => state.chatFontSize);
   const interfaceScale = usePreferencesStore((state) => state.interfaceScale);
+  const chatListRowHeight = usePreferencesStore((state) => state.chatListRowHeight);
+  const messageGroupSpacing = usePreferencesStore((state) => state.messageGroupSpacing);
+  const messageRowSpacing = usePreferencesStore((state) => state.messageRowSpacing);
+  const messageBubblePadding = usePreferencesStore((state) => state.messageBubblePadding);
   const colorTheme = usePreferencesStore((state) => state.colorTheme);
   const preferences: AppPreferences = {
     notificationsEnabled,
     notificationSound,
     notificationPreview,
-    compactMode,
     sendOnEnter,
     sendTypingStatus,
     autoplayAnimations,
@@ -214,6 +219,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     developerMode,
     chatFontSize,
     interfaceScale,
+    chatListRowHeight,
+    messageGroupSpacing,
+    messageRowSpacing,
+    messageBubblePadding,
     colorTheme,
   };
   const setPreference = usePreferencesStore((state) => state.setPreference);
@@ -279,14 +288,22 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !busy) onClose();
-    }}>
+    <div
+      className={standalone ? "settings-window-shell" : "dialog-backdrop"}
+      role="presentation"
+      onWheel={standalone ? undefined : (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onMouseDown={standalone ? undefined : (event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
       <form
         ref={dialogRef}
         className={`settings-dialog ${detailOpen ? "show-detail" : ""}`}
         role="dialog"
-        aria-modal="true"
+        aria-modal={standalone ? undefined : "true"}
         aria-labelledby="settings-title"
         tabIndex={-1}
         onSubmit={submit}
@@ -435,7 +452,6 @@ function PreferenceSettings({
       ]
     : category === "chats"
       ? [
-          { key: "compactMode" as const, label: "紧凑会话密度" },
           { key: "sendOnEnter" as const, label: "Enter 键发送" },
         ]
       : [
@@ -476,30 +492,23 @@ function PreferenceSettings({
                 </button>
               </div>
             </div>
-            <label className="range-preference">
-              <span><strong>消息字体大小</strong><output>{preferences.chatFontSize} px</output></span>
-              <input
-                type="range"
-                min={12}
-                max={20}
-                step={1}
-                value={preferences.chatFontSize}
-                aria-label="消息字体大小"
-                onChange={(event) => onChange("chatFontSize", Number(event.target.value))}
-              />
-            </label>
-            <label className="range-preference">
-              <span><strong>界面缩放比例</strong><output>{preferences.interfaceScale}%</output></span>
-              <input
-                type="range"
-                min={80}
-                max={150}
-                step={5}
-                value={preferences.interfaceScale}
-                aria-label="界面缩放比例"
-                onChange={(event) => onChange("interfaceScale", Number(event.target.value))}
-              />
-            </label>
+            <NumericStepper
+              label="消息字体大小"
+              value={preferences.chatFontSize}
+              minimum={12}
+              maximum={20}
+              suffix="px"
+              onChange={(value) => onChange("chatFontSize", value)}
+            />
+            <NumericStepper
+              label="界面缩放比例"
+              value={preferences.interfaceScale}
+              minimum={80}
+              maximum={150}
+              step={5}
+              suffix="%"
+              onChange={(value) => onChange("interfaceScale", value)}
+            />
           </div>
           <button
             className="storage-reset display-reset"
@@ -520,6 +529,71 @@ function PreferenceSettings({
           </button>
         </section>
       )}
+      {category === "chats" && (
+        <section className="settings-section" aria-labelledby="chat-density-heading">
+          <div className="settings-section-heading">
+            <SlidersHorizontal size={18} strokeWidth={1.8} />
+            <div>
+              <h4 id="chat-density-heading">间距与密度</h4>
+              <span>分别调整会话列表、消息分组和气泡留白</span>
+            </div>
+          </div>
+          <div className="display-preference-list">
+            <NumericStepper
+              label="会话列表行高"
+              value={preferences.chatListRowHeight}
+              minimum={56}
+              maximum={88}
+              step={2}
+              suffix="px"
+              onChange={(value) => onChange("chatListRowHeight", value)}
+            />
+            <NumericStepper
+              label="消息组间距"
+              value={preferences.messageGroupSpacing}
+              minimum={4}
+              maximum={18}
+              suffix="px"
+              onChange={(value) => onChange("messageGroupSpacing", value)}
+            />
+            <NumericStepper
+              label="同组消息间距"
+              value={preferences.messageRowSpacing}
+              minimum={0}
+              maximum={6}
+              suffix="px"
+              onChange={(value) => onChange("messageRowSpacing", value)}
+            />
+            <NumericStepper
+              label="消息气泡纵向留白"
+              value={preferences.messageBubblePadding}
+              minimum={4}
+              maximum={12}
+              suffix="px"
+              onChange={(value) => onChange("messageBubblePadding", value)}
+            />
+          </div>
+          <button
+            className="storage-reset display-reset"
+            type="button"
+            disabled={
+              preferences.chatListRowHeight === 74 &&
+              preferences.messageGroupSpacing === 10 &&
+              preferences.messageRowSpacing === 1 &&
+              preferences.messageBubblePadding === 8
+            }
+            onClick={() => {
+              onChange("chatListRowHeight", 74);
+              onChange("messageGroupSpacing", 10);
+              onChange("messageRowSpacing", 1);
+              onChange("messageBubblePadding", 8);
+            }}
+          >
+            <RotateCcw size={15} strokeWidth={2} />
+            恢复间距默认值
+          </button>
+        </section>
+      )}
       <section className="settings-section">
         <div className="preference-list">
           {options.map((option) => (
@@ -537,6 +611,63 @@ function PreferenceSettings({
         </div>
       </section>
       {error && <div className="settings-error" role="alert">{error}</div>}
+    </div>
+  );
+}
+
+interface NumericStepperProps {
+  label: string;
+  value: number;
+  minimum: number;
+  maximum: number;
+  step?: number;
+  suffix: string;
+  onChange: (value: number) => void;
+}
+
+function NumericStepper({
+  label,
+  value,
+  minimum,
+  maximum,
+  step = 1,
+  suffix,
+  onChange,
+}: NumericStepperProps) {
+  const commit = (next: number) => onChange(Math.max(minimum, Math.min(maximum, next)));
+  return (
+    <div className="stepper-preference">
+      <strong>{label}</strong>
+      <div className="numeric-stepper" role="group" aria-label={label}>
+        <button
+          type="button"
+          aria-label={`减小${label}`}
+          disabled={value <= minimum}
+          onClick={() => commit(value - step)}
+        >
+          <Minus size={15} />
+        </button>
+        <label>
+          <span className="sr-only">{label}</span>
+          <input
+            type="number"
+            min={minimum}
+            max={maximum}
+            step={step}
+            value={value}
+            onChange={(event) => commit(Number(event.target.value))}
+          />
+          <span>{suffix}</span>
+        </label>
+        <button
+          type="button"
+          aria-label={`增大${label}`}
+          disabled={value >= maximum}
+          onClick={() => commit(value + step)}
+        >
+          <Plus size={15} />
+        </button>
+      </div>
     </div>
   );
 }

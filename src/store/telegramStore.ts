@@ -1,5 +1,7 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
+import { isTauri } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { createTelegramTransport } from "../telegram/createTransport";
 import type { TelegramTransport } from "../telegram/transport";
 import type {
@@ -64,7 +66,12 @@ const errorMessage = (error: unknown, fallback: string) => {
 };
 
 const reloadCurrentApplication = () => {
-  if (typeof window !== "undefined") window.location.reload();
+  if (typeof window === "undefined") return;
+  if (isTauri()) {
+    void emit("notgram://reload-application").catch(() => window.location.reload());
+    return;
+  }
+  window.location.reload();
 };
 
 export const createTelegramStore = (
@@ -835,8 +842,9 @@ export const createTelegramStore = (
       chatManagementPending: new Set(),
       folderManagementPending: false,
 
-      initialize: async () => {
+      initialize: async (options = {}) => {
         if (get().phase !== "idle") return;
+        const settingsOnly = options.settingsOnly === true;
         set({
           phase: "loading",
           connectionStatus: "connecting",
@@ -845,14 +853,16 @@ export const createTelegramStore = (
         });
         try {
           applyAccountState(await transport.getAccountState());
-          try {
-            hydrateCachedSnapshot(await transport.loadCachedSnapshot());
-          } catch {
-            // A corrupt or unavailable cache must not block the live connection.
-            set({ cacheHealth: "invalid" });
-            void transport.clearCachedSnapshot().catch(() => undefined);
+          if (!settingsOnly) {
+            try {
+              hydrateCachedSnapshot(await transport.loadCachedSnapshot());
+            } catch {
+              // A corrupt or unavailable cache must not block the live connection.
+              set({ cacheHealth: "invalid" });
+              void transport.clearCachedSnapshot().catch(() => undefined);
+            }
           }
-          const snapshot = await transport.connect(applyEvent);
+          const snapshot = await transport.connect(applyEvent, { settingsOnly });
           const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
           const users = new Map(snapshot.users.map((user) => [user.id, user]));
           const folders = snapshot.folders;
@@ -912,6 +922,7 @@ export const createTelegramStore = (
                 : (folders[0]?.id ?? "main"),
           });
           void registerCurrentAccount();
+          if (settingsOnly) return;
           const refreshChatId = get().activeChatId ?? firstChat?.id;
           if (authorization.kind === "ready" && refreshChatId) {
             await loadHistory(refreshChatId, "ensure");
@@ -1574,6 +1585,84 @@ export const createTelegramStore = (
           set({
             operationError: error instanceof Error ? error.message : "无法更新表情回应",
           });
+        }
+      },
+
+      loadEmojiPicker: async () => {
+        if (get().authorization.kind !== "ready") return undefined;
+        try {
+          const catalog = await transport.getEmojiPickerCatalog();
+          set({ operationError: undefined });
+          return catalog;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法读取表情与贴纸") });
+          return undefined;
+        }
+      },
+
+      loadStickerSet: async (stickerSetId) => {
+        try {
+          const stickerSet = await transport.getStickerSet(stickerSetId);
+          set({ operationError: undefined });
+          return stickerSet;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法读取贴纸包") });
+          return undefined;
+        }
+      },
+
+      searchStickers: async (query, chatId) => {
+        const normalized = query.trim();
+        if (!normalized) return [];
+        try {
+          return await transport.searchStickers(normalized, chatId);
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法搜索贴纸") });
+          return [];
+        }
+      },
+
+      loadEmojiAsset: async (asset) => {
+        try {
+          return await transport.loadEmojiAsset(asset);
+        } catch {
+          return undefined;
+        }
+      },
+
+      sendSticker: async (asset, replyToMessageId) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return false;
+        if (!connectionPresentation(get().connectionStatus).operational) {
+          set({ operationError: "联网后才能发送贴纸" });
+          return false;
+        }
+        try {
+          await transport.sendSticker({ chatId, asset, replyToMessageId });
+          set({ operationError: undefined });
+          scheduleCacheWrite();
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "贴纸发送失败") });
+          return false;
+        }
+      },
+
+      sendAnimation: async (asset, replyToMessageId) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return false;
+        if (!connectionPresentation(get().connectionStatus).operational) {
+          set({ operationError: "联网后才能发送 GIF" });
+          return false;
+        }
+        try {
+          await transport.sendAnimation({ chatId, asset, replyToMessageId });
+          set({ operationError: undefined });
+          scheduleCacheWrite();
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "GIF 发送失败") });
+          return false;
         }
       },
 

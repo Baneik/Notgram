@@ -10,7 +10,6 @@ export interface AppPreferences {
   notificationsEnabled: boolean;
   notificationSound: boolean;
   notificationPreview: boolean;
-  compactMode: boolean;
   sendOnEnter: boolean;
   sendTypingStatus: boolean;
   autoplayAnimations: boolean;
@@ -23,6 +22,10 @@ export interface AppPreferences {
   developerMode: boolean;
   chatFontSize: number;
   interfaceScale: number;
+  chatListRowHeight: number;
+  messageGroupSpacing: number;
+  messageRowSpacing: number;
+  messageBubblePadding: number;
   colorTheme: ColorTheme;
 }
 
@@ -38,7 +41,6 @@ const defaults: AppPreferences = {
   notificationsEnabled: true,
   notificationSound: true,
   notificationPreview: true,
-  compactMode: false,
   sendOnEnter: true,
   sendTypingStatus: true,
   autoplayAnimations: true,
@@ -51,6 +53,10 @@ const defaults: AppPreferences = {
   developerMode: false,
   chatFontSize: 14,
   interfaceScale: 100,
+  chatListRowHeight: 74,
+  messageGroupSpacing: 10,
+  messageRowSpacing: 1,
+  messageBubblePadding: 8,
   colorTheme: "light",
 };
 
@@ -63,12 +69,12 @@ const readPreferences = (): AppPreferences => {
   try {
     const serialized = globalThis.localStorage?.getItem(STORAGE_KEY);
     if (!serialized) return defaults;
-    const stored = JSON.parse(serialized) as Partial<AppPreferences>;
+    const stored = JSON.parse(serialized) as Partial<AppPreferences> & { compactMode?: boolean };
+    const legacyCompact = stored.compactMode === true;
     return {
       notificationsEnabled: stored.notificationsEnabled ?? defaults.notificationsEnabled,
       notificationSound: stored.notificationSound ?? defaults.notificationSound,
       notificationPreview: stored.notificationPreview ?? defaults.notificationPreview,
-      compactMode: stored.compactMode ?? defaults.compactMode,
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       sendTypingStatus: stored.sendTypingStatus ?? defaults.sendTypingStatus,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
@@ -86,6 +92,30 @@ const readPreferences = (): AppPreferences => {
       developerMode: stored.developerMode ?? defaults.developerMode,
       chatFontSize: boundedInteger(stored.chatFontSize, defaults.chatFontSize, 12, 20),
       interfaceScale: boundedInteger(stored.interfaceScale, defaults.interfaceScale, 80, 150),
+      chatListRowHeight: boundedInteger(
+        stored.chatListRowHeight,
+        legacyCompact ? 60 : defaults.chatListRowHeight,
+        56,
+        88,
+      ),
+      messageGroupSpacing: boundedInteger(
+        stored.messageGroupSpacing,
+        legacyCompact ? 5 : defaults.messageGroupSpacing,
+        4,
+        18,
+      ),
+      messageRowSpacing: boundedInteger(
+        stored.messageRowSpacing,
+        defaults.messageRowSpacing,
+        0,
+        6,
+      ),
+      messageBubblePadding: boundedInteger(
+        stored.messageBubblePadding,
+        legacyCompact ? 6 : defaults.messageBubblePadding,
+        4,
+        12,
+      ),
       colorTheme: stored.colorTheme === "dark" ? "dark" : defaults.colorTheme,
     };
   } catch {
@@ -104,9 +134,24 @@ export const preferencesStore = createStore<PreferencesState>((set) => ({
 
 const applyPreferences = (preferences: AppPreferences) => {
   if (typeof document === "undefined") return;
-  document.documentElement.classList.toggle("compact-chat", preferences.compactMode);
   document.documentElement.classList.toggle("reduce-motion", preferences.reduceMotion);
   document.documentElement.style.setProperty("--chat-font-size", `${preferences.chatFontSize}px`);
+  document.documentElement.style.setProperty(
+    "--chat-row-min-height",
+    `${preferences.chatListRowHeight}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--message-group-spacing",
+    `${preferences.messageGroupSpacing}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--message-row-spacing",
+    `${preferences.messageRowSpacing}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--message-bubble-padding-y",
+    `${preferences.messageBubblePadding}px`,
+  );
   if (appliedInterfaceScale !== preferences.interfaceScale) {
     appliedInterfaceScale = preferences.interfaceScale;
     const scale = preferences.interfaceScale / 100;
@@ -137,7 +182,6 @@ preferencesStore.subscribe((state) => {
     notificationsEnabled: state.notificationsEnabled,
     notificationSound: state.notificationSound,
     notificationPreview: state.notificationPreview,
-    compactMode: state.compactMode,
     sendOnEnter: state.sendOnEnter,
     sendTypingStatus: state.sendTypingStatus,
     autoplayAnimations: state.autoplayAnimations,
@@ -150,6 +194,10 @@ preferencesStore.subscribe((state) => {
     developerMode: state.developerMode,
     chatFontSize: state.chatFontSize,
     interfaceScale: state.interfaceScale,
+    chatListRowHeight: state.chatListRowHeight,
+    messageGroupSpacing: state.messageGroupSpacing,
+    messageRowSpacing: state.messageRowSpacing,
+    messageBubblePadding: state.messageBubblePadding,
     colorTheme: state.colorTheme,
   };
   applyPreferences(preferences);
@@ -159,6 +207,13 @@ preferencesStore.subscribe((state) => {
     // Preferences remain active for this session when persistence is unavailable.
   }
 });
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== STORAGE_KEY || !event.newValue) return;
+    preferencesStore.setState(readPreferences());
+  });
+}
 
 export const usePreferencesStore = <T,>(selector: (state: PreferencesState) => T) =>
   useStore(preferencesStore, selector);

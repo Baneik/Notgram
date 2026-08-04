@@ -1,4 +1,4 @@
-import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, UserRound, Users } from "lucide-react";
+import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
 import { useCallback, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { ChatFilter } from "../store/telegramStore";
 import type { Chat, ChatFolder } from "../telegram/types";
@@ -63,15 +63,6 @@ export function NavigationRail({
   return (
     <>
     <nav className="navigation-rail" aria-label="聊天文件夹">
-      <button
-        className="rail-brand"
-        type="button"
-        aria-label="设置"
-        title="设置"
-        onClick={onOpenSettings}
-      >
-        <span className="brand-mark">N</span><span>Notgram</span>
-      </button>
       <div className="rail-actions">
         {folders.map((folder) => (
           <button className={`rail-button ${filter === folder.id ? "is-active" : ""}`} key={folder.id}
@@ -87,6 +78,11 @@ export function NavigationRail({
         ))}
         <button className="rail-button" type="button" aria-label="管理文件夹" title="管理文件夹" onClick={onManageFolders}>
           <span className="rail-icon"><FolderCog size={23} strokeWidth={1.8} /></span><span>管理</span>
+        </button>
+      </div>
+      <div className="rail-footer">
+        <button className="rail-button" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
+          <span className="rail-icon"><Settings size={23} strokeWidth={1.8} /></span><span>设置</span>
         </button>
       </div>
     </nav>

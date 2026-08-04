@@ -43,13 +43,19 @@ const scrollAwayFromBottom = async (page: Page) => {
   }));
 };
 
-test("webview chrome is suppressed and settings are opened from the Notgram brand", async ({ page }) => {
+test("the top bar keeps only window controls and settings remain reachable", async ({ page }) => {
   await page.goto("/");
 
-  const settingsButton = page.locator(".rail-brand");
+  const settingsButton = page.locator(".rail-footer").getByRole("button", { name: "设置" });
   await expect(settingsButton).toHaveRole("button");
   await expect(settingsButton).toHaveAccessibleName("设置");
-  await expect(settingsButton).toContainText("Notgram");
+  await expect(page.locator(".rail-brand")).toHaveCount(0);
+  await expect(page.locator(".window-chrome")).toBeVisible();
+  await expect(page.locator(".window-chrome")).not.toContainText("Notgram");
+  await expect(page.locator(".window-controls > button")).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "最小化窗口" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "最大化窗口" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "关闭窗口" })).toBeVisible();
   await expect(page.locator(".rail-settings, .rail-connection")).toHaveCount(0);
   await expect(page.locator(".sidebar-heading .connection-status")).toHaveCount(0);
   await expect(page.locator(".conversation-title > span")).toHaveCount(0);
@@ -83,6 +89,40 @@ test("webview chrome is suppressed and settings are opened from the Notgram bran
 
   await settingsButton.click();
   await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
+});
+
+test("settings isolate wheel input from the covered conversation list", async ({ page }) => {
+  await page.setViewportSize({ width: 1080, height: 520 });
+  await page.goto("/");
+  const chatList = page.locator(".chat-list");
+  await chatList.evaluate((element) => {
+    (element as HTMLElement).style.height = "120px";
+    element.scrollTop = 24;
+  });
+  const before = await chatList.evaluate((element) => element.scrollTop);
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const backdrop = page.locator(".dialog-backdrop");
+  await expect(backdrop).toBeVisible();
+  await backdrop.evaluate((element) => {
+    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 480 }));
+  });
+  await expect.poll(() => chatList.evaluate((element) => element.scrollTop)).toBe(before);
+});
+
+test("standalone settings update the still-interactive main window", async ({ page, context }) => {
+  await page.goto("/");
+  const settings = await context.newPage();
+  await settings.goto("/?settingsWindow");
+  await expect(settings.locator(".settings-window-shell")).toBeVisible();
+  await expect(settings.locator(".app-shell")).toHaveCount(0);
+  await settings.getByRole("button", { name: /聊天设置/ }).click();
+  await settings.getByRole("spinbutton", { name: "消息字体大小" }).fill("19");
+  await expect(page.locator(".message-rich-text").first()).toHaveCSS("font-size", "19px");
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await settings.close();
 });
 
 test("performance monitor captures and inspects a WebView main-thread stall", async ({ page }) => {
@@ -152,16 +192,20 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /聊天设置/ }).click();
-  await page.getByRole("switch", { name: "紧凑会话密度" }).check();
-  await expect(page.locator("html")).toHaveClass(/compact-chat/);
-  await page.getByRole("slider", { name: "消息字体大小" }).fill("18");
-  await expect(page.locator(".range-preference").filter({ hasText: "消息字体大小" }))
-    .toContainText("18 px");
+  await page.getByRole("spinbutton", { name: "消息字体大小" }).fill("18");
+  await expect(page.getByRole("spinbutton", { name: "消息字体大小" })).toHaveValue("18");
   await expect(page.locator(".message-rich-text").first()).toHaveCSS("font-size", "18px");
-  await page.getByRole("slider", { name: "界面缩放比例" }).fill("110");
-  await expect(page.locator(".range-preference").filter({ hasText: "界面缩放比例" }))
-    .toContainText("110%");
+  await page.getByRole("spinbutton", { name: "界面缩放比例" }).fill("110");
+  await expect(page.getByRole("spinbutton", { name: "界面缩放比例" })).toHaveValue("110");
   await expect(page.locator("html")).toHaveCSS("zoom", "1.1");
+  await page.getByRole("spinbutton", { name: "会话列表行高" }).fill("56");
+  await page.getByRole("spinbutton", { name: "消息组间距" }).fill("14");
+  await page.getByRole("spinbutton", { name: "同组消息间距" }).fill("4");
+  await page.getByRole("spinbutton", { name: "消息气泡纵向留白" }).fill("10");
+  await expect(page.locator("html")).toHaveCSS("--chat-row-min-height", "56px");
+  await expect(page.locator("html")).toHaveCSS("--message-group-spacing", "14px");
+  await expect(page.locator("html")).toHaveCSS("--message-row-spacing", "4px");
+  await expect(page.locator("html")).toHaveCSS("--message-bubble-padding-y", "10px");
   const lightTheme = page.getByRole("button", { name: "浅色", exact: true });
   const darkTheme = page.getByRole("button", { name: "深色", exact: true });
   await expect(lightTheme).toHaveAttribute("aria-pressed", "true");
@@ -215,6 +259,66 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await expect(typingSwitch).toBeChecked();
   await typingSwitch.uncheck();
   await expect(typingSwitch).not.toBeChecked();
+});
+
+test("composer provides recent Emoji, installed stickers, and saved GIFs", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await page.getByRole("button", { name: "表情" }).click();
+  const picker = page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
+  await expect(picker).toBeVisible();
+  await picker.getByRole("button", { name: "插入 😀" }).click();
+  await expect(composer).toHaveValue("😀");
+  await picker.getByRole("button", { name: "关闭表情面板" }).click();
+
+  await page.getByRole("button", { name: "表情" }).click();
+  await expect(picker.getByRole("heading", { name: "最近使用" })).toBeVisible();
+  await picker.getByRole("tab", { name: "贴纸" }).click();
+  const sticker = picker.getByRole("button", { name: /发送贴纸/ }).first();
+  await expect(sticker).toBeVisible();
+  await sticker.click();
+  await expect(picker).toBeHidden();
+  await expect(page.locator('[data-media-type="sticker"]').last()).toBeVisible();
+
+  await page.getByRole("button", { name: "表情" }).click();
+  await picker.getByRole("tab", { name: "GIF 动态图" }).click();
+  const animation = picker.getByRole("button", { name: "发送 GIF" }).first();
+  await expect(animation).toBeVisible();
+  await animation.click();
+  await expect(page.locator('[data-media-type="animation"]').last()).toBeVisible();
+});
+
+test("message copy supports text and image clipboard payloads", async ({ page }) => {
+  await page.addInitScript(() => {
+    const clipboardState = { text: "", types: [] as string[] };
+    class TestClipboardItem {
+      types: string[];
+      constructor(readonly data: Record<string, Blob>) {
+        this.types = Object.keys(data);
+      }
+    }
+    Object.defineProperty(globalThis, "ClipboardItem", { value: TestClipboardItem });
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: async (text: string) => { clipboardState.text = text; },
+        write: async (items: TestClipboardItem[]) => { clipboardState.types = items[0]?.types ?? []; },
+      },
+    });
+    Object.assign(globalThis, { __notgramClipboardState: clipboardState });
+  });
+  await page.goto("/");
+
+  await page.locator('[data-message-id="p-2"] .message-bubble-shell').click({ button: "right" });
+  await page.getByRole("menuitem", { name: "复制", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramClipboardState: { text: string } }
+  ).__notgramClipboardState.text)).toBe("看到了。消息区再留一点呼吸感，信息密度就比较平衡。");
+
+  await page.locator('[data-message-id="p-tall"] .message-bubble-shell').click({ button: "right" });
+  await page.getByRole("menuitem", { name: "复制", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramClipboardState: { types: string[] } }
+  ).__notgramClipboardState.types)).toEqual(expect.arrayContaining(["image/png", "text/plain"]));
 });
 
 test("composer coalesces resizing and persists drafts without blocking input", async ({ page }) => {
@@ -337,6 +441,11 @@ test("private chats show incoming typing state", async ({ page }) => {
 
 test("sidebar dragging and window resizing keep the responsive layout live", async ({ page }) => {
   await page.goto("/");
+  await page.evaluate(() => localStorage.setItem("notgram.sidebar-width", "250"));
+  await page.reload();
+  await expect.poll(() => page.locator(".chat-sidebar").evaluate((element) =>
+    Math.round(element.getBoundingClientRect().width),
+  )).toBe(250);
   const resizer = page.getByRole("separator", { name: "调整会话列表宽度" });
   const before = await page.evaluate(() => ({
     stored: localStorage.getItem("notgram.sidebar-width"),

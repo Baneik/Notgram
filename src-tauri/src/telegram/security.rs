@@ -24,8 +24,15 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChats",
     "getBasicGroupFullInfo",
     "getContacts",
+    "getAuthorizationState",
+    "getFile",
+    "getInstalledStickerSets",
     "getMe",
     "getMessageProperties",
+    "getRecentStickers",
+    "getSavedAnimations",
+    "getStickerSet",
+    "getStickers",
     "getFullRichMessage",
     "getProxies",
     "getRepliedMessage",
@@ -117,13 +124,39 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
     {
         return Err("Private chats must be resolved from the Telegram server".to_string());
     }
-    if matches!(request_type, "sendMessage" | "editMessageText") {
+    if request_type == "editMessageText" {
         let content_type = request
             .get("input_message_content")
             .and_then(|content| content.get("@type"))
             .and_then(Value::as_str);
         if content_type != Some("inputMessageText") {
-            return Err("Generic message requests are limited to text content".to_string());
+            return Err("Edited messages are limited to text content".to_string());
+        }
+    }
+    if request_type == "sendMessage" {
+        let content = request
+            .get("input_message_content")
+            .ok_or_else(|| "Message content is missing".to_string())?;
+        let content_type = content.get("@type").and_then(Value::as_str);
+        match content_type {
+            Some("inputMessageText") => {}
+            Some("inputMessageSticker") => {
+                let file_type = content
+                    .pointer("/sticker/sticker/@type")
+                    .and_then(Value::as_str);
+                if file_type != Some("inputFileId") {
+                    return Err("Stickers must reference a Telegram file identifier".to_string());
+                }
+            }
+            Some("inputMessageAnimation") => {
+                let file_type = content
+                    .pointer("/animation/animation/@type")
+                    .and_then(Value::as_str);
+                if file_type != Some("inputFileId") {
+                    return Err("Animations must reference a Telegram file identifier".to_string());
+                }
+            }
+            _ => return Err("Unsupported generic message content".to_string()),
         }
     }
     Ok(())
@@ -225,6 +258,48 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&text).is_ok());
+
+        let sticker = json!({
+            "@type": "sendMessage",
+            "chat_id": 7,
+            "input_message_content": {
+                "@type": "inputMessageSticker",
+                "sticker": {
+                    "@type": "inputSticker",
+                    "sticker": { "@type": "inputFileId", "id": 42 }
+                }
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&sticker).is_ok());
+
+        let animation = json!({
+            "@type": "sendMessage",
+            "chat_id": 7,
+            "input_message_content": {
+                "@type": "inputMessageAnimation",
+                "animation": {
+                    "@type": "inputAnimation",
+                    "animation": { "@type": "inputFileId", "id": 43 }
+                }
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&animation).is_ok());
+
+        let remote_sticker = json!({
+            "@type": "sendMessage",
+            "chat_id": 7,
+            "input_message_content": {
+                "@type": "inputMessageSticker",
+                "sticker": {
+                    "@type": "inputSticker",
+                    "sticker": { "@type": "inputFileRemote", "id": "remote" }
+                }
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&remote_sticker).is_err());
 
         let replied_message = json!({
             "@type": "getRepliedMessage",

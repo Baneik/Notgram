@@ -60,7 +60,7 @@ import {
 } from "../utils/messageVirtualization";
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
-import { writeClipboardText } from "../utils/clipboard";
+import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
 import { useTelegramStore } from "../store/telegramStore";
 import {
   isConversationSwitchActive,
@@ -465,7 +465,9 @@ export function Conversation({
     returnFocus?: HTMLElement,
   ) => {
     const menuWidth = 184;
-    const menuHeight = developerMode ? 206 : 170;
+    const isVideoMessage = message.content.kind === "media" &&
+      ["video", "videoNote"].includes(message.content.mediaType);
+    const menuHeight = 250 + (developerMode ? 38 : 0) + (isVideoMessage ? 76 : 0);
     setActionMenu({
       messageId: message.id,
       left: Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8)),
@@ -486,6 +488,15 @@ export function Conversation({
       closeActionMenu(false);
     } catch {
       // Keep the menu open so the user can retry after clipboard access is restored.
+    }
+  };
+
+  const copyMessage = async (message: Message) => {
+    try {
+      await copyMessageContent(message);
+      closeActionMenu(false);
+    } catch {
+      // Keep the menu open so the user can retry or download an unavailable image.
     }
   };
 
@@ -845,6 +856,7 @@ export function Conversation({
                 );
               }
             : undefined}
+          onCopy={() => void copyMessage(actionMessage)}
           onCopyRaw={developerMode ? () => void copyRawMessage(actionMessage) : undefined}
           onDismiss={() => closeActionMenu(false)}
           onClose={() => closeActionMenu(true)}

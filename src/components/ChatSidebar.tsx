@@ -56,7 +56,7 @@ interface ChatSidebarProps {
   onWidthChange: (width: number) => void;
 }
 
-const MIN_SIDEBAR_WIDTH = 300;
+const MIN_SIDEBAR_WIDTH = 250;
 const MAX_SIDEBAR_WIDTH = 560;
 const MIN_CONVERSATION_WIDTH = 340;
 

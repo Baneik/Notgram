@@ -13,12 +13,15 @@ import type {
   CacheUsage,
   ConnectionStatus,
   ForwardMessagesResult,
+  EmojiPickerAsset,
+  EmojiPickerCatalog,
   GlobalSearchFilter,
   Message,
   MessagePermissions,
   ProxySettings,
   QueuedOutgoingMessage,
   StorageSettings,
+  StickerSet,
   TelegramAccount,
   User,
 } from "../telegram/types";
@@ -83,7 +86,7 @@ export interface TelegramState {
   contactPendingUserId?: string;
   chatManagementPending: Set<string>;
   folderManagementPending: boolean;
-  initialize: () => Promise<void>;
+  initialize: (options?: { settingsOnly?: boolean }) => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
   saveProxySettings: (settings: ProxySettings) => Promise<boolean>;
@@ -131,6 +134,12 @@ export interface TelegramState {
   loadContacts: () => Promise<void>;
   startPrivateChat: (userId: string) => Promise<string | undefined>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
+  loadStickerSet: (stickerSetId: string) => Promise<StickerSet | undefined>;
+  searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[]>;
+  loadEmojiAsset: (asset: EmojiPickerAsset) => Promise<string | undefined>;
+  sendSticker: (asset: EmojiPickerAsset, replyToMessageId?: string) => Promise<boolean>;
+  sendAnimation: (asset: EmojiPickerAsset, replyToMessageId?: string) => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
   sendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;

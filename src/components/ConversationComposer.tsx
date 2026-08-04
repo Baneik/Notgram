@@ -22,6 +22,7 @@ import { useTelegramStore } from "../store/telegramStore";
 import type { ConnectionStatus, Message } from "../telegram/types";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
+import { EmojiPicker } from "./EmojiPicker";
 
 interface ConversationComposerProps {
   chatId: string;
@@ -69,6 +70,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);
   const [attachmentPending, setAttachmentPending] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -148,6 +150,20 @@ export const ConversationComposer = memo(function ConversationComposer({
     commitInputSideEffects(value);
   }, [commitInputSideEffects]);
 
+  const insertEmoji = useCallback((emoji: string) => {
+    const input = inputRef.current;
+    const start = input?.selectionStart ?? draftRef.current.length;
+    const end = input?.selectionEnd ?? start;
+    const value = `${draftRef.current.slice(0, start)}${emoji}${draftRef.current.slice(end)}`;
+    draftRef.current = value;
+    setDraft(value);
+    commitInputSideEffects(value);
+    globalThis.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  }, [commitInputSideEffects, inputRef]);
+
   useEffect(() => {
     const previous = previousEditingRef.current;
     if (editingMessage && previous?.id !== editingMessage.id) {
@@ -184,6 +200,10 @@ export const ConversationComposer = memo(function ConversationComposer({
   useEffect(() => {
     if (!sendTypingStatus || editingMessage) stopTyping();
   }, [editingMessage, sendTypingStatus, stopTyping]);
+
+  useEffect(() => {
+    if (editingMessage) setEmojiPickerOpen(false);
+  }, [editingMessage]);
 
   useEffect(() => () => {
     if (composingRef.current && !editingMessage) {
@@ -248,6 +268,14 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   return (
     <div className="composer-wrap">
+      {emojiPickerOpen && !editingMessage && (
+        <EmojiPicker
+          chatId={chatId}
+          replyToMessageId={replyingTo?.id ?? chatDraft?.replyToMessageId}
+          onEmoji={insertEmoji}
+          onClose={() => setEmojiPickerOpen(false)}
+        />
+      )}
       <input
         ref={fileInputRef}
         className="sr-only"
@@ -294,7 +322,16 @@ export const ConversationComposer = memo(function ConversationComposer({
         </div>
       )}
       <div className={`composer ${editingMessage ? "is-editing" : ""}`}>
-        <button className="icon-button" type="button" aria-label="表情" title="表情" disabled={Boolean(editingMessage)}>
+        <button
+          className={`icon-button emoji-trigger ${emojiPickerOpen ? "is-active" : ""}`}
+          type="button"
+          aria-label="表情"
+          aria-expanded={emojiPickerOpen}
+          aria-controls="emoji-picker"
+          title="表情"
+          disabled={Boolean(editingMessage)}
+          onClick={() => setEmojiPickerOpen((open) => !open)}
+        >
           <Smile size={21} strokeWidth={1.8} />
         </button>
         <button

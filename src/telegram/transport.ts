@@ -1,6 +1,8 @@
 import type {
   DeleteMessageInput,
   EditMessageInput,
+  EmojiPickerAsset,
+  EmojiPickerCatalog,
   ForwardMessagesInput,
   ForwardMessagesResult,
   GlobalSearchInput,
@@ -8,6 +10,7 @@ import type {
   SetChatDraftInput,
   SetMessageReactionInput,
   SendFileInput,
+  SendEmojiAssetInput,
   StreamFileInput,
   SendMessageInput,
   ChatHistoryPage,
@@ -25,6 +28,7 @@ import type {
   TelegramAccountState,
   ProxySettings,
   StorageSettings,
+  StickerSet,
   Message,
   MessagePermissions,
   User,
@@ -33,10 +37,14 @@ import type { AuthorizationAction } from "./types";
 
 export type TelegramEventListener = (event: TelegramEvent) => void;
 
+export interface TelegramConnectOptions {
+  settingsOnly?: boolean;
+}
+
 export interface TelegramTransport {
   readonly kind: "mock" | "tauri";
   readonly label: string;
-  connect(listener: TelegramEventListener): Promise<TelegramSnapshot>;
+  connect(listener: TelegramEventListener, options?: TelegramConnectOptions): Promise<TelegramSnapshot>;
   disconnect(): Promise<void>;
   loadCachedSnapshot(): Promise<CachedTelegramSnapshot | undefined>;
   saveCachedSnapshot(snapshot: CachedTelegramSnapshot): Promise<void>;
@@ -77,6 +85,12 @@ export interface TelegramTransport {
   getRawMessage(chatId: string, messageId: string): Promise<string | undefined>;
   getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
   setMessageReaction(input: SetMessageReactionInput): Promise<void>;
+  getEmojiPickerCatalog(): Promise<EmojiPickerCatalog>;
+  getStickerSet(stickerSetId: string): Promise<StickerSet>;
+  searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]>;
+  loadEmojiAsset(asset: EmojiPickerAsset): Promise<string | undefined>;
+  sendSticker(input: SendEmojiAssetInput): Promise<void>;
+  sendAnimation(input: SendEmojiAssetInput): Promise<void>;
   sendMessage(input: SendMessageInput): Promise<void>;
   editMessage(input: EditMessageInput): Promise<void>;
   deleteMessage(input: DeleteMessageInput): Promise<void>;

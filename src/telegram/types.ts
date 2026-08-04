@@ -80,6 +80,43 @@ export interface TelegramAccountState {
   accounts: TelegramAccount[];
 }
 
+export type EmojiPickerAssetKind = "sticker" | "animation";
+
+export interface EmojiPickerAsset {
+  id: string;
+  kind: EmojiPickerAssetKind;
+  fileId: number;
+  previewFileId?: number;
+  emoji?: string;
+  fileName: string;
+  mimeType?: string;
+  previewMimeType?: string;
+  localPath?: string;
+  previewPath?: string;
+  previewDataUrl?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+}
+
+export interface StickerSetSummary {
+  id: string;
+  title: string;
+  name: string;
+  size: number;
+  covers: EmojiPickerAsset[];
+}
+
+export interface StickerSet extends StickerSetSummary {
+  stickers: EmojiPickerAsset[];
+}
+
+export interface EmojiPickerCatalog {
+  recentStickers: EmojiPickerAsset[];
+  stickerSets: StickerSetSummary[];
+  savedAnimations: EmojiPickerAsset[];
+}
+
 export interface Chat {
   id: string;
   kind: ChatKind;
@@ -422,6 +459,12 @@ export interface SendMessageInput {
   text: string;
   replyToMessageId?: string;
   clearDraft?: boolean;
+}
+
+export interface SendEmojiAssetInput {
+  chatId: string;
+  asset: EmojiPickerAsset;
+  replyToMessageId?: string;
 }
 
 export interface EditMessageInput {

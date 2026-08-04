@@ -33,6 +33,7 @@ interface MessageActionMenuProps {
   onDelete: () => void;
   onPlayInWindow?: () => void;
   onDownloadVideo?: () => void;
+  onCopy: () => void;
   onCopyRaw?: () => void;
   onDismiss: () => void;
   onClose: () => void;
@@ -49,6 +50,7 @@ export function MessageActionMenu({
   onDelete,
   onPlayInWindow,
   onDownloadVideo,
+  onCopy,
   onCopyRaw,
   onDismiss,
   onClose,
@@ -85,6 +87,10 @@ export function MessageActionMenu({
           <span>下载视频</span>
         </button>
       )}
+      <button type="button" role="menuitem" onClick={onCopy}>
+        <Copy size={16} strokeWidth={1.9} />
+        <span>复制</span>
+      </button>
       {onCopyRaw && (
         <button type="button" role="menuitem" onClick={onCopyRaw}>
           <Copy size={16} strokeWidth={1.9} />

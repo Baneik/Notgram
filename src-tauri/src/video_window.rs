@@ -35,7 +35,7 @@ pub async fn notgram_open_video_window(
     let height = height.clamp(MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
     let url = WebviewUrl::App(format!("index.html?videoWindow={id}").into());
     let show_fullscreen = fullscreen;
-    let builder = WebviewWindowBuilder::new(&app, label, url)
+    let mut builder = WebviewWindowBuilder::new(&app, label, url)
         .title("Notgram 视频")
         .inner_size(width, height)
         .min_inner_size(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
@@ -50,7 +50,6 @@ pub async fn notgram_open_video_window(
         .visible(false)
         .fullscreen(false)
         .zoom_hotkeys_enabled(false)
-        .center()
         .prevent_overflow()
         .on_page_load(move |window, payload| {
             if payload.event() != PageLoadEvent::Finished {
@@ -62,6 +61,13 @@ pub async fn notgram_open_video_window(
             let _ = window.show();
             let _ = window.set_focus();
         });
+    builder = if let Some((x, y)) =
+        crate::window_placement::centered_on_main_monitor(&app, width, height)
+    {
+        builder.position(x, y)
+    } else {
+        builder.center()
+    };
     #[cfg(not(target_os = "macos"))]
     let builder = builder.transparent(true);
     builder.build().map_err(|error| error.to_string())?;

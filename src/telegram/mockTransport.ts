@@ -12,6 +12,8 @@ import type {
   ConnectionStatus,
   DeleteMessageInput,
   EditMessageInput,
+  EmojiPickerAsset,
+  EmojiPickerCatalog,
   ForwardMessagesInput,
   ForwardMessagesResult,
   GlobalSearchInput,
@@ -19,11 +21,13 @@ import type {
   Message,
   MessagePermissions,
   ProxySettings,
+  SendEmojiAssetInput,
   SendFileInput,
   SendMessageInput,
   SetChatDraftInput,
   SetMessageReactionInput,
   StorageSettings,
+  StickerSet,
   TelegramAccount,
   TelegramAccountState,
   TelegramSnapshot,
@@ -69,6 +73,88 @@ const previewDataUrl = async (file: File) => {
   }
   return `data:${file.type};base64,${btoa(binary)}`;
 };
+
+const mockEmojiPreview = (emoji: string, background: string) =>
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
+      <rect width="180" height="180" rx="42" fill="${background}"/>
+      <text x="90" y="116" text-anchor="middle" font-size="96">${emoji}</text>
+    </svg>
+  `)}`;
+
+const mockSticker = (
+  fileId: number,
+  emoji: string,
+  background: string,
+): EmojiPickerAsset => ({
+  id: `mock-sticker:${fileId}`,
+  kind: "sticker",
+  fileId,
+  emoji,
+  fileName: "sticker.webp",
+  mimeType: "image/webp",
+  previewMimeType: "image/svg+xml",
+  previewDataUrl: mockEmojiPreview(emoji, background),
+  width: 180,
+  height: 180,
+});
+
+const mockAnimation = (
+  fileId: number,
+  emoji: string,
+  background: string,
+): EmojiPickerAsset => ({
+  id: `mock-animation:${fileId}`,
+  kind: "animation",
+  fileId,
+  fileName: "animation.mp4",
+  mimeType: "video/mp4",
+  previewMimeType: "image/svg+xml",
+  previewDataUrl: mockEmojiPreview(emoji, background),
+  width: 320,
+  height: 240,
+  duration: 2,
+});
+
+const mockStickerSets: StickerSet[] = [
+  {
+    id: "mock-pack-work",
+    title: "工作日常",
+    name: "notgram_work",
+    size: 6,
+    covers: [mockSticker(7101, "👍", "#dff2ff")],
+    stickers: [
+      mockSticker(7101, "👍", "#dff2ff"),
+      mockSticker(7102, "🎉", "#fff0ca"),
+      mockSticker(7103, "💡", "#f4e8ff"),
+      mockSticker(7104, "✅", "#e3f6e8"),
+      mockSticker(7105, "👀", "#ffe7e1"),
+      mockSticker(7106, "🚀", "#e6ecff"),
+    ],
+  },
+  {
+    id: "mock-pack-cats",
+    title: "办公室猫猫",
+    name: "notgram_cats",
+    size: 6,
+    covers: [mockSticker(7201, "😺", "#ffe8d4")],
+    stickers: [
+      mockSticker(7201, "😺", "#ffe8d4"),
+      mockSticker(7202, "🙀", "#e8f4ff"),
+      mockSticker(7203, "😼", "#e9f7df"),
+      mockSticker(7204, "😻", "#ffe4ef"),
+      mockSticker(7205, "😿", "#e7e9ff"),
+      mockSticker(7206, "😸", "#fff4c9"),
+    ],
+  },
+];
+
+const mockSavedAnimations = [
+  mockAnimation(7301, "👏", "#dff4ee"),
+  mockAnimation(7302, "😂", "#fff0c9"),
+  mockAnimation(7303, "🔥", "#ffe0da"),
+  mockAnimation(7304, "💯", "#e7e7ff"),
+];
 
 export class MockTelegramTransport implements TelegramTransport {
   readonly kind = "mock" as const;
@@ -673,6 +759,42 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "message.upsert", message: clone(message) });
   }
 
+  async getEmojiPickerCatalog(): Promise<EmojiPickerCatalog> {
+    return clone({
+      recentStickers: mockStickerSets[0].stickers.slice(0, 4),
+      stickerSets: mockStickerSets.map(({ stickers: _stickers, ...summary }) => summary),
+      savedAnimations: mockSavedAnimations,
+    });
+  }
+
+  async getStickerSet(stickerSetId: string) {
+    const stickerSet = mockStickerSets.find((candidate) => candidate.id === stickerSetId);
+    if (!stickerSet) throw new Error("找不到贴纸包");
+    return clone(stickerSet);
+  }
+
+  async searchStickers(query: string, _chatId: string) {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return [];
+    return clone(mockStickerSets.flatMap((stickerSet) => stickerSet.stickers)
+      .filter((asset) =>
+        asset.emoji?.includes(normalized) ||
+        asset.id.toLocaleLowerCase().includes(normalized)
+      ));
+  }
+
+  async loadEmojiAsset(asset: EmojiPickerAsset) {
+    return asset.previewPath ?? asset.localPath ?? asset.previewDataUrl;
+  }
+
+  async sendSticker(input: SendEmojiAssetInput) {
+    this.appendEmojiAsset(input, "sticker");
+  }
+
+  async sendAnimation(input: SendEmojiAssetInput) {
+    this.appendEmojiAsset(input, "animation");
+  }
+
   async getProxySettings() {
     return structuredClone(this.proxySettings);
   }
@@ -950,6 +1072,48 @@ export class MockTelegramTransport implements TelegramTransport {
     };
     Object.assign(chat, updatedChat);
     this.listener?.({ type: "chat.upsert", chat: clone(updatedChat) });
+  }
+
+  private appendEmojiAsset(
+    input: SendEmojiAssetInput,
+    mediaType: "sticker" | "animation",
+  ) {
+    const replyTarget = input.replyToMessageId
+      ? this.snapshot.messages.find(
+          (message) => message.chatId === input.chatId && message.id === input.replyToMessageId,
+        )
+      : undefined;
+    this.appendMessage({
+      id: crypto.randomUUID(),
+      chatId: input.chatId,
+      senderId: this.snapshot.currentUserId,
+      outgoing: true,
+      sentAt: new Date().toISOString(),
+      delivery: "sent",
+      replyTo: replyTarget
+        ? {
+            kind: "message",
+            chatId: input.chatId,
+            messageId: replyTarget.id,
+            content: clone(replyTarget.content),
+          }
+        : undefined,
+      content: {
+        kind: "media",
+        mediaType,
+        fileId: input.asset.fileId,
+        fileName: input.asset.fileName,
+        sizeLabel: mediaType === "sticker" ? "贴纸" : "GIF",
+        mimeType: input.asset.mimeType,
+        previewDataUrl: input.asset.previewDataUrl,
+        localPath: input.asset.localPath,
+        thumbnailPath: input.asset.previewPath,
+        width: input.asset.width,
+        height: input.asset.height,
+        canDownload: false,
+        isDownloaded: true,
+      },
+    });
   }
 
   private updateFileTransfer(

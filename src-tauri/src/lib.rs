@@ -4,10 +4,12 @@ mod development;
 mod diagnostics;
 mod distribution;
 mod proxy;
+mod settings_window;
 mod storage;
 mod telegram;
 mod video_window;
 mod webview_security;
+mod window_placement;
 
 use tauri::Manager;
 
@@ -48,6 +50,7 @@ pub fn run() {
             diagnostics::notgram_set_crash_reporting_enabled,
             distribution::notgram_distribution_kind,
             desktop_notification::notgram_show_notification,
+            settings_window::notgram_open_settings_window,
             video_window::notgram_close_video_window,
             video_window::notgram_open_video_window,
             telegram::telegram_runtime_status,
