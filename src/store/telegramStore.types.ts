@@ -29,6 +29,7 @@ export type RuntimePhase = "idle" | "loading" | "ready" | "error";
 export interface HistoryState {
   loading: boolean;
   hasMore: boolean;
+  initialized: boolean;
 }
 
 export interface ChatListState {

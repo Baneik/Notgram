@@ -14,6 +14,8 @@ import type { Message } from "../telegram/types";
 import { logPerformance, markHistoryInteraction } from "../utils/performanceMonitor";
 
 const BOTTOM_PROXIMITY_PX = 40;
+const POSITION_STABLE_MS = 48;
+const POSITION_TIMEOUT_MS = 360;
 
 interface ConversationScrollMemory {
   scrollTop: number;
@@ -68,6 +70,9 @@ const conversationScrollMemory = new Map<string, ConversationScrollMemory>();
 
 const scrollMemoryKey = (scope: string, chatId?: string) =>
   chatId ? `${scope}:${chatId}` : undefined;
+
+export const hasConversationScrollMemory = (scope: string, chatId: string) =>
+  conversationScrollMemory.has(scrollMemoryKey(scope, chatId)!);
 
 const distanceFromBottom = (element: HTMLElement) =>
   Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
@@ -442,29 +447,37 @@ export const useConversationScroll = ({
       return;
     }
 
+    const pendingEntryRequest = matchingEntryRequest?.requestId &&
+        matchingEntryRequest.requestId > handledEntryRequestRef.current
+      ? matchingEntryRequest
+      : undefined;
+    const pendingServerMessageId = pendingEntryRequest?.serverMessageId;
+    const pendingServerMessageIndex = pendingServerMessageId
+      ? messageItemIndexes.get(pendingServerMessageId)
+      : undefined;
     let pendingNewCount = stored?.pendingNewCount ?? 0;
     let followLatest = stored?.followLatest ?? true;
     const enteringChat = !previous || previous.key !== currentScrollKey;
     const leavingSearch = previous?.key === currentScrollKey && Boolean(previous.search);
+    const placeMessageAtCenter = (messageId: string) => {
+      const target = element.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(messageId)}"]`,
+      );
+      if (target) {
+        target.scrollIntoView({ block: "center", behavior: "auto" });
+        return target.getBoundingClientRect().top - element.getBoundingClientRect().top;
+      }
+      const itemIndex = messageItemIndexes.get(messageId);
+      if (itemIndex !== undefined) {
+        virtuosoRef.current?.scrollToIndex({
+          index: itemIndex,
+          align: "center",
+          behavior: "auto",
+        });
+      }
+      return Math.max(0, element.clientHeight / 2);
+    };
     if (enteringChat || leavingSearch) {
-      const placeMessageAtCenter = (messageId: string) => {
-        const target = element.querySelector<HTMLElement>(
-          `[data-message-id="${CSS.escape(messageId)}"]`,
-        );
-        if (target) {
-          target.scrollIntoView({ block: "center", behavior: "auto" });
-          return target.getBoundingClientRect().top - element.getBoundingClientRect().top;
-        }
-        const itemIndex = messageItemIndexes.get(messageId);
-        if (itemIndex !== undefined) {
-          virtuosoRef.current?.scrollToIndex({
-            index: itemIndex,
-            align: "center",
-            behavior: "auto",
-          });
-        }
-        return Math.max(0, element.clientHeight / 2);
-      };
       if (stored?.followLatest === false) {
         restoreScrollMemory(element, stored, virtuosoRef.current, messageItemIndexes);
         pendingNewCount += appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
@@ -501,15 +514,15 @@ export const useConversationScroll = ({
             pendingNewCount: 0,
           });
         }
+      } else if (pendingServerMessageId && pendingServerMessageIndex === undefined) {
+        previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
+        return;
       } else {
-        const serverMessageId = matchingEntryRequest?.requestId &&
-            matchingEntryRequest.requestId > handledEntryRequestRef.current
-          ? matchingEntryRequest.serverMessageId
-          : undefined;
-        if (matchingEntryRequest) {
+        const serverMessageId = pendingServerMessageId;
+        if (pendingEntryRequest) {
           handledEntryRequestRef.current = Math.max(
             handledEntryRequestRef.current,
-            matchingEntryRequest.requestId,
+            pendingEntryRequest.requestId,
           );
         }
         if (
@@ -539,6 +552,28 @@ export const useConversationScroll = ({
           });
         }
       }
+      const memory = conversationScrollMemory.get(currentScrollKey)!;
+      updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
+      previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
+      return;
+    } else if (!stored && pendingServerMessageId && pendingServerMessageIndex === undefined) {
+      previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
+      return;
+    } else if (!stored && pendingServerMessageId) {
+      const anchorOffset = placeMessageAtCenter(pendingServerMessageId);
+      handledEntryRequestRef.current = Math.max(
+        handledEntryRequestRef.current,
+        pendingEntryRequest?.requestId ?? 0,
+      );
+      followLatest = false;
+      conversationScrollMemory.set(currentScrollKey, {
+        scrollTop: element.scrollTop,
+        followLatest: false,
+        lastKnownMessageId: lastId,
+        pendingNewCount: appendedMessageCount(visibleMessages, pendingServerMessageId),
+        anchorMessageId: pendingServerMessageId,
+        anchorOffset,
+      });
       const memory = conversationScrollMemory.get(currentScrollKey)!;
       updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
       previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
@@ -676,8 +711,8 @@ export const useConversationScroll = ({
       if (!positionStable || layoutChanged) stableSince = now;
       previousScrollHeight = element.scrollHeight;
       previousAnchorOffset = anchorOffset;
-      const layoutSettled = positionStable && now - stableSince >= 120;
-      const stabilizationTimedOut = now - startedAt >= 1_200;
+      const layoutSettled = positionStable && now - stableSince >= POSITION_STABLE_MS;
+      const stabilizationTimedOut = now - startedAt >= POSITION_TIMEOUT_MS;
       if (!layoutSettled && !stabilizationTimedOut) {
         animationFrame = requestAnimationFrame(correctInitialPosition);
       } else {
@@ -700,7 +735,7 @@ export const useConversationScroll = ({
               const currentMemory = conversationScrollMemory.get(currentScrollKey);
               if (!currentMemory?.followLatest) return;
               finalElement.scrollTop = finalElement.scrollHeight;
-              if (performance.now() - startedAt < 1_200) {
+              if (performance.now() - startedAt < POSITION_TIMEOUT_MS) {
                 animationFrame = requestAnimationFrame(maintainLatestDuringDeferredMeasurements);
               }
             };

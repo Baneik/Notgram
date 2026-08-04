@@ -613,7 +613,7 @@ export function Conversation({
           initialTopMostItemIndex={initialTopMostItemIndex}
           totalListHeightChanged={onTotalListHeightChanged}
           atBottomStateChange={onAtBottomStateChange}
-          increaseViewportBy={{ top: 4_000, bottom: 280 }}
+          increaseViewportBy={{ top: 900, bottom: 280 }}
           minOverscanItemCount={{ top: 2, bottom: 2 }}
           {...messageListHandlers}
           itemContent={(_, groupModel) => {

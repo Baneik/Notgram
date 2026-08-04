@@ -28,6 +28,7 @@ import {
   savePendingNotificationRoute,
 } from "../notifications/notificationRouting";
 import { mediaPlaybackCoordinator } from "../media/mediaPlayback";
+import { hasConversationScrollMemory } from "../hooks/useConversationScroll";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -481,25 +482,38 @@ export function App() {
               const generation = chatOpenGenerationRef.current + 1;
               chatOpenGenerationRef.current = generation;
               const serverMessageId = state.chats.get(chatId)?.lastReadInboxMessageId;
-              void (async () => {
-                if (
-                  serverMessageId &&
-                  !(telegramStore.getState().messages.get(chatId) ?? [])
-                    .some((message) => message.id === serverMessageId)
-                ) {
-                  await telegramStore.getState().loadMessage(chatId, serverMessageId);
-                }
-                if (chatOpenGenerationRef.current !== generation) return;
-                entryScrollRequestIdRef.current += 1;
-                flushSync(() => {
-                  setEntryScrollRequest({
+              const serverMessageLoaded = Boolean(
+                serverMessageId &&
+                (state.messages.get(chatId) ?? []).some(
+                  (message) => message.id === serverMessageId,
+                ),
+              );
+              const restoreLocally = hasConversationScrollMemory(activeAccountId, chatId);
+              entryScrollRequestIdRef.current += 1;
+              flushSync(() => {
+                setEntryScrollRequest({
+                  chatId,
+                  serverMessageId,
+                  requestId: entryScrollRequestIdRef.current,
+                });
+              });
+              void state.selectChat(chatId);
+              if (serverMessageId && !serverMessageLoaded && !restoreLocally) {
+                void (async () => {
+                  const loaded = await telegramStore.getState().loadMessage(
                     chatId,
                     serverMessageId,
-                    requestId: entryScrollRequestIdRef.current,
+                  );
+                  if (loaded || chatOpenGenerationRef.current !== generation) return;
+                  entryScrollRequestIdRef.current += 1;
+                  flushSync(() => {
+                    setEntryScrollRequest({
+                      chatId,
+                      requestId: entryScrollRequestIdRef.current,
+                    });
                   });
-                });
-                await telegramStore.getState().selectChat(chatId);
-              })();
+                })();
+              }
             }
           }}
           onOpenLatest={(chatId) => {

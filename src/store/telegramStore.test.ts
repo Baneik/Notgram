@@ -550,7 +550,39 @@ describe("telegram store", () => {
     expect(state.activeChatId).toBe("chat-product");
     expect(state.chats.size).toBeGreaterThan(0);
     expect(state.messages.get("chat-product")).toHaveLength(30);
-    expect(state.histories.get("chat-product")).toEqual({ loading: false, hasMore: true });
+    expect(state.histories.get("chat-product")).toEqual({
+      loading: false,
+      hasMore: true,
+      initialized: true,
+    });
+  });
+
+  it("reuses initialized chat history when switching between conversations", async () => {
+    class CountingHistoryTransport extends MockTelegramTransport {
+      historyRequests = new Map<string, number>();
+
+      override async loadChatHistory(chatId: string, limit = 30) {
+        this.historyRequests.set(chatId, (this.historyRequests.get(chatId) ?? 0) + 1);
+        return super.loadChatHistory(chatId, limit);
+      }
+    }
+
+    const transport = new CountingHistoryTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    const initialProductRequests = transport.historyRequests.get("chat-product") ?? 0;
+    await store.getState().selectChat("chat-mia");
+    const initialMiaRequests = transport.historyRequests.get("chat-mia") ?? 0;
+
+    await store.getState().selectChat("chat-product");
+    await store.getState().selectChat("chat-mia");
+
+    expect(transport.historyRequests.get("chat-product")).toBe(initialProductRequests);
+    expect(transport.historyRequests.get("chat-mia")).toBe(initialMiaRequests);
+
+    await store.getState().loadMoreHistory("chat-product");
+    expect(transport.historyRequests.get("chat-product")).toBe(initialProductRequests + 1);
   });
 
   it("preserves string startup errors returned by the native bridge", async () => {

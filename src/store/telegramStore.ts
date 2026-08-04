@@ -350,13 +350,21 @@ export const createTelegramStore = (
       });
     };
 
-    const loadHistory = async (chatId: string) => {
+    const loadHistory = async (chatId: string, mode: "ensure" | "older") => {
       if (get().authorization.kind !== "ready") return;
       const current = get().histories.get(chatId);
-      if (current?.loading || current?.hasMore === false) return;
+      if (
+        current?.loading ||
+        current?.hasMore === false ||
+        (mode === "ensure" && current?.initialized)
+      ) return;
 
       const histories = new Map(get().histories);
-      histories.set(chatId, { loading: true, hasMore: current?.hasMore ?? true });
+      histories.set(chatId, {
+        loading: true,
+        hasMore: current?.hasMore ?? true,
+        initialized: current?.initialized ?? false,
+      });
       set({ histories });
       const startedAt = performance.now();
       const beforeCount = get().messages.get(chatId)?.length ?? 0;
@@ -389,8 +397,12 @@ export const createTelegramStore = (
           }
         }
         const nextHistories = new Map(get().histories);
-        nextHistories.set(chatId, { loading: false, hasMore: page.hasMore });
-        set({ histories: nextHistories, operationError: undefined });
+        nextHistories.set(chatId, {
+          loading: false,
+          hasMore: page.hasMore,
+          initialized: true,
+        });
+        set({ histories: nextHistories });
         logPerformance("ui_history_data", {
           durationMs: performance.now() - startedAt,
           beforeCount,
@@ -402,7 +414,11 @@ export const createTelegramStore = (
         scheduleCacheWrite();
       } catch (error) {
         const nextHistories = new Map(get().histories);
-        nextHistories.set(chatId, { loading: false, hasMore: true });
+        nextHistories.set(chatId, {
+          loading: false,
+          hasMore: true,
+          initialized: current?.initialized ?? false,
+        });
         set({
           histories: nextHistories,
           operationError: error instanceof Error ? error.message : "无法加载历史消息",
@@ -491,7 +507,7 @@ export const createTelegramStore = (
           void flushOutbox();
           const activeChatId = get().activeChatId;
           if (activeChatId) {
-            void loadHistory(activeChatId).then(() => markChatRead(activeChatId));
+            void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
           }
         } else if (event.state.kind !== "preparing") {
           if (event.state.kind === "closing" || event.state.kind === "closed") {
@@ -556,7 +572,7 @@ export const createTelegramStore = (
         });
         scheduleCacheWrite();
         if (firstChat) {
-          void loadHistory(firstChat).then(() => markChatRead(firstChat));
+          void loadHistory(firstChat, "ensure").then(() => markChatRead(firstChat));
         }
         return;
       }
@@ -862,7 +878,7 @@ export const createTelegramStore = (
           void registerCurrentAccount();
           const refreshChatId = get().activeChatId ?? firstChat?.id;
           if (authorization.kind === "ready" && refreshChatId) {
-            await loadHistory(refreshChatId);
+            await loadHistory(refreshChatId, "ensure");
             await markChatRead(refreshChatId);
           }
           if (authorization.kind === "ready") {
@@ -1080,7 +1096,7 @@ export const createTelegramStore = (
         set({ activeChatId: chatId });
         scheduleCacheWrite();
         if (get().authorization.kind !== "ready") return;
-        await loadHistory(chatId);
+        await loadHistory(chatId, "ensure");
         await markChatRead(chatId);
       },
 
@@ -1188,7 +1204,7 @@ export const createTelegramStore = (
         set({ activeChatId: nextChat?.id });
         scheduleCacheWrite();
         if (nextChat) {
-          await loadHistory(nextChat.id);
+          await loadHistory(nextChat.id, "ensure");
           await markChatRead(nextChat.id);
         }
         return true;
@@ -1264,7 +1280,7 @@ export const createTelegramStore = (
           set({ folderManagementPending: false });
         }
       },
-      loadMoreHistory: loadHistory,
+      loadMoreHistory: (chatId) => loadHistory(chatId, "older"),
       loadMessage: async (chatId, messageId) => {
         if ((get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
           return true;

@@ -147,9 +147,9 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
   await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".settings-dialog")).toHaveCSS("background-color", "rgb(23, 33, 43)");
   await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(14, 22, 33)");
-  await expect(page.locator(".message-row.is-incoming .message-bubble").first())
+  await expect(page.locator(".message-row.is-incoming:has(.message-rich-text) .message-bubble").first())
     .toHaveCSS("background-color", "rgb(24, 37, 51)");
-  await expect(page.locator(".message-row.is-outgoing .message-bubble").first())
+  await expect(page.locator(".message-row.is-outgoing:has(.message-rich-text) .message-bubble").first())
     .toHaveCSS("background-color", "rgb(43, 82, 120)");
   await page.getByRole("button", { name: /高级设置/ }).click();
   await page.getByRole("button", { name: "重建界面缓存" }).click();
@@ -363,6 +363,69 @@ test("single-click entry restores the server read marker without exposing interm
   expect(result.scrollBehavior).toBe("auto");
 });
 
+test("warm conversation switches reuse messages and reveal content promptly", async ({ page }) => {
+  await page.goto("/");
+  const product = page.locator('[data-chat-id="chat-product"]');
+  const mia = page.locator('[data-chat-id="chat-mia"]');
+
+  await mia.click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await product.click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const messageCounts = async () => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, unknown[]> };
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    return {
+      product: state.messages.get("chat-product")?.length ?? 0,
+      mia: state.messages.get("chat-mia")?.length ?? 0,
+    };
+  }, "/src/store/telegramStore.ts");
+  const beforeCounts = await messageCounts();
+
+  const timing = await page.evaluate(async () => {
+    const row = document.querySelector<HTMLElement>('[data-chat-id="chat-mia"]')!;
+    const startedAt = performance.now();
+    row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
+    let headerMs: number | undefined;
+    let contentMs: number | undefined;
+    while (performance.now() - startedAt < 2_000) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      if (
+        headerMs === undefined &&
+        document.querySelector(".conversation-title strong")?.textContent === "Mia Chen"
+      ) {
+        headerMs = performance.now() - startedAt;
+      }
+      if (
+        headerMs !== undefined &&
+        document.querySelector(".message-list")?.getAttribute("aria-busy") === "false"
+      ) {
+        contentMs = performance.now() - startedAt;
+        break;
+      }
+    }
+    return { headerMs, contentMs };
+  });
+
+  expect(timing.headerMs).toBeDefined();
+  expect(timing.headerMs!).toBeLessThan(100);
+  expect(timing.contentMs).toBeDefined();
+  expect(timing.contentMs!).toBeLessThan(300);
+
+  await product.click();
+  await mia.click();
+  await product.click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  expect(await messageCounts()).toEqual(beforeCounts);
+});
+
 test("outgoing messages stay inside the conversation at narrow widths and interface zoom", async ({ page }) => {
   for (const scenario of [
     { width: 464, zoom: "1" },
@@ -555,8 +618,14 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(settingsButton).toBeFocused();
 
   const editableMessage = page.locator('[data-message-id="p-2"]');
-  let actionTrigger = editableMessage.locator(".message-bubble-shell");
-  await actionTrigger.focus();
+  const focusEditableMessage = async () => {
+    await editableMessage.scrollIntoViewIfNeeded();
+    const trigger = editableMessage.locator(".message-bubble-shell");
+    await trigger.focus();
+    await expect(trigger).toBeFocused();
+    return trigger;
+  };
+  let actionTrigger = await focusEditableMessage();
   await page.keyboard.press("Shift+F10");
   const actionMenu = page.getByRole("menu", { name: "消息操作" });
   await expect(actionMenu).toBeVisible();
@@ -575,9 +644,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
     .toBeVisible();
   await expect(composer).toHaveValue("");
 
-  actionTrigger = editableMessage.locator(".message-bubble-shell");
-  await actionTrigger.focus();
-  await expect(actionTrigger).toBeFocused();
+  actionTrigger = await focusEditableMessage();
   await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "回复");
   await expect(composer).toBeFocused();
@@ -587,9 +654,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
     .toBeVisible();
   await expect(composer).toHaveValue("");
 
-  actionTrigger = editableMessage.locator(".message-bubble-shell");
-  await actionTrigger.focus();
-  await expect(actionTrigger).toBeFocused();
+  actionTrigger = await focusEditableMessage();
   await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "转发");
   const forwardButton = page.getByRole("button", { name: "转发", exact: true });
@@ -602,9 +667,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Enter");
   await expect(forwardDialog).toBeHidden();
 
-  actionTrigger = editableMessage.locator(".message-bubble-shell");
-  await actionTrigger.focus();
-  await expect(actionTrigger).toBeFocused();
+  actionTrigger = await focusEditableMessage();
   await page.keyboard.press("Shift+F10");
   const reactionMenu = page.getByRole("menu", { name: "消息操作" });
   await expect(reactionMenu.getByRole("button", { name: "回应 👍" })).toBeFocused();
@@ -1096,6 +1159,9 @@ test("saved and direct messages align to the conversation edges", async ({ page 
 
   await page.getByRole("button", { name: /Mia Chen/ }).click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator('[data-message-id="m-1"]')).toBeVisible();
+  await expect(page.locator('[data-message-id="m-2"]')).toBeVisible();
   await expect(page.locator(".message-group-avatar")).toHaveCount(0);
   const alignment = await page.locator(".message-list").evaluate((list) => {
     const content = list.querySelector<HTMLElement>(".message-list-content");
@@ -1198,6 +1264,7 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await expect.poll(async () => Math.abs(
     (await visibleMessageAnchor(page)).offset - savedAnchor.offset,
   )).toBeLessThanOrEqual(2);
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
   const restored = await visibleMessageAnchor(page);
   for (const text of ["滚动定位测试一", "滚动定位测试二"]) {
@@ -1258,7 +1325,7 @@ test("double-clicking a conversation repeatedly converges to its latest message"
 
 test("loading older messages preserves the visible message anchor", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".message-row")).toHaveCount(30);
+  await expect(page.locator(".message-row").first()).toBeAttached();
 
   const list = page.locator(".message-list");
   await expect(list).toHaveAttribute("aria-busy", "false");
@@ -1277,7 +1344,15 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   });
 
   expect(before.id).toBeTruthy();
-  await expect(page.locator('[data-message-id="p-old-1"]')).toBeAttached();
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<{ id: string }>> };
+      };
+    };
+    return storeModule.telegramStore.getState().messages.get("chat-product")
+      ?.some((message) => message.id === "p-old-1") ?? false;
+  }, "/src/store/telegramStore.ts")).toBe(true);
   const loadedIds = await page.locator(".message-row").evaluateAll((rows) =>
     rows.map((row) => (row as HTMLElement).dataset.messageId),
   );
