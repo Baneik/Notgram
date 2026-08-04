@@ -37,6 +37,16 @@ type PendingConfirmation =
   | { kind: "leaveGroup"; chatId: string; title: string }
   | { kind: "deleteFolder"; folderId: string; title: string };
 
+interface ConversationViewTransition {
+  finished: Promise<void>;
+}
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (
+    update: () => void,
+  ) => ConversationViewTransition;
+};
+
 const readSidebarWidth = () => {
   try {
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
@@ -147,6 +157,9 @@ export function App() {
     requestId: number;
   }>();
   const messageScrollRequestIdRef = useRef(0);
+  const conversationViewTransitionGenerationRef = useRef(0);
+  const pendingConversationTransitionChatIdRef = useRef<string | undefined>(undefined);
+  const latestConversationIntentChatIdRef = useRef<string | undefined>(undefined);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
@@ -477,6 +490,7 @@ export function App() {
               setMobileChatOpen(true);
               const state = telegramStore.getState();
               if (state.activeChatId === chatId) return;
+              latestConversationIntentChatIdRef.current = undefined;
               const generation = chatOpenGenerationRef.current + 1;
               chatOpenGenerationRef.current = generation;
               const targetChat = state.chats.get(chatId);
@@ -491,15 +505,66 @@ export function App() {
               );
               const restoreLocally = hasConversationScrollMemory(activeAccountId, chatId);
               entryScrollRequestIdRef.current += 1;
-              flushSync(() => {
-                setLatestScrollRequest(undefined);
-                setEntryScrollRequest({
-                  chatId,
-                  serverMessageId,
-                  requestId: entryScrollRequestIdRef.current,
+              const commitSelection = () => {
+                flushSync(() => {
+                  if (latestConversationIntentChatIdRef.current !== chatId) {
+                    setLatestScrollRequest(undefined);
+                  }
+                  setEntryScrollRequest({
+                    chatId,
+                    serverMessageId,
+                    requestId: entryScrollRequestIdRef.current,
+                  });
+                  void state.selectChat(chatId);
                 });
-              });
-              void state.selectChat(chatId);
+              };
+              const transitionDocument = document as ViewTransitionDocument;
+              const warmTransition = Boolean(
+                state.activeChatId &&
+                (state.messages.get(chatId)?.length ?? 0) > 0 &&
+                globalThis.matchMedia("(min-width: 761px)").matches &&
+                transitionDocument.startViewTransition,
+              );
+              if (warmTransition && transitionDocument.startViewTransition) {
+                const viewTransitionGeneration =
+                  conversationViewTransitionGenerationRef.current + 1;
+                conversationViewTransitionGenerationRef.current = viewTransitionGeneration;
+                pendingConversationTransitionChatIdRef.current = chatId;
+                globalThis.setTimeout(() => {
+                  if (
+                    conversationViewTransitionGenerationRef.current !==
+                      viewTransitionGeneration ||
+                    pendingConversationTransitionChatIdRef.current !== chatId
+                  ) return;
+                  document.documentElement.classList.add("is-conversation-view-transition");
+                  try {
+                    const transition = transitionDocument.startViewTransition!.call(
+                      transitionDocument,
+                      commitSelection,
+                    );
+                    void transition.finished.catch(() => undefined).finally(() => {
+                      if (
+                        conversationViewTransitionGenerationRef.current ===
+                          viewTransitionGeneration
+                      ) {
+                        pendingConversationTransitionChatIdRef.current = undefined;
+                        document.documentElement.classList.remove(
+                          "is-conversation-view-transition",
+                        );
+                      }
+                    });
+                  } catch {
+                    pendingConversationTransitionChatIdRef.current = undefined;
+                    document.documentElement.classList.remove(
+                      "is-conversation-view-transition",
+                    );
+                    commitSelection();
+                  }
+                }, 0);
+              } else {
+                pendingConversationTransitionChatIdRef.current = undefined;
+                commitSelection();
+              }
               if (serverMessageId && !serverMessageLoaded && !restoreLocally) {
                 void (async () => {
                   const loaded = await telegramStore.getState().loadMessage(
@@ -520,6 +585,7 @@ export function App() {
           }}
           onOpenLatest={(chatId) => {
             chatOpenGenerationRef.current += 1;
+            latestConversationIntentChatIdRef.current = chatId;
             setMobileChatOpen(true);
             flushSync(() => {
               setEntryScrollRequest(undefined);
@@ -529,7 +595,12 @@ export function App() {
                 requestId: latestScrollRequestIdRef.current,
               });
             });
-            if (telegramStore.getState().activeChatId !== chatId) void selectChat(chatId);
+            if (
+              telegramStore.getState().activeChatId !== chatId &&
+              pendingConversationTransitionChatIdRef.current !== chatId
+            ) {
+              void selectChat(chatId);
+            }
           }}
           loadingMore={activeChatList.loading}
           hasMore={activeChatList.hasMore}

@@ -334,6 +334,13 @@ export function Conversation({
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
+  const preservePositioningFrame = Boolean(
+    visibleMessages.length > 0 &&
+    (
+      latestScrollRequest?.chatId === chat?.id ||
+      document.documentElement.classList.contains("is-conversation-view-transition")
+    )
+  );
 
   const closeActionMenu = useCallback((restoreFocus = true) => {
     const returnFocus = actionMenu?.returnFocus;
@@ -594,7 +601,7 @@ export function Conversation({
       )}
 
       <div className={`message-list-shell ${positioning ? "is-positioning" : ""}`}>
-        {positioning && (
+        {positioning && !preservePositioningFrame && (
           <div
             className={`message-positioning-placeholder ${visibleMessages.length > 0 ? "is-warm" : ""}`}
             role="status"

@@ -329,7 +329,8 @@ export const useConversationScroll = ({
   const storedMemory = currentScrollKey
     ? conversationScrollMemory.get(currentScrollKey)
     : undefined;
-  const restoreStateFrom = storedMemory?.followLatest === false && storedVirtuosoSnapshot &&
+  const restoreStateFrom = !matchingLatestRequest &&
+      storedMemory?.followLatest === false && storedVirtuosoSnapshot &&
       storedVirtuosoSnapshot.firstMessageId === firstVisibleMessageId &&
       storedVirtuosoSnapshot.lastMessageId === lastVisibleMessageId &&
       storedVirtuosoSnapshot.virtualItemCount === virtualItemCount
@@ -585,7 +586,17 @@ export const useConversationScroll = ({
       return Math.max(0, element.clientHeight / 2);
     };
     if (enteringChat || leavingSearch) {
-      if (stored?.followLatest === false) {
+      if (matchingLatestRequest) {
+        scrollToLatestPosition();
+        pendingNewCount = 0;
+        followLatest = true;
+        conversationScrollMemory.set(currentScrollKey, {
+          scrollTop: element.scrollTop,
+          followLatest: true,
+          lastKnownMessageId: lastId,
+          pendingNewCount: 0,
+        });
+      } else if (stored?.followLatest === false) {
         restoreScrollMemory(element, stored, virtuosoRef.current, messageItemIndexes);
         pendingNewCount += appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
         followLatest = false;
@@ -761,6 +772,7 @@ export const useConversationScroll = ({
     currentScrollKey,
     lastVisibleMessageId,
     matchingEntryRequest,
+    matchingLatestRequest,
     messageListElement,
     messageItemIndexes,
     search,
@@ -1143,7 +1155,11 @@ export const useConversationScroll = ({
     positioning: Boolean(
       currentScrollKey && positionedScrollIdentity !== initialLocationIdentity
     ),
-    virtuosoKey: initialLocationIdentity,
+    // Conversation changes and navigation requests change the data and desired
+    // scroll position, not the identity of the viewport. Keeping one Virtuoso
+    // instance per account avoids an empty remount frame while the layout effect
+    // restores the destination conversation's position before paint.
+    virtuosoKey: scope,
     initialTopMostItemIndex,
     restoreStateFrom,
     highlightedMessageId: highlightedMessage && highlightedMessage.key === currentScrollKey

@@ -354,6 +354,32 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   align-items: center; gap: 9px; color: #858c91; background: #ffffff; border-bottom: 1px solid var(--line);
 }
 .message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
+html.is-conversation-view-transition .message-list-shell {
+  view-transition-name: conversation-messages;
+}
+::view-transition,
+::view-transition-group(root),
+::view-transition-group(conversation-messages),
+::view-transition-old(root),
+::view-transition-new(root),
+::view-transition-old(conversation-messages),
+::view-transition-new(conversation-messages) { pointer-events: none; }
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; }
+::view-transition-old(conversation-messages) {
+  animation: conversation-frame-hold 96ms steps(1, end) both;
+}
+::view-transition-new(conversation-messages) {
+  animation: conversation-frame-reveal 96ms steps(1, end) both;
+}
+@keyframes conversation-frame-hold {
+  0%, 99% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes conversation-frame-reveal {
+  0%, 99% { opacity: 0; }
+  100% { opacity: 1; }
+}
 .message-positioning-placeholder {
   position: absolute; inset: 0; z-index: 30; display: grid; place-content: center;
   justify-items: center; gap: 8px; color: var(--muted); background: var(--chat-canvas);

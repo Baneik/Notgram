@@ -428,6 +428,7 @@ test("single-click entry restores the server read marker without exposing interm
       __notgramEntryFrames?: Array<{
         busy: string | null;
         placeholder: boolean;
+        transitionCovered: boolean;
         messageCount: number;
         scrollTop: number;
       }>;
@@ -444,6 +445,9 @@ test("single-click entry restores the server read marker without exposing interm
         diagnosticWindow.__notgramEntryFrames?.push({
           busy: list.getAttribute("aria-busy"),
           placeholder: Boolean(shell.querySelector(".message-positioning-placeholder")),
+          transitionCovered: document.documentElement.classList.contains(
+            "is-conversation-view-transition",
+          ),
           messageCount: list.querySelectorAll("[data-message-id]").length,
           scrollTop: Math.round(list.scrollTop),
         });
@@ -470,16 +474,20 @@ test("single-click entry restores the server read marker without exposing interm
       __notgramEntryFrames?: Array<{
         busy: string | null;
         placeholder: boolean;
+        transitionCovered: boolean;
         messageCount: number;
         scrollTop: number;
       }>;
     }).__notgramEntryFrames ?? [];
     const placeholderFrames = frames.filter((frame) => frame.placeholder);
+    const transitionCoveredFrames = frames.filter((frame) => frame.transitionCovered);
     const uncoveredEmptyFrames = frames.filter(
-      (frame) => frame.messageCount === 0 && !frame.placeholder,
+      (frame) => frame.messageCount === 0 && !frame.placeholder && !frame.transitionCovered,
     );
     const exposedPositions = new Set(
-      frames.filter((frame) => !frame.placeholder && frame.messageCount > 0)
+      frames.filter(
+        (frame) => !frame.placeholder && !frame.transitionCovered && frame.messageCount > 0,
+      )
         .map((frame) => frame.scrollTop),
     );
     return {
@@ -490,6 +498,7 @@ test("single-click entry restores the server read marker without exposing interm
         latest.getBoundingClientRect().bottom > listBounds.top,
       ),
       placeholderFrameCount: placeholderFrames.length,
+      transitionCoveredFrameCount: transitionCoveredFrames.length,
       uncoveredEmptyFrameCount: uncoveredEmptyFrames.length,
       exposedPositionCount: exposedPositions.size,
       scrollBehavior: getComputedStyle(list).scrollBehavior,
@@ -502,7 +511,9 @@ test("single-click entry restores the server read marker without exposing interm
   expect(result.targetOffset).toBeGreaterThanOrEqual(-1);
   expect(result.targetOffset).toBeLessThan(result.listHeight);
   expect(result.latestVisible).toBe(false);
-  expect(result.placeholderFrameCount).toBeGreaterThan(0);
+  expect(
+    result.placeholderFrameCount + result.transitionCoveredFrameCount,
+  ).toBeGreaterThan(0);
   expect(result.uncoveredEmptyFrameCount).toBeLessThanOrEqual(1);
   expect(result.exposedPositionCount).toBeLessThanOrEqual(1);
   expect(result.scrollBehavior).toBe("auto");
@@ -519,6 +530,7 @@ test("read conversations expose only their final bottom position while switching
     const samples: Array<{
       busy: string | null;
       placeholder: boolean;
+      transitionCovered: boolean;
       messageCount: number;
       distanceBottom: number;
     }> = [];
@@ -534,11 +546,15 @@ test("read conversations expose only their final bottom position while switching
       const sample = {
         busy: list.getAttribute("aria-busy"),
         placeholder: Boolean(shell.querySelector(".message-positioning-placeholder")),
+        transitionCovered: document.documentElement.classList.contains(
+          "is-conversation-view-transition",
+        ),
         messageCount: list.querySelectorAll("[data-message-id]").length,
         distanceBottom: Math.round(list.scrollHeight - list.clientHeight - list.scrollTop),
       };
       samples.push(sample);
-      settledFrames = sample.busy === "false" && sample.messageCount > 0
+      settledFrames = sample.busy === "false" && sample.messageCount > 0 &&
+          !sample.transitionCovered
         ? settledFrames + 1
         : 0;
       if (settledFrames >= 8) break;
@@ -546,9 +562,14 @@ test("read conversations expose only their final bottom position while switching
     return samples;
   });
   const expectOnlyBottomFrames = (frames: Awaited<ReturnType<typeof sampleChenSwitch>>) => {
-    const exposed = frames.filter((frame) => !frame.placeholder && frame.messageCount > 0);
-    expect(exposed.length, JSON.stringify(frames)).toBeGreaterThan(0);
-    expect(Math.max(...exposed.map((frame) => Math.abs(frame.distanceBottom))))
+    const exposed = frames.filter(
+      (frame) => !frame.placeholder && !frame.transitionCovered && frame.messageCount > 0,
+    );
+    const positioned = exposed.length > 0
+      ? exposed
+      : frames.filter((frame) => frame.messageCount > 0).slice(-1);
+    expect(positioned.length, JSON.stringify(frames)).toBeGreaterThan(0);
+    expect(Math.max(...positioned.map((frame) => Math.abs(frame.distanceBottom))))
       .toBeLessThanOrEqual(40);
   };
 
@@ -629,7 +650,7 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   expect(timing.firstMessageMs!).toBeLessThan(100);
   expect(timing.contentMs).toBeDefined();
   expect(timing.contentMs!).toBeLessThan(300);
-  expect(timing.placeholderFrames).toBeLessThanOrEqual(12);
+  expect(timing.placeholderFrames).toBe(0);
   expect(timing.emptyFramesAfterHeader).toBeLessThanOrEqual(1);
 
   await product.click();
@@ -1565,7 +1586,14 @@ test("double-clicking a conversation repeatedly converges to its latest message"
     await page.mouse.wheel(0, -900);
     await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
       .toBeGreaterThan(100);
+    const listNode = await messageList.elementHandle();
+    if (!listNode) throw new Error("Message list is not mounted");
     await product.dblclick();
+    expect(await page.evaluate(
+      (node) => node === document.querySelector(".message-list"),
+      listNode,
+    )).toBe(true);
+    await listNode.dispose();
     await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
       .toBeLessThanOrEqual(1);
     await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
