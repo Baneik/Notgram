@@ -1,5 +1,6 @@
 import { Archive, CheckCheck, LoaderCircle, Pin, Search } from "lucide-react";
 import {
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -112,6 +113,18 @@ export function ChatSidebar({
   } | undefined>(undefined);
   const pinnedDropTargetRef = useRef<typeof pinnedDropTarget>(undefined);
   const suppressNextChatClickRef = useRef(false);
+  const onSelectRef = useRef(onSelect);
+  const onOpenLatestRef = useRef(onOpenLatest);
+  const chatsRef = useRef(chats);
+  const folderIdRef = useRef(folderId);
+  const onReorderPinnedRef = useRef(onReorderPinned);
+  onSelectRef.current = onSelect;
+  onOpenLatestRef.current = onOpenLatest;
+  chatsRef.current = chats;
+  folderIdRef.current = folderId;
+  onReorderPinnedRef.current = onReorderPinned;
+  const stableSelectChat = useCallback((chatId: string) => onSelectRef.current(chatId), []);
+  const stableOpenLatest = useCallback((chatId: string) => onOpenLatestRef.current(chatId), []);
   const [contextMenu, setContextMenu] = useState<{
     chatId: string;
     point: ContextMenuPoint;
@@ -121,8 +134,8 @@ export function ChatSidebar({
   const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
   const selectChatFromClick = useCallback((chatId: string) => {
     if (suppressNextChatClickRef.current) return;
-    onSelect(chatId);
-  }, [onSelect]);
+    stableSelectChat(chatId);
+  }, [stableSelectChat]);
   const openContextMenu = useCallback((
     chatId: string,
     point: ContextMenuPoint,
@@ -133,14 +146,14 @@ export function ChatSidebar({
 
   const pinnedReorderEnabled = searchQuery.trim().length === 0;
 
-  const setDropTarget = (target: typeof pinnedDropTarget) => {
+  const setDropTarget = useCallback((target: typeof pinnedDropTarget) => {
     const current = pinnedDropTargetRef.current;
     if (current?.chatId === target?.chatId && current?.edge === target?.edge) return;
     pinnedDropTargetRef.current = target;
     setPinnedDropTarget(target);
-  };
+  }, []);
 
-  const beginPinnedDrag = (event: PointerEvent<HTMLButtonElement>, chatId: string) => {
+  const beginPinnedDrag = useCallback((event: PointerEvent<HTMLButtonElement>, chatId: string) => {
     if (event.button !== 0 || !pinnedReorderEnabled) return;
     pinnedDragRef.current = {
       pointerId: event.pointerId,
@@ -151,9 +164,9 @@ export function ChatSidebar({
       element: event.currentTarget,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-  };
+  }, [pinnedReorderEnabled]);
 
-  const movePinnedDrag = (event: PointerEvent<HTMLButtonElement>) => {
+  const movePinnedDrag = useCallback((event: PointerEvent<HTMLButtonElement>) => {
     const drag = pinnedDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (!drag.moved) {
@@ -181,9 +194,9 @@ export function ChatSidebar({
       chatId,
       edge: event.clientY < bounds.top + bounds.height / 2 ? "before" : "after",
     });
-  };
+  }, [setDropTarget]);
 
-  const finishPinnedDrag = (
+  const finishPinnedDrag = useCallback((
     event: PointerEvent<HTMLButtonElement>,
     cancelled = false,
   ) => {
@@ -197,14 +210,14 @@ export function ChatSidebar({
       suppressNextChatClickRef.current = true;
       globalThis.setTimeout(() => { suppressNextChatClickRef.current = false; }, 0);
       if (!cancelled && target) {
-        const pinnedIds = chats
-          .filter((chat) => isChatPinnedInFolder(chat, folderId))
+        const pinnedIds = chatsRef.current
+          .filter((chat) => isChatPinnedInFolder(chat, folderIdRef.current))
           .map((chat) => chat.id);
         const reordered = pinnedIds.filter((id) => id !== drag.chatId);
         const targetIndex = reordered.indexOf(target.chatId);
         if (targetIndex >= 0) {
           reordered.splice(targetIndex + (target.edge === "after" ? 1 : 0), 0, drag.chatId);
-          onReorderPinned(reordered);
+          onReorderPinnedRef.current(reordered);
         }
       }
     }
@@ -214,7 +227,11 @@ export function ChatSidebar({
     }
     setDraggedPinnedChatId(undefined);
     setDropTarget(undefined);
-  };
+  }, [setDropTarget]);
+  const cancelPinnedDrag = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => finishPinnedDrag(event, true),
+    [finishPinnedDrag],
+  );
 
   const maximumWidth = () => {
     const left = sidebarRef.current?.getBoundingClientRect().left ?? 86;
@@ -398,7 +415,7 @@ export function ChatSidebar({
                   : undefined}
                 folderId={folderId}
                 active={activeChatId === chat.id}
-                onOpenLatest={onOpenLatest}
+                onOpenLatest={stableOpenLatest}
                 onOpenContextMenu={openContextMenu}
                 pinnedDraggable={pinnedReorderEnabled && isChatPinnedInFolder(chat, folderId)}
                 dragging={draggedPinnedChatId === chat.id}
@@ -409,8 +426,8 @@ export function ChatSidebar({
                 onPointerDown={beginPinnedDrag}
                 onPointerMove={movePinnedDrag}
                 onPointerUp={finishPinnedDrag}
-                onPointerCancel={(event) => finishPinnedDrag(event, true)}
-                onLostPointerCapture={(event) => finishPinnedDrag(event, true)}
+                onPointerCancel={cancelPinnedDrag}
+                onLostPointerCapture={cancelPinnedDrag}
               />
             ))
           )}
@@ -463,7 +480,7 @@ export function ChatSidebar({
   );
 }
 
-function ChatRow({
+const ChatRow = memo(function ChatRow({
   chat,
   previewSenderName,
   folderId,
@@ -571,4 +588,4 @@ function ChatRow({
       </span>
     </button>
   );
-}
+});
