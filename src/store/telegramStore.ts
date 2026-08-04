@@ -51,6 +51,9 @@ export type {
 } from "./telegramStore.types";
 export { filterAndSortChats, selectVisibleChats } from "./telegramStore.selectors";
 
+const CACHE_WRITE_DELAY_MS = 2_000;
+const CACHE_WRITE_IDLE_TIMEOUT_MS = 1_500;
+
 const errorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
@@ -67,6 +70,7 @@ export const createTelegramStore = (
 ) =>
   createStore<TelegramState>((set, get) => {
     let cacheTimer: ReturnType<typeof setTimeout> | undefined;
+    let cacheIdleCallback: number | undefined;
     let cacheWrite = Promise.resolve();
     const cachedMessageIds = new Map<string, Set<string>>();
     let accountTransition = false;
@@ -115,22 +119,49 @@ export const createTelegramStore = (
       typingTimers.clear();
     };
 
+    const cancelScheduledCacheWrite = () => {
+      if (cacheTimer) globalThis.clearTimeout(cacheTimer);
+      cacheTimer = undefined;
+      if (cacheIdleCallback !== undefined && typeof globalThis.cancelIdleCallback === "function") {
+        globalThis.cancelIdleCallback(cacheIdleCallback);
+      }
+      cacheIdleCallback = undefined;
+    };
+
     const scheduleCacheWrite = () => {
       const state = get();
-      if (state.authorization.kind !== "ready" || !state.currentUserId || cacheTimer) {
+      if (
+        state.authorization.kind !== "ready" ||
+        !state.currentUserId ||
+        cacheTimer ||
+        cacheIdleCallback !== undefined
+      ) {
         return;
       }
       cacheTimer = globalThis.setTimeout(() => {
         cacheTimer = undefined;
-        const current = get();
-        if (current.authorization.kind !== "ready" || !current.currentUserId) return;
-        const snapshot = cachedSnapshotFrom(current);
-        cacheWrite = cacheWrite
-          .catch(() => undefined)
-          .then(() => transport.saveCachedSnapshot(snapshot))
-          .then(() => set({ cacheHealth: "healthy" }))
-          .catch(() => set({ cacheHealth: "invalid" }));
-      }, 600);
+        const writeSnapshot = () => {
+          cacheIdleCallback = undefined;
+          const current = get();
+          if (current.authorization.kind !== "ready" || !current.currentUserId) return;
+          const snapshot = cachedSnapshotFrom(current);
+          cacheWrite = cacheWrite
+            .catch(() => undefined)
+            .then(() => transport.saveCachedSnapshot(snapshot))
+            .then(() => set({ cacheHealth: "healthy" }))
+            .catch(() => set({ cacheHealth: "invalid" }));
+        };
+        if (typeof globalThis.requestIdleCallback === "function") {
+          cacheIdleCallback = globalThis.requestIdleCallback(writeSnapshot, {
+            timeout: CACHE_WRITE_IDLE_TIMEOUT_MS,
+          });
+        } else {
+          cacheTimer = globalThis.setTimeout(() => {
+            cacheTimer = undefined;
+            writeSnapshot();
+          }, 0);
+        }
+      }, CACHE_WRITE_DELAY_MS);
     };
 
     const draftSync = new DraftSyncController({
@@ -147,8 +178,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
-      if (cacheTimer) globalThis.clearTimeout(cacheTimer);
-      cacheTimer = undefined;
+      cancelScheduledCacheWrite();
       cachedMessageIds.clear();
       draftSync.clear();
       clearTypingUsers();
@@ -217,10 +247,7 @@ export const createTelegramStore = (
     };
 
     const flushCachedSnapshot = async () => {
-      if (cacheTimer) {
-        globalThis.clearTimeout(cacheTimer);
-        cacheTimer = undefined;
-      }
+      cancelScheduledCacheWrite();
       await cacheWrite.catch(() => undefined);
       const state = get();
       if (state.authorization.kind === "ready" && state.currentUserId) {

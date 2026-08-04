@@ -4,16 +4,29 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{
+        Arc,
+        mpsc::{self, SyncSender, TrySendError},
+    },
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
+
+type LogRecord = (String, String, Value);
+
+enum LogCommand {
+    Runtime(Vec<LogRecord>),
+    Performance(Vec<LogRecord>),
+    #[cfg(test)]
+    Flush(mpsc::Sender<()>),
+}
 
 #[derive(Clone)]
 pub(super) struct RuntimeLogger {
     pub(super) path: Arc<PathBuf>,
     pub(super) performance_path: Arc<PathBuf>,
-    lock: Arc<Mutex<()>>,
+    sender: SyncSender<LogCommand>,
 }
 
 impl RuntimeLogger {
@@ -23,11 +36,10 @@ impl RuntimeLogger {
         let directory = program_directory()?.join("logs");
         fs::create_dir_all(&directory)
             .map_err(|error| format!("无法创建日志目录 {}: {error}", directory.display()))?;
-        let logger = Self {
-            path: Arc::new(directory.join("notgram.log")),
-            performance_path: Arc::new(directory.join("notgram-performance.log")),
-            lock: Arc::new(Mutex::new(())),
-        };
+        let logger = Self::with_paths(
+            directory.join("notgram.log"),
+            directory.join("notgram-performance.log"),
+        )?;
         logger.write(
             "info",
             "logger_ready",
@@ -37,49 +49,129 @@ impl RuntimeLogger {
     }
 
     pub(super) fn write(&self, level: &str, event: &str, details: Value) {
-        self.write_records(
-            self.path.as_ref(),
-            "notgram.log.1",
-            vec![(level.to_string(), event.to_string(), details)],
-        );
+        self.enqueue(LogCommand::Runtime(vec![(
+            level.to_string(),
+            event.to_string(),
+            details,
+        )]));
     }
 
-    pub(super) fn write_performance_batch(&self, records: Vec<(String, String, Value)>) {
-        self.write_records(
-            self.performance_path.as_ref(),
-            "notgram-performance.log.1",
-            records,
-        );
+    pub(super) fn write_performance_batch(&self, records: Vec<LogRecord>) {
+        if !records.is_empty() {
+            self.enqueue(LogCommand::Performance(records));
+        }
     }
 
-    fn write_records(&self, path: &Path, backup_name: &str, records: Vec<(String, String, Value)>) {
-        if records.is_empty() {
-            return;
-        }
-        let _guard = self.lock.lock().expect("runtime logger mutex poisoned");
-        if fs::metadata(path).is_ok_and(|metadata| metadata.len() >= Self::MAX_FILE_SIZE) {
-            let backup = path.with_file_name(backup_name);
-            if backup.is_file() {
-                let _ = fs::remove_file(&backup);
-            }
-            let _ = fs::rename(path, backup);
-        }
+    fn with_paths(path: PathBuf, performance_path: PathBuf) -> Result<Self, String> {
+        let path = Arc::new(path);
+        let performance_path = Arc::new(performance_path);
+        let (sender, receiver) = mpsc::sync_channel(256);
+        let writer_path = Arc::clone(&path);
+        let writer_performance_path = Arc::clone(&performance_path);
+        thread::Builder::new()
+            .name("notgram-log-writer".to_string())
+            .spawn(move || {
+                while let Ok(first) = receiver.recv() {
+                    let mut runtime_records = Vec::new();
+                    let mut performance_records = Vec::new();
+                    let mut flushes = Vec::new();
+                    collect_command(
+                        first,
+                        &mut runtime_records,
+                        &mut performance_records,
+                        &mut flushes,
+                    );
+                    let deadline = Instant::now() + Duration::from_millis(10);
+                    while runtime_records.len() + performance_records.len() < 256 {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        if remaining.is_zero() {
+                            break;
+                        }
+                        match receiver.recv_timeout(remaining) {
+                            Ok(command) => collect_command(
+                                command,
+                                &mut runtime_records,
+                                &mut performance_records,
+                                &mut flushes,
+                            ),
+                            Err(_) => break,
+                        }
+                    }
+                    write_records(writer_path.as_ref(), "notgram.log.1", runtime_records);
+                    write_records(
+                        writer_performance_path.as_ref(),
+                        "notgram-performance.log.1",
+                        performance_records,
+                    );
+                    for flush in flushes {
+                        let _ = flush.send(());
+                    }
+                }
+            })
+            .map_err(|error| format!("无法启动日志写入线程: {error}"))?;
+        Ok(Self {
+            path,
+            performance_path,
+            sender,
+        })
+    }
 
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-            for (level, event, details) in records {
-                let timestamp_ms = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis();
-                let record = json!({
-                    "timestampMs": timestamp_ms,
-                    "level": level,
-                    "event": event,
-                    "details": sanitize_log_value(details),
-                });
-                let _ = serde_json::to_writer(&mut file, &record);
-                let _ = writeln!(file);
-            }
+    fn enqueue(&self, command: LogCommand) {
+        match self.sender.try_send(command) {
+            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+        }
+    }
+
+    #[cfg(test)]
+    fn flush(&self) {
+        let (sender, receiver) = mpsc::channel();
+        if self.sender.send(LogCommand::Flush(sender)).is_ok() {
+            let _ = receiver.recv_timeout(Duration::from_secs(2));
+        }
+    }
+}
+
+#[allow(unused_variables)]
+fn collect_command(
+    command: LogCommand,
+    runtime_records: &mut Vec<LogRecord>,
+    performance_records: &mut Vec<LogRecord>,
+    flushes: &mut Vec<mpsc::Sender<()>>,
+) {
+    match command {
+        LogCommand::Runtime(records) => runtime_records.extend(records),
+        LogCommand::Performance(records) => performance_records.extend(records),
+        #[cfg(test)]
+        LogCommand::Flush(sender) => flushes.push(sender),
+    }
+}
+
+fn write_records(path: &Path, backup_name: &str, records: Vec<LogRecord>) {
+    if records.is_empty() {
+        return;
+    }
+    if fs::metadata(path).is_ok_and(|metadata| metadata.len() >= RuntimeLogger::MAX_FILE_SIZE) {
+        let backup = path.with_file_name(backup_name);
+        if backup.is_file() {
+            let _ = fs::remove_file(&backup);
+        }
+        let _ = fs::rename(path, backup);
+    }
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        for (level, event, details) in records {
+            let timestamp_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let record = json!({
+                "timestampMs": timestamp_ms,
+                "level": level,
+                "event": event,
+                "details": sanitize_log_value(details),
+            });
+            let _ = serde_json::to_writer(&mut file, &record);
+            let _ = writeln!(file);
         }
     }
 }
@@ -178,11 +270,11 @@ mod tests {
                 .as_nanos(),
         ));
         fs::create_dir_all(&directory).expect("test directory should be created");
-        let logger = RuntimeLogger {
-            path: Arc::new(directory.join("notgram.log")),
-            performance_path: Arc::new(directory.join("notgram-performance.log")),
-            lock: Arc::new(Mutex::new(())),
-        };
+        let logger = RuntimeLogger::with_paths(
+            directory.join("notgram.log"),
+            directory.join("notgram-performance.log"),
+        )
+        .expect("logger writer should start");
 
         logger.write("info", "runtime_started", json!({}));
         logger.write_performance_batch(vec![
@@ -197,6 +289,7 @@ mod tests {
                 json!({ "durationMs": 120 }),
             ),
         ]);
+        logger.flush();
 
         let runtime = fs::read_to_string(logger.path.as_ref()).expect("runtime log should exist");
         let performance = fs::read_to_string(logger.performance_path.as_ref())

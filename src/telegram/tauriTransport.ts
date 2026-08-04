@@ -149,6 +149,23 @@ const replaceFileReference = (
   return { value: changed ? updated : value, changed };
 };
 
+const collectFileIds = (value: unknown, result: Set<number>) => {
+  if (Array.isArray(value)) {
+    for (const item of value) collectFileIds(item, result);
+    return;
+  }
+  const object = asTdObject(value);
+  if (!object) return;
+  const id = tdNumber(object.id);
+  if (id !== undefined && (
+    object["@type"] === "file" ||
+    ("local" in object && "remote" in object)
+  )) {
+    result.add(id);
+  }
+  for (const item of Object.values(object)) collectFileIds(item, result);
+};
+
 const messageIdAtMost = (messageId: string, lastReadId: string) => {
   try {
     return BigInt(messageId) <= BigInt(lastReadId);
@@ -164,11 +181,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   private listener?: TelegramEventListener;
   private accountStorage = new TauriAccountStorage();
   private unlistenUpdate?: UnlistenFn;
+  private unlistenUpdates?: UnlistenFn;
   private unlistenError?: UnlistenFn;
   private requestBroker = new TdRequestBroker();
   private rawChats = new Map<string, TdObject>();
   private rawUsers = new Map<string, TdObject>();
   private rawMessages = new Map<string, Map<string, TdObject>>();
+  private rawMessageFileIds = new Map<string, Set<number>>();
+  private fileMessageReferences = new Map<number, Set<string>>();
   private exhaustedHistories = new Set<string>();
   private historyCursors = new Map<string, number>();
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
@@ -236,6 +256,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.unlistenUpdate = await listen<TdObject>("telegram://update", (event) =>
       this.handleUpdate(event.payload),
     );
+    this.unlistenUpdates = await listen<TdObject[]>("telegram://updates", (event) => {
+      for (const update of event.payload) this.handleUpdate(update);
+    });
     this.unlistenError = await listen<{ message: string }>(
       "telegram://bridge-error",
       (event) => {
@@ -263,8 +286,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     } finally {
       this.emitConnectionStatus("offline");
       this.unlistenUpdate?.();
+      this.unlistenUpdates?.();
       this.unlistenError?.();
       this.unlistenUpdate = undefined;
+      this.unlistenUpdates = undefined;
       this.unlistenError = undefined;
       this.requestBroker.rejectAll(new Error("TDLib runtime 已关闭。"));
       this.listener = undefined;
@@ -1582,6 +1607,23 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.upsertChat({ ...current, chat_lists: lists });
   }
 
+  private indexMessageFiles(chatId: string, messageId: string, raw: TdObject) {
+    const reference = `${chatId}:${messageId}`;
+    for (const fileId of this.rawMessageFileIds.get(reference) ?? []) {
+      const references = this.fileMessageReferences.get(fileId);
+      references?.delete(reference);
+      if (references?.size === 0) this.fileMessageReferences.delete(fileId);
+    }
+    const fileIds = new Set<number>();
+    collectFileIds(raw, fileIds);
+    this.rawMessageFileIds.set(reference, fileIds);
+    for (const fileId of fileIds) {
+      const references = this.fileMessageReferences.get(fileId) ?? new Set<string>();
+      references.add(reference);
+      this.fileMessageReferences.set(fileId, references);
+    }
+  }
+
   private updateFile(file?: TdObject) {
     const fileId = tdNumber(file?.id);
     if (!file || fileId === undefined) return;
@@ -1609,11 +1651,15 @@ export class TauriTelegramTransport implements TelegramTransport {
       });
     }
 
-    for (const chatMessages of this.rawMessages.values()) {
-      for (const raw of [...chatMessages.values()]) {
-        const replaced = replaceFileReference(raw, fileId, file);
-        if (replaced.changed) this.emitMessage(asTdObject(replaced.value));
-      }
+    const references = [...(this.fileMessageReferences.get(fileId) ?? [])];
+    for (const reference of references) {
+      const separator = reference.indexOf(":");
+      const chatId = reference.slice(0, separator);
+      const messageId = reference.slice(separator + 1);
+      const raw = this.rawMessages.get(chatId)?.get(messageId);
+      if (!raw) continue;
+      const replaced = replaceFileReference(raw, fileId, file);
+      if (replaced.changed) this.emitMessage(asTdObject(replaced.value));
     }
 
     const fileName = this.pendingDownloads.get(fileId);
@@ -1643,6 +1689,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const chatMessages = this.rawMessages.get(message.chatId) ?? new Map<string, TdObject>();
     chatMessages.set(message.id, raw);
     this.rawMessages.set(message.chatId, chatMessages);
+    this.indexMessageFiles(message.chatId, message.id, raw);
     this.listener?.({ type: "message.upsert", message });
     this.ensureReplyContent(raw);
     this.ensureFullRichMessage(raw);
@@ -1657,6 +1704,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       const chatMessages = this.rawMessages.get(message.chatId) ?? new Map<string, TdObject>();
       chatMessages.set(message.id, raw);
       this.rawMessages.set(message.chatId, chatMessages);
+      this.indexMessageFiles(message.chatId, message.id, raw);
       const key = `${message.chatId}:${message.id}`;
       messages.set(key, message);
       uniqueRawMessages.set(key, raw);
@@ -1867,6 +1915,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawChats.clear();
     this.rawUsers.clear();
     this.rawMessages.clear();
+    this.rawMessageFileIds.clear();
+    this.fileMessageReferences.clear();
     this.exhaustedHistories.clear();
     this.historyCursors.clear();
     this.historyLoads.clear();

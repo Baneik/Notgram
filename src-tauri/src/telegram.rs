@@ -608,6 +608,8 @@ fn receive_loop(
     let mut poll_count = 0_u64;
     let mut update_count = 0_u64;
     let mut error_count = 0_u64;
+    let mut pending_updates = Vec::<Value>::new();
+    let mut last_update_emit = Instant::now();
     let mut consecutive_errors = 0_u32;
     let mut next_error_emit = Instant::now();
     let mut proxy_ready = false;
@@ -700,7 +702,7 @@ fn receive_loop(
                             );
                         }
                         if let Some(delayed) = delayed_authorization_update.take() {
-                            let _ = app.emit("telegram://update", delayed);
+                            pending_updates.push(delayed);
                         }
                     }
 
@@ -755,7 +757,13 @@ fn receive_loop(
 
                     let closed = authorization_state == Some("authorizationStateClosed");
                     if emit_update {
-                        let _ = app.emit("telegram://update", &update);
+                        pending_updates.push(update);
+                    }
+                    if pending_updates.len() >= 64
+                        || last_update_emit.elapsed() >= Duration::from_millis(8)
+                    {
+                        flush_pending_updates(&app, &mut pending_updates);
+                        last_update_emit = Instant::now();
                     }
                     if closed {
                         stop.store(true, Ordering::Release);
@@ -763,6 +771,8 @@ fn receive_loop(
                 }
             }
             Ok(None) => {
+                flush_pending_updates(&app, &mut pending_updates);
+                last_update_emit = Instant::now();
                 consecutive_errors = 0;
                 let elapsed = poll_started.elapsed();
                 if elapsed < Duration::from_millis(100) {
@@ -770,6 +780,8 @@ fn receive_loop(
                 }
             }
             Err(error) => {
+                flush_pending_updates(&app, &mut pending_updates);
+                last_update_emit = Instant::now();
                 error_count += 1;
                 consecutive_errors = consecutive_errors.saturating_add(1);
                 if let Some(logger) = &logger {
@@ -815,6 +827,14 @@ fn receive_loop(
         logger.write("info", "receive_loop_stopped", json!({}));
     }
     app.state::<TelegramRuntime>().mark_closed(client_id);
+}
+
+fn flush_pending_updates(app: &AppHandle, updates: &mut Vec<Value>) {
+    if updates.is_empty() {
+        return;
+    }
+    let batch = std::mem::take(updates);
+    let _ = app.emit("telegram://updates", batch);
 }
 
 fn api_credentials() -> Result<ApiCredentials, String> {
@@ -974,7 +994,10 @@ pub fn telegram_start(app: AppHandle, runtime: State<'_, TelegramRuntime>) -> Re
 }
 
 #[tauri::command]
-pub fn telegram_send(request: Value, runtime: State<'_, TelegramRuntime>) -> Result<(), String> {
+pub async fn telegram_send(
+    request: Value,
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<(), String> {
     validate_webview_tdlib_request(&request)?;
     runtime.send(&request)
 }

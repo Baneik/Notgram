@@ -73,6 +73,7 @@ const eventMetadata: Record<string, EventMetadata> = {
 };
 
 let monitoringInstalled = false;
+let historyInteractionStartedAt = Number.NEGATIVE_INFINITY;
 let historyInteractionUntil = 0;
 let nextRecordId = 1;
 let records: readonly PerformanceRecord[] = [];
@@ -81,6 +82,8 @@ let nativeFlushTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 let nativeFlushInFlight = false;
 const pendingNativeRecords: NativePerformanceRecord[] = [];
 const listeners = new Set<() => void>();
+const pendingInteractions = new Map<number, EventTimingEntry>();
+let interactionFlushTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
 const roundedDetails = (details: PerformanceDetails) => Object.fromEntries(
   Object.entries(details)
@@ -201,8 +204,12 @@ export const logPerformance = (event: string, details: PerformanceDetails) => {
 };
 
 export const markHistoryInteraction = () => {
-  historyInteractionUntil = performance.now() + HISTORY_CONTEXT_MS;
+  historyInteractionStartedAt = performance.now();
+  historyInteractionUntil = historyInteractionStartedAt + HISTORY_CONTEXT_MS;
 };
+
+const duringHistoryLoad = (startTime = performance.now()) =>
+  startTime >= historyInteractionStartedAt && startTime <= historyInteractionUntil;
 
 const targetKind = (target?: Node | null) => {
   if (!(target instanceof Element)) return 0;
@@ -257,7 +264,7 @@ const installLongFrameObserver = () => {
           styleLayoutDurationMs: entry.styleAndLayoutStart > 0
             ? Math.max(0, entry.startTime + entry.duration - entry.styleAndLayoutStart)
             : 0,
-          duringHistoryLoad: performance.now() <= historyInteractionUntil,
+          duringHistoryLoad: duringHistoryLoad(entry.startTime),
         });
       }
     }, { type: "long-animation-frame", buffered: true });
@@ -268,14 +275,13 @@ const installLongFrameObserver = () => {
       logPerformance("ui_long_task", {
         startTimeMs: entry.startTime,
         durationMs: entry.duration,
-        duringHistoryLoad: performance.now() <= historyInteractionUntil,
+        duringHistoryLoad: duringHistoryLoad(entry.startTime),
       });
     }
   }, { type: "longtask", buffered: true });
 };
 
-const installInteractionObserver = () => observe((entries) => {
-  for (const entry of entries as EventTimingEntry[]) {
+const logInteraction = (entry: EventTimingEntry) => {
     const inputDelayMs = Math.max(0, entry.processingStart - entry.startTime);
     const processingDurationMs = Math.max(0, entry.processingEnd - entry.processingStart);
     const presentationDelayMs = Math.max(
@@ -290,8 +296,31 @@ const installInteractionObserver = () => observe((entries) => {
       presentationDelayMs,
       interactionKind: interactionKind(entry.name),
       targetKind: targetKind(entry.target),
-      duringHistoryLoad: performance.now() <= historyInteractionUntil,
+      duringHistoryLoad: duringHistoryLoad(entry.startTime),
     });
+};
+
+const flushPendingInteractions = () => {
+  interactionFlushTimer = undefined;
+  const entries = [...pendingInteractions.values()];
+  pendingInteractions.clear();
+  for (const entry of entries) logInteraction(entry);
+};
+
+const installInteractionObserver = () => observe((entries) => {
+  for (const entry of entries as EventTimingEntry[]) {
+    const interactionId = entry.interactionId;
+    if (interactionId === undefined) {
+      logInteraction(entry);
+      continue;
+    }
+    const previous = pendingInteractions.get(interactionId);
+    if (!previous || entry.duration > previous.duration) {
+      pendingInteractions.set(interactionId, entry);
+    }
+  }
+  if (pendingInteractions.size > 0 && interactionFlushTimer === undefined) {
+    interactionFlushTimer = globalThis.setTimeout(flushPendingInteractions, 0);
   }
 }, { type: "event", buffered: true, durationThreshold: 40 } as PerformanceObserverInit);
 
@@ -301,7 +330,7 @@ const installLayoutShiftObserver = () => observe((entries) => {
     logPerformance("ui_layout_shift", {
       startTimeMs: entry.startTime,
       shiftScore: entry.value,
-      duringHistoryLoad: performance.now() <= historyInteractionUntil,
+      duringHistoryLoad: duringHistoryLoad(entry.startTime),
     });
   }
 }, { type: "layout-shift", buffered: true });

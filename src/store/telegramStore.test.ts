@@ -312,7 +312,7 @@ describe("telegram store", () => {
         store.getState().messages.get("chat-product")
           ?.find((message) => message.id === "p-4")?.permissions,
       ).toEqual(permissions);
-      await vi.advanceTimersByTimeAsync(601);
+      await vi.advanceTimersByTimeAsync(2_001);
 
       expect(transport.savedSnapshot).toMatchObject({
         version: 2,

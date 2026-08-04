@@ -222,8 +222,12 @@ pub fn telegram_clear_media_cache(
 }
 
 #[tauri::command]
-pub fn telegram_read_snapshot_cache(app: AppHandle) -> Result<Option<Value>, String> {
-    let snapshot = read_snapshot_cache_value(&app)?;
+pub async fn telegram_read_snapshot_cache(app: AppHandle) -> Result<Option<Value>, String> {
+    let worker_app = app.clone();
+    let snapshot =
+        tauri::async_runtime::spawn_blocking(move || read_snapshot_cache_value(&worker_app))
+            .await
+            .map_err(|error| format!("Unable to join UI cache reader: {error}"))??;
     if let Some(snapshot) = &snapshot {
         authorize_snapshot_assets(&app, snapshot)?;
     }
@@ -253,8 +257,14 @@ fn read_snapshot_cache_value(app: &AppHandle) -> Result<Option<Value>, String> {
 }
 
 #[tauri::command]
-pub fn telegram_write_snapshot_cache(app: AppHandle, snapshot: Value) -> Result<(), String> {
-    let path = snapshot_cache_path(&app)?;
+pub async fn telegram_write_snapshot_cache(app: AppHandle, snapshot: Value) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || write_snapshot_cache_value(&app, snapshot))
+        .await
+        .map_err(|error| format!("Unable to join UI cache writer: {error}"))?
+}
+
+fn write_snapshot_cache_value(app: &AppHandle, snapshot: Value) -> Result<(), String> {
+    let path = snapshot_cache_path(app)?;
     let temporary = path.with_extension("tmp");
     let backup = path.with_extension("bak");
     let serialized = serde_json::to_vec(&snapshot)
