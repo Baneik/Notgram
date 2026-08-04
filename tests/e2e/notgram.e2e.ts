@@ -1381,6 +1381,42 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 });
 
+test("window resizing and new messages preserve the user's follow intent", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 760 });
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+
+  await scrollAwayFromBottom(page);
+  const savedAnchor = await visibleMessageAnchor(page);
+  expect(savedAnchor.id).toBeTruthy();
+
+  await page.getByRole("textbox", { name: "消息内容" }).fill("缩放期间的锚点消息");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  for (const width of [1180, 1320, 1210, 1280]) {
+    await page.setViewportSize({ width, height: 760 });
+  }
+  await page.waitForTimeout(160);
+
+  const afterResize = await visibleMessageAnchor(page);
+  expect(afterResize.id).toBe(savedAnchor.id);
+  expect(Math.abs(afterResize.offset - savedAnchor.offset)).toBeLessThanOrEqual(2);
+  const jumpButton = page.getByRole("button", { name: "跳到最新消息，1 条新消息" });
+  await expect(jumpButton).toBeVisible();
+
+  await jumpButton.click();
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await page.getByRole("textbox", { name: "消息内容" }).fill("缩放期间自动跟随");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  for (const width of [1240, 1340, 1260, 1280]) {
+    await page.setViewportSize({ width, height: 760 });
+  }
+  await page.waitForTimeout(160);
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+});
+
 test("double-clicking a conversation repeatedly converges to its latest message", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');

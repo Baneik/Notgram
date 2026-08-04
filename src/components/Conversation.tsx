@@ -311,7 +311,6 @@ export function Conversation({
     jumpToLatest,
     followOutput,
     onTotalListHeightChanged,
-    onAtBottomStateChange,
     messageListHandlers,
   } = useConversationScroll({
     scope: scrollScope,
@@ -623,7 +622,6 @@ export function Conversation({
           restoreStateFrom={restoreStateFrom}
           skipAnimationFrameInResizeObserver
           totalListHeightChanged={onTotalListHeightChanged}
-          atBottomStateChange={onAtBottomStateChange}
           increaseViewportBy={{ top: 900, bottom: 280 }}
           minOverscanItemCount={{ top: 2, bottom: 2 }}
           {...messageListHandlers}

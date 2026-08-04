@@ -8,14 +8,11 @@ import {
   type UIEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { flushSync } from "react-dom";
 import type { IndexLocationWithAlign, StateSnapshot, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
 import { logPerformance, markHistoryInteraction } from "../utils/performanceMonitor";
 
 const BOTTOM_PROXIMITY_PX = 40;
-const POSITION_STABLE_MS = 48;
-const POSITION_TIMEOUT_MS = 360;
 
 interface ConversationScrollMemory {
   scrollTop: number;
@@ -205,6 +202,9 @@ export const useConversationScroll = ({
   const highlightTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const historyLoadPendingRef = useRef<string | undefined>(undefined);
   const historyRestoreFrameRef = useRef<number | undefined>(undefined);
+  const heightCorrectionTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(
+    undefined,
+  );
   const historyTraceRef = useRef<{
     key: string;
     startedAt: number;
@@ -376,11 +376,12 @@ export const useConversationScroll = ({
     memory: ConversationScrollMemory,
   ) => {
     cancelHistoryRestore();
-    const startedAt = performance.now();
+    let remainingCorrections = 8;
     const restore = () => {
       if (messageListRef.current !== element || !element.isConnected) return;
       restoreScrollMemory(element, memory, virtuosoRef.current, messageItemIndexesRef.current);
-      if (performance.now() - startedAt < 600) {
+      remainingCorrections -= 1;
+      if (remainingCorrections > 0) {
         historyRestoreFrameRef.current = requestAnimationFrame(restore);
       } else {
         historyRestoreFrameRef.current = undefined;
@@ -428,28 +429,23 @@ export const useConversationScroll = ({
   }, [currentScrollKey]);
 
   const onTotalListHeightChanged = useCallback(() => {
-    const element = messageListRef.current;
-    if (!element || !currentScrollKey || search) return;
+    if (!currentScrollKey || search) return;
     const stored = conversationScrollMemory.get(currentScrollKey);
     if (!stored?.followLatest) return;
-    requestAnimationFrame(() => {
-      if (messageListRef.current !== element) return;
-      const current = conversationScrollMemory.get(currentScrollKey);
-      if (current?.followLatest) element.scrollTop = element.scrollHeight;
-    });
-  }, [currentScrollKey, search]);
-
-  const onAtBottomStateChange = useCallback((atBottom: boolean) => {
-    const element = messageListRef.current;
-    if (atBottom || !element || !currentScrollKey || search) return;
-    const stored = conversationScrollMemory.get(currentScrollKey);
-    if (!stored?.followLatest) return;
-    requestAnimationFrame(() => {
-      if (messageListRef.current !== element) return;
-      const current = conversationScrollMemory.get(currentScrollKey);
-      if (current?.followLatest) element.scrollTop = element.scrollHeight;
-    });
-  }, [currentScrollKey, search]);
+    if (heightCorrectionTimerRef.current !== undefined) {
+      globalThis.clearTimeout(heightCorrectionTimerRef.current);
+    }
+    // Rich media and wrapping can change the measured content height after the
+    // initial range is mounted. Correct once after measurements become quiet;
+    // during live window resizing the timer keeps moving instead of creating a
+    // scroll/measure feedback loop on every ResizeObserver notification.
+    heightCorrectionTimerRef.current = globalThis.setTimeout(() => {
+      heightCorrectionTimerRef.current = undefined;
+      if (conversationScrollMemory.get(currentScrollKey)?.followLatest) {
+        scrollToLatestPosition();
+      }
+    }, 80);
+  }, [currentScrollKey, scrollToLatestPosition, search]);
 
   useLayoutEffect(() => {
     const renderStartedAt = performance.now();
@@ -619,7 +615,6 @@ export const useConversationScroll = ({
 
       if (previous.lastId !== lastId) {
         if (stored.followLatest) {
-          scrollToLatestPosition();
           pendingNewCount = 0;
           followLatest = true;
         } else {
@@ -689,95 +684,56 @@ export const useConversationScroll = ({
 
   useLayoutEffect(() => {
     if (!currentScrollKey) return;
-    let animationFrame: number | undefined;
+    let firstFrame: number | undefined;
+    let secondFrame: number | undefined;
+    let settleTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
     let cancelled = false;
     positionCorrectionIdentityRef.current = initialLocationIdentity;
-    const startedAt = performance.now();
-    let stableSince = startedAt;
-    let previousScrollHeight = -1;
-    let previousAnchorOffset: number | undefined;
-    const correctInitialPosition = () => {
-      if (cancelled) return;
-      const element = messageListRef.current;
-      const memory = conversationScrollMemory.get(currentScrollKey);
-      if (!element || !memory) {
-        animationFrame = requestAnimationFrame(correctInitialPosition);
-        return;
-      }
-      if (memory.followLatest) {
-        scrollToLatestPosition();
-      } else {
-        restoreScrollMemory(element, memory, virtuosoRef.current, messageItemIndexes);
-      }
-      const anchor = memory.anchorMessageId
-        ? element.querySelector<HTMLElement>(
-            `[data-message-id="${CSS.escape(memory.anchorMessageId)}"]`,
-          )
-        : undefined;
-      const anchorOffset = anchor
-        ? anchor.getBoundingClientRect().top - element.getBoundingClientRect().top
-        : undefined;
-      const latestMessageId = lastVisibleMessageIdRef.current;
-      const latestMessageMounted = Boolean(
-        latestMessageId && element.querySelector(
-          `[data-message-id="${CSS.escape(latestMessageId)}"]`,
-        ),
-      );
-      const positionStable = memory.followLatest
-        ? latestMessageMounted && distanceFromBottom(element) <= 1
-        : anchorOffset !== undefined && memory.anchorOffset !== undefined &&
-          Math.abs(anchorOffset - memory.anchorOffset) <= 1;
-      const layoutChanged = element.scrollHeight !== previousScrollHeight ||
-        (anchorOffset !== undefined && previousAnchorOffset !== undefined &&
-          Math.abs(anchorOffset - previousAnchorOffset) > 0.5);
-      const now = performance.now();
-      if (!positionStable || layoutChanged) stableSince = now;
-      previousScrollHeight = element.scrollHeight;
-      previousAnchorOffset = anchorOffset;
-      const layoutSettled = positionStable && now - stableSince >= POSITION_STABLE_MS;
-      const stabilizationTimedOut = now - startedAt >= POSITION_TIMEOUT_MS;
-      if (!layoutSettled && !stabilizationTimedOut) {
-        animationFrame = requestAnimationFrame(correctInitialPosition);
-      } else {
-        animationFrame = requestAnimationFrame(() => {
-          const finalElement = messageListRef.current;
-          const finalMemory = conversationScrollMemory.get(currentScrollKey);
-          if (cancelled || !finalElement || !finalMemory) return;
-          if (finalMemory.followLatest) finalElement.scrollTop = finalElement.scrollHeight;
+    // Virtuoso owns initial positioning through restoreStateFrom or
+    // initialTopMostItemIndex. Two frames only gate user scroll recording while
+    // the restored range mounts; they deliberately do not write scrollTop.
+    firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (cancelled) return;
+        const element = messageListRef.current;
+        const memory = conversationScrollMemory.get(currentScrollKey);
+        if (element && memory) {
+          if (memory.followLatest) scrollToLatestPosition();
           else restoreScrollMemory(
-            finalElement,
-            finalMemory,
+            element,
+            memory,
             virtuosoRef.current,
-            messageItemIndexes,
+            messageItemIndexesRef.current,
           );
-          flushSync(() => setPositionedScrollIdentity(initialLocationIdentity));
-          positionCorrectionIdentityRef.current = undefined;
-          if (finalMemory.followLatest) {
-            const maintainLatestDuringDeferredMeasurements = () => {
-              if (cancelled || messageListRef.current !== finalElement) return;
-              const currentMemory = conversationScrollMemory.get(currentScrollKey);
-              if (!currentMemory?.followLatest) return;
-              finalElement.scrollTop = finalElement.scrollHeight;
-              if (performance.now() - startedAt < POSITION_TIMEOUT_MS) {
-                animationFrame = requestAnimationFrame(maintainLatestDuringDeferredMeasurements);
-              }
-            };
-            animationFrame = requestAnimationFrame(maintainLatestDuringDeferredMeasurements);
+        }
+        settleTimer = globalThis.setTimeout(() => {
+          if (cancelled) return;
+          const settledElement = messageListRef.current;
+          const settledMemory = conversationScrollMemory.get(currentScrollKey);
+          if (settledElement && settledMemory) {
+            if (settledMemory.followLatest) scrollToLatestPosition();
+            else restoreScrollMemory(
+              settledElement,
+              settledMemory,
+              virtuosoRef.current,
+              messageItemIndexesRef.current,
+            );
           }
-        });
-      }
-    };
-    animationFrame = requestAnimationFrame(correctInitialPosition);
+          setPositionedScrollIdentity(initialLocationIdentity);
+          positionCorrectionIdentityRef.current = undefined;
+        }, 180);
+      });
+    });
     return () => {
       cancelled = true;
       if (positionCorrectionIdentityRef.current === initialLocationIdentity) {
         positionCorrectionIdentityRef.current = undefined;
       }
-      if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
+      if (firstFrame !== undefined) cancelAnimationFrame(firstFrame);
+      if (secondFrame !== undefined) cancelAnimationFrame(secondFrame);
+      if (settleTimer !== undefined) globalThis.clearTimeout(settleTimer);
     };
-  // Measurement-driven renders must not restart the masked stabilization window.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentScrollKey, initialLocationIdentity, messageListElement]);
+  }, [currentScrollKey, initialLocationIdentity, messageListElement, scrollToLatestPosition]);
 
   useLayoutEffect(() => {
     if (
@@ -877,6 +833,9 @@ export const useConversationScroll = ({
 
   useEffect(() => () => {
     if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
+    if (heightCorrectionTimerRef.current !== undefined) {
+      globalThis.clearTimeout(heightCorrectionTimerRef.current);
+    }
     cancelHistoryRestore();
   }, [cancelHistoryRestore]);
 
@@ -895,31 +854,6 @@ export const useConversationScroll = ({
       });
     };
   }, [currentScrollKey, firstVisibleMessageId, lastVisibleMessageId, search, virtualItemCount]);
-
-  useEffect(() => {
-    const element = messageListRef.current;
-    const content = element?.querySelector<HTMLElement>(".message-list-content");
-    if (!element || !content || !currentScrollKey || search) return;
-    let correctionTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-    const observer = new ResizeObserver(() => {
-      if (correctionTimer !== undefined) globalThis.clearTimeout(correctionTimer);
-      correctionTimer = globalThis.setTimeout(() => {
-        const stored = conversationScrollMemory.get(currentScrollKey);
-        if (!stored) return;
-        if (!stored.followLatest) return;
-        scrollToLatestPosition();
-        conversationScrollMemory.set(currentScrollKey, {
-          ...stored,
-          lastKnownMessageId: lastVisibleMessageIdRef.current,
-        });
-      }, 0);
-    });
-    observer.observe(content);
-    return () => {
-      observer.disconnect();
-      if (correctionTimer !== undefined) globalThis.clearTimeout(correctionTimer);
-    };
-  }, [currentScrollKey, search, scrollToLatestPosition]);
 
   useEffect(() => {
     const element = messageListRef.current;
@@ -1020,7 +954,6 @@ export const useConversationScroll = ({
     jumpToLatest,
     followOutput,
     onTotalListHeightChanged,
-    onAtBottomStateChange,
     messageListHandlers: {
       onWheel,
       onPointerDown,
