@@ -178,6 +178,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private unavailableRichMessageHydrations = new Set<string>();
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
+  private chatListIds = new Map<string, Set<string>>();
   private exhaustedChatLists = new Set<string>();
   private fileDownloads = new FileDownloadQueue(
     (request) => this.request(request),
@@ -1105,8 +1106,11 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async markChatRead(chatId: string) {
     const rawChat = this.rawChats.get(chatId) ?? await this.refreshChat(chatId);
+    const unreadCount = tdNumber(rawChat.unread_count) ?? 0;
+    const isMarkedAsUnread = rawChat.is_marked_as_unread === true;
+    if (unreadCount === 0 && !isMarkedAsUnread) return;
     const lastMessageId = tdNumber(asTdObject(rawChat.last_message)?.id);
-    if (lastMessageId !== undefined) {
+    if (unreadCount > 0 && lastMessageId !== undefined) {
       await this.request({
         "@type": "viewMessages",
         chat_id: numericId(chatId),
@@ -1115,12 +1119,19 @@ export class TauriTelegramTransport implements TelegramTransport {
         force_read: true,
       });
     }
-    await this.request({
-      "@type": "toggleChatIsMarkedAsUnread",
-      chat_id: numericId(chatId),
+    if (isMarkedAsUnread) {
+      await this.request({
+        "@type": "toggleChatIsMarkedAsUnread",
+        chat_id: numericId(chatId),
+        is_marked_as_unread: false,
+      });
+    }
+    this.upsertChat({
+      ...rawChat,
+      unread_count: 0,
       is_marked_as_unread: false,
+      last_read_inbox_message_id: lastMessageId ?? rawChat.last_read_inbox_message_id,
     });
-    await this.refreshChat(chatId);
   }
 
   private async loadNextHistoryPage(
@@ -1283,15 +1294,32 @@ export class TauriTelegramTransport implements TelegramTransport {
       limit: requestedCount,
     });
     const ids = Array.isArray(result.chat_ids) ? result.chat_ids.map(tdId).filter(Boolean) : [];
+    const loadedIds = this.chatListIds.get(key) ?? new Set<string>();
+    const newIds = ids.filter((id) => !loadedIds.has(id));
     this.chatListCounts.set(key, Math.max(previousCount, ids.length));
-    await Promise.all(
-      ids.map(async (id) => this.upsertChat(await this.request({
-        "@type": "getChat",
-        chat_id: numericId(id),
-      }))),
-    );
+    for (const id of ids) loadedIds.add(id);
+    this.chatListIds.set(key, loadedIds);
+
+    // Keep TDLib and React work bounded when a list grows or is restored from a
+    // large cache. Re-fetching every returned chat turns pagination into O(n^2).
+    const fetchedChats: Chat[] = [];
+    const batchSize = 8;
+    for (let index = 0; index < newIds.length; index += batchSize) {
+      const batch = await Promise.all(newIds.slice(index, index + batchSize).map(async (id) => {
+        const raw = this.rawChats.get(id) ?? await this.request({
+          "@type": "getChat",
+          chat_id: numericId(id),
+        });
+        this.rawChats.set(id, raw);
+        return mapTdChat(raw, this.currentUserId);
+      }));
+      fetchedChats.push(...batch.filter((chat): chat is Chat => Boolean(chat)));
+    }
+    if (fetchedChats.length > 0 && !this.initialChatSyncPending) {
+      this.listener?.({ type: "chats.upserted", chats: fetchedChats });
+    }
     return {
-      loadedCount: Math.max(0, ids.length - previousCount),
+      loadedCount: newIds.length,
       hasMore: !this.exhaustedChatLists.has(key),
     };
   }
@@ -1848,6 +1876,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.unavailableRichMessageHydrations.clear();
     this.chatListLoads.clear();
     this.chatListCounts.clear();
+    this.chatListIds.clear();
     this.exhaustedChatLists.clear();
     this.fileDownloads.reset();
     this.pendingDownloads.clear();

@@ -313,6 +313,8 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.filter((request) => request["@type"] === "loadChats")).toHaveLength(2);
     expect(requests.filter((request) => request["@type"] === "getChats")
       .map((request) => request.limit)).toEqual([2, 4, 5]);
+    expect(requests.filter((request) => request["@type"] === "getChat")
+      .map((request) => request.chat_id)).toEqual([3, 2, 1]);
   });
 
   it("loads only the main chat list during startup", async () => {
@@ -423,7 +425,7 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(3);
   });
 
-  it("leaves chats and marks the latest message as read through TDLib", async () => {
+  it("leaves chats and marks the latest message as read without redundant refreshes", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -452,13 +454,8 @@ describe("TauriTelegramTransport startup", () => {
         source: { "@type": "messageSourceChatHistory" },
         force_read: true,
       },
-      {
-        "@type": "toggleChatIsMarkedAsUnread",
-        chat_id: 7,
-        is_marked_as_unread: false,
-      },
     ]);
-    expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(2);
+    expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(1);
   });
 
   it("creates and renames folders with complete TDLib folder objects", async () => {
@@ -570,32 +567,28 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests[1]).toEqual({ "@type": "getChat", chat_id: 7 });
   });
 
-  it("refreshes known chats when a list page is revisited", async () => {
+  it("does not refetch a known chat when its list page is discovered", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const events: Parameters<TelegramEventListener>[0][] = [];
     const stale = rawChat(7, 1_700_000_007);
-    const refreshed = rawChat(7, 1_700_000_007);
-    refreshed.positions = [{
-      list: { "@type": "chatListMain" },
-      order: "1700000007",
-      is_pinned: true,
-    }];
+    const requests: TdObject[] = [];
     internal.listener = (event) => events.push(event);
     internal.upsertChat(stale);
     internal.finishInitialChatSync();
     internal.request = async (request) => {
+      requests.push(request);
       if (request["@type"] === "getChats") return { "@type": "chats", chat_ids: [7] };
-      if (request["@type"] === "getChat") return refreshed;
       return { "@type": "ok" };
     };
 
     await transport.loadMoreChats("main", 1);
 
     expect(events.at(-1)).toMatchObject({
-      type: "chat.upsert",
-      chat: { id: "7", pinned: true, pinnedFolderIds: ["main"] },
+      type: "chats.upserted",
+      chats: [{ id: "7", pinned: false }],
     });
+    expect(requests.filter((request) => request["@type"] === "getChat")).toEqual([]);
   });
 
   it("keeps a pinned position across transient empty position updates", () => {

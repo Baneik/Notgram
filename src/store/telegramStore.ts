@@ -1096,8 +1096,8 @@ export const createTelegramStore = (
         set({ activeChatId: chatId });
         scheduleCacheWrite();
         if (get().authorization.kind !== "ready") return;
-        await loadHistory(chatId, "ensure");
-        await markChatRead(chatId);
+        void loadHistory(chatId, "ensure");
+        void markChatRead(chatId);
       },
 
       loadMoreChats: loadChats,
