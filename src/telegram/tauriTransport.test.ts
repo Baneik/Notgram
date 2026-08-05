@@ -316,13 +316,18 @@ describe("TauriTelegramTransport startup", () => {
     }]);
   });
 
-  it("routes connection updates, ignores duplicates, and surfaces a stalled proxy", () => {
+  it("reopens stalled proxy connections with backoff and reports a persistent failure", async () => {
     vi.useFakeTimers();
     try {
       const transport = new TauriTelegramTransport();
       const internal = transport as unknown as TestableTransport;
       const events: Parameters<TelegramEventListener>[0][] = [];
+      const requests: TdObject[] = [];
       internal.listener = (event) => events.push(event);
+      internal.request = async (request) => {
+        requests.push(request);
+        return { "@type": "ok" };
+      };
 
       internal.handleUpdate({
         "@type": "updateConnectionState",
@@ -336,12 +341,18 @@ describe("TauriTelegramTransport startup", () => {
         "@type": "updateConnectionState",
         state: { "@type": "connectionStateConnectingToProxy" },
       });
-      vi.advanceTimersByTime(15_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(30_000);
       internal.handleUpdate({
         "@type": "updateConnectionState",
         state: { "@type": "connectionStateReady" },
       });
 
+      expect(requests).toEqual(Array.from({ length: 3 }, () => ({
+        "@type": "setNetworkType",
+        type: { "@type": "networkTypeOther" },
+      })));
       expect(events).toEqual([
         { type: "connection.changed", status: "waitingForNetwork" },
         { type: "connection.changed", status: "connecting" },
