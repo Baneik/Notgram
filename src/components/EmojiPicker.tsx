@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEventHandler,
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
 import type {
@@ -22,6 +23,8 @@ interface EmojiPickerProps {
   replyToMessageId?: string;
   onEmoji: (emoji: string) => void;
   onClose: () => void;
+  onPointerEnter?: PointerEventHandler<HTMLElement>;
+  onPointerLeave?: PointerEventHandler<HTMLElement>;
 }
 
 const RECENT_EMOJI_KEY = "notgram.recent-emojis";
@@ -153,6 +156,8 @@ export function EmojiPicker({
   replyToMessageId,
   onEmoji,
   onClose,
+  onPointerEnter,
+  onPointerLeave,
 }: EmojiPickerProps) {
   const loadEmojiPicker = useTelegramStore((state) => state.loadEmojiPicker);
   const loadStickerSet = useTelegramStore((state) => state.loadStickerSet);
@@ -278,6 +283,8 @@ export function EmojiPicker({
       className="emoji-picker"
       role="dialog"
       aria-label="表情、贴纸与 GIF"
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
     >
       <header className="emoji-picker-tabs" role="tablist" aria-label="内容类型">
         <button className={tab === "emoji" ? "is-active" : ""} type="button" role="tab" aria-selected={tab === "emoji"} onClick={() => { setTab("emoji"); setQuery(""); }}>

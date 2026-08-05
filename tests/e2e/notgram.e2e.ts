@@ -123,8 +123,17 @@ test("standalone settings update the still-interactive main window", async ({ pa
   await expect(settings.locator(".window-chrome")).not.toContainText("设置");
   await expect(settings.locator(".window-controls > button")).toHaveCount(3);
   await expect(settings.getByRole("button", { name: "关闭", exact: true })).toHaveCount(0);
-  await expect(settings.getByRole("heading", { name: "设置", exact: true })).toHaveCount(1);
-  await settings.getByRole("button", { name: /聊天设置/ }).click();
+  const settingsTitle = settings.getByRole("heading", { name: "设置", exact: true });
+  const accountCategory = settings.getByRole("button", { name: /我的账号/ });
+  const chatCategory = settings.getByRole("button", { name: /聊天设置/ });
+  await expect(settingsTitle).toBeFocused();
+  await expect(settingsTitle).toHaveCSS("outline-style", "none");
+  await expect(accountCategory).not.toBeFocused();
+  await settings.keyboard.press("Tab");
+  await expect(accountCategory).toBeFocused();
+  expect(await accountCategory.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+  await chatCategory.click();
+  expect(await chatCategory.evaluate((element) => element.matches(":focus-visible"))).toBe(false);
   await settings.getByRole("spinbutton", { name: "消息字体大小" }).fill("19");
   await expect(page.locator(".message-rich-text").first()).toHaveCSS("font-size", "19px");
 
@@ -301,6 +310,35 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await expect(animation).toBeVisible();
   await animation.click();
   await expect(page.locator('[data-media-type="animation"]').last()).toBeVisible();
+});
+
+test("sticker picker uses deliberate hover intent and closes promptly", async ({ page }) => {
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "表情", exact: true });
+  const picker = page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
+
+  await trigger.hover();
+  await page.waitForTimeout(140);
+  await expect(picker).toBeHidden();
+  await expect(picker).toBeVisible({ timeout: 500 });
+
+  const pickerBox = await picker.boundingBox();
+  expect(pickerBox?.height).toBeGreaterThanOrEqual(600);
+  await trigger.click();
+  await expect(picker).toBeVisible();
+  await picker.hover();
+  await page.waitForTimeout(140);
+  await expect(picker).toBeVisible();
+
+  await page.getByRole("textbox", { name: "消息内容" }).hover();
+  await expect(picker).toBeHidden({ timeout: 300 });
+
+  await trigger.click();
+  await expect(picker).toBeVisible();
+  await page.getByRole("textbox", { name: "消息内容" }).fill("发送时关闭贴纸面板");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  await expect(picker).toBeHidden();
+  await expect(page.getByText("发送时关闭贴纸面板", { exact: true })).toBeVisible();
 });
 
 test("message copy supports text and image clipboard payloads", async ({ page }) => {

@@ -46,6 +46,8 @@ interface ConversationComposerProps {
 const LOCAL_DRAFT_DELAY_MS = 750;
 const TYPING_REFRESH_MS = 4_000;
 const TYPING_IDLE_MS = 5_000;
+const EMOJI_HOVER_OPEN_DELAY_MS = 260;
+const EMOJI_HOVER_CLOSE_DELAY_MS = 80;
 
 export const ConversationComposer = memo(function ConversationComposer({
   chatId,
@@ -85,12 +87,65 @@ export const ConversationComposer = memo(function ConversationComposer({
   const typingRefreshRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const typingIdleRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const replyToMessageIdRef = useRef(replyingTo?.id ?? chatDraft?.replyToMessageId);
+  const emojiOpenTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const emojiOpenedByHoverRef = useRef(false);
 
   useComposerAutoResize(inputRef, draft, !composing, chatId);
 
   const focusComposer = useCallback(() => {
     globalThis.setTimeout(() => inputRef.current?.focus(), 0);
   }, [inputRef]);
+
+  const clearEmojiOpenTimer = useCallback(() => {
+    if (emojiOpenTimerRef.current) globalThis.clearTimeout(emojiOpenTimerRef.current);
+    emojiOpenTimerRef.current = undefined;
+  }, []);
+
+  const clearEmojiCloseTimer = useCallback(() => {
+    if (emojiCloseTimerRef.current) globalThis.clearTimeout(emojiCloseTimerRef.current);
+    emojiCloseTimerRef.current = undefined;
+  }, []);
+
+  const closeEmojiPicker = useCallback(() => {
+    clearEmojiOpenTimer();
+    clearEmojiCloseTimer();
+    emojiOpenedByHoverRef.current = false;
+    setEmojiPickerOpen(false);
+  }, [clearEmojiCloseTimer, clearEmojiOpenTimer]);
+
+  const scheduleEmojiPickerOpen = useCallback(() => {
+    clearEmojiCloseTimer();
+    if (editingMessage || emojiPickerOpen || emojiOpenTimerRef.current) return;
+    emojiOpenTimerRef.current = globalThis.setTimeout(() => {
+      emojiOpenTimerRef.current = undefined;
+      emojiOpenedByHoverRef.current = true;
+      setEmojiPickerOpen(true);
+    }, EMOJI_HOVER_OPEN_DELAY_MS);
+  }, [clearEmojiCloseTimer, editingMessage, emojiPickerOpen]);
+
+  const scheduleEmojiPickerClose = useCallback(() => {
+    clearEmojiOpenTimer();
+    clearEmojiCloseTimer();
+    emojiCloseTimerRef.current = globalThis.setTimeout(() => {
+      emojiCloseTimerRef.current = undefined;
+      emojiOpenedByHoverRef.current = false;
+      setEmojiPickerOpen(false);
+    }, EMOJI_HOVER_CLOSE_DELAY_MS);
+  }, [clearEmojiCloseTimer, clearEmojiOpenTimer]);
+
+  const toggleEmojiPicker = useCallback(() => {
+    clearEmojiOpenTimer();
+    clearEmojiCloseTimer();
+    setEmojiPickerOpen((open) => {
+      if (open && emojiOpenedByHoverRef.current) {
+        emojiOpenedByHoverRef.current = false;
+        return true;
+      }
+      emojiOpenedByHoverRef.current = false;
+      return !open;
+    });
+  }, [clearEmojiCloseTimer, clearEmojiOpenTimer]);
 
   const flushDraft = useCallback(() => {
     if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
@@ -202,8 +257,13 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [editingMessage, sendTypingStatus, stopTyping]);
 
   useEffect(() => {
-    if (editingMessage) setEmojiPickerOpen(false);
-  }, [editingMessage]);
+    if (editingMessage) closeEmojiPicker();
+  }, [closeEmojiPicker, editingMessage]);
+
+  useEffect(() => () => {
+    clearEmojiOpenTimer();
+    clearEmojiCloseTimer();
+  }, [clearEmojiCloseTimer, clearEmojiOpenTimer]);
 
   useEffect(() => () => {
     if (composingRef.current && !editingMessage) {
@@ -229,6 +289,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const submitMessage = async () => {
     const submitted = draftRef.current.trim();
     if (!submitted || sending) return;
+    closeEmojiPicker();
     if (editingMessage) {
       setSending(true);
       const edited = await onEditMessage(editingMessage.id, submitted);
@@ -273,7 +334,13 @@ export const ConversationComposer = memo(function ConversationComposer({
           chatId={chatId}
           replyToMessageId={replyingTo?.id ?? chatDraft?.replyToMessageId}
           onEmoji={insertEmoji}
-          onClose={() => setEmojiPickerOpen(false)}
+          onClose={closeEmojiPicker}
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") clearEmojiCloseTimer();
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") scheduleEmojiPickerClose();
+          }}
         />
       )}
       <input
@@ -383,7 +450,13 @@ export const ConversationComposer = memo(function ConversationComposer({
           aria-controls="emoji-picker"
           title="表情"
           disabled={Boolean(editingMessage)}
-          onClick={() => setEmojiPickerOpen((open) => !open)}
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") scheduleEmojiPickerOpen();
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") scheduleEmojiPickerClose();
+          }}
+          onClick={toggleEmojiPicker}
         >
           <Smile size={21} strokeWidth={1.8} />
         </button>

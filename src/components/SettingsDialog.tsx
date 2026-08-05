@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type FormEvent,
@@ -269,7 +270,12 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const ActiveIcon = active.icon;
   const activeEndpoint = draft.mode === "system" ? draft.system : draft.custom;
   const busy = pending || storagePending;
-  const dialogRef = useModalFocus<HTMLFormElement>(onClose, busy);
+  const settingsTitleRef = useRef<HTMLHeadingElement>(null);
+  const dialogRef = useModalFocus<HTMLFormElement>(
+    onClose,
+    busy,
+    standalone ? settingsTitleRef : undefined,
+  );
 
   const updatePreference = async <Key extends keyof AppPreferences>(
     key: Key,
@@ -309,7 +315,13 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
         onSubmit={submit}
       >
         <header className="settings-dialog-header">
-          <h2 id="settings-title">设置</h2>
+          <h2
+            ref={settingsTitleRef}
+            id="settings-title"
+            tabIndex={standalone ? -1 : undefined}
+          >
+            设置
+          </h2>
           {!standalone && (
             <button className="icon-button" type="button" aria-label="关闭" title="关闭" onClick={onClose}>
               <X size={19} />

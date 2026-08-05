@@ -902,7 +902,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .send-button:hover:not(:disabled) { color: #ffffff; background: var(--accent-strong); }
 .emoji-picker {
   position: absolute; right: 6px; bottom: 56px; z-index: 92;
-  width: min(430px, calc(100vw - 84px)); height: min(510px, calc(100vh - 110px)); min-height: 320px;
+  width: min(430px, calc(100vw - 84px)); height: min(610px, calc(100vh - 88px)); min-height: 360px;
   display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden;
   color: var(--ink); background: #ffffff; border: 1px solid #d7dee2; border-radius: 10px;
   box-shadow: 0 16px 44px rgba(20, 31, 38, 0.24);
@@ -1104,6 +1104,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   padding: 0 14px 0 20px; background: #ffffff; border-bottom: 1px solid var(--line);
 }
 .settings-dialog-header h2 { margin: 0; font-size: 19px; line-height: 1.2; font-weight: 650; }
+.settings-dialog-header h2:focus { outline: none; }
 .settings-categories {
   grid-column: 1; grid-row: 2; min-height: 0; padding: 8px 6px; overflow-y: auto;
   background: #f3f5f6; border-right: 1px solid var(--line);
@@ -1383,7 +1384,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .rail-account .avatar { width: 30px; height: 30px; }
   .rail-account > span:last-child { font-size: 10px; }
   .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
-  .emoji-picker { left: 6px; right: 6px; width: auto; height: min(480px, calc(100vh - 150px)); }
+  .emoji-picker { left: 6px; right: 6px; width: auto; height: min(560px, calc(100vh - 150px)); }
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
   .chat-sidebar, .conversation { grid-column: 1; grid-row: 1; }
   .contacts-view { grid-column: 1; grid-row: 1; }
