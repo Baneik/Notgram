@@ -1642,9 +1642,13 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   for (let index = 10; index >= 3; index -= 1) {
     await preview.getByRole("button", { name: `移除 paste-${index}.png` }).click();
   }
-  await preview.getByRole("button", { name: "发送附件" }).click();
+  await composer.fill("粘贴图片说明");
+  await composer.press("Enter");
   await expect(preview).toBeHidden();
-  await expect(page.locator('.media-album-grid img[alt^="paste-"]')).toHaveCount(2);
+  await expect(composer).toHaveValue("");
+  const sentAlbum = page.locator(".media-album", { hasText: "粘贴图片说明" });
+  await expect(sentAlbum.locator(".media-album-grid img")).toHaveCount(2);
+  await expect(sentAlbum.locator(".media-album-caption")).toHaveText("粘贴图片说明");
   await expect(composer).toBeFocused();
 
   await composer.evaluate((element) => {
@@ -1658,7 +1662,7 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   });
   await expect(preview.locator(".composer-file-preview")).toBeVisible();
   await expect(preview).toContainText("pasted-notes.txt");
-  await preview.getByRole("button", { name: "发送附件" }).click();
+  await composer.press("Enter");
   await expect(page.locator(".file-message", { hasText: "pasted-notes.txt" })).toBeVisible();
 });
 
@@ -1667,6 +1671,7 @@ test("unloaded media uses a blurred glass preview instead of exposing thumbnail 
   const preview = page.locator('[data-message-id="p-5"] .photo-preview');
   await expect(preview).toHaveClass(/is-preview-only/);
   await expect(preview.locator("img")).toHaveCSS("filter", /blur\(18px\)/);
+  await expect(page.locator('[data-message-id="p-video"] .photo-preview')).not.toHaveClass(/is-preview-only/);
 });
 
 test("chat switching and ordinary message interactions keep typing focus in the composer", async ({ page }) => {

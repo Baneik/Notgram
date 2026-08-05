@@ -1444,11 +1444,13 @@ export class TauriTelegramTransport implements TelegramTransport {
       /\.(?:jpe?g|png)$/i.test(file.name) && file.size <= 10 * 1024 * 1024;
     const photos = input.files.filter(isTelegramPhoto);
     const documents = input.files.filter((file) => !isTelegramPhoto(file));
+    let captionPending = input.caption;
     for (const group of [photos, documents]) {
       if (group.length === 0) continue;
       const files = await Promise.all(group.map(this.preparePastedFile));
-      const sent = await this.requestPreparedPastedFiles(input.chatId, files);
+      const sent = await this.requestPreparedPastedFiles(input.chatId, files, captionPending);
       if (!sent) return false;
+      captionPending = undefined;
     }
     return true;
   }
@@ -1526,8 +1528,12 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
-  private requestPreparedPastedFiles(chatId: string, files: PreparedPastedFile[]) {
-    return this.requestBroker.requestPreparedPastedFiles(chatId, files, (error) => {
+  private requestPreparedPastedFiles(
+    chatId: string,
+    files: PreparedPastedFile[],
+    caption?: string,
+  ) {
+    return this.requestBroker.requestPreparedPastedFiles(chatId, files, caption, (error) => {
       this.listener?.({ type: "sync.error", message: error.message, fatal: false });
     });
   }

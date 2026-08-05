@@ -79,13 +79,14 @@ describe("TdRequestBroker prepared files", () => {
     const reportError = vi.fn();
     broker = new TdRequestBroker(async (command, args) => {
       expect(command).toBe("telegram_send_pasted_files");
-      const input = args as { chatId: number; extra: string; files: unknown[] };
+      const input = args as { chatId: number; extra: string; files: unknown[]; caption?: string };
       expect(input.chatId).toBe(7);
       expect(input.files).toEqual([{
         name: "paste.png",
         mimeType: "image/png",
         dataBase64: "AQID",
       }]);
+      expect(input.caption).toBe("图片说明");
       broker.settle({ "@type": "messages", "@extra": input.extra });
       return true;
     });
@@ -94,7 +95,7 @@ describe("TdRequestBroker prepared files", () => {
       name: "paste.png",
       mimeType: "image/png",
       dataBase64: "AQID",
-    }], reportError)).resolves.toBe(true);
+    }], "图片说明", reportError)).resolves.toBe(true);
     expect(reportError).not.toHaveBeenCalled();
   });
 });

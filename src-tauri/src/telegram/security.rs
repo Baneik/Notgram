@@ -228,10 +228,17 @@ fn is_photo_upload(file: &crate::storage::UploadFileInfo) -> bool {
         && file.size <= 10 * 1024 * 1024
 }
 
-fn input_message_upload(file: &crate::storage::UploadFileInfo) -> Value {
+fn validate_upload_caption(caption: &str) -> Result<(), String> {
+    if caption.chars().count() > 1_024 || caption.contains('\0') {
+        return Err("Telegram media captions must contain at most 1024 characters".to_string());
+    }
+    Ok(())
+}
+
+fn input_message_upload(file: &crate::storage::UploadFileInfo, caption_text: &str) -> Value {
     let is_photo = is_photo_upload(file);
     let input_file = json!({ "@type": "inputFileLocal", "path": file.path });
-    let caption = json!({ "@type": "formattedText", "text": "", "entities": [] });
+    let caption = json!({ "@type": "formattedText", "text": caption_text, "entities": [] });
     if is_photo {
         json!({
             "@type": "inputMessagePhoto",
@@ -268,10 +275,20 @@ pub(super) fn prepared_file_request(
     extra: &str,
     file: &crate::storage::UploadFileInfo,
 ) -> Result<Value, String> {
+    prepared_file_request_with_caption(chat_id, extra, file, "")
+}
+
+pub(super) fn prepared_file_request_with_caption(
+    chat_id: i64,
+    extra: &str,
+    file: &crate::storage::UploadFileInfo,
+    caption: &str,
+) -> Result<Value, String> {
     if chat_id == 0 {
         return Err("Invalid Telegram chat identifier".to_string());
     }
     validate_webview_extra(extra)?;
+    validate_upload_caption(caption)?;
     Ok(json!({
         "@type": "sendMessage",
         "chat_id": chat_id,
@@ -279,20 +296,22 @@ pub(super) fn prepared_file_request(
         "reply_to": null,
         "options": null,
         "reply_markup": null,
-        "input_message_content": input_message_upload(file),
+        "input_message_content": input_message_upload(file, caption),
         "@extra": extra
     }))
 }
 
-pub(super) fn prepared_file_album_request(
+pub(super) fn prepared_file_album_request_with_caption(
     chat_id: i64,
     extra: &str,
     files: &[crate::storage::UploadFileInfo],
+    caption: &str,
 ) -> Result<Value, String> {
     if chat_id == 0 {
         return Err("Invalid Telegram chat identifier".to_string());
     }
     validate_webview_extra(extra)?;
+    validate_upload_caption(caption)?;
     if !(2..=10).contains(&files.len()) {
         return Err("Telegram albums require between 2 and 10 files".to_string());
     }
@@ -309,7 +328,9 @@ pub(super) fn prepared_file_album_request(
         "topic_id": null,
         "reply_to": null,
         "options": null,
-        "input_message_contents": files.iter().map(input_message_upload).collect::<Vec<_>>(),
+        "input_message_contents": files.iter().enumerate().map(|(index, file)| {
+            input_message_upload(file, if index == 0 { caption } else { "" })
+        }).collect::<Vec<_>>(),
         "@extra": extra
     }))
 }
@@ -583,7 +604,7 @@ mod tests {
             document_request["input_message_content"]["@type"],
             "inputMessageDocument"
         );
-        let album_request = prepared_file_album_request(
+        let album_request = prepared_file_album_request_with_caption(
             7,
             EXTRA,
             &[
@@ -593,6 +614,7 @@ mod tests {
                     size: 1_000_000,
                 },
             ],
+            "相册说明",
         )
         .unwrap();
         assert_eq!(album_request["@type"], "sendMessageAlbum");
@@ -603,8 +625,28 @@ mod tests {
                 .len(),
             2
         );
-        assert!(prepared_file_album_request(7, EXTRA, std::slice::from_ref(&photo)).is_err());
-        assert!(prepared_file_album_request(7, EXTRA, &[photo, large_photo]).is_err());
+        assert_eq!(
+            album_request["input_message_contents"][0]["caption"]["text"],
+            "相册说明"
+        );
+        assert_eq!(
+            album_request["input_message_contents"][1]["caption"]["text"],
+            ""
+        );
+        assert!(prepared_file_album_request_with_caption(
+            7,
+            EXTRA,
+            std::slice::from_ref(&photo),
+            ""
+        )
+        .is_err());
+        assert!(prepared_file_album_request_with_caption(
+            7,
+            EXTRA,
+            &[photo, large_photo],
+            ""
+        )
+        .is_err());
         assert!(validate_webview_tdlib_request(&photo_request).is_err());
     }
 

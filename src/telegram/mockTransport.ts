@@ -1088,11 +1088,11 @@ export class MockTelegramTransport implements TelegramTransport {
     return this.sendFiles({ chatId, files: [file] });
   }
 
-  async sendFiles({ chatId, files }: SendFilesInput) {
+  async sendFiles({ chatId, files, caption }: SendFilesInput) {
     if (files.length === 0) return false;
     const allPhotos = files.length > 1 && files.every((file) => file.type.startsWith("image/"));
     const albumId = allPhotos ? `mock-album-${crypto.randomUUID()}` : undefined;
-    for (const file of files) {
+    for (const [index, file] of files.entries()) {
       const isPhoto = file.type.startsWith("image/");
       const preview = isPhoto ? await previewDataUrl(file) : undefined;
       this.appendMessage({
@@ -1110,6 +1110,7 @@ export class MockTelegramTransport implements TelegramTransport {
               fileName: file.name,
               sizeLabel: readableFileSize(file.size),
               previewDataUrl: preview,
+              caption: index === 0 ? caption : undefined,
             }
           : {
               kind: "file",

@@ -40,7 +40,7 @@ interface ConversationComposerProps {
   onDraftChange: (chatId: string, text: string, replyToMessageId?: string) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
   onSendFile: (file?: File) => Promise<boolean>;
-  onSendFiles: (files: File[]) => Promise<boolean>;
+  onSendFiles: (files: File[], caption?: string) => Promise<boolean>;
   onCancelEditing: () => void;
   onCancelReply: () => void;
 }
@@ -323,15 +323,27 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   const sendPendingAttachments = async () => {
     if (attachmentPending || pendingAttachments.length === 0) return;
+    const caption = draftRef.current.trim();
     setAttachmentPending(true);
     try {
-      const sent = await onSendFiles(pendingAttachments.map((attachment) => attachment.file));
+      const sent = await onSendFiles(
+        pendingAttachments.map((attachment) => attachment.file),
+        caption || undefined,
+      );
       if (!sent) return;
       for (const attachment of pendingAttachments) {
         if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
       }
       setPendingAttachments([]);
       setAttachmentNotice(undefined);
+      if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = undefined;
+      pendingDraftRef.current = undefined;
+      localDraftDirtyRef.current = false;
+      draftRef.current = "";
+      setDraft("");
+      onDraftChange(chatId, "", undefined);
+      stopTyping();
       focusComposer();
     } finally {
       setAttachmentPending(false);
@@ -349,6 +361,11 @@ export const ConversationComposer = memo(function ConversationComposer({
   };
 
   const submitMessage = async () => {
+    if (!editingMessage && pendingAttachments.length > 0) {
+      closeEmojiPicker();
+      await sendPendingAttachments();
+      return;
+    }
     const submitted = draftRef.current.trim();
     if (!submitted || sending) return;
     closeEmojiPicker();
@@ -572,7 +589,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           type="button"
           aria-label={editingMessage ? "保存编辑" : "发送消息"}
           title={editingMessage ? "保存编辑" : "发送消息"}
-          disabled={!draft.trim() || sending}
+          disabled={(!draft.trim() && pendingAttachments.length === 0) || sending || attachmentPending}
           onClick={() => void submitMessage()}
         >
           {editingMessage

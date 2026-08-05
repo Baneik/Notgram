@@ -10,7 +10,11 @@ type TestableTransport = {
   bootstrap: () => Promise<void>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
   requestPreparedFile: (chatId: string) => Promise<boolean>;
-  requestPreparedPastedFiles: (chatId: string, files: unknown[]) => Promise<boolean>;
+  requestPreparedPastedFiles: (
+    chatId: string,
+    files: unknown[],
+    caption?: string,
+  ) => Promise<boolean>;
   requestPreparedProfilePhoto: () => Promise<boolean>;
   emitMessage: (message: TdObject) => void;
   handleUpdate: (update: TdObject) => void;
@@ -1608,11 +1612,12 @@ describe("TauriTelegramTransport message operations", () => {
   it("groups pasted Telegram photos separately from pasted documents", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
-    const groups: { chatId: string; names: string[] }[] = [];
-    internal.requestPreparedPastedFiles = async (chatId, files) => {
+    const groups: { chatId: string; names: string[]; caption?: string }[] = [];
+    internal.requestPreparedPastedFiles = async (chatId, files, caption) => {
       groups.push({
         chatId,
         names: (files as { name: string }[]).map((file) => file.name),
+        caption,
       });
       return true;
     };
@@ -1624,10 +1629,11 @@ describe("TauriTelegramTransport message operations", () => {
         new File(["document"], "notes.txt", { type: "text/plain" }),
         new File(["photo"], "second.jpg", { type: "image/jpeg" }),
       ],
+      caption: "一次说明",
     })).resolves.toBe(true);
     expect(groups).toEqual([
-      { chatId: "7", names: ["first.png", "second.jpg"] },
-      { chatId: "7", names: ["notes.txt"] },
+      { chatId: "7", names: ["first.png", "second.jpg"], caption: "一次说明" },
+      { chatId: "7", names: ["notes.txt"], caption: undefined },
     ]);
   });
 

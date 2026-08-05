@@ -59,6 +59,7 @@ export class TdRequestBroker {
   async requestPreparedPastedFiles(
     chatId: string,
     files: PreparedPastedFile[],
+    caption: string | undefined,
     onError: (error: Error) => void,
   ) {
     const extra = crypto.randomUUID();
@@ -68,6 +69,7 @@ export class TdRequestBroker {
         chatId: numericId(chatId),
         extra,
         files,
+        caption,
       });
       if (!sent) {
         this.preparedFiles.delete(extra);

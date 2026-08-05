@@ -528,6 +528,7 @@ export interface SendFileInput {
 export interface SendFilesInput {
   chatId: string;
   files: File[];
+  caption?: string;
 }
 
 export const TELEGRAM_ALBUM_MAX_ITEMS = 10;

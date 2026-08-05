@@ -167,7 +167,7 @@ export interface TelegramState {
   openDownloadDirectory: () => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   sendFile: (file?: File) => Promise<boolean>;
-  sendFiles: (files: File[]) => Promise<boolean>;
+  sendFiles: (files: File[], caption?: string) => Promise<boolean>;
   cancelFileUpload: (messageId: string) => Promise<void>;
   clearError: () => void;
   clearOperationError: () => void;

@@ -2071,11 +2071,11 @@ export const createTelegramStore = (
         }
       },
 
-      sendFiles: async (files) => {
+      sendFiles: async (files, caption) => {
         const chatId = get().activeChatId;
         if (!chatId || files.length === 0) return false;
         try {
-          const sent = await transport.sendFiles({ chatId, files });
+          const sent = await transport.sendFiles({ chatId, files, caption });
           if (sent) set({ operationError: undefined });
           return sent;
         } catch (error) {

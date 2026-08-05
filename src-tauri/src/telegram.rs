@@ -8,8 +8,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use libloading::Library;
 use runtime_log::RuntimeLogger;
 use security::{
-    prepared_file_album_request, prepared_file_request, prepared_profile_photo_request,
-    request_type_from_extra, validate_webview_extra, validate_webview_tdlib_request,
+    prepared_file_album_request_with_caption, prepared_file_request,
+    prepared_file_request_with_caption, prepared_profile_photo_request, request_type_from_extra,
+    validate_webview_extra, validate_webview_tdlib_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1208,9 +1209,11 @@ pub async fn telegram_send_pasted_files(
     chat_id: i64,
     extra: String,
     files: Vec<PastedUploadFile>,
+    caption: Option<String>,
     runtime: State<'_, TelegramRuntime>,
 ) -> Result<bool, String> {
     validate_webview_extra(&extra)?;
+    let caption = caption.unwrap_or_default();
     if chat_id == 0 || files.is_empty() || files.len() > MAX_PASTED_UPLOAD_FILES {
         return Err("Pasted uploads must contain between 1 and 10 files".to_string());
     }
@@ -1248,9 +1251,9 @@ pub async fn telegram_send_pasted_files(
     }
 
     let request = if prepared.len() == 1 {
-        prepared_file_request(chat_id, &extra, &prepared[0])?
+        prepared_file_request_with_caption(chat_id, &extra, &prepared[0], &caption)?
     } else {
-        prepared_file_album_request(chat_id, &extra, &prepared)?
+        prepared_file_album_request_with_caption(chat_id, &extra, &prepared, &caption)?
     };
     runtime.send(&request)?;
     Ok(true)
