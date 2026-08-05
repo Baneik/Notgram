@@ -352,6 +352,16 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .context-menu-panel button.is-danger { color: #d7323f; }
 .context-menu-panel button.is-danger:hover:not(:disabled),
 .context-menu-panel button.is-danger:focus-visible { background: #fff0f1; }
+.context-menu-window-page,
+.context-menu-window-page body,
+.context-menu-window-page body #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent !important; }
+.native-context-menu {
+  width: calc(100% - 12px); max-height: calc(100% - 12px); margin: 6px; overflow-x: hidden; overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(24, 34, 40, 0.24); pointer-events: auto;
+}
+.native-context-menu-group { display: contents; }
+.native-context-menu-children { padding: 2px 0 3px 12px; display: grid; gap: 2px; border-left: 1px solid var(--line); }
+.native-context-menu-children button { min-height: 36px; }
 .context-menu-chevron { color: var(--subtle); }
 .context-menu-surface[data-context-submenu-side="left"] .context-menu-chevron { transform: rotate(180deg); }
 .chat-folder-submenu { width: 190px; max-height: min(360px, calc(100vh - 16px)); overflow-y: auto; }

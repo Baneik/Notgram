@@ -1418,9 +1418,11 @@ test("keyboard navigation closes modals and completes message workflows", async 
   actionTrigger = await focusEditableMessage();
   await page.keyboard.press("Shift+F10");
   const reactionMenu = page.getByRole("menu", { name: "消息操作" });
-  await expect(reactionMenu.getByRole("button", { name: "回应 👍" })).toBeFocused();
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("Enter");
+  await expect(reactionMenu.getByRole("button", { name: /^回应/ })).toHaveCount(0);
+  await expect(reactionMenu.getByRole("menuitem").nth(0)).toHaveText("回复");
+  await expect(reactionMenu.getByRole("menuitem").nth(1)).toHaveText("转发");
+  await expect(reactionMenu.getByRole("menuitem").nth(2)).toHaveText("复制");
+  await page.keyboard.press("Escape");
   await expect(reactionMenu).toBeHidden();
   await expect(actionTrigger).toBeFocused();
 });
@@ -2445,6 +2447,8 @@ test("chat context menu manages folders, pinning, and group exit", async ({ page
   await miaRow.click({ button: "right" });
   let menu = page.getByRole("menu", { name: "会话操作：Mia Chen" });
   await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem").nth(0)).toHaveText("取消置顶");
+  await expect(menu.getByRole("menuitem").nth(1)).toHaveText("分组");
   await expect(menu.getByRole("menuitem", { name: "退出群组" })).toHaveCount(0);
   await menu.getByRole("menuitem", { name: "分组" }).click();
   await page.getByRole("menuitemcheckbox", { name: "添加到工作" }).click();

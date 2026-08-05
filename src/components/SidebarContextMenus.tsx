@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
+import { useNativeContextMenu } from "../contextMenu/nativeContextMenuBridge";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import type { Chat, ChatFolder } from "../telegram/types";
 import {
@@ -71,6 +72,49 @@ export function ChatContextMenu({
     }, 0);
   };
 
+  const nativeMenu = useNativeContextMenu({
+    label: `会话操作：${chat.title}`,
+    colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
+    items: [
+      {
+        id: "pin",
+        label: pinned ? "取消置顶" : "置顶",
+        icon: "pin",
+        disabled: busy,
+      },
+      {
+        id: "folders",
+        label: "分组",
+        icon: "folder",
+        disabled: busy || customFolders.length === 0,
+        children: customFolders.map((folder) => ({
+          id: `folder:${folder.id}`,
+          label: folder.title,
+          icon: "folder" as const,
+          checked: chat.folderIds.includes(folder.id),
+          disabled: busy,
+        })),
+      },
+      ...(chat.kind === "group" ? [{
+        id: "leave",
+        label: "退出群组",
+        icon: "leave" as const,
+        danger: true,
+        disabled: busy,
+      }] : []),
+    ],
+  }, point, (actionId) => {
+    onClose();
+    if (actionId === "pin") void onSetPinned(!pinned);
+    else if (actionId === "leave") onRequestLeave();
+    else if (actionId.startsWith("folder:")) {
+      const folderId = actionId.slice("folder:".length);
+      void onSetFolderMembership(folderId, !chat.folderIds.includes(folderId));
+    }
+  }, onClose);
+
+  if (nativeMenu) return null;
+
   return (
     <ContextMenuSurface
       label={`会话操作：${chat.title}`}
@@ -79,6 +123,19 @@ export function ChatContextMenu({
       onClose={onClose}
     >
       <ContextMenuPanel>
+        <button
+          type="button"
+          role="menuitem"
+          disabled={busy}
+          onClick={() => void run("pin", () => onSetPinned(!pinned))}
+        >
+          {action === "pin"
+            ? <LoaderCircle className="spin" size={17} />
+            : pinned
+              ? <PinOff size={17} strokeWidth={1.9} />
+              : <Pin size={17} strokeWidth={1.9} />}
+          <span>{pinned ? "取消置顶" : "置顶"}</span>
+        </button>
         <button
           type="button"
           role="menuitem"
@@ -92,19 +149,6 @@ export function ChatContextMenu({
           <FolderInput size={17} strokeWidth={1.9} />
           <span>分组</span>
           <ChevronRight className="context-menu-chevron" size={16} />
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          disabled={busy}
-          onClick={() => void run("pin", () => onSetPinned(!pinned))}
-        >
-          {action === "pin"
-            ? <LoaderCircle className="spin" size={17} />
-            : pinned
-              ? <PinOff size={17} strokeWidth={1.9} />
-              : <Pin size={17} strokeWidth={1.9} />}
-          <span>{pinned ? "取消置顶" : "置顶"}</span>
         </button>
         {chat.kind === "group" && (
           <button
@@ -188,6 +232,23 @@ export function FolderContextMenu({
     if (await onMarkRead()) onClose();
     else setMarkingRead(false);
   };
+
+  const nativeMenu = useNativeContextMenu({
+    label: `分组操作：${folder.title}`,
+    colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
+    items: [
+      ...(custom ? [{ id: "edit", label: "编辑文件夹", icon: "edit" as const, disabled: busy }] : []),
+      { id: "read", label: "标记为已读", icon: "check", disabled: busy || unreadCount === 0 },
+      ...(custom ? [{ id: "delete", label: "删除", icon: "trash" as const, danger: true, disabled: busy }] : []),
+    ],
+  }, point, (actionId) => {
+    onClose();
+    if (actionId === "edit") onEdit();
+    else if (actionId === "read") void onMarkRead();
+    else if (actionId === "delete") onRequestDelete();
+  }, onClose);
+
+  if (nativeMenu) return null;
 
   return (
     <ContextMenuSurface

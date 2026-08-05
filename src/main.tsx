@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { App } from "./app/App";
 import { SettingsWindow } from "./components/SettingsWindow";
 import { VideoWindow } from "./components/VideoWindow";
+import { ContextMenuWindow } from "./components/ContextMenuWindow";
 import { WindowChrome } from "./components/WindowChrome";
 import { installPerformanceMonitoring } from "./utils/performanceMonitor";
 import { installWebviewGuards } from "./utils/webviewGuards";
@@ -18,10 +19,11 @@ if (isTauri()) {
 
 const videoWindowId = new URLSearchParams(globalThis.location.search).get("videoWindow");
 const settingsWindow = new URLSearchParams(globalThis.location.search).has("settingsWindow");
+const contextMenuWindowId = new URLSearchParams(globalThis.location.search).get("contextMenuWindow");
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {videoWindowId ? <VideoWindow id={videoWindowId} /> : settingsWindow ? (
+    {contextMenuWindowId ? <ContextMenuWindow id={contextMenuWindowId} /> : videoWindowId ? <VideoWindow id={videoWindowId} /> : settingsWindow ? (
       <SettingsWindow />
     ) : (
       <div className="main-window-frame">

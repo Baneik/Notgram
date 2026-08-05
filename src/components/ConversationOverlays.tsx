@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { useNativeContextMenu, type NativeContextMenuItem } from "../contextMenu/nativeContextMenuBridge";
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, Message } from "../telegram/types";
@@ -20,13 +21,10 @@ import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard"
 import { Avatar } from "./Avatar";
 import { messageSummary } from "./conversationMessages";
 
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "👏", "😮"];
-
 interface MessageActionMenuProps {
   position: { left: number; top: number };
   message: Message;
   loading: boolean;
-  onReaction: (emoji: string, chosen: boolean) => void;
   onReply: () => void;
   onEdit: () => void;
   onForward: () => void;
@@ -43,7 +41,6 @@ export function MessageActionMenu({
   position,
   message,
   loading,
-  onReaction,
   onReply,
   onEdit,
   onForward,
@@ -57,6 +54,38 @@ export function MessageActionMenu({
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
   const menuRef = useRef<HTMLDivElement>(null);
+  const fallbackPosition = {
+    left: Math.max(8, Math.min(position.left, window.innerWidth - 184 - 8)),
+    top: Math.max(8, Math.min(position.top, window.innerHeight - 326 - 8)),
+  };
+  const nativeItems: NativeContextMenuItem[] = permissions ? [
+    ...(permissions.canReply ? [{ id: "reply", label: "回复", icon: "reply" as const }] : []),
+    ...(permissions.canForward ? [{ id: "forward", label: "转发", icon: "forward" as const }] : []),
+    { id: "copy", label: "复制", icon: "copy" },
+    ...(permissions.canEdit && message.content.kind === "text"
+      ? [{ id: "edit", label: "编辑", icon: "edit" as const }]
+      : []),
+    ...(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers
+      ? [{ id: "delete", label: "删除", icon: "trash" as const, danger: true }]
+      : []),
+    ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
+    ...(onDownloadVideo ? [{ id: "download", label: "下载视频", icon: "download" as const }] : []),
+    ...(onCopyRaw ? [{ id: "copy-raw", label: "复制原始消息", icon: "copy" as const }] : []),
+  ] : [{ id: "copy", label: "复制", icon: "copy" }];
+  const nativeMenu = useNativeContextMenu({
+    label: "消息操作",
+    colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
+    items: nativeItems,
+  }, { x: position.left, y: position.top }, (actionId) => {
+    if (actionId === "reply") onReply();
+    else if (actionId === "forward") onForward();
+    else if (actionId === "copy") onCopy();
+    else if (actionId === "edit") onEdit();
+    else if (actionId === "delete") onDelete();
+    else if (actionId === "play-window") onPlayInWindow?.();
+    else if (actionId === "download") onDownloadVideo?.();
+    else if (actionId === "copy-raw") onCopyRaw?.();
+  }, onDismiss);
   useContextMenuDismiss(menuRef, onDismiss);
   useEffect(() => {
     const timer = globalThis.setTimeout(() => {
@@ -64,6 +93,7 @@ export function MessageActionMenu({
     }, 0);
     return () => globalThis.clearTimeout(timer);
   }, [permissions]);
+  if (nativeMenu) return null;
   return (
     <div
       ref={menuRef}
@@ -71,28 +101,10 @@ export function MessageActionMenu({
       role="menu"
       aria-label="消息操作"
       tabIndex={-1}
-      style={{ left: position.left, top: position.top }}
+      style={fallbackPosition}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => handleMenuKeyboard(event, onClose)}
     >
-      {onPlayInWindow && (
-        <button type="button" role="menuitem" onClick={onPlayInWindow}>
-          <PictureInPicture2 size={16} strokeWidth={1.9} />
-          <span>以小窗播放</span>
-        </button>
-      )}
-      {onDownloadVideo && (
-        <button type="button" role="menuitem" onClick={onDownloadVideo}>
-          <Download size={16} strokeWidth={1.9} />
-          <span>下载视频</span>
-        </button>
-      )}
-      {onCopyRaw && (
-        <button type="button" role="menuitem" onClick={onCopyRaw}>
-          <Copy size={16} strokeWidth={1.9} />
-          <span>复制原始消息</span>
-        </button>
-      )}
       {!permissions ? (
         <>
           <button type="button" role="menuitem" onClick={onCopy}>
@@ -109,38 +121,10 @@ export function MessageActionMenu({
         </>
       ) : (
         <>
-          <div className="message-action-reactions" role="group" aria-label="表情回应">
-            {QUICK_REACTIONS.map((emoji) => {
-              const existing = message.interaction?.reactions.find(
-                (reaction) => reaction.type.kind === "emoji" && reaction.type.emoji === emoji,
-              );
-              return (
-                <button
-                  type="button"
-                  key={emoji}
-                  aria-label={`回应 ${emoji}`}
-                  className={existing?.chosen ? "is-chosen" : ""}
-                  onClick={() => onReaction(emoji, !existing?.chosen)}
-                >
-                  {emoji}
-                </button>
-              );
-            })}
-          </div>
-          <button type="button" role="menuitem" onClick={onCopy}>
-            <Copy size={16} strokeWidth={1.9} />
-            <span>复制</span>
-          </button>
           {permissions.canReply && (
             <button type="button" role="menuitem" onClick={onReply}>
               <Reply size={16} strokeWidth={1.9} />
               <span>回复</span>
-            </button>
-          )}
-          {permissions.canEdit && message.content.kind === "text" && (
-            <button type="button" role="menuitem" onClick={onEdit}>
-              <Edit3 size={16} strokeWidth={1.9} />
-              <span>编辑</span>
             </button>
           )}
           {permissions.canForward && (
@@ -149,10 +133,38 @@ export function MessageActionMenu({
               <span>转发</span>
             </button>
           )}
+          <button type="button" role="menuitem" onClick={onCopy}>
+            <Copy size={16} strokeWidth={1.9} />
+            <span>复制</span>
+          </button>
+          {permissions.canEdit && message.content.kind === "text" && (
+            <button type="button" role="menuitem" onClick={onEdit}>
+              <Edit3 size={16} strokeWidth={1.9} />
+              <span>编辑</span>
+            </button>
+          )}
           {(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers) && (
             <button className="is-danger" type="button" role="menuitem" onClick={onDelete}>
               <Trash2 size={16} strokeWidth={1.9} />
               <span>删除</span>
+            </button>
+          )}
+          {onPlayInWindow && (
+            <button type="button" role="menuitem" onClick={onPlayInWindow}>
+              <PictureInPicture2 size={16} strokeWidth={1.9} />
+              <span>以小窗播放</span>
+            </button>
+          )}
+          {onDownloadVideo && (
+            <button type="button" role="menuitem" onClick={onDownloadVideo}>
+              <Download size={16} strokeWidth={1.9} />
+              <span>下载视频</span>
+            </button>
+          )}
+          {onCopyRaw && (
+            <button type="button" role="menuitem" onClick={onCopyRaw}>
+              <Copy size={16} strokeWidth={1.9} />
+              <span>复制原始消息</span>
             </button>
           )}
         </>

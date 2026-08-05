@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "context-menu-window",
+  "description": "Restricted controls for reusable floating context menu windows",
+  "windows": ["context-menu-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-set-theme"
+  ]
+}

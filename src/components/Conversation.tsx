@@ -616,21 +616,17 @@ export function Conversation({
     top: number,
     returnFocus?: HTMLElement,
   ) => {
-    const menuWidth = 184;
-    const isVideoMessage = message.content.kind === "media" &&
-      ["video", "videoNote"].includes(message.content.mediaType);
-    const menuHeight = 250 + (developerMode ? 38 : 0) + (isVideoMessage ? 76 : 0);
     setActionMenu({
       messageId: message.id,
-      left: Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8)),
-      top: Math.max(8, Math.min(top, window.innerHeight - menuHeight - 8)),
+      left,
+      top,
       returnFocus,
     });
     if (message.permissions || actionLoadingId === message.id) return;
     setActionLoadingId(message.id);
     await onLoadMessageProperties(message.chatId, message.id);
     setActionLoadingId((current) => current === message.id ? undefined : current);
-  }, [actionLoadingId, developerMode, onLoadMessageProperties]);
+  }, [actionLoadingId, onLoadMessageProperties]);
 
   const copyRawMessage = async (message: Message) => {
     const raw = await onLoadRawMessage(message.chatId, message.id);
@@ -1038,10 +1034,6 @@ export function Conversation({
           position={actionMenu}
           message={actionMessage}
           loading={actionLoadingId === actionMessage.id}
-          onReaction={(emoji, chosen) => {
-            closeActionMenu(true);
-            void onSetMessageReaction(actionMessage.id, emoji, chosen);
-          }}
           onReply={() => startReply(actionMessage)}
           onEdit={() => startEditing(actionMessage)}
           onForward={() => startForwardSelection(actionMessage)}
