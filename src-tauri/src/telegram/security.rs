@@ -603,7 +603,7 @@ mod tests {
                 .len(),
             2
         );
-        assert!(prepared_file_album_request(7, EXTRA, &[photo.clone()]).is_err());
+        assert!(prepared_file_album_request(7, EXTRA, std::slice::from_ref(&photo)).is_err());
         assert!(prepared_file_album_request(7, EXTRA, &[photo, large_photo]).is_err());
         assert!(validate_webview_tdlib_request(&photo_request).is_err());
     }
