@@ -304,6 +304,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   private unavailableReplyHydrations = new Set<string>();
   private pendingRichMessageHydrations = new Set<string>();
   private unavailableRichMessageHydrations = new Set<string>();
+  private richMessageHydrationTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
+  private richMessageHydrationFailures = new Map<string, number>();
   private pendingSenderChatLoads = new Set<string>();
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
@@ -2106,16 +2108,25 @@ export class TauriTelegramTransport implements TelegramTransport {
   private ensureFullRichMessage(raw: TdObject) {
     const content = asTdObject(raw.content);
     const richMessage = asTdObject(content?.message);
-    if (content?.["@type"] !== "messageRichMessage" || richMessage?.is_full !== false) return;
     const chatId = tdId(raw.chat_id);
     const messageId = tdId(raw.id);
     if (!chatId || !messageId) return;
     const key = `${chatId}:${messageId}`;
+    if (content?.["@type"] !== "messageRichMessage" || richMessage?.is_full !== false) {
+      this.clearRichMessageHydration(key);
+      return;
+    }
     if (
       this.pendingRichMessageHydrations.has(key) ||
       this.unavailableRichMessageHydrations.has(key)
     ) return;
+    const scheduled = this.richMessageHydrationTimers.get(key);
+    if (scheduled) {
+      globalThis.clearTimeout(scheduled);
+      this.richMessageHydrationTimers.delete(key);
+    }
     this.pendingRichMessageHydrations.add(key);
+    let retry = false;
     void this.request({
       "@type": "getFullRichMessage",
       chat_id: numericId(chatId),
@@ -2125,18 +2136,42 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.unavailableRichMessageHydrations.add(key);
         return;
       }
+      this.richMessageHydrationFailures.delete(key);
       const latest = this.rawMessages.get(chatId)?.get(messageId);
       const latestContent = asTdObject(latest?.content);
       if (!latest || latestContent?.["@type"] !== "messageRichMessage") return;
+      retry = fullMessage.is_full === false;
       this.emitMessage({
         ...latest,
         content: { ...latestContent, message: fullMessage },
       });
     }).catch(() => {
-      this.unavailableRichMessageHydrations.add(key);
+      const failures = (this.richMessageHydrationFailures.get(key) ?? 0) + 1;
+      this.richMessageHydrationFailures.set(key, failures);
+      if (failures >= 8) this.unavailableRichMessageHydrations.add(key);
+      else retry = true;
     }).finally(() => {
       this.pendingRichMessageHydrations.delete(key);
+      if (retry && !this.unavailableRichMessageHydrations.has(key)) {
+        const failures = this.richMessageHydrationFailures.get(key) ?? 0;
+        const delay = Math.min(1_500, 420 * Math.max(1, failures));
+        const timer = globalThis.setTimeout(() => {
+          this.richMessageHydrationTimers.delete(key);
+          const latest = this.rawMessages.get(chatId)?.get(messageId);
+          if (latest) this.ensureFullRichMessage(latest);
+        }, delay);
+        this.richMessageHydrationTimers.set(key, timer);
+      }
     });
+  }
+
+  private clearRichMessageHydration(key: string) {
+    const timer = this.richMessageHydrationTimers.get(key);
+    if (timer) globalThis.clearTimeout(timer);
+    this.richMessageHydrationTimers.delete(key);
+    this.richMessageHydrationFailures.delete(key);
+    this.pendingRichMessageHydrations.delete(key);
+    this.unavailableRichMessageHydrations.delete(key);
   }
 
   private mapMessage(raw: TdObject) {
@@ -2289,6 +2324,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const ids = Array.isArray(update.message_ids) ? update.message_ids.map(tdId) : [];
     if (update.from_cache === true && update.is_permanent !== true) return;
     for (const messageId of ids) {
+      this.clearRichMessageHydration(`${chatId}:${messageId}`);
       this.rawMessages.get(chatId)?.delete(messageId);
       this.listener?.({ type: "message.remove", chatId, messageId });
     }
@@ -2311,6 +2347,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.unavailableReplyHydrations.clear();
     this.pendingRichMessageHydrations.clear();
     this.unavailableRichMessageHydrations.clear();
+    for (const timer of this.richMessageHydrationTimers.values()) globalThis.clearTimeout(timer);
+    this.richMessageHydrationTimers.clear();
+    this.richMessageHydrationFailures.clear();
     this.pendingSenderChatLoads.clear();
     this.chatListLoads.clear();
     this.chatListCounts.clear();

@@ -1395,6 +1395,20 @@ test("unloaded media uses a blurred glass preview instead of exposing thumbnail 
   await expect(preview.locator("img")).toHaveCSS("filter", /blur\(18px\)/);
 });
 
+test("chat switching and ordinary message interactions keep typing focus in the composer", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await expect(composer).toBeFocused();
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(composer).toBeFocused();
+  await page.locator('[data-message-id="m-3"] .message-rich-text').click();
+  await expect(composer).toBeFocused();
+
+  await page.getByRole("button", { name: "搜索消息" }).click();
+  await expect(page.getByRole("searchbox", { name: "搜索当前对话" })).toBeFocused();
+});
+
 test("user profiles expose account identifiers and data-center information", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Mia Chen/ }).first().click();

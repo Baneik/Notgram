@@ -398,6 +398,11 @@ export function RichMessageContent({
       dir={isRtl ? "rtl" : "auto"}
     >
       {renderBlocks(blocks, "rich-message", context)}
+      {!isFull && (
+        <span className="rich-streaming-indicator" role="status" aria-label="正在接收消息">
+          <span />
+        </span>
+      )}
     </div>
   );
 }

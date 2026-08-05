@@ -601,6 +601,15 @@ export function Conversation({
   return (
     <section
       className={`conversation ${searchOpen ? "has-message-search" : ""} ${selectionMode ? "is-selecting-messages" : ""}`}
+      onPointerUp={(event) => {
+        if (event.button !== 0 || selectionMode) return;
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (target.closest("button, a, input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
+        const selection = globalThis.getSelection();
+        if (selection && !selection.isCollapsed) return;
+        composerInputRef.current?.focus({ preventScroll: true });
+      }}
       aria-label={`${chat.title} 对话`}
     >
       <header className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>

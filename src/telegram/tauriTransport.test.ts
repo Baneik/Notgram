@@ -958,6 +958,60 @@ describe("TauriTelegramTransport message operations", () => {
     });
   });
 
+  it("keeps polling partial rich messages and emits every incremental snapshot", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new TauriTelegramTransport();
+      const internal = transport as unknown as TestableTransport;
+      const events: Parameters<TelegramEventListener>[0][] = [];
+      const requests: TdObject[] = [];
+      internal.listener = (event) => events.push(event);
+      internal.request = async (request) => {
+        requests.push(request);
+        const complete = requests.length > 1;
+        return {
+          "@type": "richMessage",
+          is_full: complete,
+          is_rtl: false,
+          blocks: [{
+            "@type": "pageBlockParagraph",
+            text: { "@type": "richTextPlain", text: complete ? "complete" : "incremental" },
+          }],
+        };
+      };
+      internal.emitMessage({
+        ...rawMessage(15),
+        content: {
+          "@type": "messageRichMessage",
+          message: {
+            "@type": "richMessage",
+            is_full: false,
+            is_rtl: false,
+            blocks: [],
+          },
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(requests).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({
+        type: "message.upsert",
+        message: { content: { kind: "rich", isFull: false, text: "incremental" } },
+      });
+
+      await vi.advanceTimersByTimeAsync(420);
+      expect(requests).toHaveLength(2);
+      expect(events.at(-1)).toMatchObject({
+        type: "message.upsert",
+        message: { content: { kind: "rich", isFull: true, text: "complete" } },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses a replied message already loaded in the same history page", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

@@ -603,6 +603,9 @@ button.message-sender:hover { text-decoration: underline; }
 }
 .rich-message-content > footer { margin: 0 0 7px; color: var(--muted); font-size: 11px; }
 .rich-message-content .rich-thinking { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.rich-streaming-indicator { width: 12px; height: 18px; display: inline-flex; align-items: flex-end; vertical-align: text-bottom; }
+.rich-streaming-indicator > span { width: 2px; height: 15px; background: var(--accent); border-radius: 2px; animation: rich-streaming-caret 0.8s ease-in-out infinite; }
+@keyframes rich-streaming-caret { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 .rich-message-content details { margin: 0 0 7px; }
 .rich-message-content summary { cursor: pointer; font-weight: 650; }
 .rich-message-content details > :not(summary):first-of-type { margin-top: 5px; }
