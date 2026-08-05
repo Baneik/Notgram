@@ -1495,6 +1495,11 @@ test("reply previews jump to their source and channel senders keep their identit
   await expect(channelMessage).toBeVisible();
   await expect(channelMessage.locator(".message-sender")).toHaveText("Release Notes");
   await expect(page.locator('.message-group:has([data-message-id="p-channel-reply"]) .message-group-avatar .avatar')).toContainText("R");
+  await expect(channelMessage.locator(".message-reply-preview")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await expect(channelMessage.getByRole("button", { name: "前往频道原消息" })).toBeVisible();
 
   await channelMessage.locator(".message-reply-preview").click();
   const target = page.locator('[data-message-id="p-old-8"]');
@@ -1513,7 +1518,72 @@ test("reply previews jump to their source and channel senders keep their identit
   await page.locator('[data-message-id="p-channel-reply"] .message-sender').click();
   const profile = page.getByRole("dialog", { name: "资料" });
   await expect(profile.getByRole("heading", { name: "Release Notes" })).toBeVisible();
+  await profile.getByRole("button", { name: "关闭资料" }).click();
 
+  await channelMessage.getByRole("button", { name: "前往频道原消息" }).click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Release Notes");
+  const sourcePost = page.locator('[data-message-id="release-post-1"]');
+  await expect(sourcePost).toHaveClass(/is-notification-target/);
+  await expect.poll(() => sourcePost.evaluate((element) => {
+    const list = element.closest(".message-list")?.getBoundingClientRect();
+    const row = element.getBoundingClientRect();
+    if (!list) return false;
+    return row.top >= list.top - 1 && row.bottom <= list.bottom + 1;
+  })).toBe(true);
+});
+
+test("caption text sizes media bubbles and media is centered with letterboxing", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Mia Chen/ }).first().click();
+
+  const geometryFor = async (messageId: string) => {
+    const row = page.locator(`[data-message-id="${messageId}"]`);
+    await row.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "auto" }));
+    await expect.poll(() => row.locator(".photo-preview img").evaluate((image) => {
+      const media = image as HTMLImageElement;
+      return media.complete && media.naturalWidth > 0 && media.naturalHeight > 0;
+    })).toBe(true);
+    return row.evaluate((element) => {
+      const shell = element.querySelector<HTMLElement>(".message-bubble-shell");
+      const preview = element.querySelector<HTMLElement>(".photo-preview");
+      const image = element.querySelector<HTMLImageElement>(".photo-preview img");
+      const caption = element.querySelector<HTMLElement>(".photo-caption");
+      if (!shell || !preview || !image || !caption) return undefined;
+      const shellBounds = shell.getBoundingClientRect();
+      const previewBounds = preview.getBoundingClientRect();
+      const scale = Math.min(
+        previewBounds.width / image.naturalWidth,
+        previewBounds.height / image.naturalHeight,
+      );
+      return {
+        shellWidth: shellBounds.width,
+        previewWidth: previewBounds.width,
+        previewHeight: previewBounds.height,
+        captionHeight: caption.getBoundingClientRect().height,
+        horizontalLetterbox: (previewBounds.width - image.naturalWidth * scale) / 2,
+        verticalLetterbox: (previewBounds.height - image.naturalHeight * scale) / 2,
+        objectFit: getComputedStyle(image).objectFit,
+      };
+    });
+  };
+
+  const tall = await geometryFor("m-tall-caption");
+  expect(tall).toBeDefined();
+  expect(tall?.shellWidth).toBeGreaterThan(320);
+  expect(Math.abs((tall?.shellWidth ?? 0) - (tall?.previewWidth ?? 1))).toBeLessThanOrEqual(1);
+  expect(tall?.captionHeight).toBeLessThan(30);
+  expect(tall?.horizontalLetterbox).toBeGreaterThan(50);
+  expect(tall?.verticalLetterbox).toBeLessThanOrEqual(1);
+  expect(tall?.objectFit).toBe("contain");
+
+  const wide = await geometryFor("m-wide-caption");
+  expect(wide).toBeDefined();
+  expect(wide?.shellWidth).toBeGreaterThanOrEqual(179);
+  expect(wide?.shellWidth).toBeLessThan(240);
+  expect(Math.abs((wide?.shellWidth ?? 0) - (wide?.previewWidth ?? 1))).toBeLessThanOrEqual(1);
+  expect(wide?.horizontalLetterbox).toBeLessThanOrEqual(1);
+  expect(wide?.verticalLetterbox).toBeGreaterThan(20);
+  expect(wide?.objectFit).toBe("contain");
 });
 
 test("pasted images preview, respect Telegram's album limit, and send as one album", async ({ page }) => {

@@ -452,6 +452,17 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-bubble-shell { position: relative; min-width: 0; max-width: min(74%, 720px); flex: 0 1 auto; }
 .message-bubble-shell.is-visual-shell { width: var(--visual-media-width, 390px); }
 .message-bubble-shell.is-visual-shell .message-bubble { width: 100%; }
+.message-bubble-shell.is-text-sized-visual {
+  width: max-content; min-width: min(180px, 100%);
+}
+.message-bubble-shell.is-text-sized-visual::before {
+  content: attr(data-visual-sizing-text); width: max-content; max-width: 390px; height: 0; padding: 0 18px;
+  display: block; overflow: hidden; visibility: hidden; white-space: pre; pointer-events: none;
+  font-size: var(--chat-font-size); line-height: 1.48;
+}
+.message-bubble-shell.is-text-sized-visual .photo-preview {
+  height: var(--visual-media-height, 240px); aspect-ratio: auto !important; contain: inline-size;
+}
 .media-album { width: min(74%, 540px); margin: 1px 0; align-self: flex-start; overflow: hidden; background: #ffffff; border-radius: 8px; box-shadow: 0 1px 2px rgba(35, 50, 48, 0.16); }
 .media-album.is-outgoing { align-self: flex-end; background: var(--outgoing); }
 .media-album-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 164px; gap: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.9); }
@@ -543,10 +554,10 @@ button.message-sender:hover { text-decoration: underline; }
 }
 .message-reply-preview {
   min-width: 0; margin: 0 0 6px; padding: 4px 7px; display: grid; gap: 1px; overflow: hidden;
-  color: inherit; text-align: left; background: rgba(51, 144, 236, 0.08); border: 0; border-left: 3px solid var(--accent); border-radius: 3px;
+  color: inherit; text-align: left; background: transparent; border: 0; border-left: 3px solid var(--accent); border-radius: 3px;
 }
 .message-reply-preview:not(:disabled) { cursor: pointer; }
-.message-reply-preview:not(:disabled):hover { background: rgba(51, 144, 236, 0.14); }
+.message-reply-preview:not(:disabled):hover { background: rgba(74, 89, 99, 0.07); }
 .message-reply-preview:disabled { opacity: 1; }
 .message-reply-preview strong, .message-reply-preview small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-reply-preview strong { color: var(--accent-strong); font-size: 11px; }
@@ -860,6 +871,12 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 }
 .message-reactions > button span { font-size: 10px; }
 .message-reactions > button.is-chosen { color: var(--accent); background: #e8f4fd; border-color: #9cccf0; }
+.channel-post-jump {
+  width: 38px; height: 38px; margin: 0 0 3px 8px; padding: 0; display: grid; place-items: center; flex: 0 0 auto;
+  color: #ffffff; background: rgba(25, 43, 57, 0.72); border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(16, 28, 37, 0.2); cursor: pointer;
+}
+.channel-post-jump:hover, .channel-post-jump:focus-visible { background: rgba(25, 43, 57, 0.9); outline: 2px solid var(--accent); outline-offset: 2px; }
 .photo-placeholder { width: 100%; height: 100%; min-height: 120px; display: grid; place-items: center; color: #83908d; }
 .photo-preview.has-media-ratio .photo-placeholder { min-height: 0; }
 .media-viewer-backdrop { position: fixed; z-index: 120; inset: 0; color: #f4f7f7; background: rgba(10, 14, 16, 0.96); }
@@ -1747,7 +1764,8 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .theme-dark .media-album { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.32); }
   .theme-dark .message-bubble.is-photo .message-sender { border-bottom-color: rgba(255, 255, 255, 0.08); }
   .theme-dark .photo-preview { background: #111c26; }
-  .theme-dark .message-reply-preview { background: rgba(92, 167, 227, 0.12); }
+  .theme-dark .message-reply-preview { background: transparent; }
+  .theme-dark .message-reply-preview:not(:disabled):hover { background: rgba(255, 255, 255, 0.06); }
   .theme-dark .message-reply-preview small,
   .theme-dark .message-rich-text blockquote,
   .theme-dark .message-rich-text .rich-blockquote { color: #bac6d1; }

@@ -13,6 +13,17 @@ const tallMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURICompone
   </svg>
 `)}`;
 
+const wideMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="600" viewBox="0 0 1800 600">
+    <rect width="1800" height="600" fill="#173b4c"/>
+    <rect x="90" y="70" width="1620" height="460" rx="42" fill="#ecf3f1"/>
+    <rect x="155" y="145" width="620" height="310" rx="28" fill="#2c8f86"/>
+    <rect x="850" y="170" width="690" height="46" rx="16" fill="#173b4c"/>
+    <rect x="850" y="265" width="540" height="32" rx="12" fill="#89aaa4"/>
+    <rect x="850" y="335" width="620" height="32" rx="12" fill="#89aaa4"/>
+  </svg>
+`)}`;
+
 const users: User[] = [
   {
     id: "self",
@@ -395,6 +406,15 @@ const messages: Message[] = [
     outgoing: false,
     sentAt: "2026-08-01T09:48:10+08:00",
     delivery: "read",
+    forwardInfo: {
+      origin: { kind: "channel", chatId: "chat-release", messageId: "release-post-1" },
+      source: {
+        chatId: "chat-release",
+        messageId: "release-post-1",
+        senderId: "chat:chat-release",
+        outgoing: false,
+      },
+    },
     replyTo: {
       kind: "message",
       chatId: "chat-product",
@@ -539,6 +559,46 @@ const messages: Message[] = [
     content: { kind: "text", text: "对，QR 登录放在下一轮，不影响主链路。" },
   },
   {
+    id: "m-tall-caption",
+    chatId: "chat-mia",
+    senderId: "u-mia",
+    outgoing: false,
+    sentAt: "2026-08-01T09:25:00+08:00",
+    delivery: "read",
+    content: {
+      kind: "media",
+      mediaType: "photo",
+      fileName: "频道长图.jpg",
+      sizeLabel: "420 KB",
+      previewDataUrl: tallMediaPreviewUrl,
+      width: 900,
+      height: 1800,
+      caption: "看到公众号发了一个有趣的小活动，我们也来玩玩吧。",
+      isDownloaded: false,
+      isDownloading: false,
+    },
+  },
+  {
+    id: "m-wide-caption",
+    chatId: "chat-mia",
+    senderId: "u-mia",
+    outgoing: false,
+    sentAt: "2026-08-01T09:26:00+08:00",
+    delivery: "read",
+    content: {
+      kind: "media",
+      mediaType: "photo",
+      fileName: "横向预览.jpg",
+      sizeLabel: "310 KB",
+      previewDataUrl: wideMediaPreviewUrl,
+      width: 1800,
+      height: 600,
+      caption: "短说明",
+      isDownloaded: false,
+      isDownloading: false,
+    },
+  },
+  {
     id: "m-3",
     chatId: "chat-mia",
     senderId: "u-mia",
@@ -587,6 +647,15 @@ const messages: Message[] = [
     sentAt: "2026-07-31T22:40:00+08:00",
     delivery: "read",
     content: { kind: "text", text: "收到，我今晚看一下。" },
+  },
+  {
+    id: "release-post-1",
+    chatId: "chat-release",
+    senderId: "chat:chat-release",
+    outgoing: false,
+    sentAt: "2026-08-01T09:48:10+08:00",
+    delivery: "read",
+    content: { kind: "text", text: "Release Notes channel posted this reply" },
   },
 ];
 

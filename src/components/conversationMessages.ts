@@ -11,6 +11,17 @@ export interface ReplyPreview {
 export const senderChatId = (senderId: string) =>
   senderId.startsWith("chat:") ? senderId.slice("chat:".length) : undefined;
 
+export const channelPostTargetFor = (message: Message) => {
+  const origin = message.forwardInfo?.origin;
+  if (origin?.kind !== "channel" || message.chatId === origin.chatId) return undefined;
+  if (senderChatId(message.senderId) !== origin.chatId) return undefined;
+  const source = message.forwardInfo?.source;
+  const messageId = origin.messageId ?? (
+    source?.chatId === origin.chatId ? source.messageId : undefined
+  );
+  return messageId ? { chatId: origin.chatId, messageId } : undefined;
+};
+
 export const senderNameForMessage = (
   message: Message,
   users: Map<string, User>,

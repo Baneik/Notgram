@@ -4,6 +4,7 @@ import {
   AudioLines,
   Check,
   CheckCheck,
+  CircleArrowRight,
   Copy,
   Download,
   ExternalLink,
@@ -31,6 +32,7 @@ import { RichMessageContent } from "./RichMessageContent";
 import { AudioPlayer } from "./AudioPlayer";
 import { shouldAutoDownload, type AutoDownloadPolicy } from "../media/autoDownload";
 import type { MessageEntrance } from "../utils/messageEntrance";
+import { channelPostTargetFor } from "./conversationMessages";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
@@ -140,7 +142,9 @@ function MessageBubbleComponent({
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
+  const visualSizingText = hasCaption && content.kind === "media" ? content.caption : undefined;
   const showSender = !albumItem && !message.outgoing && isGroupFirst(groupPosition);
+  const channelPostTarget = !albumItem ? channelPostTargetFor(message) : undefined;
   const fullMediaSource = content.kind === "media" ? localSource(content.localPath) : undefined;
   const previewSource = content.kind === "media"
     ? localSource(content.thumbnailPath) ?? content.previewDataUrl
@@ -172,7 +176,10 @@ function MessageBubbleComponent({
       )
     : undefined;
   const visualShellStyle = mediaLayout
-    ? { "--visual-media-width": `${mediaLayout.width}px` } as CSSProperties
+    ? {
+        "--visual-media-width": `${mediaLayout.width}px`,
+        "--visual-media-height": mediaLayout.height ? `${mediaLayout.height}px` : undefined,
+      } as CSSProperties
     : undefined;
   const rememberMediaSize = (source: string | undefined, width: number, height: number) => {
     if (!source || width <= 0 || height <= 0) return;
@@ -284,8 +291,9 @@ function MessageBubbleComponent({
         </button>
       )}
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${visualSizingText ? "is-text-sized-visual" : ""}`}
         style={visualShellStyle}
+        data-visual-sizing-text={visualSizingText}
         tabIndex={!selectionMode && !isService ? 0 : undefined}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -624,6 +632,17 @@ function MessageBubbleComponent({
           </div>
         )}
       </div>
+      {channelPostTarget && !selectionMode && !isService && (
+        <button
+          className="channel-post-jump"
+          type="button"
+          aria-label="前往频道原消息"
+          title="前往频道原消息"
+          onClick={() => onOpenReply(channelPostTarget.chatId, channelPostTarget.messageId)}
+        >
+          <CircleArrowRight size={22} strokeWidth={2.2} />
+        </button>
+      )}
     </article>
   );
 }

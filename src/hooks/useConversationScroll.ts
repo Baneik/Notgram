@@ -257,10 +257,14 @@ export const useConversationScroll = ({
     matchingEntryRequest?.performanceTraceId;
   const initialDataPhase = virtualItemCount > 0 ? "ready" : "empty";
   const requestedEntryTarget = matchingEntryRequest?.serverMessageId;
+  const requestedMessageTarget = matchingMessageRequest?.messageId;
   const entryTargetPhase = !requestedEntryTarget
     ? "no-target"
     : messageItemIndexes.has(requestedEntryTarget) ? "target-ready" : "target-pending";
-  const initialLocationIdentity = `${currentScrollKey ?? ""}:${matchingEntryRequest?.requestId ?? 0}:${matchingLatestRequest?.requestId ?? 0}:${initialDataPhase}:${entryTargetPhase}`;
+  const messageTargetPhase = !requestedMessageTarget
+    ? "no-target"
+    : messageItemIndexes.has(requestedMessageTarget) ? "target-ready" : "target-pending";
+  const initialLocationIdentity = `${currentScrollKey ?? ""}:${matchingEntryRequest?.requestId ?? 0}:${matchingLatestRequest?.requestId ?? 0}:${matchingMessageRequest?.requestId ?? 0}:${initialDataPhase}:${entryTargetPhase}:${messageTargetPhase}`;
   if (initialLocationRef.current?.identity !== initialLocationIdentity) {
     const stored = currentScrollKey ? conversationScrollMemory.get(currentScrollKey) : undefined;
     const storedAnchorIndex = stored?.anchorMessageId
@@ -273,11 +277,22 @@ export const useConversationScroll = ({
     const serverAnchorIndex = matchingEntryRequest?.serverMessageId
       ? messageItemIndexes.get(matchingEntryRequest.serverMessageId)
       : undefined;
+    const requestedMessageIndex = requestedMessageTarget
+      ? messageItemIndexes.get(requestedMessageTarget)
+      : undefined;
     let location: IndexLocationWithAlign | number = 0;
     let mode: "empty" | "pending" | "bottom" | "anchor" = "empty";
     let targetMessageId: string | undefined;
     if (virtualItemCount > 0) {
-      if (matchingLatestRequest) {
+      if (requestedMessageTarget && requestedMessageIndex === undefined) {
+        location = 0;
+        mode = "pending";
+        targetMessageId = requestedMessageTarget;
+      } else if (requestedMessageIndex !== undefined) {
+        location = { index: requestedMessageIndex, align: "center", behavior: "auto" };
+        mode = "anchor";
+        targetMessageId = requestedMessageTarget;
+      } else if (matchingLatestRequest) {
         location = {
           index: "LAST",
           align: "end",
@@ -340,7 +355,7 @@ export const useConversationScroll = ({
   const storedMemory = currentScrollKey
     ? conversationScrollMemory.get(currentScrollKey)
     : undefined;
-  const restoreStateFrom = !matchingLatestRequest &&
+  const restoreStateFrom = !matchingLatestRequest && !matchingMessageRequest &&
       storedMemory?.followLatest === false && storedVirtuosoSnapshot &&
       storedVirtuosoSnapshot.firstMessageId === firstVisibleMessageId &&
       storedVirtuosoSnapshot.lastMessageId === lastVisibleMessageId &&
