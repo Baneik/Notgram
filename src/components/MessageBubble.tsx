@@ -30,7 +30,11 @@ import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
 import { AudioPlayer } from "./AudioPlayer";
-import { shouldAutoDownload, type AutoDownloadPolicy } from "../media/autoDownload";
+import {
+  nextVisibleMediaFileId,
+  shouldAutoDownload,
+  type AutoDownloadPolicy,
+} from "../media/autoDownload";
 import type { MessageEntrance } from "../utils/messageEntrance";
 import { channelPostTargetFor } from "./conversationMessages";
 
@@ -228,10 +232,14 @@ function MessageBubbleComponent({
     (content.kind === "file" || content.kind === "media")
     ? content.fileId
     : undefined;
-  // Photos and stickers already have an inline minithumbnail for the loading
-  // state. Fetch their display asset directly instead of serializing thumbnail
-  // and full-file downloads.
-  const lazyMediaFileId = automaticFileId ?? previewFileId;
+  // Full videos can take long enough to leave the player as an empty block.
+  // Fetch their small TDLib thumbnail first, then let the next render enqueue
+  // the full file. Photos and stickers still fetch their display asset directly.
+  const lazyMediaFileId = nextVisibleMediaFileId(
+    content,
+    automaticFileId,
+    previewFileId,
+  );
   const lazyMediaIsThumbnail = content.kind === "media" &&
     lazyMediaFileId !== undefined && lazyMediaFileId === content.thumbnailFileId;
   const lazyMediaRef = useVisibleFile<HTMLElement>(

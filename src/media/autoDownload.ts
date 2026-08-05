@@ -31,3 +31,15 @@ export const shouldAutoDownload = (content: MessageContent, policy: AutoDownload
   const limitBytes = Math.max(1, Math.min(2_048, policy.limitMb)) * 1024 * 1024;
   return content.size <= limitBytes;
 };
+
+export const nextVisibleMediaFileId = (
+  content: MessageContent,
+  automaticFileId: number | undefined,
+  previewFileId: number | undefined,
+) => {
+  const needsPosterFirst = content.kind === "media" &&
+    (content.mediaType === "video" || content.mediaType === "videoNote");
+  return needsPosterFirst
+    ? previewFileId ?? automaticFileId
+    : automaticFileId ?? previewFileId;
+};

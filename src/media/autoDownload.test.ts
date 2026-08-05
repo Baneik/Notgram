@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { MessageContent } from "../telegram/types";
-import { shouldAutoDownload, type AutoDownloadPolicy } from "./autoDownload";
+import {
+  nextVisibleMediaFileId,
+  shouldAutoDownload,
+  type AutoDownloadPolicy,
+} from "./autoDownload";
 
 const policy: AutoDownloadPolicy = {
   images: true,
@@ -47,5 +51,12 @@ describe("automatic media downloads", () => {
 
     expect(shouldAutoDownload(file, policy)).toBe(false);
     expect(shouldAutoDownload(file, { ...policy, files: true })).toBe(true);
+  });
+
+  it("loads a video poster before starting the full visible video download", () => {
+    expect(nextVisibleMediaFileId(media({ mediaType: "video" }), 93, 31)).toBe(31);
+    expect(nextVisibleMediaFileId(media({ mediaType: "videoNote" }), 94, 32)).toBe(32);
+    expect(nextVisibleMediaFileId(media({ mediaType: "photo" }), 95, 33)).toBe(95);
+    expect(nextVisibleMediaFileId(media({ mediaType: "video" }), 93, undefined)).toBe(93);
   });
 });
