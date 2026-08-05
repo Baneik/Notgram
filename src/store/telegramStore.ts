@@ -42,6 +42,7 @@ import {
   getActiveConversationTraceId,
   logPerformance,
 } from "../utils/performanceMonitor";
+import { markMessageEntrance } from "../utils/messageEntrance";
 import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
 import { emptyProfileState } from "./profileState";
@@ -696,12 +697,19 @@ export const createTelegramStore = (
       }
 
       const messages = new Map(get().messages);
+      const existingMessages = messages.get(event.message.chatId) ?? [];
+      if (
+        event.animateEntrance &&
+        !existingMessages.some((message) => message.id === event.message.id)
+      ) {
+        markMessageEntrance(event.message);
+      }
       if (!event.message.outgoing) {
         setTypingUser(event.message.chatId, event.message.senderId, false);
       }
       messages.set(
         event.message.chatId,
-        upsertMessage(messages.get(event.message.chatId) ?? [], event.message),
+        upsertMessage(existingMessages, event.message),
       );
       set({ messages });
       if (!event.message.outgoing && event.message.chatId === get().activeChatId) {

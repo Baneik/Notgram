@@ -278,6 +278,53 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await expect(typingSwitch).not.toBeChecked();
 });
 
+test("live messages animate without replaying history rows", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".message-row.is-entering-incoming, .message-row.is-entering-outgoing"))
+    .toHaveCount(0);
+
+  const entranceClass = page.evaluate(() => new Promise<string>((resolve) => {
+    const observer = new MutationObserver(() => {
+      const entering = document.querySelector<HTMLElement>(".message-row.is-entering-outgoing");
+      if (!entering) return;
+      observer.disconnect();
+      resolve(entering.className);
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    globalThis.setTimeout(() => {
+      observer.disconnect();
+      resolve("");
+    }, 2_000);
+  }));
+  await page.getByRole("textbox", { name: "消息内容" }).fill("动画消息测试");
+  await page.getByRole("button", { name: "发送消息" }).click();
+
+  expect(await entranceClass).toContain("is-entering-outgoing");
+  await expect(page.getByText("动画消息测试", { exact: true })).toBeVisible();
+  await expect(page.locator(".message-row.is-entering-outgoing")).toHaveCount(0);
+});
+
+test("history loading hides transient scrollbar geometry until anchoring settles", async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = { observed: false };
+    Object.assign(globalThis, { __notgramHistoryScrollbar: state });
+    globalThis.addEventListener("DOMContentLoaded", () => {
+      const observer = new MutationObserver(() => {
+        if (document.querySelector(".message-list.is-history-adjusting")) state.observed = true;
+      });
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    });
+  });
+  await page.goto("/");
+
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramHistoryScrollbar: { observed: boolean } }
+  ).__notgramHistoryScrollbar.observed)).toBe(true);
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".message-list")).not.toHaveClass(/is-history-adjusting/);
+});
+
 test("composer provides recent Emoji, installed stickers, and saved GIFs", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });
@@ -1295,7 +1342,20 @@ test("Markdown and TDLib rich text render as structured message content", async 
   await expect(markdown.locator("del")).toHaveText("删除线");
   await expect(markdown.locator("li")).toHaveCount(2);
   await expect(markdown.locator("code")).toHaveText("code");
-  await expect(markdown.locator('a[href="https://example.com"]')).toHaveText("链接");
+  const markdownLink = markdown.locator('a[href="https://example.com/"]');
+  await expect(markdownLink).toHaveText("链接");
+  await page.evaluate(() => {
+    const state = { href: "" };
+    Object.assign(globalThis, { __notgramExternalLink: state });
+    globalThis.open = ((href?: string | URL) => {
+      state.href = String(href ?? "");
+      return null;
+    }) as typeof globalThis.open;
+  });
+  await markdownLink.click();
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramExternalLink: { href: string } }
+  ).__notgramExternalLink.href)).toBe("https://example.com/");
 
   const entities = page.locator('[data-message-id="p-rich-entities"] .message-rich-text');
   await expect(entities).toHaveAttribute("data-rich-text", "entities");

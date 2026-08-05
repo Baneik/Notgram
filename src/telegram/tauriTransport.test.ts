@@ -700,6 +700,24 @@ describe("TauriTelegramTransport startup", () => {
 });
 
 describe("TauriTelegramTransport message operations", () => {
+  it("marks only newly routed messages for entrance animation", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+
+    internal.handleUpdate({
+      "@type": "updateNewMessage",
+      message: rawMessage(21),
+    });
+    internal.emitMessage(rawMessage(20));
+
+    expect(events).toMatchObject([
+      { type: "message.upsert", message: { id: "21" }, animateEntrance: true },
+      { type: "message.upsert", message: { id: "20" }, animateEntrance: false },
+    ]);
+  });
+
   it("restores outgoing read state from the chat snapshot", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

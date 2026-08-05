@@ -1,13 +1,11 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 
 interface MarkdownTextProps {
   text: string;
   className: string;
 }
-
-const safeHref = (value?: string) =>
-  value && /^(?:https?:|mailto:|tel:|tg:)/i.test(value) ? value : undefined;
 
 export default function MarkdownText({ text, className }: MarkdownTextProps) {
   return (
@@ -20,7 +18,7 @@ export default function MarkdownText({ text, className }: MarkdownTextProps) {
           a: ({ children, href }) => {
             const safe = safeHref(href);
             return safe
-              ? <a href={safe} target={/^https?:/i.test(safe) ? "_blank" : undefined} rel="noreferrer">{children}</a>
+              ? <a href={safe} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>{children}</a>
               : <>{children}</>;
           },
           img: ({ alt }) => <span className="rich-image-alt">{alt || "图片"}</span>,

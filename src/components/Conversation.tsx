@@ -67,6 +67,7 @@ import {
   logPerformance,
   markConversationSwitch,
 } from "../utils/performanceMonitor";
+import { messageEntranceFor } from "../utils/messageEntrance";
 
 const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
   <div {...props} className="message-list-content" ref={ref} />
@@ -218,6 +219,7 @@ export function Conversation({
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
+  const [historyScrollbarSettling, setHistoryScrollbarSettling] = useState(false);
   const performanceTraceId = latestScrollRequest?.chatId === chat?.id
     ? latestScrollRequest?.performanceTraceId
     : entryScrollRequest?.chatId === chat?.id
@@ -281,6 +283,16 @@ export function Conversation({
     setViewerMessageId(undefined);
     setChatMenuOpen(false);
   }, [chat?.id]);
+
+  useLayoutEffect(() => {
+    if (historyLoading) {
+      setHistoryScrollbarSettling(true);
+      return;
+    }
+    if (!historyScrollbarSettling) return;
+    const timer = globalThis.setTimeout(() => setHistoryScrollbarSettling(false), 140);
+    return () => globalThis.clearTimeout(timer);
+  }, [historyLoading, historyScrollbarSettling]);
 
   const closeChatMenu = useCallback((restoreFocus = true) => {
     setChatMenuOpen(false);
@@ -663,13 +675,13 @@ export function Conversation({
         )}
         <Virtuoso
           key={virtuosoKey}
-          className={`message-list ${messageListScrolling ? "is-scrolling" : ""}`}
+          className={`message-list ${messageListScrolling ? "is-scrolling" : ""} ${historyLoading || historyScrollbarSettling ? "is-history-adjusting" : ""}`}
           ref={virtuosoRef}
           scrollerRef={setMessageListRef}
           isScrolling={setMessageListScrolling}
           role="log"
           aria-label="消息列表"
-          aria-busy={positioning}
+          aria-busy={positioning || historyLoading}
           tabIndex={0}
           alignToBottom
           components={messageListComponents}
@@ -727,6 +739,7 @@ export function Conversation({
                       <RichMessageBubble
                         key={message.id}
                         message={message}
+                        entrance={messageEntranceFor(message)}
                         sender={sender}
                         senderName={senderName}
                         groupPosition={positions.get(message.id) ?? "single"}

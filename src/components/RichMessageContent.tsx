@@ -12,6 +12,7 @@ import type {
 } from "../telegram/types";
 import { AudioPlayer } from "./AudioPlayer";
 import { VideoPlayer } from "./VideoPlayer";
+import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 
 interface RichMessageContentProps {
   blocks: MessageRichBlock[];
@@ -27,11 +28,6 @@ interface RichMessageContentProps {
 interface RenderContext extends Omit<RichMessageContentProps, "blocks" | "isRtl" | "isFull"> {
   scope: string;
 }
-
-const safeHref = (value?: string) => {
-  if (!value) return undefined;
-  return /^(?:https?:|mailto:|tel:|tg:)/i.test(value) ? value : undefined;
-};
 
 const localSource = (path?: string) => {
   if (!path) return undefined;
@@ -127,7 +123,7 @@ const renderRun = (run: MessageRichTextRun, key: string, context: RenderContext)
   const href = safeHref(run.href);
   if (href) {
     node = (
-      <a href={href} target={/^https?:/i.test(href) ? "_blank" : undefined} rel="noreferrer">
+      <a href={href} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>
         {node}
       </a>
     );
@@ -238,8 +234,9 @@ function RichMediaBlock({ media, context, blockKey }: {
     );
   }
 
-  const mediaNode = media.url && safeHref(media.url)
-    ? <a className="rich-media-link" href={media.url} target="_blank" rel="noreferrer">{content}</a>
+  const mediaHref = safeHref(media.url);
+  const mediaNode = mediaHref
+    ? <a className="rich-media-link" href={mediaHref} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>{content}</a>
     : content;
   return (
     <figure className={`rich-media-block rich-media-${media.mediaType}`} style={style}>
@@ -361,7 +358,7 @@ const renderBlocks = (blocks: MessageRichBlock[], parentKey: string, context: Re
         const href = `https://www.openstreetmap.org/?mlat=${block.latitude}&mlon=${block.longitude}#map=${block.zoom}/${block.latitude}/${block.longitude}`;
         return (
           <figure key={key} className="rich-map-block">
-            <a href={href} target="_blank" rel="noreferrer">
+            <a href={href} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>
               <MapPin size={24} />
               <span>{block.latitude.toFixed(5)}, {block.longitude.toFixed(5)}</span>
             </a>

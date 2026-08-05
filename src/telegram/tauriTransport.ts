@@ -308,7 +308,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.patchChatWithPositions(chatId, patch, positions),
     updateChatPosition: (update) => this.updateChatPosition(update),
     updateChatList: (update, added) => this.updateChatList(update, added),
-    emitMessage: (message) => this.emitMessage(message),
+    emitMessage: (message, animateEntrance) => this.emitMessage(message, animateEntrance),
     replaceSentMessage: (update) => this.replaceSentMessage(update),
     updateMessageContent: (update) => this.updateMessageContent(update),
     patchMessage: (chatId, messageId, patch) =>
@@ -1114,7 +1114,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         emoji: input.asset.emoji ?? "",
       },
     });
-    if (response["@type"] === "message") this.emitMessage(response);
+    if (response["@type"] === "message") this.emitMessage(response, true);
   }
 
   async sendAnimation(input: SendEmojiAssetInput) {
@@ -1141,7 +1141,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         has_spoiler: false,
       },
     });
-    if (response["@type"] === "message") this.emitMessage(response);
+    if (response["@type"] === "message") this.emitMessage(response, true);
   }
 
   private async formattedTextInput(text: string) {
@@ -1183,7 +1183,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       reply_markup: null,
       input_message_content: inputMessageText(text, input.clearDraft !== false),
     });
-    if (response["@type"] === "message") this.emitMessage(response);
+    if (response["@type"] === "message") this.emitMessage(response, true);
   }
 
   async editMessage(input: EditMessageInput) {
@@ -1927,7 +1927,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
-  private emitMessage(raw?: TdObject) {
+  private emitMessage(raw?: TdObject, animateEntrance = false) {
     if (!raw) return;
     const message = this.mapMessage(raw);
     if (!message) return;
@@ -1935,7 +1935,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatMessages.set(message.id, raw);
     this.rawMessages.set(message.chatId, chatMessages);
     this.indexMessageFiles(message.chatId, message.id, raw);
-    this.listener?.({ type: "message.upsert", message });
+    this.listener?.({ type: "message.upsert", message, animateEntrance });
     this.ensureReplyContent(raw);
     this.ensureFullRichMessage(raw);
   }

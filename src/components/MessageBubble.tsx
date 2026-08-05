@@ -30,6 +30,7 @@ import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
 import { AudioPlayer } from "./AudioPlayer";
 import { shouldAutoDownload, type AutoDownloadPolicy } from "../media/autoDownload";
+import type { MessageEntrance } from "../utils/messageEntrance";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
@@ -40,6 +41,7 @@ export interface ReplyPreview {
 
 interface MessageBubbleProps {
   message: Message;
+  entrance?: MessageEntrance;
   sender?: User;
   senderName: string;
   groupPosition: MessageGroupPosition;
@@ -87,6 +89,7 @@ const reactionLabel = (reaction: MessageReaction) => {
 
 function MessageBubbleComponent({
   message,
+  entrance,
   sender,
   senderName,
   groupPosition,
@@ -115,6 +118,7 @@ function MessageBubbleComponent({
   autoDownloadPolicy,
   developerMode,
 }: MessageBubbleProps) {
+  const [entering, setEntering] = useState(Boolean(entrance));
   const [reactionPending, setReactionPending] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
@@ -249,8 +253,11 @@ function MessageBubbleComponent({
   return (
     <article
       ref={lazyMediaRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${entering ? `is-entering-${entrance}` : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget) setEntering(false);
+      }}
     >
       {selectionMode && !isService && (
         <button

@@ -13,7 +13,7 @@ export interface TdUpdateHandlers {
   patchChatWithPositions: (chatId: unknown, patch: TdObject, positions: unknown) => void;
   updateChatPosition: (update: TdObject) => void;
   updateChatList: (update: TdObject, added: boolean) => void;
-  emitMessage: (message?: TdObject) => void;
+  emitMessage: (message?: TdObject, animateEntrance?: boolean) => void;
   replaceSentMessage: (update: TdObject) => void;
   updateMessageContent: (update: TdObject) => void;
   patchMessage: (chatId: unknown, messageId: unknown, patch: TdObject) => void;
@@ -95,7 +95,7 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
       });
       return;
     case "updateNewMessage":
-      handlers.emitMessage(asTdObject(update.message));
+      handlers.emitMessage(asTdObject(update.message), true);
       return;
     case "updateMessageSendSucceeded":
     case "updateMessageSendFailed":

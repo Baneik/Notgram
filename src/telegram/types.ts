@@ -442,7 +442,7 @@ export type TelegramEvent =
   | { type: "authorization.changed"; state: AuthorizationState }
   | { type: "connection.changed"; status: ConnectionStatus }
   | { type: "currentUser.changed"; userId: string }
-  | { type: "message.upsert"; message: Message }
+  | { type: "message.upsert"; message: Message; animateEntrance?: boolean }
   | { type: "messages.upserted"; messages: Message[] }
   | { type: "message.remove"; chatId: string; messageId: string }
   | { type: "folders.replaced"; folders: ChatFolder[] }

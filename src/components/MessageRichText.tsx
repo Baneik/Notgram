@@ -1,5 +1,6 @@
 import { Fragment, lazy, Suspense, type ReactNode } from "react";
 import type { MessageTextEntity } from "../telegram/types";
+import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 
 const MarkdownText = lazy(() => import("./MarkdownText"));
 
@@ -8,12 +9,6 @@ interface MessageRichTextProps {
   entities?: MessageTextEntity[];
   className?: string;
 }
-
-const safeHref = (value?: string) => {
-  if (!value) return undefined;
-  if (/^(?:https?:|mailto:|tel:|tg:)/i.test(value)) return value;
-  return undefined;
-};
 
 const entityHref = (entity: MessageTextEntity, value: string) => {
   if (entity.kind === "textUrl") return safeHref(entity.href);
@@ -44,7 +39,7 @@ const wrapEntity = (
     case "phone": {
       const href = entityHref(entity, value);
       return href
-        ? <a key={key} href={href} target={/^https?:/i.test(href) ? "_blank" : undefined} rel="noreferrer">{children}</a>
+        ? <a key={key} href={href} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>{children}</a>
         : <Fragment key={key}>{children}</Fragment>;
     }
   }

@@ -1058,7 +1058,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   private appendMessage(message: Message) {
     this.snapshot.messages.push(message);
-    this.listener?.({ type: "message.upsert", message: clone(message) });
+    this.listener?.({ type: "message.upsert", message: clone(message), animateEntrance: true });
 
     const chat = this.snapshot.chats.find((item) => item.id === message.chatId);
     if (!chat) return;

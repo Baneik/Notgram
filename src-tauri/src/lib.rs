@@ -3,6 +3,7 @@ mod desktop_notification;
 mod development;
 mod diagnostics;
 mod distribution;
+mod external_links;
 mod proxy;
 mod settings_window;
 mod storage;
@@ -50,6 +51,7 @@ pub fn run() {
             diagnostics::notgram_set_crash_reporting_enabled,
             distribution::notgram_distribution_kind,
             desktop_notification::notgram_show_notification,
+            external_links::notgram_open_external_url,
             settings_window::notgram_open_settings_window,
             video_window::notgram_close_video_window,
             video_window::notgram_open_video_window,
