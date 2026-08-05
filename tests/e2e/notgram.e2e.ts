@@ -245,7 +245,7 @@ test("performance monitor attributes a conversation switch to its slowest stage"
   await expect(details).not.toContainText("链路超时");
 });
 
-test("desktop messaging, reactions, and preferences remain usable", async ({ page }) => {
+test("desktop messaging, context actions, and preferences remain usable", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".app-shell")).toBeVisible();
   await expect(page.locator(".chat-row")).not.toHaveCount(0);
@@ -253,8 +253,12 @@ test("desktop messaging, reactions, and preferences remain usable", async ({ pag
 
   const visibleBubble = page.locator(".message-bubble-shell").last();
   await visibleBubble.click({ button: "right" });
-  await page.getByRole("button", { name: "回应 👍" }).click();
-  await expect(visibleBubble.locator(".message-reactions > button")).toHaveCount(1);
+  const messageMenu = page.getByRole("menu", { name: "消息操作" });
+  await expect(messageMenu.getByRole("button", { name: /^回应/ })).toHaveCount(0);
+  await expect(messageMenu.getByRole("menuitem").nth(0)).toHaveText("回复");
+  await expect(messageMenu.getByRole("menuitem").nth(1)).toHaveText("转发");
+  await expect(messageMenu.getByRole("menuitem").nth(2)).toHaveText("复制");
+  await page.keyboard.press("Escape");
   await expect(page.locator(".reaction-add, .message-action-trigger")).toHaveCount(0);
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -1910,8 +1914,11 @@ test("video uses synchronized transparent playback windows and owns the playback
 
   await row.click({ button: "right" });
   const actionMenu = page.getByRole("menu", { name: "消息操作" });
-  await expect(actionMenu.getByRole("menuitem").first()).toHaveText("以小窗播放");
-  await expect(actionMenu.getByRole("menuitem").nth(1)).toHaveText("下载视频");
+  await expect(actionMenu.getByRole("menuitem").nth(0)).toHaveText("回复");
+  await expect(actionMenu.getByRole("menuitem").nth(1)).toHaveText("转发");
+  await expect(actionMenu.getByRole("menuitem").nth(2)).toHaveText("复制");
+  await expect(actionMenu.getByRole("menuitem", { name: "以小窗播放" })).toBeVisible();
+  await expect(actionMenu.getByRole("menuitem", { name: "下载视频" })).toBeVisible();
   const popupPromise = page.waitForEvent("popup");
   await actionMenu.getByRole("menuitem", { name: "以小窗播放" }).click();
   const popup = await popupPromise;
@@ -2574,7 +2581,7 @@ test("sidebar context menus close when content outside them scrolls", async ({ p
   await productRow.scrollIntoViewIfNeeded();
   await productRow.click({ button: "right" });
   menu = page.locator(".context-menu-surface");
-  await menu.locator('[data-context-menu-primary] [role="menuitem"]').first().click();
+  await menu.getByRole("menuitem", { name: "分组" }).click();
   const submenu = menu.locator(".chat-folder-submenu");
   await expect(submenu).toBeVisible();
   const submenuMovement = await submenu.evaluate((element) => ({
