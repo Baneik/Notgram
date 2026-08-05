@@ -2,7 +2,8 @@ import type { ChatProfile } from "../telegram/types";
 
 export type ProfileTarget =
   | { kind: "current" }
-  | { kind: "chat"; chatId: string };
+  | { kind: "chat"; chatId: string }
+  | { kind: "user"; userId: string };
 
 export interface ProfileState {
   target?: ProfileTarget;

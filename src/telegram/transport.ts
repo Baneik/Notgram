@@ -67,6 +67,7 @@ export interface TelegramTransport {
   updateCurrentUserProfile(input: UpdateCurrentUserProfileInput): Promise<ChatProfile>;
   setCurrentUserAvatar(file?: File): Promise<ChatProfile | undefined>;
   getChatProfile(chatId: string): Promise<ChatProfile>;
+  getUserProfile(userId: string): Promise<ChatProfile>;
   getContacts(): Promise<User[]>;
   createPrivateChat(userId: string): Promise<Chat>;
   searchChats(query: string, limit?: number): Promise<void>;

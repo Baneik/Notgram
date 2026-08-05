@@ -25,6 +25,7 @@ interface ProfileDrawerProps {
   onRetry: () => void;
   onOpenMessage: (chatId: string, messageId: string) => void;
   onStartPrivateChat: (userId: string) => Promise<void>;
+  onOpenUserProfile: (userId: string) => void;
 }
 
 const roleLabel = (role: "owner" | "administrator" | "member") =>
@@ -38,6 +39,7 @@ export function ProfileDrawer({
   onRetry,
   onOpenMessage,
   onStartPrivateChat,
+  onOpenUserProfile,
 }: ProfileDrawerProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLElement>(onClose, false, closeRef);
@@ -151,8 +153,14 @@ export function ProfileDrawer({
                     <div className="profile-member-list">
                       {profile.members.map((member) => (
                         <div className="profile-member-row" key={member.user.id}>
-                          <Avatar avatar={member.user.avatar} size="small" />
-                          <span><strong>{member.user.displayName}</strong><small>{roleLabel(member.role)}</small></span>
+                          <button
+                            className="profile-member-identity"
+                            type="button"
+                            onClick={() => onOpenUserProfile(member.user.id)}
+                          >
+                            <Avatar avatar={member.user.avatar} size="small" />
+                            <span><strong>{member.user.displayName}</strong><small>{roleLabel(member.role)}</small></span>
+                          </button>
                           {member.user.id !== currentUserId && (
                             <button
                               type="button"

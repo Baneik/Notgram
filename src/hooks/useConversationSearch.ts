@@ -11,9 +11,9 @@ export const useConversationSearch = (
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
-  const visibleMessages = useMemo(() => {
+  const matchingMessages = useMemo(() => {
     const normalized = query.trim();
-    if (!normalized) return messages;
+    if (!normalized) return [];
     let pattern;
     try {
       pattern = parseMessageSearchQuery(normalized);
@@ -47,5 +47,13 @@ export const useConversationSearch = (
     else setOpen(true);
   };
 
-  return { open, query, visibleMessages, setQuery, close, toggle };
+  return {
+    open,
+    query,
+    visibleMessages: messages,
+    matchingMessages,
+    setQuery,
+    close,
+    toggle,
+  };
 };

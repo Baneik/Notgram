@@ -1,6 +1,8 @@
 import {
   ArrowDown,
+  ChevronDown,
   ChevronLeft,
+  ChevronUp,
   Forward,
   MoreVertical,
   LoaderCircle,
@@ -45,6 +47,7 @@ import {
 import {
   forwardLabelFor,
   replyPreviewFor,
+  senderChatId,
   senderNameForMessage,
 } from "./conversationMessages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
@@ -128,6 +131,8 @@ interface ConversationProps {
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
+  onOpenMessage: (chatId: string, messageId: string) => void;
+  onOpenSenderProfile: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
   onSetChatArchived: (archived: boolean) => Promise<boolean>;
@@ -174,6 +179,8 @@ export function Conversation({
   onCancelFileUpload,
   onLoadOlder,
   onOpenProfile,
+  onOpenMessage,
+  onOpenSenderProfile,
   onSetChatPinned,
   onSetChatMuted,
   onSetChatArchived,
@@ -236,14 +243,25 @@ export function Conversation({
     open: searchOpen,
     query: messageSearch,
     visibleMessages,
+    matchingMessages,
     setQuery: setMessageSearch,
     close: closeMessageSearch,
     toggle: toggleMessageSearch,
   } = useConversationSearch(chat?.id, displayMessages, onSearchMessages);
+  const messageSearchInputRef = useRef<HTMLInputElement>(null);
+  const [activeSearchResultId, setActiveSearchResultId] = useState<string>();
 
   useEffect(() => {
-    if (messageScrollRequest?.chatId === chat?.id) closeMessageSearch();
-  }, [chat?.id, messageScrollRequest?.chatId, messageScrollRequest?.requestId]);
+    if (!messageSearch.trim() || matchingMessages.length === 0) {
+      setActiveSearchResultId(undefined);
+      return;
+    }
+    setActiveSearchResultId((current) =>
+      current && matchingMessages.some((message) => message.id === current)
+        ? current
+        : matchingMessages.at(-1)?.id,
+    );
+  }, [matchingMessages, messageSearch]);
 
   const messageProjection = useMemo(() => {
     const startedAt = performance.now();
@@ -453,7 +471,7 @@ export function Conversation({
   const composerContextTitle = editingMessage
     ? "编辑消息"
     : replyingTo
-      ? `回复 ${senderNameForMessage(replyingTo, users, chat)}`
+      ? `回复 ${senderNameForMessage(replyingTo, users, chat, forwardTargetsById)}`
       : undefined;
   const typingNames = typingUserIds.map((userId) => users.get(userId)?.displayName ?? "成员");
   const typingStatus = typingUserIds.length === 0 || chat.kind === "saved" || chat.kind === "channel"
@@ -468,6 +486,24 @@ export function Conversation({
 
   const focusComposer = () => {
     globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
+  };
+
+  const activeSearchResultIndex = activeSearchResultId
+    ? matchingMessages.findIndex((message) => message.id === activeSearchResultId)
+    : -1;
+  const openSearchResult = (direction: "older" | "newer") => {
+    if (matchingMessages.length === 0) return;
+    const currentIndex = activeSearchResultIndex >= 0
+      ? activeSearchResultIndex
+      : matchingMessages.length - 1;
+    const nextIndex = direction === "older"
+      ? Math.max(0, currentIndex - 1)
+      : Math.min(matchingMessages.length - 1, currentIndex + 1);
+    const target = matchingMessages[nextIndex];
+    if (!target) return;
+    setActiveSearchResultId(target.id);
+    onOpenMessage(target.chatId, target.id);
+    globalThis.setTimeout(() => messageSearchInputRef.current?.focus(), 0);
   };
 
   const openActionMenu = useCallback(async (
@@ -646,12 +682,46 @@ export function Conversation({
         <div className="message-search-row">
           <Search size={16} strokeWidth={1.8} />
           <input
+            ref={messageSearchInputRef}
             autoFocus
             value={messageSearch}
             onChange={(event) => setMessageSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              openSearchResult(event.shiftKey ? "newer" : "older");
+            }}
             placeholder="搜索当前对话"
             type="search"
           />
+          <span className="message-search-count" aria-live="polite">
+            {matchingMessages.length === 0
+              ? "0 / 0"
+              : `${Math.max(0, activeSearchResultIndex) + 1} / ${matchingMessages.length}`}
+          </span>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="上一个搜索结果"
+            title="上一个搜索结果"
+            disabled={matchingMessages.length === 0 || activeSearchResultIndex <= 0}
+            onClick={() => openSearchResult("older")}
+          >
+            <ChevronUp size={17} strokeWidth={1.9} />
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="下一个搜索结果"
+            title="下一个搜索结果"
+            disabled={
+              matchingMessages.length === 0 ||
+              activeSearchResultIndex >= matchingMessages.length - 1
+            }
+            onClick={() => openSearchResult("newer")}
+          >
+            <ChevronDown size={17} strokeWidth={1.9} />
+          </button>
           <button className="icon-button" type="button" aria-label="关闭消息搜索" title="关闭消息搜索" onClick={closeMessageSearch}>
             <X size={17} strokeWidth={1.8} />
           </button>
@@ -705,9 +775,13 @@ export function Conversation({
               !firstMessage.outgoing && chat.kind !== "direct";
             const showSenderAvatar = reserveSenderAvatar && !groupModel.continuesAfter;
             const sender = users.get(firstMessage.senderId);
+            const senderChat = senderChatId(firstMessage.senderId);
+            const senderChatDetails = senderChat ? forwardTargetsById.get(senderChat) : undefined;
             const senderName = sender?.displayName ??
+              senderChatDetails?.title ??
               (chat.kind === "direct" ? chat.title : "Telegram 用户");
             const senderAvatar = sender?.avatar ??
+              senderChatDetails?.avatar ??
               (chat.kind === "direct" ? chat.avatar : undefined);
             return (
               <Fragment key={firstMessage.id}>
@@ -720,13 +794,20 @@ export function Conversation({
                 {reserveSenderAvatar && (
                   <span className="message-group-avatar">
                     {showSenderAvatar && (
-                      <Avatar
-                        avatar={senderAvatar ?? {
-                          label: Array.from(senderName.trim())[0] ?? "?",
-                          color: "#73828c",
-                        }}
-                        size="small"
-                      />
+                      <button
+                        className="message-sender-avatar"
+                        type="button"
+                        aria-label={`查看 ${senderName} 资料`}
+                        onClick={() => onOpenSenderProfile(firstMessage.senderId)}
+                      >
+                        <Avatar
+                          avatar={senderAvatar ?? {
+                            label: Array.from(senderName.trim())[0] ?? "?",
+                            color: "#73828c",
+                          }}
+                          size="small"
+                        />
+                      </button>
                     )}
                   </span>
                 )}
@@ -740,10 +821,16 @@ export function Conversation({
                         key={message.id}
                         message={message}
                         entrance={messageEntranceFor(message)}
-                        sender={sender}
                         senderName={senderName}
+                        senderProfileAvailable={!message.outgoing && message.senderId !== "unknown"}
                         groupPosition={positions.get(message.id) ?? "single"}
-                        replyPreview={replyPreviewFor(message, messagesById, users, chat)}
+                        replyPreview={replyPreviewFor(
+                          message,
+                          messagesById,
+                          users,
+                          chat,
+                          forwardTargetsById,
+                        )}
                         forwardLabel={forwardLabelFor(message, users, forwardTargetsById)}
                         selectionMode={selectionMode}
                         selected={selectedMessageIds.has(message.id)}
@@ -762,6 +849,8 @@ export function Conversation({
                         onRetry={onRetryMessage}
                         onCancelUpload={onCancelFileUpload}
                         onReaction={onSetMessageReaction}
+                        onOpenReply={onOpenMessage}
+                        onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMedia={selectionMode ? undefined : setViewerMessageId}
                         albumItem={albumItem}
                         autoplayAnimations={autoplayAnimations}

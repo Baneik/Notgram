@@ -389,6 +389,21 @@ const messages: Message[] = [
     content: { kind: "text", text: "我把交互稿更新到最新版本了，下午可以直接走查。" },
   },
   {
+    id: "p-channel-reply",
+    chatId: "chat-product",
+    senderId: "chat:chat-release",
+    outgoing: false,
+    sentAt: "2026-08-01T09:48:10+08:00",
+    delivery: "read",
+    replyTo: {
+      kind: "message",
+      chatId: "chat-product",
+      messageId: "p-old-8",
+      content: { kind: "text", text: "产品讨论历史消息 8" },
+    },
+    content: { kind: "text", text: "Release Notes channel posted this reply" },
+  },
+  {
     id: "p-markdown",
     chatId: "chat-product",
     senderId: "u-jules",

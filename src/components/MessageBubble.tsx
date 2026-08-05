@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
-import type { Message, MessageReaction, User } from "../telegram/types";
+import type { Message, MessageReaction } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
@@ -37,13 +37,15 @@ const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 export interface ReplyPreview {
   author: string;
   text: string;
+  chatId?: string;
+  messageId?: string;
 }
 
 interface MessageBubbleProps {
   message: Message;
   entrance?: MessageEntrance;
-  sender?: User;
   senderName: string;
+  senderProfileAvailable: boolean;
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
   forwardLabel?: string;
@@ -69,6 +71,8 @@ interface MessageBubbleProps {
   onRetry: (messageId: string) => Promise<void>;
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onOpenReply: (chatId: string, messageId: string) => void;
+  onOpenSenderProfile: (senderId: string) => void;
   onOpenMedia?: (messageId: string) => void;
   albumItem?: boolean;
   autoplayAnimations: boolean;
@@ -90,8 +94,8 @@ const reactionLabel = (reaction: MessageReaction) => {
 function MessageBubbleComponent({
   message,
   entrance,
-  sender,
   senderName,
+  senderProfileAvailable,
   groupPosition,
   replyPreview,
   forwardLabel,
@@ -112,6 +116,8 @@ function MessageBubbleComponent({
   onRetry,
   onCancelUpload,
   onReaction,
+  onOpenReply,
+  onOpenSenderProfile,
   onOpenMedia,
   albumItem = false,
   autoplayAnimations,
@@ -293,19 +299,38 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget);
         }}
       >
-        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""}`}>
+        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             <span className="message-forward-label">
               <Forward size={12} strokeWidth={2} />
               {forwardLabel}
             </span>
           )}
-          {!isService && showSender && <span className="message-sender">{sender?.displayName ?? senderName}</span>}
+          {!isService && showSender && (
+            senderProfileAvailable ? (
+              <button
+                className="message-sender"
+                type="button"
+                onClick={() => onOpenSenderProfile(message.senderId)}
+              >
+                {senderName}
+              </button>
+            ) : <span className="message-sender">{senderName}</span>
+          )}
           {!albumItem && !isService && replyPreview && (
-            <span className="message-reply-preview">
+            <button
+              className="message-reply-preview"
+              type="button"
+              disabled={!replyPreview.messageId}
+              onClick={() => {
+                if (replyPreview.chatId && replyPreview.messageId) {
+                  onOpenReply(replyPreview.chatId, replyPreview.messageId);
+                }
+              }}
+            >
               <strong>{replyPreview.author}</strong>
               <small>{replyPreview.text}</small>
-            </span>
+            </button>
           )}
           {content.kind === "text" ? (
             <MessageRichText text={content.text} entities={content.entities} />

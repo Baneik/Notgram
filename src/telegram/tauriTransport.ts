@@ -303,6 +303,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private unavailableReplyHydrations = new Set<string>();
   private pendingRichMessageHydrations = new Set<string>();
   private unavailableRichMessageHydrations = new Set<string>();
+  private pendingSenderChatLoads = new Set<string>();
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
   private chatListIds = new Map<string, Set<string>>();
@@ -701,6 +702,13 @@ export class TauriTelegramTransport implements TelegramTransport {
       };
     }
     throw new Error("暂不支持此聊天资料类型");
+  }
+
+  async getUserProfile(userId: string): Promise<ChatProfile> {
+    return this.loadUserProfile(
+      userId,
+      userId === this.currentUserId ? "self" : "user",
+    );
   }
 
   async getContacts() {
@@ -2008,6 +2016,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.set(message.chatId, chatMessages);
     this.indexMessageFiles(message.chatId, message.id, raw);
     this.listener?.({ type: "message.upsert", message, animateEntrance });
+    this.ensureMessageSenderChat(raw);
     this.ensureReplyContent(raw);
     this.ensureFullRichMessage(raw);
   }
@@ -2025,12 +2034,36 @@ export class TauriTelegramTransport implements TelegramTransport {
       const key = `${message.chatId}:${message.id}`;
       messages.set(key, message);
       uniqueRawMessages.set(key, raw);
+      this.ensureMessageSenderChat(raw);
     }
     if (messages.size > 0) {
       this.listener?.({ type: "messages.upserted", messages: [...messages.values()] });
     }
     for (const raw of uniqueRawMessages.values()) this.ensureReplyContent(raw);
     for (const raw of uniqueRawMessages.values()) this.ensureFullRichMessage(raw);
+  }
+
+  private ensureMessageSenderChat(raw: TdObject) {
+    const sender = asTdObject(raw.sender_id);
+    if (sender?.["@type"] !== "messageSenderChat") return;
+    const chatId = tdId(sender.chat_id);
+    if (!chatId || this.rawChats.has(chatId) || this.pendingSenderChatLoads.has(chatId)) return;
+    this.pendingSenderChatLoads.add(chatId);
+    void this.request({ "@type": "getChat", chat_id: numericId(chatId) })
+      .then((chat) => {
+        this.upsertChat(chat);
+        for (const messages of this.rawMessages.values()) {
+          for (const message of messages.values()) {
+            const messageSender = asTdObject(message.sender_id);
+            if (
+              messageSender?.["@type"] === "messageSenderChat" &&
+              tdId(messageSender.chat_id) === chatId
+            ) this.emitMessage(message);
+          }
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => this.pendingSenderChatLoads.delete(chatId));
   }
 
   private ensureFullRichMessage(raw: TdObject) {
@@ -2241,6 +2274,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.unavailableReplyHydrations.clear();
     this.pendingRichMessageHydrations.clear();
     this.unavailableRichMessageHydrations.clear();
+    this.pendingSenderChatLoads.clear();
     this.chatListLoads.clear();
     this.chatListCounts.clear();
     this.chatListIds.clear();

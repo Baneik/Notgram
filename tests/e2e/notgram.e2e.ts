@@ -1256,9 +1256,16 @@ test("the unified sidebar search paginates, filters, supports regex, and opens e
   await page.getByRole("button", { name: "搜索消息" }).click();
   const conversationSearch = page.getByRole("searchbox", { name: "搜索当前对话" });
   await conversationSearch.fill("reg:^新的媒体预览样式$");
+  await conversationSearch.press("Enter");
   await expect(page.locator('[data-message-id="p-5"]')).toBeVisible();
+  await conversationSearch.fill("产品讨论历史消息");
+  await expect(page.locator(".message-search-count")).toHaveText("36 / 36");
+  await page.getByRole("button", { name: "上一个搜索结果" }).click();
+  await expect(page.locator('[data-message-id="p-old-35"]')).toHaveClass(/is-notification-target/);
+  await expect(conversationSearch).toBeFocused();
   await conversationSearch.fill("reg:[");
-  await expect(page.locator(".messages-empty")).toHaveText("没有匹配的消息");
+  await expect(page.locator(".message-row").first()).toBeVisible();
+  await expect(page.locator(".messages-empty")).toHaveCount(0);
   await expect(page.getByRole("alert").getByText("无效的正则表达式")).toBeVisible();
   await page.getByRole("button", { name: "关闭消息搜索" }).click();
   await page.getByRole("button", { name: "关闭操作提示" }).click();
@@ -1287,6 +1294,16 @@ test("chat profiles expose members and shared media with focus restoration", asy
   await expect(profile.getByRole("heading", { name: "产品讨论" })).toBeVisible();
   await expect(profile.getByText("产品、设计与开发协作群。", { exact: true })).toBeVisible();
   await expect(profile.locator(".profile-member-row")).toHaveCount(4);
+  const popupBounds = await profile.boundingBox();
+  expect(popupBounds).not.toBeNull();
+  expect(popupBounds!.height).toBeLessThan(720);
+  expect(Math.abs((popupBounds!.x + popupBounds!.width / 2) - 640)).toBeLessThan(2);
+
+  await profile.locator(".profile-member-identity").filter({ hasText: "Mia Chen" }).click();
+  await expect(profile.getByText("@mia_design", { exact: true })).toBeVisible();
+  await expect(profile.getByText("u-mia", { exact: true })).toBeVisible();
+  await profile.getByRole("button", { name: "关闭资料" }).click();
+  await profileTrigger.click();
 
   await profile.getByRole("button", { name: "共享媒体" }).click();
   await expect(profile.locator(".profile-media-list button")).not.toHaveCount(0);
@@ -1300,6 +1317,33 @@ test("chat profiles expose members and shared media with focus restoration", asy
   expect(await horizontalOverflow(page)).toBe(false);
   await profile.getByRole("button", { name: "关闭资料" }).click();
   await expect(profileTrigger).toBeFocused();
+});
+
+test("reply previews jump to their source and channel senders keep their identity", async ({ page }) => {
+  await page.goto("/");
+  const channelMessage = page.locator('[data-message-id="p-channel-reply"]');
+  await expect(channelMessage).toBeVisible();
+  await expect(channelMessage.locator(".message-sender")).toHaveText("Release Notes");
+  await expect(page.locator('.message-group:has([data-message-id="p-channel-reply"]) .message-group-avatar .avatar')).toContainText("R");
+
+  await channelMessage.locator(".message-reply-preview").click();
+  const target = page.locator('[data-message-id="p-old-8"]');
+  await expect(target).toHaveClass(/is-notification-target/);
+  await expect.poll(() => target.evaluate((element) => {
+    const list = element.closest(".message-list")?.getBoundingClientRect();
+    const row = element.getBoundingClientRect();
+    if (!list) return Number.POSITIVE_INFINITY;
+    return Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2);
+  })).toBeLessThan(2);
+
+  await page.getByRole("button", { name: "搜索消息" }).click();
+  const search = page.getByRole("searchbox", { name: "搜索当前对话" });
+  await search.fill("Release Notes channel posted this reply");
+  await search.press("Enter");
+  await page.locator('[data-message-id="p-channel-reply"] .message-sender').click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await expect(profile.getByRole("heading", { name: "Release Notes" })).toBeVisible();
+
 });
 
 test("user profiles expose account identifiers and data-center information", async ({ page }) => {

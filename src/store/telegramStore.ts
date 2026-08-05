@@ -1590,6 +1590,25 @@ export const createTelegramStore = (
         }
       },
 
+      loadUserProfile: async (userId) => {
+        const generation = ++profileGeneration;
+        set({ profile: { target: { kind: "user", userId }, loading: true } });
+        try {
+          const value = await transport.getUserProfile(userId);
+          if (generation !== profileGeneration) return;
+          set({ profile: { target: { kind: "user", userId }, value, loading: false } });
+        } catch (error) {
+          if (generation !== profileGeneration) return;
+          set({
+            profile: {
+              target: { kind: "user", userId },
+              loading: false,
+              error: errorMessage(error, "无法读取用户资料"),
+            },
+          });
+        }
+      },
+
       clearProfile: () => {
         profileGeneration += 1;
         set({ profile: emptyProfileState() });

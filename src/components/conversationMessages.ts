@@ -4,15 +4,23 @@ import { messageContentText } from "../telegram/messageContent";
 export interface ReplyPreview {
   author: string;
   text: string;
+  chatId?: string;
+  messageId?: string;
 }
+
+export const senderChatId = (senderId: string) =>
+  senderId.startsWith("chat:") ? senderId.slice("chat:".length) : undefined;
 
 export const senderNameForMessage = (
   message: Message,
   users: Map<string, User>,
   chat: Chat,
+  chats?: Map<string, Chat>,
 ) => {
   if (message.outgoing) return "你";
+  const senderChat = senderChatId(message.senderId);
   return users.get(message.senderId)?.displayName ??
+    (senderChat ? chats?.get(senderChat)?.title : undefined) ??
     (chat.kind === "direct" ? chat.title : "Telegram 用户");
 };
 
@@ -41,6 +49,7 @@ export const replyPreviewFor = (
   messagesById: Map<string, Message>,
   users: Map<string, User>,
   chat: Chat,
+  chats?: Map<string, Chat>,
 ): ReplyPreview | undefined => {
   if (!message.replyTo) return undefined;
   if (message.replyTo.kind === "story") {
@@ -51,8 +60,10 @@ export const replyPreviewFor = (
     : undefined;
   if (target) {
     return {
-      author: senderNameForMessage(target, users, chat),
+      author: senderNameForMessage(target, users, chat, chats),
       text: messageSummary(target.content),
+      chatId: target.chatId,
+      messageId: target.id,
     };
   }
   const origin = message.replyTo.origin;
@@ -61,12 +72,14 @@ export const replyPreviewFor = (
     : origin?.kind === "hiddenUser"
       ? origin.senderName
       : origin?.kind === "chat" || origin?.kind === "channel"
-        ? origin.authorSignature
+        ? chats?.get(origin.chatId)?.title ?? origin.authorSignature
         : undefined;
   return {
     author: author || "回复消息",
     text: message.replyTo.quote ||
       (message.replyTo.content ? messageSummary(message.replyTo.content) : "原消息不可用"),
+    chatId: message.replyTo.chatId ?? message.chatId,
+    messageId: message.replyTo.messageId,
   };
 };
 

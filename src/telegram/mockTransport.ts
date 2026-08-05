@@ -530,6 +530,29 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
+  async getUserProfile(userId: string): Promise<ChatProfile> {
+    const user = this.snapshot.users.find((item) => item.id === userId);
+    if (!user) throw new Error("找不到用户资料");
+    return {
+      id: `user:${user.id}`,
+      kind: user.id === this.snapshot.currentUserId ? "self" : "user",
+      userId: user.id,
+      title: user.displayName,
+      avatar: clone(user.avatar),
+      statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
+      bio: user.id === "u-mia" ? "产品设计师，关注桌面端体验。" : undefined,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      username: user.username,
+      phoneNumber: user.phoneNumber,
+      dataCenterId: 5,
+      dataCenterLocation: "Singapore, SG",
+      members: [],
+      canViewMembers: false,
+      groupInCommonCount: user.id === this.snapshot.currentUserId ? 0 : 2,
+    };
+  }
+
   async updateCurrentUserProfile(input: UpdateCurrentUserProfileInput): Promise<ChatProfile> {
     const user = this.snapshot.users.find((item) => item.id === this.snapshot.currentUserId);
     if (!user) throw new Error("找不到当前账号资料");

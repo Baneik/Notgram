@@ -92,6 +92,7 @@ export function App() {
   const selectChat = useTelegramStore((state) => state.selectChat);
   const loadMessage = useTelegramStore((state) => state.loadMessage);
   const loadChatProfile = useTelegramStore((state) => state.loadChatProfile);
+  const loadUserProfile = useTelegramStore((state) => state.loadUserProfile);
   const loadCurrentUserProfile = useTelegramStore((state) => state.loadCurrentUserProfile);
   const clearProfile = useTelegramStore((state) => state.clearProfile);
   const startPrivateChat = useTelegramStore((state) => state.startPrivateChat);
@@ -711,6 +712,11 @@ export function App() {
           onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
+          onOpenMessage={(chatId, messageId) => { void openGlobalSearchMessage(chatId, messageId); }}
+          onOpenSenderProfile={(senderId) => {
+            if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
+            else void loadUserProfile(senderId);
+          }}
           onSetChatPinned={(pinned) => activeChatId
             ? setChatPinned(
                 activeChat?.folderIds.includes(chatFilter)
@@ -782,9 +788,11 @@ export function App() {
           onRetry={() => {
             if (profile.target?.kind === "current") void loadCurrentUserProfile();
             else if (profile.target?.kind === "chat") void loadChatProfile(profile.target.chatId);
+            else if (profile.target?.kind === "user") void loadUserProfile(profile.target.userId);
           }}
           onOpenMessage={openProfileMessage}
           onStartPrivateChat={openProfilePrivateChat}
+          onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
         />
       )}
     </>
