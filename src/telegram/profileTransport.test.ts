@@ -11,6 +11,28 @@ const rawUser = (id: number, name: string): TdObject => ({
   status: { "@type": "userStatusOnline", expires: 1_900_000_000 },
 });
 
+const avatarRemoteId = (dcId: number) => {
+  const serialized = new Uint8Array(24);
+  const view = new DataView(serialized.buffer);
+  view.setInt32(0, 3, true);
+  view.setInt32(4, dcId, true);
+  view.setBigInt64(8, 456n, true);
+  const encoded: number[] = [];
+  for (let index = 0; index < serialized.length; index += 1) {
+    const value = serialized[index]!;
+    encoded.push(value);
+    if (value !== 0) continue;
+    let count = 1;
+    while (count < 250 && serialized[index + count] === 0) count += 1;
+    encoded.push(count);
+    index += count - 1;
+  }
+  return btoa(String.fromCharCode(...encoded, 42, 4))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+};
+
 describe("profile transport", () => {
   it("exposes mock account, group, contacts, and a resolvable private chat", async () => {
     const transport = new MockTelegramTransport();
@@ -67,6 +89,43 @@ describe("profile transport", () => {
       "getUserFullInfo",
       "getOption",
     ]);
+  });
+
+  it("derives a user's DC from the avatar remote file before using the option fallback", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as {
+      request: (request: TdObject) => Promise<TdObject>;
+    };
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getUser") {
+        return {
+          ...rawUser(12, "Lin"),
+          profile_photo: {
+            small: {
+              "@type": "file",
+              id: 44,
+              remote: { "@type": "remoteFile", id: avatarRemoteId(4) },
+              local: { "@type": "localFile", path: "" },
+            },
+          },
+        };
+      }
+      if (request["@type"] === "getUserFullInfo") {
+        return { "@type": "userFullInfo", group_in_common_count: 0 };
+      }
+      throw new Error(`unexpected request: ${String(request["@type"])}`);
+    };
+
+    const profile = await transport.getUserProfile("12");
+
+    expect(profile).toMatchObject({
+      dataCenterId: 4,
+      dataCenterLocation: "Amsterdam, NL",
+    });
+    expect(requests.map((request) => request["@type"]))
+      .toEqual(["getUser", "getUserFullInfo"]);
   });
 
   it("maps TDLib group members and resolves contacts and private chats on the server", async () => {

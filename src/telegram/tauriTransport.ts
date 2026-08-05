@@ -40,6 +40,7 @@ import {
 } from "./tdlibRequests";
 import { routeTdUpdate, type TdUpdateHandlers } from "./tdUpdateRouter";
 import { messageContentText } from "./messageContent";
+import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
 import { messageSearchMatches, parseMessageSearchQuery } from "./messageSearch";
 import {
   getActiveConversationTraceId,
@@ -1719,10 +1720,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     userId: string,
     kind: "self" | "user",
   ): Promise<ChatProfile> {
-    const [user, full, dataCenter] = await Promise.all([
-      this.loadUser(userId),
+    const user = await this.loadUser(userId);
+    const [full, dataCenter] = await Promise.all([
       this.request({ "@type": "getUserFullInfo", user_id: numericId(userId) }),
-      this.loadDataCenter(),
+      this.loadDataCenter(this.rawUsers.get(userId)),
     ]);
     if (!user) throw new Error("TDLib 未返回用户资料");
     const bio = profileText(full.bio);
@@ -1746,7 +1747,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     };
   }
 
-  private async loadDataCenter() {
+  private async loadDataCenter(rawUser?: TdObject) {
+    const profilePhoto = asTdObject(rawUser?.profile_photo);
+    for (const size of [profilePhoto?.small, profilePhoto?.big]) {
+      const remoteId = asTdObject(asTdObject(size)?.remote)?.id;
+      if (typeof remoteId !== "string") continue;
+      const id = parseTdlibRemoteFileDataCenter(remoteId);
+      if (id) return { id, location: DATA_CENTER_LOCATIONS[id] ?? "Telegram 数据中心" };
+    }
     try {
       const option = await this.request({ "@type": "getOption", name: "dc_id" });
       const id = tdNumber(option.value);
