@@ -1553,10 +1553,23 @@ export const mapTdUser = (raw: TdObject): User | undefined => {
   const status = asTdObject(raw.status);
   const online = status?.["@type"] === "userStatusOnline";
   const lastSeen = status?.["@type"] === "userStatusOffline" ? tdNumber(status.was_online) : undefined;
+  const usernames = asTdObject(raw.usernames);
+  const editableUsername = typeof usernames?.editable_username === "string"
+    ? usernames.editable_username
+    : undefined;
+  const activeUsername = Array.isArray(usernames?.active_usernames)
+    ? usernames.active_usernames.find((value): value is string => typeof value === "string")
+    : undefined;
 
   return {
     id,
     displayName,
+    firstName,
+    lastName,
+    username: editableUsername || activeUsername || undefined,
+    phoneNumber: typeof raw.phone_number === "string" && raw.phone_number
+      ? raw.phone_number
+      : undefined,
     avatar: {
       label: initials(displayName),
       color: colorFor(id),

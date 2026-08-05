@@ -29,6 +29,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getInstalledStickerSets",
     "getMe",
     "getMessageProperties",
+    "getOption",
     "getRecentStickers",
     "getSavedAnimations",
     "getStickerSet",
@@ -55,11 +56,14 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "searchMessages",
     "searchPublicChats",
     "sendMessage",
+    "setBio",
     "setAuthenticationEmailAddress",
     "setAuthenticationPhoneNumber",
     "setChatDraftMessage",
     "setChatNotificationSettings",
+    "setName",
     "setPinnedChats",
+    "setUsername",
     "toggleChatIsMarkedAsUnread",
     "toggleChatIsPinned",
     "viewMessages",
@@ -119,6 +123,32 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
     if contains_tdlib_type(request, &["inputFileLocal", "inputFileGenerated"]) {
         return Err("Local files cannot be sent through the generic TDLib bridge".to_string());
     }
+    match request_type {
+        "getOption" => {
+            if request.get("name").and_then(Value::as_str) != Some("dc_id") {
+                return Err("Only the data-center option can be read".to_string());
+            }
+        }
+        "setName" => {
+            validate_profile_text(request, "first_name", 64, false, true)?;
+            validate_profile_text(request, "last_name", 64, false, false)?;
+        }
+        "setBio" => {
+            validate_profile_text(request, "bio", 140, true, false)?;
+        }
+        "setUsername" => {
+            let username = validate_profile_text(request, "username", 32, false, false)?;
+            if !username.is_empty()
+                && (username.chars().count() < 5
+                    || !username
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric() || character == '_'))
+            {
+                return Err("Invalid Telegram username".to_string());
+            }
+        }
+        _ => {}
+    }
     if request_type == "createPrivateChat"
         && request.get("force").and_then(Value::as_bool) != Some(false)
     {
@@ -160,6 +190,29 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         }
     }
     Ok(())
+}
+
+fn validate_profile_text<'a>(
+    request: &'a Value,
+    field: &str,
+    maximum: usize,
+    allow_newline: bool,
+    required: bool,
+) -> Result<&'a str, String> {
+    let value = request
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("Profile field is missing: {field}"))?;
+    if (required && value.trim().is_empty()) || value.chars().count() > maximum {
+        return Err(format!("Invalid profile field: {field}"));
+    }
+    if value
+        .chars()
+        .any(|character| character.is_control() && !(allow_newline && character == '\n'))
+    {
+        return Err(format!("Invalid profile field: {field}"));
+    }
+    Ok(value)
 }
 
 fn input_message_upload(file: &crate::storage::UploadFileInfo) -> Value {
@@ -223,6 +276,30 @@ pub(super) fn prepared_file_request(
         "options": null,
         "reply_markup": null,
         "input_message_content": input_message_upload(file),
+        "@extra": extra
+    }))
+}
+
+pub(super) fn prepared_profile_photo_request(
+    extra: &str,
+    file: &crate::storage::UploadFileInfo,
+) -> Result<Value, String> {
+    validate_webview_extra(extra)?;
+    let extension = Path::new(&file.path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(extension.as_str(), "jpg" | "jpeg") || file.size > 10 * 1024 * 1024 {
+        return Err("Profile photos must be JPEG files no larger than 10 MB".to_string());
+    }
+    Ok(json!({
+        "@type": "setProfilePhoto",
+        "photo": {
+            "@type": "inputChatPhotoStatic",
+            "photo": { "@type": "inputFileLocal", "path": file.path }
+        },
+        "is_public": false,
         "@extra": extra
     }))
 }
@@ -473,5 +550,41 @@ mod tests {
             "inputMessageDocument"
         );
         assert!(validate_webview_tdlib_request(&photo_request).is_err());
+    }
+
+    #[test]
+    fn profile_updates_are_bounded_and_profile_photos_remain_native_only() {
+        for request in [
+            json!({ "@type": "setName", "first_name": "Lin", "last_name": "Ran", "@extra": EXTRA }),
+            json!({ "@type": "setBio", "bio": "Desktop client", "@extra": EXTRA }),
+            json!({ "@type": "setUsername", "username": "linran", "@extra": EXTRA }),
+            json!({ "@type": "getOption", "name": "dc_id", "@extra": EXTRA }),
+        ] {
+            assert!(validate_webview_tdlib_request(&request).is_ok());
+        }
+        assert!(
+            validate_webview_tdlib_request(&json!({
+                "@type": "setUsername",
+                "username": "bad-name",
+                "@extra": EXTRA
+            }))
+            .is_err()
+        );
+        assert!(
+            validate_webview_tdlib_request(&json!({
+                "@type": "getOption",
+                "name": "database_directory",
+                "@extra": EXTRA
+            }))
+            .is_err()
+        );
+
+        let photo = crate::storage::UploadFileInfo {
+            path: "C:\\selected\\avatar.jpg".to_string(),
+            size: 2_000_000,
+        };
+        let request = prepared_profile_photo_request(EXTRA, &photo).unwrap();
+        assert_eq!(request["photo"]["@type"], "inputChatPhotoStatic");
+        assert!(validate_webview_tdlib_request(&request).is_err());
     }
 }

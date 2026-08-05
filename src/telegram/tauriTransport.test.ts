@@ -10,6 +10,7 @@ type TestableTransport = {
   bootstrap: () => Promise<void>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
   requestPreparedFile: (chatId: string) => Promise<boolean>;
+  requestPreparedProfilePhoto: () => Promise<boolean>;
   emitMessage: (message: TdObject) => void;
   handleUpdate: (update: TdObject) => void;
   handleUpdateBatch: (updates: TdObject[]) => void;
@@ -78,6 +79,82 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("updates current profile fields and refreshes the mapped account", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getMe") {
+        return {
+          "@type": "user",
+          id: 11,
+          first_name: "Lin",
+          last_name: "Ran",
+          phone_number: "+8610000000000",
+          usernames: {
+            "@type": "usernames",
+            active_usernames: ["linran"],
+            disabled_usernames: [],
+            editable_username: "linran",
+          },
+          status: { "@type": "userStatusOnline" },
+        };
+      }
+      if (request["@type"] === "getUserFullInfo") {
+        return { "@type": "userFullInfo", bio: { text: "Desktop client", entities: [] } };
+      }
+      if (request["@type"] === "getOption") {
+        return { "@type": "optionValueInteger", value: 5 };
+      }
+      return { "@type": "ok" };
+    };
+
+    const profile = await transport.updateCurrentUserProfile({
+      firstName: "Lin",
+      lastName: "Ran",
+      username: "linran",
+      bio: "Desktop client",
+    });
+
+    expect(requests.slice(0, 3).map((request) => request["@type"]))
+      .toEqual(["setName", "setBio", "setUsername"]);
+    expect(profile).toMatchObject({
+      title: "Lin Ran",
+      username: "linran",
+      phoneNumber: "+8610000000000",
+      dataCenterId: 5,
+      dataCenterLocation: "Singapore, SG",
+    });
+  });
+
+  it("refreshes the current profile after a native avatar selection", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.requestPreparedProfilePhoto = async () => true;
+    internal.request = async (request) => {
+      if (request["@type"] === "getMe" || request["@type"] === "getUser") {
+        return {
+          "@type": "user",
+          id: 11,
+          first_name: "Lin",
+          last_name: "Ran",
+          status: { "@type": "userStatusOnline" },
+        };
+      }
+      if (request["@type"] === "getUserFullInfo") {
+        return { "@type": "userFullInfo", bio: { text: "", entities: [] } };
+      }
+      if (request["@type"] === "getOption") throw new Error("unknown option");
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.setCurrentUserAvatar()).resolves.toMatchObject({
+      userId: "11",
+      dataCenterLocation: "Telegram 自动选择",
+    });
+  });
+
   it("attributes slow TDLib batches by update category", () => {
     clearPerformanceRecords();
     vi.spyOn(console, "info").mockImplementation(() => undefined);

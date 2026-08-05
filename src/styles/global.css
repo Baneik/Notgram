@@ -1170,16 +1170,19 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .numeric-stepper input::-webkit-inner-spin-button, .numeric-stepper input::-webkit-outer-spin-button { appearance: none; margin: 0; }
 .settings-empty { min-height: 240px; display: grid; place-content: center; justify-items: center; gap: 10px; color: #9ba2a7; font-size: 12px; }
 .account-settings { display: block; }
-.account-list { display: grid; gap: 6px; }
+.account-list { display: flex; gap: 8px; overflow-x: auto; padding: 1px 1px 5px; scrollbar-width: thin; }
 .account-row {
-  width: 100%; min-height: 58px; padding: 7px 9px; display: grid; grid-template-columns: auto minmax(0, 1fr) 24px;
-  align-items: center; gap: 10px; color: var(--ink); text-align: left; background: #f5f7f8; border: 1px solid transparent;
-  border-radius: 6px; cursor: pointer;
+  position: relative; min-width: 0; min-height: 96px; padding: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-items: center; gap: 9px; flex: 1 0 168px; color: var(--ink); text-align: left; background: #f5f7f8; border: 1px solid transparent;
+  border-radius: 7px; cursor: pointer;
 }
 .account-row:hover:not(:disabled) { background: #edf3f6; border-color: #d6e4eb; }
 .account-row.is-active { background: var(--accent-soft); border-color: #b9dcf5; }
 .account-row:disabled { cursor: default; }
-.account-row > svg { justify-self: center; color: var(--accent); }
+.account-row.account-add { color: var(--accent); background: transparent; border-color: var(--line); }
+.account-row.account-add:hover:not(:disabled) { background: var(--accent-soft); border-color: #b9dcf5; }
+.account-row.account-add > svg { justify-self: center; }
+.account-active-mark { position: absolute; top: 7px; right: 7px; width: 20px; height: 20px; display: grid; place-items: center; color: #ffffff; background: var(--accent); border-radius: 50%; }
 .account-row-copy { min-width: 0; display: grid; gap: 3px; }
 .account-row-copy strong, .account-row-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-row-copy strong { font-size: 13px; }
@@ -1192,7 +1195,41 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .account-command.is-danger { color: #c1463b; }
 .account-command.is-danger:hover:not(:disabled) { background: #fff1ef; }
 .account-command:disabled { opacity: 0.55; cursor: default; }
-.account-session-section { gap: 12px; }
+.account-profile-section { gap: 13px; }
+.account-profile-card { overflow: hidden; background: #ffffff; border: 1px solid var(--line); border-radius: 7px; }
+.account-profile-header { min-width: 0; padding: 18px; display: grid; grid-template-columns: auto minmax(0, 1fr) 36px; align-items: center; gap: 14px; background: #f5f7f8; border-bottom: 1px solid var(--line); }
+.account-profile-avatar { position: relative; width: 78px; height: 78px; }
+.account-profile-avatar > .avatar { width: 78px; height: 78px; font-size: 23px; }
+.account-profile-avatar > button { position: absolute; right: -2px; bottom: -2px; width: 30px; height: 30px; padding: 0; display: grid; place-items: center; color: #ffffff; background: var(--accent); border: 2px solid #f5f7f8; border-radius: 50%; cursor: pointer; }
+.account-profile-avatar > button:disabled { opacity: 0.65; cursor: default; }
+.account-profile-summary { min-width: 0; display: grid; gap: 6px; }
+.account-profile-summary strong { overflow-wrap: anywhere; font-size: 17px; font-weight: 650; }
+.account-profile-summary span { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.account-profile-edit { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; align-self: start; color: var(--accent); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.account-profile-edit:hover { background: var(--accent-soft); }
+.account-profile-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.account-profile-details > div { min-width: 0; min-height: 66px; padding: 11px 14px; display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 9px; border-bottom: 1px solid var(--line); }
+.account-profile-details > div:nth-child(odd) { border-right: 1px solid var(--line); }
+.account-profile-details > div > svg { color: var(--accent); }
+.account-profile-details > div > span { min-width: 0; display: grid; gap: 3px; }
+.account-profile-details small { color: var(--muted); font-size: 10px; }
+.account-profile-details strong { overflow-wrap: anywhere; font-size: 12px; font-weight: 600; }
+.account-profile-details .account-profile-bio { grid-column: 1 / -1; border-right: 0; }
+.account-profile-editor { padding: 16px; display: grid; gap: 12px; }
+.account-profile-editor label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
+.account-name-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.account-profile-editor input, .account-profile-editor textarea { width: 100%; min-width: 0; padding: 0 10px; color: var(--ink); background: #ffffff; border: 1px solid #cbd3d8; border-radius: 6px; outline: 0; font-size: 12px; }
+.account-profile-editor input { height: 38px; }
+.account-profile-editor textarea { padding-top: 9px; padding-bottom: 9px; resize: vertical; line-height: 1.45; }
+.account-profile-editor input:focus, .account-profile-editor textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.account-profile-editor input[aria-invalid="true"] { border-color: #c1463b; }
+.account-username-input { display: grid; grid-template-columns: 27px minmax(0, 1fr); align-items: center; color: var(--muted); border: 1px solid #cbd3d8; border-radius: 6px; }
+.account-username-input > svg { justify-self: end; }
+.account-username-input input { border: 0; box-shadow: none !important; }
+.account-field-error { color: #b43d34; font-size: 10px; }
+.account-profile-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.account-profile-editor-actions .dialog-save { min-width: 116px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; color: #ffffff; background: var(--accent); border: 1px solid var(--accent); border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
+.account-profile-editor-actions button:disabled { opacity: 0.5; cursor: default; }
 .account-logout-confirm { padding: 12px; display: grid; gap: 12px; background: #fff6f4; border: 1px solid #f0d0cb; border-radius: 6px; }
 .account-logout-confirm p { margin: 0; color: #73443f; font-size: 12px; line-height: 1.5; }
 .account-logout-confirm > div { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
@@ -1369,6 +1406,13 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .profile-actions { padding: 15px 18px; display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--line); }
 .profile-actions button { min-height: 38px; padding: 0 13px; display: inline-flex; align-items: center; gap: 7px; color: var(--accent); background: #f2f8fd; border: 1px solid #cfe5f5; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
 .profile-actions button:hover, .profile-actions button[aria-pressed="true"] { color: #ffffff; background: var(--accent); border-color: var(--accent); }
+.profile-identity-card { margin: 14px 16px; overflow: hidden; background: #f5f7f8; border: 1px solid var(--line); border-radius: 7px; }
+.profile-identity-card > div { min-width: 0; min-height: 58px; padding: 9px 12px; display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 8px; }
+.profile-identity-card > div + div { border-top: 1px solid var(--line); }
+.profile-identity-card svg { color: var(--accent); }
+.profile-identity-card span { min-width: 0; display: grid; gap: 3px; }
+.profile-identity-card strong { overflow-wrap: anywhere; color: var(--ink); font-size: 12px; font-weight: 600; }
+.profile-identity-card small { color: var(--muted); font-size: 10px; }
 .profile-info-section { padding: 18px 18px 20px; border-bottom: 1px solid var(--line); }
 .profile-info-section h4 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 650; }
 .profile-info-section p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
@@ -1711,6 +1755,13 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .theme-dark .numeric-stepper { background: #111b26; border-color: #405161; }
   .theme-dark .account-row:hover:not(:disabled) { background: #223240; border-color: #3a5063; }
   .theme-dark .account-row.is-active { background: var(--accent-soft); border-color: #31536e; }
+  .theme-dark .account-profile-card { background: var(--surface); border-color: var(--line); }
+  .theme-dark .account-profile-header,
+  .theme-dark .profile-identity-card { background: #1b2733; border-color: var(--line); }
+  .theme-dark .account-profile-avatar > button { border-color: #1b2733; }
+  .theme-dark .account-profile-editor input,
+  .theme-dark .account-profile-editor textarea { color: var(--ink); background: #111b26; border-color: #405161; }
+  .theme-dark .account-username-input { border-color: #405161; }
   .theme-dark .account-logout-confirm { background: #38272a; border-color: #624047; }
   .theme-dark .account-logout-confirm p { color: #efb4af; }
   .theme-dark .update-status { color: #bdd0df; border-color: var(--line); }
@@ -1745,7 +1796,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .dialog-backdrop, .profile-backdrop, .message-delete-backdrop,
   .media-viewer-backdrop { background: Canvas; }
   .chat-row, .message-bubble, .settings-category, .preference-list,
-  .account-row, .folder-list-item, .dialog-secondary,
+  .account-row, .account-profile-card, .profile-identity-card, .folder-list-item, .dialog-secondary,
   .folder-dialog, .settings-dialog, .profile-drawer, .context-menu-panel,
   .performance-summary, .performance-entry {
     border: 1px solid CanvasText;

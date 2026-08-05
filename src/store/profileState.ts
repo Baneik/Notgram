@@ -8,7 +8,9 @@ export interface ProfileState {
   target?: ProfileTarget;
   value?: ChatProfile;
   loading: boolean;
+  updating?: boolean;
   error?: string;
+  updateError?: string;
 }
 
 export const emptyProfileState = (): ProfileState => ({ loading: false });

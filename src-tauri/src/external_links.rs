@@ -100,8 +100,13 @@ mod tests {
             "https://example.com\nmalicious",
             "https://example.com\0malicious",
         ] {
-            assert!(validate_external_url(url).is_err(), "unexpectedly accepted {url:?}");
+            assert!(
+                validate_external_url(url).is_err(),
+                "unexpectedly accepted {url:?}"
+            );
         }
-        assert!(validate_external_url(&format!("https://example.com/{}", "x".repeat(4096))).is_err());
+        assert!(
+            validate_external_url(&format!("https://example.com/{}", "x".repeat(4096))).is_err()
+        );
     }
 }

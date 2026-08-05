@@ -50,6 +50,22 @@ export class TdRequestBroker {
     return true;
   }
 
+  async requestPreparedProfilePhoto() {
+    const extra = crypto.randomUUID();
+    const response = this.waitForResponse(extra, "更新头像请求超时。");
+    try {
+      const selected = await this.invokeCommand("telegram_pick_profile_photo", { extra });
+      if (!selected) {
+        this.clear(extra);
+        return false;
+      }
+    } catch (error) {
+      this.reject(extra, error);
+    }
+    await response;
+    return true;
+  }
+
   settle(update: TdObject) {
     const extra = typeof update["@extra"] === "string" ? update["@extra"] : undefined;
     if (!extra) return false;

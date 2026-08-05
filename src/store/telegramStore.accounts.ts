@@ -21,7 +21,7 @@ export const currentAccountRegistration = (state: AccountRegistrationState) => {
 };
 
 const registrationKey = (accountId: string, user: User) =>
-  `${accountId}:${user.id}:${user.displayName}:${user.avatar.label}:${user.avatar.color}`;
+  `${accountId}:${user.id}:${user.displayName}:${user.avatar.label}:${user.avatar.color}:${user.avatar.fileId ?? ""}:${user.avatar.imagePath ?? ""}`;
 
 export const accountStatePatch = (accountState: TelegramAccountState) => ({
   accounts: accountState.accounts,

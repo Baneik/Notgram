@@ -1579,6 +1579,34 @@ describe("global search state", () => {
 });
 
 describe("profiles and contacts state", () => {
+  it("updates the current account profile and mapped user", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+    await store.getState().loadCurrentUserProfile();
+
+    await expect(store.getState().updateCurrentUserProfile({
+      firstName: "林",
+      lastName: "曦",
+      username: "linxi_notgram",
+      bio: "桌面端设计",
+    })).resolves.toBe(true);
+
+    expect(store.getState().accountProfile).toMatchObject({
+      target: { kind: "current" },
+      value: {
+        title: "林 曦",
+        username: "linxi_notgram",
+        bio: "桌面端设计",
+        dataCenterId: 5,
+      },
+      updating: false,
+    });
+    expect(store.getState().users.get("self")).toMatchObject({
+      displayName: "林 曦",
+      username: "linxi_notgram",
+    });
+  });
+
   it("discards a profile response after a newer target is requested", async () => {
     class DelayedProfileTransport extends MockTelegramTransport {
       requests: Array<{

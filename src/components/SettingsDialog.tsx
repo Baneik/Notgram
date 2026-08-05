@@ -1,13 +1,17 @@
 import {
   ArrowLeft,
   Activity,
+  AtSign,
   BatteryCharging,
   Bell,
   Check,
+  Camera,
   ChevronRight,
   CloudDownload,
   Code2,
   Gauge,
+  FileText,
+  Fingerprint,
   HardDrive,
   LoaderCircle,
   LogOut,
@@ -15,6 +19,8 @@ import {
   Minus,
   Moon,
   Network,
+  Pencil,
+  Phone,
   RotateCcw,
   Save,
   SendHorizontal,
@@ -38,6 +44,7 @@ import {
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
 import type { CacheHealth } from "../store/telegramStore.cache";
+import type { ProfileState } from "../store/profileState";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { requestDesktopNotificationPermission } from "../notifications/desktopNotifications";
 import {
@@ -53,6 +60,7 @@ import type {
   ProxyType,
   StorageSettings,
   TelegramAccount,
+  UpdateCurrentUserProfileInput,
   User,
 } from "../telegram/types";
 import { Avatar } from "./Avatar";
@@ -169,6 +177,9 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const accountPending = useTelegramStore((state) => state.accountPending);
   const accountError = useTelegramStore((state) => state.accountError);
+  const authorization = useTelegramStore((state) => state.authorization);
+  const transportKind = useTelegramStore((state) => state.transportKind);
+  const accountProfile = useTelegramStore((state) => state.accountProfile);
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const currentUser = useTelegramStore((state) =>
     state.currentUserId ? state.users.get(state.currentUserId) : undefined,
@@ -184,6 +195,9 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const addAccount = useTelegramStore((state) => state.addAccount);
   const switchAccount = useTelegramStore((state) => state.switchAccount);
   const logOutCurrentAccount = useTelegramStore((state) => state.logOutCurrentAccount);
+  const loadCurrentUserProfile = useTelegramStore((state) => state.loadCurrentUserProfile);
+  const updateCurrentUserProfile = useTelegramStore((state) => state.updateCurrentUserProfile);
+  const changeCurrentUserAvatar = useTelegramStore((state) => state.changeCurrentUserAvatar);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
@@ -249,6 +263,12 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   useEffect(() => {
     if (activeCategory === "advanced") void loadCacheUsage();
   }, [activeCategory, loadCacheUsage]);
+
+  useEffect(() => {
+    if (activeCategory === "account" && authorization.kind === "ready" && currentUserId) {
+      void loadCurrentUserProfile();
+    }
+  }, [activeCategory, authorization.kind, currentUserId, loadCurrentUserProfile]);
 
   const updateCustom = <K extends keyof ProxySettings["custom"]>(
     key: K,
@@ -375,11 +395,15 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               accounts={accounts}
               activeAccountId={activeAccountId}
               currentUser={currentUser}
+              profileState={accountProfile}
+              transportKind={transportKind}
               pending={accountPending}
               error={accountError}
               onAdd={() => void addAccount()}
               onSwitch={(accountId) => void switchAccount(accountId)}
               onLogOut={() => void logOutCurrentAccount()}
+              onUpdate={updateCurrentUserProfile}
+              onChangeAvatar={changeCurrentUserAvatar}
             />
           ) : activeCategory === "advanced" ? (
             <AdvancedSettings
@@ -690,25 +714,42 @@ interface AccountSettingsProps {
   accounts: TelegramAccount[];
   activeAccountId: string;
   currentUser?: User;
+  profileState: ProfileState;
+  transportKind: "mock" | "tauri";
   pending: boolean;
   error?: string;
   onAdd: () => void;
   onSwitch: (accountId: string) => void;
   onLogOut: () => void;
+  onUpdate: (input: UpdateCurrentUserProfileInput) => Promise<boolean>;
+  onChangeAvatar: (file?: File) => Promise<boolean>;
 }
 
 function AccountSettings({
   accounts,
   activeAccountId,
   currentUser,
+  profileState,
+  transportKind,
   pending,
   error,
   onAdd,
   onSwitch,
   onLogOut,
+  onUpdate,
+  onChangeAvatar,
 }: AccountSettingsProps) {
   const [logoutConfirmation, setLogoutConfirmation] = useState(false);
-  const visibleAccounts = accounts.some((account) => account.id === activeAccountId) || !currentUser
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<UpdateCurrentUserProfileInput>({
+    firstName: "",
+    lastName: "",
+    username: "",
+    bio: "",
+  });
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const profile = profileState.target?.kind === "current" ? profileState.value : undefined;
+  const baseAccounts = accounts.some((account) => account.id === activeAccountId) || !currentUser
     ? accounts
     : [
         ...accounts,
@@ -719,6 +760,40 @@ function AccountSettings({
           avatar: currentUser.avatar,
         },
       ];
+  const visibleAccounts = baseAccounts.map((account) => account.id === activeAccountId && currentUser
+    ? {
+        ...account,
+        displayName: currentUser.displayName,
+        avatar: profile?.avatar ?? currentUser.avatar,
+      }
+    : account);
+  const profilePending = profileState.updating === true;
+  const usernameInvalid = Boolean(
+    draft.username && !/^[A-Za-z0-9_]{5,32}$/.test(draft.username),
+  );
+
+  useEffect(() => {
+    if (!profile || editing) return;
+    setDraft({
+      firstName: profile.firstName ?? currentUser?.firstName ?? profile.title,
+      lastName: profile.lastName ?? currentUser?.lastName ?? "",
+      username: profile.username ?? currentUser?.username ?? "",
+      bio: profile.bio ?? "",
+    });
+  }, [currentUser?.firstName, currentUser?.lastName, currentUser?.username, editing, profile]);
+
+  const saveProfile = async () => {
+    if (!draft.firstName.trim() || usernameInvalid || profilePending) return;
+    if (await onUpdate(draft)) setEditing(false);
+  };
+
+  const chooseAvatar = () => {
+    if (transportKind === "mock") {
+      avatarInputRef.current?.click();
+    } else {
+      void onChangeAvatar();
+    }
+  };
 
   return (
     <div className="settings-detail-scroll account-settings">
@@ -730,7 +805,7 @@ function AccountSettings({
             <span>账号数据分别存储，切换时会重新连接 Telegram</span>
           </div>
         </div>
-        <div className="account-list">
+        <div className="account-list" role="list" aria-label="已登录账号">
           {visibleAccounts.map((account) => {
             const active = account.id === activeAccountId;
             return (
@@ -738,6 +813,7 @@ function AccountSettings({
                 className={`account-row ${active ? "is-active" : ""}`}
                 type="button"
                 key={account.id}
+                role="listitem"
                 disabled={pending || active}
                 aria-current={active ? "true" : undefined}
                 onClick={() => onSwitch(account.id)}
@@ -747,26 +823,86 @@ function AccountSettings({
                   <strong>{account.displayName}</strong>
                   <small>{active ? "当前账号" : "切换到此账号"}</small>
                 </span>
-                {active && <Check size={18} strokeWidth={2.2} />}
+                {active && <span className="account-active-mark"><Check size={13} strokeWidth={2.4} /></span>}
               </button>
             );
           })}
+          <button className="account-row account-add" type="button" role="listitem" disabled={pending} onClick={onAdd}>
+            {pending ? <LoaderCircle className="spin" size={22} /> : <UserPlus size={22} />}
+            <span className="account-row-copy"><strong>添加账号</strong><small>登录另一个账号</small></span>
+          </button>
         </div>
-        <button className="account-command" type="button" disabled={pending} onClick={onAdd}>
-          {pending ? <LoaderCircle className="spin" size={18} /> : <UserPlus size={18} />}
-          <span>添加账号</span>
-        </button>
       </section>
 
-      {currentUser && (
-        <section className="settings-section account-session-section" aria-labelledby="session-heading">
+      {currentUser && profileState.loading && !profile ? (
+        <div className="settings-empty" role="status"><LoaderCircle className="spin" size={20} /><span>正在读取账号资料</span></div>
+      ) : currentUser && profile ? (
+        <section className="settings-section account-profile-section" aria-labelledby="account-profile-heading">
           <div className="settings-section-heading">
-            <LogOut size={18} strokeWidth={1.8} />
+            <UserCircle size={18} strokeWidth={1.8} />
             <div>
-              <h4 id="session-heading">当前会话</h4>
-              <span>{currentUser.displayName}</span>
+              <h4 id="account-profile-heading">当前账号资料</h4>
+              <span>{profile.statusLabel}</span>
             </div>
           </div>
+          <div className="account-profile-card">
+            <div className="account-profile-header">
+              <div className="account-profile-avatar">
+                <Avatar avatar={profile.avatar} size="large" />
+                <button type="button" aria-label="更换头像" title="更换头像" disabled={profilePending} onClick={chooseAvatar}>
+                  {profilePending ? <LoaderCircle className="spin" size={15} /> : <Camera size={15} />}
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  className="sr-only"
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  tabIndex={-1}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void onChangeAvatar(file);
+                  }}
+                />
+              </div>
+              <div className="account-profile-summary">
+                <strong>{profile.title}</strong>
+                <span>{profile.bio || "未设置签名"}</span>
+              </div>
+              {!editing && (
+                <button className="account-profile-edit" type="button" aria-label="编辑账号资料" title="编辑资料" onClick={() => setEditing(true)}>
+                  <Pencil size={17} />
+                </button>
+              )}
+            </div>
+
+            {editing ? (
+              <div className="account-profile-editor" role="group" aria-label="编辑账号资料">
+                <div className="account-name-fields">
+                  <label><span>名字</span><input value={draft.firstName} maxLength={64} aria-invalid={!draft.firstName.trim()} onChange={(event) => setDraft((value) => ({ ...value, firstName: event.target.value }))} /></label>
+                  <label><span>姓氏</span><input value={draft.lastName} maxLength={64} onChange={(event) => setDraft((value) => ({ ...value, lastName: event.target.value }))} /></label>
+                </div>
+                <label><span>用户名</span><div className="account-username-input"><AtSign size={15} /><input value={draft.username} maxLength={32} aria-invalid={usernameInvalid} onChange={(event) => setDraft((value) => ({ ...value, username: event.target.value }))} /></div></label>
+                <label><span>签名</span><textarea value={draft.bio} maxLength={140} rows={3} onChange={(event) => setDraft((value) => ({ ...value, bio: event.target.value }))} /></label>
+                {usernameInvalid && <small className="account-field-error">用户名需包含 5 至 32 个英文字母、数字或下划线</small>}
+                <div className="account-profile-editor-actions">
+                  <button className="dialog-secondary" type="button" disabled={profilePending} onClick={() => setEditing(false)}><X size={16} /><span>取消</span></button>
+                  <button className="dialog-save" type="button" disabled={profilePending || !draft.firstName.trim() || usernameInvalid} onClick={() => void saveProfile()}>
+                    {profilePending ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}<span>保存资料</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="account-profile-details">
+                <div><Phone size={18} /><span><small>手机号</small><strong>{profile.phoneNumber || "未提供"}</strong></span></div>
+                <div><AtSign size={18} /><span><small>用户名</small><strong>{profile.username ? `@${profile.username}` : "未设置"}</strong></span></div>
+                <div><Fingerprint size={18} /><span><small>用户 ID</small><strong>{profile.userId}</strong></span></div>
+                <div><Network size={18} /><span><small>数据中心</small><strong>{profile.dataCenterId ? `DC${profile.dataCenterId}, ${profile.dataCenterLocation}` : profile.dataCenterLocation}</strong></span></div>
+                <div className="account-profile-bio"><FileText size={18} /><span><small>签名</small><strong>{profile.bio || "未设置"}</strong></span></div>
+              </div>
+            )}
+          </div>
+          {profileState.updateError && <div className="settings-error" role="alert">{profileState.updateError}</div>}
           {logoutConfirmation ? (
             <div className="account-logout-confirm" role="group" aria-label="确认退出登录">
               <p>退出后将删除此账号在本机的 TDLib 数据和界面缓存，其他账号不受影响。</p>
@@ -785,7 +921,9 @@ function AccountSettings({
             </button>
           )}
         </section>
-      )}
+      ) : profileState.error ? (
+        <div className="settings-error" role="alert">{profileState.error}</div>
+      ) : null}
 
       {error && <div className="settings-error" role="alert">{error}</div>}
     </div>

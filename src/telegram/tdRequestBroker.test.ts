@@ -3,6 +3,29 @@ import { describe, expect, it, vi } from "vitest";
 import { TdRequestBroker } from "./tdRequestBroker";
 
 describe("TdRequestBroker prepared files", () => {
+  it("waits for a selected profile photo to be accepted by TDLib", async () => {
+    let broker!: TdRequestBroker;
+    broker = new TdRequestBroker(async (command, args) => {
+      expect(command).toBe("telegram_pick_profile_photo");
+      const input = args as { extra: string };
+      expect(broker.settle({ "@type": "ok", "@extra": input.extra })).toBe(true);
+      return true;
+    });
+
+    await expect(broker.requestPreparedProfilePhoto()).resolves.toBe(true);
+  });
+
+  it("clears a cancelled profile photo request", async () => {
+    let extra = "";
+    const broker = new TdRequestBroker(async (_command, args) => {
+      extra = (args as { extra: string }).extra;
+      return false;
+    });
+
+    await expect(broker.requestPreparedProfilePhoto()).resolves.toBe(false);
+    expect(broker.settle({ "@type": "ok", "@extra": extra })).toBe(false);
+  });
+
   it("settles a response that arrives before the native picker command returns", async () => {
     let broker!: TdRequestBroker;
     const reportError = vi.fn();

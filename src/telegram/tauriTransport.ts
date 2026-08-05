@@ -79,6 +79,7 @@ import type {
   TelegramSnapshot,
   TelegramAccount,
   TelegramAccountState,
+  UpdateCurrentUserProfileInput,
   User,
 } from "./types";
 
@@ -93,6 +94,22 @@ interface RuntimeStatus {
   logPath?: string;
   performanceLogPath?: string;
 }
+
+const DATA_CENTER_LOCATIONS: Record<number, string> = {
+  1: "Miami, US",
+  2: "Amsterdam, NL",
+  3: "Miami, US",
+  4: "Amsterdam, NL",
+  5: "Singapore, SG",
+};
+
+const profileField = (value: string, maximum: number, label: string, required = false) => {
+  const normalized = value.trim();
+  if ((required && !normalized) || [...normalized].length > maximum) {
+    throw new Error(`${label}格式不正确`);
+  }
+  return normalized;
+};
 
 const globalSearchFilterObject = (filter: GlobalSearchFilter): TdObject | null => {
   switch (filter) {
@@ -565,6 +582,37 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.currentUserId = userId || undefined;
     }
     if (!userId) throw new Error("TDLib 未返回当前用户");
+    return this.loadUserProfile(userId, "self");
+  }
+
+  async updateCurrentUserProfile(input: UpdateCurrentUserProfileInput): Promise<ChatProfile> {
+    const firstName = profileField(input.firstName, 64, "名字", true);
+    const lastName = profileField(input.lastName, 64, "姓氏");
+    const username = profileField(input.username, 32, "用户名");
+    const bio = profileField(input.bio, 140, "签名");
+    if (username && (!/^[A-Za-z0-9_]+$/.test(username) || username.length < 5)) {
+      throw new Error("用户名需包含 5 至 32 个英文字母、数字或下划线");
+    }
+
+    await this.request({ "@type": "setName", first_name: firstName, last_name: lastName });
+    await this.request({ "@type": "setBio", bio });
+    await this.request({ "@type": "setUsername", username });
+    const me = await this.request({ "@type": "getMe" });
+    this.upsertUser(me);
+    const userId = tdId(me.id) || this.currentUserId;
+    if (!userId) throw new Error("TDLib 未返回当前用户");
+    this.currentUserId = userId;
+    return this.loadUserProfile(userId, "self");
+  }
+
+  async setCurrentUserAvatar(file?: File): Promise<ChatProfile | undefined> {
+    void file;
+    if (!await this.requestPreparedProfilePhoto()) return undefined;
+    const me = await this.request({ "@type": "getMe" });
+    this.upsertUser(me);
+    const userId = tdId(me.id) || this.currentUserId;
+    if (!userId) throw new Error("TDLib 未返回当前用户");
+    this.currentUserId = userId;
     return this.loadUserProfile(userId, "self");
   }
 
@@ -1436,6 +1484,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
+  private requestPreparedProfilePhoto() {
+    return this.requestBroker.requestPreparedProfilePhoto();
+  }
+
   private async applyProxy(settings: ProxySettings) {
     const endpoint = effectiveProxy(settings);
     if (!endpoint) {
@@ -1620,9 +1672,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     userId: string,
     kind: "self" | "user",
   ): Promise<ChatProfile> {
-    const [user, full] = await Promise.all([
+    const [user, full, dataCenter] = await Promise.all([
       this.loadUser(userId),
       this.request({ "@type": "getUserFullInfo", user_id: numericId(userId) }),
+      this.loadDataCenter(),
     ]);
     if (!user) throw new Error("TDLib 未返回用户资料");
     const bio = profileText(full.bio);
@@ -1634,10 +1687,29 @@ export class TauriTelegramTransport implements TelegramTransport {
       avatar: user.avatar,
       statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
       bio: bio || undefined,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      username: user.username,
+      phoneNumber: user.phoneNumber,
+      dataCenterId: dataCenter.id,
+      dataCenterLocation: dataCenter.location,
       members: [],
       canViewMembers: false,
       groupInCommonCount: tdNumber(full.group_in_common_count),
     };
+  }
+
+  private async loadDataCenter() {
+    try {
+      const option = await this.request({ "@type": "getOption", name: "dc_id" });
+      const id = tdNumber(option.value);
+      if (id !== undefined && id > 0) {
+        return { id, location: DATA_CENTER_LOCATIONS[id] ?? "Telegram 数据中心" };
+      }
+    } catch {
+      // TDLib builds may not expose the internal dc_id option.
+    }
+    return { id: undefined, location: "Telegram 自动选择" };
   }
 
   private async loadProfileMembers(values: TdObject[]) {

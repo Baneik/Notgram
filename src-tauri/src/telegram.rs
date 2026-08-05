@@ -7,8 +7,8 @@ use assets::{allow_tdlib_assets, trusted_asset_roots};
 use libloading::Library;
 use runtime_log::RuntimeLogger;
 use security::{
-    prepared_file_request, request_type_from_extra, validate_webview_extra,
-    validate_webview_tdlib_request,
+    prepared_file_request, prepared_profile_photo_request, request_type_from_extra,
+    validate_webview_extra, validate_webview_tdlib_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1186,6 +1186,30 @@ pub async fn telegram_pick_and_send_file(
         .map_err(|error| format!("Unable to resolve selected upload file: {error}"))?;
     let file = crate::storage::prepare_upload_file(&path)?;
     runtime.send(&prepared_file_request(chat_id, &extra, &file)?)?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn telegram_pick_profile_photo(
+    app: AppHandle,
+    extra: String,
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<bool, String> {
+    validate_webview_extra(&extra)?;
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .set_title("选择头像")
+        .add_filter("JPEG 图像", &["jpg", "jpeg"])
+        .blocking_pick_file()
+    else {
+        return Ok(false);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|error| format!("Unable to resolve selected profile photo: {error}"))?;
+    let file = crate::storage::prepare_upload_file(&path)?;
+    runtime.send(&prepared_profile_photo_request(&extra, &file)?)?;
     Ok(true)
 }
 

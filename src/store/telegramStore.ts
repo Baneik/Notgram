@@ -94,6 +94,7 @@ export const createTelegramStore = (
     let outboxFlush: Promise<void> | undefined;
     let globalSearchGeneration = 0;
     let profileGeneration = 0;
+    let accountProfileGeneration = 0;
     let contactsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -200,6 +201,7 @@ export const createTelegramStore = (
       chatSearchTimer = undefined;
       chatSearchGeneration += 1;
       globalSearchGeneration += 1;
+      accountProfileGeneration += 1;
       profileGeneration += 1;
       contactsGeneration += 1;
       set({
@@ -216,6 +218,7 @@ export const createTelegramStore = (
         histories: new Map(),
         activeChatId: undefined,
         globalSearch: emptyGlobalSearch(),
+        accountProfile: emptyProfileState(),
         profile: emptyProfileState(),
         contacts: [],
         contactsLoading: false,
@@ -844,6 +847,7 @@ export const createTelegramStore = (
       searchQuery: "",
       chatFilter: "main",
       globalSearch: emptyGlobalSearch(),
+      accountProfile: emptyProfileState(),
       profile: emptyProfileState(),
       contacts: [],
       contactsLoading: false,
@@ -1489,21 +1493,81 @@ export const createTelegramStore = (
       },
 
       loadCurrentUserProfile: async () => {
-        const generation = ++profileGeneration;
-        set({ profile: { target: { kind: "current" }, loading: true } });
+        const generation = ++accountProfileGeneration;
+        set({ accountProfile: { target: { kind: "current" }, loading: true } });
         try {
           const value = await transport.getCurrentUserProfile();
-          if (generation !== profileGeneration) return;
-          set({ profile: { target: { kind: "current" }, value, loading: false } });
+          if (generation !== accountProfileGeneration) return;
+          set({ accountProfile: { target: { kind: "current" }, value, loading: false } });
         } catch (error) {
-          if (generation !== profileGeneration) return;
+          if (generation !== accountProfileGeneration) return;
           set({
-            profile: {
+            accountProfile: {
               target: { kind: "current" },
               loading: false,
               error: errorMessage(error, "无法读取账号资料"),
             },
           });
+        }
+      },
+
+      updateCurrentUserProfile: async (input) => {
+        const current = get().accountProfile;
+        if (current.target?.kind !== "current" || current.updating) return false;
+        set({ accountProfile: { ...current, updating: true, updateError: undefined } });
+        try {
+          const value = await transport.updateCurrentUserProfile(input);
+          const latest = get().accountProfile;
+          if (latest.target?.kind !== "current") return false;
+          set({ accountProfile: { ...latest, value, loading: false, updating: false, updateError: undefined } });
+          void registerCurrentAccount();
+          return true;
+        } catch (error) {
+          const latest = get().accountProfile;
+          if (latest.target?.kind === "current") {
+            set({
+              accountProfile: {
+                ...latest,
+                updating: false,
+                updateError: errorMessage(error, "无法更新账号资料"),
+              },
+            });
+          }
+          return false;
+        }
+      },
+
+      changeCurrentUserAvatar: async (file) => {
+        const current = get().accountProfile;
+        if (current.target?.kind !== "current" || current.updating) return false;
+        set({ accountProfile: { ...current, updating: true, updateError: undefined } });
+        try {
+          const value = await transport.setCurrentUserAvatar(file);
+          const latest = get().accountProfile;
+          if (latest.target?.kind !== "current") return false;
+          set({
+            accountProfile: {
+              ...latest,
+              value: value ?? latest.value,
+              loading: false,
+              updating: false,
+              updateError: undefined,
+            },
+          });
+          if (value) void registerCurrentAccount();
+          return Boolean(value);
+        } catch (error) {
+          const latest = get().accountProfile;
+          if (latest.target?.kind === "current") {
+            set({
+              accountProfile: {
+                ...latest,
+                updating: false,
+                updateError: errorMessage(error, "无法更新头像"),
+              },
+            });
+          }
+          return false;
         }
       },
 

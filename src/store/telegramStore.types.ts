@@ -23,6 +23,7 @@ import type {
   StorageSettings,
   StickerSet,
   TelegramAccount,
+  UpdateCurrentUserProfileInput,
   User,
 } from "../telegram/types";
 
@@ -79,6 +80,7 @@ export interface TelegramState {
   searchQuery: string;
   chatFilter: ChatFilter;
   globalSearch: GlobalSearchState;
+  accountProfile: ProfileState;
   profile: ProfileState;
   contacts: User[];
   contactsLoading: boolean;
@@ -129,6 +131,8 @@ export interface TelegramState {
   cancelGlobalSearch: () => void;
   clearGlobalSearch: () => void;
   loadCurrentUserProfile: () => Promise<void>;
+  updateCurrentUserProfile: (input: UpdateCurrentUserProfileInput) => Promise<boolean>;
+  changeCurrentUserAvatar: (file?: File) => Promise<boolean>;
   loadChatProfile: (chatId: string) => Promise<void>;
   clearProfile: () => void;
   loadContacts: () => Promise<void>;

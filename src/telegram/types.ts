@@ -40,6 +40,10 @@ export interface ChatFolder {
 export interface User {
   id: string;
   displayName: string;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+  phoneNumber?: string;
   avatar: Avatar;
   presence: "online" | "offline" | "typing";
   lastSeenLabel?: string;
@@ -62,10 +66,23 @@ export interface ChatProfile {
   avatar: Avatar;
   statusLabel: string;
   bio?: string;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+  phoneNumber?: string;
+  dataCenterId?: number;
+  dataCenterLocation?: string;
   memberCount?: number;
   members: ProfileMember[];
   canViewMembers: boolean;
   groupInCommonCount?: number;
+}
+
+export interface UpdateCurrentUserProfileInput {
+  firstName: string;
+  lastName: string;
+  username: string;
+  bio: string;
 }
 
 export interface TelegramAccount {

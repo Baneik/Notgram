@@ -142,6 +142,47 @@ test("standalone settings update the still-interactive main window", async ({ pa
   await settings.close();
 });
 
+test("account settings show horizontal accounts and edit the current profile", async ({ page }) => {
+  await page.goto("/?settingsWindow");
+  const accountRows = page.locator(".account-list .account-row");
+  await expect(accountRows).toHaveCount(2);
+  const rowBoxes = await accountRows.evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { left: box.left, top: box.top, width: box.width };
+  }));
+  expect(Math.abs(rowBoxes[0]!.top - rowBoxes[1]!.top)).toBeLessThanOrEqual(1);
+  expect(rowBoxes[1]!.left).toBeGreaterThan(rowBoxes[0]!.left + rowBoxes[0]!.width - 1);
+
+  const card = page.locator(".account-profile-card");
+  await expect(card).toBeVisible();
+  await expect(card.getByText("+86 100 0000 0000", { exact: true })).toBeVisible();
+  await expect(card.getByText("self", { exact: true })).toBeVisible();
+  await expect(card.getByText("DC5, Singapore, SG", { exact: true })).toBeVisible();
+  await expect(card.getByText("@linran_notgram", { exact: true })).toBeVisible();
+
+  await card.getByRole("button", { name: "编辑账号资料" }).click();
+  await card.getByLabel("名字").fill("林");
+  await card.getByLabel("姓氏").fill("曦");
+  await card.getByLabel("用户名").fill("linxi_notgram");
+  await card.getByLabel("签名").fill("桌面端设计");
+  await card.getByRole("button", { name: "保存资料" }).click();
+  await expect(card.getByText("林 曦", { exact: true })).toBeVisible();
+  await expect(card.getByText("@linxi_notgram", { exact: true })).toBeVisible();
+  await expect(card.getByText("桌面端设计", { exact: true }).first()).toBeVisible();
+
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  );
+  await card.locator('input[type="file"]').setInputFiles({
+    name: "avatar.png",
+    mimeType: "image/png",
+    buffer: png,
+  });
+  await expect(card.locator(".account-profile-avatar img")).toBeVisible();
+  expect(await horizontalOverflow(page)).toBe(false);
+});
+
 test("performance monitor captures and inspects a WebView main-thread stall", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {
@@ -1259,6 +1300,19 @@ test("chat profiles expose members and shared media with focus restoration", asy
   expect(await horizontalOverflow(page)).toBe(false);
   await profile.getByRole("button", { name: "关闭资料" }).click();
   await expect(profileTrigger).toBeFocused();
+});
+
+test("user profiles expose account identifiers and data-center information", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Mia Chen/ }).first().click();
+  await page.getByRole("button", { name: "查看 Mia Chen 资料" }).click();
+
+  const profile = page.getByRole("dialog", { name: "资料" });
+  const identity = profile.locator(".profile-identity-card");
+  await expect(identity).toBeVisible();
+  await expect(identity.getByText("@mia_design", { exact: true })).toBeVisible();
+  await expect(identity.getByText("u-mia", { exact: true })).toBeVisible();
+  await expect(identity.getByText("DC5, Singapore, SG", { exact: true })).toBeVisible();
 });
 
 test("contacts are hidden from the navigation rail", async ({ page }) => {

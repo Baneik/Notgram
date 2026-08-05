@@ -31,6 +31,7 @@ import type {
   TelegramAccount,
   TelegramAccountState,
   TelegramSnapshot,
+  UpdateCurrentUserProfileInput,
   ChatHistoryPage,
   User,
 } from "./types";
@@ -162,6 +163,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   private listener?: TelegramEventListener;
   private snapshot = clone(mockSnapshot);
+  private mockCurrentUserBio = "Notgram 演示账号";
   private cachedSnapshot?: CachedTelegramSnapshot;
   private accountState: TelegramAccountState;
   private historyOffsets = new Map<string, number>();
@@ -515,11 +517,49 @@ export class MockTelegramTransport implements TelegramTransport {
       title: user.displayName,
       avatar: clone(user.avatar),
       statusLabel: "在线",
-      bio: "Notgram 演示账号",
+      bio: this.mockCurrentUserBio,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      username: user.username,
+      phoneNumber: user.phoneNumber,
+      dataCenterId: 5,
+      dataCenterLocation: "Singapore, SG",
       members: [],
       canViewMembers: false,
       groupInCommonCount: 0,
     };
+  }
+
+  async updateCurrentUserProfile(input: UpdateCurrentUserProfileInput): Promise<ChatProfile> {
+    const user = this.snapshot.users.find((item) => item.id === this.snapshot.currentUserId);
+    if (!user) throw new Error("找不到当前账号资料");
+    const firstName = input.firstName.trim();
+    const lastName = input.lastName.trim();
+    const username = input.username.trim();
+    const bio = input.bio.trim();
+    if (!firstName) throw new Error("名字不能为空");
+    if (username && (!/^[A-Za-z0-9_]{5,32}$/.test(username))) {
+      throw new Error("用户名需包含 5 至 32 个英文字母、数字或下划线");
+    }
+    user.firstName = firstName;
+    user.lastName = lastName;
+    user.displayName = `${firstName} ${lastName}`.trim();
+    user.username = username || undefined;
+    this.mockCurrentUserBio = bio;
+    this.listener?.({ type: "user.upsert", user: clone(user) });
+    return this.getCurrentUserProfile();
+  }
+
+  async setCurrentUserAvatar(file?: File): Promise<ChatProfile | undefined> {
+    if (!file) return undefined;
+    if (!/^image\/(?:jpeg|png)$/i.test(file.type)) throw new Error("请选择 JPEG 或 PNG 图片");
+    const imagePath = await previewDataUrl(file);
+    if (!imagePath) throw new Error("演示模式头像需小于 256 KB");
+    const user = this.snapshot.users.find((item) => item.id === this.snapshot.currentUserId);
+    if (!user) throw new Error("找不到当前账号资料");
+    user.avatar = { ...user.avatar, imagePath };
+    this.listener?.({ type: "user.upsert", user: clone(user) });
+    return this.getCurrentUserProfile();
   }
 
   async getChatProfile(chatId: string): Promise<ChatProfile> {
@@ -538,6 +578,12 @@ export class MockTelegramTransport implements TelegramTransport {
         avatar: clone(user.avatar),
         statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
         bio: user.id === "u-mia" ? "产品设计师，关注桌面端体验。" : undefined,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        username: user.username,
+        phoneNumber: user.phoneNumber,
+        dataCenterId: 5,
+        dataCenterLocation: "Singapore, SG",
         members: [],
         canViewMembers: false,
         groupInCommonCount: user.id === this.snapshot.currentUserId ? 0 : 2,

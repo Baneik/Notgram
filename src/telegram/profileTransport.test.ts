@@ -59,11 +59,13 @@ describe("profile transport", () => {
       title: "Ada",
       bio: "Desktop client engineer",
       groupInCommonCount: 3,
+      dataCenterLocation: "Telegram 自动选择",
     });
     expect(internal.currentUserId).toBe("11");
     expect(requests.map((request) => request["@type"])).toEqual([
       "getMe",
       "getUserFullInfo",
+      "getOption",
     ]);
   });
 

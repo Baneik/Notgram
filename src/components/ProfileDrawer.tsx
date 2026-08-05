@@ -1,7 +1,11 @@
 import {
+  AtSign,
+  Fingerprint,
   Image,
   LoaderCircle,
   MessageCircle,
+  Network,
+  Phone,
   RefreshCw,
   X,
 } from "lucide-react";
@@ -94,6 +98,18 @@ export function ProfileDrawer({
                   </button>
                 )}
               </div>
+              {(profile.kind === "user" || profile.kind === "self") && (
+                <section className="profile-identity-card" aria-label="用户账户信息">
+                  {profile.username && (
+                    <div><AtSign size={19} /><span><strong>@{profile.username}</strong><small>用户名</small></span></div>
+                  )}
+                  {profile.phoneNumber && profile.kind === "self" && (
+                    <div><Phone size={19} /><span><strong>{profile.phoneNumber}</strong><small>手机号</small></span></div>
+                  )}
+                  <div><Fingerprint size={19} /><span><strong>{profile.userId}</strong><small>用户 ID</small></span></div>
+                  <div><Network size={19} /><span><strong>{profile.dataCenterId ? `DC${profile.dataCenterId}, ${profile.dataCenterLocation}` : profile.dataCenterLocation}</strong><small>数据中心</small></span></div>
+                </section>
+              )}
               {profile.groupInCommonCount !== undefined && profile.kind === "user" && (
                 <section className="profile-info-section">
                   <h4>共同群组</h4>
