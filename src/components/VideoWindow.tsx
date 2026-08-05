@@ -232,6 +232,11 @@ export function VideoWindow({ id }: VideoWindowProps) {
         setVolume(initial.volume);
         setMuted(initial.mode === "fullscreen" ? false : initial.muted);
         setFullscreen(initial.mode === "fullscreen");
+        document.documentElement.classList.toggle("theme-dark", initial.colorTheme === "dark");
+        document.documentElement.style.colorScheme = initial.colorTheme;
+        if (isTauri()) {
+          void getCurrentWindow().setTheme(initial.colorTheme).catch(() => undefined);
+        }
         logPerformance("video_window_descriptor_received", {
           startTimeMs: windowStartedAtRef.current,
           durationMs: performance.now() - windowStartedAtRef.current,
@@ -250,7 +255,11 @@ export function VideoWindow({ id }: VideoWindowProps) {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return;
-      if (event.key.toLocaleLowerCase() === "f") {
+      if (event.key === "Escape" && fullscreenRef.current) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void toggleFullscreen();
+      } else if (event.key.toLocaleLowerCase() === "f") {
         event.preventDefault();
         event.stopImmediatePropagation();
         void toggleFullscreen();

@@ -18,6 +18,7 @@ export interface VideoWindowDescriptor {
   downloadable?: boolean;
   streaming?: boolean;
   aspectRatio?: number;
+  colorTheme: "light" | "dark";
 }
 
 export interface VideoWindowState {

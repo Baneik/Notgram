@@ -443,6 +443,7 @@ export function VideoPlayer({
       downloadable: canDownload && Boolean(onDownload),
       streaming: streamingRef.current,
       aspectRatio: naturalWidth / naturalHeight,
+      colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
     };
     let resolveInitialized: (() => void) | undefined;
     const initialized = new Promise<void>((resolve) => {
