@@ -708,7 +708,7 @@ button.message-sender:hover { text-decoration: underline; }
 }
 .photo-preview.is-preview-only img,
 .photo-preview.is-preview-only .video-player video {
-  filter: blur(18px) saturate(0.82); transform: scale(1.12);
+  filter: blur(18px) saturate(0.82);
 }
 .photo-preview.is-preview-only .media-download,
 .photo-preview.is-preview-only .media-progress { z-index: 4; }

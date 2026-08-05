@@ -12,7 +12,6 @@ import {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type RefObject,
@@ -109,12 +108,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   useComposerAutoResize(inputRef, draft, !composing, chatId);
 
   const focusComposer = useCallback(() => {
-    globalThis.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
+    globalThis.setTimeout(() => inputRef.current?.focus(), 0);
   }, [inputRef]);
-
-  useLayoutEffect(() => {
-    focusComposer();
-  }, [chatId, focusComposer]);
 
   const clearEmojiOpenTimer = useCallback(() => {
     if (emojiOpenTimerRef.current) globalThis.clearTimeout(emojiOpenTimerRef.current);

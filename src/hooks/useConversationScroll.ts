@@ -212,6 +212,7 @@ export const useConversationScroll = ({
   const heightCorrectionTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(
     undefined,
   );
+  const heightCorrectionFrameRef = useRef<number | undefined>(undefined);
   const historyTraceRef = useRef<{
     key: string;
     startedAt: number;
@@ -306,11 +307,7 @@ export const useConversationScroll = ({
         };
         mode = "bottom";
       } else if (requestedEntryTarget && serverAnchorIndex === undefined) {
-        location = {
-          index: "LAST",
-          align: "end",
-          behavior: "auto",
-        };
+        location = 0;
         mode = "pending";
         targetMessageId = requestedEntryTarget;
       } else if (serverAnchorIndex !== undefined) {
@@ -334,6 +331,7 @@ export const useConversationScroll = ({
     };
   }
   const initialTopMostItemIndex = initialLocationRef.current!.location;
+  const initialAlignToBottom = initialLocationRef.current!.mode === "bottom";
   const storedVirtuosoSnapshot = currentScrollKey
     ? conversationVirtuosoSnapshots.get(currentScrollKey)
     : undefined;
@@ -479,6 +477,40 @@ export const useConversationScroll = ({
     });
   }, [cancelHistoryRestore, currentScrollKey, initialLocationIdentity]);
 
+  const scheduleExactBottomCorrection = useCallback(() => {
+    if (!currentScrollKey || search) return;
+    const stored = conversationScrollMemory.get(currentScrollKey);
+    if (!stored?.followLatest) return;
+    if (heightCorrectionTimerRef.current !== undefined) {
+      globalThis.clearTimeout(heightCorrectionTimerRef.current);
+    }
+    if (heightCorrectionFrameRef.current !== undefined) {
+      cancelAnimationFrame(heightCorrectionFrameRef.current);
+      heightCorrectionFrameRef.current = undefined;
+    }
+    // Rich media, wrapping, and the composer can change the measured height over
+    // several consecutive frames. Wait until ResizeObserver notifications become
+    // quiet, then converge without correcting every individual notification.
+    heightCorrectionTimerRef.current = globalThis.setTimeout(() => {
+      heightCorrectionTimerRef.current = undefined;
+      let remainingFrames = 4;
+      const settleLatest = () => {
+        if (!conversationScrollMemory.get(currentScrollKey)?.followLatest) {
+          heightCorrectionFrameRef.current = undefined;
+          return;
+        }
+        scrollToLatestPosition();
+        remainingFrames -= 1;
+        if (remainingFrames > 0) {
+          heightCorrectionFrameRef.current = requestAnimationFrame(settleLatest);
+        } else {
+          heightCorrectionFrameRef.current = undefined;
+        }
+      };
+      settleLatest();
+    }, 80);
+  }, [currentScrollKey, scrollToLatestPosition, search]);
+
   const jumpToLatest = useCallback(() => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
@@ -505,7 +537,7 @@ export const useConversationScroll = ({
     if (latestJumpFrameRef.current !== undefined) {
       cancelAnimationFrame(latestJumpFrameRef.current);
     }
-    let remainingFrames = 4;
+    let remainingFrames = 24;
     const settleLatest = () => {
       scrollToLatestPosition();
       remainingFrames -= 1;
@@ -516,9 +548,10 @@ export const useConversationScroll = ({
       }
     };
     settleLatest();
+    scheduleExactBottomCorrection();
     initialPositionVerifierRef.current();
     updateNewMessageNotice(currentScrollKey, 0);
-  }, [currentScrollKey, lastVisibleMessageId, scrollToLatestPosition]);
+  }, [currentScrollKey, lastVisibleMessageId, scheduleExactBottomCorrection, scrollToLatestPosition]);
 
   const followOutput = useCallback((): "auto" | false => {
     if (!currentScrollKey) return false;
@@ -529,23 +562,8 @@ export const useConversationScroll = ({
 
   const onTotalListHeightChanged = useCallback(() => {
     initialPositionVerifierRef.current();
-    if (!currentScrollKey || search) return;
-    const stored = conversationScrollMemory.get(currentScrollKey);
-    if (!stored?.followLatest) return;
-    if (heightCorrectionTimerRef.current !== undefined) {
-      globalThis.clearTimeout(heightCorrectionTimerRef.current);
-    }
-    // Rich media and wrapping can change the measured content height after the
-    // initial range is mounted. Correct once after measurements become quiet;
-    // during live window resizing the timer keeps moving instead of creating a
-    // scroll/measure feedback loop on every ResizeObserver notification.
-    heightCorrectionTimerRef.current = globalThis.setTimeout(() => {
-      heightCorrectionTimerRef.current = undefined;
-      if (conversationScrollMemory.get(currentScrollKey)?.followLatest) {
-        scrollToLatestPosition();
-      }
-    }, 80);
-  }, [currentScrollKey, scrollToLatestPosition, search]);
+    scheduleExactBottomCorrection();
+  }, [scheduleExactBottomCorrection]);
 
   useLayoutEffect(() => {
     const renderStartedAt = performance.now();
@@ -683,6 +701,7 @@ export const useConversationScroll = ({
       }
       const memory = conversationScrollMemory.get(currentScrollKey)!;
       updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
+      if (memory.followLatest) scheduleExactBottomCorrection();
       previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
       return;
     } else if (!stored && pendingServerMessageId && pendingServerMessageIndex === undefined) {
@@ -750,6 +769,7 @@ export const useConversationScroll = ({
       : capturedMemory;
     conversationScrollMemory.set(currentScrollKey, memory);
     updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
+    if (memory.followLatest) scheduleExactBottomCorrection();
     previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
     if (restoredHistoryAnchor && historyTraceRef.current && stored) {
       const trace = historyTraceRef.current;
@@ -787,6 +807,7 @@ export const useConversationScroll = ({
     messageListElement,
     messageItemIndexes,
     search,
+    scheduleExactBottomCorrection,
     scrollToLatestPosition,
     settleHistoryRestore,
     virtualItemCount,
@@ -1093,6 +1114,10 @@ export const useConversationScroll = ({
     if (heightCorrectionTimerRef.current !== undefined) {
       globalThis.clearTimeout(heightCorrectionTimerRef.current);
     }
+    if (heightCorrectionFrameRef.current !== undefined) {
+      cancelAnimationFrame(heightCorrectionFrameRef.current);
+      heightCorrectionFrameRef.current = undefined;
+    }
     if (latestJumpFrameRef.current !== undefined) {
       cancelAnimationFrame(latestJumpFrameRef.current);
       latestJumpFrameRef.current = undefined;
@@ -1212,6 +1237,7 @@ export const useConversationScroll = ({
     // restores the destination conversation's position before paint.
     virtuosoKey: scope,
     initialTopMostItemIndex,
+    initialAlignToBottom,
     restoreStateFrom,
     highlightedMessageId: highlightedMessage && highlightedMessage.key === currentScrollKey
       ? highlightedMessage.messageId

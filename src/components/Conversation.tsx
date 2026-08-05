@@ -225,6 +225,7 @@ export function Conversation({
     autoDownloadVideos,
   ]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const suppressComposerAutofocusRef = useRef(false);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
@@ -373,6 +374,7 @@ export function Conversation({
     positioning,
     virtuosoKey,
     initialTopMostItemIndex,
+    initialAlignToBottom,
     restoreStateFrom,
     highlightedMessageId,
     newMessageNotice,
@@ -401,13 +403,35 @@ export function Conversation({
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
-  const preservePositioningFrame = Boolean(
-    visibleMessages.length > 0 &&
-    (
-      entryScrollRequest?.chatId === chat?.id ||
-      latestScrollRequest?.chatId === chat?.id
-    )
-  );
+
+  useLayoutEffect(() => {
+    suppressComposerAutofocusRef.current = false;
+  }, [chat?.id]);
+
+  useLayoutEffect(() => {
+    if (!chat || !positioning) return;
+    const preserveIntentionalFocus = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || target === composerInputRef.current) return;
+      if (target.closest("button, a, input, textarea, select, [contenteditable='true']")) {
+        suppressComposerAutofocusRef.current = true;
+      }
+    };
+    document.addEventListener("focusin", preserveIntentionalFocus);
+    return () => document.removeEventListener("focusin", preserveIntentionalFocus);
+  }, [chat?.id, positioning]);
+
+  useLayoutEffect(() => {
+    if (
+      !chat ||
+      positioning ||
+      historyLoading ||
+      searchOpen ||
+      selectionMode ||
+      suppressComposerAutofocusRef.current
+    ) return;
+    composerInputRef.current?.focus({ preventScroll: true });
+  }, [chat?.id, historyLoading, positioning, searchOpen, selectionMode]);
 
   const closeActionMenu = useCallback((restoreFocus = true) => {
     const returnFocus = actionMenu?.returnFocus;
@@ -740,7 +764,7 @@ export function Conversation({
       )}
 
       <div className={`message-list-shell ${positioning ? "is-positioning" : ""}`}>
-        {positioning && !preservePositioningFrame && (
+        {positioning && (
           <div
             className={`message-positioning-placeholder ${visibleMessages.length > 0 ? "is-warm" : ""}`}
             role="status"
@@ -764,7 +788,7 @@ export function Conversation({
           aria-label="消息列表"
           aria-busy={positioning || historyLoading}
           tabIndex={0}
-          alignToBottom
+          alignToBottom={initialAlignToBottom}
           components={messageListComponents}
           computeItemKey={(_, block) => block.id}
           data={visibleMessageBlocks}
