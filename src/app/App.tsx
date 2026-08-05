@@ -504,6 +504,36 @@ export function App() {
     ? outbox.filter((item) => item.chatId === activeChatId)
     : [];
 
+  const openLatestConversation = (chatId: string) => {
+    chatOpenGenerationRef.current += 1;
+    latestConversationIntentChatIdRef.current = chatId;
+    beginConversationSnapshot(chatId);
+    setMobileChatOpen(true);
+    const state = telegramStore.getState();
+    const targetMessages = state.messages.get(chatId) ?? [];
+    const performanceTraceId = beginConversationSwitch({
+      cached: targetMessages.length > 0,
+      messageCount: targetMessages.length,
+      viewTransition: false,
+      navigationKind: 2,
+    });
+    markConversationSwitch(performanceTraceId, "transitionStarted");
+    markConversationSwitch(performanceTraceId, "selectionCommitted");
+    flushSync(() => {
+      setEntryScrollRequest(undefined);
+      latestScrollRequestIdRef.current += 1;
+      setLatestScrollRequest({
+        chatId,
+        requestId: latestScrollRequestIdRef.current,
+        performanceTraceId,
+      });
+    });
+    requestAnimationFrame(() => {
+      markConversationSwitch(performanceTraceId, "transitionFinished");
+    });
+    if (state.activeChatId !== chatId) void state.selectChat(chatId);
+  };
+
   if (!chatListReady && (authorization.kind === "preparing" || authorization.kind === "ready")) {
     return phase === "error" ? (
       <div className="startup-screen startup-error" role="alert">
@@ -591,7 +621,10 @@ export function App() {
             else {
               setMobileChatOpen(true);
               const state = telegramStore.getState();
-              if (state.activeChatId === chatId) return;
+              if (state.activeChatId === chatId) {
+                openLatestConversation(chatId);
+                return;
+              }
               latestConversationIntentChatIdRef.current = undefined;
               beginConversationSnapshot(chatId);
               const generation = chatOpenGenerationRef.current + 1;
@@ -649,37 +682,6 @@ export function App() {
                   });
                 })();
               }
-            }
-          }}
-          onOpenLatest={(chatId) => {
-            chatOpenGenerationRef.current += 1;
-            latestConversationIntentChatIdRef.current = chatId;
-            beginConversationSnapshot(chatId);
-            setMobileChatOpen(true);
-            const state = telegramStore.getState();
-            const targetMessages = state.messages.get(chatId) ?? [];
-            const performanceTraceId = beginConversationSwitch({
-              cached: targetMessages.length > 0,
-              messageCount: targetMessages.length,
-              viewTransition: false,
-              navigationKind: 2,
-            });
-            markConversationSwitch(performanceTraceId, "transitionStarted");
-            markConversationSwitch(performanceTraceId, "selectionCommitted");
-            flushSync(() => {
-              setEntryScrollRequest(undefined);
-              latestScrollRequestIdRef.current += 1;
-              setLatestScrollRequest({
-                chatId,
-                requestId: latestScrollRequestIdRef.current,
-                performanceTraceId,
-              });
-            });
-            requestAnimationFrame(() => {
-              markConversationSwitch(performanceTraceId, "transitionFinished");
-            });
-            if (state.activeChatId !== chatId) {
-              void state.selectChat(chatId);
             }
           }}
           loadingMore={activeChatList.loading}

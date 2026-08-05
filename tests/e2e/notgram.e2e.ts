@@ -2241,8 +2241,9 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
 
   await scrollAwayFromBottom(page);
   await page.locator('[data-chat-id="chat-mia"]').click();
-  await page.locator('[data-chat-id="chat-product"]').dblclick();
+  await page.locator('[data-chat-id="chat-product"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+  await page.locator('[data-chat-id="chat-product"]').click();
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 });
 
@@ -2254,6 +2255,7 @@ test("window resizing and new messages preserve the user's follow intent", async
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 
   await scrollAwayFromBottom(page);
+  await expect(page.getByRole("button", { name: "跳到最新消息", exact: true })).toBeVisible();
   const savedAnchor = await visibleMessageAnchor(page);
   expect(savedAnchor.id).toBeTruthy();
 
@@ -2282,15 +2284,16 @@ test("window resizing and new messages preserve the user's follow intent", async
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
 });
 
-test("double-clicking a conversation repeatedly converges to its latest message", async ({ page }) => {
+test("clicking the selected conversation repeatedly converges to its latest message", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 
   await page.locator('[data-chat-id="chat-mia"]').click();
-  await product.dblclick();
+  await product.click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+  await product.click();
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   const messageList = page.locator(".message-list");
@@ -2305,7 +2308,7 @@ test("double-clicking a conversation repeatedly converges to its latest message"
       .toBeGreaterThan(100);
     const listNode = await messageList.elementHandle();
     if (!listNode) throw new Error("Message list is not mounted");
-    await product.dblclick();
+    await product.click();
     expect(await page.evaluate(
       (node) => node === document.querySelector(".message-list"),
       listNode,

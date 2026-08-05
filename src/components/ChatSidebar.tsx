@@ -37,7 +37,6 @@ interface ChatSidebarProps {
   onCancelMessageSearch: () => void;
   onOpenSearchMessage: (chatId: string, messageId: string) => void;
   onSelect: (chatId: string) => void;
-  onOpenLatest: (chatId: string) => void;
   loadingMore: boolean;
   hasMore: boolean;
   onLoadMore: () => Promise<void>;
@@ -77,7 +76,6 @@ export function ChatSidebar({
   onCancelMessageSearch,
   onOpenSearchMessage,
   onSelect,
-  onOpenLatest,
   loadingMore,
   hasMore,
   onLoadMore,
@@ -114,17 +112,14 @@ export function ChatSidebar({
   const pinnedDropTargetRef = useRef<typeof pinnedDropTarget>(undefined);
   const suppressNextChatClickRef = useRef(false);
   const onSelectRef = useRef(onSelect);
-  const onOpenLatestRef = useRef(onOpenLatest);
   const chatsRef = useRef(chats);
   const folderIdRef = useRef(folderId);
   const onReorderPinnedRef = useRef(onReorderPinned);
   onSelectRef.current = onSelect;
-  onOpenLatestRef.current = onOpenLatest;
   chatsRef.current = chats;
   folderIdRef.current = folderId;
   onReorderPinnedRef.current = onReorderPinned;
   const stableSelectChat = useCallback((chatId: string) => onSelectRef.current(chatId), []);
-  const stableOpenLatest = useCallback((chatId: string) => onOpenLatestRef.current(chatId), []);
   const [contextMenu, setContextMenu] = useState<{
     chatId: string;
     point: ContextMenuPoint;
@@ -415,7 +410,6 @@ export function ChatSidebar({
                   : undefined}
                 folderId={folderId}
                 active={activeChatId === chat.id}
-                onOpenLatest={stableOpenLatest}
                 onOpenContextMenu={openContextMenu}
                 pinnedDraggable={pinnedReorderEnabled && isChatPinnedInFolder(chat, folderId)}
                 dragging={draggedPinnedChatId === chat.id}
@@ -486,7 +480,6 @@ const ChatRow = memo(function ChatRow({
   folderId,
   active,
   onSelectChat,
-  onOpenLatest,
   onOpenContextMenu,
   pinnedDraggable,
   dragging,
@@ -502,7 +495,6 @@ const ChatRow = memo(function ChatRow({
   folderId: string;
   active: boolean;
   onSelectChat: (chatId: string) => void;
-  onOpenLatest: (chatId: string) => void;
   onOpenContextMenu: (
     chatId: string,
     point: ContextMenuPoint,
@@ -529,13 +521,7 @@ const ChatRow = memo(function ChatRow({
       data-pinned={pinnedDraggable}
       aria-grabbed={dragging}
       aria-current={active ? "true" : undefined}
-      onClick={(event) => {
-        if (event.detail <= 1) onSelectChat(chat.id);
-      }}
-      onDoubleClick={(event) => {
-        event.preventDefault();
-        onOpenLatest(chat.id);
-      }}
+      onClick={() => onSelectChat(chat.id)}
       onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         onOpenContextMenu(

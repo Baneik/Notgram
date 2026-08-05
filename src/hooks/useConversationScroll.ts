@@ -238,6 +238,10 @@ export const useConversationScroll = ({
     key: string;
     count: number;
   }>();
+  const [latestPosition, setLatestPosition] = useState<{
+    key: string;
+    atBottom: boolean;
+  }>();
   const [highlightedMessage, setHighlightedMessage] = useState<{
     key: string;
     messageId: string;
@@ -373,6 +377,13 @@ export const useConversationScroll = ({
       current?.key === key && current.count === count ? current : { key, count });
   };
 
+  const updateLatestPosition = (key: string, atBottom: boolean) => {
+    setLatestPosition((current) =>
+      current?.key === key && current.atBottom === atBottom
+        ? current
+        : { key, atBottom });
+  };
+
   const loadOlder = () => {
     const element = messageListRef.current;
     if (
@@ -492,6 +503,7 @@ export const useConversationScroll = ({
       anchorMessageId: anchor?.messageId ?? stored?.anchorMessageId,
       anchorOffset: anchor?.offset ?? stored?.anchorOffset,
     });
+    updateLatestPosition(currentScrollKey, false);
   }, [cancelHistoryRestore, currentScrollKey, initialLocationIdentity]);
 
   const scheduleExactBottomCorrection = useCallback(() => {
@@ -568,6 +580,7 @@ export const useConversationScroll = ({
     scheduleExactBottomCorrection();
     initialPositionVerifierRef.current();
     updateNewMessageNotice(currentScrollKey, 0);
+    updateLatestPosition(currentScrollKey, true);
   }, [currentScrollKey, lastVisibleMessageId, scheduleExactBottomCorrection, scrollToLatestPosition]);
 
   const followOutput = useCallback((): "auto" | false => {
@@ -1019,8 +1032,9 @@ export const useConversationScroll = ({
   }, [currentScrollKey, initialLocationIdentity, messageListElement]);
 
   const onInitialAtBottomStateChange = useCallback((atBottom: boolean) => {
+    if (currentScrollKey) updateLatestPosition(currentScrollKey, atBottom);
     if (atBottom) scheduleInitialPositionVerification();
-  }, [scheduleInitialPositionVerification]);
+  }, [currentScrollKey, scheduleInitialPositionVerification]);
 
   useLayoutEffect(() => {
     if (
@@ -1226,6 +1240,7 @@ export const useConversationScroll = ({
       };
       conversationScrollMemory.set(currentScrollKey, memory);
       updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
+      updateLatestPosition(currentScrollKey, distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX);
     }
     if (
       positionedScrollIdentity === initialLocationIdentity &&
@@ -1256,6 +1271,12 @@ export const useConversationScroll = ({
       ? highlightedMessage.messageId
       : undefined,
     newMessageNotice,
+    awayFromLatest: Boolean(
+      currentScrollKey &&
+      positionedScrollIdentity === initialLocationIdentity &&
+      latestPosition?.key === currentScrollKey &&
+      !latestPosition.atBottom
+    ),
     jumpToLatest,
     followOutput,
     onTotalListHeightChanged,

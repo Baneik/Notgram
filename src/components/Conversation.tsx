@@ -386,6 +386,7 @@ export function Conversation({
     restoreStateFrom,
     highlightedMessageId,
     newMessageNotice,
+    awayFromLatest,
     jumpToLatest,
     followOutput,
     onTotalListHeightChanged,
@@ -1014,19 +1015,20 @@ export function Conversation({
             );
           }}
         />
-        {!messageSearch &&
-          currentScrollKey &&
-          newMessageNotice?.key === currentScrollKey &&
-          newMessageNotice.count > 0 && (
+        {!messageSearch && currentScrollKey && awayFromLatest && (
             <button
               className="jump-to-latest"
               type="button"
-              aria-label={`跳到最新消息，${newMessageNotice.count} 条新消息`}
+              aria-label={newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0
+                ? `跳到最新消息，${newMessageNotice.count} 条新消息`
+                : "跳到最新消息"}
               title="跳到最新消息"
               onClick={jumpToLatest}
             >
               <ArrowDown size={19} strokeWidth={2.1} />
-              <span>{newMessageNotice.count > 99 ? "99+" : newMessageNotice.count}</span>
+              {newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0 && (
+                <span>{newMessageNotice.count > 99 ? "99+" : newMessageNotice.count}</span>
+              )}
             </button>
           )}
       </div>
