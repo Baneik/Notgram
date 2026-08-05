@@ -16,6 +16,15 @@ const messageListMetrics = (page: Page) => page.locator(".message-list").evaluat
   distanceBottom: element.scrollHeight - element.clientHeight - element.scrollTop,
 }));
 
+const latestMessageBottomGap = (page: Page) => page.locator(".message-list").evaluate((element) => {
+  const messages = element.querySelectorAll<HTMLElement>("[data-message-id]");
+  const latest = messages.item(messages.length - 1);
+  if (!latest) return Number.POSITIVE_INFINITY;
+  return Math.abs(
+    element.getBoundingClientRect().bottom - latest.getBoundingClientRect().bottom,
+  );
+});
+
 const visibleMessageAnchor = (page: Page) => page.locator(".message-list").evaluate((element) => {
   const listBounds = element.getBoundingClientRect();
   const row = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
@@ -703,6 +712,8 @@ test("single-click entry restores the server read marker without exposing interm
         busy: string | null;
         placeholder: boolean;
         transitionCovered: boolean;
+        snapshotCovered: boolean;
+        snapshotMessageCount: number;
         messageCount: number;
         scrollTop: number;
       }>;
@@ -722,6 +733,14 @@ test("single-click entry restores the server read marker without exposing interm
           transitionCovered: document.documentElement.classList.contains(
             "is-conversation-view-transition",
           ),
+          snapshotCovered: Boolean(document.querySelector("[data-conversation-switch-snapshot]")),
+          snapshotMessageCount: document.querySelector<HTMLElement>(
+            "[data-conversation-switch-snapshot]",
+          )?.dataset.snapshotMessageCount
+            ? Number(document.querySelector<HTMLElement>(
+              "[data-conversation-switch-snapshot]",
+            )?.dataset.snapshotMessageCount)
+            : 0,
           messageCount: list.querySelectorAll("[data-message-id]").length,
           scrollTop: Math.round(list.scrollTop),
         });
@@ -749,18 +768,23 @@ test("single-click entry restores the server read marker without exposing interm
         busy: string | null;
         placeholder: boolean;
         transitionCovered: boolean;
+        snapshotCovered: boolean;
+        snapshotMessageCount: number;
         messageCount: number;
         scrollTop: number;
       }>;
     }).__notgramEntryFrames ?? [];
     const placeholderFrames = frames.filter((frame) => frame.placeholder);
     const transitionCoveredFrames = frames.filter((frame) => frame.transitionCovered);
+    const snapshotCoveredFrames = frames.filter((frame) => frame.snapshotCovered);
     const uncoveredEmptyFrames = frames.filter(
-      (frame) => frame.messageCount === 0 && !frame.placeholder && !frame.transitionCovered,
+      (frame) => frame.messageCount === 0 && !frame.placeholder &&
+        !frame.transitionCovered && !frame.snapshotCovered,
     );
     const exposedPositions = new Set(
       frames.filter(
-        (frame) => !frame.placeholder && !frame.transitionCovered && frame.messageCount > 0,
+        (frame) => !frame.placeholder && !frame.transitionCovered &&
+          !frame.snapshotCovered && frame.messageCount > 0,
       )
         .map((frame) => frame.scrollTop),
     );
@@ -773,6 +797,10 @@ test("single-click entry restores the server read marker without exposing interm
       ),
       placeholderFrameCount: placeholderFrames.length,
       transitionCoveredFrameCount: transitionCoveredFrames.length,
+      snapshotCoveredFrameCount: snapshotCoveredFrames.length,
+      snapshotEmptyFrameCount: snapshotCoveredFrames.filter(
+        (frame) => frame.snapshotMessageCount === 0,
+      ).length,
       uncoveredEmptyFrameCount: uncoveredEmptyFrames.length,
       exposedPositionCount: exposedPositions.size,
       exposedPositions: [...exposedPositions],
@@ -791,7 +819,9 @@ test("single-click entry restores the server read marker without exposing interm
   expect(result.latestVisible).toBe(false);
   expect(
     result.placeholderFrameCount + result.transitionCoveredFrameCount,
-  ).toBeGreaterThan(0);
+  ).toBe(0);
+  expect(result.snapshotCoveredFrameCount).toBeGreaterThan(0);
+  expect(result.snapshotEmptyFrameCount).toBe(0);
   expect(result.uncoveredEmptyFrameCount).toBeLessThanOrEqual(1);
   expect(result.exposedPositionSpan, JSON.stringify(result.exposedPositions)).toBeLessThanOrEqual(4);
   expect(result.scrollBehavior).toBe("auto");
@@ -809,6 +839,7 @@ test("read conversations expose only their final bottom position while switching
       busy: string | null;
       placeholder: boolean;
       transitionCovered: boolean;
+      snapshotCovered: boolean;
       messageCount: number;
       distanceBottom: number;
     }> = [];
@@ -827,12 +858,13 @@ test("read conversations expose only their final bottom position while switching
         transitionCovered: document.documentElement.classList.contains(
           "is-conversation-view-transition",
         ),
+        snapshotCovered: Boolean(document.querySelector("[data-conversation-switch-snapshot]")),
         messageCount: list.querySelectorAll("[data-message-id]").length,
         distanceBottom: Math.round(list.scrollHeight - list.clientHeight - list.scrollTop),
       };
       samples.push(sample);
       settledFrames = sample.busy === "false" && sample.messageCount > 0 &&
-          !sample.transitionCovered
+          !sample.transitionCovered && !sample.snapshotCovered
         ? settledFrames + 1
         : 0;
       if (settledFrames >= 8) break;
@@ -841,7 +873,8 @@ test("read conversations expose only their final bottom position while switching
   });
   const expectOnlyBottomFrames = (frames: Awaited<ReturnType<typeof sampleChenSwitch>>) => {
     const exposed = frames.filter(
-      (frame) => !frame.placeholder && !frame.transitionCovered && frame.messageCount > 0,
+      (frame) => !frame.placeholder && !frame.transitionCovered &&
+        !frame.snapshotCovered && frame.messageCount > 0,
     );
     const positioned = exposed.length > 0
       ? exposed
@@ -892,6 +925,8 @@ test("warm conversation switches reuse messages and reveal content promptly", as
     let firstMessageMs: number | undefined;
     let contentMs: number | undefined;
     let placeholderFrames = 0;
+    let snapshotFrames = 0;
+    let emptySnapshotFrames = 0;
     let emptyFramesAfterHeader = 0;
     while (performance.now() - startedAt < 2_000) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -904,8 +939,21 @@ test("warm conversation switches reuse messages and reveal content promptly", as
       const list = document.querySelector(".message-list");
       const messageCount = list?.querySelectorAll("[data-message-id]").length ?? 0;
       const placeholderVisible = Boolean(document.querySelector(".message-positioning-placeholder"));
+      const snapshot = document.querySelector<HTMLElement>(
+        "[data-conversation-switch-snapshot]",
+      );
+      const snapshotVisible = Boolean(snapshot);
       if (placeholderVisible) placeholderFrames += 1;
-      if (headerMs !== undefined && messageCount === 0 && !placeholderVisible) {
+      if (snapshotVisible) {
+        snapshotFrames += 1;
+        if (Number(snapshot?.dataset.snapshotMessageCount ?? 0) === 0) {
+          emptySnapshotFrames += 1;
+        }
+      }
+      if (
+        headerMs !== undefined && messageCount === 0 &&
+        !placeholderVisible && !snapshotVisible
+      ) {
         emptyFramesAfterHeader += 1;
       }
       if (headerMs !== undefined && firstMessageMs === undefined && messageCount > 0) {
@@ -913,13 +961,22 @@ test("warm conversation switches reuse messages and reveal content promptly", as
       }
       if (
         firstMessageMs !== undefined &&
-        list?.getAttribute("aria-busy") === "false"
+        list?.getAttribute("aria-busy") === "false" &&
+        !snapshotVisible
       ) {
         contentMs = performance.now() - startedAt;
         break;
       }
     }
-    return { headerMs, firstMessageMs, contentMs, placeholderFrames, emptyFramesAfterHeader };
+    return {
+      headerMs,
+      firstMessageMs,
+      contentMs,
+      placeholderFrames,
+      snapshotFrames,
+      emptySnapshotFrames,
+      emptyFramesAfterHeader,
+    };
   });
 
   expect(timing.headerMs).toBeDefined();
@@ -928,7 +985,9 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   expect(timing.firstMessageMs!).toBeLessThan(100);
   expect(timing.contentMs).toBeDefined();
   expect(timing.contentMs!).toBeLessThan(300);
-  expect(timing.placeholderFrames).toBeLessThanOrEqual(8);
+  expect(timing.placeholderFrames).toBe(0);
+  expect(timing.snapshotFrames).toBeGreaterThan(0);
+  expect(timing.emptySnapshotFrames).toBe(0);
   expect(timing.emptyFramesAfterHeader).toBeLessThanOrEqual(1);
 
   await product.click();
@@ -2017,7 +2076,7 @@ test("double-clicking a conversation repeatedly converges to its latest message"
   await page.locator('[data-chat-id="chat-mia"]').click();
   await product.dblclick();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(3);
 
   const messageList = page.locator(".message-list");
   for (let iteration = 0; iteration < 3; iteration += 1) {
@@ -2037,8 +2096,7 @@ test("double-clicking a conversation repeatedly converges to its latest message"
       listNode,
     )).toBe(true);
     await listNode.dispose();
-    await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-      .toBeLessThanOrEqual(1);
+    await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(3);
     await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
   }
 });

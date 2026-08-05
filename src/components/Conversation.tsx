@@ -132,6 +132,7 @@ interface ConversationProps {
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
+  onPositioned?: (chatId: string) => void;
   onOpenMessage: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
@@ -181,6 +182,7 @@ export function Conversation({
   onCancelFileUpload,
   onLoadOlder,
   onOpenProfile,
+  onPositioned,
   onOpenMessage,
   onOpenSenderProfile,
   onSetChatPinned,
@@ -226,6 +228,7 @@ export function Conversation({
   ]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const suppressComposerAutofocusRef = useRef(false);
+  const positionedNotificationFrameRef = useRef<number | undefined>(undefined);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
@@ -368,6 +371,7 @@ export function Conversation({
     filteredTargets: filteredForwardTargets,
   } = forwarding;
   const {
+    messageListRef,
     setMessageListRef,
     virtuosoRef,
     currentScrollKey,
@@ -403,6 +407,13 @@ export function Conversation({
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
+  const preservePositioningFrame = Boolean(
+    visibleMessages.length > 0 &&
+    (
+      entryScrollRequest?.chatId === chat?.id ||
+      latestScrollRequest?.chatId === chat?.id
+    )
+  );
 
   useLayoutEffect(() => {
     suppressComposerAutofocusRef.current = false;
@@ -432,6 +443,67 @@ export function Conversation({
     ) return;
     composerInputRef.current?.focus({ preventScroll: true });
   }, [chat?.id, historyLoading, positioning, searchOpen, selectionMode]);
+
+  useLayoutEffect(() => {
+    if (!chat || positioning || historyLoading) return;
+    const snapshot = document.querySelector("[data-conversation-switch-snapshot]");
+    const latestMessageId = visibleMessages.at(-1)?.id;
+    const list = messageListRef.current;
+    const latest = latestMessageId
+      ? list?.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(latestMessageId)}"]`,
+      )
+      : undefined;
+    const hasDynamicMedia = Boolean(
+      latest?.querySelector("img, video, canvas, .photo-preview, .video-player, .tgs-sticker"),
+    );
+    if (!snapshot || !initialAlignToBottom || !latestMessageId || !hasDynamicMedia) {
+      onPositioned?.(chat.id);
+      return;
+    }
+
+    let stableFrames = 0;
+    let remainingFrames = 60;
+    const notifyWhenLatestIsVisuallyStable = () => {
+      positionedNotificationFrameRef.current = undefined;
+      const currentList = messageListRef.current;
+      const currentLatest = currentList?.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(latestMessageId)}"]`,
+      );
+      if (currentList && currentLatest) {
+        const gap = currentList.getBoundingClientRect().bottom -
+          currentLatest.getBoundingClientRect().bottom;
+        stableFrames = gap >= -1 && gap <= 3 ? stableFrames + 1 : 0;
+      } else {
+        stableFrames = 0;
+      }
+      remainingFrames -= 1;
+      if (stableFrames >= 2 || remainingFrames <= 0) {
+        onPositioned?.(chat.id);
+        return;
+      }
+      positionedNotificationFrameRef.current = requestAnimationFrame(
+        notifyWhenLatestIsVisuallyStable,
+      );
+    };
+    positionedNotificationFrameRef.current = requestAnimationFrame(
+      notifyWhenLatestIsVisuallyStable,
+    );
+    return () => {
+      if (positionedNotificationFrameRef.current !== undefined) {
+        cancelAnimationFrame(positionedNotificationFrameRef.current);
+        positionedNotificationFrameRef.current = undefined;
+      }
+    };
+  }, [
+    chat?.id,
+    historyLoading,
+    initialAlignToBottom,
+    messageListRef,
+    onPositioned,
+    positioning,
+    visibleMessages,
+  ]);
 
   const closeActionMenu = useCallback((restoreFocus = true) => {
     const returnFocus = actionMenu?.returnFocus;
@@ -764,7 +836,7 @@ export function Conversation({
       )}
 
       <div className={`message-list-shell ${positioning ? "is-positioning" : ""}`}>
-        {positioning && (
+        {positioning && !preservePositioningFrame && (
           <div
             className={`message-positioning-placeholder ${visibleMessages.length > 0 ? "is-warm" : ""}`}
             role="status"

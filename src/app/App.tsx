@@ -44,6 +44,10 @@ import {
   markConversationSwitch,
 } from "../utils/performanceMonitor";
 import { openSettingsWindow } from "../windows/settingsWindow";
+import {
+  captureConversationSwitchSnapshot,
+  removeConversationSwitchSnapshot,
+} from "../utils/conversationSwitchSnapshot";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -168,6 +172,29 @@ export function App() {
   }>();
   const messageScrollRequestIdRef = useRef(0);
   const latestConversationIntentChatIdRef = useRef<string | undefined>(undefined);
+  const conversationSnapshotRef = useRef<HTMLElement | undefined>(undefined);
+  const conversationSnapshotTargetRef = useRef<string | undefined>(undefined);
+  const beginConversationSnapshot = useCallback((chatId: string) => {
+    if (telegramStore.getState().activeChatId === chatId) return;
+    if (!conversationSnapshotRef.current) {
+      conversationSnapshotRef.current = captureConversationSwitchSnapshot();
+    }
+    if (conversationSnapshotRef.current) {
+      conversationSnapshotTargetRef.current = chatId;
+    }
+  }, []);
+  const finishConversationSnapshot = useCallback((chatId: string) => {
+    if (
+      conversationSnapshotTargetRef.current !== chatId ||
+      telegramStore.getState().activeChatId !== chatId
+    ) return;
+    removeConversationSwitchSnapshot(conversationSnapshotRef.current);
+    conversationSnapshotRef.current = undefined;
+    conversationSnapshotTargetRef.current = undefined;
+  }, []);
+  useEffect(() => () => {
+    removeConversationSwitchSnapshot(conversationSnapshotRef.current);
+  }, []);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
@@ -216,6 +243,7 @@ export function App() {
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
+    beginConversationSnapshot(chatId);
     await selectChat(chatId);
     closeSearch();
     setMobileChatOpen(true);
@@ -228,7 +256,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
-  }, [closeSearch, selectChat]);
+  }, [beginConversationSnapshot, closeSearch, selectChat]);
 
   const openGlobalSearchMessage = useCallback(async (chatId: string, messageId: string) => {
     const state = telegramStore.getState();
@@ -241,6 +269,7 @@ export function App() {
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
+    beginConversationSnapshot(chatId);
     await selectChat(chatId);
     await loadMessage(chatId, messageId);
     closeSearch();
@@ -255,7 +284,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
-  }, [closeSearch, loadMessage, selectChat]);
+  }, [beginConversationSnapshot, closeSearch, loadMessage, selectChat]);
 
   const openProfileMessage = useCallback((chatId: string, messageId: string) => {
     clearProfile();
@@ -266,9 +295,10 @@ export function App() {
     const chatId = await startPrivateChat(userId);
     if (!chatId) return;
     clearProfile();
+    beginConversationSnapshot(chatId);
     await selectChat(chatId);
     setMobileChatOpen(true);
-  }, [clearProfile, selectChat, startPrivateChat]);
+  }, [beginConversationSnapshot, clearProfile, selectChat, startPrivateChat]);
 
   useEffect(() => {
     void initialize();
@@ -323,6 +353,7 @@ export function App() {
     state.clearGlobalSearch();
     state.setSearchQuery("");
     state.clearProfile();
+    beginConversationSnapshot(route.chatId);
     await state.selectChat(route.chatId);
     await telegramStore.getState().loadMessage(route.chatId, route.messageId);
     clearPendingNotificationRoute();
@@ -333,7 +364,7 @@ export function App() {
       messageId: route.messageId,
       requestId: messageScrollRequestIdRef.current,
     });
-  }, []);
+  }, [beginConversationSnapshot]);
 
   useEffect(() => {
     let disposed = false;
@@ -536,6 +567,7 @@ export function App() {
               const state = telegramStore.getState();
               if (state.activeChatId === chatId) return;
               latestConversationIntentChatIdRef.current = undefined;
+              beginConversationSnapshot(chatId);
               const generation = chatOpenGenerationRef.current + 1;
               chatOpenGenerationRef.current = generation;
               const targetChat = state.chats.get(chatId);
@@ -596,6 +628,7 @@ export function App() {
           onOpenLatest={(chatId) => {
             chatOpenGenerationRef.current += 1;
             latestConversationIntentChatIdRef.current = chatId;
+            beginConversationSnapshot(chatId);
             setMobileChatOpen(true);
             const state = telegramStore.getState();
             const targetMessages = state.messages.get(chatId) ?? [];
@@ -714,6 +747,7 @@ export function App() {
           onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
+          onPositioned={finishConversationSnapshot}
           onOpenMessage={(chatId, messageId) => { void openGlobalSearchMessage(chatId, messageId); }}
           onOpenSenderProfile={(senderId) => {
             if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
