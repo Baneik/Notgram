@@ -891,6 +891,117 @@ test("read conversations expose only their final bottom position while switching
   expectOnlyBottomFrames(await sampleChenSwitch());
 });
 
+test("conversation switch snapshot is opaque and never mixes source rows into the target list", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const samples = await page.evaluate(async () => {
+    document.querySelector<HTMLElement>('[data-chat-id="chat-chen"]')?.click();
+    const frames: Array<{
+      snapshot: boolean;
+      transparent: boolean;
+      sourceRowsInTarget: number;
+    }> = [];
+    let settledFrames = 0;
+    for (let frame = 0; frame < 120; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const activeChatId = document.querySelector<HTMLElement>(
+        '.chat-row[aria-current="true"]',
+      )?.dataset.chatId;
+      if (activeChatId !== "chat-chen") continue;
+      const snapshot = document.querySelector<HTMLElement>(
+        "[data-conversation-switch-snapshot]",
+      );
+      const background = snapshot ? getComputedStyle(snapshot).backgroundColor : "";
+      const list = document.querySelector<HTMLElement>(".message-list");
+      frames.push({
+        snapshot: Boolean(snapshot),
+        transparent: Boolean(snapshot) && (
+          background === "transparent" || background === "rgba(0, 0, 0, 0)"
+        ),
+        sourceRowsInTarget: list
+          ? [...list.querySelectorAll<HTMLElement>("[data-message-id]")]
+            .filter((row) => row.dataset.messageId?.startsWith("p-")).length
+          : 0,
+      });
+      settledFrames = !snapshot && list?.getAttribute("aria-busy") === "false"
+        ? settledFrames + 1
+        : 0;
+      if (settledFrames >= 6) break;
+    }
+    return frames;
+  });
+
+  expect(samples.filter((sample) => sample.snapshot).length).toBeGreaterThan(0);
+  expect(samples.some((sample) => sample.transparent), JSON.stringify(samples)).toBe(false);
+  expect(samples.some((sample) => sample.sourceRowsInTarget > 0), JSON.stringify(samples)).toBe(false);
+
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('[data-chat-id="chat-product"]')?.click();
+    globalThis.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.locator("[data-conversation-switch-snapshot]")).toHaveCount(0);
+});
+
+test("initial history completion remounts the list at the latest message", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  await page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => {
+          messages: Map<string, unknown[]>;
+          histories: Map<string, unknown>;
+        };
+        setState: (partial: {
+          messages: Map<string, unknown[]>;
+          histories: Map<string, unknown>;
+        }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const fullHistory = state.messages.get("chat-product") ?? [];
+    (window as typeof window & { __notgramFullHistory?: unknown[] }).__notgramFullHistory = fullHistory;
+    const messages = new Map(state.messages);
+    messages.set("chat-product", fullHistory.slice(-1));
+    const histories = new Map(state.histories);
+    histories.set("chat-product", { loading: true, hasMore: true, initialized: false });
+    storeModule.telegramStore.setState({ messages, histories });
+  }, "/src/store/telegramStore.ts");
+  await expect(page.locator(".message-list [data-message-id]")).toHaveCount(1);
+
+  await page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => {
+          messages: Map<string, unknown[]>;
+          histories: Map<string, unknown>;
+        };
+        setState: (partial: {
+          messages: Map<string, unknown[]>;
+          histories: Map<string, unknown>;
+        }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set(
+      "chat-product",
+      (window as typeof window & { __notgramFullHistory?: unknown[] }).__notgramFullHistory ?? [],
+    );
+    const histories = new Map(state.histories);
+    histories.set("chat-product", { loading: false, hasMore: true, initialized: true });
+    storeModule.telegramStore.setState({ messages, histories });
+  }, "/src/store/telegramStore.ts");
+
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect.poll(() => page.locator(".message-list [data-message-id]").count())
+    .toBeGreaterThan(3);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(3);
+  await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
+});
+
 test("warm conversation switches reuse messages and reveal content promptly", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');

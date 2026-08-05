@@ -9,7 +9,7 @@ describe("FileDownloadQueue cancellation", () => {
     const downloads = [1, 2, 3, 4, 5].map((fileId) => queue.cache(fileId));
     const cancelled = downloads[4].catch((error: unknown) => error);
 
-    expect(request).toHaveBeenCalledTimes(4);
+    expect(request).toHaveBeenCalledTimes(3);
     expect(queue.cancel(5)).toBe(true);
     await expect(cancelled).resolves.toMatchObject({ message: "TDLib download cancelled" });
     expect(request.mock.calls.some(([value]) => value.file_id === 5)).toBe(false);
@@ -37,5 +37,37 @@ describe("FileDownloadQueue cancellation", () => {
       () => undefined,
     );
     expect(queue.cancel(99)).toBe(false);
+  });
+
+  it("reserves capacity for visible media when background downloads are queued", async () => {
+    const request = vi.fn((_request: TdObject) => new Promise<TdObject>(() => undefined));
+    const queue = new FileDownloadQueue(request, () => undefined);
+
+    for (let fileId = 1; fileId <= 6; fileId += 1) void queue.cache(fileId, 12);
+    await Promise.resolve();
+    expect(request.mock.calls.map(([value]) => value.file_id)).toEqual([1, 2, 3]);
+
+    void queue.cache(20, 28);
+    await Promise.resolve();
+    expect(request.mock.calls.at(-1)?.[0]).toMatchObject({
+      file_id: 20,
+      priority: 28,
+    });
+  });
+
+  it("promotes an existing queued download instead of waiting behind background work", async () => {
+    const request = vi.fn((_request: TdObject) => new Promise<TdObject>(() => undefined));
+    const queue = new FileDownloadQueue(request, () => undefined);
+
+    for (let fileId = 1; fileId <= 4; fileId += 1) void queue.cache(fileId, 12);
+    const queued = queue.get(4);
+    const promoted = queue.cache(4, 28);
+    await Promise.resolve();
+
+    expect(promoted).toBe(queued);
+    expect(request.mock.calls.at(-1)?.[0]).toMatchObject({
+      file_id: 4,
+      priority: 28,
+    });
   });
 });

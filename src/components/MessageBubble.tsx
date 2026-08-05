@@ -221,14 +221,17 @@ function MessageBubbleComponent({
     (content.kind === "file" || content.kind === "media")
     ? content.fileId
     : undefined;
-  const lazyMediaFileId = previewFileId ?? automaticFileId;
+  // Photos and stickers already have an inline minithumbnail for the loading
+  // state. Fetch their display asset directly instead of serializing thumbnail
+  // and full-file downloads.
+  const lazyMediaFileId = automaticFileId ?? previewFileId;
   const lazyMediaIsThumbnail = content.kind === "media" &&
     lazyMediaFileId !== undefined && lazyMediaFileId === content.thumbnailFileId;
   const lazyMediaRef = useVisibleFile<HTMLElement>(
     lazyMediaFileId,
     lazyMediaFileId !== undefined &&
       (lazyMediaIsThumbnail || automaticFileId !== undefined),
-    lazyMediaIsThumbnail ? 20 : 18,
+    lazyMediaIsThumbnail ? 24 : 28,
     MEDIA_PREFETCH_ROOT_MARGIN,
   );
   const selectionDisabled = selectionPending ||

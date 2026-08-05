@@ -22,6 +22,12 @@ export const captureConversationSwitchSnapshot = (): HTMLElement | undefined => 
   const bounds = source.getBoundingClientRect();
   if (bounds.width < 1 || bounds.height < 1) return undefined;
 
+  const sourceStyle = getComputedStyle(source);
+  const conversation = source.closest<HTMLElement>(".conversation");
+  const canvasBackground = sourceStyle.getPropertyValue("--chat-canvas").trim() ||
+    (conversation ? getComputedStyle(conversation).backgroundColor : "") ||
+    "Canvas";
+
   const host = document.createElement("div");
   host.className = "conversation-switch-snapshot";
   host.dataset.conversationSwitchSnapshot = "true";
@@ -37,8 +43,9 @@ export const captureConversationSwitchSnapshot = (): HTMLElement | undefined => 
     overflow: "hidden",
     pointerEvents: "none",
     contain: "strict",
-    background: getComputedStyle(source).backgroundColor,
+    background: canvasBackground,
   });
+  host.dataset.snapshotBackground = canvasBackground;
 
   const shadow = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
@@ -54,7 +61,7 @@ export const captureConversationSwitchSnapshot = (): HTMLElement | undefined => 
     width: "100%",
     height: "100%",
     overflow: "hidden",
-    background: getComputedStyle(source).backgroundColor,
+    background: canvasBackground,
   });
 
   const clone = source.cloneNode(true) as HTMLElement;
@@ -63,6 +70,7 @@ export const captureConversationSwitchSnapshot = (): HTMLElement | undefined => 
     width: "100%",
     height: "100%",
     minHeight: "0",
+    background: canvasBackground,
   });
   clone.querySelectorAll(".message-positioning-placeholder").forEach((element) => element.remove());
   clone.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));

@@ -94,6 +94,7 @@ interface ConversationProps {
   forwardTargets: Chat[];
   users: Map<string, User>;
   historyLoading: boolean;
+  historyInitialized: boolean;
   hasOlderMessages: boolean;
   transportKind: "mock" | "tauri";
   connectionStatus: ConnectionStatus;
@@ -151,6 +152,7 @@ export function Conversation({
   forwardTargets,
   users,
   historyLoading,
+  historyInitialized,
   hasOlderMessages,
   transportKind,
   connectionStatus,
@@ -399,6 +401,7 @@ export function Conversation({
     virtualItemCount: visibleMessageBlocks.length,
     search: messageSearch,
     historyLoading,
+    historyInitialized,
     hasOlderMessages,
     messageCount: messages.length,
     onLoadOlder,

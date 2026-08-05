@@ -11,7 +11,7 @@ export function Avatar({ avatar, size = "medium" }: AvatarProps) {
   const targetRef = useVisibleFile<HTMLSpanElement>(
     avatar.fileId,
     !avatar.imagePath && avatar.canDownload === true && avatar.isDownloading !== true,
-    16,
+    12,
     "160px",
   );
   const imageSource = avatar.imagePath

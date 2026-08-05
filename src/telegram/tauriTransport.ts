@@ -1138,7 +1138,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async loadEmojiAsset(asset: EmojiPickerAsset) {
     if (asset.localPath) return asset.localPath;
-    await this.fileDownloads.cache(asset.fileId, 24);
+    await this.fileDownloads.cache(asset.fileId, 28);
     const file = await this.request({ "@type": "getFile", file_id: asset.fileId });
     return tdLocalFilePath(file);
   }

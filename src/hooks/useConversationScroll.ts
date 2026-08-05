@@ -65,6 +65,7 @@ interface ConversationScrollOptions {
   virtualItemCount: number;
   search: string;
   historyLoading: boolean;
+  historyInitialized: boolean;
   hasOlderMessages: boolean;
   messageCount: number;
   onLoadOlder: () => Promise<void>;
@@ -192,6 +193,7 @@ export const useConversationScroll = ({
   virtualItemCount,
   search,
   historyLoading,
+  historyInitialized,
   hasOlderMessages,
   messageCount,
   onLoadOlder,
@@ -1231,11 +1233,9 @@ export const useConversationScroll = ({
     positioning: Boolean(
       currentScrollKey && positionedScrollIdentity !== initialLocationIdentity
     ),
-    // Conversation changes and navigation requests change the data and desired
-    // scroll position, not the identity of the viewport. Keeping one Virtuoso
-    // instance per account avoids an empty remount frame while the layout effect
-    // restores the destination conversation's position before paint.
-    virtuosoKey: scope,
+    // A Virtuoso instance must not retain measurements from another chat. The
+    // switch snapshot covers this remount until the destination is positioned.
+    virtuosoKey: `${currentScrollKey ?? scope}:${historyInitialized ? "ready" : "initial"}`,
     initialTopMostItemIndex,
     initialAlignToBottom,
     restoreStateFrom,

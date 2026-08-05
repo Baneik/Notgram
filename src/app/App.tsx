@@ -176,6 +176,10 @@ export function App() {
   const conversationSnapshotTargetRef = useRef<string | undefined>(undefined);
   const beginConversationSnapshot = useCallback((chatId: string) => {
     if (telegramStore.getState().activeChatId === chatId) return;
+    if (conversationSnapshotRef.current && !conversationSnapshotRef.current.isConnected) {
+      conversationSnapshotRef.current = undefined;
+      conversationSnapshotTargetRef.current = undefined;
+    }
     if (!conversationSnapshotRef.current) {
       conversationSnapshotRef.current = captureConversationSwitchSnapshot();
     }
@@ -192,8 +196,17 @@ export function App() {
     conversationSnapshotRef.current = undefined;
     conversationSnapshotTargetRef.current = undefined;
   }, []);
-  useEffect(() => () => {
-    removeConversationSwitchSnapshot(conversationSnapshotRef.current);
+  useEffect(() => {
+    const discardConversationSnapshot = () => {
+      removeConversationSwitchSnapshot(conversationSnapshotRef.current);
+      conversationSnapshotRef.current = undefined;
+      conversationSnapshotTargetRef.current = undefined;
+    };
+    globalThis.addEventListener("resize", discardConversationSnapshot, { passive: true });
+    return () => {
+      globalThis.removeEventListener("resize", discardConversationSnapshot);
+      discardConversationSnapshot();
+    };
   }, []);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
@@ -511,8 +524,8 @@ export function App() {
   const activeChat = activeChatId ? chats.get(activeChatId) : undefined;
   const activeMessages = activeChatId ? messages.get(activeChatId) ?? [] : [];
   const activeHistory = activeChatId
-    ? histories.get(activeChatId) ?? { loading: false, hasMore: true }
-    : { loading: false, hasMore: false };
+    ? histories.get(activeChatId) ?? { loading: false, hasMore: true, initialized: false }
+    : { loading: false, hasMore: false, initialized: false };
   const activeChatList = chatLists.get(chatFilter) ?? { loading: false, hasMore: true };
 
   return (
@@ -712,6 +725,7 @@ export function App() {
           forwardTargets={forwardTargets}
           users={users}
           historyLoading={activeHistory.loading}
+          historyInitialized={activeHistory.initialized === true}
           hasOlderMessages={activeHistory.hasMore}
           transportKind={transportKind}
           connectionStatus={connectionStatus}

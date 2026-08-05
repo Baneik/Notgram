@@ -2082,7 +2082,7 @@ describe("TauriTelegramTransport avatars", () => {
     expect(imagePaths).toEqual([undefined, "C:\\avatars\\mia.jpg"]);
   });
 
-  it("limits background cache downloads to four active files", async () => {
+  it("limits background cache downloads to three active files", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -2106,7 +2106,7 @@ describe("TauriTelegramTransport avatars", () => {
     }
     await Promise.resolve();
     await Promise.resolve();
-    expect(requests).toHaveLength(4);
+    expect(requests).toHaveLength(3);
 
     internal.handleUpdate({
       "@type": "updateFile",
@@ -2123,7 +2123,7 @@ describe("TauriTelegramTransport avatars", () => {
       },
     });
     await Promise.resolve();
-    expect(requests).toHaveLength(5);
+    expect(requests).toHaveLength(4);
   });
 
   it("releases a stopped preview download so it can be retried", async () => {
