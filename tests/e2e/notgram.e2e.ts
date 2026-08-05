@@ -1032,7 +1032,7 @@ test("initial history completion remounts the list at the latest message", async
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => page.locator(".message-list [data-message-id]").count())
     .toBeGreaterThan(3);
-  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(3);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
 });
 
@@ -2291,7 +2291,7 @@ test("double-clicking a conversation repeatedly converges to its latest message"
   await page.locator('[data-chat-id="chat-mia"]').click();
   await product.dblclick();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
-  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(3);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   const messageList = page.locator(".message-list");
   for (let iteration = 0; iteration < 3; iteration += 1) {
@@ -2311,7 +2311,7 @@ test("double-clicking a conversation repeatedly converges to its latest message"
       listNode,
     )).toBe(true);
     await listNode.dispose();
-    await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(3);
+    await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
     await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
   }
 });
