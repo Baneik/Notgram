@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import {
   AlertCircle,
   Copy,
@@ -53,6 +54,7 @@ export function MessageActionMenu({
   onClose,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
+  const nativeRuntime = isTauri();
   const menuRef = useRef<HTMLDivElement>(null);
   const fallbackPosition = {
     left: Math.max(8, Math.min(position.left, window.innerWidth - 184 - 8)),
@@ -71,7 +73,7 @@ export function MessageActionMenu({
     ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
     ...(onDownloadVideo ? [{ id: "download", label: "下载视频", icon: "download" as const }] : []),
     ...(onCopyRaw ? [{ id: "copy-raw", label: "复制原始消息", icon: "copy" as const }] : []),
-  ] : [{ id: "copy", label: "复制", icon: "copy" }];
+  ] : [];
   const nativeMenu = useNativeContextMenu({
     label: "消息操作",
     colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
@@ -85,7 +87,7 @@ export function MessageActionMenu({
     else if (actionId === "play-window") onPlayInWindow?.();
     else if (actionId === "download") onDownloadVideo?.();
     else if (actionId === "copy-raw") onCopyRaw?.();
-  }, onDismiss);
+  }, onDismiss, { enabled: Boolean(permissions) });
   useContextMenuDismiss(menuRef, onDismiss);
   useEffect(() => {
     const timer = globalThis.setTimeout(() => {
@@ -93,6 +95,7 @@ export function MessageActionMenu({
     }, 0);
     return () => globalThis.clearTimeout(timer);
   }, [permissions]);
+  if (nativeRuntime && loading && !permissions) return null;
   if (nativeMenu) return null;
   return (
     <div

@@ -353,15 +353,19 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .context-menu-window-page,
 .context-menu-window-page body,
 .context-menu-window-page body #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent !important; }
-.native-context-menu {
-  position: relative; width: 204px; margin: 6px; overflow: visible;
+.native-context-menu-stage { position: relative; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
+.native-context-menu,
+.native-context-menu-children {
+  position: absolute; width: 204px; padding: 0; gap: 0; overflow: hidden; border-radius: 8px;
   box-shadow: 0 8px 24px rgba(24, 34, 40, 0.24); pointer-events: auto;
 }
+.native-context-menu { left: 6px; top: 6px; }
 .native-context-menu-group { display: contents; }
 .native-context-menu-children {
-  position: absolute; left: calc(100% + 6px); top: var(--native-context-submenu-y);
-  overflow: hidden; box-shadow: 0 8px 24px rgba(24, 34, 40, 0.24);
+  left: 216px; top: calc(6px + var(--native-context-submenu-y));
 }
+.native-context-menu button,
+.native-context-menu-children button { min-height: 42px; border-radius: 0; }
 .context-menu-chevron { color: var(--subtle); }
 .context-menu-surface[data-context-submenu-side="left"] .context-menu-chevron { transform: rotate(180deg); }
 .chat-folder-submenu { width: 190px; overflow: hidden; }

@@ -145,8 +145,10 @@ export const useNativeContextMenu = (
   point: ContextMenuPoint,
   onAction: (actionId: string) => void,
   onClose: () => void,
+  options: { enabled?: boolean } = {},
 ) => {
   const native = isTauri();
+  const enabled = options.enabled ?? true;
   const [failed, setFailed] = useState(false);
   const onActionRef = useRef(onAction);
   const onCloseRef = useRef(onClose);
@@ -155,7 +157,7 @@ export const useNativeContextMenu = (
   const identity = JSON.stringify({ descriptor, point });
 
   useEffect(() => {
-    if (!native) return;
+    if (!native || !enabled) return;
     const controller = new AbortController();
     void showNativeContextMenu(descriptor, point, controller.signal)
       .then((actionId) => {
@@ -167,7 +169,7 @@ export const useNativeContextMenu = (
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [identity, native]);
+  }, [enabled, identity, native]);
 
-  return native && !failed;
+  return native && enabled && !failed;
 };

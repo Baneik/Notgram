@@ -2447,6 +2447,56 @@ test("chat organization menu confirms pin, mute, and archive changes", async ({ 
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("native context menu rows fill a consistently rounded popup frame", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    const stage = document.createElement("div");
+    stage.className = "native-context-menu-stage";
+    stage.dataset.nativeMenuFixture = "true";
+    stage.style.cssText = "position:fixed;left:0;top:0;width:216px;height:224px;z-index:9999";
+    const panel = document.createElement("div");
+    panel.className = "native-context-menu context-menu-panel";
+    for (let index = 0; index < 5; index += 1) {
+      const group = document.createElement("div");
+      group.className = "native-context-menu-group";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `action-${index}`;
+      group.append(button);
+      panel.append(group);
+    }
+    stage.append(panel);
+    document.body.append(stage);
+  });
+
+  const panel = page.locator('[data-native-menu-fixture="true"] .native-context-menu');
+  const buttons = panel.locator("button");
+  const metrics = await panel.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+    const rows = [...element.querySelectorAll("button")].map((button) =>
+      button.getBoundingClientRect());
+    return {
+      borderRadius: style.borderRadius,
+      gap: style.rowGap,
+      overflow: style.overflow,
+      padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
+      firstInset: rows[0].top - bounds.top,
+      lastInset: bounds.bottom - rows.at(-1)!.bottom,
+      rowGaps: rows.slice(1).map((row, index) => row.top - rows[index].bottom),
+    };
+  });
+
+  await expect(buttons).toHaveCount(5);
+  expect(metrics.padding).toEqual(["0px", "0px", "0px", "0px"]);
+  expect(metrics.gap).toBe("0px");
+  expect(metrics.overflow).toBe("hidden");
+  expect(metrics.borderRadius).toBe("8px");
+  expect(metrics.firstInset).toBeCloseTo(1, 1);
+  expect(metrics.lastInset).toBeCloseTo(1, 1);
+  expect(metrics.rowGaps.every((gap) => Math.abs(gap) < 0.1)).toBe(true);
+});
+
 test("chat context menu manages folders, pinning, and group exit", async ({ page }) => {
   await page.goto("/");
   const miaRow = page.locator('.chat-row[data-chat-id="chat-mia"]');

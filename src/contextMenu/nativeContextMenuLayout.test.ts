@@ -12,13 +12,13 @@ const item = (id: string, children?: TestMenuItem[]): TestMenuItem => ({
 });
 
 describe("native context menu layout", () => {
-  it("includes the panel chrome so a five-row menu does not scroll", () => {
+  it("sizes a flush five-row panel without blank space or scrolling", () => {
     const geometry = calculateNativeContextMenuGeometry(
       Array.from({ length: 5 }, (_, index) => item(String(index))),
     );
 
     expect(geometry.width).toBe(216);
-    expect(geometry.height).toBe(232);
+    expect(geometry.height).toBe(224);
     expect(geometry.expandedWidth).toBe(216);
   });
 
@@ -31,10 +31,10 @@ describe("native context menu layout", () => {
     const collapsed = calculateNativeContextMenuGeometry(items);
     const expanded = calculateNativeContextMenuGeometry(items, "folders");
 
-    expect(collapsed.height).toBe(358);
+    expect(collapsed.height).toBe(350);
     expect(collapsed.expandedWidth).toBe(426);
-    expect(collapsed.maximumExpandedHeight).toBe(358);
-    expect(expanded.height).toBe(358);
-    expect(expanded.submenuOffsetY).toBe(48);
+    expect(collapsed.maximumExpandedHeight).toBe(350);
+    expect(expanded.height).toBe(350);
+    expect(expanded.submenuOffsetY).toBe(42);
   });
 });

@@ -112,6 +112,7 @@ export function ContextMenuWindow({ id }: { id: string }) {
 
   if (!descriptor) return null;
   const geometry = calculateNativeContextMenuGeometry(descriptor.items, expandedId);
+  const expandedItem = descriptor.items.find((item) => item.id === expandedId);
   const select = (actionId: string) => {
     channelRef.current?.postMessage({ type: "action", id, actionId } satisfies NativeContextMenuMessage);
     void close();
@@ -120,61 +121,65 @@ export function ContextMenuWindow({ id }: { id: string }) {
   return (
     <div
       ref={menuRef}
-      className="native-context-menu context-menu-panel"
-      role="menu"
-      aria-label={descriptor.label}
-      tabIndex={-1}
+      className="native-context-menu-stage"
       style={{ "--native-context-submenu-y": `${geometry.submenuOffsetY}px` } as CSSProperties}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => handleMenuKeyboard(event, () => { void close(); })}
     >
-      {descriptor.items.map((item) => {
-        const Icon = icons[item.icon];
-        const expanded = item.id === expandedId;
-        return (
-          <div className="native-context-menu-group" key={item.id}>
-            <button
-              className={item.danger ? "is-danger" : undefined}
-              type="button"
-              role="menuitem"
-              disabled={item.disabled}
-              aria-haspopup={item.children ? "menu" : undefined}
-              aria-expanded={item.children ? expanded : undefined}
-              onMouseEnter={() => setExpandedId(item.children ? item.id : undefined)}
-              onClick={() => item.children ? setExpandedId(expanded ? undefined : item.id) : select(item.id)}
-            >
-              {item.checked ? <Check size={17} strokeWidth={2.1} /> : <Icon size={17} strokeWidth={1.9} />}
-              <span>{item.label}</span>
-              {item.children && <ChevronRight className="context-menu-chevron" size={16} />}
-            </button>
-            {expanded && item.children && (
-              <div
-                className="native-context-menu-children context-menu-panel"
-                role="menu"
-                aria-label={item.label}
+      <div
+        className="native-context-menu context-menu-panel"
+        role="menu"
+        aria-label={descriptor.label}
+        tabIndex={-1}
+      >
+        {descriptor.items.map((item) => {
+          const Icon = icons[item.icon];
+          const expanded = item.id === expandedId;
+          return (
+            <div className="native-context-menu-group" key={item.id}>
+              <button
+                className={item.danger ? "is-danger" : undefined}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                aria-haspopup={item.children ? "menu" : undefined}
+                aria-expanded={item.children ? expanded : undefined}
+                onMouseEnter={() => setExpandedId(item.children ? item.id : undefined)}
+                onClick={() => item.children ? setExpandedId(expanded ? undefined : item.id) : select(item.id)}
               >
-                {item.children.map((child) => {
-                  const ChildIcon = icons[child.icon];
-                  return (
-                    <button
-                      className={child.danger ? "is-danger" : undefined}
-                      type="button"
-                      role="menuitemcheckbox"
-                      aria-checked={child.checked}
-                      disabled={child.disabled}
-                      key={child.id}
-                      onClick={() => select(child.id)}
-                    >
-                      {child.checked ? <Check size={17} strokeWidth={2.1} /> : <ChildIcon size={17} strokeWidth={1.9} />}
-                      <span>{child.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
+                {item.checked ? <Check size={17} strokeWidth={2.1} /> : <Icon size={17} strokeWidth={1.9} />}
+                <span>{item.label}</span>
+                {item.children && <ChevronRight className="context-menu-chevron" size={16} />}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {expandedItem?.children && (
+        <div
+          className="native-context-menu-children context-menu-panel"
+          role="menu"
+          aria-label={expandedItem.label}
+        >
+          {expandedItem.children.map((child) => {
+            const ChildIcon = icons[child.icon];
+            return (
+              <button
+                className={child.danger ? "is-danger" : undefined}
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={child.checked}
+                disabled={child.disabled}
+                key={child.id}
+                onClick={() => select(child.id)}
+              >
+                {child.checked ? <Check size={17} strokeWidth={2.1} /> : <ChildIcon size={17} strokeWidth={1.9} />}
+                <span>{child.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
