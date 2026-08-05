@@ -15,7 +15,9 @@ const stylesheetText = () => {
 };
 
 export const captureConversationSwitchSnapshot = (): HTMLElement | undefined => {
-  const source = document.querySelector<HTMLElement>(".conversation .message-list-shell");
+  // Snapshot the whole conversation so the header and messages always belong
+  // to the same chat while the destination list is being positioned.
+  const source = document.querySelector<HTMLElement>(".conversation");
   const sourceList = source?.querySelector<HTMLElement>(".message-list");
   if (!source || !sourceList) return undefined;
 
@@ -23,9 +25,8 @@ export const captureConversationSwitchSnapshot = (): HTMLElement | undefined => 
   if (bounds.width < 1 || bounds.height < 1) return undefined;
 
   const sourceStyle = getComputedStyle(source);
-  const conversation = source.closest<HTMLElement>(".conversation");
   const canvasBackground = sourceStyle.getPropertyValue("--chat-canvas").trim() ||
-    (conversation ? getComputedStyle(conversation).backgroundColor : "") ||
+    sourceStyle.backgroundColor ||
     "Canvas";
 
   const host = document.createElement("div");

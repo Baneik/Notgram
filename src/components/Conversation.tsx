@@ -235,11 +235,13 @@ export function Conversation({
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
   const [historyScrollbarSettling, setHistoryScrollbarSettling] = useState(false);
-  const performanceTraceId = latestScrollRequest?.chatId === chat?.id
-    ? latestScrollRequest?.performanceTraceId
-    : entryScrollRequest?.chatId === chat?.id
-      ? entryScrollRequest?.performanceTraceId
-      : undefined;
+  const performanceTraceId = chat && messageScrollRequest?.chatId === chat.id
+    ? messageScrollRequest.performanceTraceId
+    : chat && latestScrollRequest?.chatId === chat.id
+      ? latestScrollRequest.performanceTraceId
+      : chat && entryScrollRequest?.chatId === chat.id
+        ? entryScrollRequest.performanceTraceId
+        : undefined;
 
   const displayMessages = useMemo(
     () => chat?.kind === "saved"
@@ -448,7 +450,7 @@ export function Conversation({
   }, [chat?.id, historyLoading, positioning, searchOpen, selectionMode]);
 
   useLayoutEffect(() => {
-    if (!chat || positioning || historyLoading) return;
+    if (!chat || positioning || (historyLoading && visibleMessages.length === 0)) return;
     const snapshot = document.querySelector("[data-conversation-switch-snapshot]");
     const latestMessageId = visibleMessages.at(-1)?.id;
     const list = messageListRef.current;

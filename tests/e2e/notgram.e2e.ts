@@ -943,6 +943,40 @@ test("conversation switch snapshot is opaque and never mixes source rows into th
   await expect(page.locator("[data-conversation-switch-snapshot]")).toHaveCount(0);
 });
 
+test("stalled background history never leaves source messages over the destination chat", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.locator('[data-chat-id="chat-chen"]').click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator('[data-message-id="c-2"]')).toBeVisible();
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  await page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { histories: Map<string, unknown> };
+        setState: (partial: { histories: Map<string, unknown> }) => void;
+      };
+    };
+    const histories = new Map(storeModule.telegramStore.getState().histories);
+    histories.set("chat-chen", { loading: true, hasMore: true, initialized: true });
+    storeModule.telegramStore.setState({ histories });
+  }, "/src/store/telegramStore.ts");
+
+  await page.locator('[data-chat-id="chat-chen"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("陈默");
+  await expect(page.locator("[data-conversation-switch-snapshot]")).toHaveCount(0, {
+    timeout: 1_000,
+  });
+
+  const messageIds = await page.locator(".message-list [data-message-id]")
+    .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.messageId ?? ""));
+  expect(messageIds.length).toBeGreaterThan(0);
+  expect(messageIds.some((id) => id.startsWith("p-")), JSON.stringify(messageIds)).toBe(false);
+  expect(messageIds.some((id) => id.startsWith("c-")), JSON.stringify(messageIds)).toBe(true);
+});
+
 test("initial history completion remounts the list at the latest message", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");

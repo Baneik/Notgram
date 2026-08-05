@@ -51,6 +51,7 @@ import {
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
+const CONVERSATION_SNAPSHOT_MAX_MS = 240;
 
 type PendingConfirmation =
   | { kind: "leaveGroup"; chatId: string; title: string }
@@ -174,40 +175,52 @@ export function App() {
   const latestConversationIntentChatIdRef = useRef<string | undefined>(undefined);
   const conversationSnapshotRef = useRef<HTMLElement | undefined>(undefined);
   const conversationSnapshotTargetRef = useRef<string | undefined>(undefined);
+  const conversationSnapshotTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(
+    undefined,
+  );
+  const discardConversationSnapshot = useCallback(() => {
+    if (conversationSnapshotTimerRef.current !== undefined) {
+      globalThis.clearTimeout(conversationSnapshotTimerRef.current);
+      conversationSnapshotTimerRef.current = undefined;
+    }
+    removeConversationSwitchSnapshot(conversationSnapshotRef.current);
+    conversationSnapshotRef.current = undefined;
+    conversationSnapshotTargetRef.current = undefined;
+  }, []);
   const beginConversationSnapshot = useCallback((chatId: string) => {
     if (telegramStore.getState().activeChatId === chatId) return;
     if (conversationSnapshotRef.current && !conversationSnapshotRef.current.isConnected) {
-      conversationSnapshotRef.current = undefined;
-      conversationSnapshotTargetRef.current = undefined;
+      discardConversationSnapshot();
     }
     if (!conversationSnapshotRef.current) {
       conversationSnapshotRef.current = captureConversationSwitchSnapshot();
     }
     if (conversationSnapshotRef.current) {
       conversationSnapshotTargetRef.current = chatId;
+      if (conversationSnapshotTimerRef.current !== undefined) {
+        globalThis.clearTimeout(conversationSnapshotTimerRef.current);
+      }
+      conversationSnapshotTimerRef.current = globalThis.setTimeout(() => {
+        if (conversationSnapshotTargetRef.current === chatId) {
+          discardConversationSnapshot();
+        }
+      }, CONVERSATION_SNAPSHOT_MAX_MS);
     }
-  }, []);
+  }, [discardConversationSnapshot]);
   const finishConversationSnapshot = useCallback((chatId: string) => {
     if (
       conversationSnapshotTargetRef.current !== chatId ||
       telegramStore.getState().activeChatId !== chatId
     ) return;
-    removeConversationSwitchSnapshot(conversationSnapshotRef.current);
-    conversationSnapshotRef.current = undefined;
-    conversationSnapshotTargetRef.current = undefined;
-  }, []);
+    discardConversationSnapshot();
+  }, [discardConversationSnapshot]);
   useEffect(() => {
-    const discardConversationSnapshot = () => {
-      removeConversationSwitchSnapshot(conversationSnapshotRef.current);
-      conversationSnapshotRef.current = undefined;
-      conversationSnapshotTargetRef.current = undefined;
-    };
     globalThis.addEventListener("resize", discardConversationSnapshot, { passive: true });
     return () => {
       globalThis.removeEventListener("resize", discardConversationSnapshot);
       discardConversationSnapshot();
     };
-  }, []);
+  }, [discardConversationSnapshot]);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);

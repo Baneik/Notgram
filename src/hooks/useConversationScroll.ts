@@ -961,7 +961,7 @@ export const useConversationScroll = ({
   ]);
 
   const scheduleInitialPositionVerification = useCallback(() => {
-    if (!historyLoading) {
+    if (!historyLoading || virtualItemCount > 0) {
       markConversationSwitch(performanceTraceId, "virtuosoRange", {
         messageCount: visibleMessages.length,
         blockCount: virtualItemCount,
@@ -973,7 +973,7 @@ export const useConversationScroll = ({
   initialPositionVerifierRef.current = scheduleInitialPositionVerification;
 
   useLayoutEffect(() => {
-    if (historyLoading) return;
+    if (historyLoading && virtualItemCount === 0) return;
     markConversationSwitch(performanceTraceId, "dataReady", {
       messageCount: visibleMessages.length,
       blockCount: virtualItemCount,
@@ -982,8 +982,7 @@ export const useConversationScroll = ({
 
   useLayoutEffect(() => {
     if (
-      historyLoading ||
-      matchingMessageRequest?.performanceTraceId === performanceTraceId ||
+      (historyLoading && virtualItemCount === 0) ||
       positionedScrollIdentity !== initialLocationIdentity
     ) return;
     markConversationSwitch(performanceTraceId, "positioned", {
@@ -993,7 +992,6 @@ export const useConversationScroll = ({
   }, [
     historyLoading,
     initialLocationIdentity,
-    matchingMessageRequest?.performanceTraceId,
     performanceTraceId,
     positionedScrollIdentity,
     virtualItemCount,
