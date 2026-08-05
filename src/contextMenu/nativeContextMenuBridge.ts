@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, monitorFromPoint } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 import type { ContextMenuPoint } from "../utils/contextMenuLayout";
+import { calculateNativeContextMenuGeometry } from "./nativeContextMenuLayout";
 
 export type NativeContextMenuIcon =
   | "archive"
@@ -40,10 +41,6 @@ export type NativeContextMenuMessage =
   | { type: "closed"; id: string };
 
 export const NATIVE_CONTEXT_MENU_CHANNEL = "notgram-context-menu-v1";
-const MENU_WIDTH = 216;
-const MENU_MAX_HEIGHT = 432;
-const MENU_ROW_HEIGHT = 42;
-const MENU_PADDING = 12;
 const MENU_SCREEN_GAP = 4;
 
 const menuId = () => {
@@ -51,12 +48,7 @@ const menuId = () => {
   return random ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
 };
 
-const visibleRowCapacity = (items: NativeContextMenuItem[]) => Math.max(
-  items.length,
-  ...items.map((item) => item.children ? items.length + item.children.length : items.length),
-);
-
-const menuPlacement = async (point: ContextMenuPoint, height: number) => {
+const menuPlacement = async (point: ContextMenuPoint, width: number, height: number) => {
   const currentWindow = getCurrentWindow();
   const [origin, sourceScale, innerSize] = await Promise.all([
     currentWindow.outerPosition(),
@@ -76,7 +68,7 @@ const menuPlacement = async (point: ContextMenuPoint, height: number) => {
     width: globalThis.screen.availWidth * targetScale,
     height: globalThis.screen.availHeight * targetScale,
   };
-  const widthPx = MENU_WIDTH * targetScale;
+  const widthPx = width * targetScale;
   const heightPx = height * targetScale;
   const gapPx = MENU_SCREEN_GAP * targetScale;
   const marginPx = 6 * targetScale;
@@ -97,11 +89,12 @@ const showNativeContextMenu = async (
   signal: AbortSignal,
 ) => {
   const id = menuId();
-  const height = Math.min(
-    MENU_MAX_HEIGHT,
-    MENU_PADDING + visibleRowCapacity(descriptor.items) * MENU_ROW_HEIGHT,
+  const geometry = calculateNativeContextMenuGeometry(descriptor.items);
+  const placement = await menuPlacement(
+    point,
+    geometry.expandedWidth,
+    geometry.maximumExpandedHeight,
   );
-  const placement = await menuPlacement(point, height);
   const channel = new BroadcastChannel(NATIVE_CONTEXT_MENU_CHANNEL);
   let settled = false;
   let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
@@ -134,8 +127,8 @@ const showNativeContextMenu = async (
   try {
     await invoke("notgram_open_context_menu_window", {
       id,
-      width: MENU_WIDTH,
-      height,
+      width: geometry.width,
+      height: geometry.height,
       x: placement.x,
       y: placement.y,
       scaleFactor: placement.scaleFactor,

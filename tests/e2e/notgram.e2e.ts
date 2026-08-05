@@ -2515,6 +2515,7 @@ test("nested context menus keep the primary anchor stable and leave transparent 
   await menu.getByRole("menuitem", { name: "分组" }).click();
   const submenu = page.getByRole("menu", { name: "选择分组" });
   await expect(submenu).toBeVisible();
+  await expect(submenu).toHaveCSS("overflow-y", "hidden");
   const after = await primary.boundingBox();
   const submenuBounds = await submenu.boundingBox();
   expect(after).not.toBeNull();
@@ -2535,6 +2536,7 @@ test("nested context menus keep the primary anchor stable and leave transparent 
   menu = page.getByRole("menu", { name: "会话操作：产品讨论" });
   await menu.getByRole("menuitem", { name: "分组" }).click();
   await expect(page.getByRole("menu", { name: "选择分组" })).toBeVisible();
+  await expect(menu).toHaveAttribute("data-context-submenu-side", "right");
 
   const chenName = page.locator('.chat-row[data-chat-id="chat-chen"] strong');
   await chenName.click({ timeout: 1_000 });
@@ -2546,7 +2548,7 @@ test("sidebar context menus close when content outside them scrolls", async ({ p
   await page.setViewportSize({ width: 760, height: 420 });
   await page.goto("/");
   await page.addStyleTag({
-    content: ".chat-row { min-height: 92px; } .chat-folder-submenu { height: 32px; max-height: 32px; }",
+    content: ".chat-row { min-height: 92px; }",
   });
 
   const chatList = page.locator(".chat-list");
@@ -2584,15 +2586,9 @@ test("sidebar context menus close when content outside them scrolls", async ({ p
   await menu.getByRole("menuitem", { name: "分组" }).click();
   const submenu = menu.locator(".chat-folder-submenu");
   await expect(submenu).toBeVisible();
-  const submenuMovement = await submenu.evaluate((element) => ({
-    before: element.scrollTop,
-    maximum: element.scrollHeight - element.clientHeight,
-  }));
-  expect(submenuMovement.maximum).toBeGreaterThan(0);
-  await submenu.hover();
-  await page.mouse.wheel(0, 60);
-  await expect.poll(() => submenu.evaluate((element) => element.scrollTop))
-    .not.toBe(submenuMovement.before);
+  await expect(submenu).toHaveCSS("overflow-y", "hidden");
+  expect(await submenu.evaluate((element) => element.scrollHeight <= element.clientHeight + 1))
+    .toBe(true);
   await expect(menu).toBeVisible();
 
   await scrollChatList();

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
@@ -14,13 +15,14 @@ import {
   Reply,
   Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import {
   NATIVE_CONTEXT_MENU_CHANNEL,
   type NativeContextMenuDescriptor,
   type NativeContextMenuIcon,
   type NativeContextMenuMessage,
 } from "../contextMenu/nativeContextMenuBridge";
+import { calculateNativeContextMenuGeometry } from "../contextMenu/nativeContextMenuLayout";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 
 const icons: Record<NativeContextMenuIcon, typeof Pin> = {
@@ -98,7 +100,18 @@ export function ContextMenuWindow({ id }: { id: string }) {
     return () => globalThis.clearTimeout(timer);
   }, [descriptor, expandedId]);
 
+  useEffect(() => {
+    if (!descriptor) return;
+    const geometry = calculateNativeContextMenuGeometry(descriptor.items, expandedId);
+    void invoke("notgram_resize_context_menu_window", {
+      id,
+      width: expandedId ? geometry.expandedWidth : geometry.width,
+      height: geometry.height,
+    }).catch(() => { void close(); });
+  }, [descriptor, expandedId, id]);
+
   if (!descriptor) return null;
+  const geometry = calculateNativeContextMenuGeometry(descriptor.items, expandedId);
   const select = (actionId: string) => {
     channelRef.current?.postMessage({ type: "action", id, actionId } satisfies NativeContextMenuMessage);
     void close();
@@ -111,6 +124,7 @@ export function ContextMenuWindow({ id }: { id: string }) {
       role="menu"
       aria-label={descriptor.label}
       tabIndex={-1}
+      style={{ "--native-context-submenu-y": `${geometry.submenuOffsetY}px` } as CSSProperties}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => handleMenuKeyboard(event, () => { void close(); })}
     >
@@ -126,7 +140,7 @@ export function ContextMenuWindow({ id }: { id: string }) {
               disabled={item.disabled}
               aria-haspopup={item.children ? "menu" : undefined}
               aria-expanded={item.children ? expanded : undefined}
-              onMouseEnter={() => { if (item.children) setExpandedId(item.id); }}
+              onMouseEnter={() => setExpandedId(item.children ? item.id : undefined)}
               onClick={() => item.children ? setExpandedId(expanded ? undefined : item.id) : select(item.id)}
             >
               {item.checked ? <Check size={17} strokeWidth={2.1} /> : <Icon size={17} strokeWidth={1.9} />}
@@ -134,7 +148,11 @@ export function ContextMenuWindow({ id }: { id: string }) {
               {item.children && <ChevronRight className="context-menu-chevron" size={16} />}
             </button>
             {expanded && item.children && (
-              <div className="native-context-menu-children" role="menu" aria-label={item.label}>
+              <div
+                className="native-context-menu-children context-menu-panel"
+                role="menu"
+                aria-label={item.label}
+              >
                 {item.children.map((child) => {
                   const ChildIcon = icons[child.icon];
                   return (

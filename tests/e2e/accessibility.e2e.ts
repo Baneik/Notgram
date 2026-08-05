@@ -12,7 +12,7 @@ const viewportOverflow = (page: Page) => page.evaluate(() =>
     .map((element) => element.className || element.tagName)
     .slice(0, 10));
 
-test("forced colors preserve selection, focus, and custom switches", async ({ page }) => {
+test("forced colors preserve selection and custom switches without focus frames", async ({ page }) => {
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
   await page.goto("/");
   await expect.poll(() => page.evaluate(() => matchMedia("(forced-colors: active)").matches))
@@ -25,8 +25,8 @@ test("forced colors preserve selection, focus, and custom switches", async ({ pa
     const style = getComputedStyle(element);
     return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
   });
-  expect(focusStyle.outlineStyle).not.toBe("none");
-  expect(focusStyle.outlineWidth).not.toBe("0px");
+  expect(focusStyle.outlineStyle).toBe("none");
+  expect(focusStyle.outlineWidth).toBe("0px");
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /诊断与隐私/ }).click();
