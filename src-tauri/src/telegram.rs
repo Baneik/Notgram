@@ -4,11 +4,12 @@ mod runtime_log;
 mod security;
 
 use assets::{allow_tdlib_assets, trusted_asset_roots};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use libloading::Library;
 use runtime_log::RuntimeLogger;
 use security::{
-    prepared_file_request, prepared_profile_photo_request, request_type_from_extra,
-    validate_webview_extra, validate_webview_tdlib_request,
+    prepared_file_album_request, prepared_file_request, prepared_profile_photo_request,
+    request_type_from_extra, validate_webview_extra, validate_webview_tdlib_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -16,6 +17,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     ffi::{CStr, CString},
+    fs,
     os::raw::{c_char, c_double, c_int},
     path::{Path, PathBuf},
     sync::{
@@ -23,7 +25,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -34,6 +36,16 @@ type TdReceive = unsafe extern "C" fn(c_double) -> *const c_char;
 
 const MAX_PERFORMANCE_LOG_BATCH: usize = 50;
 const MAX_VISIBLE_PERFORMANCE_LOG_RECORDS: usize = 240;
+const MAX_PASTED_UPLOAD_FILES: usize = 10;
+const MAX_PASTED_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PastedUploadFile {
+    name: String,
+    mime_type: String,
+    data_base64: String,
+}
 const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_history_data",
     "ui_history_merge",
@@ -1163,6 +1175,85 @@ pub fn telegram_media_stream_status(
     registry: State<'_, media_stream::MediaStreamRegistry>,
 ) -> Option<media_stream::MediaStreamStatus> {
     registry.status(file_id)
+}
+
+fn pasted_upload_file_name(name: &str, index: usize) -> String {
+    let basename = name.rsplit(['/', '\\']).next().unwrap_or_default();
+    let sanitized = basename
+        .chars()
+        .map(|character| {
+            if character.is_control()
+                || matches!(
+                    character,
+                    '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+                )
+            {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let sanitized = sanitized.trim_matches([' ', '.']);
+    if sanitized.is_empty() {
+        format!("attachment-{}", index + 1)
+    } else {
+        sanitized.chars().take(180).collect()
+    }
+}
+
+#[tauri::command]
+pub async fn telegram_send_pasted_files(
+    app: AppHandle,
+    chat_id: i64,
+    extra: String,
+    files: Vec<PastedUploadFile>,
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<bool, String> {
+    validate_webview_extra(&extra)?;
+    if chat_id == 0 || files.is_empty() || files.len() > MAX_PASTED_UPLOAD_FILES {
+        return Err("Pasted uploads must contain between 1 and 10 files".to_string());
+    }
+    let cache_root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Unable to resolve upload cache: {error}"))?
+        .join("pasted-uploads")
+        .join(format!(
+            "{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+    fs::create_dir_all(&cache_root)
+        .map_err(|error| format!("Unable to create upload cache: {error}"))?;
+
+    let mut prepared = Vec::with_capacity(files.len());
+    for (index, file) in files.into_iter().enumerate() {
+        if file.mime_type.len() > 255 || file.mime_type.chars().any(char::is_control) {
+            return Err("Invalid pasted file MIME type".to_string());
+        }
+        let bytes = BASE64_STANDARD
+            .decode(file.data_base64)
+            .map_err(|_| "Pasted file data is not valid base64".to_string())?;
+        if bytes.is_empty() || bytes.len() > MAX_PASTED_UPLOAD_BYTES {
+            return Err("Each pasted file must be between 1 byte and 64 MB".to_string());
+        }
+        let path = cache_root.join(pasted_upload_file_name(&file.name, index));
+        fs::write(&path, bytes)
+            .map_err(|error| format!("Unable to cache pasted upload: {error}"))?;
+        prepared.push(crate::storage::prepare_upload_file(&path)?);
+    }
+
+    let request = if prepared.len() == 1 {
+        prepared_file_request(chat_id, &extra, &prepared[0])?
+    } else {
+        prepared_file_album_request(chat_id, &extra, &prepared)?
+    };
+    runtime.send(&request)?;
+    Ok(true)
 }
 
 #[tauri::command]

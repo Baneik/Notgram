@@ -13,6 +13,12 @@ type InvokeCommand = (
   args?: Record<string, unknown>,
 ) => Promise<unknown>;
 
+export interface PreparedPastedFile {
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+}
+
 export class TdRequestBroker {
   private pending = new Map<string, PendingRequest>();
   private preparedFiles = new Map<string, (error: Error) => void>();
@@ -40,6 +46,30 @@ export class TdRequestBroker {
         extra,
       });
       if (!selected) {
+        this.preparedFiles.delete(extra);
+        return false;
+      }
+    } catch (error) {
+      this.preparedFiles.delete(extra);
+      throw error;
+    }
+    return true;
+  }
+
+  async requestPreparedPastedFiles(
+    chatId: string,
+    files: PreparedPastedFile[],
+    onError: (error: Error) => void,
+  ) {
+    const extra = crypto.randomUUID();
+    this.preparedFiles.set(extra, onError);
+    try {
+      const sent = await this.invokeCommand("telegram_send_pasted_files", {
+        chatId: numericId(chatId),
+        extra,
+        files,
+      });
+      if (!sent) {
         this.preparedFiles.delete(extra);
         return false;
       }

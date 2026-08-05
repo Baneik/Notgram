@@ -10,6 +10,7 @@ type TestableTransport = {
   bootstrap: () => Promise<void>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
   requestPreparedFile: (chatId: string) => Promise<boolean>;
+  requestPreparedPastedFiles: (chatId: string, files: unknown[]) => Promise<boolean>;
   requestPreparedProfilePhoto: () => Promise<boolean>;
   emitMessage: (message: TdObject) => void;
   handleUpdate: (update: TdObject) => void;
@@ -1537,6 +1538,32 @@ describe("TauriTelegramTransport message operations", () => {
 
     await expect(transport.sendFile({ chatId: "7" })).resolves.toBe(true);
     expect(requestedChatIds).toEqual(["7"]);
+  });
+
+  it("groups pasted Telegram photos separately from pasted documents", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const groups: { chatId: string; names: string[] }[] = [];
+    internal.requestPreparedPastedFiles = async (chatId, files) => {
+      groups.push({
+        chatId,
+        names: (files as { name: string }[]).map((file) => file.name),
+      });
+      return true;
+    };
+
+    await expect(transport.sendFiles({
+      chatId: "7",
+      files: [
+        new File(["photo"], "first.png", { type: "image/png" }),
+        new File(["document"], "notes.txt", { type: "text/plain" }),
+        new File(["photo"], "second.jpg", { type: "image/jpeg" }),
+      ],
+    })).resolves.toBe(true);
+    expect(groups).toEqual([
+      { chatId: "7", names: ["first.png", "second.jpg"] },
+      { chatId: "7", names: ["notes.txt"] },
+    ]);
   });
 
   it("does not send when the native picker is cancelled and can cancel an active upload", async () => {

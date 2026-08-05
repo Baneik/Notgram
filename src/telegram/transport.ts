@@ -10,6 +10,7 @@ import type {
   SetChatDraftInput,
   SetMessageReactionInput,
   SendFileInput,
+  SendFilesInput,
   SendEmojiAssetInput,
   StreamFileInput,
   SendMessageInput,
@@ -111,6 +112,7 @@ export interface TelegramTransport {
   openDownloadDirectory(): Promise<void>;
   retryMessage(chatId: string, messageId: string): Promise<void>;
   sendFile(input: SendFileInput): Promise<boolean>;
+  sendFiles(input: SendFilesInput): Promise<boolean>;
   cancelFileUpload(chatId: string, messageId: string): Promise<void>;
   markChatRead(chatId: string): Promise<void>;
 }

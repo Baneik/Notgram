@@ -133,6 +133,7 @@ export function App() {
   const suspendFileStream = useTelegramStore((state) => state.suspendFileStream);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
   const sendFile = useTelegramStore((state) => state.sendFile);
+  const sendFiles = useTelegramStore((state) => state.sendFiles);
   const cancelFileUpload = useTelegramStore((state) => state.cancelFileUpload);
   const loadMoreHistory = useTelegramStore((state) => state.loadMoreHistory);
   const clearError = useTelegramStore((state) => state.clearError);
@@ -709,6 +710,7 @@ export function App() {
           onSuspendFileStream={suspendFileStream}
           onRetryMessage={retryMessage}
           onSendFile={sendFile}
+          onSendFiles={sendFiles}
           onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}

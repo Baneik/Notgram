@@ -23,7 +23,7 @@ import {
   mapTdConnectionStatus,
   tdConnectionState,
 } from "./connectionState";
-import { TdRequestBroker } from "./tdRequestBroker";
+import { TdRequestBroker, type PreparedPastedFile } from "./tdRequestBroker";
 import { TauriAccountStorage } from "./tauriAccountStorage";
 import {
   chatListKey,
@@ -69,6 +69,7 @@ import type {
   ProxySettings,
   SendEmojiAssetInput,
   SendFileInput,
+  SendFilesInput,
   SendMessageInput,
   SetChatDraftInput,
   SetMessageReactionInput,
@@ -1416,7 +1417,24 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async sendFile(input: SendFileInput) {
-    return this.requestPreparedFile(input.chatId);
+    return input.file
+      ? this.sendFiles({ chatId: input.chatId, files: [input.file] })
+      : this.requestPreparedFile(input.chatId);
+  }
+
+  async sendFiles(input: SendFilesInput) {
+    if (input.files.length === 0) return false;
+    const isTelegramPhoto = (file: File) =>
+      /\.(?:jpe?g|png)$/i.test(file.name) && file.size <= 10 * 1024 * 1024;
+    const photos = input.files.filter(isTelegramPhoto);
+    const documents = input.files.filter((file) => !isTelegramPhoto(file));
+    for (const group of [photos, documents]) {
+      if (group.length === 0) continue;
+      const files = await Promise.all(group.map(this.preparePastedFile));
+      const sent = await this.requestPreparedPastedFiles(input.chatId, files);
+      if (!sent) return false;
+    }
+    return true;
   }
 
   async cancelFileUpload(chatId: string, messageId: string) {
@@ -1491,6 +1509,25 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.listener?.({ type: "sync.error", message: error.message, fatal: false });
     });
   }
+
+  private requestPreparedPastedFiles(chatId: string, files: PreparedPastedFile[]) {
+    return this.requestBroker.requestPreparedPastedFiles(chatId, files, (error) => {
+      this.listener?.({ type: "sync.error", message: error.message, fatal: false });
+    });
+  }
+
+  private preparePastedFile = async (file: File): Promise<PreparedPastedFile> => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const chunks: string[] = [];
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)));
+    }
+    return {
+      name: file.name,
+      mimeType: file.type || "application/octet-stream",
+      dataBase64: btoa(chunks.join("")),
+    };
+  };
 
   private requestPreparedProfilePhoto() {
     return this.requestBroker.requestPreparedProfilePhoto();

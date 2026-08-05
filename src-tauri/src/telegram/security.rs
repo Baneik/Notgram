@@ -215,8 +215,8 @@ fn validate_profile_text<'a>(
     Ok(value)
 }
 
-fn input_message_upload(file: &crate::storage::UploadFileInfo) -> Value {
-    let is_photo = Path::new(&file.path)
+fn is_photo_upload(file: &crate::storage::UploadFileInfo) -> bool {
+    Path::new(&file.path)
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
@@ -225,7 +225,11 @@ fn input_message_upload(file: &crate::storage::UploadFileInfo) -> Value {
                 "jpg" | "jpeg" | "png"
             )
         })
-        && file.size <= 10 * 1024 * 1024;
+        && file.size <= 10 * 1024 * 1024
+}
+
+fn input_message_upload(file: &crate::storage::UploadFileInfo) -> Value {
+    let is_photo = is_photo_upload(file);
     let input_file = json!({ "@type": "inputFileLocal", "path": file.path });
     let caption = json!({ "@type": "formattedText", "text": "", "entities": [] });
     if is_photo {
@@ -276,6 +280,36 @@ pub(super) fn prepared_file_request(
         "options": null,
         "reply_markup": null,
         "input_message_content": input_message_upload(file),
+        "@extra": extra
+    }))
+}
+
+pub(super) fn prepared_file_album_request(
+    chat_id: i64,
+    extra: &str,
+    files: &[crate::storage::UploadFileInfo],
+) -> Result<Value, String> {
+    if chat_id == 0 {
+        return Err("Invalid Telegram chat identifier".to_string());
+    }
+    validate_webview_extra(extra)?;
+    if !(2..=10).contains(&files.len()) {
+        return Err("Telegram albums require between 2 and 10 files".to_string());
+    }
+    let first_is_photo = is_photo_upload(&files[0]);
+    if files
+        .iter()
+        .any(|file| is_photo_upload(file) != first_is_photo)
+    {
+        return Err("Telegram albums cannot mix photos and documents".to_string());
+    }
+    Ok(json!({
+        "@type": "sendMessageAlbum",
+        "chat_id": chat_id,
+        "topic_id": null,
+        "reply_to": null,
+        "options": null,
+        "input_message_contents": files.iter().map(input_message_upload).collect::<Vec<_>>(),
         "@extra": extra
     }))
 }
@@ -549,6 +583,28 @@ mod tests {
             document_request["input_message_content"]["@type"],
             "inputMessageDocument"
         );
+        let album_request = prepared_file_album_request(
+            7,
+            EXTRA,
+            &[
+                photo.clone(),
+                crate::storage::UploadFileInfo {
+                    path: "C:\\selected\\photo-2.png".to_string(),
+                    size: 1_000_000,
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(album_request["@type"], "sendMessageAlbum");
+        assert_eq!(
+            album_request["input_message_contents"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(prepared_file_album_request(7, EXTRA, &[photo.clone()]).is_err());
+        assert!(prepared_file_album_request(7, EXTRA, &[photo, large_photo]).is_err());
         assert!(validate_webview_tdlib_request(&photo_request).is_err());
     }
 

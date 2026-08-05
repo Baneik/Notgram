@@ -23,6 +23,7 @@ import type {
   ProxySettings,
   SendEmojiAssetInput,
   SendFileInput,
+  SendFilesInput,
   SendMessageInput,
   SetChatDraftInput,
   SetMessageReactionInput,
@@ -1084,29 +1085,39 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async sendFile({ chatId, file }: SendFileInput) {
     if (!file) return false;
-    const isPhoto = file.type.startsWith("image/");
-    const preview = isPhoto ? await previewDataUrl(file) : undefined;
-    this.appendMessage({
-      id: crypto.randomUUID(),
-      chatId,
-      senderId: this.snapshot.currentUserId,
-      outgoing: true,
-      sentAt: new Date().toISOString(),
-      delivery: "sent",
-      content: isPhoto
-        ? {
-            kind: "media",
-            mediaType: "photo",
-            fileName: file.name,
-            sizeLabel: readableFileSize(file.size),
-            previewDataUrl: preview,
-          }
-        : {
-            kind: "file",
-            fileName: file.name,
-            sizeLabel: readableFileSize(file.size),
-          },
-    });
+    return this.sendFiles({ chatId, files: [file] });
+  }
+
+  async sendFiles({ chatId, files }: SendFilesInput) {
+    if (files.length === 0) return false;
+    const allPhotos = files.length > 1 && files.every((file) => file.type.startsWith("image/"));
+    const albumId = allPhotos ? `mock-album-${crypto.randomUUID()}` : undefined;
+    for (const file of files) {
+      const isPhoto = file.type.startsWith("image/");
+      const preview = isPhoto ? await previewDataUrl(file) : undefined;
+      this.appendMessage({
+        id: crypto.randomUUID(),
+        chatId,
+        mediaAlbumId: isPhoto ? albumId : undefined,
+        senderId: this.snapshot.currentUserId,
+        outgoing: true,
+        sentAt: new Date().toISOString(),
+        delivery: "sent",
+        content: isPhoto
+          ? {
+              kind: "media",
+              mediaType: "photo",
+              fileName: file.name,
+              sizeLabel: readableFileSize(file.size),
+              previewDataUrl: preview,
+            }
+          : {
+              kind: "file",
+              fileName: file.name,
+              sizeLabel: readableFileSize(file.size),
+            },
+      });
+    }
     return true;
   }
 

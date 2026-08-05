@@ -73,4 +73,28 @@ describe("TdRequestBroker prepared files", () => {
     expect(broker.settle({ "@type": "message", "@extra": extra })).toBe(false);
     expect(reportError).not.toHaveBeenCalled();
   });
+
+  it("sends pasted file payloads through the native-only upload command", async () => {
+    let broker!: TdRequestBroker;
+    const reportError = vi.fn();
+    broker = new TdRequestBroker(async (command, args) => {
+      expect(command).toBe("telegram_send_pasted_files");
+      const input = args as { chatId: number; extra: string; files: unknown[] };
+      expect(input.chatId).toBe(7);
+      expect(input.files).toEqual([{
+        name: "paste.png",
+        mimeType: "image/png",
+        dataBase64: "AQID",
+      }]);
+      broker.settle({ "@type": "messages", "@extra": input.extra });
+      return true;
+    });
+
+    await expect(broker.requestPreparedPastedFiles("7", [{
+      name: "paste.png",
+      mimeType: "image/png",
+      dataBase64: "AQID",
+    }], reportError)).resolves.toBe(true);
+    expect(reportError).not.toHaveBeenCalled();
+  });
 });

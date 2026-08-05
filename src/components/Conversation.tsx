@@ -128,6 +128,7 @@ interface ConversationProps {
   onSuspendFileStream: (fileId: number) => Promise<void>;
   onRetryMessage: (messageId: string) => Promise<void>;
   onSendFile: (file?: File) => Promise<boolean>;
+  onSendFiles: (files: File[]) => Promise<boolean>;
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
@@ -176,6 +177,7 @@ export function Conversation({
   onSuspendFileStream,
   onRetryMessage,
   onSendFile,
+  onSendFiles,
   onCancelFileUpload,
   onLoadOlder,
   onOpenProfile,
@@ -995,6 +997,7 @@ export function Conversation({
         onDraftChange={onDraftChange}
         onTypingChange={onTypingChange}
         onSendFile={onSendFile}
+        onSendFiles={onSendFiles}
         onCancelEditing={cancelEditing}
         onCancelReply={cancelReply}
       />

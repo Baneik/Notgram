@@ -2071,6 +2071,19 @@ export const createTelegramStore = (
         }
       },
 
+      sendFiles: async (files) => {
+        const chatId = get().activeChatId;
+        if (!chatId || files.length === 0) return false;
+        try {
+          const sent = await transport.sendFiles({ chatId, files });
+          if (sent) set({ operationError: undefined });
+          return sent;
+        } catch (error) {
+          set({ operationError: error instanceof Error ? error.message : "附件发送失败" });
+          return false;
+        }
+      },
+
       cancelFileUpload: async (messageId) => {
         const chatId = get().activeChatId;
         if (!chatId) return;

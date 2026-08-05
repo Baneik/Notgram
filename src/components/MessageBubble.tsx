@@ -369,7 +369,7 @@ function MessageBubbleComponent({
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
               <div
-                className={`photo-preview ${mediaLayout?.aspectRatio ? "has-media-ratio" : ""}`}
+                className={`photo-preview ${mediaLayout?.aspectRatio ? "has-media-ratio" : ""} ${usablePreviewSource && !usableFullMediaSource ? "is-preview-only" : ""}`}
                 style={mediaLayout?.aspectRatio
                   ? { aspectRatio: mediaLayout.aspectRatio }
                   : undefined}

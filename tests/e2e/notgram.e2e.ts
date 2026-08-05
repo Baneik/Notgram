@@ -1346,6 +1346,55 @@ test("reply previews jump to their source and channel senders keep their identit
 
 });
 
+test("pasted images preview, respect Telegram's album limit, and send as one album", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.evaluate((element) => {
+    const data = new DataTransfer();
+    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (character) => character.charCodeAt(0));
+    for (let index = 1; index <= 11; index += 1) {
+      data.items.add(new File([bytes], `paste-${index}.png`, { type: "image/png" }));
+    }
+    element.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    }));
+  });
+
+  const preview = page.getByRole("region", { name: "待发送附件" });
+  await expect(preview.locator(".composer-attachment-item")).toHaveCount(10);
+  await expect(preview.getByRole("alert")).toHaveText("一次最多发送 10 个附件");
+  for (let index = 10; index >= 3; index -= 1) {
+    await preview.getByRole("button", { name: `移除 paste-${index}.png` }).click();
+  }
+  await preview.getByRole("button", { name: "发送附件" }).click();
+  await expect(preview).toBeHidden();
+  await expect(page.locator('.media-album-grid img[alt^="paste-"]')).toHaveCount(2);
+  await expect(composer).toBeFocused();
+
+  await composer.evaluate((element) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["pasted document"], "pasted-notes.txt", { type: "text/plain" }));
+    element.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    }));
+  });
+  await expect(preview.locator(".composer-file-preview")).toBeVisible();
+  await expect(preview).toContainText("pasted-notes.txt");
+  await preview.getByRole("button", { name: "发送附件" }).click();
+  await expect(page.locator(".file-message", { hasText: "pasted-notes.txt" })).toBeVisible();
+});
+
+test("unloaded media uses a blurred glass preview instead of exposing thumbnail pixels", async ({ page }) => {
+  await page.goto("/");
+  const preview = page.locator('[data-message-id="p-5"] .photo-preview');
+  await expect(preview).toHaveClass(/is-preview-only/);
+  await expect(preview.locator("img")).toHaveCSS("filter", /blur\(18px\)/);
+});
+
 test("user profiles expose account identifiers and data-center information", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Mia Chen/ }).first().click();

@@ -20,6 +20,7 @@ import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
 import type { ConnectionStatus, Message } from "../telegram/types";
+import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { EmojiPicker } from "./EmojiPicker";
@@ -39,6 +40,7 @@ interface ConversationComposerProps {
   onDraftChange: (chatId: string, text: string, replyToMessageId?: string) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
   onSendFile: (file?: File) => Promise<boolean>;
+  onSendFiles: (files: File[]) => Promise<boolean>;
   onCancelEditing: () => void;
   onCancelReply: () => void;
 }
@@ -48,6 +50,12 @@ const TYPING_REFRESH_MS = 4_000;
 const TYPING_IDLE_MS = 5_000;
 const EMOJI_HOVER_OPEN_DELAY_MS = 260;
 const EMOJI_HOVER_CLOSE_DELAY_MS = 80;
+
+interface PendingAttachment {
+  id: string;
+  file: File;
+  previewUrl?: string;
+}
 
 export const ConversationComposer = memo(function ConversationComposer({
   chatId,
@@ -64,6 +72,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   onDraftChange,
   onTypingChange,
   onSendFile,
+  onSendFiles,
   onCancelEditing,
   onCancelReply,
 }: ConversationComposerProps) {
@@ -72,6 +81,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);
   const [attachmentPending, setAttachmentPending] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [attachmentNotice, setAttachmentNotice] = useState<string>();
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
@@ -90,6 +101,9 @@ export const ConversationComposer = memo(function ConversationComposer({
   const emojiOpenTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const emojiOpenedByHoverRef = useRef(false);
+  const pendingAttachmentsRef = useRef(pendingAttachments);
+
+  pendingAttachmentsRef.current = pendingAttachments;
 
   useComposerAutoResize(inputRef, draft, !composing, chatId);
 
@@ -276,6 +290,54 @@ export const ConversationComposer = memo(function ConversationComposer({
     stopTyping();
   }, [editingMessage, flushDraft, stopTyping]);
 
+  useEffect(() => () => {
+    for (const attachment of pendingAttachmentsRef.current) {
+      if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+    }
+  }, []);
+
+  const addPendingAttachments = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    setPendingAttachments((current) => {
+      const available = Math.max(0, TELEGRAM_ALBUM_MAX_ITEMS - current.length);
+      const accepted = files.slice(0, available).map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+      }));
+      setAttachmentNotice(files.length > available
+        ? `一次最多发送 ${TELEGRAM_ALBUM_MAX_ITEMS} 个附件`
+        : undefined);
+      return [...current, ...accepted];
+    });
+  }, []);
+
+  const removePendingAttachment = useCallback((id: string) => {
+    setPendingAttachments((current) => {
+      const removed = current.find((attachment) => attachment.id === id);
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return current.filter((attachment) => attachment.id !== id);
+    });
+    setAttachmentNotice(undefined);
+  }, []);
+
+  const sendPendingAttachments = async () => {
+    if (attachmentPending || pendingAttachments.length === 0) return;
+    setAttachmentPending(true);
+    try {
+      const sent = await onSendFiles(pendingAttachments.map((attachment) => attachment.file));
+      if (!sent) return;
+      for (const attachment of pendingAttachments) {
+        if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+      }
+      setPendingAttachments([]);
+      setAttachmentNotice(undefined);
+      focusComposer();
+    } finally {
+      setAttachmentPending(false);
+    }
+  };
+
   const sendAttachment = async (file?: File) => {
     if (attachmentPending) return;
     setAttachmentPending(true);
@@ -347,12 +409,50 @@ export const ConversationComposer = memo(function ConversationComposer({
         ref={fileInputRef}
         className="sr-only"
         type="file"
+        multiple
         onChange={async (event) => {
-          const file = event.target.files?.[0];
-          if (file) await sendAttachment(file);
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) addPendingAttachments(files);
           event.target.value = "";
         }}
       />
+      {pendingAttachments.length > 0 && (
+        <section className="composer-attachment-preview" aria-label="待发送附件">
+          <div className="composer-attachment-grid" data-count={pendingAttachments.length}>
+            {pendingAttachments.map((attachment) => (
+              <article className="composer-attachment-item" key={attachment.id}>
+                {attachment.previewUrl ? (
+                  <img src={attachment.previewUrl} alt={attachment.file.name} />
+                ) : (
+                  <span className="composer-file-preview"><Paperclip size={22} /></span>
+                )}
+                <span className="composer-attachment-name">{attachment.file.name}</span>
+                <button
+                  type="button"
+                  aria-label={`移除 ${attachment.file.name}`}
+                  onClick={() => removePendingAttachment(attachment.id)}
+                >
+                  <X size={14} />
+                </button>
+              </article>
+            ))}
+          </div>
+          <footer>
+            <span role={attachmentNotice ? "alert" : "status"}>
+              {attachmentNotice ?? `${pendingAttachments.length} / ${TELEGRAM_ALBUM_MAX_ITEMS}`}
+            </span>
+            <button
+              className="dialog-primary"
+              type="button"
+              disabled={attachmentPending}
+              onClick={() => void sendPendingAttachments()}
+            >
+              {attachmentPending ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
+              <span>发送附件</span>
+            </button>
+          </footer>
+        </section>
+      )}
       {connectionStatus !== "online" && (
         <ConnectionStatusIndicator
           className="composer-connection-status"
@@ -412,6 +512,13 @@ export const ConversationComposer = memo(function ConversationComposer({
             draftRef.current = value;
             setDraft(value);
             if (!composingRef.current) commitInputSideEffects(value);
+          }}
+          onPaste={(event) => {
+            if (editingMessage || replyingTo) return;
+            const files = Array.from(event.clipboardData.files);
+            if (files.length === 0) return;
+            event.preventDefault();
+            addPendingAttachments(files);
           }}
           onCompositionStart={() => {
             composingRef.current = true;

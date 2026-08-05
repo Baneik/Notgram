@@ -525,6 +525,13 @@ export interface SendFileInput {
   file?: File;
 }
 
+export interface SendFilesInput {
+  chatId: string;
+  files: File[];
+}
+
+export const TELEGRAM_ALBUM_MAX_ITEMS = 10;
+
 export interface StreamFileInput {
   fileId: number;
   size: number;
