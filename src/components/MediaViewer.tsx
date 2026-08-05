@@ -10,7 +10,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import {
   adjacentPhotoId,
@@ -45,6 +45,7 @@ export function MediaViewer({
   const [zoom, setZoom] = useState(MIN_ZOOM);
   const [failedSource, setFailedSource] = useState<string>();
   const [retryKey, setRetryKey] = useState(0);
+  const activeThumbnailRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLDivElement>(onClose);
   const previousId = adjacentPhotoId(messages, activeMessageId, -1);
   const nextId = adjacentPhotoId(messages, activeMessageId, 1);
@@ -59,6 +60,14 @@ export function MediaViewer({
     setFailedSource(undefined);
     setRetryKey(0);
   }, [activeMessageId, source]);
+
+  useEffect(() => {
+    activeThumbnailRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [activeMessageId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -139,7 +148,7 @@ export function MediaViewer({
           </div>
         </header>
 
-        <main className="media-viewer-stage">
+        <main className={`media-viewer-stage ${messages.length > 1 ? "has-thumbnails" : ""}`}>
           {source && !failed ? (
             <img
               key={`${source}:${retryKey}`}
@@ -178,6 +187,31 @@ export function MediaViewer({
             <button className="media-viewer-nav is-next" type="button" aria-label="下一张" title="下一张" onClick={() => onActiveMessageChange(nextId)}>
               <ChevronRight size={30} />
             </button>
+          )}
+          {messages.length > 1 && (
+            <nav className="media-viewer-thumbnails" aria-label="会话图片预览">
+              {messages.map((message) => {
+                const thumbnailSource = sourceFromPath(message.content.thumbnailPath) ??
+                  sourceFromPath(message.content.localPath) ??
+                  message.content.previewDataUrl;
+                const selected = message.id === activeMessageId;
+                return (
+                  <button
+                    ref={selected ? activeThumbnailRef : undefined}
+                    className={selected ? "is-active" : undefined}
+                    type="button"
+                    key={message.id}
+                    aria-label={`查看 ${message.content.fileName}`}
+                    aria-current={selected ? "true" : undefined}
+                    onClick={() => onActiveMessageChange(message.id)}
+                  >
+                    {thumbnailSource
+                      ? <img src={thumbnailSource} alt="" loading="lazy" decoding="async" />
+                      : <ImageOff size={18} strokeWidth={1.6} />}
+                  </button>
+                );
+              })}
+            </nav>
           )}
         </main>
 

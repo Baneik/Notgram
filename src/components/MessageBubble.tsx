@@ -457,8 +457,13 @@ function MessageBubbleComponent({
                   <button
                     className="photo-open"
                     type="button"
-                    aria-label={`查看图片 ${content.fileName}`}
-                    onClick={() => onOpenMedia(message.id)}
+                    aria-label={`双击查看图片 ${content.fileName}`}
+                    onDoubleClick={() => onOpenMedia(message.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      onOpenMedia(message.id);
+                    }}
                   >
                     <img
                       src={imageMediaSource}
@@ -490,8 +495,13 @@ function MessageBubbleComponent({
                   <button
                     className="photo-open"
                     type="button"
-                    aria-label={`查看图片 ${content.fileName}`}
-                    onClick={() => onOpenMedia(message.id)}
+                    aria-label={`双击查看图片 ${content.fileName}`}
+                    onDoubleClick={() => onOpenMedia(message.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      onOpenMedia(message.id);
+                    }}
                   >
                     <span className="photo-placeholder" aria-label="媒体正在加载">
                       <ImageIcon size={28} strokeWidth={1.6} />

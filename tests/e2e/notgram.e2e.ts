@@ -1674,6 +1674,28 @@ test("unloaded media uses a blurred glass preview instead of exposing thumbnail 
   await expect(page.locator('[data-message-id="p-video"] .photo-preview')).not.toHaveClass(/is-preview-only/);
 });
 
+test("double-clicking a photo opens the full viewer with zoom, navigation, and thumbnails", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-message-id="p-5"] .photo-open').dblclick();
+
+  await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
+  const viewer = page.locator(".media-viewer");
+  const thumbnails = viewer.getByRole("navigation", { name: "会话图片预览" });
+  await expect(thumbnails.getByRole("button")).toHaveCount(2);
+  await expect(thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }))
+    .toHaveAttribute("aria-current", "true");
+
+  await viewer.getByRole("button", { name: "放大" }).click();
+  await expect(viewer.locator(".media-viewer-zoom")).toHaveText("150%");
+  await page.keyboard.press("ArrowLeft");
+  await expect(viewer.locator(".media-viewer-title strong")).toHaveText("纵向图片.jpg");
+  await thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }).click();
+  await expect(viewer.locator(".media-viewer-title strong")).toHaveText("界面预览.jpg");
+
+  await page.keyboard.press("Escape");
+  await expect(viewer).toBeHidden();
+});
+
 test("chat switching and ordinary message interactions keep typing focus in the composer", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });
