@@ -16,6 +16,8 @@ with prerelease identifiers used for release candidates.
   pinned messages, and configure preset or custom chat auto-delete durations.
 - Browse server-paginated shared media by category with search and date filters,
   TTL-backed indexing, message jumps, batch downloads, forwarding, and deletion.
+- Continue adjacent audio and voice messages automatically within the active
+  conversation while retaining a single active playback session.
 - Add a lightweight WebView performance timeline for startup, interaction, rendering,
   history, and media stalls, backed by a separately rotated performance log.
 - Support `reg:` regular expressions in global and current-conversation message search.

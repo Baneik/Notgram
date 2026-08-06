@@ -430,6 +430,15 @@ export function Conversation({
     () => new Map(displayMessages.map((message) => [message.id, message])),
     [displayMessages],
   );
+  const nextAudioPlaybackIdByMessage = useMemo(() => {
+    const audioMessages = displayMessages.filter((message) =>
+      message.content.kind === "media" && ["audio", "voice"].includes(message.content.mediaType)
+    );
+    return new Map(audioMessages.slice(0, -1).map((message, index) => [
+      message.id,
+      `${message.chatId}:${audioMessages[index + 1].id}`,
+    ]));
+  }, [displayMessages]);
 
   const forwardTargetsById = useMemo(
     () => new Map(forwardTargets.map((target) => [target.id, target])),
@@ -1160,6 +1169,7 @@ export function Conversation({
                         onCancelUpload={onCancelFileUpload}
                         onReaction={onSetMessageReaction}
                         onPollAnswer={onSetPollAnswer}
+                        nextAudioPlaybackId={nextAudioPlaybackIdByMessage.get(message.id)}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}

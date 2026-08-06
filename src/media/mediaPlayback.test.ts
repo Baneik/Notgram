@@ -40,6 +40,18 @@ describe("media playback coordination", () => {
     expect(coordinator.toggleKeyboardTarget()).toBe(false);
   });
 
+  it("continues only to a registered adjacent audio target", () => {
+    const coordinator = new MediaPlaybackCoordinator();
+    const play = vi.fn();
+    const unregister = coordinator.registerAutoplayTarget("chat:next", play);
+
+    expect(coordinator.requestAutoplay("chat:missing")).toBe(false);
+    expect(coordinator.requestAutoplay("chat:next")).toBe(true);
+    expect(play).toHaveBeenCalledOnce();
+    unregister();
+    expect(coordinator.requestAutoplay("chat:next")).toBe(false);
+  });
+
   it("resumes meaningful positions and clears near either edge", () => {
     const coordinator = new MediaPlaybackCoordinator();
     coordinator.remember("track", 42, 120);

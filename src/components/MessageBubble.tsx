@@ -88,6 +88,7 @@ interface MessageBubbleProps {
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
+  nextAudioPlaybackId?: string;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMedia?: (messageId: string) => void;
@@ -134,6 +135,7 @@ function MessageBubbleComponent({
   onCancelUpload,
   onReaction,
   onPollAnswer,
+  nextAudioPlaybackId,
   onOpenReply,
   onOpenSenderProfile,
   onOpenMedia,
@@ -708,6 +710,7 @@ function MessageBubbleComponent({
                   size={content.size}
                   mimeType={content.mimeType}
                   durationHint={content.duration}
+                  nextPlaybackId={nextAudioPlaybackId}
                   downloadProgress={content.progress}
                   onRequestStream={onStream}
                   onDownload={canDownload && downloadFileId !== undefined

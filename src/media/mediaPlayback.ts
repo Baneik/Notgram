@@ -39,6 +39,7 @@ export const rememberVideoVolume = (volume: number) => {
 export class MediaPlaybackCoordinator {
   private active?: { id: string; media: CoordinatedMedia };
   private keyboardTarget?: { id: string; toggle: () => void };
+  private readonly autoplayTargets = new Map<string, () => void>();
   private readonly resumePositions = new Map<string, number>();
 
   activate(id: string, media: CoordinatedMedia) {
@@ -63,6 +64,21 @@ export class MediaPlaybackCoordinator {
   toggleKeyboardTarget() {
     if (!this.keyboardTarget) return false;
     this.keyboardTarget.toggle();
+    return true;
+  }
+
+  registerAutoplayTarget(id: string, play: () => void) {
+    this.autoplayTargets.set(id, play);
+    return () => {
+      if (this.autoplayTargets.get(id) === play) this.autoplayTargets.delete(id);
+    };
+  }
+
+  requestAutoplay(id?: string) {
+    if (!id) return false;
+    const play = this.autoplayTargets.get(id);
+    if (!play) return false;
+    play();
     return true;
   }
 

@@ -1989,6 +1989,26 @@ test("poll messages support voting, results, and revoking an answer", async ({ p
   await expect(firstOption).toHaveAttribute("aria-pressed", "false");
 });
 
+test("audio messages continue to the next item in the same conversation", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('[data-message-id="p-audio"] audio')).toHaveCount(1);
+  await expect(page.locator('[data-message-id="p-audio-next"] audio')).toHaveCount(1);
+  await page.evaluate(() => {
+    const scope = window as unknown as { __notgramAudioPlayCalls: string[] };
+    scope.__notgramAudioPlayCalls = [];
+    HTMLMediaElement.prototype.play = function play() {
+      const messageId = this.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+      if (messageId) scope.__notgramAudioPlayCalls.push(messageId);
+      return Promise.resolve();
+    };
+    document.querySelector<HTMLAudioElement>('[data-message-id="p-audio"] audio')
+      ?.dispatchEvent(new Event("ended"));
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramAudioPlayCalls: string[] }
+  ).__notgramAudioPlayCalls)).toContain("p-audio-next");
+});
+
 test("unloaded media uses a blurred glass preview instead of exposing thumbnail pixels", async ({ page }) => {
   await page.goto("/");
   const preview = page.locator('[data-message-id="p-5"] .photo-preview');

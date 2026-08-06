@@ -1,5 +1,5 @@
 import { AlertCircle, Download, LoaderCircle, Pause, Play, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   formatPlaybackTime,
   mediaPlaybackCoordinator,
@@ -15,6 +15,7 @@ interface AudioPlayerProps {
   size?: number;
   mimeType?: string;
   durationHint?: number;
+  nextPlaybackId?: string;
   downloadProgress?: number;
   onRequestStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onDownload?: () => void;
@@ -29,6 +30,7 @@ export function AudioPlayer({
   size,
   mimeType,
   durationHint,
+  nextPlaybackId,
   downloadProgress,
   onRequestStream,
   onDownload,
@@ -62,7 +64,7 @@ export function AudioPlayer({
     mediaPlaybackCoordinator.release(audio);
   }, [playbackId]);
 
-  const startPlayback = async () => {
+  const startPlayback = useCallback(async () => {
     const audio = audioRef.current;
     if (resolvedSource && audio) {
       await audio.play().catch(() => setFailed(true));
@@ -84,7 +86,14 @@ export function AudioPlayer({
     } finally {
       setLoading(false);
     }
-  };
+  }, [fileId, loading, mimeType, onRequestStream, resolvedSource, size]);
+
+  useEffect(
+    () => mediaPlaybackCoordinator.registerAutoplayTarget(playbackId, () => {
+      void startPlayback();
+    }),
+    [playbackId, startPlayback],
+  );
 
   const togglePlayback = () => {
     const audio = audioRef.current;
@@ -150,6 +159,7 @@ export function AudioPlayer({
           setCurrentTime(0);
           mediaPlaybackCoordinator.clear(playbackId);
           mediaPlaybackCoordinator.release(event.currentTarget);
+          mediaPlaybackCoordinator.requestAutoplay(nextPlaybackId);
         }}
         onError={() => { setFailed(true); setPlaying(false); }}
       />
