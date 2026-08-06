@@ -1707,18 +1707,30 @@ test("caption text sizes media bubbles and media is centered with letterboxing",
       const preview = element.querySelector<HTMLElement>(".photo-preview");
       const image = element.querySelector<HTMLImageElement>(".photo-preview img");
       const caption = element.querySelector<HTMLElement>(".photo-caption");
-      if (!shell || !preview || !image || !caption) return undefined;
+      const meta = element.querySelector<HTMLElement>(".message-meta");
+      if (!shell || !preview || !image || !caption || !meta) return undefined;
       const shellBounds = shell.getBoundingClientRect();
       const previewBounds = preview.getBoundingClientRect();
       const scale = Math.min(
         previewBounds.width / image.naturalWidth,
         previewBounds.height / image.naturalHeight,
       );
+      const range = document.createRange();
+      range.selectNodeContents(caption);
+      const captionLastLine = [...range.getClientRects()].at(-1);
+      const metaBounds = meta.getBoundingClientRect();
       return {
         shellWidth: shellBounds.width,
         previewWidth: previewBounds.width,
         previewHeight: previewBounds.height,
         captionHeight: caption.getBoundingClientRect().height,
+        captionLastLineBottom: captionLastLine?.bottom,
+        captionLastLineRight: captionLastLine?.right,
+        metaTop: metaBounds.top,
+        metaBottom: metaBounds.bottom,
+        metaLeft: metaBounds.left,
+        metaRight: metaBounds.right,
+        captionFlowHeight: element.querySelector<HTMLElement>(".photo-caption-flow")?.getBoundingClientRect().height,
         horizontalLetterbox: (previewBounds.width - image.naturalWidth * scale) / 2,
         verticalLetterbox: (previewBounds.height - image.naturalHeight * scale) / 2,
         objectFit: getComputedStyle(image).objectFit,
@@ -1743,6 +1755,11 @@ test("caption text sizes media bubbles and media is centered with letterboxing",
   expect(wide?.horizontalLetterbox).toBeLessThanOrEqual(1);
   expect(wide?.verticalLetterbox).toBeGreaterThan(20);
   expect(wide?.objectFit).toBe("contain");
+  expect(wide?.captionLastLineBottom).toBeDefined();
+  expect(wide?.captionLastLineRight).toBeDefined();
+  expect(Math.abs(wide!.metaBottom! - wide!.captionLastLineBottom!)).toBeLessThan(5);
+  expect(wide!.metaLeft!).toBeGreaterThan(wide!.captionLastLineRight!);
+  expect(wide!.captionFlowHeight!).toBeLessThan(32);
 });
 
 test("pasted images preview, respect Telegram's album limit, and send as one album", async ({ page }) => {

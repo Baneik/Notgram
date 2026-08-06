@@ -186,7 +186,8 @@ function MessageBubbleComponent({
 
   useLayoutEffect(() => {
     const flow = textFlowRef.current;
-    if (content.kind !== "text" || !flow) return;
+    const hasInlineCaption = isVisual && hasCaption;
+    if ((content.kind !== "text" && !hasInlineCaption) || !flow) return;
 
     const measure = () => {
       const text = flow.querySelector<HTMLElement>(".message-rich-text");
@@ -207,7 +208,7 @@ function MessageBubbleComponent({
     const observer = new ResizeObserver(measure);
     observer.observe(flow);
     return () => observer.disconnect();
-  }, [content, message.delivery, message.editedAt, message.sentAt]);
+  }, [content, hasCaption, isVisual, message.delivery, message.editedAt, message.sentAt]);
   const visualShellStyle = mediaLayout
     ? {
         "--visual-media-width": `${mediaLayout.width}px`,
@@ -589,11 +590,17 @@ function MessageBubbleComponent({
                 )}
               </div>
               {hasCaption && content.caption && (
-                <MessageRichText
-                  className="photo-caption"
-                  text={content.caption}
-                  entities={content.captionEntities}
-                />
+                <div
+                  ref={textFlowRef}
+                  className={`message-text-flow photo-caption-flow ${metaWrapped ? "is-meta-wrapped" : ""}`}
+                >
+                  <MessageRichText
+                    className="photo-caption"
+                    text={content.caption}
+                    entities={content.captionEntities}
+                  />
+                  {messageMeta}
+                </div>
               )}
             </div>
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
@@ -662,7 +669,7 @@ function MessageBubbleComponent({
               )}
             </div>
           )}
-          {content.kind !== "text" && messageMeta}
+          {content.kind !== "text" && !(isVisual && hasCaption) && messageMeta}
         </div>
         {!albumItem && !selectionMode && !isService && reactions.length > 0 && (
           <div className="message-reactions">
