@@ -1868,6 +1868,41 @@ export const createTelegramStore = (
         }
       },
 
+      getChatInviteLinks: async (input) => {
+        try { return await transport.getChatInviteLinks(input); }
+        catch (error) { set({ operationError: errorMessage(error, "无法读取邀请链接") }); return undefined; }
+      },
+
+      createChatInviteLink: async (input) => {
+        try { const link = await transport.createChatInviteLink(input); set({ operationError: undefined }); return link; }
+        catch (error) { set({ operationError: errorMessage(error, "无法创建邀请链接") }); return undefined; }
+      },
+
+      editChatInviteLink: async (input) => {
+        try { const link = await transport.editChatInviteLink(input); set({ operationError: undefined }); return link; }
+        catch (error) { set({ operationError: errorMessage(error, "无法编辑邀请链接") }); return undefined; }
+      },
+
+      revokeChatInviteLink: async (chatId, inviteLink) => {
+        try { await transport.revokeChatInviteLink(chatId, inviteLink); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法撤销邀请链接") }); return false; }
+      },
+
+      getChatJoinRequests: async (input) => {
+        try { return await transport.getChatJoinRequests(input); }
+        catch (error) { set({ operationError: errorMessage(error, "无法读取入群申请") }); return undefined; }
+      },
+
+      processChatJoinRequest: async (chatId, userId, approve) => {
+        try { await transport.processChatJoinRequest(chatId, userId, approve); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法处理入群申请") }); return false; }
+      },
+
+      processChatJoinRequests: async (chatId, inviteLink, approve) => {
+        try { await transport.processChatJoinRequests(chatId, inviteLink, approve); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法批量处理入群申请") }); return false; }
+      },
+
       setMessageReaction: async (messageId, emoji, chosen) => {
         const chatId = get().activeChatId;
         if (!chatId) return;

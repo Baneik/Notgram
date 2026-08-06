@@ -25,6 +25,12 @@ import type {
   ChatEventLogInput,
   ChatEventPage,
   ChatManagement,
+  ChatInviteLink,
+  ChatInviteLinkPage,
+  ChatJoinRequestPage,
+  CreateChatInviteLinkInput,
+  GetChatInviteLinksInput,
+  GetChatJoinRequestsInput,
   ChatMemberStatusInput,
   ChatPermissions,
   CreateChatInput,
@@ -90,6 +96,13 @@ export interface TelegramTransport {
   setChatSlowModeDelay(chatId: string, delaySeconds: number): Promise<void>;
   transferChatOwnership(chatId: string, userId: string, password: string): Promise<void>;
   getChatEventLog(input: ChatEventLogInput): Promise<ChatEventPage>;
+  getChatInviteLinks(input: GetChatInviteLinksInput): Promise<ChatInviteLinkPage>;
+  createChatInviteLink(input: CreateChatInviteLinkInput): Promise<ChatInviteLink>;
+  editChatInviteLink(input: CreateChatInviteLinkInput & { inviteLink: string }): Promise<ChatInviteLink>;
+  revokeChatInviteLink(chatId: string, inviteLink: string): Promise<ChatInviteLink>;
+  getChatJoinRequests(input: GetChatJoinRequestsInput): Promise<ChatJoinRequestPage>;
+  processChatJoinRequest(chatId: string, userId: string, approve: boolean): Promise<void>;
+  processChatJoinRequests(chatId: string, inviteLink: string | undefined, approve: boolean): Promise<void>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;

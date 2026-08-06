@@ -62,6 +62,12 @@ import type {
   ChatEventLogInput,
   ChatEventPage,
   ChatManagement,
+  ChatInviteLink,
+  ChatInviteLinkPage,
+  ChatJoinRequestPage,
+  CreateChatInviteLinkInput,
+  GetChatInviteLinksInput,
+  GetChatJoinRequestsInput,
   ChatMemberStatusInput,
   ChatPermissions,
   ManagedChatMember,
@@ -320,6 +326,35 @@ const managedStatus = (value: unknown): ManagedChatMember["status"] => {
     case "chatMemberStatusLeft": return "left";
     default: return "member";
   }
+};
+
+const unixDate = (value: unknown) => {
+  const seconds = tdNumber(value);
+  return seconds && seconds > 0 ? new Date(seconds * 1000).toISOString() : undefined;
+};
+
+const mapChatInviteLink = (value: unknown): ChatInviteLink | undefined => {
+  const raw = asTdObject(value);
+  const inviteLink = typeof raw?.invite_link === "string" ? raw.invite_link : "";
+  if (!raw || !inviteLink) return undefined;
+  const pricing = asTdObject(raw.subscription_pricing);
+  return {
+    inviteLink,
+    name: typeof raw.name === "string" ? raw.name : "邀请链接",
+    creatorUserId: tdId(raw.creator_user_id) || undefined,
+    createdAt: unixDate(raw.date) ?? new Date(0).toISOString(),
+    editedAt: unixDate(raw.edit_date),
+    expiresAt: unixDate(raw.expiration_date),
+    memberLimit: tdNumber(raw.member_limit) ?? 0,
+    memberCount: tdNumber(raw.member_count) ?? 0,
+    expiredMemberCount: tdNumber(raw.expired_member_count) ?? 0,
+    pendingJoinRequestCount: tdNumber(raw.pending_join_request_count) ?? 0,
+    createsJoinRequest: raw.creates_join_request === true,
+    isPrimary: raw.is_primary === true,
+    isRevoked: raw.is_revoked === true,
+    subscriptionStars: pricing ? tdNumber(pricing.star_count) : undefined,
+    subscriptionPeriod: pricing ? tdNumber(pricing.period) : undefined,
+  };
 };
 
 const replaceFileReference = (
@@ -1052,6 +1087,71 @@ export class TauriTelegramTransport implements TelegramTransport {
     }));
     const nextEventId = tdId(result.next_from_event_id);
     return { events, nextEventId, hasMore: Boolean(nextEventId) && events.length > 0 };
+  }
+
+  async getChatInviteLinks({ chatId, creatorUserId, revoked = false, offsetDate = 0, offsetLink = "", limit = 30 }: GetChatInviteLinksInput): Promise<ChatInviteLinkPage> {
+    const result = await this.request({ "@type": "getChatInviteLinks", chat_id: numericId(chatId), creator_user_id: creatorUserId ? numericId(creatorUserId) : 0, is_revoked: revoked, offset_date: offsetDate, offset_invite_link: offsetLink, limit: Math.max(1, Math.min(limit, 100)) });
+    const links = asTdObjects(result.invite_links).map(mapChatInviteLink).filter((link): link is ChatInviteLink => Boolean(link));
+    const last = links.at(-1);
+    return { links, hasMore: links.length >= Math.max(1, Math.min(limit, 100)), nextOffsetDate: last ? Math.floor(Date.parse(last.createdAt) / 1000) : undefined, nextOffsetLink: last?.inviteLink };
+  }
+
+  async createChatInviteLink(input: CreateChatInviteLinkInput): Promise<ChatInviteLink> {
+    const request = input.subscriptionStars && input.subscriptionStars > 0 ? {
+      "@type": "createChatSubscriptionInviteLink",
+      chat_id: numericId(input.chatId),
+      name: input.name.trim(),
+      subscription_pricing: { "@type": "starSubscriptionPricing", period: 2_592_000, star_count: input.subscriptionStars },
+    } : {
+      "@type": "createChatInviteLink",
+      chat_id: numericId(input.chatId),
+      name: input.name.trim(),
+      expiration_date: input.expirationDate ?? 0,
+      member_limit: input.memberLimit ?? 0,
+      creates_join_request: input.createsJoinRequest === true,
+    };
+    const link = mapChatInviteLink(await this.request(request));
+    if (!link) throw new Error("TDLib 未返回邀请链接");
+    return link;
+  }
+
+  async editChatInviteLink(input: CreateChatInviteLinkInput & { inviteLink: string }): Promise<ChatInviteLink> {
+    const request = input.subscriptionStars && input.subscriptionStars > 0 ? {
+      "@type": "editChatSubscriptionInviteLink", chat_id: numericId(input.chatId), invite_link: input.inviteLink, name: input.name.trim(),
+    } : {
+      "@type": "editChatInviteLink", chat_id: numericId(input.chatId), invite_link: input.inviteLink, name: input.name.trim(), expiration_date: input.expirationDate ?? 0, member_limit: input.memberLimit ?? 0, creates_join_request: input.createsJoinRequest === true,
+    };
+    const link = mapChatInviteLink(await this.request(request));
+    if (!link) throw new Error("TDLib 未返回已更新的邀请链接");
+    return link;
+  }
+
+  async revokeChatInviteLink(chatId: string, inviteLink: string): Promise<ChatInviteLink> {
+    const link = mapChatInviteLink(await this.request({ "@type": "revokeChatInviteLink", chat_id: numericId(chatId), invite_link: inviteLink }));
+    if (!link) throw new Error("TDLib 未返回已撤销的邀请链接");
+    return link;
+  }
+
+  async getChatJoinRequests({ chatId, inviteLink = "", query = "", offsetUserId, offsetDate = 0, limit = 30 }: GetChatJoinRequestsInput): Promise<ChatJoinRequestPage> {
+    const offsetRequest = offsetUserId ? { "@type": "chatJoinRequest", user_id: numericId(offsetUserId), date: offsetDate, bio: "" } : null;
+    const result = await this.request({ "@type": "getChatJoinRequests", chat_id: numericId(chatId), invite_link: inviteLink, query: query.trim(), offset_request: offsetRequest, limit: Math.max(1, Math.min(limit, 100)) });
+    const values = asTdObjects(result.requests);
+    const requests = await Promise.all(values.map(async (raw) => {
+      const userId = tdId(raw.user_id);
+      const user = userId ? await this.loadUser(userId) : undefined;
+      return user ? { user, date: unixDate(raw.date) ?? new Date(0).toISOString(), bio: typeof raw.bio === "string" ? raw.bio : undefined, inviteLink: inviteLink || undefined } : undefined;
+    }));
+    const filtered = requests.filter((request): request is NonNullable<typeof request> => Boolean(request));
+    const lastRaw = values.at(-1);
+    return { requests: filtered, totalCount: tdNumber(result.total_count) ?? filtered.length, hasMore: filtered.length >= Math.max(1, Math.min(limit, 100)), nextOffsetUserId: tdId(lastRaw?.user_id) || undefined, nextOffsetDate: tdNumber(lastRaw?.date) };
+  }
+
+  async processChatJoinRequest(chatId: string, userId: string, approve: boolean): Promise<void> {
+    await this.request({ "@type": "processChatJoinRequest", chat_id: numericId(chatId), user_id: numericId(userId), approve });
+  }
+
+  async processChatJoinRequests(chatId: string, inviteLink: string | undefined, approve: boolean): Promise<void> {
+    await this.request({ "@type": "processChatJoinRequests", chat_id: numericId(chatId), invite_link: inviteLink ?? "", approve });
   }
 
   async searchGlobal({

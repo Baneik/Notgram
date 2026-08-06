@@ -13,6 +13,8 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "createChatFolder",
     "createNewBasicGroupChat",
     "createNewSupergroupChat",
+    "createChatInviteLink",
+    "createChatSubscriptionInviteLink",
     "createPrivateChat",
     "deleteChatFolder",
     "deleteMessages",
@@ -20,11 +22,15 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "downloadFile",
     "editChatFolder",
     "editMessageText",
+    "editChatInviteLink",
+    "editChatSubscriptionInviteLink",
     "enableProxy",
     "forwardMessages",
     "getChat",
     "getChatFolder",
     "getChatHistory",
+    "getChatInviteLinks",
+    "getChatJoinRequests",
     "getChatPinnedMessage",
     "getChats",
     "getBasicGroupFullInfo",
@@ -56,6 +62,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "registerUser",
     "requestQrCodeAuthentication",
     "removeMessageReaction",
+    "revokeChatInviteLink",
     "resendMessages",
     "searchChatMessages",
     "searchChatsOnServer",
@@ -68,6 +75,8 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setChatDraftMessage",
     "setChatPermissions",
     "setChatSlowModeDelay",
+    "processChatJoinRequest",
+    "processChatJoinRequests",
     "transferChatOwnership",
     "getChatEventLog",
     "setChatNotificationSettings",
@@ -211,6 +220,89 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
             }
             if request.get("user_ids").and_then(Value::as_array).is_none() {
                 return Err("Event log users are missing".to_string());
+            }
+        }
+        "createChatInviteLink" | "editChatInviteLink" => validate_chat_invite_link(request)?,
+        "createChatSubscriptionInviteLink" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_profile_text(request, "name", 32, false, false)?;
+            let pricing = request
+                .get("subscription_pricing")
+                .and_then(Value::as_object)
+                .ok_or_else(|| "Subscription pricing is missing".to_string())?;
+            if pricing.get("@type").and_then(Value::as_str) != Some("starSubscriptionPricing")
+                || pricing.get("period").and_then(Value::as_i64) != Some(2_592_000)
+                || pricing
+                    .get("star_count")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|stars| !(1..=1_000_000_000).contains(&stars))
+            {
+                return Err("Invalid subscription pricing".to_string());
+            }
+        }
+        "editChatSubscriptionInviteLink" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_invite_link(request)?;
+            validate_profile_text(request, "name", 32, false, false)?;
+        }
+        "revokeChatInviteLink" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_invite_link(request)?;
+        }
+        "getChatInviteLinks" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            if request
+                .get("creator_user_id")
+                .and_then(Value::as_i64)
+                .is_none_or(|id| id < 0)
+                || request.get("is_revoked").and_then(Value::as_bool).is_none()
+                || request
+                    .get("offset_date")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|date| date < 0)
+                || request
+                    .get("offset_invite_link")
+                    .and_then(Value::as_str)
+                    .is_none_or(|link| link.len() > 256)
+                || request
+                    .get("limit")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|limit| !(1..=100).contains(&limit))
+            {
+                return Err("Invalid invite link pagination".to_string());
+            }
+        }
+        "getChatJoinRequests" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_profile_text(request, "query", 128, true, false)?;
+            if request
+                .get("invite_link")
+                .and_then(Value::as_str)
+                .is_none_or(|link| link.len() > 256)
+                || request
+                    .get("limit")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|limit| !(1..=100).contains(&limit))
+            {
+                return Err("Invalid join request pagination".to_string());
+            }
+        }
+        "processChatJoinRequest" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_nonzero_identifier(request, "user_id")?;
+            if request.get("approve").and_then(Value::as_bool).is_none() {
+                return Err("Join request decision is missing".to_string());
+            }
+        }
+        "processChatJoinRequests" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            if request
+                .get("invite_link")
+                .and_then(Value::as_str)
+                .is_none_or(|link| link.len() > 256)
+                || request.get("approve").and_then(Value::as_bool).is_none()
+            {
+                return Err("Invalid bulk join request decision".to_string());
             }
         }
         "setSupergroupUsername" => {
@@ -427,6 +519,45 @@ fn validate_auto_delete_time(request: &Value) -> Result<(), String> {
         .ok_or_else(|| "Auto-delete time is missing".to_string())?;
     if !(0..=31_536_000).contains(&value) || (value != 0 && value % 86_400 != 0) {
         return Err("Invalid auto-delete settings".to_string());
+    }
+    Ok(())
+}
+
+fn validate_invite_link(request: &Value) -> Result<(), String> {
+    let link = request
+        .get("invite_link")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Invite link is missing".to_string())?;
+    if link.len() > 256
+        || !(link.starts_with("https://t.me/+") || link.starts_with("https://telegram.me/+"))
+    {
+        return Err("Invalid invite link".to_string());
+    }
+    Ok(())
+}
+
+fn validate_chat_invite_link(request: &Value) -> Result<(), String> {
+    validate_nonzero_identifier(request, "chat_id")?;
+    validate_profile_text(request, "name", 32, false, false)?;
+    if request.get("@type").and_then(Value::as_str) == Some("editChatInviteLink") {
+        validate_invite_link(request)?;
+    }
+    let expiration = request
+        .get("expiration_date")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| "Invite expiration is missing".to_string())?;
+    let member_limit = request
+        .get("member_limit")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| "Invite member limit is missing".to_string())?;
+    if !(0..=2_147_483_647).contains(&expiration)
+        || !(0..=99_999).contains(&member_limit)
+        || request
+            .get("creates_join_request")
+            .and_then(Value::as_bool)
+            .is_none()
+    {
+        return Err("Invalid invite link settings".to_string());
     }
     Ok(())
 }

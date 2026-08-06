@@ -12,6 +12,13 @@ import type {
   ChatEventLogInput,
   ChatEventPage,
   ChatManagement,
+  ChatInviteLink,
+  ChatInviteLinkPage,
+  ChatJoinRequest,
+  ChatJoinRequestPage,
+  CreateChatInviteLinkInput,
+  GetChatInviteLinksInput,
+  GetChatJoinRequestsInput,
   ChatMemberStatusInput,
   ChatPermissions,
   ManagedChatMember,
@@ -190,6 +197,8 @@ export class MockTelegramTransport implements TelegramTransport {
   private createdChatSettings = new Map<string, CreateChatInput>();
   private chatManagement = new Map<string, ChatManagement>();
   private chatAudit = new Map<string, ChatEvent[]>();
+  private chatInviteLinks = new Map<string, ChatInviteLink[]>();
+  private chatJoinRequests = new Map<string, ChatJoinRequest[]>();
   private authFlow: boolean;
   private connectionStatus: ConnectionStatus;
   private initialTyping?: { chatId: string; senderId: string };
@@ -884,6 +893,112 @@ export class MockTelegramTransport implements TelegramTransport {
     const start = fromEventId ? Math.max(0, events.findIndex((event) => event.id === fromEventId) + 1) : 0;
     const page = events.slice(start, start + Math.min(100, Math.max(1, limit)));
     return { events: clone(page), nextEventId: page.at(-1)?.id, hasMore: start + page.length < events.length };
+  }
+
+  private ensureInviteLinks(chatId: string) {
+    let links = this.chatInviteLinks.get(chatId);
+    if (!links) {
+      links = [{
+        inviteLink: `https://t.me/+notgram_${chatId.replace(/[^a-z0-9]/gi, "")}`,
+        name: "主邀请链接",
+        creatorUserId: this.snapshot.currentUserId,
+        createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+        memberLimit: 0,
+        memberCount: 3,
+        expiredMemberCount: 1,
+        pendingJoinRequestCount: 2,
+        createsJoinRequest: true,
+        isPrimary: true,
+        isRevoked: false,
+      }];
+      this.chatInviteLinks.set(chatId, links);
+    }
+    if (!this.chatJoinRequests.has(chatId)) {
+      const candidates = ["u-chen", "u-jules"].map((id) => this.snapshot.users.find((user) => user.id === id)).filter((user): user is User => Boolean(user));
+      this.chatJoinRequests.set(chatId, candidates.map((user, index) => ({ user: clone(user), date: new Date(Date.now() - (index + 1) * 3_600_000).toISOString(), bio: index === 0 ? "希望加入桌面端协作" : undefined, inviteLink: links?.[0]?.inviteLink })));
+    }
+    return links;
+  }
+
+  async getChatInviteLinks({ chatId, revoked = false, offsetLink = "", limit = 30 }: GetChatInviteLinksInput): Promise<ChatInviteLinkPage> {
+    const all = this.ensureInviteLinks(chatId).filter((link) => link.isRevoked === revoked);
+    const start = offsetLink ? Math.max(0, all.findIndex((link) => link.inviteLink === offsetLink) + 1) : 0;
+    const links = all.slice(start, start + Math.min(100, Math.max(1, limit)));
+    return { links: clone(links), hasMore: start + links.length < all.length, nextOffsetLink: links.at(-1)?.inviteLink, nextOffsetDate: links.at(-1) ? Math.floor(Date.parse(links.at(-1)!.createdAt) / 1000) : undefined };
+  }
+
+  async createChatInviteLink(input: CreateChatInviteLinkInput): Promise<ChatInviteLink> {
+    this.ensureInviteLinks(input.chatId);
+    const name = input.name.trim();
+    if ([...name].length > 32) throw new Error("邀请链接名称最多 32 个字符");
+    const link: ChatInviteLink = {
+      inviteLink: `https://t.me/+${crypto.randomUUID().replace(/-/g, "").slice(0, 22)}`,
+      name: name || (input.subscriptionStars ? "订阅链接" : "邀请链接"),
+      creatorUserId: this.snapshot.currentUserId,
+      createdAt: new Date().toISOString(),
+      expiresAt: input.expirationDate ? new Date(input.expirationDate * 1000).toISOString() : undefined,
+      memberLimit: input.memberLimit ?? 0,
+      memberCount: 0,
+      expiredMemberCount: 0,
+      pendingJoinRequestCount: 0,
+      createsJoinRequest: input.createsJoinRequest === true,
+      isPrimary: false,
+      isRevoked: false,
+      subscriptionStars: input.subscriptionStars,
+      subscriptionPeriod: input.subscriptionStars ? 2_592_000 : undefined,
+    };
+    this.chatInviteLinks.get(input.chatId)!.unshift(link);
+    this.appendChatAudit(input.chatId, `创建邀请链接：${link.name}`, "inviteLink");
+    return clone(link);
+  }
+
+  async editChatInviteLink(input: CreateChatInviteLinkInput & { inviteLink: string }): Promise<ChatInviteLink> {
+    const link = this.ensureInviteLinks(input.chatId).find((item) => item.inviteLink === input.inviteLink);
+    if (!link || link.isRevoked) throw new Error("邀请链接不存在或已撤销");
+    link.name = input.name.trim() || link.name;
+    link.expiresAt = input.expirationDate ? new Date(input.expirationDate * 1000).toISOString() : undefined;
+    link.memberLimit = input.memberLimit ?? 0;
+    link.createsJoinRequest = input.createsJoinRequest === true;
+    link.editedAt = new Date().toISOString();
+    this.appendChatAudit(input.chatId, `编辑邀请链接：${link.name}`, "inviteLink");
+    return clone(link);
+  }
+
+  async revokeChatInviteLink(chatId: string, inviteLink: string): Promise<ChatInviteLink> {
+    const link = this.ensureInviteLinks(chatId).find((item) => item.inviteLink === inviteLink);
+    if (!link) throw new Error("找不到邀请链接");
+    link.isRevoked = true;
+    this.appendChatAudit(chatId, `撤销邀请链接：${link.name}`, "inviteLink");
+    return clone(link);
+  }
+
+  async getChatJoinRequests({ chatId, inviteLink, query = "", offsetUserId, limit = 30 }: GetChatJoinRequestsInput): Promise<ChatJoinRequestPage> {
+    this.ensureInviteLinks(chatId);
+    const normalized = query.trim().toLocaleLowerCase();
+    const all = (this.chatJoinRequests.get(chatId) ?? []).filter((request) => (!inviteLink || request.inviteLink === inviteLink) && (!normalized || `${request.user.displayName} ${request.bio ?? ""}`.toLocaleLowerCase().includes(normalized)));
+    const start = offsetUserId ? Math.max(0, all.findIndex((request) => request.user.id === offsetUserId) + 1) : 0;
+    const requests = all.slice(start, start + Math.min(100, Math.max(1, limit)));
+    const last = requests.at(-1);
+    return { requests: clone(requests), totalCount: all.length, hasMore: start + requests.length < all.length, nextOffsetUserId: last?.user.id, nextOffsetDate: last ? Math.floor(Date.parse(last.date) / 1000) : undefined };
+  }
+
+  async processChatJoinRequest(chatId: string, userId: string, approve: boolean): Promise<void> {
+    this.ensureInviteLinks(chatId);
+    const requests = this.chatJoinRequests.get(chatId) ?? [];
+    const request = requests.find((item) => item.user.id === userId);
+    if (!request) throw new Error("入群申请不存在");
+    this.chatJoinRequests.set(chatId, requests.filter((item) => item.user.id !== userId));
+    if (approve) await this.addChatMembers(chatId, [userId]);
+    this.appendChatAudit(chatId, `${approve ? "批准" : "拒绝"}入群申请：${request.user.displayName}`, "inviteLink");
+  }
+
+  async processChatJoinRequests(chatId: string, inviteLink: string | undefined, approve: boolean): Promise<void> {
+    this.ensureInviteLinks(chatId);
+    const requests = this.chatJoinRequests.get(chatId) ?? [];
+    const selected = requests.filter((request) => !inviteLink || request.inviteLink === inviteLink);
+    this.chatJoinRequests.set(chatId, requests.filter((request) => inviteLink && request.inviteLink !== inviteLink));
+    if (approve) await this.addChatMembers(chatId, selected.map((request) => request.user.id));
+    this.appendChatAudit(chatId, `${approve ? "批量批准" : "批量拒绝"} ${selected.length} 个入群申请`, "inviteLink");
   }
 
   async searchChats(query: string, limit = 50) {

@@ -1491,6 +1491,29 @@ test("manages member exceptions, default permissions, slow mode, and audit event
   await expect(dialog).toBeHidden();
 });
 
+test("creates and governs invite links and join requests", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
+  await page.getByRole("dialog", { name: "资料" }).getByRole("button", { name: "管理", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: /管理“产品讨论”/ });
+  await dialog.getByRole("button", { name: "邀请", exact: true }).click();
+  await expect(dialog.getByText("主邀请链接", { exact: false })).toBeVisible();
+  await dialog.getByLabel("邀请链接名称").fill("QA 临时入口");
+  await dialog.getByLabel("邀请链接使用人数").fill("8");
+  await dialog.getByLabel("新成员需要管理员批准").check();
+  await dialog.getByRole("button", { name: "创建链接" }).click();
+  const createdRow = dialog.locator(".invite-link-row", { hasText: "QA 临时入口" });
+  await expect(createdRow).toBeVisible();
+  await createdRow.getByRole("button", { name: "复制 QA 临时入口" }).click();
+  await createdRow.getByRole("button", { name: "编辑" }).click();
+  await dialog.getByLabel("邀请链接名称").fill("QA 临时入口（已编辑）");
+  await dialog.getByRole("button", { name: "保存链接" }).click();
+  await expect(dialog.getByText("QA 临时入口（已编辑）", { exact: false })).toBeVisible();
+  await dialog.getByRole("button", { name: "全部批准" }).click();
+  await expect(dialog.getByText("暂无待处理申请", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "关闭管理面板" }).click();
+});
+
 test("keyboard navigation closes modals and completes message workflows", async ({ page }) => {
   await page.goto("/");
 

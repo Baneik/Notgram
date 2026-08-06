@@ -165,6 +165,73 @@ export interface ChatEventLogInput {
   filters?: ChatEventLogFilters;
 }
 
+export interface ChatInviteLink {
+  inviteLink: string;
+  name: string;
+  creatorUserId?: string;
+  createdAt: string;
+  editedAt?: string;
+  expiresAt?: string;
+  memberLimit: number;
+  memberCount: number;
+  expiredMemberCount: number;
+  pendingJoinRequestCount: number;
+  createsJoinRequest: boolean;
+  isPrimary: boolean;
+  isRevoked: boolean;
+  subscriptionStars?: number;
+  subscriptionPeriod?: number;
+}
+
+export interface ChatInviteLinkPage {
+  links: ChatInviteLink[];
+  hasMore: boolean;
+  nextOffsetDate?: number;
+  nextOffsetLink?: string;
+}
+
+export interface CreateChatInviteLinkInput {
+  chatId: string;
+  name: string;
+  expirationDate?: number;
+  memberLimit?: number;
+  createsJoinRequest?: boolean;
+  subscriptionStars?: number;
+}
+
+export interface GetChatInviteLinksInput {
+  chatId: string;
+  creatorUserId?: string;
+  revoked?: boolean;
+  offsetDate?: number;
+  offsetLink?: string;
+  limit?: number;
+}
+
+export interface ChatJoinRequest {
+  user: User;
+  date: string;
+  bio?: string;
+  inviteLink?: string;
+}
+
+export interface ChatJoinRequestPage {
+  requests: ChatJoinRequest[];
+  totalCount: number;
+  hasMore: boolean;
+  nextOffsetUserId?: string;
+  nextOffsetDate?: number;
+}
+
+export interface GetChatJoinRequestsInput {
+  chatId: string;
+  inviteLink?: string;
+  query?: string;
+  offsetUserId?: string;
+  offsetDate?: number;
+  limit?: number;
+}
+
 export interface ProfileMember {
   user: User;
   role: ProfileMemberRole;

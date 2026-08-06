@@ -119,6 +119,13 @@ export function App() {
   const setChatSlowModeDelay = useTelegramStore((state) => state.setChatSlowModeDelay);
   const transferChatOwnership = useTelegramStore((state) => state.transferChatOwnership);
   const loadChatEventLog = useTelegramStore((state) => state.loadChatEventLog);
+  const getChatInviteLinks = useTelegramStore((state) => state.getChatInviteLinks);
+  const createChatInviteLink = useTelegramStore((state) => state.createChatInviteLink);
+  const editChatInviteLink = useTelegramStore((state) => state.editChatInviteLink);
+  const revokeChatInviteLink = useTelegramStore((state) => state.revokeChatInviteLink);
+  const getChatJoinRequests = useTelegramStore((state) => state.getChatJoinRequests);
+  const processChatJoinRequest = useTelegramStore((state) => state.processChatJoinRequest);
+  const processChatJoinRequests = useTelegramStore((state) => state.processChatJoinRequests);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const setChatPinned = useTelegramStore((state) => state.setChatPinned);
@@ -190,6 +197,15 @@ export function App() {
   const setManagementSlowMode = useCallback((seconds: number) => managementChatId ? setChatSlowModeDelay(managementChatId, seconds) : Promise.resolve(false), [managementChatId, setChatSlowModeDelay]);
   const transferManagementOwnership = useCallback((userId: string, password: string) => managementChatId ? transferChatOwnership(managementChatId, userId, password) : Promise.resolve(false), [managementChatId, transferChatOwnership]);
   const loadManagementEvents = useCallback((fromEventId?: string) => managementChatId ? loadChatEventLog({ chatId: managementChatId, fromEventId, limit: 30 }) : Promise.resolve(undefined), [loadChatEventLog, managementChatId]);
+  const getManagementInviteLinks = useCallback(() => managementChatId ? getChatInviteLinks({ chatId: managementChatId, revoked: false, limit: 50 }) : Promise.resolve(undefined), [getChatInviteLinks, managementChatId]);
+  const saveManagementInviteLink = useCallback((input: Omit<import("../telegram/types").CreateChatInviteLinkInput, "chatId">, inviteLink?: string) => {
+    if (!managementChatId) return Promise.resolve(undefined);
+    return inviteLink ? editChatInviteLink({ ...input, chatId: managementChatId, inviteLink }) : createChatInviteLink({ ...input, chatId: managementChatId });
+  }, [createChatInviteLink, editChatInviteLink, managementChatId]);
+  const revokeManagementInviteLink = useCallback((inviteLink: string) => managementChatId ? revokeChatInviteLink(managementChatId, inviteLink) : Promise.resolve(false), [managementChatId, revokeChatInviteLink]);
+  const getManagementJoinRequests = useCallback((inviteLink?: string) => managementChatId ? getChatJoinRequests({ chatId: managementChatId, inviteLink, limit: 50 }) : Promise.resolve(undefined), [getChatJoinRequests, managementChatId]);
+  const processManagementJoinRequest = useCallback((userId: string, approve: boolean) => managementChatId ? processChatJoinRequest(managementChatId, userId, approve) : Promise.resolve(false), [managementChatId, processChatJoinRequest]);
+  const processManagementJoinRequests = useCallback((inviteLink: string | undefined, approve: boolean) => managementChatId ? processChatJoinRequests(managementChatId, inviteLink, approve) : Promise.resolve(false), [managementChatId, processChatJoinRequests]);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
     chatId: string;
     requestId: number;
@@ -951,6 +967,12 @@ export function App() {
           onSetSlowMode={setManagementSlowMode}
           onTransferOwnership={transferManagementOwnership}
           onLoadEvents={loadManagementEvents}
+          onGetInviteLinks={getManagementInviteLinks}
+          onSaveInviteLink={saveManagementInviteLink}
+          onRevokeInviteLink={revokeManagementInviteLink}
+          onGetJoinRequests={getManagementJoinRequests}
+          onProcessJoinRequest={processManagementJoinRequest}
+          onProcessJoinRequests={processManagementJoinRequests}
         />
       )}
     </>

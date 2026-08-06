@@ -8,6 +8,9 @@ import type {
   Chat,
   ChatEventLogInput,
   ChatEventPage,
+  ChatInviteLink,
+  ChatInviteLinkPage,
+  ChatJoinRequestPage,
   ChatManagement,
   ChatMemberStatusInput,
   ChatPermissions,
@@ -18,10 +21,13 @@ import type {
   CacheUsage,
   ConnectionStatus,
   CreateChatInput,
+  CreateChatInviteLinkInput,
   ForwardMessagesResult,
   EmojiPickerAsset,
   EmojiPickerCatalog,
   GlobalSearchFilter,
+  GetChatInviteLinksInput,
+  GetChatJoinRequestsInput,
   Message,
   MessagePermissions,
   ProxySettings,
@@ -159,6 +165,13 @@ export interface TelegramState {
   setChatSlowModeDelay: (chatId: string, delaySeconds: number) => Promise<boolean>;
   transferChatOwnership: (chatId: string, userId: string, password: string) => Promise<boolean>;
   loadChatEventLog: (input: ChatEventLogInput) => Promise<ChatEventPage | undefined>;
+  getChatInviteLinks: (input: GetChatInviteLinksInput) => Promise<ChatInviteLinkPage | undefined>;
+  createChatInviteLink: (input: CreateChatInviteLinkInput) => Promise<ChatInviteLink | undefined>;
+  editChatInviteLink: (input: CreateChatInviteLinkInput & { inviteLink: string }) => Promise<ChatInviteLink | undefined>;
+  revokeChatInviteLink: (chatId: string, inviteLink: string) => Promise<boolean>;
+  getChatJoinRequests: (input: GetChatJoinRequestsInput) => Promise<ChatJoinRequestPage | undefined>;
+  processChatJoinRequest: (chatId: string, userId: string, approve: boolean) => Promise<boolean>;
+  processChatJoinRequests: (chatId: string, inviteLink: string | undefined, approve: boolean) => Promise<boolean>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   loadPinnedMessages: (chatId: string) => Promise<Message[]>;
