@@ -1285,6 +1285,10 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
     { avatarSlots: 1, avatars: 0, avatarPosition: null, stackOffset: 42 },
     { avatarSlots: 1, avatars: 1, avatarPosition: "sticky", stackOffset: 42 },
   ]);
+  const visibleAvatar = incomingGroups.nth(1).locator(".message-group-avatar .avatar");
+  await expect(visibleAvatar).toHaveCSS("position", "relative");
+  await expect(visibleAvatar).toHaveCSS("overflow", "hidden");
+  await expect(visibleAvatar).toHaveCSS("border-radius", "50%");
 });
 
 test("media cache controls clean selected data and protect active files", async ({ page }) => {
@@ -1606,8 +1610,10 @@ test("text message time stays on the last line when it fits and wraps without wi
     const metaBounds = meta.getBoundingClientRect();
     return {
       lastLineTop: lastLine?.top,
+      lastLineBottom: lastLine?.bottom,
       lastLineRight: lastLine?.right,
       metaTop: metaBounds.top,
+      metaBottom: metaBounds.bottom,
       metaLeft: metaBounds.left,
       metaRight: metaBounds.right,
       bubbleRight: bubble.getBoundingClientRect().right,
@@ -1616,7 +1622,7 @@ test("text message time stays on the last line when it fits and wraps without wi
     };
   });
   expect(shortGeometry).toBeTruthy();
-  expect(Math.abs(shortGeometry!.metaTop - shortGeometry!.lastLineTop!)).toBeLessThan(6);
+  expect(Math.abs(shortGeometry!.metaBottom - shortGeometry!.lastLineBottom!)).toBeLessThan(4);
   expect(shortGeometry!.metaLeft).toBeGreaterThan(shortGeometry!.lastLineRight!);
   expect(Math.abs(shortGeometry!.metaRight - (shortGeometry!.bubbleRight - 10))).toBeLessThanOrEqual(1);
   expect(shortGeometry!.shellWidth).toBeLessThanOrEqual(Math.min(shortGeometry!.stackWidth * 0.74, 720) + 1);
@@ -1799,6 +1805,14 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
     .toBe("rgba(0, 0, 0, 0)");
   const thumbnails = viewer.getByRole("navigation", { name: "会话图片预览" });
   await expect(thumbnails.getByRole("button")).toHaveCount(2);
+  await expect(thumbnails.locator("img")).toHaveCount(2);
+  await expect(thumbnails.locator("img").first()).toHaveAttribute("loading", "eager");
+  await expect.poll(() => thumbnails.locator("img").evaluateAll((images) =>
+    images.every((image) => {
+      const imageElement = image as HTMLImageElement;
+      return imageElement.complete && imageElement.naturalWidth > 0;
+    }),
+  )).toBe(true);
   await expect(thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }))
     .toHaveAttribute("aria-current", "true");
 

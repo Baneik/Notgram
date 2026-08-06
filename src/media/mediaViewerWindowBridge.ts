@@ -11,6 +11,12 @@ export interface MediaViewerWindowDescriptor {
 export type MediaViewerWindowMessage =
   | { type: "ready"; id: string }
   | { type: "init"; id: string; descriptor: MediaViewerWindowDescriptor }
+  | {
+      type: "sync";
+      id: string;
+      messages: PhotoMessage[];
+      colorTheme: MediaViewerWindowDescriptor["colorTheme"];
+    }
   | { type: "download"; id: string; fileId: number; fileName: string }
   | { type: "closed"; id: string }
   | { type: "command"; id: string; command: "close" };
@@ -18,6 +24,7 @@ export type MediaViewerWindowMessage =
 interface MediaViewerSession {
   id: string;
   channel: BroadcastChannel;
+  descriptor: MediaViewerWindowDescriptor;
   initializationTimer?: ReturnType<typeof globalThis.setTimeout>;
 }
 
@@ -51,6 +58,23 @@ export const closeMediaViewerWindow = async (id: string) => {
   await invoke("notgram_close_media_viewer_window", { id });
 };
 
+export const syncMediaViewerWindow = (
+  messages: PhotoMessage[],
+  colorTheme: MediaViewerWindowDescriptor["colorTheme"],
+) => {
+  const session = activeSession;
+  if (!session || messages.length === 0) return;
+  const sessionChatId = session.descriptor.messages[0]?.chatId;
+  if (sessionChatId && messages[0]?.chatId !== sessionChatId) return;
+  session.descriptor = { ...session.descriptor, messages, colorTheme };
+  session.channel.postMessage({
+    type: "sync",
+    id: session.id,
+    messages,
+    colorTheme,
+  } satisfies MediaViewerWindowMessage);
+};
+
 const disposeSession = (session: MediaViewerSession, requestClose: boolean) => {
   if (session.initializationTimer !== undefined) {
     globalThis.clearTimeout(session.initializationTimer);
@@ -77,7 +101,7 @@ export const openMediaViewerWindow = async (
   const id = createMediaViewerWindowId();
   const descriptor: MediaViewerWindowDescriptor = { ...input, id };
   const channel = new BroadcastChannel(MEDIA_VIEWER_WINDOW_CHANNEL);
-  const session: MediaViewerSession = { id, channel };
+  const session: MediaViewerSession = { id, channel, descriptor };
   activeSession = session;
   let resolveInitialized: (() => void) | undefined;
   const initialized = new Promise<void>((resolve) => {
@@ -88,7 +112,11 @@ export const openMediaViewerWindow = async (
     const message = event.data;
     if (!message || message.id !== id || activeSession !== session) return;
     if (message.type === "ready") {
-      channel.postMessage({ type: "init", id, descriptor } satisfies MediaViewerWindowMessage);
+      channel.postMessage({
+        type: "init",
+        id,
+        descriptor: session.descriptor,
+      } satisfies MediaViewerWindowMessage);
       resolveInitialized?.();
       resolveInitialized = undefined;
     } else if (message.type === "download") {

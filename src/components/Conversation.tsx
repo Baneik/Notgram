@@ -55,7 +55,10 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { ConversationComposer } from "./ConversationComposer";
 import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
-import { openMediaViewerWindow } from "../media/mediaViewerWindowBridge";
+import {
+  openMediaViewerWindow,
+  syncMediaViewerWindow,
+} from "../media/mediaViewerWindowBridge";
 import {
   indexMessagesByVirtualBlock,
   virtualizeMessageGroups,
@@ -207,6 +210,7 @@ export function Conversation({
   const draftReplyToMessageId = useTelegramStore((state) =>
     chat ? state.drafts.get(chat.id)?.replyToMessageId : undefined,
   );
+  const cacheFile = useTelegramStore((state) => state.cacheFile);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const colorTheme = usePreferencesStore((state) => state.colorTheme);
@@ -323,13 +327,34 @@ export function Conversation({
   );
   const viewerPhotos = useMemo(() => photoMessages(displayMessages), [displayMessages]);
   const openMediaViewer = useCallback((messageId: string) => {
-    if (!viewerPhotos.some((message) => message.id === messageId)) return;
+    const activeIndex = viewerPhotos.findIndex((message) => message.id === messageId);
+    if (activeIndex < 0) return;
+    const nearbyPhotos = viewerPhotos.slice(
+      Math.max(0, activeIndex - 24),
+      Math.min(viewerPhotos.length, activeIndex + 25),
+    );
+    const thumbnailFileIds = new Set(nearbyPhotos.flatMap((message) => {
+      const content = message.content;
+      return content.thumbnailFileId !== undefined &&
+        content.thumbnailCanDownload === true &&
+        !content.thumbnailPath &&
+        !content.thumbnailIsDownloading
+        ? [content.thumbnailFileId]
+        : [];
+    }));
+    for (const fileId of thumbnailFileIds) {
+      void cacheFile(fileId, 32).catch(() => undefined);
+    }
     void openMediaViewerWindow({
       messages: viewerPhotos,
       activeMessageId: messageId,
       colorTheme,
     }, onDownloadFile);
-  }, [colorTheme, onDownloadFile, viewerPhotos]);
+  }, [cacheFile, colorTheme, onDownloadFile, viewerPhotos]);
+
+  useEffect(() => {
+    syncMediaViewerWindow(viewerPhotos, colorTheme);
+  }, [colorTheme, viewerPhotos]);
 
   useLayoutEffect(() => {
     const tracing = isConversationSwitchActive(performanceTraceId);

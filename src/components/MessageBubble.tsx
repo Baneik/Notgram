@@ -18,7 +18,7 @@ import {
   Save,
   X,
 } from "lucide-react";
-import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import { memo, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
@@ -141,6 +141,8 @@ function MessageBubbleComponent({
     width: number;
     height: number;
   }>();
+  const textFlowRef = useRef<HTMLDivElement>(null);
+  const [metaWrapped, setMetaWrapped] = useState(false);
   const content = message.content;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
@@ -181,6 +183,31 @@ function MessageBubbleComponent({
         measuredSize?.height ?? content.height,
       )
     : undefined;
+
+  useLayoutEffect(() => {
+    const flow = textFlowRef.current;
+    if (content.kind !== "text" || !flow) return;
+
+    const measure = () => {
+      const text = flow.querySelector<HTMLElement>(".message-rich-text");
+      const meta = flow.querySelector<HTMLElement>(".message-meta");
+      if (!text || !meta) return;
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      const lastLine = [...range.getClientRects()].filter((rect) => rect.width > 0).at(-1);
+      if (!lastLine) return;
+      const metaBounds = meta.getBoundingClientRect();
+      const transform = getComputedStyle(meta).transform;
+      const translatedY = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
+      const wrapped = metaBounds.top - translatedY > lastLine.top + 4;
+      setMetaWrapped((current) => current === wrapped ? current : wrapped);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(flow);
+    return () => observer.disconnect();
+  }, [content, message.delivery, message.editedAt, message.sentAt]);
   const visualShellStyle = mediaLayout
     ? {
         "--visual-media-width": `${mediaLayout.width}px`,
@@ -370,7 +397,10 @@ function MessageBubbleComponent({
             </button>
           )}
           {content.kind === "text" ? (
-            <div className="message-text-flow">
+            <div
+              ref={textFlowRef}
+              className={`message-text-flow ${metaWrapped ? "is-meta-wrapped" : ""}`}
+            >
               <MessageRichText text={content.text} entities={content.entities} />
               {messageMeta}
             </div>

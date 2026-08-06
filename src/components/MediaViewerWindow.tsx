@@ -20,6 +20,12 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
   const [descriptor, setDescriptor] = useState<MediaViewerWindowDescriptor>();
   const [activeMessageId, setActiveMessageId] = useState<string>();
 
+  const applyTheme = (colorTheme: MediaViewerWindowDescriptor["colorTheme"]) => {
+    document.documentElement.classList.toggle("theme-dark", colorTheme === "dark");
+    document.documentElement.style.colorScheme = colorTheme;
+    if (isTauri()) void getCurrentWindow().setTheme(colorTheme).catch(() => undefined);
+  };
+
   const closeWindow = async () => {
     if (closedRef.current) return;
     closedRef.current = true;
@@ -48,14 +54,16 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
         closedRef.current = false;
         setDescriptor(message.descriptor);
         setActiveMessageId(message.descriptor.activeMessageId);
-        document.documentElement.classList.toggle(
-          "theme-dark",
-          message.descriptor.colorTheme === "dark",
-        );
-        document.documentElement.style.colorScheme = message.descriptor.colorTheme;
-        if (isTauri()) {
-          void getCurrentWindow().setTheme(message.descriptor.colorTheme).catch(() => undefined);
-        }
+        applyTheme(message.descriptor.colorTheme);
+      } else if (message.type === "sync") {
+        setDescriptor((current) => current
+          ? { ...current, messages: message.messages, colorTheme: message.colorTheme }
+          : current);
+        setActiveMessageId((current) => current && message.messages.some(({ id: messageId }) =>
+          messageId === current)
+          ? current
+          : message.messages[0]?.id);
+        applyTheme(message.colorTheme);
       } else if (message.type === "command" && message.command === "close") {
         void closeWindow();
       }

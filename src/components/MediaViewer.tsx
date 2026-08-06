@@ -10,7 +10,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import {
   adjacentPhotoId,
@@ -33,6 +33,53 @@ const sourceFromPath = (path?: string) => {
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.5;
+
+interface MediaViewerThumbnailProps {
+  message: PhotoMessage;
+  selected: boolean;
+  onSelect: () => void;
+}
+
+const MediaViewerThumbnail = forwardRef<HTMLButtonElement, MediaViewerThumbnailProps>(function MediaViewerThumbnail({
+  message,
+  selected,
+  onSelect,
+}, ref) {
+  const sources = useMemo(() => [
+    sourceFromPath(message.content.localPath),
+    sourceFromPath(message.content.thumbnailPath),
+    message.content.previewDataUrl,
+  ].filter((value): value is string => Boolean(value)), [
+    message.content.localPath,
+    message.content.thumbnailPath,
+    message.content.previewDataUrl,
+  ]);
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const source = sources[sourceIndex];
+
+  useEffect(() => setSourceIndex(0), [sources]);
+
+  return (
+    <button
+      ref={ref}
+      className={selected ? "is-active" : undefined}
+      type="button"
+      aria-label={`查看 ${message.content.fileName}`}
+      aria-current={selected ? "true" : undefined}
+      onClick={onSelect}
+    >
+      {source
+        ? <img
+            src={source}
+            alt=""
+            loading="eager"
+            decoding="async"
+            onError={() => setSourceIndex((current) => current + 1)}
+          />
+        : <ImageOff size={18} strokeWidth={1.6} />}
+    </button>
+  );
+});
 
 interface PanPosition {
   x: number;
@@ -267,27 +314,15 @@ export function MediaViewer({
           )}
           {messages.length > 1 && (
             <nav className="media-viewer-thumbnails" aria-label="会话图片预览">
-              {messages.map((message) => {
-                const thumbnailSource = sourceFromPath(message.content.thumbnailPath) ??
-                  sourceFromPath(message.content.localPath) ??
-                  message.content.previewDataUrl;
-                const selected = message.id === activeMessageId;
-                return (
-                  <button
-                    ref={selected ? activeThumbnailRef : undefined}
-                    className={selected ? "is-active" : undefined}
-                    type="button"
-                    key={message.id}
-                    aria-label={`查看 ${message.content.fileName}`}
-                    aria-current={selected ? "true" : undefined}
-                    onClick={() => onActiveMessageChange(message.id)}
-                  >
-                    {thumbnailSource
-                      ? <img src={thumbnailSource} alt="" loading="lazy" decoding="async" />
-                      : <ImageOff size={18} strokeWidth={1.6} />}
-                  </button>
-                );
-              })}
+              {messages.map((message) => (
+                <MediaViewerThumbnail
+                  ref={message.id === activeMessageId ? activeThumbnailRef : undefined}
+                  key={message.id}
+                  message={message}
+                  selected={message.id === activeMessageId}
+                  onSelect={() => onActiveMessageChange(message.id)}
+                />
+              ))}
             </nav>
           )}
         </main>
