@@ -811,6 +811,63 @@ describe("TauriTelegramTransport message operations", () => {
     ]);
   });
 
+  it("applies late poll updates to every known message with the same poll", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.emitMessage({
+      ...rawMessage(30),
+      content: {
+        "@type": "messagePoll",
+        poll: {
+          id: 501,
+          question: { text: "Pick", entities: [] },
+          options: [{
+            id: "one",
+            text: { text: "One", entities: [] },
+            voter_count: 0,
+            vote_percentage: 0,
+          }],
+          total_voter_count: 0,
+          type: { "@type": "pollTypeRegular" },
+        },
+      },
+    });
+    events.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updatePoll",
+      poll: {
+        id: 501,
+        question: { text: "Pick", entities: [] },
+        options: [{
+          id: "one",
+          text: { text: "One", entities: [] },
+          voter_count: 1,
+          vote_percentage: 100,
+          is_chosen: true,
+        }],
+        total_voter_count: 1,
+        can_see_results: true,
+        type: { "@type": "pollTypeRegular" },
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "message.upsert",
+      message: {
+        id: "30",
+        content: {
+          kind: "poll",
+          totalVoterCount: 1,
+          options: [{ chosen: true, votePercentage: 100 }],
+        },
+      },
+    });
+  });
+
   it("restores outgoing read state from the chat snapshot", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
@@ -1150,6 +1207,51 @@ describe("TauriTelegramTransport message operations", () => {
         reaction_type: { "@type": "reactionTypeEmoji", emoji: "👍" },
       },
     ]);
+  });
+
+  it("submits poll positions and refreshes the message from TDLib", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getMessage") {
+        return {
+          ...rawMessage(12),
+          content: {
+            "@type": "messagePoll",
+            poll: {
+              id: 91,
+              question: { text: "Choose", entities: [] },
+              options: [{
+                id: "a",
+                text: { text: "A", entities: [] },
+                voter_count: 1,
+                vote_percentage: 100,
+                is_chosen: true,
+              }],
+              total_voter_count: 1,
+              type: { "@type": "pollTypeRegular" },
+              allows_revoting: true,
+            },
+          },
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    await transport.setPollAnswer({ chatId: "7", messageId: "12", optionPositions: [1, 0, 1] });
+
+    expect(requests).toEqual([
+      { "@type": "setPollAnswer", chat_id: 7, message_id: 12, option_ids: [0, 1] },
+      { "@type": "getMessage", chat_id: 7, message_id: 12 },
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      type: "message.upsert",
+      message: { id: "12", content: { kind: "poll", pollId: "91" } },
+    });
   });
 
   it("preserves 64-bit sticker set identifiers and maps animated sticker assets", async () => {

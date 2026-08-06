@@ -9,6 +9,7 @@ import type {
   GlobalSearchPage,
   SetChatDraftInput,
   SetMessageReactionInput,
+  SetPollAnswerInput,
   SendFileInput,
   SendFilesInput,
   SendEmojiAssetInput,
@@ -90,6 +91,7 @@ export interface TelegramTransport {
   getRawMessage(chatId: string, messageId: string): Promise<string | undefined>;
   getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
   setMessageReaction(input: SetMessageReactionInput): Promise<void>;
+  setPollAnswer(input: SetPollAnswerInput): Promise<void>;
   getEmojiPickerCatalog(): Promise<EmojiPickerCatalog>;
   getStickerSet(stickerSetId: string): Promise<StickerSet>;
   searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]>;

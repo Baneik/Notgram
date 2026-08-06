@@ -9,5 +9,6 @@ export const messageContentText = (content: MessageContent) => {
   ) {
     return content.text;
   }
+  if (content.kind === "poll") return content.question;
   return content.caption || content.fileName;
 };

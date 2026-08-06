@@ -27,6 +27,7 @@ import type {
   SendMessageInput,
   SetChatDraftInput,
   SetMessageReactionInput,
+  SetPollAnswerInput,
   StorageSettings,
   StickerSet,
   TelegramAccount,
@@ -826,6 +827,35 @@ export class MockTelegramTransport implements TelegramTransport {
       });
     }
     message.interaction = { ...interaction, reactions };
+    this.listener?.({ type: "message.upsert", message: clone(message) });
+  }
+
+  async setPollAnswer(input: SetPollAnswerInput) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === input.chatId && item.id === input.messageId,
+    );
+    if (!message || message.content.kind !== "poll") throw new Error("投票不存在");
+    const poll = message.content;
+    if (poll.isClosed || poll.restrictionReason) throw new Error(poll.restrictionReason ?? "投票已结束");
+    const positions = [...new Set(input.optionPositions)].sort((left, right) => left - right);
+    if ((!poll.allowsMultipleAnswers && positions.length > 1) ||
+      positions.some((position) => !poll.options[position])) throw new Error("投票选项无效");
+    const previouslyVoted = poll.options.some((option) => option.chosen);
+    const nowVoted = positions.length > 0;
+    const nextTotal = Math.max(0, poll.totalVoterCount + (nowVoted ? 1 : 0) - (previouslyVoted ? 1 : 0));
+    poll.options = poll.options.map((option) => {
+      const chosen = positions.includes(option.position);
+      const voterCount = Math.max(0, option.voterCount + (chosen ? 1 : 0) - (option.chosen ? 1 : 0));
+      return {
+        ...option,
+        chosen,
+        beingChosen: false,
+        voterCount,
+        votePercentage: nextTotal > 0 ? Math.round(voterCount * 100 / nextTotal) : 0,
+      };
+    });
+    poll.totalVoterCount = nextTotal;
+    poll.canSeeResults = true;
     this.listener?.({ type: "message.upsert", message: clone(message) });
   }
 

@@ -120,6 +120,7 @@ interface ConversationProps {
   ) => Promise<MessagePermissions | undefined>;
   onLoadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onSetPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onSearchMessages: (query: string) => Promise<void>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onCancelFileDownload: (fileId: number) => Promise<void>;
@@ -169,6 +170,7 @@ export function Conversation({
   onLoadMessageProperties,
   onLoadRawMessage,
   onSetMessageReaction,
+  onSetPollAnswer,
   onSearchMessages,
   onDownloadFile,
   onCancelFileDownload,
@@ -1098,6 +1100,7 @@ export function Conversation({
                         onRetry={onRetryMessage}
                         onCancelUpload={onCancelFileUpload}
                         onReaction={onSetMessageReaction}
+                        onPollAnswer={onSetPollAnswer}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}

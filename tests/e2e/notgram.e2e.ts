@@ -1940,6 +1940,21 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await expect(page.locator(".file-message", { hasText: "pasted-notes.txt" })).toBeVisible();
 });
 
+test("poll messages support voting, results, and revoking an answer", async ({ page }) => {
+  await page.goto("/");
+  const poll = page.getByRole("region", { name: "投票" });
+  await expect(poll).toBeVisible();
+  await expect(poll.getByText("下一轮优先验证哪一项？")).toBeVisible();
+  const firstOption = poll.getByRole("button", { name: /原生媒体发送/ });
+  await firstOption.click();
+  await expect(firstOption).toHaveAttribute("aria-pressed", "true");
+  await expect(poll.getByText("11 票")).toBeVisible();
+  await expect(firstOption).toContainText("64%");
+  await poll.getByRole("button", { name: "撤回投票" }).click();
+  await expect(poll.getByText("10 票")).toBeVisible();
+  await expect(firstOption).toHaveAttribute("aria-pressed", "false");
+});
+
 test("unloaded media uses a blurred glass preview instead of exposing thumbnail pixels", async ({ page }) => {
   await page.goto("/");
   const preview = page.locator('[data-message-id="p-5"] .photo-preview');

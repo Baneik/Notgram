@@ -1760,6 +1760,22 @@ export const createTelegramStore = (
         }
       },
 
+      setPollAnswer: async (messageId, optionPositions) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return false;
+        try {
+          await transport.setPollAnswer({ chatId, messageId, optionPositions });
+          set({ operationError: undefined });
+          scheduleCacheWrite();
+          return true;
+        } catch (error) {
+          set({
+            operationError: error instanceof Error ? error.message : "无法提交投票",
+          });
+          return false;
+        }
+      },
+
       loadEmojiPicker: async () => {
         if (get().authorization.kind !== "ready") return undefined;
         try {

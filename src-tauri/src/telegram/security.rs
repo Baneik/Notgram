@@ -63,6 +63,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setChatNotificationSettings",
     "setName",
     "setPinnedChats",
+    "setPollAnswer",
     "setUsername",
     "toggleChatIsMarkedAsUnread",
     "toggleChatIsPinned",
@@ -145,6 +146,30 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                         .all(|character| character.is_ascii_alphanumeric() || character == '_'))
             {
                 return Err("Invalid Telegram username".to_string());
+            }
+        }
+        "setPollAnswer" => {
+            let positions = request
+                .get("option_ids")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "Poll option identifiers are missing".to_string())?;
+            if positions.len() > 100
+                || positions.iter().any(|position| {
+                    position
+                        .as_i64()
+                        .is_none_or(|position| !(0..=99).contains(&position))
+                })
+            {
+                return Err("Invalid poll option identifiers".to_string());
+            }
+            let mut unique = positions
+                .iter()
+                .filter_map(Value::as_i64)
+                .collect::<Vec<_>>();
+            unique.sort_unstable();
+            unique.dedup();
+            if unique.len() != positions.len() {
+                return Err("Poll option identifiers must be unique".to_string());
             }
         }
         _ => {}
@@ -762,6 +787,23 @@ mod tests {
         let mut forced_private_chat = private_chat.clone();
         forced_private_chat["force"] = json!(true);
         assert!(validate_webview_tdlib_request(&forced_private_chat).is_err());
+
+        let poll_answer = json!({
+            "@type": "setPollAnswer",
+            "chat_id": 7,
+            "message_id": 31,
+            "option_ids": [0, 2],
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&poll_answer).is_ok());
+        let duplicate_poll_answer = json!({
+            "@type": "setPollAnswer",
+            "chat_id": 7,
+            "message_id": 31,
+            "option_ids": [1, 1],
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&duplicate_poll_answer).is_err());
 
         let privileged = json!({
             "@type": "setTdlibParameters",

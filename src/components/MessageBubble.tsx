@@ -45,6 +45,7 @@ import {
 import { consumeMessageEntrance, type MessageEntrance } from "../utils/messageEntrance";
 import { channelPostTargetFor } from "./conversationMessages";
 import { MediaProgressRing } from "./MediaProgressRing";
+import { PollMessage } from "./PollMessage";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
@@ -85,6 +86,7 @@ interface MessageBubbleProps {
   onRetry: (messageId: string) => Promise<void>;
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMedia?: (messageId: string) => void;
@@ -130,6 +132,7 @@ function MessageBubbleComponent({
   onRetry,
   onCancelUpload,
   onReaction,
+  onPollAnswer,
   onOpenReply,
   onOpenSenderProfile,
   onOpenMedia,
@@ -685,6 +688,8 @@ function MessageBubbleComponent({
                 </div>
               )}
             </div>
+          ) : content.kind === "poll" ? (
+            <PollMessage poll={content} messageId={message.id} onAnswer={onPollAnswer} />
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
             <div className="attachment-message">
               <div className="audio-message">

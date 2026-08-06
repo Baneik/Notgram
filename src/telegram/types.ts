@@ -260,6 +260,36 @@ export interface MessageRichMedia {
   url?: string;
 }
 
+export interface MessagePollOption {
+  id: string;
+  position: number;
+  text: string;
+  entities?: MessageTextEntity[];
+  voterCount: number;
+  votePercentage: number;
+  chosen: boolean;
+  beingChosen: boolean;
+  correct: boolean;
+}
+
+export interface MessagePollContent {
+  kind: "poll";
+  pollId: string;
+  question: string;
+  questionEntities?: MessageTextEntity[];
+  options: MessagePollOption[];
+  totalVoterCount: number;
+  type: "regular" | "quiz";
+  allowsMultipleAnswers: boolean;
+  allowsRevoting: boolean;
+  isAnonymous: boolean;
+  isClosed: boolean;
+  canSeeResults: boolean;
+  restrictionReason?: string;
+  explanation?: string;
+  explanationEntities?: MessageTextEntity[];
+}
+
 export type MessageRichBlock =
   | { kind: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; text: MessageRichTextRun[] }
   | { kind: "paragraph"; text: MessageRichTextRun[] }
@@ -337,6 +367,7 @@ export type MessageContent =
       isFull: boolean;
     }
   | { kind: "service"; text: string }
+  | MessagePollContent
   | { kind: "unsupported"; type: string; text: string; raw: string }
   | ({ kind: "file" } & TransferableMessageContent)
   | ({
@@ -520,6 +551,12 @@ export interface SetMessageReactionInput {
   messageId: string;
   emoji: string;
   chosen: boolean;
+}
+
+export interface SetPollAnswerInput {
+  chatId: string;
+  messageId: string;
+  optionPositions: number[];
 }
 
 export interface SendFileInput {

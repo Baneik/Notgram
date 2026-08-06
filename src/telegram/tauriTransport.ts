@@ -82,6 +82,7 @@ import type {
   SendMessageInput,
   SetChatDraftInput,
   SetMessageReactionInput,
+  SetPollAnswerInput,
   StorageSettings,
   StickerSet,
   StickerSetSummary,
@@ -344,6 +345,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     emitMessage: (message, animateEntrance) => this.emitMessage(message, animateEntrance),
     replaceSentMessage: (update) => this.replaceSentMessage(update),
     updateMessageContent: (update) => this.updateMessageContent(update),
+    updatePoll: (update) => this.updatePoll(update),
     patchMessage: (chatId, messageId, patch) =>
       this.patchMessage(chatId, messageId, patch),
     updateReadOutbox: (update) => this.updateReadOutbox(update),
@@ -1109,6 +1111,27 @@ export class TauriTelegramTransport implements TelegramTransport {
       request.update_recent_reactions = true;
     }
     await this.request(request);
+  }
+
+  async setPollAnswer(input: SetPollAnswerInput) {
+    const optionPositions = [...new Set(input.optionPositions)].sort((left, right) => left - right);
+    if (optionPositions.length > 100 || optionPositions.some(
+      (position) => !Number.isSafeInteger(position) || position < 0 || position > 99,
+    )) throw new Error("投票选项无效");
+    await this.request({
+      "@type": "setPollAnswer",
+      chat_id: numericId(input.chatId),
+      message_id: numericId(input.messageId),
+      option_ids: optionPositions,
+    });
+    const refreshed = await this.request({
+      "@type": "getMessage",
+      chat_id: numericId(input.chatId),
+      message_id: numericId(input.messageId),
+    });
+    if (tdId(refreshed.chat_id) === input.chatId && tdId(refreshed.id) === input.messageId) {
+      this.emitMessage(refreshed);
+    }
   }
 
   async getEmojiPickerCatalog(): Promise<EmojiPickerCatalog> {
@@ -2406,6 +2429,22 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.patchMessage(update.chat_id, update.message_id, {
       content: update.new_content,
     });
+  }
+
+  private updatePoll(update: TdObject) {
+    const poll = asTdObject(update.poll);
+    const pollId = tdId(poll?.id);
+    if (!poll || !pollId) return;
+    const affected: TdObject[] = [];
+    for (const messages of this.rawMessages.values()) {
+      for (const raw of messages.values()) {
+        const content = asTdObject(raw.content);
+        if (content?.["@type"] !== "messagePoll") continue;
+        if (tdId(asTdObject(content.poll)?.id) !== pollId) continue;
+        affected.push({ ...raw, content: { ...content, poll } });
+      }
+    }
+    for (const raw of affected) this.emitMessage(raw);
   }
 
   private patchMessage(chatIdValue: unknown, messageIdValue: unknown, patch: TdObject) {

@@ -140,6 +140,7 @@ export interface TelegramState {
   loadContacts: () => Promise<void>;
   startPrivateChat: (userId: string) => Promise<string | undefined>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
   loadStickerSet: (stickerSetId: string) => Promise<StickerSet | undefined>;
   searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[]>;

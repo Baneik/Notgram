@@ -124,6 +124,7 @@ export function App() {
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
   const loadRawMessage = useTelegramStore((state) => state.loadRawMessage);
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
+  const setPollAnswer = useTelegramStore((state) => state.setPollAnswer);
   const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
   const searchGlobal = useTelegramStore((state) => state.searchGlobal);
   const loadMoreGlobalSearch = useTelegramStore((state) => state.loadMoreGlobalSearch);
@@ -765,6 +766,7 @@ export function App() {
           onLoadMessageProperties={loadMessageProperties}
           onLoadRawMessage={loadRawMessage}
           onSetMessageReaction={setMessageReaction}
+          onSetPollAnswer={setPollAnswer}
           onSearchMessages={searchChatMessages}
           onDownloadFile={downloadFile}
           onCancelFileDownload={cancelFileDownload}

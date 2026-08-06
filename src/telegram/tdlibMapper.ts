@@ -136,6 +136,18 @@ const formattedCaption = (value: unknown) => {
   };
 };
 
+const pollRestrictionReason = (value: unknown) => {
+  switch (asTdObject(value)?.["@type"]) {
+    case "pollVoteRestrictionReasonClosed": return "投票已结束";
+    case "pollVoteRestrictionReasonYetUnsent": return "消息发送完成后才能投票";
+    case "pollVoteRestrictionReasonScheduled": return "定时消息暂不能投票";
+    case "pollVoteRestrictionReasonCountryRestricted": return "当前地区不能参与此投票";
+    case "pollVoteRestrictionReasonMembershipRequired": return "加入群组满一天后才能投票";
+    case "pollVoteRestrictionReasonOther": return "当前账号不能参与此投票";
+    default: return undefined;
+  }
+};
+
 export const tdLocalFilePath = (value: unknown) => {
   const file = asTdObject(value);
   const local = asTdObject(file?.local);
@@ -1000,7 +1012,45 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
     }
     case "messagePoll": {
       const poll = asTdObject(content.poll);
-      return { kind: "text", text: labeledText("投票", poll?.question) };
+      const question = formattedTextDetails(poll?.question);
+      const pollType = asTdObject(poll?.type);
+      const correctPositions = new Set(
+        (Array.isArray(pollType?.correct_option_ids) ? pollType.correct_option_ids : [])
+          .map((value) => tdNumber(value)).filter(
+          (value): value is number => value !== undefined,
+        ),
+      );
+      const explanation = formattedTextDetails(pollType?.explanation);
+      return {
+        kind: "poll",
+        pollId: tdId(poll?.id),
+        question: question.text || "投票",
+        questionEntities: question.entities.length > 0 ? question.entities : undefined,
+        options: asTdObjects(poll?.options).map((option, position) => {
+          const text = formattedTextDetails(option.text);
+          return {
+            id: typeof option.id === "string" && option.id ? option.id : `option-${position}`,
+            position,
+            text: text.text || `选项 ${position + 1}`,
+            entities: text.entities.length > 0 ? text.entities : undefined,
+            voterCount: tdNumber(option.voter_count) ?? 0,
+            votePercentage: Math.min(100, Math.max(0, tdNumber(option.vote_percentage) ?? 0)),
+            chosen: option.is_chosen === true,
+            beingChosen: option.is_being_chosen === true,
+            correct: correctPositions.has(position),
+          };
+        }),
+        totalVoterCount: tdNumber(poll?.total_voter_count) ?? 0,
+        type: pollType?.["@type"] === "pollTypeQuiz" ? "quiz" : "regular",
+        allowsMultipleAnswers: poll?.allows_multiple_answers === true,
+        allowsRevoting: poll?.allows_revoting === true,
+        isAnonymous: poll?.is_anonymous === true,
+        isClosed: poll?.is_closed === true,
+        canSeeResults: poll?.can_see_results === true,
+        restrictionReason: pollRestrictionReason(poll?.vote_restriction_reason),
+        explanation: explanation.text || undefined,
+        explanationEntities: explanation.entities.length > 0 ? explanation.entities : undefined,
+      };
     }
     case "messageDice": {
       const emoji = typeof content.emoji === "string" && content.emoji ? content.emoji : "🎲";

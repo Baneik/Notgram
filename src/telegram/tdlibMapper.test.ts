@@ -350,6 +350,85 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("maps polls and quiz results into interactive message content", () => {
+    expect(mapTdMessageContent({
+      "@type": "messagePoll",
+      poll: {
+        id: "9007199254740993",
+        question: { "@type": "formattedText", text: "2 + 2?", entities: [] },
+        options: [
+          {
+            id: "three",
+            text: { "@type": "formattedText", text: "3", entities: [] },
+            voter_count: 2,
+            vote_percentage: 20,
+            is_chosen: true,
+            is_being_chosen: false,
+          },
+          {
+            id: "four",
+            text: { "@type": "formattedText", text: "4", entities: [] },
+            voter_count: 8,
+            vote_percentage: 80,
+            is_chosen: false,
+            is_being_chosen: false,
+          },
+        ],
+        total_voter_count: 10,
+        can_see_results: true,
+        is_anonymous: true,
+        allows_multiple_answers: false,
+        allows_revoting: false,
+        type: {
+          "@type": "pollTypeQuiz",
+          correct_option_ids: [1],
+          explanation: { "@type": "formattedText", text: "基础算术", entities: [] },
+        },
+        is_closed: false,
+        vote_restriction_reason: null,
+      },
+    })).toEqual({
+      kind: "poll",
+      pollId: "9007199254740993",
+      question: "2 + 2?",
+      questionEntities: undefined,
+      options: [
+        {
+          id: "three",
+          position: 0,
+          text: "3",
+          entities: undefined,
+          voterCount: 2,
+          votePercentage: 20,
+          chosen: true,
+          beingChosen: false,
+          correct: false,
+        },
+        {
+          id: "four",
+          position: 1,
+          text: "4",
+          entities: undefined,
+          voterCount: 8,
+          votePercentage: 80,
+          chosen: false,
+          beingChosen: false,
+          correct: true,
+        },
+      ],
+      totalVoterCount: 10,
+      type: "quiz",
+      allowsMultipleAnswers: false,
+      allowsRevoting: false,
+      isAnonymous: true,
+      isClosed: false,
+      canSeeResults: true,
+      restrictionReason: undefined,
+      explanation: "基础算术",
+      explanationEntities: undefined,
+    });
+  });
+
   it("maps stickers and video notes as playable media", () => {
     const sticker = mapTdMessage({
       id: 1004,
@@ -444,7 +523,23 @@ describe("TDLib mapper", () => {
     expect(mapTdMessageContent({
       "@type": "messagePoll",
       poll: { question: { "@type": "formattedText", text: "午餐吃什么？" } },
-    })).toEqual({ kind: "text", text: "投票：午餐吃什么？" });
+    })).toEqual({
+      kind: "poll",
+      pollId: "",
+      question: "午餐吃什么？",
+      options: [],
+      totalVoterCount: 0,
+      type: "regular",
+      allowsMultipleAnswers: false,
+      allowsRevoting: false,
+      isAnonymous: false,
+      isClosed: false,
+      canSeeResults: false,
+      questionEntities: undefined,
+      restrictionReason: undefined,
+      explanation: undefined,
+      explanationEntities: undefined,
+    });
     expect(mapTdMessageContent({
       "@type": "messageDice",
       emoji: "🎲",

@@ -10,6 +10,8 @@ with prerelease identifiers used for release candidates.
 - Send selected videos, audio, animations, photos, and documents as native Telegram
   media with probed dimensions, duration, generated covers, spoiler/caption placement,
   original-file mode, compatible mixed albums, and native-path-safe validation.
+- Participate in Telegram polls and quizzes, including multiple-choice submissions,
+  result updates, correct-answer explanations, restrictions, and vote revocation.
 - Add a lightweight WebView performance timeline for startup, interaction, rendering,
   history, and media stalls, backed by a separately rotated performance log.
 - Support `reg:` regular expressions in global and current-conversation message search.
