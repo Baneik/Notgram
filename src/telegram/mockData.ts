@@ -479,18 +479,6 @@ const messages: Message[] = [
     },
   },
   {
-    id: "p-long-text",
-    chatId: "chat-product",
-    senderId: "u-jules",
-    outgoing: false,
-    sentAt: "2026-08-01T09:48:55+08:00",
-    delivery: "read",
-    content: {
-      kind: "text",
-      text: Array.from({ length: 120 }, (_, index) => `长消息内容第 ${index + 1} 行`).join("\n"),
-    },
-  },
-  {
     id: "p-tall",
     chatId: "chat-product",
     mediaAlbumId: "mock-album-product",
@@ -709,6 +697,18 @@ const messages: Message[] = [
     sentAt: "2026-08-01T09:32:00+08:00",
     delivery: "read",
     content: { kind: "text", text: "那我们下午三点对一下细节。" },
+  },
+  {
+    id: "p-long-text",
+    chatId: "chat-saved",
+    senderId: "u-jules",
+    outgoing: false,
+    sentAt: "2026-08-01T08:14:00+08:00",
+    delivery: "read",
+    content: {
+      kind: "text",
+      text: Array.from({ length: 120 }, (_, index) => `长消息内容第 ${index + 1} 行`).join("\n"),
+    },
   },
   {
     id: "s-2",

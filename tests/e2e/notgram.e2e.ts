@@ -1617,6 +1617,7 @@ test("renders and activates TDLib inline bot keyboards", async ({ page }) => {
 
 test("long text uses configurable line folding and expands from its start", async ({ page }) => {
   await page.goto("/");
+  await page.getByRole("button", { name: /收藏夹/ }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "设置" });
   await settings.getByRole("button", { name: /聊天设置/ }).click();
