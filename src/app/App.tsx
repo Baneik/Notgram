@@ -129,6 +129,8 @@ export function App() {
   const pinMessage = useTelegramStore((state) => state.pinMessage);
   const unpinMessage = useTelegramStore((state) => state.unpinMessage);
   const setChatMessageAutoDeleteTime = useTelegramStore((state) => state.setChatMessageAutoDeleteTime);
+  const loadSharedMedia = useTelegramStore((state) => state.loadSharedMedia);
+  const deleteMessagesFromChat = useTelegramStore((state) => state.deleteMessagesFromChat);
   const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
   const searchGlobal = useTelegramStore((state) => state.searchGlobal);
   const loadMoreGlobalSearch = useTelegramStore((state) => state.loadMoreGlobalSearch);
@@ -859,7 +861,7 @@ export function App() {
       {profile.target && (
         <ProfileDrawer
           state={profile}
-          messages={profile.value?.chatId ? messages.get(profile.value.chatId) ?? [] : []}
+          forwardTargets={forwardTargets}
           currentUserId={currentUserId}
           onClose={clearProfile}
           onRetry={() => {
@@ -870,6 +872,10 @@ export function App() {
           onOpenMessage={openProfileMessage}
           onStartPrivateChat={openProfilePrivateChat}
           onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
+          onLoadSharedMedia={loadSharedMedia}
+          onDownloadFile={downloadFile}
+          onDeleteMessages={deleteMessagesFromChat}
+          onForwardMessages={forwardMessages}
         />
       )}
     </>

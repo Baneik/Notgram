@@ -48,6 +48,7 @@ import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
 import { emptyProfileState } from "./profileState";
 import { isRegexMessageSearchQuery } from "../telegram/messageSearch";
+import { SharedMediaIndex } from "./sharedMediaIndex";
 
 export type {
   ChatFilter,
@@ -81,6 +82,7 @@ export const createTelegramStore = (
   reloadApplication: () => void = reloadCurrentApplication,
 ) =>
   createStore<TelegramState>((set, get) => {
+    const sharedMediaIndex = new SharedMediaIndex();
     let cacheTimer: ReturnType<typeof setTimeout> | undefined;
     let cacheIdleCallback: number | undefined;
     let cacheWrite = Promise.resolve();
@@ -1855,6 +1857,55 @@ export const createTelegramStore = (
         }
       },
 
+      loadSharedMedia: async (input, force = false) => {
+        if (!get().chats.has(input.chatId)) return undefined;
+        const reset = !input.fromMessageId;
+        if (reset && !force) {
+          const cached = sharedMediaIndex.read(input);
+          if (cached) return cached;
+        }
+        try {
+          const page = await transport.searchSharedMedia(input);
+          const merged = sharedMediaIndex.merge(input, page, reset);
+          set({ operationError: undefined });
+          return merged;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法读取共享媒体") });
+          return undefined;
+        }
+      },
+
+      deleteMessagesFromChat: async (chatId, messageIds, revoke) => {
+        const uniqueIds = [...new Set(messageIds)];
+        if (!get().chats.has(chatId) || uniqueIds.length === 0 || uniqueIds.length > 100) {
+          return false;
+        }
+        const deletedIds: string[] = [];
+        let failure: unknown;
+        for (const messageId of uniqueIds) {
+          try {
+            await transport.deleteMessage({ chatId, messageId, revoke });
+            deletedIds.push(messageId);
+          } catch (error) {
+            failure ??= error;
+          }
+        }
+        if (deletedIds.length > 0) {
+          const removed = new Set(deletedIds);
+          const messages = new Map(get().messages);
+          messages.set(chatId, (messages.get(chatId) ?? []).filter((message) => !removed.has(message.id)));
+          sharedMediaIndex.remove(chatId, deletedIds);
+          set({ messages });
+          scheduleCacheWrite();
+        }
+        set({
+          operationError: failure
+            ? errorMessage(failure, `已删除 ${deletedIds.length} 条，部分消息删除失败`)
+            : undefined,
+        });
+        return !failure;
+      },
+
       loadEmojiPicker: async () => {
         if (get().authorization.kind !== "ready") return undefined;
         try {
@@ -2100,6 +2151,7 @@ export const createTelegramStore = (
             (messages.get(chatId) ?? []).filter((message) => message.id !== messageId),
           );
           set({ messages, operationError: undefined });
+          sharedMediaIndex.remove(chatId, [messageId]);
           scheduleCacheWrite();
           return true;
         } catch (error) {

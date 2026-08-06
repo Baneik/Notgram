@@ -200,6 +200,24 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid auto-delete settings".to_string());
             }
         }
+        "searchChatMessages" => {
+            let filter = request
+                .get("filter")
+                .and_then(|value| value.get("@type"))
+                .and_then(Value::as_str);
+            if filter.is_some_and(|filter| {
+                !matches!(
+                    filter,
+                    "searchMessagesFilterPhotoAndVideo"
+                        | "searchMessagesFilterDocument"
+                        | "searchMessagesFilterUrl"
+                        | "searchMessagesFilterAudio"
+                        | "searchMessagesFilterPinned"
+                )
+            }) {
+                return Err("Unsupported chat search filter".to_string());
+            }
+        }
         _ => {}
     }
     if request_type == "createPrivateChat"
@@ -903,6 +921,19 @@ mod tests {
         let mut invalid_auto_delete = auto_delete.clone();
         invalid_auto_delete["message_auto_delete_time"] = json!(31_536_001);
         assert!(validate_webview_tdlib_request(&invalid_auto_delete).is_err());
+
+        let media_search = json!({
+            "@type": "searchChatMessages",
+            "chat_id": 7,
+            "query": "",
+            "limit": 40,
+            "filter": { "@type": "searchMessagesFilterPhotoAndVideo" },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&media_search).is_ok());
+        let mut unsupported_search = media_search.clone();
+        unsupported_search["filter"] = json!({ "@type": "searchMessagesFilterUnreadMention" });
+        assert!(validate_webview_tdlib_request(&unsupported_search).is_err());
     }
 
     #[test]

@@ -20,6 +20,8 @@ import type {
   MessagePermissions,
   ProxySettings,
   QueuedOutgoingMessage,
+  SharedMediaPage,
+  SharedMediaSearchInput,
   StorageSettings,
   StickerSet,
   TelegramAccount,
@@ -152,6 +154,8 @@ export interface TelegramState {
     chatId: string,
     messageAutoDeleteTime: number,
   ) => Promise<boolean>;
+  loadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
+  deleteMessagesFromChat: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
   loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
   loadStickerSet: (stickerSetId: string) => Promise<StickerSet | undefined>;
   searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[]>;

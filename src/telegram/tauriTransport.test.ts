@@ -1385,6 +1385,44 @@ describe("TauriTelegramTransport message operations", () => {
     }));
   });
 
+  it("paginates shared media with category-specific server filters", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "foundChatMessages",
+        total_count: 7,
+        messages: [rawMessage(15), rawMessage(14)],
+      };
+    };
+
+    await expect(transport.searchSharedMedia({
+      chatId: "7",
+      category: "file",
+      query: "design",
+      fromMessageId: "20",
+      limit: 2,
+    })).resolves.toMatchObject({
+      totalCount: 7,
+      nextFromMessageId: "14",
+      hasMore: true,
+      messages: [{ id: "15" }, { id: "14" }],
+    });
+    expect(requests).toEqual([{
+      "@type": "searchChatMessages",
+      chat_id: 7,
+      topic_id: null,
+      query: "design",
+      sender_id: null,
+      from_message_id: 20,
+      offset: 0,
+      limit: 2,
+      filter: { "@type": "searchMessagesFilterDocument" },
+    }]);
+  });
+
   it("returns deduplicated global search pages and preserves the TDLib cursor", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

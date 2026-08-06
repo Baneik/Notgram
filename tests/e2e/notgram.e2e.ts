@@ -1577,8 +1577,8 @@ test("chat profiles expose members and shared media with focus restoration", asy
   await expect(profile.locator(".profile-state")).toHaveCount(0);
 
   await profile.getByRole("button", { name: "共享媒体" }).click();
-  await expect(profile.locator(".profile-media-list button")).not.toHaveCount(0);
-  await profile.locator(".profile-media-list button").first().click();
+  await expect(profile.locator(".shared-media-item")).not.toHaveCount(0);
+  await profile.locator(".shared-media-open").first().click();
   await expect(profile).toBeHidden();
   await expect(page.locator(".conversation")).toBeVisible();
 
@@ -1588,6 +1588,40 @@ test("chat profiles expose members and shared media with focus restoration", asy
   expect(await horizontalOverflow(page)).toBe(false);
   await profile.getByRole("button", { name: "关闭资料" }).click();
   await expect(profileTrigger).toBeFocused();
+});
+
+test("shared media supports server categories, filters, forwarding, and batch deletion", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await profile.getByRole("button", { name: "共享媒体" }).click();
+  await profile.getByRole("tab", { name: "文件" }).click();
+  await expect(profile.getByText("desktop-layout-review.pdf", { exact: true })).toBeVisible();
+  await expect(profile.getByText("research-notes.zip", { exact: true })).toBeVisible();
+
+  const search = profile.getByRole("searchbox", { name: "搜索共享媒体" });
+  await search.fill("research");
+  await profile.locator(".shared-media-search").getByRole("button", { name: "搜索" }).click();
+  await expect(profile.getByText("research-notes.zip", { exact: true })).toBeVisible();
+  await expect(profile.getByText("desktop-layout-review.pdf", { exact: true })).toHaveCount(0);
+  await search.fill("");
+  await profile.locator(".shared-media-search").getByRole("button", { name: "搜索" }).click();
+
+  await profile.getByLabel("共享媒体开始日期").fill("2026-08-02");
+  await expect(profile.getByText("没有匹配的内容", { exact: true })).toBeVisible();
+  await profile.getByLabel("共享媒体开始日期").fill("");
+  await profile.getByLabel("选择 p-3").check();
+  const toolbar = profile.getByRole("toolbar", { name: "共享媒体批量操作" });
+  await toolbar.getByLabel("共享媒体转发目标").selectOption("chat-mia");
+  await toolbar.getByRole("button", { name: "转发" }).click();
+  await expect(toolbar).toBeHidden();
+
+  await profile.getByLabel("选择 p-3").check();
+  await toolbar.getByRole("button", { name: "仅对我删除" }).click();
+  const deleteDialog = page.getByRole("dialog", { name: "删除 1 条消息" });
+  await deleteDialog.getByRole("button", { name: "仅对我删除" }).click();
+  await expect(profile.getByText("desktop-layout-review.pdf", { exact: true })).toHaveCount(0);
+  expect(await horizontalOverflow(page)).toBe(false);
 });
 
 test("dark mode keeps interactive hover surfaces dark across the main UI", async ({ page }) => {

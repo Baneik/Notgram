@@ -9,23 +9,26 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { ProfileState } from "../store/profileState";
-import type { Message } from "../telegram/types";
-import { messageContentText } from "../telegram/messageContent";
-import { formatChatTime } from "../utils/formatters";
+import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { Avatar } from "./Avatar";
+import { SharedMediaBrowser } from "./SharedMediaBrowser";
 
 interface ProfileDrawerProps {
   state: ProfileState;
-  messages: Message[];
+  forwardTargets: Chat[];
   currentUserId?: string;
   onClose: () => void;
   onRetry: () => void;
   onOpenMessage: (chatId: string, messageId: string) => void;
   onStartPrivateChat: (userId: string) => Promise<void>;
   onOpenUserProfile: (userId: string) => void;
+  onLoadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
+  onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
+  onDeleteMessages: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
+  onForwardMessages: (fromChatId: string, messageIds: string[], toChatId: string) => Promise<ForwardMessagesResult | undefined>;
 }
 
 const roleLabel = (role: "owner" | "administrator" | "member") =>
@@ -33,24 +36,22 @@ const roleLabel = (role: "owner" | "administrator" | "member") =>
 
 export function ProfileDrawer({
   state,
-  messages,
+  forwardTargets,
   currentUserId,
   onClose,
   onRetry,
   onOpenMessage,
   onStartPrivateChat,
   onOpenUserProfile,
+  onLoadSharedMedia,
+  onDownloadFile,
+  onDeleteMessages,
+  onForwardMessages,
 }: ProfileDrawerProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLElement>(onClose, false, closeRef);
   const [mediaOpen, setMediaOpen] = useState(false);
   const profile = state.value;
-  const sharedMedia = useMemo(
-    () => messages.filter((message) =>
-      message.content.kind === "media" || message.content.kind === "file",
-    ),
-    [messages],
-  );
 
   return (
     <div className="profile-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -122,25 +123,16 @@ export function ProfileDrawer({
                 <section className="profile-info-section" aria-labelledby="shared-media-heading">
                   <div className="profile-section-heading">
                     <h4 id="shared-media-heading">共享媒体</h4>
-                    <span>{sharedMedia.length}</span>
                   </div>
-                  {sharedMedia.length > 0 ? (
-                    <div className="profile-media-list">
-                      {sharedMedia.map((message) => (
-                        <button
-                          type="button"
-                          key={message.id}
-                          onClick={() => onOpenMessage(message.chatId, message.id)}
-                        >
-                          <Image size={16} />
-                          <span>{messageContentText(message.content) || "媒体消息"}</span>
-                          <time dateTime={message.sentAt}>{formatChatTime(message.sentAt)}</time>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p>当前已加载历史中没有媒体</p>
-                  )}
+                  <SharedMediaBrowser
+                    chatId={profile.chatId}
+                    forwardTargets={forwardTargets}
+                    onLoad={onLoadSharedMedia}
+                    onOpenMessage={onOpenMessage}
+                    onDownload={onDownloadFile}
+                    onDelete={onDeleteMessages}
+                    onForward={onForwardMessages}
+                  />
                 </section>
               )}
               {(profile.kind === "group" || profile.kind === "channel") && (

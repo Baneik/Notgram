@@ -36,6 +36,8 @@ import type {
   MessagePermissions,
   PinMessageInput,
   SetChatMessageAutoDeleteTimeInput,
+  SharedMediaPage,
+  SharedMediaSearchInput,
   User,
 } from "./types";
 import type { AuthorizationAction } from "./types";
@@ -77,6 +79,7 @@ export interface TelegramTransport {
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;
+  searchSharedMedia(input: SharedMediaSearchInput): Promise<SharedMediaPage>;
   loadMoreChats(chatListId: string, limit?: number): Promise<ChatListPage>;
   setChatPinned(chatListId: string, chatId: string, pinned: boolean): Promise<void>;
   setPinnedChats(chatListId: string, chatIds: string[]): Promise<void>;

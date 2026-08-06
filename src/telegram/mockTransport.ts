@@ -30,6 +30,7 @@ import type {
   SetChatMessageAutoDeleteTimeInput,
   SetMessageReactionInput,
   SetPollAnswerInput,
+  SharedMediaSearchInput,
   StorageSettings,
   StickerSet,
   TelegramAccount,
@@ -732,6 +733,40 @@ export class MockTelegramTransport implements TelegramTransport {
       this.listener?.({ type: "message.upsert", message: clone(message) });
     }
     return matches.length;
+  }
+
+  async searchSharedMedia(input: SharedMediaSearchInput) {
+    const categoryMatches = (message: Message) => {
+      if (input.category === "media") {
+        return message.content.kind === "media" && ["photo", "video", "videoNote"].includes(message.content.mediaType);
+      }
+      if (input.category === "file") return message.content.kind === "file";
+      if (input.category === "audio") {
+        return message.content.kind === "media" && ["audio", "voice"].includes(message.content.mediaType);
+      }
+      const text = messageContentText(message.content);
+      return message.content.kind === "text" && (
+        message.content.entities?.some((entity) => ["url", "textUrl"].includes(entity.kind)) ||
+        /https?:\/\/\S+/i.test(text)
+      );
+    };
+    const query = input.query?.trim().toLocaleLowerCase() ?? "";
+    const all = this.snapshot.messages
+      .filter((message) => message.chatId === input.chatId && categoryMatches(message))
+      .filter((message) => !query || messageContentText(message.content).toLocaleLowerCase().includes(query))
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+    const cursorIndex = input.fromMessageId
+      ? all.findIndex((message) => message.id === input.fromMessageId) + 1
+      : 0;
+    const offset = Math.max(0, cursorIndex);
+    const limit = Math.max(1, Math.min(input.limit ?? 40, 100));
+    const messages = all.slice(offset, offset + limit);
+    return clone({
+      messages,
+      totalCount: all.length,
+      nextFromMessageId: messages.at(-1)?.id,
+      hasMore: offset + messages.length < all.length,
+    });
   }
 
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {

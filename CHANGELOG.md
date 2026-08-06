@@ -14,6 +14,8 @@ with prerelease identifiers used for release candidates.
   result updates, correct-answer explanations, restrictions, and vote revocation.
 - Pin and unpin messages with Telegram notification scope, browse and jump through
   pinned messages, and configure preset or custom chat auto-delete durations.
+- Browse server-paginated shared media by category with search and date filters,
+  TTL-backed indexing, message jumps, batch downloads, forwarding, and deletion.
 - Add a lightweight WebView performance timeline for startup, interaction, rendering,
   history, and media stalls, backed by a separately rotated performance log.
 - Support `reg:` regular expressions in global and current-conversation message search.

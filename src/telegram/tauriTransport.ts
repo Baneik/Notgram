@@ -85,6 +85,8 @@ import type {
   SetChatMessageAutoDeleteTimeInput,
   SetMessageReactionInput,
   SetPollAnswerInput,
+  SharedMediaPage,
+  SharedMediaSearchInput,
   StorageSettings,
   StickerSet,
   StickerSetSummary,
@@ -890,6 +892,38 @@ export class TauriTelegramTransport implements TelegramTransport {
         });
     for (const message of matches) this.emitMessage(message);
     return matches.length;
+  }
+
+  async searchSharedMedia(input: SharedMediaSearchInput): Promise<SharedMediaPage> {
+    const filter = {
+      media: "searchMessagesFilterPhotoAndVideo",
+      file: "searchMessagesFilterDocument",
+      link: "searchMessagesFilterUrl",
+      audio: "searchMessagesFilterAudio",
+    }[input.category];
+    const limit = Math.max(1, Math.min(input.limit ?? 40, 100));
+    const result = await this.request({
+      "@type": "searchChatMessages",
+      chat_id: numericId(input.chatId),
+      topic_id: null,
+      query: input.query?.trim() ?? "",
+      sender_id: null,
+      from_message_id: input.fromMessageId ? numericId(input.fromMessageId) : 0,
+      offset: 0,
+      limit,
+      filter: { "@type": filter },
+    });
+    const rawMessages = asTdObjects(result.messages);
+    const messages = rawMessages.map((raw) => this.mapMessage(raw))
+      .filter((message): message is Message => Boolean(message && message.chatId === input.chatId));
+    this.emitMessages(rawMessages);
+    const nextFromMessageId = rawMessages.length > 0 ? tdId(rawMessages.at(-1)?.id) : undefined;
+    return {
+      messages,
+      totalCount: Math.max(0, tdNumber(result.total_count) ?? messages.length),
+      nextFromMessageId: nextFromMessageId || undefined,
+      hasMore: rawMessages.length === limit && Boolean(nextFromMessageId),
+    };
   }
 
   async loadMoreChats(chatListId: string, limit = 100) {

@@ -635,6 +635,24 @@ export interface GlobalSearchPage {
   nextOffset?: string;
 }
 
+export type SharedMediaCategory = "media" | "file" | "link" | "audio";
+
+export interface SharedMediaSearchInput {
+  chatId: string;
+  category: SharedMediaCategory;
+  query?: string;
+  fromMessageId?: string;
+  limit?: number;
+}
+
+export interface SharedMediaPage {
+  messages: Message[];
+  totalCount?: number;
+  nextFromMessageId?: string;
+  hasMore: boolean;
+  cached?: boolean;
+}
+
 export type ProxyMode = "system" | "direct" | "custom";
 export type ProxyType = "http" | "socks5" | "mtproto";
 
