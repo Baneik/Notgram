@@ -12,6 +12,7 @@ import type {
   ChatInviteLinkPage,
   ChatJoinRequestPage,
   BotCommandSuggestion,
+  CallbackQueryAnswer,
   InlineQueryResultPage,
   BlockedSender,
   ChatReportOptions,
@@ -183,7 +184,8 @@ export interface TelegramState {
   getChatJoinRequests: (input: GetChatJoinRequestsInput) => Promise<ChatJoinRequestPage | undefined>;
   processChatJoinRequest: (chatId: string, userId: string, approve: boolean) => Promise<boolean>;
   processChatJoinRequests: (chatId: string, inviteLink: string | undefined, approve: boolean) => Promise<boolean>;
-  getBotCommandSuggestions: (botUsername: string, query?: string) => Promise<BotCommandSuggestion[]>;
+  getBotCommandSuggestions: (chatId: string, query?: string, botUsername?: string) => Promise<BotCommandSuggestion[]>;
+  getCallbackQueryAnswer: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
   getInlineQueryResults: (chatId: string, botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
   sendInlineQueryResultMessage: (chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
   sendBotStartMessage: (chatId: string, botUserId: string, parameter?: string) => Promise<boolean>;

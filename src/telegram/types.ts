@@ -239,6 +239,29 @@ export interface BotCommandSuggestion {
   description: string;
 }
 
+export type MessageInlineKeyboardButton = {
+  text: string;
+  style: "default" | "primary" | "danger" | "success";
+} & (
+  | { kind: "callback"; data: string }
+  | { kind: "url"; url: string }
+  | { kind: "webApp"; url: string }
+  | { kind: "user"; userId: string }
+  | { kind: "copyText"; copyText: string }
+  | { kind: "unsupported" }
+);
+
+export interface MessageInlineKeyboard {
+  kind: "inlineKeyboard";
+  rows: MessageInlineKeyboardButton[][];
+}
+
+export interface CallbackQueryAnswer {
+  text?: string;
+  showAlert: boolean;
+  url?: string;
+}
+
 export interface InlineQueryResult {
   id: string;
   kind: "article" | "photo" | "video" | "file";
@@ -722,6 +745,7 @@ export interface Message {
   isPinned?: boolean;
   permissions?: MessagePermissions;
   isRemoving?: boolean;
+  replyMarkup?: MessageInlineKeyboard;
   content: MessageContent;
 }
 

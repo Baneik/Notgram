@@ -48,6 +48,8 @@ import { isLargeEmojiText } from "../utils/largeEmoji";
 import { channelPostTargetFor } from "./conversationMessages";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { PollMessage } from "./PollMessage";
+import { InlineKeyboard } from "./InlineKeyboard";
+import type { CallbackQueryAnswer } from "../telegram/types";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
@@ -90,6 +92,7 @@ interface MessageBubbleProps {
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
+  onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
   nextAudioPlaybackId?: string;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
@@ -138,6 +141,7 @@ function MessageBubbleComponent({
   onCancelUpload,
   onReaction,
   onPollAnswer,
+  onBotCallback,
   nextAudioPlaybackId,
   onOpenReply,
   onOpenSenderProfile,
@@ -427,7 +431,7 @@ function MessageBubbleComponent({
         </button>
       )}
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${visualSizingText ? "is-text-sized-visual" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${visualSizingText ? "is-text-sized-visual" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""}`}
         style={visualShellStyle}
         data-visual-sizing-text={visualSizingText}
         tabIndex={!selectionMode && !isService ? 0 : undefined}
@@ -780,6 +784,14 @@ function MessageBubbleComponent({
           )}
           {content.kind !== "text" && !(isVisual && hasCaption) && messageMeta}
         </div>
+        {!albumItem && !selectionMode && message.replyMarkup && (
+          <InlineKeyboard
+            messageId={message.id}
+            markup={message.replyMarkup}
+            onCallback={onBotCallback}
+            onOpenUser={onOpenSenderProfile}
+          />
+        )}
         {!albumItem && !selectionMode && !isService && reactions.length > 0 && (
           <div className="message-reactions">
             {reactions.map((reaction) => {

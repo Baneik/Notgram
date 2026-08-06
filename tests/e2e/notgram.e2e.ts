@@ -1582,8 +1582,10 @@ test("creates and governs invite links and join requests", async ({ page }) => {
 test("suggests bot commands and sends paginated inline results", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByLabel("消息内容");
-  await composer.fill("/st");
+  await composer.fill("/");
   const suggestions = page.getByRole("listbox", { name: "机器人命令建议" });
+  await expect(suggestions.getByRole("option")).toHaveCount(3);
+  await composer.fill("/st");
   await expect(suggestions.getByRole("option")).toHaveCount(1);
   await suggestions.getByRole("option").click();
   await expect(composer).toHaveValue("/start@notgram_bot ");
@@ -1596,6 +1598,21 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
   await expect(inline.getByRole("button").filter({ hasText: "快速摘要" })).toBeVisible();
   await inline.getByRole("button").filter({ hasText: "快速摘要" }).click();
   await expect(page.getByText("@notgram_bot: release", { exact: true })).toBeVisible();
+});
+
+test("renders and activates TDLib inline bot keyboards", async ({ page }) => {
+  await page.goto("/");
+  const row = page.locator('[data-message-id="p-bot-keyboard"]');
+  await row.scrollIntoViewIfNeeded();
+  const keyboard = row.locator(".message-inline-keyboard");
+  await expect(keyboard).toBeVisible();
+  await expect(keyboard.locator(".message-inline-keyboard-row")).toHaveCount(2);
+  await expect(keyboard.locator(".message-inline-keyboard-row").nth(0).getByRole("button"))
+    .toHaveCount(8);
+  await expect(keyboard.locator(".message-inline-keyboard-row").nth(1).getByRole("button"))
+    .toHaveCount(3);
+  await keyboard.getByRole("button", { name: "下一页" }).click();
+  await expect(keyboard.getByRole("status")).toHaveText("机器人已处理操作");
 });
 
 test("blocks users and reports chats or selected messages", async ({ page }) => {

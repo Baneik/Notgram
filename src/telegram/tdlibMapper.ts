@@ -6,6 +6,8 @@ import type {
   MessageContent,
   MessageForwardInfo,
   MessageInteraction,
+  MessageInlineKeyboard,
+  MessageInlineKeyboardButton,
   MessageOrigin,
   MessagePermissions,
   MessageReaction,
@@ -1424,6 +1426,63 @@ const mapTdInteraction = (value: unknown): MessageInteraction | undefined => {
   };
 };
 
+const mapTdButtonStyle = (value: unknown): MessageInlineKeyboardButton["style"] => {
+  switch (asTdObject(value)?.["@type"]) {
+    case "buttonStylePrimary":
+      return "primary";
+    case "buttonStyleDanger":
+      return "danger";
+    case "buttonStyleSuccess":
+      return "success";
+    default:
+      return "default";
+  }
+};
+
+const mapTdInlineKeyboardButton = (
+  value: unknown,
+): MessageInlineKeyboardButton | undefined => {
+  const button = asTdObject(value);
+  const type = asTdObject(button?.type);
+  const text = typeof button?.text === "string" ? button.text : "";
+  if (!button || !type || !text) return undefined;
+  const base = { text, style: mapTdButtonStyle(button.style) } as const;
+  switch (type["@type"]) {
+    case "inlineKeyboardButtonTypeCallback":
+      return typeof type.data === "string" ? { ...base, kind: "callback", data: type.data } : undefined;
+    case "inlineKeyboardButtonTypeUrl":
+    case "inlineKeyboardButtonTypeLoginUrl":
+      return typeof type.url === "string" ? { ...base, kind: "url", url: type.url } : undefined;
+    case "inlineKeyboardButtonTypeWebApp":
+      return typeof type.url === "string" ? { ...base, kind: "webApp", url: type.url } : undefined;
+    case "inlineKeyboardButtonTypeUser": {
+      const userId = tdId(type.user_id);
+      return userId ? { ...base, kind: "user", userId } : undefined;
+    }
+    case "inlineKeyboardButtonTypeCopyText":
+      return typeof type.text === "string"
+        ? { ...base, kind: "copyText", copyText: type.text }
+        : undefined;
+    default:
+      return { ...base, kind: "unsupported" };
+  }
+};
+
+const mapTdReplyMarkup = (value: unknown): MessageInlineKeyboard | undefined => {
+  const markup = asTdObject(value);
+  if (markup?.["@type"] !== "replyMarkupInlineKeyboard" || !Array.isArray(markup.rows)) {
+    return undefined;
+  }
+  const rows = markup.rows.flatMap((row) => {
+    if (!Array.isArray(row)) return [];
+    const buttons = row
+      .map(mapTdInlineKeyboardButton)
+      .filter((button): button is MessageInlineKeyboardButton => Boolean(button));
+    return buttons.length > 0 ? [buttons] : [];
+  });
+  return rows.length > 0 ? { kind: "inlineKeyboard", rows } : undefined;
+};
+
 export const mapTdMessageProperties = (raw: TdObject): MessagePermissions => {
   const includesPinPermissions = "can_be_pinned" in raw;
   return {
@@ -1466,6 +1525,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     forwardInfo: mapTdForwardInfo(raw.forward_info),
     interaction: mapTdInteraction(raw.interaction_info),
     ...(typeof raw.is_pinned === "boolean" ? { isPinned: raw.is_pinned } : {}),
+    replyMarkup: mapTdReplyMarkup(raw.reply_markup),
     content,
   };
 };

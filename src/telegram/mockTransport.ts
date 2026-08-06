@@ -20,6 +20,7 @@ import type {
   GetChatInviteLinksInput,
   GetChatJoinRequestsInput,
   BotCommandSuggestion,
+  CallbackQueryAnswer,
   InlineQueryResultPage,
   BlockedSender,
   ChatReportOptions,
@@ -1018,7 +1019,12 @@ export class MockTelegramTransport implements TelegramTransport {
     this.appendChatAudit(chatId, `${approve ? "批量批准" : "批量拒绝"} ${selected.length} 个入群申请`, "inviteLink");
   }
 
-  async getBotCommandSuggestions(botUsername: string, query = ""): Promise<BotCommandSuggestion[]> {
+  async getBotCommandSuggestions(
+    chatId: string,
+    query = "",
+    botUsername = "notgram_bot",
+  ): Promise<BotCommandSuggestion[]> {
+    void chatId;
     const username = botUsername.replace(/^@/, "").trim() || "notgram_bot";
     const commands: BotCommandSuggestion[] = [
       { botUserId: `bot:${username}`, botUsername: username, command: "start", description: "启动机器人或打开参数" },
@@ -1027,6 +1033,16 @@ export class MockTelegramTransport implements TelegramTransport {
     ];
     const normalized = query.replace(/^\//, "").toLocaleLowerCase();
     return commands.filter((command) => !normalized || command.command.startsWith(normalized));
+  }
+
+  async getCallbackQueryAnswer(
+    chatId: string,
+    messageId: string,
+    data: string,
+  ): Promise<CallbackQueryAnswer> {
+    void chatId;
+    void messageId;
+    return { text: data ? "机器人已处理操作" : undefined, showAlert: false };
   }
 
   async getInlineQueryResults(chatId: string, botUsername: string, query: string, offset = ""): Promise<InlineQueryResultPage> {

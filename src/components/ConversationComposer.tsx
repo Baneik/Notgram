@@ -45,7 +45,7 @@ interface ConversationComposerProps {
   onSendFiles: (attachments: OutgoingAttachment[], caption?: string) => Promise<boolean>;
   onCancelEditing: () => void;
   onCancelReply: () => void;
-  onGetBotCommands: (botUsername: string, query?: string) => Promise<BotCommandSuggestion[]>;
+  onGetBotCommands: (query?: string, botUsername?: string) => Promise<BotCommandSuggestion[]>;
   onGetInlineResults: (botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
   onSendInlineResult: (botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
   onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
@@ -131,13 +131,9 @@ export const ConversationComposer = memo(function ConversationComposer({
     const inline = !editingMessage ? draft.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/) : null;
     if (slash) {
       const username = slash[2] || defaultBotUsername;
-      if (username) {
-        botQueryTimerRef.current = globalThis.setTimeout(() => {
-          void onGetBotCommands(username, slash[1]).then(setBotSuggestions).catch(() => setBotSuggestions([]));
-        }, 80);
-      } else {
-        setBotSuggestions([]);
-      }
+      botQueryTimerRef.current = globalThis.setTimeout(() => {
+        void onGetBotCommands(slash[1], username).then(setBotSuggestions).catch(() => setBotSuggestions([]));
+      }, 80);
       setInlineResults(undefined);
     } else if (inline) {
       setBotSuggestions([]);
@@ -665,12 +661,12 @@ export const ConversationComposer = memo(function ConversationComposer({
       )}
       {botSuggestions.length > 0 && (
         <section className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
-          {botSuggestions.map((suggestion) => <button key={`${suggestion.botUsername}-${suggestion.command}`} type="button" role="option" onClick={() => { selectedBotRef.current = suggestion; const next = `/${suggestion.command}@${suggestion.botUsername} `; draftRef.current = next; setDraft(next); scheduleDraft(next, replyingTo?.id ?? chatDraft?.replyToMessageId); focusComposer(); }}><strong>/{suggestion.command}</strong><span>@{suggestion.botUsername}</span><small>{suggestion.description}</small></button>)}
+          {botSuggestions.map((suggestion) => <button key={`${suggestion.botUserId}-${suggestion.command}`} type="button" role="option" onClick={() => { selectedBotRef.current = suggestion; const includeUsername = Boolean(suggestion.botUsername && suggestion.botUsername.toLocaleLowerCase() !== defaultBotUsername?.toLocaleLowerCase()); const next = `/${suggestion.command}${includeUsername ? `@${suggestion.botUsername}` : ""} `; draftRef.current = next; setDraft(next); scheduleDraft(next, replyingTo?.id ?? chatDraft?.replyToMessageId); focusComposer(); }}><strong>/{suggestion.command}</strong>{suggestion.botUsername && <span>@{suggestion.botUsername}</span>}<small>{suggestion.description}</small></button>)}
         </section>
       )}
       {(inlineLoading || inlineResults) && (
         <section className="inline-query-panel" aria-label="Inline 查询结果">
-          {inlineLoading ? <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div> : inlineResults?.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = draftRef.current.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/); if (!inline || !inlineResults) return; const bot = await onGetBotCommands(inline[1]); const botUserId = bot[0]?.botUserId ?? `bot:${inline[1]}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>)}
+          {inlineLoading ? <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div> : inlineResults?.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = draftRef.current.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline[1]); const botUserId = bot[0]?.botUserId ?? `bot:${inline[1]}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>)}
           {inlineResults?.hasMore && <button type="button" className="inline-query-more" onClick={() => { const inline = draftRef.current.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline[1], inline[2], inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }); } }}>加载更多结果</button>}
         </section>
       )}

@@ -490,6 +490,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-row.is-notification-target .message-bubble { outline: 0; }
 .message-row.is-notification-target .message-bubble { box-shadow: 0 0 0 2px rgba(128, 91, 190, .38); transition: box-shadow 180ms ease; }
 .message-bubble-shell { position: relative; min-width: 0; max-width: min(74%, 720px); flex: 0 1 auto; }
+.message-bubble-shell.has-inline-keyboard { width: 440px; }
 .message-bubble-shell.is-visual-shell { width: var(--visual-media-width, 390px); }
 .message-bubble-shell.is-visual-shell .message-bubble { width: 100%; }
 .message-bubble-shell.is-text-sized-visual {
@@ -639,6 +640,19 @@ button.message-sender:hover { text-decoration: underline; }
 }
 .message-bubble.is-textual, .message-bubble.is-textual .message-rich-text { cursor: text; }
 .message-bubble.is-textual a, .message-bubble.is-textual button, .message-bubble.is-textual summary { cursor: pointer; }
+.message-inline-keyboard { width: 100%; margin-top: 3px; display: grid; gap: 3px; }
+.message-inline-keyboard-row { min-width: 0; display: grid; gap: 3px; }
+.message-inline-keyboard-row button {
+  min-width: 0; height: 34px; padding: 0 7px; overflow: hidden; color: var(--accent-strong);
+  text-overflow: ellipsis; white-space: nowrap; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 5px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 650;
+}
+.message-inline-keyboard-row button:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--accent); }
+.message-inline-keyboard-row button:disabled { opacity: .58; cursor: default; }
+.message-inline-keyboard-row button.is-primary { color: #ffffff; background: #2b6e9e; border-color: #2b6e9e; }
+.message-inline-keyboard-row button.is-danger { color: #ffffff; background: #bb4a42; border-color: #bb4a42; }
+.message-inline-keyboard-row button.is-success { color: #ffffff; background: #2f7d5a; border-color: #2f7d5a; }
+.message-inline-keyboard-feedback { padding: 5px 8px; color: var(--muted); text-align: center; font-size: 10px; }
 .message-rich-text > :first-child { margin-top: 0; }
 .message-rich-text > :last-child { margin-bottom: 0; }
 .message-rich-text p, .message-rich-text ul, .message-rich-text ol,

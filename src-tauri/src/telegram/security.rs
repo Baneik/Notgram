@@ -35,6 +35,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getActiveSessions",
     "getUserPrivacySettingRules",
     "getInlineQueryResults",
+    "getCallbackQueryAnswer",
     "getChatPinnedMessage",
     "getChats",
     "getBasicGroupFullInfo",
@@ -303,6 +304,26 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
             validate_nonzero_identifier(request, "chat_id")?;
             validate_profile_text(request, "query", 256, true, false)?;
             validate_profile_text(request, "offset", 64, true, false)?;
+        }
+        "getCallbackQueryAnswer" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_nonzero_identifier(request, "message_id")?;
+            let payload = request
+                .get("payload")
+                .and_then(Value::as_object)
+                .ok_or_else(|| "Callback query payload is missing".to_string())?;
+            let data = payload
+                .get("data")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Callback query data is missing".to_string())?;
+            if payload.get("@type").and_then(Value::as_str) != Some("callbackQueryPayloadData")
+                || data.len() > 128
+                || !data.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=' | b'-' | b'_')
+                })
+            {
+                return Err("Invalid callback query payload".to_string());
+            }
         }
         "sendInlineQueryResultMessage" => {
             validate_nonzero_identifier(request, "chat_id")?;
@@ -1458,6 +1479,21 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&duplicate_poll_answer).is_err());
+
+        let callback_answer = json!({
+            "@type": "getCallbackQueryAnswer",
+            "chat_id": 7,
+            "message_id": 31,
+            "payload": {
+                "@type": "callbackQueryPayloadData",
+                "data": "cGFnZT0y"
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&callback_answer).is_ok());
+        let mut password_callback = callback_answer.clone();
+        password_callback["payload"]["@type"] = json!("callbackQueryPayloadDataWithPassword");
+        assert!(validate_webview_tdlib_request(&password_callback).is_err());
 
         let privileged = json!({
             "@type": "setTdlibParameters",

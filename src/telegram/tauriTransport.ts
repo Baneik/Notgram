@@ -69,6 +69,7 @@ import type {
   GetChatInviteLinksInput,
   GetChatJoinRequestsInput,
   BotCommandSuggestion,
+  CallbackQueryAnswer,
   InlineQueryResultPage,
   InlineQueryResult,
   BlockedSender,
@@ -1193,17 +1194,76 @@ export class TauriTelegramTransport implements TelegramTransport {
     throw new Error("找不到这个机器人");
   }
 
-  async getBotCommandSuggestions(botUsername: string, query = ""): Promise<BotCommandSuggestion[]> {
-    const bot = await this.resolveBotUser(botUsername);
-    const full = await this.request({ "@type": "getUserFullInfo", user_id: numericId(bot.userId) });
+  async getBotCommandSuggestions(
+    chatId: string,
+    query = "",
+    botUsername?: string,
+  ): Promise<BotCommandSuggestion[]> {
+    let commandGroups: TdObject[] = [];
+    if (botUsername) {
+      const bot = await this.resolveBotUser(botUsername);
+      const full = await this.request({ "@type": "getUserFullInfo", user_id: numericId(bot.userId) });
+      const botInfo = asTdObject(full.bot_info);
+      commandGroups = [{ bot_user_id: bot.userId, commands: botInfo?.commands }];
+    } else {
+      const chat = this.rawChats.get(chatId) ?? await this.request({
+        "@type": "getChat",
+        chat_id: numericId(chatId),
+      });
+      const type = asTdObject(chat.type);
+      if (type?.["@type"] === "chatTypePrivate") {
+        const userId = tdId(type.user_id);
+        if (userId) {
+          const full = await this.request({ "@type": "getUserFullInfo", user_id: numericId(userId) });
+          commandGroups = [{ bot_user_id: userId, commands: asTdObject(full.bot_info)?.commands }];
+        }
+      } else if (type?.["@type"] === "chatTypeBasicGroup") {
+        const groupId = tdId(type.basic_group_id);
+        if (groupId) {
+          const full = await this.request({ "@type": "getBasicGroupFullInfo", basic_group_id: numericId(groupId) });
+          commandGroups = asTdObjects(full.bot_commands);
+        }
+      } else if (type?.["@type"] === "chatTypeSupergroup") {
+        const groupId = tdId(type.supergroup_id);
+        if (groupId) {
+          const full = await this.request({ "@type": "getSupergroupFullInfo", supergroup_id: numericId(groupId) });
+          commandGroups = asTdObjects(full.bot_commands);
+        }
+      }
+    }
     const normalized = query.replace(/^\//, "").toLocaleLowerCase();
-    return asTdObjects(full.bot_commands).flatMap((raw) => {
-      const command = typeof raw.command === "string" ? raw.command : "";
-      const description = typeof raw.description === "string" ? raw.description : "";
-      return command && (!normalized || command.toLocaleLowerCase().startsWith(normalized))
-        ? [{ botUserId: bot.userId, botUsername: bot.username, command, description }]
-        : [];
+    const suggestions = await Promise.all(commandGroups.map(async (group) => {
+      const botUserId = tdId(group.bot_user_id);
+      if (!botUserId) return [];
+      const bot = await this.loadUser(botUserId);
+      const username = bot?.username ?? "";
+      return asTdObjects(group.commands).flatMap((raw) => {
+        const command = typeof raw.command === "string" ? raw.command : "";
+        const description = typeof raw.description === "string" ? raw.description : "";
+        return command && (!normalized || command.toLocaleLowerCase().startsWith(normalized))
+          ? [{ botUserId, botUsername: username, command, description }]
+          : [];
+      });
+    }));
+    return suggestions.flat();
+  }
+
+  async getCallbackQueryAnswer(
+    chatId: string,
+    messageId: string,
+    data: string,
+  ): Promise<CallbackQueryAnswer> {
+    const result = await this.request({
+      "@type": "getCallbackQueryAnswer",
+      chat_id: numericId(chatId),
+      message_id: numericId(messageId),
+      payload: { "@type": "callbackQueryPayloadData", data },
     });
+    return {
+      text: typeof result.text === "string" && result.text ? result.text : undefined,
+      showAlert: result.show_alert === true,
+      url: typeof result.url === "string" && result.url ? result.url : undefined,
+    };
   }
 
   async getInlineQueryResults(chatId: string, botUsername: string, query: string, offset = ""): Promise<InlineQueryResultPage> {

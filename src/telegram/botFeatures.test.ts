@@ -5,7 +5,7 @@ describe("bot commands and inline queries", () => {
   it("provides command hints, paginates inline results, and sends the chosen result", async () => {
     const transport = new MockTelegramTransport();
     const internal = transport as unknown as { snapshot: { messages: Array<{ content: { kind: string; text?: string } }> } };
-    const commands = await transport.getBotCommandSuggestions("notgram_bot", "st");
+    const commands = await transport.getBotCommandSuggestions("chat-product", "st");
     expect(commands).toHaveLength(1);
     expect(commands[0]).toMatchObject({ command: "start", botUserId: "bot:notgram_bot" });
     const chat = await transport.loadChatHistory("chat-product", 1);

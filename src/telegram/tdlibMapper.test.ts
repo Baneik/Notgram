@@ -1083,6 +1083,42 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("maps inline bot keyboards from raw TDLib messages", () => {
+    const message = mapTdMessage({
+      id: 22134390784,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 5762373625 },
+      date: 1_700_000_000,
+      content: {
+        "@type": "messageText",
+        text: { "@type": "formattedText", text: "anime", entities: [] },
+      },
+      reply_markup: {
+        "@type": "replyMarkupInlineKeyboard",
+        rows: [
+          [
+            { text: "👥", style: { "@type": "buttonStyleDefault" }, type: { "@type": "inlineKeyboardButtonTypeCallback", data: "Y2F0ZWdvcnk9MA==" } },
+            { text: "📢", style: { "@type": "buttonStyleDefault" }, type: { "@type": "inlineKeyboardButtonTypeCallback", data: "Y2F0ZWdvcnk9MQ==" } },
+          ],
+          [
+            { text: "下一页", style: { "@type": "buttonStylePrimary" }, type: { "@type": "inlineKeyboardButtonTypeCallback", data: "cGFnZT0y" } },
+          ],
+        ],
+      },
+    });
+
+    expect(message?.replyMarkup).toEqual({
+      kind: "inlineKeyboard",
+      rows: [
+        [
+          { kind: "callback", style: "default", text: "👥", data: "Y2F0ZWdvcnk9MA==" },
+          { kind: "callback", style: "default", text: "📢", data: "Y2F0ZWdvcnk9MQ==" },
+        ],
+        [{ kind: "callback", style: "primary", text: "下一页", data: "cGFnZT0y" }],
+      ],
+    });
+  });
+
   it("maps pin state, pin permissions, and chat auto-delete settings", () => {
     expect(mapTdMessageProperties({
       can_be_replied: true,

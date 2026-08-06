@@ -93,17 +93,21 @@ describe("TauriTelegramTransport startup", () => {
       requests.push(request);
       if (request["@type"] === "searchPublicChats") return { "@type": "chats", chat_ids: [72] };
       if (request["@type"] === "getChat") return { "@type": "chat", id: 72, type: { "@type": "chatTypePrivate", user_id: 901 } };
-      if (request["@type"] === "getUserFullInfo") return { "@type": "userFullInfo", bot_commands: [{ "@type": "botCommand", command: "start", description: "启动" }] };
+      if (request["@type"] === "getUserFullInfo") return { "@type": "userFullInfo", bot_info: { "@type": "botInfo", commands: [{ "@type": "botCommand", command: "start", description: "启动" }] } };
+      if (request["@type"] === "getUser") return { "@type": "user", id: 901, first_name: "Notgram", last_name: "Bot", usernames: { active_usernames: ["notgram_bot"] }, status: { "@type": "userStatusOnline" }, type: { "@type": "userTypeBot" } };
       if (request["@type"] === "getInlineQueryResults") return { "@type": "inlineQueryResults", inline_query_id: 1234, results: [{ "@type": "inlineQueryResultArticle", id: "r1", title: "结果", description: "预览", input_message_content: { "@type": "inputMessageText", text: { "@type": "formattedText", text: "结果正文", entities: [] }, link_preview_options: null, clear_draft: false } }], next_offset: "2" };
+      if (request["@type"] === "getCallbackQueryAnswer") return { "@type": "callbackQueryAnswer", text: "已翻页", show_alert: false, url: "" };
       return { "@type": "ok" };
     };
-    const commands = await transport.getBotCommandSuggestions("notgram_bot");
+    const commands = await transport.getBotCommandSuggestions("72", "", "notgram_bot");
     const page = await transport.getInlineQueryResults("72", "notgram_bot", "hello");
+    const callback = await transport.getCallbackQueryAnswer("72", "100", "cGFnZT0y");
     await transport.sendInlineQueryResultMessage("72", commands[0].botUserId, page.queryId, page.results[0].id);
     await transport.sendBotStartMessage("72", commands[0].botUserId, "demo");
     expect(commands[0]).toMatchObject({ botUserId: "901", command: "start" });
     expect(page).toMatchObject({ queryId: "1234", hasMore: true, results: [{ messageText: "结果正文" }] });
-    expect(requests.map((request) => request["@type"])).toEqual(["searchPublicChats", "getChat", "getUserFullInfo", "searchPublicChats", "getChat", "getInlineQueryResults", "sendInlineQueryResultMessage", "sendBotStartMessage"]);
+    expect(callback).toEqual({ text: "已翻页", showAlert: false, url: undefined });
+    expect(requests.map((request) => request["@type"])).toEqual(["searchPublicChats", "getChat", "getUserFullInfo", "getUser", "searchPublicChats", "getChat", "getInlineQueryResults", "getCallbackQueryAnswer", "sendInlineQueryResultMessage", "sendBotStartMessage"]);
   });
 
   it("maps the complete member, permission, slow mode, and ownership requests", async () => {

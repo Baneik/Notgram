@@ -454,6 +454,31 @@ const messages: Message[] = [
     },
   },
   {
+    id: "p-bot-keyboard",
+    chatId: "chat-product",
+    senderId: "u-mia",
+    outgoing: false,
+    sentAt: "2026-08-01T09:48:50+08:00",
+    delivery: "read",
+    content: { kind: "text", text: "请选择内容分类或翻页" },
+    replyMarkup: {
+      kind: "inlineKeyboard",
+      rows: [
+        ["👥", "📢", "🎬", "🏞", "🎧", "💬", "🤖", "📁"].map((text, index) => ({
+          kind: "callback" as const,
+          style: "default" as const,
+          text,
+          data: `Y2F0ZWdvcnk9${index}`,
+        })),
+        [
+          { kind: "callback", style: "default", text: "🆕最新", data: "bGF0ZXN0" },
+          { kind: "callback", style: "default", text: "🔞过滤", data: "ZmlsdGVy" },
+          { kind: "callback", style: "primary", text: "下一页", data: "cGFnZT0y" },
+        ],
+      ],
+    },
+  },
+  {
     id: "p-tall",
     chatId: "chat-product",
     mediaAlbumId: "mock-album-product",

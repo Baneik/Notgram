@@ -1941,9 +1941,22 @@ export const createTelegramStore = (
         catch (error) { set({ operationError: errorMessage(error, "无法批量处理入群申请") }); return false; }
       },
 
-      getBotCommandSuggestions: async (botUsername, query = "") => {
-        try { return await transport.getBotCommandSuggestions(botUsername, query); }
+      getBotCommandSuggestions: async (chatId, query = "", botUsername) => {
+        try { return await transport.getBotCommandSuggestions(chatId, query, botUsername); }
         catch { return []; }
+      },
+
+      getCallbackQueryAnswer: async (messageId, data) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return undefined;
+        try {
+          const answer = await transport.getCallbackQueryAnswer(chatId, messageId, data);
+          set({ operationError: undefined });
+          return answer;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法处理机器人操作") });
+          return undefined;
+        }
       },
 
       getInlineQueryResults: async (chatId, botUsername, query, offset = "") => {

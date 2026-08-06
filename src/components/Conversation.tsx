@@ -127,6 +127,7 @@ interface ConversationProps {
   onLoadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onSetPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
+  onBotCallback: (messageId: string, data: string) => Promise<import("../telegram/types").CallbackQueryAnswer | undefined>;
   onLoadPinnedMessages: (chatId: string) => Promise<Message[]>;
   onPinMessage: (messageId: string, disableNotification: boolean, onlyForSelf: boolean) => Promise<boolean>;
   onUnpinMessage: (messageId: string) => Promise<boolean>;
@@ -151,7 +152,7 @@ interface ConversationProps {
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
   onSetChatArchived: (archived: boolean) => Promise<boolean>;
   onBack: () => void;
-  onGetBotCommands: (botUsername: string, query?: string) => Promise<import("../telegram/types").BotCommandSuggestion[]>;
+  onGetBotCommands: (query?: string, botUsername?: string) => Promise<import("../telegram/types").BotCommandSuggestion[]>;
   onGetInlineResults: (botUsername: string, query: string, offset?: string) => Promise<import("../telegram/types").InlineQueryResultPage | undefined>;
   onSendInlineResult: (botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
   onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
@@ -190,6 +191,7 @@ export function Conversation({
   onLoadRawMessage,
   onSetMessageReaction,
   onSetPollAnswer,
+  onBotCallback,
   onLoadPinnedMessages,
   onPinMessage,
   onUnpinMessage,
@@ -1230,6 +1232,7 @@ export function Conversation({
                         onCancelUpload={onCancelFileUpload}
                         onReaction={onSetMessageReaction}
                         onPollAnswer={onSetPollAnswer}
+                        onBotCallback={onBotCallback}
                         nextAudioPlaybackId={nextAudioPlaybackIdByMessage.get(message.id)}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}
