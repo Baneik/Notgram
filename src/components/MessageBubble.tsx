@@ -4,6 +4,7 @@ import {
   AudioLines,
   Check,
   CheckCheck,
+  ChevronDown,
   CircleArrowRight,
   Copy,
   Download,
@@ -50,6 +51,7 @@ import { MediaProgressRing } from "./MediaProgressRing";
 import { PollMessage } from "./PollMessage";
 import { InlineKeyboard } from "./InlineKeyboard";
 import type { CallbackQueryAnswer } from "../telegram/types";
+import { usePreferencesStore } from "../store/preferencesStore";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
@@ -93,6 +95,7 @@ interface MessageBubbleProps {
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
+  onExpandLongText: (messageId: string) => void;
   nextAudioPlaybackId?: string;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
@@ -142,6 +145,7 @@ function MessageBubbleComponent({
   onReaction,
   onPollAnswer,
   onBotCallback,
+  onExpandLongText,
   nextAudioPlaybackId,
   onOpenReply,
   onOpenSenderProfile,
@@ -173,7 +177,15 @@ function MessageBubbleComponent({
   const textFlowRef = useRef<HTMLDivElement>(null);
   const [metaWrapped, setMetaWrapped] = useState(false);
   const [metaInlineOffset, setMetaInlineOffset] = useState(0);
+  const collapseThresholdLines = usePreferencesStore(
+    (state) => state.messageCollapseThresholdLines,
+  );
+  const collapsedLines = usePreferencesStore((state) => state.messageCollapsedLines);
+  const [textLineCount, setTextLineCount] = useState(0);
+  const [collapsedTextHeight, setCollapsedTextHeight] = useState(0);
+  const [textExpanded, setTextExpanded] = useState(false);
   const content = message.content;
+  const textCollapsible = content.kind === "text" && textLineCount > collapseThresholdLines;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
@@ -215,9 +227,58 @@ function MessageBubbleComponent({
     : undefined;
 
   useLayoutEffect(() => {
+    setTextExpanded(false);
+  }, [collapseThresholdLines, collapsedLines, content, message.id]);
+
+  useLayoutEffect(() => {
+    const flow = textFlowRef.current;
+    if (content.kind !== "text" || !flow) {
+      setTextLineCount(0);
+      setCollapsedTextHeight(0);
+      return;
+    }
+    const measure = () => {
+      const text = flow.querySelector<HTMLElement>(".message-rich-text");
+      if (!text) return;
+      const computed = getComputedStyle(text);
+      const parsedLineHeight = Number.parseFloat(computed.lineHeight);
+      const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
+        ? parsedLineHeight
+        : Number.parseFloat(computed.fontSize) * 1.48;
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      const rects = [...range.getClientRects()]
+        .filter((rect) => rect.width > 0 && rect.height > 0)
+        .sort((left, right) => left.top - right.top || left.left - right.left);
+      const lineTops: number[] = [];
+      for (const rect of rects) {
+        if (!lineTops.some((top) => Math.abs(top - rect.top) < 1.5)) lineTops.push(rect.top);
+      }
+      const rectHeight = rects.length > 0
+        ? Math.max(...rects.map((rect) => rect.bottom)) - Math.min(...rects.map((rect) => rect.top))
+        : 0;
+      const lineCount = Math.max(lineTops.length, Math.ceil(rectHeight / lineHeight));
+      setTextLineCount((current) => current === lineCount ? current : lineCount);
+      const nextHeight = lineHeight * collapsedLines;
+      setCollapsedTextHeight((current) => Math.abs(current - nextHeight) < 0.25
+        ? current
+        : nextHeight);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(flow);
+    return () => observer.disconnect();
+  }, [collapsedLines, content]);
+
+  useLayoutEffect(() => {
     const flow = textFlowRef.current;
     const hasInlineCaption = isVisual && hasCaption;
     if ((content.kind !== "text" && !hasInlineCaption) || !flow) return;
+    if (textCollapsible) {
+      setMetaWrapped(true);
+      setMetaInlineOffset(0);
+      return;
+    }
 
     const measure = () => {
       const text = flow.querySelector<HTMLElement>(".message-rich-text");
@@ -244,7 +305,7 @@ function MessageBubbleComponent({
     const observer = new ResizeObserver(measure);
     observer.observe(flow);
     return () => observer.disconnect();
-  }, [content, hasCaption, isVisual, message.delivery, message.editedAt, message.sentAt]);
+  }, [content, hasCaption, isVisual, message.delivery, message.editedAt, message.sentAt, textCollapsible]);
   const visualShellStyle = mediaLayout
     ? {
         "--visual-media-width": `${mediaLayout.width}px`,
@@ -486,10 +547,27 @@ function MessageBubbleComponent({
           {content.kind === "text" ? (
             <div
               ref={textFlowRef}
-              className={`message-text-flow ${isLargeEmojiText(content.text) ? "is-large-emoji" : ""} ${metaWrapped ? "is-meta-wrapped" : ""}`}
-              style={{ "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}
+              className={`message-text-flow ${isLargeEmojiText(content.text) ? "is-large-emoji" : ""} ${metaWrapped ? "is-meta-wrapped" : ""} ${textCollapsible ? "is-text-collapsible" : ""} ${textCollapsible && !textExpanded ? "is-text-collapsed" : ""}`}
+              data-message-line-count={textLineCount || undefined}
+              style={{
+                "--message-meta-inline-offset": `${metaInlineOffset}px`,
+                "--collapsed-message-height": `${collapsedTextHeight}px`,
+              } as CSSProperties}
             >
               <MessageRichText text={content.text} entities={content.entities} />
+              {textCollapsible && !textExpanded && (
+                <button
+                  className="long-message-expand"
+                  type="button"
+                  onClick={() => {
+                    setTextExpanded(true);
+                    requestAnimationFrame(() => onExpandLongText(message.id));
+                  }}
+                >
+                  <ChevronDown size={15} strokeWidth={2} />
+                  展开全文
+                </button>
+              )}
               {messageMeta}
             </div>
           ) : content.kind === "rich" ? (

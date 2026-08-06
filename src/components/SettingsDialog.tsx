@@ -219,6 +219,8 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const messageGroupSpacing = usePreferencesStore((state) => state.messageGroupSpacing);
   const messageRowSpacing = usePreferencesStore((state) => state.messageRowSpacing);
   const messageBubblePadding = usePreferencesStore((state) => state.messageBubblePadding);
+  const messageCollapseThresholdLines = usePreferencesStore((state) => state.messageCollapseThresholdLines);
+  const messageCollapsedLines = usePreferencesStore((state) => state.messageCollapsedLines);
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const colorTheme = usePreferencesStore((state) => state.colorTheme);
   const preferences: AppPreferences = {
@@ -242,6 +244,8 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     messageGroupSpacing,
     messageRowSpacing,
     messageBubblePadding,
+    messageCollapseThresholdLines,
+    messageCollapsedLines,
     unreadBadgePosition,
     colorTheme,
   };
@@ -655,6 +659,57 @@ function PreferenceSettings({
           >
             <RotateCcw size={15} strokeWidth={2} />
             恢复间距默认值
+          </button>
+        </section>
+      )}
+      {category === "chats" && (
+        <section className="settings-section" aria-labelledby="long-message-heading">
+          <div className="settings-section-heading">
+            <FileText size={18} strokeWidth={1.8} />
+            <div>
+              <h4 id="long-message-heading">长消息</h4>
+              <span>控制长文本的自动折叠范围</span>
+            </div>
+          </div>
+          <div className="display-preference-list">
+            <NumericStepper
+              label="折叠阈值"
+              value={preferences.messageCollapseThresholdLines}
+              minimum={20}
+              maximum={500}
+              step={10}
+              suffix="行"
+              onChange={(value) => {
+                onChange("messageCollapseThresholdLines", value);
+                if (preferences.messageCollapsedLines > value) {
+                  onChange("messageCollapsedLines", value);
+                }
+              }}
+            />
+            <NumericStepper
+              label="收缩行数"
+              value={preferences.messageCollapsedLines}
+              minimum={10}
+              maximum={preferences.messageCollapseThresholdLines}
+              step={10}
+              suffix="行"
+              onChange={(value) => onChange("messageCollapsedLines", value)}
+            />
+          </div>
+          <button
+            className="storage-reset display-reset"
+            type="button"
+            disabled={
+              preferences.messageCollapseThresholdLines === 100 &&
+              preferences.messageCollapsedLines === 50
+            }
+            onClick={() => {
+              onChange("messageCollapseThresholdLines", 100);
+              onChange("messageCollapsedLines", 50);
+            }}
+          >
+            <RotateCcw size={15} strokeWidth={2} />
+            恢复长消息默认值
           </button>
         </section>
       )}

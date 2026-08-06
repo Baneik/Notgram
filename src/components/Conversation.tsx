@@ -521,6 +521,7 @@ export function Conversation({
     newMessageNotice,
     awayFromLatest,
     jumpToLatest,
+    revealMessageStart,
     followOutput,
     onTotalListHeightChanged,
     onInitialRangeChanged,
@@ -1233,6 +1234,7 @@ export function Conversation({
                         onReaction={onSetMessageReaction}
                         onPollAnswer={onSetPollAnswer}
                         onBotCallback={onBotCallback}
+                        onExpandLongText={revealMessageStart}
                         nextAudioPlaybackId={nextAudioPlaybackIdByMessage.get(message.id)}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}

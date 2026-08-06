@@ -241,6 +241,7 @@ export const useConversationScroll = ({
   const initialPositionVerifierRef = useRef<() => void>(() => undefined);
   const initialPositionCancelledIdentityRef = useRef<string | undefined>(undefined);
   const latestJumpFrameRef = useRef<number | undefined>(undefined);
+  const messageRevealFrameRef = useRef<number | undefined>(undefined);
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const smoothScrollUntilRef = useRef(0);
   const [newMessageNotice, setNewMessageNotice] = useState<{
@@ -638,6 +639,43 @@ export const useConversationScroll = ({
     initialPositionVerifierRef.current();
     scheduleExactBottomCorrection();
   }, [scheduleExactBottomCorrection]);
+
+  const revealMessageStart = useCallback((messageId: string) => {
+    const element = messageListRef.current;
+    if (!element || !currentScrollKey) return;
+    stopFollowingLatest();
+    if (messageRevealFrameRef.current !== undefined) {
+      cancelAnimationFrame(messageRevealFrameRef.current);
+    }
+    let remainingFrames = 3;
+    const alignMessage = () => {
+      const target = element.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(messageId)}"]`,
+      );
+      if (!target || !target.isConnected || messageListRef.current !== element) {
+        messageRevealFrameRef.current = undefined;
+        return;
+      }
+      const offset = target.getBoundingClientRect().top - element.getBoundingClientRect().top;
+      element.scrollTop += offset;
+      conversationScrollMemory.set(currentScrollKey, {
+        scrollTop: element.scrollTop,
+        followLatest: false,
+        lastKnownMessageId: lastVisibleMessageIdRef.current,
+        pendingNewCount: conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0,
+        anchorMessageId: messageId,
+        anchorOffset: 0,
+      });
+      updateLatestPosition(currentScrollKey, false);
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        messageRevealFrameRef.current = requestAnimationFrame(alignMessage);
+      } else {
+        messageRevealFrameRef.current = undefined;
+      }
+    };
+    messageRevealFrameRef.current = requestAnimationFrame(alignMessage);
+  }, [currentScrollKey, stopFollowingLatest]);
 
   useLayoutEffect(() => {
     const renderStartedAt = performance.now();
@@ -1261,6 +1299,10 @@ export const useConversationScroll = ({
       cancelAnimationFrame(latestJumpFrameRef.current);
       latestJumpFrameRef.current = undefined;
     }
+    if (messageRevealFrameRef.current !== undefined) {
+      cancelAnimationFrame(messageRevealFrameRef.current);
+      messageRevealFrameRef.current = undefined;
+    }
     if (smoothScrollTimerRef.current !== undefined) {
       globalThis.clearTimeout(smoothScrollTimerRef.current);
       smoothScrollTimerRef.current = undefined;
@@ -1411,6 +1453,7 @@ export const useConversationScroll = ({
       !latestPosition.atBottom
     ),
     jumpToLatest,
+    revealMessageStart,
     followOutput,
     onTotalListHeightChanged,
     onInitialRangeChanged: scheduleInitialPositionVerification,

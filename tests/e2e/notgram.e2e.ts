@@ -1615,14 +1615,53 @@ test("renders and activates TDLib inline bot keyboards", async ({ page }) => {
   await expect(keyboard.getByRole("status")).toHaveText("机器人已处理操作");
 });
 
+test("long text uses configurable line folding and expands from its start", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await settings.getByRole("button", { name: /聊天设置/ }).click();
+  await settings.getByRole("spinbutton", { name: "折叠阈值" }).fill("110");
+  await settings.getByRole("spinbutton", { name: "收缩行数" }).fill("60");
+  await expect(settings.getByRole("spinbutton", { name: "折叠阈值" })).toHaveValue("110");
+  await expect(settings.getByRole("spinbutton", { name: "收缩行数" })).toHaveValue("60");
+  await settings.getByRole("button", { name: "关闭", exact: true }).click();
+
+  await page.getByRole("button", { name: "搜索消息" }).click();
+  const messageSearch = page.getByPlaceholder("搜索当前对话");
+  await messageSearch.fill("长消息内容第 120 行");
+  await expect(page.locator(".message-search-count")).toHaveText("1 / 1");
+  await messageSearch.press("Enter");
+  const row = page.locator('[data-message-id="p-long-text"]');
+  await expect(row).toBeVisible();
+  const flow = row.locator(".message-text-flow");
+  await expect(flow).toHaveClass(/is-text-collapsed/);
+  await expect.poll(async () => Number(await flow.getAttribute("data-message-line-count")))
+    .toBeGreaterThan(110);
+  const collapsed = await flow.locator(".message-rich-text").evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(Math.abs(collapsed.height - collapsed.lineHeight * 60)).toBeLessThanOrEqual(1);
+  expect(collapsed.scrollHeight).toBeGreaterThan(collapsed.height);
+
+  await row.getByRole("button", { name: "展开全文" }).click();
+  await expect(flow).not.toHaveClass(/is-text-collapsed/);
+  await expect(row.getByRole("button", { name: "展开全文" })).toHaveCount(0);
+  await expect.poll(() => row.evaluate((element) => {
+    const list = element.closest<HTMLElement>(".message-list");
+    return list ? Math.abs(element.getBoundingClientRect().top - list.getBoundingClientRect().top) : 999;
+  })).toBeLessThanOrEqual(1);
+});
+
 test("blocks users and reports chats or selected messages", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
   const profile = page.getByRole("dialog", { name: "资料" });
   await profile.getByRole("button", { name: "举报", exact: true }).click();
   const report = page.getByRole("dialog", { name: /举报“产品讨论”/ });
-  await expect(report.getByLabel("举报原因")).toBeVisible();
-  await report.getByLabel("举报原因").selectOption({ label: "垃圾信息" });
+  await expect(report.getByRole("radiogroup", { name: "举报原因" })).toBeVisible();
+  await report.getByRole("radio", { name: "垃圾信息" }).click();
   await report.getByRole("button", { name: "提交举报" }).click();
   await expect(report).toBeHidden();
   await profile.locator(".profile-member-identity").filter({ hasText: "Mia Chen" }).click();
@@ -1631,11 +1670,21 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
   await profile.getByRole("button", { name: "解除屏蔽", exact: true }).click();
   await profile.getByRole("button", { name: "关闭资料" }).click();
 
-  const message = page.locator('[data-message-id="p-2"] .message-bubble-shell');
+  const message = page.locator('[data-message-id="p-5"] .message-bubble-shell');
+  await message.scrollIntoViewIfNeeded();
   await message.focus();
   await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "举报");
   const messageReport = page.getByRole("dialog", { name: /举报“产品讨论”/ });
+  const reportLayout = await messageReport.evaluate((dialog) => {
+    const body = dialog.querySelector<HTMLElement>(".report-dialog-body")!;
+    return {
+      dialogFits: dialog.scrollHeight <= dialog.clientHeight + 1,
+      bodyFits: body.scrollHeight <= body.clientHeight + 1,
+      bodyOverflow: getComputedStyle(body).overflowY,
+    };
+  });
+  expect(reportLayout).toEqual({ dialogFits: true, bodyFits: true, bodyOverflow: "visible" });
   await messageReport.getByRole("button", { name: "提交举报" }).click();
   await expect(messageReport).toBeHidden();
 });
