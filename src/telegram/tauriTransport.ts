@@ -68,6 +68,9 @@ import type {
   CreateChatInviteLinkInput,
   GetChatInviteLinksInput,
   GetChatJoinRequestsInput,
+  BotCommandSuggestion,
+  InlineQueryResultPage,
+  InlineQueryResult,
   ChatMemberStatusInput,
   ChatPermissions,
   ManagedChatMember,
@@ -1152,6 +1155,58 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async processChatJoinRequests(chatId: string, inviteLink: string | undefined, approve: boolean): Promise<void> {
     await this.request({ "@type": "processChatJoinRequests", chat_id: numericId(chatId), invite_link: inviteLink ?? "", approve });
+  }
+
+  private async resolveBotUser(botUsername: string): Promise<{ userId: string; username: string }> {
+    const username = botUsername.replace(/^@/, "").trim();
+    if (!username || !/^[A-Za-z0-9_]{5,32}$/.test(username)) throw new Error("机器人用户名无效");
+    const result = await this.request({ "@type": "searchPublicChats", query: username, limit: 10 });
+    const chatIds = Array.isArray(result.chat_ids) ? result.chat_ids.map(tdId).filter(Boolean) : [];
+    for (const chatId of chatIds) {
+      const chat = this.rawChats.get(chatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
+      const type = asTdObject(chat.type);
+      const userId = tdId(type?.user_id);
+      if (type?.["@type"] === "chatTypePrivate" && userId) return { userId, username };
+    }
+    throw new Error("找不到这个机器人");
+  }
+
+  async getBotCommandSuggestions(botUsername: string, query = ""): Promise<BotCommandSuggestion[]> {
+    const bot = await this.resolveBotUser(botUsername);
+    const full = await this.request({ "@type": "getUserFullInfo", user_id: numericId(bot.userId) });
+    const normalized = query.replace(/^\//, "").toLocaleLowerCase();
+    return asTdObjects(full.bot_commands).flatMap((raw) => {
+      const command = typeof raw.command === "string" ? raw.command : "";
+      const description = typeof raw.description === "string" ? raw.description : "";
+      return command && (!normalized || command.toLocaleLowerCase().startsWith(normalized))
+        ? [{ botUserId: bot.userId, botUsername: bot.username, command, description }]
+        : [];
+    });
+  }
+
+  async getInlineQueryResults(chatId: string, botUsername: string, query: string, offset = ""): Promise<InlineQueryResultPage> {
+    const bot = await this.resolveBotUser(botUsername);
+    const result = await this.request({ "@type": "getInlineQueryResults", bot_user_id: numericId(bot.userId), chat_id: numericId(chatId), user_location: null, query: query.slice(0, 256), offset: offset.slice(0, 64) });
+    const mapped = asTdObjects(result.results).flatMap((raw): InlineQueryResult[] => {
+      const id = typeof raw.id === "string" ? raw.id : "";
+      if (!id) return [];
+      const content = asTdObject(raw.input_message_content);
+      const formatted = asTdObject(content?.text);
+      const messageText = typeof formatted?.text === "string" ? formatted.text : typeof raw.title === "string" ? raw.title : "Inline 结果";
+      const kind = raw["@type"] === "inlineQueryResultPhoto" ? "photo" : raw["@type"] === "inlineQueryResultVideo" ? "video" : raw["@type"] === "inlineQueryResultDocument" ? "file" : "article";
+      return [{ id, kind, title: typeof raw.title === "string" ? raw.title : "Inline 结果", description: typeof raw.description === "string" ? raw.description : undefined, messageText, fileName: typeof raw.title === "string" ? raw.title : undefined }];
+    });
+    const nextOffset = typeof result.next_offset === "string" && result.next_offset ? result.next_offset : undefined;
+    return { queryId: String(result.inline_query_id ?? ""), results: mapped, nextOffset, hasMore: Boolean(nextOffset) };
+  }
+
+  async sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string): Promise<void> {
+    void botUserId;
+    await this.request({ "@type": "sendInlineQueryResultMessage", chat_id: numericId(chatId), topic_id: null, reply_to: replyToMessageId ? { "@type": "inputMessageReplyToMessage", message_id: numericId(replyToMessageId), quote: null, checklist_task_id: 0 } : null, options: { "@type": "messageSendOptions", disable_notification: false, from_background: false, protect_content: false, update_order_of_installed_sticker_sets: false, scheduling_state: null, paid_message_star_count: 0 }, query_id: numericId(queryId), result_id: resultId, hide_via_bot: false });
+  }
+
+  async sendBotStartMessage(chatId: string, botUserId: string, parameter = ""): Promise<void> {
+    await this.request({ "@type": "sendBotStartMessage", bot_user_id: numericId(botUserId), chat_id: numericId(chatId), parameter: parameter.trim().slice(0, 64) });
   }
 
   async searchGlobal({

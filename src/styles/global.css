@@ -1045,6 +1045,18 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .media-progress button:hover { background: rgba(255, 255, 255, 0.16); }
 .messages-empty { width: fit-content; margin: 42px auto; padding: 5px 10px; color: #ffffff; background: rgba(92, 117, 112, 0.72); border-radius: 12px; font-size: 11px; }
 .composer-wrap { position: relative; min-width: 0; min-height: 50px; padding: 0; display: grid; align-content: end; background: #ffffff; }
+.bot-suggestion-panel, .inline-query-panel { position: absolute; z-index: 8; right: 12px; bottom: calc(100% - 2px); width: min(460px, calc(100vw - 24px)); max-height: 300px; overflow-y: auto; display: grid; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px rgba(20, 32, 43, .18); }
+.bot-suggestion-panel button, .inline-query-result, .inline-query-more { min-width: 0; padding: 9px 11px; display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; font: inherit; }
+.bot-suggestion-panel button:hover, .inline-query-result:hover, .inline-query-more:hover { background: var(--surface-hover); }
+.bot-suggestion-panel strong, .inline-query-result strong { font-size: 12px; }
+.bot-suggestion-panel span, .bot-suggestion-panel small, .inline-query-result small { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.bot-suggestion-panel small { grid-column: 1 / -1; }
+.inline-query-panel { grid-template-columns: minmax(0, 1fr); }
+.inline-query-result { grid-template-columns: auto minmax(0, 1fr); }
+.inline-query-result > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.inline-query-result-kind { min-width: 36px; padding: 3px 5px; color: var(--accent); border: 1px solid var(--accent-soft); border-radius: 4px; text-align: center; font-size: 9px; }
+.inline-query-loading { min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 11px; }
+.inline-query-more { display: block; color: var(--accent); text-align: center; font-size: 11px; }
 .composer-connection-status {
   min-height: 28px; padding: 5px 12px; background: #f7f8f8; box-shadow: inset 0 1px var(--line);
 }

@@ -85,6 +85,27 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("resolves bot commands, inline results, and native send actions", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawChats: Map<string, TdObject> };
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "searchPublicChats") return { "@type": "chats", chat_ids: [72] };
+      if (request["@type"] === "getChat") return { "@type": "chat", id: 72, type: { "@type": "chatTypePrivate", user_id: 901 } };
+      if (request["@type"] === "getUserFullInfo") return { "@type": "userFullInfo", bot_commands: [{ "@type": "botCommand", command: "start", description: "启动" }] };
+      if (request["@type"] === "getInlineQueryResults") return { "@type": "inlineQueryResults", inline_query_id: 1234, results: [{ "@type": "inlineQueryResultArticle", id: "r1", title: "结果", description: "预览", input_message_content: { "@type": "inputMessageText", text: { "@type": "formattedText", text: "结果正文", entities: [] }, link_preview_options: null, clear_draft: false } }], next_offset: "2" };
+      return { "@type": "ok" };
+    };
+    const commands = await transport.getBotCommandSuggestions("notgram_bot");
+    const page = await transport.getInlineQueryResults("72", "notgram_bot", "hello");
+    await transport.sendInlineQueryResultMessage("72", commands[0].botUserId, page.queryId, page.results[0].id);
+    await transport.sendBotStartMessage("72", commands[0].botUserId, "demo");
+    expect(commands[0]).toMatchObject({ botUserId: "901", command: "start" });
+    expect(page).toMatchObject({ queryId: "1234", hasMore: true, results: [{ messageText: "结果正文" }] });
+    expect(requests.map((request) => request["@type"])).toEqual(["searchPublicChats", "getChat", "getUserFullInfo", "searchPublicChats", "getChat", "getInlineQueryResults", "sendInlineQueryResultMessage", "sendBotStartMessage"]);
+  });
+
   it("maps the complete member, permission, slow mode, and ownership requests", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawChats: Map<string, TdObject> };

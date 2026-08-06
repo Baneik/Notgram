@@ -19,6 +19,8 @@ import type {
   CreateChatInviteLinkInput,
   GetChatInviteLinksInput,
   GetChatJoinRequestsInput,
+  BotCommandSuggestion,
+  InlineQueryResultPage,
   ChatMemberStatusInput,
   ChatPermissions,
   ManagedChatMember,
@@ -199,6 +201,7 @@ export class MockTelegramTransport implements TelegramTransport {
   private chatAudit = new Map<string, ChatEvent[]>();
   private chatInviteLinks = new Map<string, ChatInviteLink[]>();
   private chatJoinRequests = new Map<string, ChatJoinRequest[]>();
+  private inlineResults = new Map<string, { botUserId: string; text: string }>();
   private authFlow: boolean;
   private connectionStatus: ConnectionStatus;
   private initialTyping?: { chatId: string; senderId: string };
@@ -999,6 +1002,44 @@ export class MockTelegramTransport implements TelegramTransport {
     this.chatJoinRequests.set(chatId, requests.filter((request) => inviteLink && request.inviteLink !== inviteLink));
     if (approve) await this.addChatMembers(chatId, selected.map((request) => request.user.id));
     this.appendChatAudit(chatId, `${approve ? "批量批准" : "批量拒绝"} ${selected.length} 个入群申请`, "inviteLink");
+  }
+
+  async getBotCommandSuggestions(botUsername: string, query = ""): Promise<BotCommandSuggestion[]> {
+    const username = botUsername.replace(/^@/, "").trim() || "notgram_bot";
+    const commands: BotCommandSuggestion[] = [
+      { botUserId: `bot:${username}`, botUsername: username, command: "start", description: "启动机器人或打开参数" },
+      { botUserId: `bot:${username}`, botUsername: username, command: "help", description: "查看帮助" },
+      { botUserId: `bot:${username}`, botUsername: username, command: "settings", description: "打开设置" },
+    ];
+    const normalized = query.replace(/^\//, "").toLocaleLowerCase();
+    return commands.filter((command) => !normalized || command.command.startsWith(normalized));
+  }
+
+  async getInlineQueryResults(chatId: string, botUsername: string, query: string, offset = ""): Promise<InlineQueryResultPage> {
+    void chatId;
+    const username = botUsername.replace(/^@/, "").trim() || "notgram_bot";
+    const all = [
+      { title: "快速摘要", description: `由 @${username} 生成的摘要`, messageText: `@${username}: ${query.trim() || "空查询"}` },
+      { title: "项目卡片", description: "包含媒体预览的结果", messageText: `项目卡片：${query.trim() || "Notgram"}`, thumbnailUrl: "/icon.png" },
+      { title: "引用模板", description: "可继续编辑后发送", messageText: `> ${query.trim() || "输入内容"}` },
+      { title: "文件结果", description: "结果中的文件摘要", messageText: `文件：${query.trim() || "说明文档"}`, kind: "file" as const, fileName: "result.txt" },
+    ].map((item, index) => ({ ...item, id: `${username}-${index}`, kind: item.kind ?? (index === 1 ? "photo" as const : "article" as const) }));
+    const start = offset ? Number.parseInt(offset, 10) || 0 : 0;
+    const page = all.slice(start, start + 2);
+    for (const result of page) this.inlineResults.set(result.id, { botUserId: `bot:${username}`, text: result.messageText });
+    return { queryId: `mock-query-${Date.now()}`, results: clone(page), nextOffset: start + page.length < all.length ? String(start + page.length) : undefined, hasMore: start + page.length < all.length };
+  }
+
+  async sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string): Promise<void> {
+    void queryId;
+    const result = this.inlineResults.get(resultId);
+    if (!result || result.botUserId !== botUserId) throw new Error("Inline 结果已过期");
+    await this.sendMessage({ chatId, text: result.text, replyToMessageId });
+  }
+
+  async sendBotStartMessage(chatId: string, botUserId: string, parameter = ""): Promise<void> {
+    await this.sendMessage({ chatId, text: `/start${parameter.trim() ? ` ${parameter.trim()}` : ""}` });
+    void botUserId;
   }
 
   async searchChats(query: string, limit = 50) {

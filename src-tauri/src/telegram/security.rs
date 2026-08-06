@@ -31,6 +31,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChatHistory",
     "getChatInviteLinks",
     "getChatJoinRequests",
+    "getInlineQueryResults",
     "getChatPinnedMessage",
     "getChats",
     "getBasicGroupFullInfo",
@@ -69,6 +70,8 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "searchMessages",
     "searchPublicChats",
     "sendMessage",
+    "sendInlineQueryResultMessage",
+    "sendBotStartMessage",
     "setBio",
     "setAuthenticationEmailAddress",
     "setAuthenticationPhoneNumber",
@@ -286,6 +289,34 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
             {
                 return Err("Invalid join request pagination".to_string());
             }
+        }
+        "getInlineQueryResults" => {
+            validate_nonzero_identifier(request, "bot_user_id")?;
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_profile_text(request, "query", 256, true, false)?;
+            validate_profile_text(request, "offset", 64, true, false)?;
+        }
+        "sendInlineQueryResultMessage" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_nonzero_identifier(request, "query_id")?;
+            let result_id = request
+                .get("result_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Inline result identifier is missing".to_string())?;
+            if result_id.is_empty()
+                || result_id.len() > 256
+                || request
+                    .get("hide_via_bot")
+                    .and_then(Value::as_bool)
+                    .is_none()
+            {
+                return Err("Invalid inline result message".to_string());
+            }
+        }
+        "sendBotStartMessage" => {
+            validate_nonzero_identifier(request, "bot_user_id")?;
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_profile_text(request, "parameter", 64, true, false)?;
         }
         "processChatJoinRequest" => {
             validate_nonzero_identifier(request, "chat_id")?;
@@ -1593,6 +1624,37 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&event_log).is_ok());
+
+        let inline = json!({
+            "@type": "getInlineQueryResults",
+            "bot_user_id": 901,
+            "chat_id": 72,
+            "user_location": null,
+            "query": "release",
+            "offset": "",
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&inline).is_ok());
+        let send_inline = json!({
+            "@type": "sendInlineQueryResultMessage",
+            "chat_id": 72,
+            "topic_id": null,
+            "reply_to": null,
+            "options": null,
+            "query_id": 1234,
+            "result_id": "result-1",
+            "hide_via_bot": false,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&send_inline).is_ok());
+        let start_bot = json!({
+            "@type": "sendBotStartMessage",
+            "bot_user_id": 901,
+            "chat_id": 72,
+            "parameter": "campaign",
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&start_bot).is_ok());
 
         let photo = crate::storage::UploadFileInfo {
             path: "C:\\selected\\group.jpg".to_string(),

@@ -31,6 +31,8 @@ import type {
   CreateChatInviteLinkInput,
   GetChatInviteLinksInput,
   GetChatJoinRequestsInput,
+  BotCommandSuggestion,
+  InlineQueryResultPage,
   ChatMemberStatusInput,
   ChatPermissions,
   CreateChatInput,
@@ -103,6 +105,10 @@ export interface TelegramTransport {
   getChatJoinRequests(input: GetChatJoinRequestsInput): Promise<ChatJoinRequestPage>;
   processChatJoinRequest(chatId: string, userId: string, approve: boolean): Promise<void>;
   processChatJoinRequests(chatId: string, inviteLink: string | undefined, approve: boolean): Promise<void>;
+  getBotCommandSuggestions(botUsername: string, query?: string): Promise<BotCommandSuggestion[]>;
+  getInlineQueryResults(chatId: string, botUsername: string, query: string, offset?: string): Promise<InlineQueryResultPage>;
+  sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string): Promise<void>;
+  sendBotStartMessage(chatId: string, botUserId: string, parameter?: string): Promise<void>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;

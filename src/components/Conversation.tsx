@@ -150,6 +150,10 @@ interface ConversationProps {
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
   onSetChatArchived: (archived: boolean) => Promise<boolean>;
   onBack: () => void;
+  onGetBotCommands: (botUsername: string, query?: string) => Promise<import("../telegram/types").BotCommandSuggestion[]>;
+  onGetInlineResults: (botUsername: string, query: string, offset?: string) => Promise<import("../telegram/types").InlineQueryResultPage | undefined>;
+  onSendInlineResult: (botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
+  onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
 }
 
 export function Conversation({
@@ -206,6 +210,10 @@ export function Conversation({
   onSetChatMuted,
   onSetChatArchived,
   onBack,
+  onGetBotCommands,
+  onGetInlineResults,
+  onSendInlineResult,
+  onSendBotStart,
 }: ConversationProps) {
   const [actionMenu, setActionMenu] = useState<{
     messageId: string;
@@ -1328,6 +1336,10 @@ export function Conversation({
         onSendFiles={sendFilesAndFollowLatest}
         onCancelEditing={cancelEditing}
         onCancelReply={cancelReply}
+        onGetBotCommands={onGetBotCommands}
+        onGetInlineResults={onGetInlineResults}
+        onSendInlineResult={onSendInlineResult}
+        onSendBotStart={onSendBotStart}
       />
       )}
 

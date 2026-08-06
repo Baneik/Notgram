@@ -1903,6 +1903,26 @@ export const createTelegramStore = (
         catch (error) { set({ operationError: errorMessage(error, "无法批量处理入群申请") }); return false; }
       },
 
+      getBotCommandSuggestions: async (botUsername, query = "") => {
+        try { return await transport.getBotCommandSuggestions(botUsername, query); }
+        catch { return []; }
+      },
+
+      getInlineQueryResults: async (chatId, botUsername, query, offset = "") => {
+        try { return await transport.getInlineQueryResults(chatId, botUsername, query, offset); }
+        catch (error) { set({ operationError: errorMessage(error, "无法读取机器人 Inline 结果") }); return undefined; }
+      },
+
+      sendInlineQueryResultMessage: async (chatId, botUserId, queryId, resultId, replyToMessageId) => {
+        try { await transport.sendInlineQueryResultMessage(chatId, botUserId, queryId, resultId, replyToMessageId); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法发送 Inline 结果") }); return false; }
+      },
+
+      sendBotStartMessage: async (chatId, botUserId, parameter = "") => {
+        try { await transport.sendBotStartMessage(chatId, botUserId, parameter); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法启动机器人") }); return false; }
+      },
+
       setMessageReaction: async (messageId, emoji, chosen) => {
         const chatId = get().activeChatId;
         if (!chatId) return;

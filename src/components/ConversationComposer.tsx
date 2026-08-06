@@ -20,7 +20,7 @@ import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
-import type { ConnectionStatus, Message, OutgoingAttachment } from "../telegram/types";
+import type { BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, OutgoingAttachment } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
@@ -44,6 +44,10 @@ interface ConversationComposerProps {
   onSendFiles: (attachments: OutgoingAttachment[], caption?: string) => Promise<boolean>;
   onCancelEditing: () => void;
   onCancelReply: () => void;
+  onGetBotCommands: (botUsername: string, query?: string) => Promise<BotCommandSuggestion[]>;
+  onGetInlineResults: (botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
+  onSendInlineResult: (botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
+  onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
 }
 
 const LOCAL_DRAFT_DELAY_MS = 750;
@@ -76,6 +80,10 @@ export const ConversationComposer = memo(function ConversationComposer({
   onSendFiles,
   onCancelEditing,
   onCancelReply,
+  onGetBotCommands,
+  onGetInlineResults,
+  onSendInlineResult,
+  onSendBotStart,
 }: ConversationComposerProps) {
   const chatDraft = useTelegramStore((state) => state.drafts.get(chatId));
   const [draft, setDraft] = useState(chatDraft?.text ?? "");
@@ -89,6 +97,11 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [attachmentCaptionAbove, setAttachmentCaptionAbove] = useState(false);
   const [muteVideos, setMuteVideos] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [botSuggestions, setBotSuggestions] = useState<BotCommandSuggestion[]>([]);
+  const [inlineResults, setInlineResults] = useState<InlineQueryResultPage>();
+  const [inlineLoading, setInlineLoading] = useState(false);
+  const selectedBotRef = useRef<BotCommandSuggestion | undefined>(undefined);
+  const botQueryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +122,26 @@ export const ConversationComposer = memo(function ConversationComposer({
   const pendingAttachmentsRef = useRef(pendingAttachments);
 
   pendingAttachmentsRef.current = pendingAttachments;
+
+  useEffect(() => {
+    if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current);
+    const slash = !editingMessage ? draft.match(/^\/([A-Za-z0-9_]*)(?:@([A-Za-z0-9_]{5,32}))?$/) : null;
+    const inline = !editingMessage ? draft.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/) : null;
+    if (slash) {
+      const username = slash[2] || "notgram_bot";
+      botQueryTimerRef.current = globalThis.setTimeout(() => { void onGetBotCommands(username, slash[1]).then(setBotSuggestions); }, 140);
+      setInlineResults(undefined);
+    } else if (inline) {
+      setBotSuggestions([]);
+      setInlineLoading(true);
+      botQueryTimerRef.current = globalThis.setTimeout(() => { void onGetInlineResults(inline[1], inline[2]).then((page) => { setInlineResults(page); setInlineLoading(false); }); }, 180);
+    } else {
+      setBotSuggestions([]);
+      setInlineResults(undefined);
+      setInlineLoading(false);
+    }
+    return () => { if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current); };
+  }, [draft, editingMessage, onGetBotCommands, onGetInlineResults]);
 
   useComposerAutoResize(inputRef, draft, !composing, chatId);
 
@@ -402,6 +435,26 @@ export const ConversationComposer = memo(function ConversationComposer({
       return;
     }
 
+    const startCommand = submitted.match(/^\/start(?:@([A-Za-z0-9_]{5,32}))?(?:\s+(.+))?$/);
+    const startBot = selectedBotRef.current;
+    if (startCommand && startBot) {
+      if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = undefined;
+      pendingDraftRef.current = undefined;
+      localDraftDirtyRef.current = false;
+      draftRef.current = "";
+      setDraft("");
+      onDraftChange(chatId, "", undefined);
+      stopTyping();
+      setSending(true);
+      const sent = await onSendBotStart(startBot.botUserId, startCommand[2]);
+      setSending(false);
+      if (!sent) { draftRef.current = submitted; setDraft(submitted); scheduleDraft(submitted, replyingTo?.id ?? chatDraft?.replyToMessageId); }
+      else onCancelReply();
+      focusComposer();
+      return;
+    }
+
     if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
     draftTimerRef.current = undefined;
     pendingDraftRef.current = undefined;
@@ -601,6 +654,17 @@ export const ConversationComposer = memo(function ConversationComposer({
             <X size={17} strokeWidth={1.9} />
           </button>
         </div>
+      )}
+      {botSuggestions.length > 0 && (
+        <section className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
+          {botSuggestions.map((suggestion) => <button key={`${suggestion.botUsername}-${suggestion.command}`} type="button" role="option" onClick={() => { selectedBotRef.current = suggestion; const next = `/${suggestion.command}@${suggestion.botUsername} `; draftRef.current = next; setDraft(next); scheduleDraft(next, replyingTo?.id ?? chatDraft?.replyToMessageId); focusComposer(); }}><strong>/{suggestion.command}</strong><span>@{suggestion.botUsername}</span><small>{suggestion.description}</small></button>)}
+        </section>
+      )}
+      {(inlineLoading || inlineResults) && (
+        <section className="inline-query-panel" aria-label="Inline 查询结果">
+          {inlineLoading ? <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div> : inlineResults?.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = draftRef.current.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/); if (!inline || !inlineResults) return; const bot = await onGetBotCommands(inline[1]); const botUserId = bot[0]?.botUserId ?? `bot:${inline[1]}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>)}
+          {inlineResults?.hasMore && <button type="button" className="inline-query-more" onClick={() => { const inline = draftRef.current.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline[1], inline[2], inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }); } }}>加载更多结果</button>}
+        </section>
       )}
       <div className={`composer ${editingMessage ? "is-editing" : ""}`}>
         <button

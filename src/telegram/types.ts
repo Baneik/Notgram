@@ -232,6 +232,30 @@ export interface GetChatJoinRequestsInput {
   limit?: number;
 }
 
+export interface BotCommandSuggestion {
+  botUserId: string;
+  botUsername: string;
+  command: string;
+  description: string;
+}
+
+export interface InlineQueryResult {
+  id: string;
+  kind: "article" | "photo" | "video" | "file";
+  title: string;
+  description?: string;
+  messageText: string;
+  thumbnailUrl?: string;
+  fileName?: string;
+}
+
+export interface InlineQueryResultPage {
+  queryId: string;
+  results: InlineQueryResult[];
+  nextOffset?: string;
+  hasMore: boolean;
+}
+
 export interface ProfileMember {
   user: User;
   role: ProfileMemberRole;

@@ -1514,6 +1514,25 @@ test("creates and governs invite links and join requests", async ({ page }) => {
   await dialog.getByRole("button", { name: "关闭管理面板" }).click();
 });
 
+test("suggests bot commands and sends paginated inline results", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByLabel("消息内容");
+  await composer.fill("/st");
+  const suggestions = page.getByRole("listbox", { name: "机器人命令建议" });
+  await expect(suggestions.getByRole("option")).toHaveCount(1);
+  await suggestions.getByRole("option").click();
+  await expect(composer).toHaveValue("/start@notgram_bot ");
+  await composer.fill("/start@notgram_bot campaign");
+  await composer.press("Enter");
+  await expect(page.getByText("/start campaign", { exact: true })).toBeVisible();
+
+  await composer.fill("@notgram_bot release");
+  const inline = page.getByRole("region", { name: "Inline 查询结果" });
+  await expect(inline.getByRole("button").filter({ hasText: "快速摘要" })).toBeVisible();
+  await inline.getByRole("button").filter({ hasText: "快速摘要" }).click();
+  await expect(page.getByText("@notgram_bot: release", { exact: true })).toBeVisible();
+});
+
 test("keyboard navigation closes modals and completes message workflows", async ({ page }) => {
   await page.goto("/");
 

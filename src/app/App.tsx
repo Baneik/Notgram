@@ -126,6 +126,10 @@ export function App() {
   const getChatJoinRequests = useTelegramStore((state) => state.getChatJoinRequests);
   const processChatJoinRequest = useTelegramStore((state) => state.processChatJoinRequest);
   const processChatJoinRequests = useTelegramStore((state) => state.processChatJoinRequests);
+  const getBotCommandSuggestions = useTelegramStore((state) => state.getBotCommandSuggestions);
+  const getInlineQueryResults = useTelegramStore((state) => state.getInlineQueryResults);
+  const sendInlineQueryResultMessage = useTelegramStore((state) => state.sendInlineQueryResultMessage);
+  const sendBotStartMessage = useTelegramStore((state) => state.sendBotStartMessage);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const setChatPinned = useTelegramStore((state) => state.setChatPinned);
@@ -206,6 +210,10 @@ export function App() {
   const getManagementJoinRequests = useCallback((inviteLink?: string) => managementChatId ? getChatJoinRequests({ chatId: managementChatId, inviteLink, limit: 50 }) : Promise.resolve(undefined), [getChatJoinRequests, managementChatId]);
   const processManagementJoinRequest = useCallback((userId: string, approve: boolean) => managementChatId ? processChatJoinRequest(managementChatId, userId, approve) : Promise.resolve(false), [managementChatId, processChatJoinRequest]);
   const processManagementJoinRequests = useCallback((inviteLink: string | undefined, approve: boolean) => managementChatId ? processChatJoinRequests(managementChatId, inviteLink, approve) : Promise.resolve(false), [managementChatId, processChatJoinRequests]);
+  const getComposerBotCommands = useCallback((botUsername: string, query = "") => getBotCommandSuggestions(botUsername, query), [getBotCommandSuggestions]);
+  const getComposerInlineResults = useCallback((botUsername: string, query: string, offset = "") => activeChatId ? getInlineQueryResults(activeChatId, botUsername, query, offset) : Promise.resolve(undefined), [activeChatId, getInlineQueryResults]);
+  const sendComposerInlineResult = useCallback((botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => activeChatId ? sendInlineQueryResultMessage(activeChatId, botUserId, queryId, resultId, replyToMessageId) : Promise.resolve(false), [activeChatId, sendInlineQueryResultMessage]);
+  const sendComposerBotStart = useCallback((botUserId: string, parameter = "") => activeChatId ? sendBotStartMessage(activeChatId, botUserId, parameter) : Promise.resolve(false), [activeChatId, sendBotStartMessage]);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
     chatId: string;
     requestId: number;
@@ -867,6 +875,10 @@ export function App() {
           onSetChatArchived={(archived) => activeChatId
             ? setChatArchived(activeChatId, archived)
             : Promise.resolve(false)}
+          onGetBotCommands={getComposerBotCommands}
+          onGetInlineResults={getComposerInlineResults}
+          onSendInlineResult={sendComposerInlineResult}
+          onSendBotStart={sendComposerBotStart}
           onBack={() => setMobileChatOpen(false)}
             />
           </Profiler>

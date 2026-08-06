@@ -11,6 +11,8 @@ import type {
   ChatInviteLink,
   ChatInviteLinkPage,
   ChatJoinRequestPage,
+  BotCommandSuggestion,
+  InlineQueryResultPage,
   ChatManagement,
   ChatMemberStatusInput,
   ChatPermissions,
@@ -172,6 +174,10 @@ export interface TelegramState {
   getChatJoinRequests: (input: GetChatJoinRequestsInput) => Promise<ChatJoinRequestPage | undefined>;
   processChatJoinRequest: (chatId: string, userId: string, approve: boolean) => Promise<boolean>;
   processChatJoinRequests: (chatId: string, inviteLink: string | undefined, approve: boolean) => Promise<boolean>;
+  getBotCommandSuggestions: (botUsername: string, query?: string) => Promise<BotCommandSuggestion[]>;
+  getInlineQueryResults: (chatId: string, botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
+  sendInlineQueryResultMessage: (chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
+  sendBotStartMessage: (chatId: string, botUserId: string, parameter?: string) => Promise<boolean>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   loadPinnedMessages: (chatId: string) => Promise<Message[]>;
