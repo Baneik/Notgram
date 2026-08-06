@@ -1464,6 +1464,33 @@ test("creates a public supergroup with initial members and permissions", async (
   await expect(profile.locator(".profile-member-row")).toHaveCount(2);
 });
 
+test("manages member exceptions, default permissions, slow mode, and audit events", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await profile.getByRole("button", { name: "管理", exact: true }).click();
+
+  const dialog = page.getByRole("dialog", { name: /管理“产品讨论”/ });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".management-member-row")).toHaveCount(4);
+  await dialog.getByLabel("设置 Mia Chen 的角色").selectOption("restricted");
+  await expect(dialog.getByLabel("设置 Mia Chen 的角色")).toHaveValue("restricted");
+
+  await dialog.getByRole("button", { name: "权限" }).click();
+  const polls = dialog.getByRole("checkbox", { name: "发送投票" }).first();
+  await polls.uncheck();
+  await dialog.getByRole("button", { name: "保存默认权限" }).click();
+  await dialog.getByLabel("慢速模式间隔").selectOption("30");
+  await expect(dialog.getByLabel("慢速模式间隔")).toHaveValue("30");
+  await expect(dialog.getByText("成员例外权限", { exact: true })).toBeVisible();
+
+  await dialog.getByRole("button", { name: "审计日志" }).click();
+  await expect(dialog.getByText("更新群组默认发送权限", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("设置慢速模式：30 秒", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "关闭管理面板" }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test("keyboard navigation closes modals and completes message workflows", async ({ page }) => {
   await page.goto("/");
 

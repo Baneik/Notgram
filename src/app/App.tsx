@@ -18,6 +18,7 @@ import { ProfileDrawer } from "../components/ProfileDrawer";
 import { FolderManagerDialog } from "../components/FolderManagerDialog";
 import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
 import { NewChatDialog } from "../components/NewChatDialog";
+import { ChatManagementDialog } from "../components/ChatManagementDialog";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
@@ -93,6 +94,9 @@ export function App() {
   const chatManagementPending = useTelegramStore((state) => state.chatManagementPending);
   const folderManagementPending = useTelegramStore((state) => state.folderManagementPending);
   const chatCreationPending = useTelegramStore((state) => state.chatCreationPending);
+  const groupManagement = useTelegramStore((state) => state.groupManagement);
+  const groupManagementLoading = useTelegramStore((state) => state.groupManagementLoading);
+  const groupManagementError = useTelegramStore((state) => state.groupManagementError);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
   const authorization = useTelegramStore((state) => state.authorization);
   const authorizationPending = useTelegramStore((state) => state.authorizationPending);
@@ -108,6 +112,13 @@ export function App() {
   const startPrivateChat = useTelegramStore((state) => state.startPrivateChat);
   const loadContacts = useTelegramStore((state) => state.loadContacts);
   const createChat = useTelegramStore((state) => state.createChat);
+  const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
+  const addChatMembers = useTelegramStore((state) => state.addChatMembers);
+  const setChatMemberStatus = useTelegramStore((state) => state.setChatMemberStatus);
+  const setChatPermissions = useTelegramStore((state) => state.setChatPermissions);
+  const setChatSlowModeDelay = useTelegramStore((state) => state.setChatSlowModeDelay);
+  const transferChatOwnership = useTelegramStore((state) => state.transferChatOwnership);
+  const loadChatEventLog = useTelegramStore((state) => state.loadChatEventLog);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const setChatPinned = useTelegramStore((state) => state.setChatPinned);
@@ -161,10 +172,24 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [managementChatId, setManagementChatId] = useState<string>();
   const [folderManagerInitialId, setFolderManagerInitialId] = useState<string>();
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const openChatManagement = useCallback((chatId: string) => {
+    clearProfile();
+    setManagementChatId(chatId);
+    void loadContacts();
+  }, [clearProfile, loadContacts]);
+  const managementChat = managementChatId ? chats.get(managementChatId) : undefined;
+  const loadManagement = useCallback((offset = 0) => managementChatId ? loadChatManagement(managementChatId, offset) : Promise.resolve(undefined), [loadChatManagement, managementChatId]);
+  const addManagementMembers = useCallback((userIds: string[]) => managementChatId ? addChatMembers(managementChatId, userIds) : Promise.resolve(false), [addChatMembers, managementChatId]);
+  const setManagementMemberStatus = useCallback((userId: string, status: import("../telegram/types").ChatMemberStatusInput) => managementChatId ? setChatMemberStatus(managementChatId, userId, status) : Promise.resolve(false), [managementChatId, setChatMemberStatus]);
+  const setManagementPermissions = useCallback((permissions: import("../telegram/types").ChatPermissions) => managementChatId ? setChatPermissions(managementChatId, permissions) : Promise.resolve(false), [managementChatId, setChatPermissions]);
+  const setManagementSlowMode = useCallback((seconds: number) => managementChatId ? setChatSlowModeDelay(managementChatId, seconds) : Promise.resolve(false), [managementChatId, setChatSlowModeDelay]);
+  const transferManagementOwnership = useCallback((userId: string, password: string) => managementChatId ? transferChatOwnership(managementChatId, userId, password) : Promise.resolve(false), [managementChatId, transferChatOwnership]);
+  const loadManagementEvents = useCallback((fromEventId?: string) => managementChatId ? loadChatEventLog({ chatId: managementChatId, fromEventId, limit: 30 }) : Promise.resolve(undefined), [loadChatEventLog, managementChatId]);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
     chatId: string;
     requestId: number;
@@ -593,8 +618,8 @@ export function App() {
   return (
     <>
       <main
-        inert={settingsOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation)}
-        aria-hidden={settingsOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || undefined}
+        inert={settingsOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || Boolean(managementChatId)}
+        aria-hidden={settingsOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
         <NavigationRail
@@ -902,11 +927,30 @@ export function App() {
           }}
           onOpenMessage={openProfileMessage}
           onStartPrivateChat={openProfilePrivateChat}
+          onManageChat={openChatManagement}
           onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
           onLoadSharedMedia={loadSharedMedia}
           onDownloadFile={downloadFile}
           onDeleteMessages={deleteMessagesFromChat}
           onForwardMessages={forwardMessages}
+        />
+      )}
+      {managementChat && managementChatId && (
+        <ChatManagementDialog
+          chat={managementChat}
+          currentUserId={currentUserId}
+          contacts={contacts}
+          management={groupManagement?.chatId === managementChatId ? groupManagement : undefined}
+          loading={groupManagementLoading}
+          error={groupManagementError}
+          onLoad={loadManagement}
+          onClose={() => setManagementChatId(undefined)}
+          onAddMembers={addManagementMembers}
+          onSetMemberStatus={setManagementMemberStatus}
+          onSetPermissions={setManagementPermissions}
+          onSetSlowMode={setManagementSlowMode}
+          onTransferOwnership={transferManagementOwnership}
+          onLoadEvents={loadManagementEvents}
         />
       )}
     </>

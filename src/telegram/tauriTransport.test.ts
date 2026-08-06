@@ -3,6 +3,7 @@ import type { TelegramEventListener } from "./transport";
 import { TauriTelegramTransport } from "./tauriTransport";
 import type { TdObject } from "./tdlibMapper";
 import { clearPerformanceRecords, getPerformanceRecords } from "../utils/performanceMonitor";
+import { DEFAULT_CHAT_ADMIN_RIGHTS, DEFAULT_CHAT_PERMISSIONS } from "./chatManagement";
 
 type TestableTransport = {
   listener?: TelegramEventListener;
@@ -84,6 +85,36 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("maps the complete member, permission, slow mode, and ownership requests", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawChats: Map<string, TdObject> };
+    const requests: TdObject[] = [];
+    internal.rawChats.set("72", { "@type": "chat", id: 72, type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false } });
+    internal.request = async (request) => { requests.push(request); return { "@type": "ok" }; };
+
+    await transport.addChatMembers("72", ["11", "12"]);
+    await transport.setChatMemberStatus({
+      chatId: "72",
+      userId: "11",
+      status: { kind: "administrator", rights: { ...DEFAULT_CHAT_ADMIN_RIGHTS, canPromoteMembers: true } },
+    });
+    await transport.setChatMemberStatus({
+      chatId: "72",
+      userId: "12",
+      status: { kind: "restricted", permissions: { ...DEFAULT_CHAT_PERMISSIONS, canSendVideos: false } },
+    });
+    await transport.setChatPermissions("72", DEFAULT_CHAT_PERMISSIONS);
+    await transport.setChatSlowModeDelay("72", 30);
+    await transport.transferChatOwnership("72", "11", "password");
+
+    expect(requests.map((request) => request["@type"])).toEqual([
+      "addChatMembers", "setChatMemberStatus", "setChatMemberStatus", "setChatPermissions", "setChatSlowModeDelay", "transferChatOwnership",
+    ]);
+    expect(requests[1].status).toMatchObject({ "@type": "chatMemberStatusAdministrator", rights: { can_promote_members: true } });
+    expect(requests[2].status).toMatchObject({ "@type": "chatMemberStatusRestricted", permissions: { can_send_videos: false } });
+    expect(requests[4]).toMatchObject({ chat_id: 72, slow_mode_delay: 30 });
+  });
+
   it("creates a public supergroup and applies members, history, and permissions", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as {

@@ -4,6 +4,7 @@ use std::path::Path;
 const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "addChatToList",
     "addChatMembers",
+    "setChatMemberStatus",
     "addMessageReaction",
     "addProxy",
     "checkAuthenticationCode",
@@ -66,6 +67,9 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setAuthenticationPhoneNumber",
     "setChatDraftMessage",
     "setChatPermissions",
+    "setChatSlowModeDelay",
+    "transferChatOwnership",
+    "getChatEventLog",
     "setChatNotificationSettings",
     "setChatMessageAutoDeleteTime",
     "setName",
@@ -178,6 +182,36 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         "addChatMembers" => {
             validate_nonzero_identifier(request, "chat_id")?;
             validate_user_ids(request, "user_ids", 200)?;
+        }
+        "setChatMemberStatus" => validate_chat_member_status(request)?,
+        "setChatSlowModeDelay" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            let delay = request
+                .get("slow_mode_delay")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Slow mode delay is missing".to_string())?;
+            if !(0..=86_400).contains(&delay) {
+                return Err("Invalid slow mode delay".to_string());
+            }
+        }
+        "transferChatOwnership" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_nonzero_identifier(request, "user_id")?;
+            validate_profile_text(request, "password", 256, false, true)?;
+        }
+        "getChatEventLog" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_profile_text(request, "query", 128, true, false)?;
+            let limit = request
+                .get("limit")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Event log limit is missing".to_string())?;
+            if !(1..=100).contains(&limit) {
+                return Err("Invalid event log limit".to_string());
+            }
+            if request.get("user_ids").and_then(Value::as_array).is_none() {
+                return Err("Event log users are missing".to_string());
+            }
         }
         "setSupergroupUsername" => {
             validate_nonzero_identifier(request, "supergroup_id")?;
@@ -415,6 +449,7 @@ fn validate_chat_permissions(request: &Value) -> Result<(), String> {
         "can_send_polls",
         "can_send_other_messages",
         "can_add_link_previews",
+        "can_edit_tag",
         "can_change_info",
         "can_invite_users",
         "can_pin_messages",
@@ -429,6 +464,72 @@ fn validate_chat_permissions(request: &Value) -> Result<(), String> {
             .any(|field| permissions.get(*field).and_then(Value::as_bool).is_none())
     {
         return Err("Invalid chat permission matrix".to_string());
+    }
+    Ok(())
+}
+
+fn validate_chat_member_status(request: &Value) -> Result<(), String> {
+    validate_nonzero_identifier(request, "chat_id")?;
+    let member = request
+        .get("member_id")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "Member identifier is missing".to_string())?;
+    if member.get("@type").and_then(Value::as_str) != Some("messageSenderUser")
+        || member
+            .get("user_id")
+            .and_then(Value::as_i64)
+            .is_none_or(|id| id <= 0)
+    {
+        return Err("Invalid member identifier".to_string());
+    }
+    let status = request
+        .get("status")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "Member status is missing".to_string())?;
+    match status.get("@type").and_then(Value::as_str) {
+        Some("chatMemberStatusMember") => {
+            if status
+                .get("member_until_date")
+                .and_then(Value::as_i64)
+                .is_none()
+            {
+                return Err("Member expiry is missing".to_string());
+            }
+        }
+        Some("chatMemberStatusAdministrator") => {
+            if status
+                .get("can_be_edited")
+                .and_then(Value::as_bool)
+                .is_none()
+                || status.get("rights").and_then(Value::as_object).is_none()
+            {
+                return Err("Administrator rights are missing".to_string());
+            }
+        }
+        Some("chatMemberStatusRestricted") => {
+            if status.get("is_member").and_then(Value::as_bool).is_none()
+                || status
+                    .get("restricted_until_date")
+                    .and_then(Value::as_i64)
+                    .is_none()
+                || status
+                    .get("permissions")
+                    .and_then(Value::as_object)
+                    .is_none()
+            {
+                return Err("Restricted member permissions are missing".to_string());
+            }
+        }
+        Some("chatMemberStatusBanned") => {
+            if status
+                .get("banned_until_date")
+                .and_then(Value::as_i64)
+                .is_none()
+            {
+                return Err("Ban expiry is missing".to_string());
+            }
+        }
+        _ => return Err("Unsupported member status".to_string()),
     }
     Ok(())
 }
@@ -1297,6 +1398,7 @@ mod tests {
                 "can_send_polls": false,
                 "can_send_other_messages": false,
                 "can_add_link_previews": false,
+                "can_edit_tag": false,
                 "can_change_info": false,
                 "can_invite_users": false,
                 "can_pin_messages": false,
@@ -1311,6 +1413,55 @@ mod tests {
             .unwrap()
             .remove("can_send_polls");
         assert!(validate_webview_tdlib_request(&incomplete).is_err());
+
+        let status = json!({
+            "@type": "setChatMemberStatus",
+            "chat_id": 72,
+            "member_id": { "@type": "messageSenderUser", "user_id": 11 },
+            "status": {
+                "@type": "chatMemberStatusRestricted",
+                "is_member": true,
+                "restricted_until_date": 0,
+                "permissions": permissions["permissions"].clone()
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&status).is_ok());
+        let mut invalid_status = status.clone();
+        invalid_status["member_id"]["user_id"] = json!(0);
+        assert!(validate_webview_tdlib_request(&invalid_status).is_err());
+
+        let slow_mode = json!({
+            "@type": "setChatSlowModeDelay",
+            "chat_id": 72,
+            "slow_mode_delay": 30,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&slow_mode).is_ok());
+        let mut invalid_slow_mode = slow_mode.clone();
+        invalid_slow_mode["slow_mode_delay"] = json!(86_401);
+        assert!(validate_webview_tdlib_request(&invalid_slow_mode).is_err());
+
+        let ownership = json!({
+            "@type": "transferChatOwnership",
+            "chat_id": 72,
+            "user_id": 11,
+            "password": "two-step-password",
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&ownership).is_ok());
+
+        let event_log = json!({
+            "@type": "getChatEventLog",
+            "chat_id": 72,
+            "query": "",
+            "from_event_id": 0,
+            "limit": 30,
+            "filters": null,
+            "user_ids": [],
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&event_log).is_ok());
 
         let photo = crate::storage::UploadFileInfo {
             path: "C:\\selected\\group.jpg".to_string(),

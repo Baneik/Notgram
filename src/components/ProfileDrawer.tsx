@@ -7,6 +7,7 @@ import {
   Network,
   Phone,
   RefreshCw,
+  Shield,
   X,
 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -24,6 +25,7 @@ interface ProfileDrawerProps {
   onRetry: () => void;
   onOpenMessage: (chatId: string, messageId: string) => void;
   onStartPrivateChat: (userId: string) => Promise<void>;
+  onManageChat: (chatId: string) => void;
   onOpenUserProfile: (userId: string) => void;
   onLoadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
@@ -42,6 +44,7 @@ export function ProfileDrawer({
   onRetry,
   onOpenMessage,
   onStartPrivateChat,
+  onManageChat,
   onOpenUserProfile,
   onLoadSharedMedia,
   onDownloadFile,
@@ -98,6 +101,11 @@ export function ProfileDrawer({
                 {profile.chatId && (
                   <button type="button" onClick={() => setMediaOpen((open) => !open)} aria-pressed={mediaOpen}>
                     <Image size={18} /><span>共享媒体</span>
+                  </button>
+                )}
+                {profile.chatId && (profile.kind === "group" || profile.kind === "channel") && (
+                  <button type="button" onClick={() => onManageChat(profile.chatId!)}>
+                    <Shield size={18} /><span>管理</span>
                   </button>
                 )}
               </div>

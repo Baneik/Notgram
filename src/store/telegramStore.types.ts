@@ -6,6 +6,11 @@ import type {
   AuthorizationAction,
   AuthorizationState,
   Chat,
+  ChatEventLogInput,
+  ChatEventPage,
+  ChatManagement,
+  ChatMemberStatusInput,
+  ChatPermissions,
   ChatDraft,
   ChatFolder,
   CacheCategory,
@@ -92,6 +97,9 @@ export interface TelegramState {
   chatManagementPending: Set<string>;
   folderManagementPending: boolean;
   chatCreationPending: boolean;
+  groupManagement?: ChatManagement;
+  groupManagementLoading: boolean;
+  groupManagementError?: string;
   initialize: (options?: { settingsOnly?: boolean }) => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
@@ -144,6 +152,13 @@ export interface TelegramState {
   loadContacts: () => Promise<void>;
   startPrivateChat: (userId: string) => Promise<string | undefined>;
   createChat: (input: CreateChatInput) => Promise<string | undefined>;
+  loadChatManagement: (chatId: string, memberOffset?: number) => Promise<ChatManagement | undefined>;
+  addChatMembers: (chatId: string, userIds: string[]) => Promise<boolean>;
+  setChatMemberStatus: (chatId: string, userId: string, status: ChatMemberStatusInput) => Promise<boolean>;
+  setChatPermissions: (chatId: string, permissions: ChatPermissions) => Promise<boolean>;
+  setChatSlowModeDelay: (chatId: string, delaySeconds: number) => Promise<boolean>;
+  transferChatOwnership: (chatId: string, userId: string, password: string) => Promise<boolean>;
+  loadChatEventLog: (input: ChatEventLogInput) => Promise<ChatEventPage | undefined>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   loadPinnedMessages: (chatId: string) => Promise<Message[]>;

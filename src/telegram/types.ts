@@ -52,6 +52,119 @@ export interface User {
 export type ProfileKind = "self" | "user" | "group" | "channel";
 export type ProfileMemberRole = "owner" | "administrator" | "member";
 
+export type ChatPermissionKey =
+  | "canSendBasicMessages"
+  | "canSendAudios"
+  | "canSendDocuments"
+  | "canSendPhotos"
+  | "canSendVideos"
+  | "canSendVideoNotes"
+  | "canSendVoiceNotes"
+  | "canSendPolls"
+  | "canSendOtherMessages"
+  | "canAddLinkPreviews"
+  | "canEditTag"
+  | "canChangeInfo"
+  | "canInviteUsers"
+  | "canPinMessages"
+  | "canCreateTopics";
+
+export type ChatPermissions = Record<ChatPermissionKey, boolean>;
+
+export type ChatAdminRightKey =
+  | "canManageChat"
+  | "canChangeInfo"
+  | "canPostMessages"
+  | "canEditMessages"
+  | "canDeleteMessages"
+  | "canInviteUsers"
+  | "canRestrictMembers"
+  | "canPinMessages"
+  | "canManageTopics"
+  | "canPromoteMembers"
+  | "canManageVideoChats"
+  | "canPostStories"
+  | "canEditStories"
+  | "canDeleteStories"
+  | "canManageDirectMessages"
+  | "canManageTags";
+
+export type ChatAdminRights = Record<ChatAdminRightKey, boolean>;
+
+export type ManagedMemberStatus = "owner" | "administrator" | "member" | "restricted" | "banned" | "left";
+
+export interface ManagedChatMember extends ProfileMember {
+  status: ManagedMemberStatus;
+  adminRights?: ChatAdminRights;
+  permissions?: ChatPermissions;
+  untilDate?: number;
+  customTitle?: string;
+}
+
+export interface ChatManagement {
+  chatId: string;
+  members: ManagedChatMember[];
+  permissions: ChatPermissions;
+  slowModeDelay: number;
+  canManageMembers: boolean;
+  canManagePermissions: boolean;
+  canTransferOwnership: boolean;
+  memberOffset?: number;
+  memberHasMore: boolean;
+}
+
+export type ChatMemberStatusInput =
+  | { kind: "member" }
+  | { kind: "administrator"; rights: ChatAdminRights; customTitle?: string }
+  | { kind: "restricted"; permissions: ChatPermissions; untilDate?: number }
+  | { kind: "banned"; untilDate?: number };
+
+export interface SetChatMemberStatusInput {
+  chatId: string;
+  userId: string;
+  status: ChatMemberStatusInput;
+}
+
+export interface ChatEventLogFilters {
+  messageEdits: boolean;
+  messageDeletions: boolean;
+  messagePins: boolean;
+  memberJoins: boolean;
+  memberLeaves: boolean;
+  memberInvites: boolean;
+  memberPromotions: boolean;
+  memberRestrictions: boolean;
+  memberTagChanges: boolean;
+  infoChanges: boolean;
+  settingChanges: boolean;
+  inviteLinkChanges: boolean;
+  videoChatChanges: boolean;
+  forumChanges: boolean;
+  subscriptionExtensions: boolean;
+}
+
+export interface ChatEvent {
+  id: string;
+  date: string;
+  actor?: User;
+  summary: string;
+  kind: string;
+}
+
+export interface ChatEventPage {
+  events: ChatEvent[];
+  nextEventId?: string;
+  hasMore: boolean;
+}
+
+export interface ChatEventLogInput {
+  chatId: string;
+  query?: string;
+  fromEventId?: string;
+  limit?: number;
+  filters?: ChatEventLogFilters;
+}
+
 export interface ProfileMember {
   user: User;
   role: ProfileMemberRole;

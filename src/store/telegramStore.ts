@@ -240,6 +240,9 @@ export const createTelegramStore = (
         contactsError: undefined,
         contactPendingUserId: undefined,
         chatManagementPending: new Set(),
+        groupManagement: undefined,
+        groupManagementLoading: false,
+        groupManagementError: undefined,
         folderManagementPending: false,
         chatCreationPending: false,
         chatFilter: "main",
@@ -908,6 +911,9 @@ export const createTelegramStore = (
       contacts: [],
       contactsLoading: false,
       chatManagementPending: new Set(),
+      groupManagement: undefined,
+      groupManagementLoading: false,
+      groupManagementError: undefined,
       folderManagementPending: false,
       chatCreationPending: false,
 
@@ -1775,6 +1781,89 @@ export const createTelegramStore = (
             chatCreationPending: false,
             operationError: errorMessage(error, "无法创建群组或频道"),
           });
+          return undefined;
+        }
+      },
+
+      loadChatManagement: async (chatId, memberOffset = 0) => {
+        set({ groupManagementLoading: true, groupManagementError: undefined });
+        try {
+          const value = await transport.getChatManagement(chatId, memberOffset);
+          set({ groupManagement: value, groupManagementLoading: false });
+          return value;
+        } catch (error) {
+          set({ groupManagementLoading: false, groupManagementError: errorMessage(error, "无法读取群组管理资料") });
+          return undefined;
+        }
+      },
+
+      addChatMembers: async (chatId, userIds) => {
+        try {
+          await transport.addChatMembers(chatId, userIds);
+          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法添加成员") });
+          return false;
+        }
+      },
+
+      setChatMemberStatus: async (chatId, userId, status) => {
+        try {
+          await transport.setChatMemberStatus({ chatId, userId, status });
+          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法更新成员权限") });
+          return false;
+        }
+      },
+
+      setChatPermissions: async (chatId, permissions) => {
+        try {
+          await transport.setChatPermissions(chatId, permissions);
+          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法更新群组默认权限") });
+          return false;
+        }
+      },
+
+      setChatSlowModeDelay: async (chatId, delaySeconds) => {
+        try {
+          await transport.setChatSlowModeDelay(chatId, delaySeconds);
+          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法更新慢速模式") });
+          return false;
+        }
+      },
+
+      transferChatOwnership: async (chatId, userId, password) => {
+        try {
+          await transport.transferChatOwnership(chatId, userId, password);
+          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法转移所有者") });
+          return false;
+        }
+      },
+
+      loadChatEventLog: async (input) => {
+        try {
+          const page = await transport.getChatEventLog(input);
+          set({ operationError: undefined });
+          return page;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法读取管理日志") });
           return undefined;
         }
       },

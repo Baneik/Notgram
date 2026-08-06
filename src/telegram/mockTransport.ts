@@ -8,6 +8,13 @@ import type {
   CacheUsage,
   CachedTelegramSnapshot,
   Chat,
+  ChatEvent,
+  ChatEventLogInput,
+  ChatEventPage,
+  ChatManagement,
+  ChatMemberStatusInput,
+  ChatPermissions,
+  ManagedChatMember,
   ChatProfile,
   ConnectionStatus,
   CreateChatInput,
@@ -41,6 +48,12 @@ import type {
   ChatHistoryPage,
   User,
 } from "./types";
+import {
+  DEFAULT_CHAT_ADMIN_RIGHTS,
+  DEFAULT_CHAT_PERMISSIONS,
+  cloneChatAdminRights,
+  cloneChatPermissions,
+} from "./chatManagement";
 
 const clone = <T,>(value: T): T => structuredClone(value);
 const CACHE_KEY = "notgram:ui-cache:v1";
@@ -175,6 +188,8 @@ export class MockTelegramTransport implements TelegramTransport {
   private historyOffsets = new Map<string, number>();
   private drafts = new Map((mockSnapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
   private createdChatSettings = new Map<string, CreateChatInput>();
+  private chatManagement = new Map<string, ChatManagement>();
+  private chatAudit = new Map<string, ChatEvent[]>();
   private authFlow: boolean;
   private connectionStatus: ConnectionStatus;
   private initialTyping?: { chatId: string; senderId: string };
@@ -718,8 +733,157 @@ export class MockTelegramTransport implements TelegramTransport {
       memberUserIds: uniqueMemberIds,
     });
     this.snapshot.chats.push(chat);
+    const permissions = input.permissionTemplate === "restricted"
+      ? { ...cloneChatPermissions(DEFAULT_CHAT_PERMISSIONS), canSendVideos: false, canSendDocuments: false }
+      : cloneChatPermissions(DEFAULT_CHAT_PERMISSIONS);
+    const memberUsers = [this.snapshot.currentUserId, ...uniqueMemberIds]
+      .map((id) => this.snapshot.users.find((user) => user.id === id))
+      .filter((user): user is User => Boolean(user));
+    this.chatManagement.set(id, {
+      chatId: id,
+      members: memberUsers.map((user, index): ManagedChatMember => ({
+        user: clone(user),
+        role: index === 0 ? "owner" : "member",
+        status: index === 0 ? "owner" : "member",
+        adminRights: index === 0 ? cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS) : undefined,
+      })),
+      permissions,
+      slowModeDelay: 0,
+      canManageMembers: true,
+      canManagePermissions: true,
+      canTransferOwnership: true,
+      memberHasMore: false,
+    });
+    this.appendChatAudit(id, "群组已创建");
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
     return clone(chat);
+  }
+
+  private appendChatAudit(chatId: string, summary: string, kind = "setting") {
+    const event: ChatEvent = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      date: new Date().toISOString(),
+      actor: clone(this.snapshot.users.find((user) => user.id === this.snapshot.currentUserId)),
+      summary,
+      kind,
+    };
+    const events = this.chatAudit.get(chatId) ?? [];
+    events.unshift(event);
+    this.chatAudit.set(chatId, events);
+  }
+
+  private async ensureChatManagement(chatId: string): Promise<ChatManagement> {
+    const existing = this.chatManagement.get(chatId);
+    if (existing) return existing;
+    const profile = await this.getChatProfile(chatId);
+    const settings = this.createdChatSettings.get(chatId);
+    const permissions = settings?.permissionTemplate === "restricted"
+      ? { ...cloneChatPermissions(DEFAULT_CHAT_PERMISSIONS), canSendVideos: false, canSendDocuments: false }
+      : cloneChatPermissions(DEFAULT_CHAT_PERMISSIONS);
+    const members: ManagedChatMember[] = profile.members.map((member, index) => ({
+      ...clone(member),
+      status: member.role,
+      adminRights: member.role === "owner" || member.role === "administrator"
+        ? cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS)
+        : undefined,
+    }));
+    if (!members.some((member) => member.user.id === this.snapshot.currentUserId)) {
+      const current = this.snapshot.users.find((user) => user.id === this.snapshot.currentUserId);
+      if (current) members.unshift({ user: clone(current), role: "owner", status: "owner", adminRights: cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS) });
+    }
+    const value: ChatManagement = {
+      chatId,
+      members,
+      permissions,
+      slowModeDelay: 0,
+      canManageMembers: true,
+      canManagePermissions: true,
+      canTransferOwnership: true,
+      memberHasMore: false,
+    };
+    this.chatManagement.set(chatId, value);
+    return value;
+  }
+
+  async getChatManagement(chatId: string, memberOffset = 0): Promise<ChatManagement> {
+    const value = await this.ensureChatManagement(chatId);
+    const offset = Math.max(0, memberOffset);
+    const limit = 50;
+    return clone({
+      ...value,
+      members: value.members.slice(offset, offset + limit),
+      memberOffset: offset,
+      memberHasMore: offset + limit < value.members.length,
+    });
+  }
+
+  async addChatMembers(chatId: string, userIds: string[]): Promise<void> {
+    const value = await this.ensureChatManagement(chatId);
+    const ids = [...new Set(userIds)].filter((id) => id !== this.snapshot.currentUserId);
+    for (const id of ids) {
+      const user = this.snapshot.users.find((item) => item.id === id);
+      if (!user) throw new Error("找不到要添加的联系人");
+      if (value.members.some((member) => member.user.id === id && member.status !== "left" && member.status !== "banned")) continue;
+      const member: ManagedChatMember = { user: clone(user), role: "member", status: "member" };
+      const index = value.members.findIndex((item) => item.user.id === id);
+      if (index >= 0) value.members[index] = member; else value.members.push(member);
+      this.appendChatAudit(chatId, `添加成员：${user.displayName}`, "memberJoin");
+    }
+  }
+
+  async setChatMemberStatus({ chatId, userId, status }: { chatId: string; userId: string; status: ChatMemberStatusInput }): Promise<void> {
+    const value = await this.ensureChatManagement(chatId);
+    const member = value.members.find((item) => item.user.id === userId);
+    if (!member) throw new Error("找不到群成员");
+    if (member.status === "owner") throw new Error("所有者需要使用所有权转移");
+    const user = member.user;
+    if (status.kind === "administrator") {
+      member.status = "administrator"; member.role = "administrator";
+      member.adminRights = cloneChatAdminRights(status.rights); member.customTitle = status.customTitle?.trim() || undefined;
+      this.appendChatAudit(chatId, `设置管理员：${user.displayName}`, "memberPromotion");
+    } else if (status.kind === "restricted") {
+      member.status = "restricted"; member.role = "member"; member.permissions = cloneChatPermissions(status.permissions);
+      member.untilDate = status.untilDate; member.adminRights = undefined;
+      this.appendChatAudit(chatId, `限制成员：${user.displayName}`, "memberRestriction");
+    } else if (status.kind === "banned") {
+      member.status = "banned"; member.role = "member"; member.permissions = undefined; member.adminRights = undefined;
+      member.untilDate = status.untilDate;
+      this.appendChatAudit(chatId, `封禁成员：${user.displayName}`, "memberRestriction");
+    } else {
+      member.status = "member"; member.role = "member"; member.permissions = undefined; member.adminRights = undefined; member.untilDate = undefined;
+      this.appendChatAudit(chatId, `恢复成员：${user.displayName}`, "memberJoin");
+    }
+  }
+
+  async setChatPermissions(chatId: string, permissions: ChatPermissions): Promise<void> {
+    const value = await this.ensureChatManagement(chatId);
+    value.permissions = cloneChatPermissions(permissions);
+    this.appendChatAudit(chatId, "更新群组默认发送权限");
+  }
+
+  async setChatSlowModeDelay(chatId: string, delaySeconds: number): Promise<void> {
+    if (!Number.isInteger(delaySeconds) || delaySeconds < 0 || delaySeconds > 86_400) throw new Error("慢速模式间隔无效");
+    const value = await this.ensureChatManagement(chatId);
+    value.slowModeDelay = delaySeconds;
+    this.appendChatAudit(chatId, delaySeconds ? `设置慢速模式：${delaySeconds} 秒` : "关闭慢速模式", "setting");
+  }
+
+  async transferChatOwnership(chatId: string, userId: string, password: string): Promise<void> {
+    if (!password.trim()) throw new Error("请输入两步验证密码");
+    const value = await this.ensureChatManagement(chatId);
+    const next = value.members.find((member) => member.user.id === userId);
+    const current = value.members.find((member) => member.status === "owner");
+    if (!next || !current) throw new Error("所有者候选人无效");
+    current.status = "administrator"; current.role = "administrator"; current.adminRights = cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS);
+    next.status = "owner"; next.role = "owner"; next.adminRights = cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS);
+    this.appendChatAudit(chatId, `转移所有者给：${next.user.displayName}`, "memberPromotion");
+  }
+
+  async getChatEventLog({ chatId, query = "", fromEventId, limit = 30 }: ChatEventLogInput): Promise<ChatEventPage> {
+    const events = (this.chatAudit.get(chatId) ?? []).filter((event) => !query.trim() || event.summary.includes(query.trim()));
+    const start = fromEventId ? Math.max(0, events.findIndex((event) => event.id === fromEventId) + 1) : 0;
+    const page = events.slice(start, start + Math.min(100, Math.max(1, limit)));
+    return { events: clone(page), nextEventId: page.at(-1)?.id, hasMore: start + page.length < events.length };
   }
 
   async searchChats(query: string, limit = 50) {
