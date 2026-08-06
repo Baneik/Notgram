@@ -1031,7 +1031,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .composer-attachment-preview {
   position: relative; z-index: 4; margin: 0 8px; padding: 9px; display: grid; gap: 8px;
   background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-bottom: 0;
-  border-radius: 10px 10px 0 0; box-shadow: 0 -8px 28px rgba(22, 38, 46, 0.12);
+  border-radius: 8px 8px 0 0; box-shadow: 0 -8px 28px rgba(22, 38, 46, 0.12);
 }
 .composer-attachment-grid {
   max-height: 260px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; overflow-y: auto;
@@ -1040,8 +1040,13 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   position: relative; min-width: 0; aspect-ratio: 1; overflow: hidden; display: grid; place-items: center;
   color: var(--muted); background: #edf2f4; border-radius: 8px;
 }
-.composer-attachment-item img { width: 100%; height: 100%; object-fit: cover; }
+.composer-attachment-item img, .composer-attachment-item video { width: 100%; height: 100%; object-fit: cover; }
 .composer-file-preview { width: 42px; height: 42px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); border-radius: 50%; }
+.composer-attachment-kind {
+  position: absolute; z-index: 1; top: 5px; left: 5px; padding: 2px 5px;
+  color: #ffffff; background: rgba(21, 32, 38, 0.72); border-radius: 4px;
+  font-size: 8px; line-height: 1.2; text-transform: uppercase;
+}
 .composer-attachment-name {
   position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 5px 4px; overflow: hidden;
   color: #ffffff; background: linear-gradient(transparent, rgba(17, 28, 34, 0.78));
@@ -1051,6 +1056,15 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   position: absolute; z-index: 2; top: 4px; right: 4px; width: 23px; height: 23px; padding: 0; display: grid; place-items: center;
   color: #ffffff; background: rgba(21, 32, 38, 0.72); border: 0; border-radius: 50%; cursor: pointer;
 }
+.composer-attachment-options { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 7px 14px; color: var(--ink); font-size: 11px; }
+.composer-attachment-options > label { min-height: 28px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.composer-attachment-options input { accent-color: var(--accent); }
+.composer-attachment-options input:disabled + span, .composer-attachment-options label:has(input:disabled) { color: var(--muted); cursor: default; }
+.attachment-mode-control { min-width: 142px; height: 30px; margin: 0; padding: 2px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 6px; }
+.attachment-mode-control label { position: relative; min-width: 0; display: grid; place-items: center; cursor: pointer; }
+.attachment-mode-control input { position: absolute; opacity: 0; pointer-events: none; }
+.attachment-mode-control span { width: 100%; height: 24px; display: grid; place-items: center; border-radius: 4px; }
+.attachment-mode-control input:checked + span { color: #ffffff; background: var(--accent); font-weight: 650; }
 .composer-attachment-preview footer { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 11px; }
 .composer-attachment-preview footer .dialog-primary { min-height: 34px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; }
 .message-selection-bar {

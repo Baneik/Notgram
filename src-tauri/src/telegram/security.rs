@@ -228,6 +228,44 @@ fn is_photo_upload(file: &crate::storage::UploadFileInfo) -> bool {
         && file.size <= 10 * 1024 * 1024
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct PreparedUpload {
+    pub file: crate::storage::UploadFileInfo,
+    pub mime_type: String,
+    pub kind: String,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub duration: Option<i32>,
+    pub title: Option<String>,
+    pub performer: Option<String>,
+    pub thumbnail: Option<crate::storage::UploadFileInfo>,
+    pub has_spoiler: bool,
+    pub show_caption_above_media: bool,
+}
+
+impl PreparedUpload {
+    fn automatic(file: &crate::storage::UploadFileInfo) -> Self {
+        Self {
+            file: file.clone(),
+            mime_type: String::new(),
+            kind: if is_photo_upload(file) {
+                "photo"
+            } else {
+                "document"
+            }
+            .to_string(),
+            width: None,
+            height: None,
+            duration: None,
+            title: None,
+            performer: None,
+            thumbnail: None,
+            has_spoiler: false,
+            show_caption_above_media: false,
+        }
+    }
+}
+
 fn validate_upload_caption(caption: &str) -> Result<(), String> {
     if caption.chars().count() > 1_024 || caption.contains('\0') {
         return Err("Telegram media captions must contain at most 1024 characters".to_string());
@@ -235,39 +273,167 @@ fn validate_upload_caption(caption: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn input_message_upload(file: &crate::storage::UploadFileInfo, caption_text: &str) -> Value {
-    let is_photo = is_photo_upload(file);
-    let input_file = json!({ "@type": "inputFileLocal", "path": file.path });
+fn bounded_metadata(value: Option<i32>, maximum: i32, field: &str) -> Result<i32, String> {
+    let value = value.unwrap_or_default();
+    if !(0..=maximum).contains(&value) {
+        return Err(format!("Invalid upload metadata: {field}"));
+    }
+    Ok(value)
+}
+
+fn validate_optional_media_text(value: Option<&str>, field: &str) -> Result<String, String> {
+    let value = value.unwrap_or_default();
+    if value.chars().count() > 128 || value.chars().any(char::is_control) {
+        return Err(format!("Invalid upload metadata: {field}"));
+    }
+    Ok(value.to_string())
+}
+
+fn input_thumbnail(upload: &PreparedUpload) -> Result<Value, String> {
+    let Some(thumbnail) = upload.thumbnail.as_ref() else {
+        return Ok(Value::Null);
+    };
+    let extension = Path::new(&thumbnail.path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(extension.as_str(), "jpg" | "jpeg" | "png") || thumbnail.size > 200 * 1024 {
+        return Err("Media thumbnails must be JPEG or PNG files no larger than 200 KB".to_string());
+    }
+    Ok(json!({
+        "@type": "inputThumbnail",
+        "thumbnail": { "@type": "inputFileLocal", "path": thumbnail.path },
+        "width": bounded_metadata(upload.width, 10_000, "width")?.min(320),
+        "height": bounded_metadata(upload.height, 10_000, "height")?.min(320)
+    }))
+}
+
+fn input_message_upload(upload: &PreparedUpload, caption_text: &str) -> Result<Value, String> {
+    let extension = Path::new(&upload.file.path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let mime = upload.mime_type.to_ascii_lowercase();
+    let kind_matches = match upload.kind.as_str() {
+        "photo" => is_photo_upload(&upload.file),
+        "video" => {
+            mime.starts_with("video/")
+                || matches!(extension.as_str(), "mp4" | "m4v" | "mov" | "webm" | "mkv")
+        }
+        "animation" => {
+            mime == "image/gif"
+                || mime.starts_with("video/")
+                || matches!(extension.as_str(), "gif" | "mp4" | "webm")
+        }
+        "audio" => {
+            mime.starts_with("audio/")
+                || matches!(
+                    extension.as_str(),
+                    "mp3" | "m4a" | "aac" | "ogg" | "oga" | "opus" | "flac" | "wav"
+                )
+        }
+        "document" => true,
+        _ => false,
+    };
+    if !kind_matches {
+        return Err(format!(
+            "Attachment metadata does not match file type: {}",
+            upload.kind
+        ));
+    }
+    let input_file = json!({ "@type": "inputFileLocal", "path": upload.file.path });
     let caption = json!({ "@type": "formattedText", "text": caption_text, "entities": [] });
-    if is_photo {
-        json!({
-            "@type": "inputMessagePhoto",
-            "photo": {
-                "@type": "inputPhoto",
-                "photo": input_file,
-                "thumbnail": null,
-                "video": null,
+    let width = bounded_metadata(upload.width, 10_000, "width")?;
+    let height = bounded_metadata(upload.height, 10_000, "height")?;
+    let duration = bounded_metadata(upload.duration, 86_400, "duration")?;
+    let thumbnail = input_thumbnail(upload)?;
+    let result = match upload.kind.as_str() {
+        "photo" => {
+            if !is_photo_upload(&upload.file) {
+                return Err(
+                    "Telegram photos must be JPEG or PNG files no larger than 10 MB".to_string(),
+                );
+            }
+            json!({
+                "@type": "inputMessagePhoto",
+                "photo": {
+                    "@type": "inputPhoto",
+                    "photo": input_file,
+                    "thumbnail": thumbnail,
+                    "video": null,
+                    "added_sticker_file_ids": [],
+                    "width": width,
+                    "height": height
+                },
+                "caption": caption,
+                "show_caption_above_media": upload.show_caption_above_media,
+                "self_destruct_type": null,
+                "has_spoiler": upload.has_spoiler
+            })
+        }
+        "video" => json!({
+            "@type": "inputMessageVideo",
+            "video": {
+                "@type": "inputVideo",
+                "video": input_file,
+                "thumbnail": thumbnail,
+                "cover": upload.thumbnail.as_ref().map(|cover| {
+                    json!({ "@type": "inputFileLocal", "path": cover.path })
+                }),
+                "start_timestamp": 0,
                 "added_sticker_file_ids": [],
-                "width": 0,
-                "height": 0
+                "duration": duration,
+                "width": width,
+                "height": height,
+                "supports_streaming": true
             },
             "caption": caption,
-            "show_caption_above_media": false,
+            "show_caption_above_media": upload.show_caption_above_media,
             "self_destruct_type": null,
-            "has_spoiler": false
-        })
-    } else {
-        json!({
+            "has_spoiler": upload.has_spoiler
+        }),
+        "animation" => json!({
+            "@type": "inputMessageAnimation",
+            "animation": {
+                "@type": "inputAnimation",
+                "animation": input_file,
+                "thumbnail": thumbnail,
+                "added_sticker_file_ids": [],
+                "duration": duration,
+                "width": width,
+                "height": height
+            },
+            "caption": caption,
+            "show_caption_above_media": upload.show_caption_above_media,
+            "has_spoiler": upload.has_spoiler
+        }),
+        "audio" => json!({
+            "@type": "inputMessageAudio",
+            "audio": {
+                "@type": "inputAudio",
+                "audio": input_file,
+                "album_cover_thumbnail": thumbnail,
+                "duration": duration,
+                "title": validate_optional_media_text(upload.title.as_deref(), "title")?,
+                "performer": validate_optional_media_text(upload.performer.as_deref(), "performer")?
+            },
+            "caption": caption
+        }),
+        "document" => json!({
             "@type": "inputMessageDocument",
             "document": {
                 "@type": "inputDocument",
                 "document": input_file,
-                "thumbnail": null,
+                "thumbnail": thumbnail,
                 "disable_content_type_detection": false
             },
             "caption": caption
-        })
-    }
+        }),
+        _ => return Err("Unsupported outgoing attachment kind".to_string()),
+    };
+    Ok(result)
 }
 
 pub(super) fn prepared_file_request(
@@ -284,6 +450,15 @@ pub(super) fn prepared_file_request_with_caption(
     file: &crate::storage::UploadFileInfo,
     caption: &str,
 ) -> Result<Value, String> {
+    prepared_upload_request_with_caption(chat_id, extra, &PreparedUpload::automatic(file), caption)
+}
+
+pub(super) fn prepared_upload_request_with_caption(
+    chat_id: i64,
+    extra: &str,
+    upload: &PreparedUpload,
+    caption: &str,
+) -> Result<Value, String> {
     if chat_id == 0 {
         return Err("Invalid Telegram chat identifier".to_string());
     }
@@ -296,15 +471,29 @@ pub(super) fn prepared_file_request_with_caption(
         "reply_to": null,
         "options": null,
         "reply_markup": null,
-        "input_message_content": input_message_upload(file, caption),
+        "input_message_content": input_message_upload(upload, caption)?,
         "@extra": extra
     }))
 }
 
-pub(super) fn prepared_file_album_request_with_caption(
+#[cfg(test)]
+fn prepared_file_album_request_with_caption(
     chat_id: i64,
     extra: &str,
     files: &[crate::storage::UploadFileInfo],
+    caption: &str,
+) -> Result<Value, String> {
+    let uploads = files
+        .iter()
+        .map(PreparedUpload::automatic)
+        .collect::<Vec<_>>();
+    prepared_upload_album_request_with_caption(chat_id, extra, &uploads, caption)
+}
+
+pub(super) fn prepared_upload_album_request_with_caption(
+    chat_id: i64,
+    extra: &str,
+    uploads: &[PreparedUpload],
     caption: &str,
 ) -> Result<Value, String> {
     if chat_id == 0 {
@@ -312,15 +501,28 @@ pub(super) fn prepared_file_album_request_with_caption(
     }
     validate_webview_extra(extra)?;
     validate_upload_caption(caption)?;
-    if !(2..=10).contains(&files.len()) {
+    if !(2..=10).contains(&uploads.len()) {
         return Err("Telegram albums require between 2 and 10 files".to_string());
     }
-    let first_is_photo = is_photo_upload(&files[0]);
-    if files
-        .iter()
-        .any(|file| is_photo_upload(file) != first_is_photo)
+    let album_family = |kind: &str| match kind {
+        "photo" | "video" => "visual",
+        "audio" => "audio",
+        "document" => "document",
+        _ => "unsupported",
+    };
+    let first_family = album_family(&uploads[0].kind);
+    if first_family == "unsupported"
+        || uploads
+            .iter()
+            .any(|upload| album_family(&upload.kind) != first_family)
     {
-        return Err("Telegram albums cannot mix photos and documents".to_string());
+        return Err("Telegram albums must contain compatible media types".to_string());
+    }
+    if uploads
+        .iter()
+        .any(|upload| upload.show_caption_above_media != uploads[0].show_caption_above_media)
+    {
+        return Err("Telegram album caption placement must be consistent".to_string());
     }
     Ok(json!({
         "@type": "sendMessageAlbum",
@@ -328,9 +530,9 @@ pub(super) fn prepared_file_album_request_with_caption(
         "topic_id": null,
         "reply_to": null,
         "options": null,
-        "input_message_contents": files.iter().enumerate().map(|(index, file)| {
-            input_message_upload(file, if index == 0 { caption } else { "" })
-        }).collect::<Vec<_>>(),
+        "input_message_contents": uploads.iter().enumerate().map(|(index, upload)| {
+            input_message_upload(upload, if index == 0 { caption } else { "" })
+        }).collect::<Result<Vec<_>, _>>()?,
         "@extra": extra
     }))
 }
@@ -641,6 +843,66 @@ mod tests {
             prepared_file_album_request_with_caption(7, EXTRA, &[photo, large_photo], "").is_err()
         );
         assert!(validate_webview_tdlib_request(&photo_request).is_err());
+
+        let cover = crate::storage::UploadFileInfo {
+            path: "C:\\selected\\video-cover.jpg".to_string(),
+            size: 24_000,
+        };
+        let video = PreparedUpload {
+            file: crate::storage::UploadFileInfo {
+                path: "C:\\selected\\clip.mp4".to_string(),
+                size: 5_000_000,
+            },
+            mime_type: "video/mp4".to_string(),
+            kind: "video".to_string(),
+            width: Some(1280),
+            height: Some(720),
+            duration: Some(42),
+            title: None,
+            performer: None,
+            thumbnail: Some(cover.clone()),
+            has_spoiler: true,
+            show_caption_above_media: true,
+        };
+        let video_request =
+            prepared_upload_request_with_caption(7, EXTRA, &video, "视频说明").unwrap();
+        let video_content = &video_request["input_message_content"];
+        assert_eq!(video_content["@type"], "inputMessageVideo");
+        assert_eq!(video_content["video"]["duration"], 42);
+        assert_eq!(video_content["video"]["width"], 1280);
+        assert_eq!(video_content["video"]["thumbnail"]["width"], 320);
+        assert_eq!(video_content["video"]["cover"]["path"], cover.path);
+        assert_eq!(video_content["show_caption_above_media"], true);
+        assert_eq!(video_content["has_spoiler"], true);
+
+        let audio = PreparedUpload {
+            file: crate::storage::UploadFileInfo {
+                path: "C:\\selected\\song.flac".to_string(),
+                size: 3_000_000,
+            },
+            mime_type: "audio/flac".to_string(),
+            kind: "audio".to_string(),
+            width: None,
+            height: None,
+            duration: Some(180),
+            title: Some("Song".to_string()),
+            performer: Some("Artist".to_string()),
+            thumbnail: None,
+            has_spoiler: false,
+            show_caption_above_media: false,
+        };
+        let audio_request = prepared_upload_request_with_caption(7, EXTRA, &audio, "").unwrap();
+        assert_eq!(
+            audio_request["input_message_content"]["@type"],
+            "inputMessageAudio"
+        );
+        assert_eq!(
+            audio_request["input_message_content"]["audio"]["title"],
+            "Song"
+        );
+        assert!(
+            prepared_upload_album_request_with_caption(7, EXTRA, &[video, audio], "",).is_err()
+        );
     }
 
     #[test]

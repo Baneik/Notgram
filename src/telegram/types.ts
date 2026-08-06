@@ -324,6 +324,7 @@ interface TransferableMessageContent {
   progress?: number;
   width?: number;
   height?: number;
+  duration?: number;
 }
 
 export type MessageContent =
@@ -526,9 +527,24 @@ export interface SendFileInput {
   file?: File;
 }
 
+export type OutgoingAttachmentKind = "photo" | "video" | "audio" | "animation" | "document";
+
+export interface OutgoingAttachment {
+  file: File;
+  kind: OutgoingAttachmentKind;
+  width?: number;
+  height?: number;
+  duration?: number;
+  title?: string;
+  performer?: string;
+  thumbnail?: File;
+  hasSpoiler?: boolean;
+  showCaptionAboveMedia?: boolean;
+}
+
 export interface SendFilesInput {
   chatId: string;
-  files: File[];
+  attachments: OutgoingAttachment[];
   caption?: string;
 }
 

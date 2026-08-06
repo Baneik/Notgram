@@ -1890,6 +1890,10 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   const preview = page.getByRole("region", { name: "待发送附件" });
   await expect(preview.locator(".composer-attachment-item")).toHaveCount(10);
   await expect(preview.getByRole("alert")).toHaveText("一次最多发送 10 个附件");
+  await expect(preview.getByRole("radio", { name: "媒体" })).toBeChecked();
+  await expect(preview.getByRole("radio", { name: "原文件" })).not.toBeChecked();
+  await expect(preview.getByRole("checkbox", { name: "剧透" })).toBeEnabled();
+  await expect(preview.getByRole("checkbox", { name: "说明置顶" })).toBeEnabled();
   for (let index = 10; index >= 3; index -= 1) {
     await preview.getByRole("button", { name: `移除 paste-${index}.png` }).click();
   }

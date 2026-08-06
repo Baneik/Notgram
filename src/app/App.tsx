@@ -88,7 +88,6 @@ export function App() {
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const chatManagementPending = useTelegramStore((state) => state.chatManagementPending);
   const folderManagementPending = useTelegramStore((state) => state.folderManagementPending);
-  const transportKind = useTelegramStore((state) => state.transportKind);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
   const authorization = useTelegramStore((state) => state.authorization);
   const authorizationPending = useTelegramStore((state) => state.authorizationPending);
@@ -138,7 +137,6 @@ export function App() {
   const streamFile = useTelegramStore((state) => state.streamFile);
   const suspendFileStream = useTelegramStore((state) => state.suspendFileStream);
   const retryMessage = useTelegramStore((state) => state.retryMessage);
-  const sendFile = useTelegramStore((state) => state.sendFile);
   const sendFiles = useTelegramStore((state) => state.sendFiles);
   const cancelFileUpload = useTelegramStore((state) => state.cancelFileUpload);
   const loadMoreHistory = useTelegramStore((state) => state.loadMoreHistory);
@@ -748,7 +746,6 @@ export function App() {
           historyLoading={activeHistory.loading}
           historyInitialized={activeHistory.initialized === true}
           hasOlderMessages={activeHistory.hasMore}
-          transportKind={transportKind}
           connectionStatus={connectionStatus}
           queuedMessageCount={activeOutbox.filter((item) => item.status === "queued").length}
           failedQueuedMessageCount={activeOutbox.filter((item) => item.status === "failed").length}
@@ -777,7 +774,6 @@ export function App() {
           onStreamFile={streamFile}
           onSuspendFileStream={suspendFileStream}
           onRetryMessage={retryMessage}
-          onSendFile={sendFile}
           onSendFiles={sendFiles}
           onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}

@@ -85,6 +85,7 @@ describe("TdRequestBroker prepared files", () => {
         name: "paste.png",
         mimeType: "image/png",
         dataBase64: "AQID",
+        kind: "photo",
       }]);
       expect(input.caption).toBe("图片说明");
       broker.settle({ "@type": "messages", "@extra": input.extra });
@@ -95,6 +96,7 @@ describe("TdRequestBroker prepared files", () => {
       name: "paste.png",
       mimeType: "image/png",
       dataBase64: "AQID",
+      kind: "photo",
     }], "图片说明", reportError)).resolves.toBe(true);
     expect(reportError).not.toHaveBeenCalled();
   });

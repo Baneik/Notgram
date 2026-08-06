@@ -17,9 +17,10 @@ import {
   type RefObject,
 } from "react";
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
+import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
-import type { ConnectionStatus, Message } from "../telegram/types";
+import type { ConnectionStatus, Message, OutgoingAttachment } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
@@ -31,7 +32,6 @@ interface ConversationComposerProps {
   replyingTo?: Message;
   contextTitle?: string;
   inputRef: RefObject<HTMLTextAreaElement | null>;
-  transportKind: "mock" | "tauri";
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
   failedQueuedMessageCount: number;
@@ -39,8 +39,7 @@ interface ConversationComposerProps {
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDraftChange: (chatId: string, text: string, replyToMessageId?: string) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
-  onSendFile: (file?: File) => Promise<boolean>;
-  onSendFiles: (files: File[], caption?: string) => Promise<boolean>;
+  onSendFiles: (attachments: OutgoingAttachment[], caption?: string) => Promise<boolean>;
   onCancelEditing: () => void;
   onCancelReply: () => void;
 }
@@ -53,7 +52,7 @@ const EMOJI_HOVER_CLOSE_DELAY_MS = 80;
 
 interface PendingAttachment {
   id: string;
-  file: File;
+  attachment: OutgoingAttachment;
   previewUrl?: string;
 }
 
@@ -63,7 +62,6 @@ export const ConversationComposer = memo(function ConversationComposer({
   replyingTo,
   contextTitle,
   inputRef,
-  transportKind,
   connectionStatus,
   queuedMessageCount,
   failedQueuedMessageCount,
@@ -71,7 +69,6 @@ export const ConversationComposer = memo(function ConversationComposer({
   onEditMessage,
   onDraftChange,
   onTypingChange,
-  onSendFile,
   onSendFiles,
   onCancelEditing,
   onCancelReply,
@@ -83,6 +80,10 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [attachmentPending, setAttachmentPending] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentNotice, setAttachmentNotice] = useState<string>();
+  const [attachmentMode, setAttachmentMode] = useState<"media" | "file">("media");
+  const [attachmentSpoiler, setAttachmentSpoiler] = useState(false);
+  const [attachmentCaptionAbove, setAttachmentCaptionAbove] = useState(false);
+  const [muteVideos, setMuteVideos] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
@@ -302,9 +303,21 @@ export const ConversationComposer = memo(function ConversationComposer({
       const available = Math.max(0, TELEGRAM_ALBUM_MAX_ITEMS - current.length);
       const accepted = files.slice(0, available).map((file) => ({
         id: crypto.randomUUID(),
-        file,
-        previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+        attachment: {
+          file,
+          kind: "document" as const,
+        },
+        previewUrl: file.type.startsWith("image/") || file.type.startsWith("video/")
+          ? URL.createObjectURL(file)
+          : undefined,
       }));
+      for (const pending of accepted) {
+        void inspectOutgoingAttachment(pending.attachment.file).then((attachment) => {
+          setPendingAttachments((latest) => latest.map((candidate) =>
+            candidate.id === pending.id ? { ...candidate, attachment } : candidate,
+          ));
+        });
+      }
       setAttachmentNotice(files.length > available
         ? `一次最多发送 ${TELEGRAM_ALBUM_MAX_ITEMS} 个附件`
         : undefined);
@@ -327,8 +340,20 @@ export const ConversationComposer = memo(function ConversationComposer({
     const caption = draftRef.current.trim();
     setAttachmentPending(true);
     try {
+      const inspectedAttachments = await Promise.all(
+        pendingAttachments.map(({ attachment }) => inspectOutgoingAttachment(attachment.file)),
+      );
       const sent = await onSendFiles(
-        pendingAttachments.map((attachment) => attachment.file),
+        inspectedAttachments.map((attachment) => ({
+          ...attachment,
+          kind: attachmentMode === "file"
+            ? "document"
+            : muteVideos && attachment.kind === "video"
+              ? "animation"
+              : attachment.kind,
+          hasSpoiler: attachmentMode === "media" && attachmentSpoiler,
+          showCaptionAboveMedia: attachmentMode === "media" && attachmentCaptionAbove,
+        })),
         caption || undefined,
       );
       if (!sent) return;
@@ -337,6 +362,10 @@ export const ConversationComposer = memo(function ConversationComposer({
       }
       setPendingAttachments([]);
       setAttachmentNotice(undefined);
+      setAttachmentMode("media");
+      setAttachmentSpoiler(false);
+      setAttachmentCaptionAbove(false);
+      setMuteVideos(false);
       if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
       draftTimerRef.current = undefined;
       pendingDraftRef.current = undefined;
@@ -348,17 +377,6 @@ export const ConversationComposer = memo(function ConversationComposer({
       focusComposer();
     } finally {
       setAttachmentPending(false);
-    }
-  };
-
-  const sendAttachment = async (file?: File) => {
-    if (attachmentPending) return;
-    setAttachmentPending(true);
-    try {
-      await onSendFile(file);
-    } finally {
-      setAttachmentPending(false);
-      focusComposer();
     }
   };
 
@@ -454,20 +472,77 @@ export const ConversationComposer = memo(function ConversationComposer({
             {pendingAttachments.map((attachment) => (
               <article className="composer-attachment-item" key={attachment.id}>
                 {attachment.previewUrl ? (
-                  <img src={attachment.previewUrl} alt={attachment.file.name} />
+                  attachment.attachment.kind === "video" ? (
+                    <video src={attachment.previewUrl} aria-label={attachment.attachment.file.name} muted />
+                  ) : (
+                    <img src={attachment.previewUrl} alt={attachment.attachment.file.name} />
+                  )
                 ) : (
                   <span className="composer-file-preview"><Paperclip size={22} /></span>
                 )}
-                <span className="composer-attachment-name">{attachment.file.name}</span>
+                <span className="composer-attachment-kind">{attachment.attachment.kind}</span>
+                <span className="composer-attachment-name">{attachment.attachment.file.name}</span>
                 <button
                   type="button"
-                  aria-label={`移除 ${attachment.file.name}`}
+                  aria-label={`移除 ${attachment.attachment.file.name}`}
                   onClick={() => removePendingAttachment(attachment.id)}
                 >
                   <X size={14} />
                 </button>
               </article>
             ))}
+          </div>
+          <div className="composer-attachment-options">
+            <fieldset className="attachment-mode-control">
+              <legend className="sr-only">附件发送方式</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="attachment-mode"
+                  checked={attachmentMode === "media"}
+                  onChange={() => setAttachmentMode("media")}
+                />
+                <span>媒体</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="attachment-mode"
+                  checked={attachmentMode === "file"}
+                  onChange={() => setAttachmentMode("file")}
+                />
+                <span>原文件</span>
+              </label>
+            </fieldset>
+            <label>
+              <input
+                type="checkbox"
+                checked={attachmentSpoiler}
+                disabled={attachmentMode === "file"}
+                onChange={(event) => setAttachmentSpoiler(event.target.checked)}
+              />
+              剧透
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={attachmentCaptionAbove}
+                disabled={attachmentMode === "file"}
+                onChange={(event) => setAttachmentCaptionAbove(event.target.checked)}
+              />
+              说明置顶
+            </label>
+            {pendingAttachments.some(({ attachment }) => attachment.kind === "video") && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={muteVideos}
+                  disabled={attachmentMode === "file"}
+                  onChange={(event) => setMuteVideos(event.target.checked)}
+                />
+                作为静音动画
+              </label>
+            )}
           </div>
           <footer>
             <span role={attachmentNotice ? "alert" : "status"}>
@@ -528,8 +603,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           title={composerContextMessage ? "完成当前消息操作后添加附件" : attachmentPending ? "正在选择文件" : "添加附件"}
           disabled={Boolean(composerContextMessage) || attachmentPending}
           onClick={() => {
-            if (transportKind === "tauri") void sendAttachment();
-            else fileInputRef.current?.click();
+            fileInputRef.current?.click();
           }}
         >
           {attachmentPending

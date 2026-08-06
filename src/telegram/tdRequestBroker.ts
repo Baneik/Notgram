@@ -19,6 +19,18 @@ export interface PreparedPastedFile {
   dataBase64: string;
 }
 
+export interface PreparedPastedAttachment extends PreparedPastedFile {
+  kind: "photo" | "video" | "audio" | "animation" | "document";
+  width?: number;
+  height?: number;
+  duration?: number;
+  title?: string;
+  performer?: string;
+  thumbnail?: PreparedPastedFile;
+  hasSpoiler?: boolean;
+  showCaptionAboveMedia?: boolean;
+}
+
 export class TdRequestBroker {
   private pending = new Map<string, PendingRequest>();
   private preparedFiles = new Map<string, (error: Error) => void>();
@@ -58,7 +70,7 @@ export class TdRequestBroker {
 
   async requestPreparedPastedFiles(
     chatId: string,
-    files: PreparedPastedFile[],
+    files: PreparedPastedAttachment[],
     caption: string | undefined,
     onError: (error: Error) => void,
   ) {

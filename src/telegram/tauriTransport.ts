@@ -23,7 +23,15 @@ import {
   mapTdConnectionStatus,
   tdConnectionState,
 } from "./connectionState";
-import { TdRequestBroker, type PreparedPastedFile } from "./tdRequestBroker";
+import {
+  TdRequestBroker,
+  type PreparedPastedAttachment,
+  type PreparedPastedFile,
+} from "./tdRequestBroker";
+import {
+  attachmentAlbumFamily,
+  inspectOutgoingAttachment,
+} from "../media/outgoingAttachments";
 import { TauriAccountStorage } from "./tauriAccountStorage";
 import {
   chatListKey,
@@ -1434,20 +1442,31 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async sendFile(input: SendFileInput) {
     return input.file
-      ? this.sendFiles({ chatId: input.chatId, files: [input.file] })
+      ? this.sendFiles({
+          chatId: input.chatId,
+          attachments: [await inspectOutgoingAttachment(input.file)],
+        })
       : this.requestPreparedFile(input.chatId);
   }
 
   async sendFiles(input: SendFilesInput) {
-    if (input.files.length === 0) return false;
-    const isTelegramPhoto = (file: File) =>
-      /\.(?:jpe?g|png)$/i.test(file.name) && file.size <= 10 * 1024 * 1024;
-    const photos = input.files.filter(isTelegramPhoto);
-    const documents = input.files.filter((file) => !isTelegramPhoto(file));
+    if (input.attachments.length === 0) return false;
+    const groups = input.attachments.reduce<typeof input.attachments[]>((result, attachment) => {
+      const family = attachmentAlbumFamily(attachment.kind);
+      const existing = family === "animation"
+        ? undefined
+        : result.find((candidate) =>
+          candidate.length < 10 && attachmentAlbumFamily(candidate[0].kind) === family);
+      if (existing) {
+        existing.push(attachment);
+      } else {
+        result.push([attachment]);
+      }
+      return result;
+    }, []);
     let captionPending = input.caption;
-    for (const group of [photos, documents]) {
-      if (group.length === 0) continue;
-      const files = await Promise.all(group.map(this.preparePastedFile));
+    for (const group of groups) {
+      const files = await Promise.all(group.map(this.preparePastedAttachment));
       const sent = await this.requestPreparedPastedFiles(input.chatId, files, captionPending);
       if (!sent) return false;
       captionPending = undefined;
@@ -1530,7 +1549,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private requestPreparedPastedFiles(
     chatId: string,
-    files: PreparedPastedFile[],
+    files: PreparedPastedAttachment[],
     caption?: string,
   ) {
     return this.requestBroker.requestPreparedPastedFiles(chatId, files, caption, (error) => {
@@ -1550,6 +1569,23 @@ export class TauriTelegramTransport implements TelegramTransport {
       dataBase64: btoa(chunks.join("")),
     };
   };
+
+  private preparePastedAttachment = async (
+    attachment: SendFilesInput["attachments"][number],
+  ): Promise<PreparedPastedAttachment> => ({
+    ...await this.preparePastedFile(attachment.file),
+    kind: attachment.kind,
+    width: attachment.width,
+    height: attachment.height,
+    duration: attachment.duration,
+    title: attachment.title,
+    performer: attachment.performer,
+    thumbnail: attachment.thumbnail
+      ? await this.preparePastedFile(attachment.thumbnail)
+      : undefined,
+    hasSpoiler: attachment.hasSpoiler,
+    showCaptionAboveMedia: attachment.showCaptionAboveMedia,
+  });
 
   private requestPreparedProfilePhoto() {
     return this.requestBroker.requestPreparedProfilePhoto();

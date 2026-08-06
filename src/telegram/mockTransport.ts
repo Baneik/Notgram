@@ -1085,37 +1085,50 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async sendFile({ chatId, file }: SendFileInput) {
     if (!file) return false;
-    return this.sendFiles({ chatId, files: [file] });
+    return this.sendFiles({
+      chatId,
+      attachments: [{
+        file,
+        kind: file.type.startsWith("image/") ? "photo" : "document",
+      }],
+    });
   }
 
-  async sendFiles({ chatId, files, caption }: SendFilesInput) {
-    if (files.length === 0) return false;
-    const allPhotos = files.length > 1 && files.every((file) => file.type.startsWith("image/"));
-    const albumId = allPhotos ? `mock-album-${crypto.randomUUID()}` : undefined;
-    for (const [index, file] of files.entries()) {
-      const isPhoto = file.type.startsWith("image/");
-      const preview = isPhoto ? await previewDataUrl(file) : undefined;
+  async sendFiles({ chatId, attachments, caption }: SendFilesInput) {
+    if (attachments.length === 0) return false;
+    const allVisual = attachments.length > 1 && attachments.every(
+      (attachment) => attachment.kind === "photo" || attachment.kind === "video",
+    );
+    const albumId = allVisual ? `mock-album-${crypto.randomUUID()}` : undefined;
+    for (const [index, attachment] of attachments.entries()) {
+      const { file, kind } = attachment;
+      const isMedia = kind !== "document";
+      const preview = kind === "photo" ? await previewDataUrl(file) : undefined;
       this.appendMessage({
         id: crypto.randomUUID(),
         chatId,
-        mediaAlbumId: isPhoto ? albumId : undefined,
+        mediaAlbumId: isMedia ? albumId : undefined,
         senderId: this.snapshot.currentUserId,
         outgoing: true,
         sentAt: new Date().toISOString(),
         delivery: "sent",
-        content: isPhoto
+        content: isMedia
           ? {
               kind: "media",
-              mediaType: "photo",
+              mediaType: kind,
               fileName: file.name,
               sizeLabel: readableFileSize(file.size),
               previewDataUrl: preview,
+              width: attachment.width,
+              height: attachment.height,
+              duration: attachment.duration,
               caption: index === 0 ? caption : undefined,
             }
           : {
               kind: "file",
               fileName: file.name,
               sizeLabel: readableFileSize(file.size),
+              caption: index === 0 ? caption : undefined,
             },
       });
     }

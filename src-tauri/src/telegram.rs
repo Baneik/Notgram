@@ -8,9 +8,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use libloading::Library;
 use runtime_log::RuntimeLogger;
 use security::{
-    prepared_file_album_request_with_caption, prepared_file_request,
-    prepared_file_request_with_caption, prepared_profile_photo_request, request_type_from_extra,
-    validate_webview_extra, validate_webview_tdlib_request,
+    PreparedUpload, prepared_file_request, prepared_profile_photo_request,
+    prepared_upload_album_request_with_caption, prepared_upload_request_with_caption,
+    request_type_from_extra, validate_webview_extra, validate_webview_tdlib_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -43,6 +43,25 @@ const MAX_PASTED_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PastedUploadFile {
+    name: String,
+    mime_type: String,
+    data_base64: String,
+    kind: String,
+    width: Option<i32>,
+    height: Option<i32>,
+    duration: Option<i32>,
+    title: Option<String>,
+    performer: Option<String>,
+    thumbnail: Option<PastedUploadThumbnail>,
+    #[serde(default)]
+    has_spoiler: bool,
+    #[serde(default)]
+    show_caption_above_media: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PastedUploadThumbnail {
     name: String,
     mime_type: String,
     data_base64: String,
@@ -1203,6 +1222,20 @@ fn pasted_upload_file_name(name: &str, index: usize) -> String {
     }
 }
 
+fn decode_pasted_upload(
+    data_base64: String,
+    label: &str,
+    maximum: usize,
+) -> Result<Vec<u8>, String> {
+    let bytes = BASE64_STANDARD
+        .decode(data_base64)
+        .map_err(|_| format!("{label} data is not valid base64"))?;
+    if bytes.is_empty() || bytes.len() > maximum {
+        return Err(format!("{label} has an invalid size"));
+    }
+    Ok(bytes)
+}
+
 #[tauri::command]
 pub async fn telegram_send_pasted_files(
     app: AppHandle,
@@ -1238,22 +1271,45 @@ pub async fn telegram_send_pasted_files(
         if file.mime_type.len() > 255 || file.mime_type.chars().any(char::is_control) {
             return Err("Invalid pasted file MIME type".to_string());
         }
-        let bytes = BASE64_STANDARD
-            .decode(file.data_base64)
-            .map_err(|_| "Pasted file data is not valid base64".to_string())?;
-        if bytes.is_empty() || bytes.len() > MAX_PASTED_UPLOAD_BYTES {
-            return Err("Each pasted file must be between 1 byte and 64 MB".to_string());
-        }
+        let bytes = decode_pasted_upload(file.data_base64, "Pasted file", MAX_PASTED_UPLOAD_BYTES)?;
         let path = cache_root.join(pasted_upload_file_name(&file.name, index));
         fs::write(&path, bytes)
             .map_err(|error| format!("Unable to cache pasted upload: {error}"))?;
-        prepared.push(crate::storage::prepare_upload_file(&path)?);
+        let thumbnail = if let Some(thumbnail) = file.thumbnail {
+            if thumbnail.mime_type != "image/jpeg" && thumbnail.mime_type != "image/png" {
+                return Err("Invalid media thumbnail MIME type".to_string());
+            }
+            let bytes = decode_pasted_upload(thumbnail.data_base64, "Media thumbnail", 200 * 1024)?;
+            let thumbnail_name = format!(
+                "thumbnail-{index}-{}",
+                pasted_upload_file_name(&thumbnail.name, index),
+            );
+            let thumbnail_path = cache_root.join(thumbnail_name);
+            fs::write(&thumbnail_path, bytes)
+                .map_err(|error| format!("Unable to cache media thumbnail: {error}"))?;
+            Some(crate::storage::prepare_upload_file(&thumbnail_path)?)
+        } else {
+            None
+        };
+        prepared.push(PreparedUpload {
+            file: crate::storage::prepare_upload_file(&path)?,
+            mime_type: file.mime_type,
+            kind: file.kind,
+            width: file.width,
+            height: file.height,
+            duration: file.duration,
+            title: file.title,
+            performer: file.performer,
+            thumbnail,
+            has_spoiler: file.has_spoiler,
+            show_caption_above_media: file.show_caption_above_media,
+        });
     }
 
     let request = if prepared.len() == 1 {
-        prepared_file_request_with_caption(chat_id, &extra, &prepared[0], &caption)?
+        prepared_upload_request_with_caption(chat_id, &extra, &prepared[0], &caption)?
     } else {
-        prepared_file_album_request_with_caption(chat_id, &extra, &prepared, &caption)?
+        prepared_upload_album_request_with_caption(chat_id, &extra, &prepared, &caption)?
     };
     runtime.send(&request)?;
     Ok(true)

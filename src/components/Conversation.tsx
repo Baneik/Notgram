@@ -98,7 +98,6 @@ interface ConversationProps {
   historyLoading: boolean;
   historyInitialized: boolean;
   hasOlderMessages: boolean;
-  transportKind: "mock" | "tauri";
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
   failedQueuedMessageCount: number;
@@ -130,8 +129,7 @@ interface ConversationProps {
   onStreamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onSuspendFileStream: (fileId: number) => Promise<void>;
   onRetryMessage: (messageId: string) => Promise<void>;
-  onSendFile: (file?: File) => Promise<boolean>;
-  onSendFiles: (files: File[], caption?: string) => Promise<boolean>;
+  onSendFiles: (attachments: import("../telegram/types").OutgoingAttachment[], caption?: string) => Promise<boolean>;
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
@@ -156,7 +154,6 @@ export function Conversation({
   historyLoading,
   historyInitialized,
   hasOlderMessages,
-  transportKind,
   connectionStatus,
   queuedMessageCount,
   failedQueuedMessageCount,
@@ -181,7 +178,6 @@ export function Conversation({
   onStreamFile,
   onSuspendFileStream,
   onRetryMessage,
-  onSendFile,
   onSendFiles,
   onCancelFileUpload,
   onLoadOlder,
@@ -493,14 +489,12 @@ export function Conversation({
     return onSendMessage(text, replyToMessageId);
   }, [jumpToLatest, onSendMessage]);
 
-  const sendFileAndFollowLatest = useCallback(async (file?: File) => {
+  const sendFilesAndFollowLatest = useCallback(async (
+    attachments: import("../telegram/types").OutgoingAttachment[],
+    caption?: string,
+  ) => {
     jumpToLatest();
-    return onSendFile(file);
-  }, [jumpToLatest, onSendFile]);
-
-  const sendFilesAndFollowLatest = useCallback(async (files: File[], caption?: string) => {
-    jumpToLatest();
-    return onSendFiles(files, caption);
+    return onSendFiles(attachments, caption);
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
@@ -1238,7 +1232,6 @@ export function Conversation({
         replyingTo={replyingTo}
         contextTitle={composerContextTitle}
         inputRef={composerInputRef}
-        transportKind={transportKind}
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}
         failedQueuedMessageCount={failedQueuedMessageCount}
@@ -1246,7 +1239,6 @@ export function Conversation({
         onEditMessage={onEditMessage}
         onDraftChange={onDraftChange}
         onTypingChange={onTypingChange}
-        onSendFile={sendFileAndFollowLatest}
         onSendFiles={sendFilesAndFollowLatest}
         onCancelEditing={cancelEditing}
         onCancelReply={cancelReply}

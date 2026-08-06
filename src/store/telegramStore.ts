@@ -2152,11 +2152,11 @@ export const createTelegramStore = (
         }
       },
 
-      sendFiles: async (files, caption) => {
+      sendFiles: async (attachments, caption) => {
         const chatId = get().activeChatId;
-        if (!chatId || files.length === 0) return false;
+        if (!chatId || attachments.length === 0) return false;
         try {
-          const sent = await transport.sendFiles({ chatId, files, caption });
+          const sent = await transport.sendFiles({ chatId, attachments, caption });
           if (sent) set({ operationError: undefined });
           return sent;
         } catch (error) {

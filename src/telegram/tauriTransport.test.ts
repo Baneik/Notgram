@@ -1624,10 +1624,10 @@ describe("TauriTelegramTransport message operations", () => {
 
     await expect(transport.sendFiles({
       chatId: "7",
-      files: [
-        new File(["photo"], "first.png", { type: "image/png" }),
-        new File(["document"], "notes.txt", { type: "text/plain" }),
-        new File(["photo"], "second.jpg", { type: "image/jpeg" }),
+      attachments: [
+        { file: new File(["photo"], "first.png", { type: "image/png" }), kind: "photo" },
+        { file: new File(["document"], "notes.txt", { type: "text/plain" }), kind: "document" },
+        { file: new File(["photo"], "second.jpg", { type: "image/jpeg" }), kind: "photo" },
       ],
       caption: "一次说明",
     })).resolves.toBe(true);
@@ -1635,6 +1635,59 @@ describe("TauriTelegramTransport message operations", () => {
       { chatId: "7", names: ["first.png", "second.jpg"], caption: "一次说明" },
       { chatId: "7", names: ["notes.txt"], caption: undefined },
     ]);
+  });
+
+  it("preserves native media metadata and groups photos with videos", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const groups: unknown[][] = [];
+    internal.requestPreparedPastedFiles = async (_chatId, files) => {
+      groups.push(files);
+      return true;
+    };
+
+    await expect(transport.sendFiles({
+      chatId: "7",
+      attachments: [
+        {
+          file: new File(["photo"], "photo.jpg", { type: "image/jpeg" }),
+          kind: "photo",
+          width: 800,
+          height: 600,
+          hasSpoiler: true,
+          showCaptionAboveMedia: true,
+        },
+        {
+          file: new File(["video"], "clip.mp4", { type: "video/mp4" }),
+          kind: "video",
+          width: 1280,
+          height: 720,
+          duration: 42,
+          thumbnail: new File(["cover"], "cover.jpg", { type: "image/jpeg" }),
+          hasSpoiler: true,
+          showCaptionAboveMedia: true,
+        },
+        {
+          file: new File(["audio"], "song.flac", { type: "audio/flac" }),
+          kind: "audio",
+          duration: 180,
+          title: "song",
+        },
+      ],
+    })).resolves.toBe(true);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject([
+      { kind: "photo", width: 800, height: 600, hasSpoiler: true },
+      {
+        kind: "video",
+        width: 1280,
+        height: 720,
+        duration: 42,
+        thumbnail: { name: "cover.jpg", mimeType: "image/jpeg" },
+      },
+    ]);
+    expect(groups[1]).toMatchObject([{ kind: "audio", duration: 180, title: "song" }]);
   });
 
   it("does not send when the native picker is cancelled and can cancel an active upload", async () => {
