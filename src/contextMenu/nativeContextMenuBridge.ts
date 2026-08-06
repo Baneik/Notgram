@@ -2,7 +2,10 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, monitorFromPoint } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 import type { ContextMenuPoint } from "../utils/contextMenuLayout";
-import { calculateNativeContextMenuGeometry } from "./nativeContextMenuLayout";
+import {
+  calculateNativeContextMenuGeometry,
+  measureNativeContextMenuLabel,
+} from "./nativeContextMenuLayout";
 
 export type NativeContextMenuIcon =
   | "archive"
@@ -89,7 +92,11 @@ const showNativeContextMenu = async (
   signal: AbortSignal,
 ) => {
   const id = menuId();
-  const geometry = calculateNativeContextMenuGeometry(descriptor.items);
+  const geometry = calculateNativeContextMenuGeometry(
+    descriptor.items,
+    undefined,
+    measureNativeContextMenuLabel,
+  );
   const placement = await menuPlacement(
     point,
     geometry.expandedWidth,

@@ -22,7 +22,10 @@ import {
   type NativeContextMenuIcon,
   type NativeContextMenuMessage,
 } from "../contextMenu/nativeContextMenuBridge";
-import { calculateNativeContextMenuGeometry } from "../contextMenu/nativeContextMenuLayout";
+import {
+  calculateNativeContextMenuGeometry,
+  measureNativeContextMenuLabel,
+} from "../contextMenu/nativeContextMenuLayout";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 
 const icons: Record<NativeContextMenuIcon, typeof Pin> = {
@@ -102,7 +105,11 @@ export function ContextMenuWindow({ id }: { id: string }) {
 
   useEffect(() => {
     if (!descriptor) return;
-    const geometry = calculateNativeContextMenuGeometry(descriptor.items, expandedId);
+    const geometry = calculateNativeContextMenuGeometry(
+      descriptor.items,
+      expandedId,
+      measureNativeContextMenuLabel,
+    );
     void invoke("notgram_resize_context_menu_window", {
       id,
       width: expandedId ? geometry.expandedWidth : geometry.width,
@@ -111,7 +118,11 @@ export function ContextMenuWindow({ id }: { id: string }) {
   }, [descriptor, expandedId, id]);
 
   if (!descriptor) return null;
-  const geometry = calculateNativeContextMenuGeometry(descriptor.items, expandedId);
+  const geometry = calculateNativeContextMenuGeometry(
+    descriptor.items,
+    expandedId,
+    measureNativeContextMenuLabel,
+  );
   const expandedItem = descriptor.items.find((item) => item.id === expandedId);
   const select = (actionId: string) => {
     channelRef.current?.postMessage({ type: "action", id, actionId } satisfies NativeContextMenuMessage);
@@ -122,7 +133,12 @@ export function ContextMenuWindow({ id }: { id: string }) {
     <div
       ref={menuRef}
       className="native-context-menu-stage"
-      style={{ "--native-context-submenu-y": `${geometry.submenuOffsetY}px` } as CSSProperties}
+      style={{
+        "--native-context-primary-width": `${geometry.primaryPanelWidth}px`,
+        "--native-context-submenu-width": `${geometry.submenuPanelWidth}px`,
+        "--native-context-submenu-x": `${geometry.submenuOffsetX}px`,
+        "--native-context-submenu-y": `${geometry.submenuOffsetY}px`,
+      } as CSSProperties}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => handleMenuKeyboard(event, () => { void close(); })}
     >

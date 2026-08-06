@@ -1,4 +1,5 @@
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ChevronLeft,
   ChevronRight,
@@ -60,6 +61,30 @@ export function MediaViewer({
     setFailedSource(undefined);
     setRetryKey(0);
   }, [activeMessageId, source]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const appWindow = getCurrentWindow();
+    let active = true;
+    let restoreWindowed = false;
+    void (async () => {
+      const alreadyFullscreen = await appWindow.isFullscreen().catch(() => false);
+      if (!active || alreadyFullscreen) return;
+      const enteredFullscreen = await appWindow.setFullscreen(true)
+        .then(() => true)
+        .catch(() => false);
+      if (!enteredFullscreen) return;
+      if (!active) {
+        await appWindow.setFullscreen(false).catch(() => undefined);
+        return;
+      }
+      restoreWindowed = true;
+    })();
+    return () => {
+      active = false;
+      if (restoreWindowed) void appWindow.setFullscreen(false).catch(() => undefined);
+    };
+  }, []);
 
   useEffect(() => {
     activeThumbnailRef.current?.scrollIntoView({

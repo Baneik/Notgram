@@ -146,7 +146,9 @@ function MessageBubbleComponent({
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
-  const visualSizingText = hasCaption && content.kind === "media" ? content.caption : undefined;
+  const visualSizingText = hasCaption && !message.outgoing && content.kind === "media"
+    ? content.caption
+    : undefined;
   const showSender = !albumItem && !message.outgoing && isGroupFirst(groupPosition);
   const channelPostTarget = !albumItem ? channelPostTargetFor(message) : undefined;
   const fullMediaSource = content.kind === "media" ? localSource(content.localPath) : undefined;
@@ -457,8 +459,8 @@ function MessageBubbleComponent({
                   <button
                     className="photo-open"
                     type="button"
-                    aria-label={`双击查看图片 ${content.fileName}`}
-                    onDoubleClick={() => onOpenMedia(message.id)}
+                    aria-label={`查看图片 ${content.fileName}`}
+                    onClick={() => onOpenMedia(message.id)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
@@ -495,8 +497,8 @@ function MessageBubbleComponent({
                   <button
                     className="photo-open"
                     type="button"
-                    aria-label={`双击查看图片 ${content.fileName}`}
-                    onDoubleClick={() => onOpenMedia(message.id)}
+                    aria-label={`查看图片 ${content.fileName}`}
+                    onClick={() => onOpenMedia(message.id)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();

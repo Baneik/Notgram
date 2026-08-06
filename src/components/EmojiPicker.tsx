@@ -23,6 +23,7 @@ interface EmojiPickerProps {
   replyToMessageId?: string;
   onEmoji: (emoji: string) => void;
   onClose: () => void;
+  onRequestComposerFocus: () => void;
   onPointerEnter?: PointerEventHandler<HTMLElement>;
   onPointerLeave?: PointerEventHandler<HTMLElement>;
 }
@@ -156,6 +157,7 @@ export function EmojiPicker({
   replyToMessageId,
   onEmoji,
   onClose,
+  onRequestComposerFocus,
   onPointerEnter,
   onPointerLeave,
 }: EmojiPickerProps) {
@@ -260,7 +262,8 @@ export function EmojiPicker({
     setRecentEmojis(next);
     try { localStorage.setItem(RECENT_EMOJI_KEY, JSON.stringify(next)); } catch { /* noop */ }
     onEmoji(emoji);
-  }, [onEmoji, recentEmojis]);
+    onRequestComposerFocus();
+  }, [onEmoji, onRequestComposerFocus, recentEmojis]);
 
   const sendAsset = useCallback(async (asset: EmojiPickerAsset) => {
     if (sendingAssetId) return;
@@ -269,8 +272,16 @@ export function EmojiPicker({
       ? await sendAnimation(asset, replyToMessageId)
       : await sendSticker(asset, replyToMessageId);
     setSendingAssetId(undefined);
-    if (sent) onClose();
-  }, [onClose, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
+    if (sent) {
+      onClose();
+      onRequestComposerFocus();
+    }
+  }, [onClose, onRequestComposerFocus, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
+
+  const closeAndRestoreComposerFocus = () => {
+    onClose();
+    onRequestComposerFocus();
+  };
 
   const placeholder = tab === "emoji"
     ? "搜索 Emoji"
@@ -296,7 +307,7 @@ export function EmojiPicker({
         <button className={tab === "animation" ? "is-active" : ""} type="button" role="tab" aria-selected={tab === "animation"} onClick={() => { setTab("animation"); setQuery(""); }}>
           GIF 动态图
         </button>
-        <button className="emoji-picker-close" type="button" aria-label="关闭表情面板" title="关闭" onClick={onClose}>
+        <button className="emoji-picker-close" type="button" aria-label="关闭表情面板" title="关闭" onClick={closeAndRestoreComposerFocus}>
           <X size={17} />
         </button>
       </header>

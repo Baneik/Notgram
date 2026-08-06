@@ -256,10 +256,48 @@ export function Conversation({
     matchingMessages,
     setQuery: setMessageSearch,
     close: closeMessageSearch,
+    show: showMessageSearch,
     toggle: toggleMessageSearch,
   } = useConversationSearch(chat?.id, displayMessages, onSearchMessages);
   const messageSearchInputRef = useRef<HTMLInputElement>(null);
   const [activeSearchResultId, setActiveSearchResultId] = useState<string>();
+
+  const focusComposer = useCallback(() => {
+    globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
+  }, []);
+
+  const focusMessageSearch = useCallback(() => {
+    globalThis.setTimeout(() => {
+      messageSearchInputRef.current?.focus();
+      messageSearchInputRef.current?.select();
+    }, 0);
+  }, []);
+
+  const openMessageSearch = useCallback(() => {
+    if (!chat) return;
+    showMessageSearch();
+    focusMessageSearch();
+  }, [chat, focusMessageSearch, showMessageSearch]);
+
+  const closeMessageSearchAndFocusComposer = useCallback(() => {
+    closeMessageSearch();
+    focusComposer();
+  }, [closeMessageSearch, focusComposer]);
+
+  useEffect(() => {
+    const openSearchWithKeyboard = (event: KeyboardEvent) => {
+      if (
+        !chat || event.altKey || event.shiftKey ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.key.toLocaleLowerCase() !== "f"
+      ) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      event.preventDefault();
+      openMessageSearch();
+    };
+    globalThis.addEventListener("keydown", openSearchWithKeyboard);
+    return () => globalThis.removeEventListener("keydown", openSearchWithKeyboard);
+  }, [chat, openMessageSearch]);
 
   useEffect(() => {
     if (!messageSearch.trim() || matchingMessages.length === 0) {
@@ -588,10 +626,6 @@ export function Conversation({
           ? `${typingNames.join("、")} 正在输入...`
           : `${typingNames.slice(0, 2).join("、")} 等 ${typingUserIds.length} 人正在输入...`;
 
-  const focusComposer = () => {
-    globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
-  };
-
   const activeSearchResultIndex = activeSearchResultId
     ? matchingMessages.findIndex((message) => message.id === activeSearchResultId)
     : -1;
@@ -788,7 +822,14 @@ export function Conversation({
       </header>
 
       {searchOpen && (
-        <div className="message-search-row">
+        <div
+          className="message-search-row"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            closeMessageSearchAndFocusComposer();
+          }}
+        >
           <Search size={16} strokeWidth={1.8} />
           <input
             ref={messageSearchInputRef}
@@ -831,7 +872,7 @@ export function Conversation({
           >
             <ChevronDown size={17} strokeWidth={1.9} />
           </button>
-          <button className="icon-button" type="button" aria-label="关闭消息搜索" title="关闭消息搜索" onClick={closeMessageSearch}>
+          <button className="icon-button" type="button" aria-label="关闭消息搜索" title="关闭消息搜索" onClick={closeMessageSearchAndFocusComposer}>
             <X size={17} strokeWidth={1.8} />
           </button>
         </div>

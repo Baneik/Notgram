@@ -395,7 +395,9 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await picker.getByRole("tab", { name: "Emoji" }).click();
   await picker.getByRole("button", { name: "插入 😀" }).click();
   await expect(composer).toHaveValue("😀");
+  await expect(composer).toBeFocused();
   await picker.getByRole("button", { name: "关闭表情面板" }).click();
+  await expect(composer).toBeFocused();
 
   await page.getByRole("button", { name: "表情" }).click();
   await expect(picker.getByRole("heading", { name: "最近使用" })).toBeVisible();
@@ -404,6 +406,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await sticker.click();
   await expect(picker).toBeHidden();
   await expect(page.locator('[data-media-type="sticker"]').last()).toBeVisible();
+  await expect(composer).toBeFocused();
 
   await page.getByRole("button", { name: "表情" }).click();
   await picker.getByRole("tab", { name: "GIF 动态图" }).click();
@@ -411,6 +414,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await expect(animation).toBeVisible();
   await animation.click();
   await expect(page.locator('[data-media-type="animation"]').last()).toBeVisible();
+  await expect(composer).toBeFocused();
 });
 
 test("sticker picker uses deliberate hover intent and closes promptly", async ({ page }) => {
@@ -1463,8 +1467,9 @@ test("the unified sidebar search paginates, filters, supports regex, and opens e
     return Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2);
   })).toBeLessThan(2);
 
-  await page.getByRole("button", { name: "搜索消息" }).click();
+  await page.keyboard.press("Control+F");
   const conversationSearch = page.getByRole("searchbox", { name: "搜索当前对话" });
+  await expect(conversationSearch).toBeFocused();
   await conversationSearch.fill("reg:^新的媒体预览样式$");
   await conversationSearch.press("Enter");
   await expect(page.locator('[data-message-id="p-5"]')).toBeVisible();
@@ -1477,7 +1482,9 @@ test("the unified sidebar search paginates, filters, supports regex, and opens e
   await expect(page.locator(".message-row").first()).toBeVisible();
   await expect(page.locator(".messages-empty")).toHaveCount(0);
   await expect(page.getByRole("alert").getByText("无效的正则表达式")).toBeVisible();
-  await page.getByRole("button", { name: "关闭消息搜索" }).click();
+  await conversationSearch.press("Escape");
+  await expect(conversationSearch).toBeHidden();
+  await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
   await page.getByRole("button", { name: "关闭操作提示" }).click();
 
   await page.keyboard.press("Control+K");
@@ -1657,6 +1664,25 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await expect(sentAlbum.locator(".media-album-caption")).toHaveText("粘贴图片说明");
   await expect(composer).toBeFocused();
 
+  await composer.fill("短说明不应收窄图片");
+  await composer.evaluate((element) => {
+    const data = new DataTransfer();
+    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (character) => character.charCodeAt(0));
+    data.items.add(new File([bytes], "outgoing-caption.png", { type: "image/png" }));
+    element.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    }));
+  });
+  await composer.press("Enter");
+  const sentPhoto = page.locator('.message-row.is-outgoing', { hasText: "短说明不应收窄图片" }).last();
+  await expect(sentPhoto.locator(".message-bubble-shell")).not.toHaveClass(/is-text-sized-visual/);
+  await expect.poll(() => sentPhoto.locator(".photo-preview").evaluate(
+    (element) => element.getBoundingClientRect().width,
+  )).toBeGreaterThan(350);
+  await expect(composer).toBeFocused();
+
   await composer.evaluate((element) => {
     const data = new DataTransfer();
     data.items.add(new File(["pasted document"], "pasted-notes.txt", { type: "text/plain" }));
@@ -1680,12 +1706,15 @@ test("unloaded media uses a blurred glass preview instead of exposing thumbnail 
   await expect(page.locator('[data-message-id="p-video"] .photo-preview')).not.toHaveClass(/is-preview-only/);
 });
 
-test("double-clicking a photo opens the full viewer with zoom, navigation, and thumbnails", async ({ page }) => {
+test("single-clicking a photo opens the full viewer with zoom, navigation, and thumbnails", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-message-id="p-5"] .photo-open').dblclick();
+  await page.locator('[data-message-id="p-5"] .photo-open').click();
 
   await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
   const viewer = page.locator(".media-viewer");
+  const viewerBounds = await page.locator(".media-viewer-backdrop").boundingBox();
+  const viewport = page.viewportSize();
+  expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
   const thumbnails = viewer.getByRole("navigation", { name: "会话图片预览" });
   await expect(thumbnails.getByRole("button")).toHaveCount(2);
   await expect(thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }))
@@ -2468,14 +2497,14 @@ test("native context menu rows fill a consistently rounded popup frame", async (
     const collapsedStage = document.createElement("div");
     collapsedStage.className = "native-context-menu-stage";
     collapsedStage.dataset.nativeMenuFixture = "collapsed";
-    collapsedStage.style.cssText = "position:fixed;left:0;top:0;width:228px;height:236px;z-index:9999";
+    collapsedStage.style.cssText = "position:fixed;left:0;top:0;width:170px;height:236px;z-index:9999;--native-context-primary-width:146px";
     collapsedStage.append(createPanel("native-context-menu", "action"));
     document.body.append(collapsedStage);
 
     const expandedStage = document.createElement("div");
     expandedStage.className = "native-context-menu-stage";
     expandedStage.dataset.nativeMenuFixture = "expanded";
-    expandedStage.style.cssText = "position:fixed;left:240px;top:0;width:438px;height:236px;z-index:9999;--native-context-submenu-y:0px";
+    expandedStage.style.cssText = "position:fixed;left:180px;top:0;width:308px;height:236px;z-index:9999;--native-context-primary-width:146px;--native-context-submenu-width:132px;--native-context-submenu-x:164px;--native-context-submenu-y:0px";
     expandedStage.append(createPanel("native-context-menu", "primary"));
     expandedStage.append(createPanel("native-context-menu-children", "child"));
     document.body.append(expandedStage);
@@ -2499,6 +2528,7 @@ test("native context menu rows fill a consistently rounded popup frame", async (
       lastInset: bounds.bottom - rows.at(-1)!.bottom,
       rowGaps: rows.slice(1).map((row, index) => row.top - rows[index].bottom),
       rightGutter: stageBounds.right - bounds.right,
+      width: bounds.width,
       shadow: style.boxShadow,
     };
   });
@@ -2518,6 +2548,7 @@ test("native context menu rows fill a consistently rounded popup frame", async (
   expect(metrics.lastInset).toBeCloseTo(1, 1);
   expect(metrics.rowGaps.every((gap) => Math.abs(gap) < 0.1)).toBe(true);
   expect(metrics.rightGutter).toBe(12);
+  expect(metrics.width).toBe(146);
   expect(expandedRightGutter).toBe(12);
   expect(metrics.shadow).toContain("2px 6px");
 });

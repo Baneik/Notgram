@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Message } from "../telegram/types";
 import { messageContentText } from "../telegram/messageContent";
 import { messageSearchMatches, parseMessageSearchQuery } from "../telegram/messageSearch";
@@ -37,15 +37,17 @@ export const useConversationSearch = (
     return () => globalThis.clearTimeout(timer);
   }, [chatId, onSearchMessages, query]);
 
-  const close = () => {
+  const close = useCallback(() => {
     setOpen(false);
     setQuery("");
-  };
+  }, []);
 
-  const toggle = () => {
+  const show = useCallback(() => setOpen(true), []);
+
+  const toggle = useCallback(() => {
     if (open) close();
-    else setOpen(true);
-  };
+    else show();
+  }, [close, open, show]);
 
   return {
     open,
@@ -54,6 +56,7 @@ export const useConversationSearch = (
     matchingMessages,
     setQuery,
     close,
+    show,
     toggle,
   };
 };

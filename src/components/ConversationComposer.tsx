@@ -319,7 +319,8 @@ export const ConversationComposer = memo(function ConversationComposer({
       return current.filter((attachment) => attachment.id !== id);
     });
     setAttachmentNotice(undefined);
-  }, []);
+    focusComposer();
+  }, [focusComposer]);
 
   const sendPendingAttachments = async () => {
     if (attachmentPending || pendingAttachments.length === 0) return;
@@ -357,6 +358,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       await onSendFile(file);
     } finally {
       setAttachmentPending(false);
+      focusComposer();
     }
   };
 
@@ -414,6 +416,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           replyToMessageId={replyingTo?.id ?? chatDraft?.replyToMessageId}
           onEmoji={insertEmoji}
           onClose={closeEmojiPicker}
+          onRequestComposerFocus={focusComposer}
           onPointerEnter={(event) => {
             if (event.pointerType === "mouse") clearEmojiCloseTimer();
           }}
@@ -431,6 +434,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           const files = Array.from(event.target.files ?? []);
           if (files.length > 0) addPendingAttachments(files);
           event.target.value = "";
+          focusComposer();
         }}
       />
       {pendingAttachments.length > 0 && (
