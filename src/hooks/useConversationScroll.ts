@@ -11,6 +11,10 @@ import {
 import type { IndexLocationWithAlign, StateSnapshot, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
 import {
+  captureConversationSwitchSnapshot,
+  removeConversationSwitchSnapshot,
+} from "../utils/conversationSwitchSnapshot";
+import {
   logPerformance,
   markConversationSwitch,
   markHistoryInteraction,
@@ -278,10 +282,6 @@ export const useConversationScroll = ({
     const storedAnchorIndex = stored?.anchorMessageId
       ? messageItemIndexes.get(stored.anchorMessageId)
       : undefined;
-    const storedLatestBoundaryIndex = stored?.followLatest === true &&
-        stored.lastKnownMessageId && stored.lastKnownMessageId !== lastVisibleMessageId
-      ? messageItemIndexes.get(stored.lastKnownMessageId)
-      : undefined;
     const serverAnchorIndex = matchingEntryRequest?.serverMessageId
       ? messageItemIndexes.get(matchingEntryRequest.serverMessageId)
       : undefined;
@@ -316,14 +316,6 @@ export const useConversationScroll = ({
         };
         mode = "anchor";
         targetMessageId = stored.anchorMessageId;
-      } else if (storedLatestBoundaryIndex !== undefined) {
-        location = {
-          index: storedLatestBoundaryIndex,
-          align: "center",
-          behavior: "auto",
-        };
-        mode = "anchor";
-        targetMessageId = stored?.lastKnownMessageId;
       } else if (stored?.followLatest === true) {
         location = {
           index: "LAST",
@@ -709,31 +701,15 @@ export const useConversationScroll = ({
           pendingNewCount,
         });
       } else if (stored) {
-        const appended = appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
-        const boundaryMessageId = appended > 0 ? stored.lastKnownMessageId : undefined;
-        if (boundaryMessageId && messageItemIndexes.has(boundaryMessageId)) {
-          const anchorOffset = placeMessageAtCenter(boundaryMessageId);
-          pendingNewCount += appended;
-          followLatest = false;
-          conversationScrollMemory.set(currentScrollKey, {
-            scrollTop: element.scrollTop,
-            followLatest: false,
-            lastKnownMessageId: lastId,
-            pendingNewCount,
-            anchorMessageId: boundaryMessageId,
-            anchorOffset,
-          });
-        } else {
-          scrollToLatestPosition();
-          pendingNewCount = 0;
-          followLatest = true;
-          conversationScrollMemory.set(currentScrollKey, {
-            scrollTop: element.scrollTop,
-            followLatest: true,
-            lastKnownMessageId: lastId,
-            pendingNewCount: 0,
-          });
-        }
+        scrollToLatestPosition();
+        pendingNewCount = 0;
+        followLatest = true;
+        conversationScrollMemory.set(currentScrollKey, {
+          scrollTop: element.scrollTop,
+          followLatest: true,
+          lastKnownMessageId: lastId,
+          pendingNewCount: 0,
+        });
       } else if (pendingServerMessageId && pendingServerMessageIndex === undefined) {
         previousLayoutRef.current = { key: currentScrollKey, firstId, lastId, search };
         return;
@@ -1102,8 +1078,94 @@ export const useConversationScroll = ({
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
     let animationFrame: number | undefined;
-    let settleTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
     let cancelled = false;
+    let jumpSnapshot: HTMLElement | undefined;
+    let stableSignature: string | undefined;
+    let stableFrames = 0;
+    const captureJumpSnapshot = () => {
+      if (jumpSnapshot || document.querySelector("[data-conversation-switch-snapshot]")) return;
+      jumpSnapshot = captureConversationSwitchSnapshot();
+    };
+    const releaseJumpSnapshot = () => {
+      removeConversationSwitchSnapshot(jumpSnapshot);
+      jumpSnapshot = undefined;
+    };
+    const centeredOffset = (target: HTMLElement) => {
+      const listBounds = element.getBoundingClientRect();
+      const targetBounds = target.getBoundingClientRect();
+      return (targetBounds.top + targetBounds.height / 2) -
+        (listBounds.top + listBounds.height / 2);
+    };
+    const finishJump = () => {
+      if (cancelled || messageListRef.current !== element) return;
+      releaseJumpSnapshot();
+      const memory = captureScrollMemory(element, lastVisibleMessageId, 0, false, true);
+      conversationScrollMemory.set(currentScrollKey, {
+        ...memory,
+        followLatest: false,
+        pendingNewCount: 0,
+      });
+      updateNewMessageNotice(currentScrollKey, 0);
+      setPositionedScrollIdentity(initialLocationIdentity);
+      if (positionCorrectionIdentityRef.current === initialLocationIdentity) {
+        positionCorrectionIdentityRef.current = undefined;
+      }
+      markConversationSwitch(messageRequest.performanceTraceId, "positioned", {
+        messageCount: visibleMessages.length,
+        blockCount: virtualItemCount,
+      });
+    };
+    const animateToTarget = (initialTarget: HTMLElement) => {
+      const initialOffset = centeredOffset(initialTarget);
+      if (Math.abs(initialOffset) < 1) {
+        finishJump();
+        return;
+      }
+      const startedAt = performance.now();
+      const duration = Math.min(420, Math.max(220, Math.abs(initialOffset) * 0.42));
+      const step = (now: number) => {
+        if (cancelled || messageListRef.current !== element) return;
+        const target = element.querySelector<HTMLElement>(
+          `[data-message-id="${CSS.escape(messageRequest.messageId)}"]`,
+        );
+        if (!target) {
+          finishJump();
+          return;
+        }
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const desiredOffset = initialOffset * (1 - eased);
+        element.scrollTop += centeredOffset(target) - desiredOffset;
+        if (progress < 1) {
+          animationFrame = requestAnimationFrame(step);
+        } else {
+          finishJump();
+        }
+      };
+      animationFrame = requestAnimationFrame(step);
+    };
+    const animateWhenStable = () => {
+      if (cancelled || messageListRef.current !== element) return;
+      const target = element.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(messageRequest.messageId)}"]`,
+      );
+      if (!target) {
+        animationFrame = requestAnimationFrame(animateWhenStable);
+        return;
+      }
+      const signature = `${Math.round(element.scrollTop)}:${Math.round(element.scrollHeight)}:${Math.round(centeredOffset(target))}`;
+      if (signature === stableSignature) stableFrames += 1;
+      else {
+        stableSignature = signature;
+        stableFrames = 1;
+      }
+      if (stableFrames < 2) {
+        animationFrame = requestAnimationFrame(animateWhenStable);
+        return;
+      }
+      releaseJumpSnapshot();
+      animateToTarget(target);
+    };
     const revealMessage = (attempt: number) => {
       if (cancelled) return;
       const target = element.querySelector<HTMLElement>(
@@ -1113,6 +1175,7 @@ export const useConversationScroll = ({
         if (attempt === 0) {
           const itemIndex = messageItemIndexes.get(messageRequest.messageId);
           if (itemIndex === undefined) return;
+          captureJumpSnapshot();
           const nearby = nearbyVisibleAnchor(element);
           const currentIndex = nearby?.messageId
             ? messageItemIndexes.get(nearby.messageId)
@@ -1135,53 +1198,16 @@ export const useConversationScroll = ({
       }
 
       handledMessageRequestRef.current = messageRequest.requestId;
-      const centerTarget = () => {
-        const listBounds = element.getBoundingClientRect();
-        const targetBounds = target.getBoundingClientRect();
-        element.scrollTop += (targetBounds.top + targetBounds.height / 2) -
-          (listBounds.top + listBounds.height / 2);
-      };
-      const storeTargetPosition = () => {
-        const memory = captureScrollMemory(element, lastVisibleMessageId, 0, false, true);
-        conversationScrollMemory.set(currentScrollKey, {
-          ...memory,
-          followLatest: false,
-          pendingNewCount: 0,
-        });
-      };
-      const listBounds = element.getBoundingClientRect();
-      const targetBounds = target.getBoundingClientRect();
-      const distance = (targetBounds.top + targetBounds.height / 2) -
-        (listBounds.top + listBounds.height / 2);
+      const distance = centeredOffset(target);
       if (Math.abs(distance) > Math.max(element.clientHeight * 1.75, SMOOTH_SCROLL_MAX_DISTANCE_PX)) {
+        captureJumpSnapshot();
         element.scrollTop += distance - Math.sign(distance) * element.clientHeight * SMOOTH_SCROLL_TELEPORT_VIEWPORTS;
+        animationFrame = requestAnimationFrame(() => revealMessage(attempt + 1));
+        return;
       }
-      const targetIndex = messageItemIndexes.get(messageRequest.messageId);
-      animationFrame = requestAnimationFrame(() => {
-        if (cancelled || messageListRef.current !== element) return;
-        if (targetIndex !== undefined) {
-          virtuosoRef.current?.scrollToIndex({
-            index: targetIndex,
-            align: "center",
-            behavior: "smooth",
-          });
-        } else {
-          element.scrollBy({ top: distance, behavior: "smooth" });
-        }
-      });
-      element.focus({ preventScroll: true });
       setHighlightedMessage({ key: currentScrollKey, messageId: messageRequest.messageId });
-      storeTargetPosition();
-      settleTimer = globalThis.setTimeout(() => {
-        if (cancelled || messageListRef.current !== element) return;
-        centerTarget();
-        storeTargetPosition();
-        markConversationSwitch(messageRequest.performanceTraceId, "positioned", {
-          messageCount: visibleMessages.length,
-          blockCount: virtualItemCount,
-        });
-      }, 520);
-      updateNewMessageNotice(currentScrollKey, 0);
+      if (jumpSnapshot) animateWhenStable();
+      else animateToTarget(target);
       if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
       highlightTimerRef.current = globalThis.setTimeout(() => {
         highlightTimerRef.current = undefined;
@@ -1196,11 +1222,12 @@ export const useConversationScroll = ({
     return () => {
       cancelled = true;
       if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
-      if (settleTimer !== undefined) globalThis.clearTimeout(settleTimer);
+      releaseJumpSnapshot();
     };
   }, [
     chatId,
     currentScrollKey,
+    initialLocationIdentity,
     lastVisibleMessageId,
     messageItemIndexes,
     messageRequest,

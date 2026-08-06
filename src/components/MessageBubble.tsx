@@ -18,7 +18,14 @@ import {
   Save,
   X,
 } from "lucide-react";
-import { memo, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction } from "../telegram/types";
 import { formatMessageTime } from "../utils/formatters";
@@ -131,7 +138,11 @@ function MessageBubbleComponent({
   autoDownloadPolicy,
   developerMode,
 }: MessageBubbleProps) {
-  const [entering, setEntering] = useState(Boolean(entrance));
+  const [entrancePending, setEntrancePending] = useState(Boolean(entrance));
+  const [entering, setEntering] = useState(false);
+  const entranceKindRef = useRef<MessageEntrance | undefined>(entrance);
+  const entranceFrameRef = useRef<number | undefined>(undefined);
+  const rowRef = useRef<HTMLElement | null>(null);
   const [reactionPending, setReactionPending] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
@@ -148,6 +159,7 @@ function MessageBubbleComponent({
   }, [entrance, message.chatId, message.id]);
   const textFlowRef = useRef<HTMLDivElement>(null);
   const [metaWrapped, setMetaWrapped] = useState(false);
+  const [metaInlineOffset, setMetaInlineOffset] = useState(0);
   const content = message.content;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
@@ -207,6 +219,12 @@ function MessageBubbleComponent({
       const translatedY = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
       const wrapped = metaBounds.top - translatedY > lastLine.top + 4;
       setMetaWrapped((current) => current === wrapped ? current : wrapped);
+      const inlineOffset = wrapped
+        ? 0
+        : lastLine.bottom - (metaBounds.bottom - translatedY);
+      setMetaInlineOffset((current) => Math.abs(current - inlineOffset) < 0.25
+        ? current
+        : inlineOffset);
     };
 
     measure();
@@ -287,6 +305,52 @@ function MessageBubbleComponent({
     lazyMediaIsThumbnail ? 24 : 28,
     MEDIA_PREFETCH_ROOT_MARGIN,
   );
+  const setMessageRowRef = useCallback((element: HTMLElement | null) => {
+    rowRef.current = element;
+    lazyMediaRef.current = element;
+  }, [lazyMediaRef]);
+
+  useLayoutEffect(() => {
+    const entranceKind = entranceKindRef.current;
+    if (!entranceKind || !entrancePending) return;
+    const row = rowRef.current;
+    const list = row?.closest<HTMLElement>(".message-list");
+    if (!row || !list) return;
+    const revealWhenInsideViewport = () => {
+      if (!row.isConnected || !list.isConnected) return false;
+      const rowBounds = row.getBoundingClientRect();
+      const listBounds = list.getBoundingClientRect();
+      const fullyVisible = rowBounds.height >= listBounds.height
+        ? rowBounds.top < listBounds.bottom && rowBounds.bottom > listBounds.top
+        : rowBounds.top >= listBounds.top - 1 && rowBounds.bottom <= listBounds.bottom + 1;
+      if (fullyVisible) {
+        entranceFrameRef.current = undefined;
+        setEntrancePending(false);
+        setEntering(true);
+        return true;
+      }
+      return false;
+    };
+    if (revealWhenInsideViewport()) return;
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver(() => {
+        revealWhenInsideViewport();
+      }, { root: list, threshold: [0, 0.99, 1] });
+      observer.observe(row);
+      return () => observer.disconnect();
+    }
+    const pollViewport = () => {
+      if (revealWhenInsideViewport()) return;
+      entranceFrameRef.current = requestAnimationFrame(pollViewport);
+    };
+    entranceFrameRef.current = requestAnimationFrame(pollViewport);
+    return () => {
+      if (entranceFrameRef.current !== undefined) {
+        cancelAnimationFrame(entranceFrameRef.current);
+        entranceFrameRef.current = undefined;
+      }
+    };
+  }, [entrancePending]);
   const selectionDisabled = selectionPending ||
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
@@ -330,8 +394,8 @@ function MessageBubbleComponent({
 
   return (
     <article
-      ref={lazyMediaRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${entering ? `is-entering-${entrance}` : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      ref={setMessageRowRef}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${entrancePending ? "is-awaiting-entrance" : ""} ${entering ? `is-entering-${entranceKindRef.current}` : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget) setEntering(false);
@@ -409,6 +473,7 @@ function MessageBubbleComponent({
             <div
               ref={textFlowRef}
               className={`message-text-flow ${metaWrapped ? "is-meta-wrapped" : ""}`}
+              style={{ "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}
             >
               <MessageRichText text={content.text} entities={content.entities} />
               {messageMeta}
@@ -609,6 +674,7 @@ function MessageBubbleComponent({
                 <div
                   ref={textFlowRef}
                   className={`message-text-flow photo-caption-flow ${metaWrapped ? "is-meta-wrapped" : ""}`}
+                  style={{ "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}
                 >
                   <MessageRichText
                     className="photo-caption"

@@ -338,23 +338,52 @@ test("live messages animate without replaying history rows", async ({ page }) =>
   await expect(page.locator(".message-row.is-entering-incoming, .message-row.is-entering-outgoing"))
     .toHaveCount(0);
 
-  const entranceClass = page.evaluate(() => new Promise<string>((resolve) => {
+  const entranceReport = page.evaluate(() => new Promise<{
+    className: string;
+    hiddenBeforeEntrance: boolean;
+    rowBottom: number;
+    listBottom: number;
+    composerTop: number;
+  }>((resolve) => {
+    let hiddenBeforeEntrance = false;
     const observer = new MutationObserver(() => {
+      const pending = document.querySelector<HTMLElement>(
+        ".message-row.is-awaiting-entrance",
+      );
+      if (pending) hiddenBeforeEntrance = getComputedStyle(pending).visibility === "hidden";
       const entering = document.querySelector<HTMLElement>(".message-row.is-entering-outgoing");
       if (!entering) return;
+      const list = entering.closest<HTMLElement>(".message-list");
+      const composer = document.querySelector<HTMLElement>(".composer-wrap");
       observer.disconnect();
-      resolve(entering.className);
+      resolve({
+        className: entering.className,
+        hiddenBeforeEntrance,
+        rowBottom: entering.getBoundingClientRect().bottom,
+        listBottom: list?.getBoundingClientRect().bottom ?? Number.NEGATIVE_INFINITY,
+        composerTop: composer?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
+      });
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true });
     globalThis.setTimeout(() => {
       observer.disconnect();
-      resolve("");
+      resolve({
+        className: "",
+        hiddenBeforeEntrance,
+        rowBottom: Number.POSITIVE_INFINITY,
+        listBottom: Number.NEGATIVE_INFINITY,
+        composerTop: Number.NEGATIVE_INFINITY,
+      });
     }, 2_000);
   }));
   await page.getByRole("textbox", { name: "消息内容" }).fill("动画消息测试");
   await page.getByRole("button", { name: "发送消息" }).click();
 
-  expect(await entranceClass).toContain("is-entering-outgoing");
+  const report = await entranceReport;
+  expect(report.className).toContain("is-entering-outgoing");
+  expect(report.hiddenBeforeEntrance).toBe(true);
+  expect(report.rowBottom).toBeLessThanOrEqual(report.listBottom + 1);
+  expect(report.listBottom).toBeLessThanOrEqual(report.composerTop + 1);
   await expect(page.getByText("动画消息测试", { exact: true })).toBeVisible();
   await expect(page.locator(".message-row.is-entering-outgoing")).toHaveCount(0);
 });
@@ -595,6 +624,23 @@ test("private chats show incoming typing state", async ({ page }) => {
   await page.goto("/?typing=direct");
   await page.locator('[data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-typing-status")).toHaveText("正在输入...");
+  const titlePositionWhileTyping = await page.locator(".conversation-title strong").boundingBox();
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { typingUserIds: Map<string, string[]> };
+        setState: (partial: { typingUserIds: Map<string, string[]> }) => void;
+      };
+    };
+    const typingUserIds = new Map(module.telegramStore.getState().typingUserIds);
+    typingUserIds.delete("chat-mia");
+    module.telegramStore.setState({ typingUserIds });
+  }, "/src/store/telegramStore.ts");
+  await expect(page.locator(".conversation-typing-status")).toHaveCount(0);
+  const titlePositionWithoutTyping = await page.locator(".conversation-title strong").boundingBox();
+  expect(Math.abs(
+    titlePositionWhileTyping!.y - titlePositionWithoutTyping!.y,
+  )).toBeLessThanOrEqual(0.5);
 });
 
 test("sidebar dragging and window resizing keep the responsive layout live", async ({ page }) => {
@@ -1579,6 +1625,7 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
 
 test("reply previews jump to their source and channel senders keep their identity", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   const channelMessage = page.locator('[data-message-id="p-channel-reply"]');
   await expect(channelMessage).toBeVisible();
   await expect(channelMessage.locator(".message-sender")).toHaveText("Release Notes");
@@ -1596,6 +1643,34 @@ test("reply previews jump to their source and channel senders keep their identit
   )).toBeLessThanOrEqual(1);
   await expect(channelMessage.getByRole("button", { name: "前往频道原消息" })).toBeVisible();
 
+  await page.evaluate(() => {
+    type JumpSample = {
+      scrollTop: number;
+      placeholder: boolean;
+      snapshot: boolean;
+    };
+    const state = { samples: [] as JumpSample[], running: false };
+    const globalState = globalThis as typeof globalThis & {
+      __notgramJumpTrace?: typeof state;
+    };
+    globalState.__notgramJumpTrace = state;
+    document.querySelector('[data-message-id="p-channel-reply"] .message-reply-preview')
+      ?.addEventListener("pointerdown", () => {
+        if (state.running) return;
+        state.running = true;
+        const startedAt = performance.now();
+        const sample = () => {
+          const list = document.querySelector<HTMLElement>(".message-list");
+          state.samples.push({
+            scrollTop: list?.scrollTop ?? -1,
+            placeholder: Boolean(document.querySelector(".message-positioning-placeholder")),
+            snapshot: Boolean(document.querySelector("[data-conversation-switch-snapshot]")),
+          });
+          if (performance.now() - startedAt < 700) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      }, { once: true });
+  });
   await channelMessage.locator(".message-reply-preview").click();
   const target = page.locator('[data-message-id="p-old-8"]');
   await expect(target).toHaveClass(/is-notification-target/);
@@ -1605,6 +1680,34 @@ test("reply previews jump to their source and channel senders keep their identit
     if (!list) return Number.POSITIVE_INFINITY;
     return Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2);
   })).toBeLessThan(2);
+  await page.waitForTimeout(720);
+  const jumpReport = await page.evaluate(() => {
+    type JumpSample = { scrollTop: number; placeholder: boolean; snapshot: boolean };
+    const globalState = globalThis as typeof globalThis & {
+      __notgramJumpTrace?: { samples: JumpSample[] };
+    };
+    const samples = globalState.__notgramJumpTrace?.samples ?? [];
+    let direction = 0;
+    let visibleReversals = 0;
+    for (let index = 1; index < samples.length; index += 1) {
+      if (samples[index].snapshot) continue;
+      const delta = samples[index].scrollTop - samples[index - 1].scrollTop;
+      if (Math.abs(delta) < 0.5) continue;
+      const nextDirection = Math.sign(delta);
+      if (direction && direction !== nextDirection) visibleReversals += 1;
+      direction = nextDirection;
+    }
+    return {
+      visibleReversals,
+      placeholderFrames: samples.filter((sample) => sample.placeholder).length,
+      snapshotFrames: samples.filter((sample) => sample.snapshot).length,
+    };
+  });
+  expect(jumpReport.visibleReversals).toBe(0);
+  expect(jumpReport.placeholderFrames).toBe(0);
+  expect(jumpReport.snapshotFrames).toBeGreaterThan(0);
+  await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
+  await expect(target.locator(".message-bubble")).toHaveCSS("outline-style", "none");
 
   await page.getByRole("button", { name: "搜索消息" }).click();
   const search = page.getByRole("searchbox", { name: "搜索当前对话" });
@@ -1656,7 +1759,7 @@ test("text message time stays on the last line when it fits and wraps without wi
     };
   });
   expect(shortGeometry).toBeTruthy();
-  expect(Math.abs(shortGeometry!.metaBottom - shortGeometry!.lastLineBottom!)).toBeLessThan(4);
+  expect(Math.abs(shortGeometry!.metaBottom - shortGeometry!.lastLineBottom!)).toBeLessThan(1);
   expect(shortGeometry!.metaLeft).toBeGreaterThan(shortGeometry!.lastLineRight!);
   expect(Math.abs(shortGeometry!.metaRight - (shortGeometry!.bubbleRight - 10))).toBeLessThanOrEqual(1);
   expect(shortGeometry!.shellWidth).toBeLessThanOrEqual(Math.min(shortGeometry!.stackWidth * 0.74, 720) + 1);
@@ -1682,6 +1785,9 @@ test("text message time stays on the last line when it fits and wraps without wi
           width,
           metaRight: metaBounds.right,
           bubbleRight: bubbleBounds.right,
+          metaTop: metaBounds.top,
+          lastLineBottom: lastLine.bottom,
+          lineHeight: Number.parseFloat(getComputedStyle(text).lineHeight),
         };
       }
     }
@@ -1689,6 +1795,9 @@ test("text message time stays on the last line when it fits and wraps without wi
   });
   expect(wrappedGeometry).toBeTruthy();
   expect(wrappedGeometry!.metaRight).toBeLessThanOrEqual(wrappedGeometry!.bubbleRight - 9);
+  const wrappedGap = wrappedGeometry!.metaTop - wrappedGeometry!.lastLineBottom;
+  expect(wrappedGap).toBeGreaterThanOrEqual(1);
+  expect(wrappedGap).toBeLessThan(wrappedGeometry!.lineHeight * 0.4);
 });
 
 test("caption text sizes media bubbles and media is centered with letterboxing", async ({ page }) => {
@@ -1903,6 +2012,44 @@ test("chat switching and ordinary message interactions keep typing focus in the 
   await expect(page.getByRole("searchbox", { name: "搜索当前对话" })).toBeFocused();
 });
 
+test("canceling a draft reply removes the persisted reply target", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  const source = page.locator('[data-message-id="p-2"]');
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+  await expect(page.locator(".composer-context.is-replying")).toBeVisible();
+  await composer.fill("取消回复后仍是普通草稿");
+  await page.waitForTimeout(850);
+  await page.getByRole("button", { name: "取消回复", exact: true }).click();
+  await expect(page.locator(".composer-context.is-replying")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => {
+          drafts: Map<string, { text: string; replyToMessageId?: string }>;
+        };
+      };
+    };
+    return module.telegramStore.getState().drafts.get("chat-product");
+  }, "/src/store/telegramStore.ts")).toMatchObject({
+    text: "取消回复后仍是普通草稿",
+    replyToMessageId: undefined,
+  });
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.locator(".composer-context.is-replying")).toHaveCount(0);
+  await expect(composer).toHaveValue("取消回复后仍是普通草稿");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const sent = page.locator(
+    '.message-row.is-outgoing',
+    { hasText: "取消回复后仍是普通草稿" },
+  ).last();
+  await expect(sent).toBeVisible();
+  await expect(sent.locator(".message-reply-preview")).toHaveCount(0);
+});
+
 test("user profiles expose account identifiers and data-center information", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Mia Chen/ }).first().click();
@@ -1967,14 +2114,19 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
 
 test("chat settings move unread counters onto avatars and persist the choice", async ({ page }) => {
   await page.goto("/");
+  const releaseRow = page.locator('.chat-row[data-chat-id="chat-release"]');
+  const rightBadge = releaseRow.locator(".chat-row-meta .unread-count");
+  const rightBadgeGeometry = await rightBadge.boundingBox();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /聊天设置/ }).click();
   await page.getByRole("button", { name: "头像右下角", exact: true }).click();
   await page.getByRole("button", { name: "关闭", exact: true }).click();
 
-  const releaseRow = page.locator('.chat-row[data-chat-id="chat-release"]');
   await expect(releaseRow.locator(".chat-avatar-wrap .unread-count-avatar")).toHaveText("8");
   await expect(releaseRow.locator(".chat-row-meta .unread-count")).toHaveCount(0);
+  const avatarBadgeGeometry = await releaseRow.locator(".chat-avatar-wrap .unread-count-avatar").boundingBox();
+  expect(Math.abs(avatarBadgeGeometry!.width - rightBadgeGeometry!.width)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(avatarBadgeGeometry!.height - rightBadgeGeometry!.height)).toBeLessThanOrEqual(0.5);
 
   await page.reload();
   await expect(page.locator(
@@ -2501,22 +2653,14 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   )).toBeLessThanOrEqual(2);
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
-  const restored = await visibleMessageAnchor(page);
   for (const text of ["滚动定位测试一", "滚动定位测试二"]) {
     await page.getByRole("textbox", { name: "消息内容" }).fill(text);
     await page.getByRole("button", { name: "发送消息" }).click();
     await expect(page.getByRole("textbox", { name: "消息内容" })).toHaveValue("");
   }
-
-  const jumpButton = page.getByRole("button", { name: "跳到最新消息，2 条新消息" });
-  await expect(jumpButton).toBeVisible();
-  const afterMessages = await visibleMessageAnchor(page);
-  expect(afterMessages.id).toBe(restored.id);
-  expect(Math.abs(afterMessages.offset - restored.offset)).toBeLessThanOrEqual(2);
-
-  await jumpButton.click();
-  await expect(jumpButton).toBeHidden();
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect(page.getByText("滚动定位测试二", { exact: true })).toBeVisible();
+  await expect(page.locator(".jump-to-latest")).toHaveCount(0);
 
   await page.getByRole("textbox", { name: "消息内容" }).fill("底部自动跟随测试");
   await page.getByRole("button", { name: "发送消息" }).click();
@@ -2548,8 +2692,30 @@ test("window resizing and new messages preserve the user's follow intent", async
   const savedAnchor = await visibleMessageAnchor(page);
   expect(savedAnchor.id).toBeTruthy();
 
-  await page.getByRole("textbox", { name: "消息内容" }).fill("缩放期间的锚点消息");
-  await page.getByRole("button", { name: "发送消息" }).click();
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-product") ?? [])];
+    const latest = current.at(-1);
+    if (!latest) return;
+    current.push({
+      ...latest,
+      id: "p-live-resize",
+      senderId: "u-mia",
+      outgoing: false,
+      delivery: "read",
+      sentAt: new Date(Date.now() + 1_000).toISOString(),
+      content: { kind: "text", text: "缩放期间的锚点消息" },
+    });
+    messages.set("chat-product", current);
+    module.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
   for (const width of [1180, 1320, 1210, 1280]) {
     await page.setViewportSize({ width, height: 760 });
   }
@@ -2571,6 +2737,39 @@ test("window resizing and new messages preserve the user's follow intent", async
   await page.waitForTimeout(160);
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+});
+
+test("a chat left at the latest position returns to the latest message", async ({ page }) => {
+  await page.goto("/");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-product") ?? [])];
+    const latest = current.at(-1);
+    if (!latest) return;
+    current.push({
+      ...latest,
+      id: "p-return-latest",
+      senderId: "u-mia",
+      outgoing: false,
+      delivery: "read",
+      sentAt: new Date(Date.now() + 2_000).toISOString(),
+      content: { kind: "text", text: "返回时仍在最新位置" },
+    });
+    messages.set("chat-product", current);
+    module.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.getByText("返回时仍在最新位置", { exact: true })).toBeVisible();
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 });
 
 test("clicking the selected conversation repeatedly converges to its latest message", async ({ page }) => {

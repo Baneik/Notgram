@@ -66,7 +66,7 @@ import {
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
-import { useTelegramStore } from "../store/telegramStore";
+import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import {
   isConversationSwitchActive,
   logPerformance,
@@ -480,9 +480,28 @@ export function Conversation({
     visibleMessages.length > 0 &&
     (
       entryScrollRequest?.chatId === chat?.id ||
-      latestScrollRequest?.chatId === chat?.id
+      latestScrollRequest?.chatId === chat?.id ||
+      messageScrollRequest?.chatId === chat?.id
     )
   );
+
+  const sendMessageAndFollowLatest = useCallback(async (
+    text: string,
+    replyToMessageId?: string,
+  ) => {
+    jumpToLatest();
+    return onSendMessage(text, replyToMessageId);
+  }, [jumpToLatest, onSendMessage]);
+
+  const sendFileAndFollowLatest = useCallback(async (file?: File) => {
+    jumpToLatest();
+    return onSendFile(file);
+  }, [jumpToLatest, onSendFile]);
+
+  const sendFilesAndFollowLatest = useCallback(async (files: File[], caption?: string) => {
+    jumpToLatest();
+    return onSendFiles(files, caption);
+  }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
     if (!chat) return;
@@ -770,6 +789,10 @@ export function Conversation({
 
   const cancelReply = () => {
     setReplyingTo(undefined);
+    const currentDraft = telegramStore.getState().drafts.get(chat.id);
+    if (currentDraft?.replyToMessageId) {
+      onDraftChange(chat.id, currentDraft.text, undefined);
+    }
     focusComposer();
   };
 
@@ -857,7 +880,11 @@ export function Conversation({
               <Avatar avatar={chat.avatar} size="medium" />
               <span className="conversation-title">
                 <strong>{chat.title}</strong>
-                {typingStatus && <span className="conversation-typing-status" role="status">{typingStatus}</span>}
+                {typingStatus && (
+                  <span className="conversation-typing-status" role="status">
+                    {typingStatus}
+                  </span>
+                )}
               </span>
             </button>
             <div className="conversation-actions">
@@ -1215,12 +1242,12 @@ export function Conversation({
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}
         failedQueuedMessageCount={failedQueuedMessageCount}
-        onSendMessage={onSendMessage}
+        onSendMessage={sendMessageAndFollowLatest}
         onEditMessage={onEditMessage}
         onDraftChange={onDraftChange}
         onTypingChange={onTypingChange}
-        onSendFile={onSendFile}
-        onSendFiles={onSendFiles}
+        onSendFile={sendFileAndFollowLatest}
+        onSendFiles={sendFilesAndFollowLatest}
         onCancelEditing={cancelEditing}
         onCancelReply={cancelReply}
       />

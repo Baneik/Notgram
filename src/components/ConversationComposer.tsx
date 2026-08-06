@@ -406,6 +406,17 @@ export const ConversationComposer = memo(function ConversationComposer({
     focusComposer();
   };
 
+  const cancelReply = useCallback(() => {
+    if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = undefined;
+    pendingDraftRef.current = undefined;
+    localDraftDirtyRef.current = false;
+    replyToMessageIdRef.current = undefined;
+    onDraftChange(chatId, draftRef.current, undefined);
+    onCancelReply();
+    focusComposer();
+  }, [chatId, focusComposer, onCancelReply, onDraftChange]);
+
   const composerContextMessage = editingMessage ?? replyingTo;
 
   return (
@@ -503,7 +514,7 @@ export const ConversationComposer = memo(function ConversationComposer({
             type="button"
             aria-label={editingMessage ? "取消编辑" : "取消回复"}
             title={editingMessage ? "取消编辑" : "取消回复"}
-            onClick={editingMessage ? onCancelEditing : onCancelReply}
+            onClick={editingMessage ? onCancelEditing : cancelReply}
           >
             <X size={17} strokeWidth={1.9} />
           </button>
