@@ -1,10 +1,10 @@
-export const NATIVE_CONTEXT_MENU_WIDTH = 216;
-export const NATIVE_CONTEXT_MENU_EXPANDED_WIDTH = 426;
+export const NATIVE_CONTEXT_MENU_WIDTH = 228;
+export const NATIVE_CONTEXT_MENU_EXPANDED_WIDTH = 438;
 export const NATIVE_CONTEXT_MENU_ROW_HEIGHT = 42;
 export const NATIVE_CONTEXT_MENU_PANEL_OFFSET = 0;
 
 const windowHeightForRows = (rowCount: number) =>
-  14 + Math.max(1, rowCount) * NATIVE_CONTEXT_MENU_ROW_HEIGHT;
+  26 + Math.max(1, rowCount) * NATIVE_CONTEXT_MENU_ROW_HEIGHT;
 
 export interface NativeContextMenuGeometry {
   width: number;

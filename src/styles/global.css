@@ -357,12 +357,12 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .native-context-menu,
 .native-context-menu-children {
   position: absolute; width: 204px; padding: 0; gap: 0; overflow: hidden; border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(24, 34, 40, 0.24); pointer-events: auto;
+  box-shadow: 0 2px 6px rgba(24, 34, 40, 0.24); pointer-events: auto;
 }
-.native-context-menu { left: 6px; top: 6px; }
+.native-context-menu { left: 12px; top: 12px; }
 .native-context-menu-group { display: contents; }
 .native-context-menu-children {
-  left: 216px; top: calc(6px + var(--native-context-submenu-y));
+  left: 222px; top: calc(12px + var(--native-context-submenu-y));
 }
 .native-context-menu button,
 .native-context-menu-children button { min-height: 42px; border-radius: 0; }
@@ -1748,6 +1748,10 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .theme-dark .message-action-menu {
     color: var(--ink); background: #1d2a37; border-color: #3a4b5c;
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
+  }
+  .theme-dark .native-context-menu,
+  .theme-dark .native-context-menu-children {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.36);
   }
   .theme-dark .chat-action-menu button,
   .theme-dark .context-menu-panel button,

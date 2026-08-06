@@ -17,9 +17,9 @@ describe("native context menu layout", () => {
       Array.from({ length: 5 }, (_, index) => item(String(index))),
     );
 
-    expect(geometry.width).toBe(216);
-    expect(geometry.height).toBe(224);
-    expect(geometry.expandedWidth).toBe(216);
+    expect(geometry.width).toBe(228);
+    expect(geometry.height).toBe(236);
+    expect(geometry.expandedWidth).toBe(228);
   });
 
   it("reserves space for a submenu to expand to the right", () => {
@@ -31,10 +31,10 @@ describe("native context menu layout", () => {
     const collapsed = calculateNativeContextMenuGeometry(items);
     const expanded = calculateNativeContextMenuGeometry(items, "folders");
 
-    expect(collapsed.height).toBe(350);
-    expect(collapsed.expandedWidth).toBe(426);
-    expect(collapsed.maximumExpandedHeight).toBe(350);
-    expect(expanded.height).toBe(350);
+    expect(collapsed.height).toBe(362);
+    expect(collapsed.expandedWidth).toBe(438);
+    expect(collapsed.maximumExpandedHeight).toBe(362);
+    expect(expanded.height).toBe(362);
     expect(expanded.submenuOffsetY).toBe(42);
   });
 });

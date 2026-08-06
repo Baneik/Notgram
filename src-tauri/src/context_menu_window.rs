@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn constrains_context_menu_window_sizes() {
-        assert_eq!(menu_size(426.0, 358.0).unwrap(), (426.0, 358.0));
+        assert_eq!(menu_size(438.0, 362.0).unwrap(), (438.0, 362.0));
         assert_eq!(menu_size(900.0, 900.0).unwrap(), (440.0, 480.0));
         assert!(menu_size(f64::NAN, 200.0).is_err());
     }

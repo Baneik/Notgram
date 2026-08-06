@@ -2450,30 +2450,44 @@ test("chat organization menu confirms pin, mute, and archive changes", async ({ 
 test("native context menu rows fill a consistently rounded popup frame", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {
-    const stage = document.createElement("div");
-    stage.className = "native-context-menu-stage";
-    stage.dataset.nativeMenuFixture = "true";
-    stage.style.cssText = "position:fixed;left:0;top:0;width:216px;height:224px;z-index:9999";
-    const panel = document.createElement("div");
-    panel.className = "native-context-menu context-menu-panel";
-    for (let index = 0; index < 5; index += 1) {
-      const group = document.createElement("div");
-      group.className = "native-context-menu-group";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = `action-${index}`;
-      group.append(button);
-      panel.append(group);
-    }
-    stage.append(panel);
-    document.body.append(stage);
+    document.documentElement.classList.add("theme-dark");
+    const createPanel = (className: string, label: string) => {
+      const panel = document.createElement("div");
+      panel.className = `${className} context-menu-panel`;
+      for (let index = 0; index < 5; index += 1) {
+        const group = document.createElement("div");
+        group.className = "native-context-menu-group";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = `${label}-${index}`;
+        group.append(button);
+        panel.append(group);
+      }
+      return panel;
+    };
+    const collapsedStage = document.createElement("div");
+    collapsedStage.className = "native-context-menu-stage";
+    collapsedStage.dataset.nativeMenuFixture = "collapsed";
+    collapsedStage.style.cssText = "position:fixed;left:0;top:0;width:228px;height:236px;z-index:9999";
+    collapsedStage.append(createPanel("native-context-menu", "action"));
+    document.body.append(collapsedStage);
+
+    const expandedStage = document.createElement("div");
+    expandedStage.className = "native-context-menu-stage";
+    expandedStage.dataset.nativeMenuFixture = "expanded";
+    expandedStage.style.cssText = "position:fixed;left:240px;top:0;width:438px;height:236px;z-index:9999;--native-context-submenu-y:0px";
+    expandedStage.append(createPanel("native-context-menu", "primary"));
+    expandedStage.append(createPanel("native-context-menu-children", "child"));
+    document.body.append(expandedStage);
   });
 
-  const panel = page.locator('[data-native-menu-fixture="true"] .native-context-menu');
+  const collapsedStage = page.locator('[data-native-menu-fixture="collapsed"]');
+  const panel = collapsedStage.locator(".native-context-menu");
   const buttons = panel.locator("button");
   const metrics = await panel.evaluate((element) => {
     const style = getComputedStyle(element);
     const bounds = element.getBoundingClientRect();
+    const stageBounds = element.parentElement!.getBoundingClientRect();
     const rows = [...element.querySelectorAll("button")].map((button) =>
       button.getBoundingClientRect());
     return {
@@ -2484,8 +2498,16 @@ test("native context menu rows fill a consistently rounded popup frame", async (
       firstInset: rows[0].top - bounds.top,
       lastInset: bounds.bottom - rows.at(-1)!.bottom,
       rowGaps: rows.slice(1).map((row, index) => row.top - rows[index].bottom),
+      rightGutter: stageBounds.right - bounds.right,
+      shadow: style.boxShadow,
     };
   });
+  const expandedRightGutter = await page
+    .locator('[data-native-menu-fixture="expanded"] .native-context-menu-children')
+    .evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return element.parentElement!.getBoundingClientRect().right - bounds.right;
+    });
 
   await expect(buttons).toHaveCount(5);
   expect(metrics.padding).toEqual(["0px", "0px", "0px", "0px"]);
@@ -2495,6 +2517,9 @@ test("native context menu rows fill a consistently rounded popup frame", async (
   expect(metrics.firstInset).toBeCloseTo(1, 1);
   expect(metrics.lastInset).toBeCloseTo(1, 1);
   expect(metrics.rowGaps.every((gap) => Math.abs(gap) < 0.1)).toBe(true);
+  expect(metrics.rightGutter).toBe(12);
+  expect(expandedRightGutter).toBe(12);
+  expect(metrics.shadow).toContain("2px 6px");
 });
 
 test("chat context menu manages folders, pinning, and group exit", async ({ page }) => {
