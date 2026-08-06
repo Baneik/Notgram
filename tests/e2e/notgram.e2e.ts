@@ -1533,6 +1533,46 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
   await expect(page.getByText("@notgram_bot: release", { exact: true })).toBeVisible();
 });
 
+test("blocks users and reports chats or selected messages", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await profile.getByRole("button", { name: "举报", exact: true }).click();
+  const report = page.getByRole("dialog", { name: /举报“产品讨论”/ });
+  await expect(report.getByLabel("举报原因")).toBeVisible();
+  await report.getByLabel("举报原因").selectOption({ label: "垃圾信息" });
+  await report.getByRole("button", { name: "提交举报" }).click();
+  await expect(report).toBeHidden();
+  await profile.locator(".profile-member-identity").filter({ hasText: "Mia Chen" }).click();
+  await profile.getByRole("button", { name: "屏蔽", exact: true }).click();
+  await expect(profile.getByRole("button", { name: "解除屏蔽", exact: true })).toBeVisible();
+  await profile.getByRole("button", { name: "解除屏蔽", exact: true }).click();
+  await profile.getByRole("button", { name: "关闭资料" }).click();
+
+  const message = page.locator('[data-message-id="p-2"] .message-bubble-shell');
+  await message.focus();
+  await page.keyboard.press("Shift+F10");
+  await chooseMessageMenuItem(page, "举报");
+  const messageReport = page.getByRole("dialog", { name: /举报“产品讨论”/ });
+  await messageReport.getByRole("button", { name: "提交举报" }).click();
+  await expect(messageReport).toBeHidden();
+});
+
+test("manages device sessions and Telegram privacy rules", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await settings.getByRole("button", { name: /诊断与隐私/ }).click();
+  await expect(settings.getByRole("heading", { name: "设备会话" })).toBeVisible();
+  await expect(settings.getByText("当前设备", { exact: true })).toBeVisible();
+  const phoneSession = settings.locator(".session-row", { hasText: "Telegram Android" });
+  await phoneSession.getByRole("button", { name: "终止" }).click();
+  await expect(phoneSession).toBeHidden();
+  await settings.getByLabel("手机号码").selectOption("allowContacts");
+  await expect(settings.getByLabel("手机号码")).toHaveValue("allowContacts");
+  await settings.getByRole("button", { name: "关闭", exact: true }).click();
+});
+
 test("keyboard navigation closes modals and completes message workflows", async ({ page }) => {
   await page.goto("/");
 

@@ -21,6 +21,12 @@ import type {
   GetChatJoinRequestsInput,
   BotCommandSuggestion,
   InlineQueryResultPage,
+  BlockedSender,
+  ChatReportOptions,
+  ReportChatInput,
+  DeviceSession,
+  PrivacyRule,
+  PrivacySettingKey,
   ChatMemberStatusInput,
   ChatPermissions,
   ManagedChatMember,
@@ -202,6 +208,14 @@ export class MockTelegramTransport implements TelegramTransport {
   private chatInviteLinks = new Map<string, ChatInviteLink[]>();
   private chatJoinRequests = new Map<string, ChatJoinRequest[]>();
   private inlineResults = new Map<string, { botUserId: string; text: string }>();
+  private blockedSenders = new Map<string, BlockedSender>();
+  private sessions: DeviceSession[] = [
+    { id: "session-current", isCurrent: true, isPasswordPending: false, isUnconfirmed: false, canAcceptSecretChats: true, canAcceptCalls: true, applicationName: "Notgram", applicationVersion: "0.5.0", deviceModel: "Windows Desktop", platform: "Windows", systemVersion: "11", loggedInAt: new Date(Date.now() - 86_400_000 * 30).toISOString(), lastActiveAt: new Date().toISOString(), ipAddress: "192.0.2.10", location: "Singapore, SG" },
+    { id: "session-phone", isCurrent: false, isPasswordPending: false, isUnconfirmed: false, canAcceptSecretChats: true, canAcceptCalls: true, applicationName: "Telegram Android", applicationVersion: "11.2", deviceModel: "Pixel 8", platform: "Android", systemVersion: "15", loggedInAt: new Date(Date.now() - 86_400_000 * 12).toISOString(), lastActiveAt: new Date(Date.now() - 3_600_000).toISOString(), ipAddress: "198.51.100.7", location: "Shanghai, CN" },
+  ];
+  private privacyRules: Record<PrivacySettingKey, PrivacyRule[]> = {
+    showStatus: [{ kind: "allowContacts" }], showPhoneNumber: [{ kind: "restrictAll" }], showProfilePhoto: [{ kind: "allowContacts" }], allowCalls: [{ kind: "allowContacts" }], allowChatInvites: [{ kind: "allowContacts" }], allowSecretChats: [{ kind: "allowAll" }],
+  };
   private authFlow: boolean;
   private connectionStatus: ConnectionStatus;
   private initialTyping?: { chatId: string; senderId: string };
@@ -1041,6 +1055,53 @@ export class MockTelegramTransport implements TelegramTransport {
     await this.sendMessage({ chatId, text: `/start${parameter.trim() ? ` ${parameter.trim()}` : ""}` });
     void botUserId;
   }
+
+  async getBlockedSenders(): Promise<BlockedSender[]> {
+    return clone([...this.blockedSenders.values()]);
+  }
+
+  async setMessageSenderBlocked(senderId: string, kind: "user" | "chat", blocked: boolean): Promise<void> {
+    const key = `${kind}:${senderId}`;
+    if (!blocked) { this.blockedSenders.delete(key); return; }
+    const user = kind === "user" ? this.snapshot.users.find((item) => item.id === senderId) : undefined;
+    const chat = kind === "chat" ? this.snapshot.chats.find((item) => item.id === senderId) : undefined;
+    if (!user && !chat) throw new Error("找不到要屏蔽的对象");
+    this.blockedSenders.set(key, {
+      id: senderId,
+      kind,
+      title: user?.displayName ?? chat?.title ?? "已屏蔽对象",
+      avatar: clone(user?.avatar ?? chat?.avatar ?? { label: "?", color: "#73808c" }),
+      blockedAt: new Date().toISOString(),
+    });
+  }
+
+  async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportOptions> {
+    void chatId; void messageIds;
+    return { title: "选择举报原因", options: [
+      { id: "spam", title: "垃圾信息" },
+      { id: "violence", title: "暴力或危险内容" },
+      { id: "pornography", title: "色情内容" },
+      { id: "other", title: "其他", requiresText: true },
+    ] };
+  }
+
+  async reportChat(input: ReportChatInput): Promise<void> {
+    const options = await this.getChatReportOptions(input.chatId, input.messageIds);
+    const option = options.options.find((item) => item.id === input.optionId);
+    if (!option) throw new Error("举报原因无效");
+    if (option.requiresText && !input.text?.trim()) throw new Error("请补充举报说明");
+    if (input.messageIds.length > 100) throw new Error("单次最多举报 100 条消息");
+  }
+
+  async getActiveSessions(): Promise<DeviceSession[]> { return clone(this.sessions); }
+  async terminateSession(sessionId: string): Promise<void> {
+    const session = this.sessions.find((item) => item.id === sessionId);
+    if (!session || session.isCurrent) throw new Error("不能终止当前设备");
+    this.sessions = this.sessions.filter((item) => item.id !== sessionId);
+  }
+  async terminateAllOtherSessions(): Promise<void> { this.sessions = this.sessions.filter((item) => item.isCurrent); }
+  async getPrivacySettingRules(setting: PrivacySettingKey): Promise<PrivacyRule[]> { return clone(this.privacyRules[setting]); }
+  async setPrivacySettingRules(setting: PrivacySettingKey, rules: PrivacyRule[]): Promise<void> { if (rules.length === 0 || rules.length > 10) throw new Error("隐私规则无效"); this.privacyRules[setting] = clone(rules); }
 
   async searchChats(query: string, limit = 50) {
     const normalized = query.trim().toLocaleLowerCase();

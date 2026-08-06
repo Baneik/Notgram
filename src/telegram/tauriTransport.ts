@@ -71,6 +71,12 @@ import type {
   BotCommandSuggestion,
   InlineQueryResultPage,
   InlineQueryResult,
+  BlockedSender,
+  ChatReportOptions,
+  ReportChatInput,
+  DeviceSession,
+  PrivacyRule,
+  PrivacySettingKey,
   ChatMemberStatusInput,
   ChatPermissions,
   ManagedChatMember,
@@ -358,6 +364,22 @@ const mapChatInviteLink = (value: unknown): ChatInviteLink | undefined => {
     subscriptionStars: pricing ? tdNumber(pricing.star_count) : undefined,
     subscriptionPeriod: pricing ? tdNumber(pricing.period) : undefined,
   };
+};
+
+const PRIVACY_SETTING_TYPES: Record<PrivacySettingKey, string> = {
+  showStatus: "userPrivacySettingShowStatus",
+  showPhoneNumber: "userPrivacySettingShowPhoneNumber",
+  showProfilePhoto: "userPrivacySettingShowProfilePhoto",
+  allowCalls: "userPrivacySettingAllowCalls",
+  allowChatInvites: "userPrivacySettingAllowChatInvites",
+  allowSecretChats: "userPrivacySettingAllowSecretChats",
+};
+
+const mapSession = (value: unknown): DeviceSession | undefined => {
+  const raw = asTdObject(value);
+  const id = tdId(raw?.id);
+  if (!raw || !id) return undefined;
+  return { id, isCurrent: raw.is_current === true, isPasswordPending: raw.is_password_pending === true, isUnconfirmed: raw.is_unconfirmed === true, canAcceptSecretChats: raw.can_accept_secret_chats === true, canAcceptCalls: raw.can_accept_calls === true, applicationName: typeof raw.application_name === "string" ? raw.application_name : "Telegram", applicationVersion: typeof raw.application_version === "string" ? raw.application_version : "", deviceModel: typeof raw.device_model === "string" ? raw.device_model : "", platform: typeof raw.platform === "string" ? raw.platform : "", systemVersion: typeof raw.system_version === "string" ? raw.system_version : "", loggedInAt: unixDate(raw.log_in_date) ?? new Date(0).toISOString(), lastActiveAt: unixDate(raw.last_active_date) ?? new Date(0).toISOString(), ipAddress: typeof raw.ip_address === "string" ? raw.ip_address : undefined, location: typeof raw.location === "string" ? raw.location : undefined };
 };
 
 const replaceFileReference = (
@@ -1207,6 +1229,64 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async sendBotStartMessage(chatId: string, botUserId: string, parameter = ""): Promise<void> {
     await this.request({ "@type": "sendBotStartMessage", bot_user_id: numericId(botUserId), chat_id: numericId(chatId), parameter: parameter.trim().slice(0, 64) });
+  }
+
+  async getBlockedSenders(): Promise<BlockedSender[]> {
+    const result = await this.request({ "@type": "getBlockedMessageSenders", block_list: { "@type": "blockListMain" }, offset: 0, limit: 100 });
+    const senders = await Promise.all(asTdObjects(result.senders).map(async (raw) => {
+      const type = raw["@type"];
+      if (type === "messageSenderUser") {
+        const id = tdId(raw.user_id);
+        const user = id ? await this.loadUser(id) : undefined;
+        return user ? { id, kind: "user" as const, title: user.displayName, avatar: user.avatar } : undefined;
+      }
+      if (type === "messageSenderChat") {
+        const id = tdId(raw.chat_id);
+        const chat = id ? this.rawChats.get(id) ?? await this.request({ "@type": "getChat", chat_id: numericId(id) }) : undefined;
+        return chat && id ? { id, kind: "chat" as const, title: typeof chat.title === "string" ? chat.title : "已屏蔽频道", avatar: mapTdChat(chat, this.currentUserId)?.avatar ?? { label: "?", color: "#73808c" } } : undefined;
+      }
+      return undefined;
+    }));
+    return senders.filter((sender): sender is BlockedSender => Boolean(sender));
+  }
+
+  async setMessageSenderBlocked(senderId: string, kind: "user" | "chat", blocked: boolean): Promise<void> {
+    await this.request({ "@type": "setMessageSenderBlockList", sender_id: kind === "user" ? { "@type": "messageSenderUser", user_id: numericId(senderId) } : { "@type": "messageSenderChat", chat_id: numericId(senderId) }, block_list: blocked ? { "@type": "blockListMain" } : null });
+  }
+
+  async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportOptions> {
+    const result = await this.request({ "@type": "reportChat", chat_id: numericId(chatId), option_id: "", message_ids: messageIds.map(numericId), text: "" });
+    if (result["@type"] === "reportChatResultOptionRequired") {
+      return { title: typeof result.title === "string" ? result.title : "选择举报原因", options: asTdObjects(result.options).flatMap((raw) => { const id = typeof raw.id === "string" ? raw.id : ""; const title = typeof raw.text === "string" ? raw.text : "其他"; return id ? [{ id, title }] : []; }) };
+    }
+    if (result["@type"] === "reportChatResultTextRequired") return { title: "补充举报说明", options: [{ id: typeof result.option_id === "string" ? result.option_id : "", title: "其他", requiresText: result.is_optional !== true }] };
+    return { title: "举报原因", options: [] };
+  }
+
+  async reportChat({ chatId, messageIds, optionId, text = "" }: ReportChatInput): Promise<void> {
+    const result = await this.request({ "@type": "reportChat", chat_id: numericId(chatId), option_id: optionId, message_ids: messageIds.map(numericId), text: text.slice(0, 1000) });
+    if (["reportChatResultOk", "reportChatResultMessagesRequired"].includes(String(result["@type"]))) return;
+    if (result["@type"] === "reportChatResultTextRequired" && !text.trim() && result.is_optional !== true) throw new Error("请补充举报说明");
+  }
+
+  async getActiveSessions(): Promise<DeviceSession[]> {
+    const result = await this.request({ "@type": "getActiveSessions" });
+    return asTdObjects(result.sessions).map(mapSession).filter((session): session is DeviceSession => Boolean(session));
+  }
+  async terminateSession(sessionId: string): Promise<void> { await this.request({ "@type": "terminateSession", session_id: numericId(sessionId) }); }
+  async terminateAllOtherSessions(): Promise<void> { await this.request({ "@type": "terminateAllOtherSessions" }); }
+  async getPrivacySettingRules(setting: PrivacySettingKey): Promise<PrivacyRule[]> {
+    const result = await this.request({ "@type": "getUserPrivacySettingRules", setting: { "@type": PRIVACY_SETTING_TYPES[setting] } });
+    return asTdObjects(result.rules).flatMap((raw): PrivacyRule[] => {
+      const kind = String(raw["@type"] ?? "").replace(/^userPrivacySettingRule/, "");
+      const names: Record<string, PrivacyRule["kind"]> = { AllowAll: "allowAll", AllowContacts: "allowContacts", AllowUsers: "allowUsers", RestrictAll: "restrictAll", RestrictContacts: "restrictContacts", RestrictUsers: "restrictUsers" };
+      const mapped = names[kind];
+      return mapped ? [{ kind: mapped, userIds: Array.isArray(raw.user_ids) ? raw.user_ids.map(tdId).filter(Boolean) : undefined }] : [];
+    });
+  }
+  async setPrivacySettingRules(setting: PrivacySettingKey, rules: PrivacyRule[]): Promise<void> {
+    const mapped = rules.map((rule) => ({ "@type": `userPrivacySettingRule${rule.kind === "allowAll" ? "AllowAll" : rule.kind === "allowContacts" ? "AllowContacts" : rule.kind === "allowUsers" ? "AllowUsers" : rule.kind === "restrictAll" ? "RestrictAll" : rule.kind === "restrictContacts" ? "RestrictContacts" : "RestrictUsers"}`, ...(rule.userIds ? { user_ids: rule.userIds.map(numericId) } : {}) }));
+    await this.request({ "@type": "setUserPrivacySettingRules", setting: { "@type": PRIVACY_SETTING_TYPES[setting] }, rules: mapped });
   }
 
   async searchGlobal({

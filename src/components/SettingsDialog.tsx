@@ -67,6 +67,7 @@ import { Avatar } from "./Avatar";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
+import { SafetySettings } from "./SafetySettings";
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -444,7 +445,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
           ) : activeCategory === "performance" ? (
             <PerformanceMonitor />
           ) : activeCategory === "diagnostics" ? (
-            <DiagnosticsSettings />
+            <><DiagnosticsSettings /><SafetySettings /></>
           ) : (
             <PreferenceSettings
               category={activeCategory}

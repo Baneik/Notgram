@@ -97,6 +97,7 @@ export function App() {
   const groupManagement = useTelegramStore((state) => state.groupManagement);
   const groupManagementLoading = useTelegramStore((state) => state.groupManagementLoading);
   const groupManagementError = useTelegramStore((state) => state.groupManagementError);
+  const blockedSenders = useTelegramStore((state) => state.blockedSenders);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
   const authorization = useTelegramStore((state) => state.authorization);
   const authorizationPending = useTelegramStore((state) => state.authorizationPending);
@@ -130,6 +131,9 @@ export function App() {
   const getInlineQueryResults = useTelegramStore((state) => state.getInlineQueryResults);
   const sendInlineQueryResultMessage = useTelegramStore((state) => state.sendInlineQueryResultMessage);
   const sendBotStartMessage = useTelegramStore((state) => state.sendBotStartMessage);
+  const setMessageSenderBlocked = useTelegramStore((state) => state.setMessageSenderBlocked);
+  const getChatReportOptions = useTelegramStore((state) => state.getChatReportOptions);
+  const reportChat = useTelegramStore((state) => state.reportChat);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const setChatPinned = useTelegramStore((state) => state.setChatPinned);
@@ -214,6 +218,7 @@ export function App() {
   const getComposerInlineResults = useCallback((botUsername: string, query: string, offset = "") => activeChatId ? getInlineQueryResults(activeChatId, botUsername, query, offset) : Promise.resolve(undefined), [activeChatId, getInlineQueryResults]);
   const sendComposerInlineResult = useCallback((botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => activeChatId ? sendInlineQueryResultMessage(activeChatId, botUserId, queryId, resultId, replyToMessageId) : Promise.resolve(false), [activeChatId, sendInlineQueryResultMessage]);
   const sendComposerBotStart = useCallback((botUserId: string, parameter = "") => activeChatId ? sendBotStartMessage(activeChatId, botUserId, parameter) : Promise.resolve(false), [activeChatId, sendBotStartMessage]);
+  const toggleProfileBlock = useCallback((senderId: string, kind: "user" | "chat", blocked: boolean) => setMessageSenderBlocked(senderId, kind, blocked), [setMessageSenderBlocked]);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
     chatId: string;
     requestId: number;
@@ -879,6 +884,8 @@ export function App() {
           onGetInlineResults={getComposerInlineResults}
           onSendInlineResult={sendComposerInlineResult}
           onSendBotStart={sendComposerBotStart}
+          onGetReportOptions={getChatReportOptions}
+          onReportChat={reportChat}
           onBack={() => setMobileChatOpen(false)}
             />
           </Profiler>
@@ -956,6 +963,12 @@ export function App() {
           onOpenMessage={openProfileMessage}
           onStartPrivateChat={openProfilePrivateChat}
           onManageChat={openChatManagement}
+          isBlocked={profile.value?.userId ? blockedSenders.some((sender) => sender.kind === "user" && sender.id === profile.value?.userId) : profile.value?.chatId ? blockedSenders.some((sender) => sender.kind === "chat" && sender.id === profile.value?.chatId) : false}
+          onToggleBlock={toggleProfileBlock}
+          onGetReportOptions={getChatReportOptions}
+          onReportChat={reportChat}
+          reportChatId={activeChatId}
+          onDeleteChat={profile.target?.kind === "chat" && activeChatId === profile.target.chatId && profile.value?.kind === "group" ? () => leaveGroup(activeChatId) : undefined}
           onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
           onLoadSharedMedia={loadSharedMedia}
           onDownloadFile={downloadFile}

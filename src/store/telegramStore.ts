@@ -243,6 +243,8 @@ export const createTelegramStore = (
         groupManagement: undefined,
         groupManagementLoading: false,
         groupManagementError: undefined,
+        blockedSenders: [],
+        blockedSendersLoading: false,
         folderManagementPending: false,
         chatCreationPending: false,
         chatFilter: "main",
@@ -914,6 +916,8 @@ export const createTelegramStore = (
       groupManagement: undefined,
       groupManagementLoading: false,
       groupManagementError: undefined,
+      blockedSenders: [],
+      blockedSendersLoading: false,
       folderManagementPending: false,
       chatCreationPending: false,
 
@@ -1921,6 +1925,52 @@ export const createTelegramStore = (
       sendBotStartMessage: async (chatId, botUserId, parameter = "") => {
         try { await transport.sendBotStartMessage(chatId, botUserId, parameter); set({ operationError: undefined }); return true; }
         catch (error) { set({ operationError: errorMessage(error, "无法启动机器人") }); return false; }
+      },
+
+      loadBlockedSenders: async () => {
+        set({ blockedSendersLoading: true });
+        try { set({ blockedSenders: await transport.getBlockedSenders(), blockedSendersLoading: false }); }
+        catch (error) { set({ blockedSendersLoading: false, operationError: errorMessage(error, "无法读取黑名单") }); }
+      },
+
+      setMessageSenderBlocked: async (senderId, kind, blocked) => {
+        try {
+          await transport.setMessageSenderBlocked(senderId, kind, blocked);
+          const blockedSenders = blocked ? await transport.getBlockedSenders() : get().blockedSenders.filter((sender) => !(sender.id === senderId && sender.kind === kind));
+          set({ blockedSenders, operationError: undefined });
+          return true;
+        } catch (error) { set({ operationError: errorMessage(error, blocked ? "无法屏蔽对象" : "无法解除屏蔽") }); return false; }
+      },
+
+      getChatReportOptions: async (chatId, messageIds) => {
+        try { return await transport.getChatReportOptions(chatId, messageIds); }
+        catch (error) { set({ operationError: errorMessage(error, "无法读取举报选项") }); return undefined; }
+      },
+
+      reportChat: async (input) => {
+        try { await transport.reportChat(input); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法提交举报") }); return false; }
+      },
+
+      getActiveSessions: async () => {
+        try { return await transport.getActiveSessions(); }
+        catch (error) { set({ operationError: errorMessage(error, "无法读取设备会话") }); return []; }
+      },
+      terminateSession: async (sessionId) => {
+        try { await transport.terminateSession(sessionId); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法终止设备会话") }); return false; }
+      },
+      terminateAllOtherSessions: async () => {
+        try { await transport.terminateAllOtherSessions(); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法终止其他设备") }); return false; }
+      },
+      getPrivacySettingRules: async (setting) => {
+        try { return await transport.getPrivacySettingRules(setting); }
+        catch (error) { set({ operationError: errorMessage(error, "无法读取隐私设置") }); return []; }
+      },
+      setPrivacySettingRules: async (setting, rules) => {
+        try { await transport.setPrivacySettingRules(setting, rules); set({ operationError: undefined }); return true; }
+        catch (error) { set({ operationError: errorMessage(error, "无法保存隐私设置") }); return false; }
       },
 
       setMessageReaction: async (messageId, emoji, chosen) => {

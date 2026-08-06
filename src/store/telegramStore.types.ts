@@ -13,6 +13,12 @@ import type {
   ChatJoinRequestPage,
   BotCommandSuggestion,
   InlineQueryResultPage,
+  BlockedSender,
+  ChatReportOptions,
+  ReportChatInput,
+  DeviceSession,
+  PrivacyRule,
+  PrivacySettingKey,
   ChatManagement,
   ChatMemberStatusInput,
   ChatPermissions,
@@ -108,6 +114,8 @@ export interface TelegramState {
   groupManagement?: ChatManagement;
   groupManagementLoading: boolean;
   groupManagementError?: string;
+  blockedSenders: BlockedSender[];
+  blockedSendersLoading: boolean;
   initialize: (options?: { settingsOnly?: boolean }) => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
@@ -178,6 +186,15 @@ export interface TelegramState {
   getInlineQueryResults: (chatId: string, botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
   sendInlineQueryResultMessage: (chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
   sendBotStartMessage: (chatId: string, botUserId: string, parameter?: string) => Promise<boolean>;
+  loadBlockedSenders: () => Promise<void>;
+  setMessageSenderBlocked: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
+  getChatReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportOptions | undefined>;
+  reportChat: (input: ReportChatInput) => Promise<boolean>;
+  getActiveSessions: () => Promise<DeviceSession[]>;
+  terminateSession: (sessionId: string) => Promise<boolean>;
+  terminateAllOtherSessions: () => Promise<boolean>;
+  getPrivacySettingRules: (setting: PrivacySettingKey) => Promise<PrivacyRule[]>;
+  setPrivacySettingRules: (setting: PrivacySettingKey, rules: PrivacyRule[]) => Promise<boolean>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   loadPinnedMessages: (chatId: string) => Promise<Message[]>;

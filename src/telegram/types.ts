@@ -256,6 +256,54 @@ export interface InlineQueryResultPage {
   hasMore: boolean;
 }
 
+export interface BlockedSender {
+  id: string;
+  kind: "user" | "chat";
+  title: string;
+  avatar: Avatar;
+  blockedAt?: string;
+}
+
+export interface ReportOption {
+  id: string;
+  title: string;
+  requiresText?: boolean;
+}
+
+export interface ChatReportOptions {
+  title: string;
+  options: ReportOption[];
+}
+
+export interface ReportChatInput {
+  chatId: string;
+  messageIds: string[];
+  optionId: string;
+  text?: string;
+}
+
+export interface DeviceSession {
+  id: string;
+  isCurrent: boolean;
+  isPasswordPending: boolean;
+  isUnconfirmed: boolean;
+  canAcceptSecretChats: boolean;
+  canAcceptCalls: boolean;
+  applicationName: string;
+  applicationVersion: string;
+  deviceModel: string;
+  platform: string;
+  systemVersion: string;
+  loggedInAt: string;
+  lastActiveAt: string;
+  ipAddress?: string;
+  location?: string;
+}
+
+export type PrivacySettingKey = "showStatus" | "showPhoneNumber" | "showProfilePhoto" | "allowCalls" | "allowChatInvites" | "allowSecretChats";
+export type PrivacyRuleKind = "allowAll" | "allowContacts" | "allowUsers" | "restrictAll" | "restrictContacts" | "restrictUsers";
+export interface PrivacyRule { kind: PrivacyRuleKind; userIds?: string[]; }
+
 export interface ProfileMember {
   user: User;
   role: ProfileMemberRole;

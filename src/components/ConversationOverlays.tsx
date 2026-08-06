@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   Download,
   Edit3,
+  Flag,
   Forward,
   LoaderCircle,
   Pin,
@@ -42,6 +43,7 @@ interface MessageActionMenuProps {
   onCopyRaw?: () => void;
   onDismiss: () => void;
   onClose: () => void;
+  onReport?: () => void;
 }
 
 export function MessageActionMenu({
@@ -60,6 +62,7 @@ export function MessageActionMenu({
   onCopyRaw,
   onDismiss,
   onClose,
+  onReport,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
   const nativeRuntime = isTauri();
@@ -83,6 +86,7 @@ export function MessageActionMenu({
     ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
     ...(onDownloadVideo ? [{ id: "download", label: "下载视频", icon: "download" as const }] : []),
     ...(onCopyRaw ? [{ id: "copy-raw", label: "复制原始消息", icon: "copy" as const }] : []),
+    ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true }] : []),
   ] : [];
   const nativeMenu = useNativeContextMenu({
     label: "消息操作",
@@ -99,6 +103,7 @@ export function MessageActionMenu({
     else if (actionId === "play-window") onPlayInWindow?.();
     else if (actionId === "download") onDownloadVideo?.();
     else if (actionId === "copy-raw") onCopyRaw?.();
+    else if (actionId === "report") onReport?.();
   }, onDismiss, { enabled: Boolean(permissions) });
   useContextMenuDismiss(menuRef, onDismiss);
   useEffect(() => {
@@ -193,6 +198,7 @@ export function MessageActionMenu({
               <span>复制原始消息</span>
             </button>
           )}
+          {onReport && <button className="is-danger" type="button" role="menuitem" onClick={onReport}><Flag size={16} strokeWidth={1.9} /><span>举报</span></button>}
         </>
       )}
     </div>

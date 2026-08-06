@@ -33,6 +33,12 @@ import type {
   GetChatJoinRequestsInput,
   BotCommandSuggestion,
   InlineQueryResultPage,
+  BlockedSender,
+  ChatReportOptions,
+  ReportChatInput,
+  DeviceSession,
+  PrivacyRule,
+  PrivacySettingKey,
   ChatMemberStatusInput,
   ChatPermissions,
   CreateChatInput,
@@ -109,6 +115,15 @@ export interface TelegramTransport {
   getInlineQueryResults(chatId: string, botUsername: string, query: string, offset?: string): Promise<InlineQueryResultPage>;
   sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string): Promise<void>;
   sendBotStartMessage(chatId: string, botUserId: string, parameter?: string): Promise<void>;
+  getBlockedSenders(): Promise<BlockedSender[]>;
+  setMessageSenderBlocked(senderId: string, kind: "user" | "chat", blocked: boolean): Promise<void>;
+  getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportOptions>;
+  reportChat(input: ReportChatInput): Promise<void>;
+  getActiveSessions(): Promise<DeviceSession[]>;
+  terminateSession(sessionId: string): Promise<void>;
+  terminateAllOtherSessions(): Promise<void>;
+  getPrivacySettingRules(setting: PrivacySettingKey): Promise<PrivacyRule[]>;
+  setPrivacySettingRules(setting: PrivacySettingKey, rules: PrivacyRule[]): Promise<void>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;

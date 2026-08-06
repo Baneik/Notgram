@@ -31,6 +31,9 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChatHistory",
     "getChatInviteLinks",
     "getChatJoinRequests",
+    "getBlockedMessageSenders",
+    "getActiveSessions",
+    "getUserPrivacySettingRules",
     "getInlineQueryResults",
     "getChatPinnedMessage",
     "getChats",
@@ -80,6 +83,11 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setChatSlowModeDelay",
     "processChatJoinRequest",
     "processChatJoinRequests",
+    "reportChat",
+    "setMessageSenderBlockList",
+    "setUserPrivacySettingRules",
+    "terminateSession",
+    "terminateAllOtherSessions",
     "transferChatOwnership",
     "getChatEventLog",
     "setChatNotificationSettings",
@@ -336,6 +344,82 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid bulk join request decision".to_string());
             }
         }
+        "getBlockedMessageSenders" => {
+            if request
+                .get("block_list")
+                .and_then(Value::as_object)
+                .and_then(|value| value.get("@type"))
+                .and_then(Value::as_str)
+                != Some("blockListMain")
+                || request
+                    .get("offset")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|offset| offset < 0)
+                || request
+                    .get("limit")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|limit| !(1..=100).contains(&limit))
+            {
+                return Err("Invalid blocked sender pagination".to_string());
+            }
+        }
+        "setMessageSenderBlockList" => {
+            let sender = request
+                .get("sender_id")
+                .and_then(Value::as_object)
+                .ok_or_else(|| "Blocked sender is missing".to_string())?;
+            let sender_type = sender.get("@type").and_then(Value::as_str);
+            if !matches!(
+                sender_type,
+                Some("messageSenderUser") | Some("messageSenderChat")
+            ) {
+                return Err("Invalid blocked sender".to_string());
+            }
+            let id_field = if sender_type == Some("messageSenderUser") {
+                "user_id"
+            } else {
+                "chat_id"
+            };
+            if sender
+                .get(id_field)
+                .and_then(Value::as_i64)
+                .is_none_or(|id| id <= 0)
+            {
+                return Err("Invalid blocked sender identifier".to_string());
+            }
+            if let Some(block_list) = request.get("block_list") {
+                if !block_list.is_null()
+                    && block_list.get("@type").and_then(Value::as_str) != Some("blockListMain")
+                {
+                    return Err("Invalid block list".to_string());
+                }
+            } else {
+                return Err("Block list is missing".to_string());
+            }
+        }
+        "reportChat" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            let option_id = request
+                .get("option_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Report reason is missing".to_string())?;
+            if option_id.len() > 256
+                || request
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .is_none_or(|text| text.len() > 1_000)
+            {
+                return Err("Invalid report fields".to_string());
+            }
+            validate_message_ids(request, "message_ids", 100)?;
+        }
+        "getActiveSessions" | "terminateAllOtherSessions" => {}
+        "terminateSession" => {
+            validate_nonzero_identifier(request, "session_id")?;
+        }
+        "getUserPrivacySettingRules" | "setUserPrivacySettingRules" => {
+            validate_privacy_rules(request, request_type == "setUserPrivacySettingRules")?
+        }
         "setSupergroupUsername" => {
             validate_nonzero_identifier(request, "supergroup_id")?;
             let username = validate_profile_text(request, "username", 32, false, true)?;
@@ -488,6 +572,21 @@ fn validate_message_target(request: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_message_ids(request: &Value, field: &str, maximum: usize) -> Result<(), String> {
+    let values = request
+        .get(field)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("Message identifiers are missing: {field}"))?;
+    if values.len() > maximum
+        || values
+            .iter()
+            .any(|value| value.as_i64().is_none_or(|id| id <= 0))
+    {
+        return Err("Invalid message identifiers".to_string());
+    }
+    Ok(())
+}
+
 fn validate_profile_text<'a>(
     request: &'a Value,
     field: &str,
@@ -589,6 +688,77 @@ fn validate_chat_invite_link(request: &Value) -> Result<(), String> {
             .is_none()
     {
         return Err("Invalid invite link settings".to_string());
+    }
+    Ok(())
+}
+
+fn validate_privacy_rules(request: &Value, has_rules: bool) -> Result<(), String> {
+    let setting = request
+        .get("setting")
+        .and_then(Value::as_object)
+        .and_then(|value| value.get("@type"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Privacy setting is missing".to_string())?;
+    if !matches!(
+        setting,
+        "userPrivacySettingShowStatus"
+            | "userPrivacySettingShowPhoneNumber"
+            | "userPrivacySettingShowProfilePhoto"
+            | "userPrivacySettingAllowCalls"
+            | "userPrivacySettingAllowChatInvites"
+            | "userPrivacySettingAllowSecretChats"
+    ) {
+        return Err("Unsupported privacy setting".to_string());
+    }
+    if has_rules {
+        let rules = request
+            .get("rules")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "Privacy rules are missing".to_string())?;
+        if rules.is_empty() || rules.len() > 10 {
+            return Err("Invalid privacy rules".to_string());
+        }
+        for rule in rules {
+            let object = rule
+                .as_object()
+                .ok_or_else(|| "Invalid privacy rule".to_string())?;
+            let kind = object
+                .get("@type")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Privacy rule type is missing".to_string())?;
+            if !matches!(
+                kind,
+                "userPrivacySettingRuleAllowAll"
+                    | "userPrivacySettingRuleAllowContacts"
+                    | "userPrivacySettingRuleAllowUsers"
+                    | "userPrivacySettingRuleRestrictAll"
+                    | "userPrivacySettingRuleRestrictContacts"
+                    | "userPrivacySettingRuleRestrictUsers"
+            ) {
+                return Err("Unsupported privacy rule".to_string());
+            }
+            if matches!(
+                kind,
+                "userPrivacySettingRuleAllowUsers" | "userPrivacySettingRuleRestrictUsers"
+            ) {
+                validate_user_ids_value(object.get("user_ids"), 100)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_user_ids_value(value: Option<&Value>, maximum: usize) -> Result<(), String> {
+    let values = value
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Privacy user identifiers are missing".to_string())?;
+    if values.is_empty()
+        || values.len() > maximum
+        || values
+            .iter()
+            .any(|value| value.as_i64().is_none_or(|id| id <= 0))
+    {
+        return Err("Invalid privacy user identifiers".to_string());
     }
     Ok(())
 }

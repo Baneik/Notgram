@@ -1,5 +1,7 @@
 import {
   AtSign,
+  Ban,
+  Flag,
   Fingerprint,
   Image,
   LoaderCircle,
@@ -13,9 +15,11 @@ import {
 import { useRef, useState } from "react";
 import type { ProfileState } from "../store/profileState";
 import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
+import type { ChatReportOptions, ReportChatInput } from "../telegram/types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { Avatar } from "./Avatar";
 import { SharedMediaBrowser } from "./SharedMediaBrowser";
+import { ReportDialog } from "./SafetySettings";
 
 interface ProfileDrawerProps {
   state: ProfileState;
@@ -26,6 +30,12 @@ interface ProfileDrawerProps {
   onOpenMessage: (chatId: string, messageId: string) => void;
   onStartPrivateChat: (userId: string) => Promise<void>;
   onManageChat: (chatId: string) => void;
+  isBlocked?: boolean;
+  onToggleBlock: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
+  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportOptions | undefined>;
+  onReportChat: (input: ReportChatInput) => Promise<boolean>;
+  reportChatId?: string;
+  onDeleteChat?: () => Promise<boolean>;
   onOpenUserProfile: (userId: string) => void;
   onLoadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
@@ -45,6 +55,12 @@ export function ProfileDrawer({
   onOpenMessage,
   onStartPrivateChat,
   onManageChat,
+  isBlocked,
+  onToggleBlock,
+  onGetReportOptions,
+  onReportChat,
+  reportChatId,
+  onDeleteChat,
   onOpenUserProfile,
   onLoadSharedMedia,
   onDownloadFile,
@@ -54,6 +70,7 @@ export function ProfileDrawer({
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLElement>(onClose, false, closeRef);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const profile = state.value;
 
   return (
@@ -106,6 +123,21 @@ export function ProfileDrawer({
                 {profile.chatId && (profile.kind === "group" || profile.kind === "channel") && (
                   <button type="button" onClick={() => onManageChat(profile.chatId!)}>
                     <Shield size={18} /><span>管理</span>
+                  </button>
+                )}
+                {profile.userId && profile.kind === "user" && (
+                  <button type="button" onClick={() => void onToggleBlock(profile.userId!, "user", !isBlocked)}>
+                    <Ban size={18} /><span>{isBlocked ? "解除屏蔽" : "屏蔽"}</span>
+                  </button>
+                )}
+                {profile.chatId && profile.kind === "channel" && (
+                  <button type="button" onClick={() => void onToggleBlock(profile.chatId!, "chat", !isBlocked)}>
+                    <Ban size={18} /><span>{isBlocked ? "解除屏蔽" : "屏蔽频道"}</span>
+                  </button>
+                )}
+                {(profile.chatId || reportChatId) && (profile.kind === "user" || profile.kind === "group" || profile.kind === "channel") && (
+                  <button type="button" onClick={() => setReportOpen(true)}>
+                    <Flag size={18} /><span>举报</span>
                   </button>
                 )}
               </div>
@@ -185,6 +217,7 @@ export function ProfileDrawer({
           )}
         </div>
       </section>
+      {reportOpen && (profile?.chatId || reportChatId) && <ReportDialog chatId={profile?.chatId ?? reportChatId!} messageIds={[]} title={profile?.title ?? "聊天"} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onDeleteChat={onDeleteChat} onClose={() => setReportOpen(false)} />}
     </div>
   );
 }

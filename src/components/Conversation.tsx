@@ -55,6 +55,7 @@ import {
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { ConversationComposer } from "./ConversationComposer";
+import { ReportDialog } from "./SafetySettings";
 import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
 import {
@@ -154,6 +155,8 @@ interface ConversationProps {
   onGetInlineResults: (botUsername: string, query: string, offset?: string) => Promise<import("../telegram/types").InlineQueryResultPage | undefined>;
   onSendInlineResult: (botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
   onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
+  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<import("../telegram/types").ChatReportOptions | undefined>;
+  onReportChat: (input: import("../telegram/types").ReportChatInput) => Promise<boolean>;
 }
 
 export function Conversation({
@@ -214,6 +217,8 @@ export function Conversation({
   onGetInlineResults,
   onSendInlineResult,
   onSendBotStart,
+  onGetReportOptions,
+  onReportChat,
 }: ConversationProps) {
   const [actionMenu, setActionMenu] = useState<{
     messageId: string;
@@ -227,6 +232,7 @@ export function Conversation({
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<Message>();
   const [pinTarget, setPinTarget] = useState<Message>();
   const [pinPending, setPinPending] = useState(false);
   const [pinnedDialogOpen, setPinnedDialogOpen] = useState(false);
@@ -1298,10 +1304,13 @@ export function Conversation({
             : undefined}
           onCopy={() => void copyMessage(actionMessage)}
           onCopyRaw={developerMode ? () => void copyRawMessage(actionMessage) : undefined}
+          onReport={() => { setReportTarget(actionMessage); setActionMenu(undefined); }}
           onDismiss={() => closeActionMenu(false)}
           onClose={() => closeActionMenu(true)}
         />
       )}
+
+      {reportTarget && chat && <ReportDialog chatId={chat.id} messageIds={[reportTarget.id]} title={chat.title} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onClose={() => setReportTarget(undefined)} />}
 
       {selectionMode ? (
         <div className="message-selection-bar">
