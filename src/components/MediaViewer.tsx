@@ -2,6 +2,7 @@ import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
   ChevronLeft,
   ChevronRight,
+  Copy,
   Download,
   ImageOff,
   LoaderCircle,
@@ -10,12 +11,13 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { forwardRef, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import {
   adjacentPhotoId,
   type PhotoMessage,
 } from "../utils/mediaViewerModel";
+import { writeClipboardImage } from "../utils/clipboard";
 
 interface MediaViewerProps {
   messages: PhotoMessage[];
@@ -115,6 +117,10 @@ export function MediaViewer({
       sourceFromPath(active.content.thumbnailPath) ??
       active.content.previewDataUrl
     : undefined, [active]);
+  const copyActive = useCallback(async () => {
+    if (!source) return;
+    await writeClipboardImage(source, active?.content.caption);
+  }, [active?.content.caption, source]);
 
   useEffect(() => {
     setZoom(MIN_ZOOM);
@@ -151,11 +157,14 @@ export function MediaViewer({
       } else if (event.key === "-") {
         event.preventDefault();
         setZoom((current) => Math.max(MIN_ZOOM, current - ZOOM_STEP));
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && source) {
+        event.preventDefault();
+        void copyActive();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [nextId, onActiveMessageChange, previousId]);
+  }, [copyActive, nextId, onActiveMessageChange, previousId, source]);
 
   if (!active) return null;
   const content = active.content;
@@ -170,7 +179,12 @@ export function MediaViewer({
   };
   const handleWheel = (event: WheelEvent<HTMLElement>) => {
     event.preventDefault();
-    updateZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+    if (event.ctrlKey) {
+      updateZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+      return;
+    }
+    const targetId = event.deltaY < 0 ? previousId : nextId;
+    if (targetId) onActiveMessageChange(targetId);
   };
   const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -244,6 +258,11 @@ export function MediaViewer({
             <button type="button" aria-label="重置缩放" title="重置缩放" disabled={zoom === MIN_ZOOM} onClick={() => updateZoom(MIN_ZOOM)}>
               <RotateCcw size={18} />
             </button>
+            {source && (
+              <button type="button" aria-label="复制图片" title="复制图片 (Ctrl+C)" onClick={() => void copyActive()}>
+                <Copy size={18} />
+              </button>
+            )}
             {(canDownload || content.isDownloading) && (
               <button
                 type="button"
@@ -327,10 +346,9 @@ export function MediaViewer({
           )}
         </main>
 
-        {(content.caption || content.isDownloading) && (
+        {content.caption && (
           <footer className="media-viewer-caption">
             <span>{content.caption}</span>
-            {content.isDownloading && <small>下载中</small>}
           </footer>
         )}
       </div>

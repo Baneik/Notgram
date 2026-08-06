@@ -210,6 +210,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const autoDownloadAudio = usePreferencesStore((state) => state.autoDownloadAudio);
   const autoDownloadFiles = usePreferencesStore((state) => state.autoDownloadFiles);
   const autoDownloadLimitMb = usePreferencesStore((state) => state.autoDownloadLimitMb);
+  const cacheRetentionDays = usePreferencesStore((state) => state.cacheRetentionDays);
   const reduceMotion = usePreferencesStore((state) => state.reduceMotion);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const chatFontSize = usePreferencesStore((state) => state.chatFontSize);
@@ -232,6 +233,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     autoDownloadAudio,
     autoDownloadFiles,
     autoDownloadLimitMb,
+    cacheRetentionDays,
     reduceMotion,
     developerMode,
     chatFontSize,
@@ -1020,7 +1022,8 @@ function AdvancedSettings({
   const [selectedCacheCategories, setSelectedCacheCategories] = useState<CacheCategory[]>(
     cacheCategories.map((category) => category.id),
   );
-  const [cacheRetentionDays, setCacheRetentionDays] = useState(0);
+  const cacheRetentionDays = usePreferencesStore((state) => state.cacheRetentionDays);
+  const setCacheRetentionDays = usePreferencesStore((state) => state.setPreference);
   const toggleCacheCategory = (category: CacheCategory, selected: boolean) => {
     setSelectedCacheCategories((current) => selected
       ? [...new Set([...current, category])]
@@ -1231,13 +1234,13 @@ function AdvancedSettings({
             </div>
           )}
           <label className="auth-field cache-retention-field">
-            <span>清理范围</span>
+            <span>自动清理周期</span>
             <select
               value={cacheRetentionDays}
               disabled={busy}
-              onChange={(event) => setCacheRetentionDays(Number(event.target.value))}
+              onChange={(event) => setCacheRetentionDays("cacheRetentionDays", Number(event.target.value))}
             >
-              <option value={0}>全部时间</option>
+              <option value={0}>不自动清理</option>
               <option value={7}>7 天前</option>
               <option value={30}>30 天前</option>
               <option value={90}>90 天前</option>

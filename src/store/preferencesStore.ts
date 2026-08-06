@@ -19,6 +19,7 @@ export interface AppPreferences {
   autoDownloadAudio: boolean;
   autoDownloadFiles: boolean;
   autoDownloadLimitMb: number;
+  cacheRetentionDays: number;
   reduceMotion: boolean;
   developerMode: boolean;
   chatFontSize: number;
@@ -51,6 +52,7 @@ const defaults: AppPreferences = {
   autoDownloadAudio: false,
   autoDownloadFiles: false,
   autoDownloadLimitMb: 10,
+  cacheRetentionDays: 7,
   reduceMotion: false,
   developerMode: false,
   chatFontSize: 14,
@@ -90,6 +92,12 @@ const readPreferences = (): AppPreferences => {
         defaults.autoDownloadLimitMb,
         1,
         2_048,
+      ),
+      cacheRetentionDays: boundedInteger(
+        stored.cacheRetentionDays,
+        defaults.cacheRetentionDays,
+        0,
+        365,
       ),
       reduceMotion: stored.reduceMotion ?? defaults.reduceMotion,
       developerMode: stored.developerMode ?? defaults.developerMode,
@@ -196,6 +204,7 @@ preferencesStore.subscribe((state) => {
     autoDownloadAudio: state.autoDownloadAudio,
     autoDownloadFiles: state.autoDownloadFiles,
     autoDownloadLimitMb: state.autoDownloadLimitMb,
+    cacheRetentionDays: state.cacheRetentionDays,
     reduceMotion: state.reduceMotion,
     developerMode: state.developerMode,
     chatFontSize: state.chatFontSize,

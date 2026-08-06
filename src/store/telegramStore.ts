@@ -107,6 +107,29 @@ export const createTelegramStore = (
     let accountProfileGeneration = 0;
     let contactsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const markMessageRemoving = (chatId: string, messageId: string) => {
+      const key = `${chatId}:${messageId}`;
+      const previous = removalTimers.get(key);
+      if (previous) globalThis.clearTimeout(previous);
+      const messages = new Map(get().messages);
+      const current = messages.get(chatId) ?? [];
+      const removed = current.find((message) => message.id === messageId);
+      if (!removed) return;
+      messages.set(chatId, current.filter((message) => message.id !== messageId));
+      const removingMessages = new Map(get().removingMessages);
+      const ghosts = removingMessages.get(chatId) ?? [];
+      removingMessages.set(chatId, [...ghosts.filter((message) => message.id !== messageId), { ...removed, isRemoving: true }]);
+      set({ messages, removingMessages });
+      removalTimers.set(key, globalThis.setTimeout(() => {
+        removalTimers.delete(key);
+        const nextRemoving = new Map(get().removingMessages);
+        nextRemoving.set(chatId, (nextRemoving.get(chatId) ?? []).filter((message) => message.id !== messageId));
+        sharedMediaIndex.remove(chatId, [messageId]);
+        set({ removingMessages: nextRemoving });
+        scheduleCacheWrite();
+      }, 360));
+    };
 
     const setTypingUser = (chatId: string, senderId: string, typing: boolean) => {
       const key = `${chatId}:${senderId}`;
@@ -227,6 +250,7 @@ export const createTelegramStore = (
         chatListReady: false,
         chatLists: new Map(),
         messages: new Map(),
+        removingMessages: new Map(),
         drafts: new Map(),
         typingUserIds: new Map(),
         outbox: [],
@@ -683,14 +707,7 @@ export const createTelegramStore = (
       }
 
       if (event.type === "message.remove") {
-        const messages = new Map(get().messages);
-        messages.set(
-          event.chatId,
-          (messages.get(event.chatId) ?? []).filter(
-            (message) => message.id !== event.messageId,
-          ),
-        );
-        set({ messages });
+        markMessageRemoving(event.chatId, event.messageId);
         scheduleCacheWrite();
         return;
       }
@@ -709,7 +726,12 @@ export const createTelegramStore = (
         for (const [chatId, incoming] of incomingByChat) {
           const existing = messages.get(chatId) ?? [];
           beforeCount += existing.length;
-          messages.set(chatId, upsertMessages(existing, incoming));
+          messages.set(chatId, upsertMessages(existing, incoming).map((message) => ({ ...message, isRemoving: false })));
+          const removingMessages = new Map(get().removingMessages);
+          const incomingIds = new Set(incoming.map((message) => message.id));
+          const ghosts = (removingMessages.get(chatId) ?? []).filter((message) => !incomingIds.has(message.id));
+          if (ghosts.length > 0) removingMessages.set(chatId, ghosts); else removingMessages.delete(chatId);
+          set({ removingMessages });
         }
         set({ messages });
         logPerformance("ui_history_merge", {
@@ -901,6 +923,7 @@ export const createTelegramStore = (
       chatListReady: false,
       chatLists: new Map(),
       messages: new Map(),
+      removingMessages: new Map(),
       drafts: new Map(),
       typingUserIds: new Map(),
       outbox: [],
@@ -2133,11 +2156,8 @@ export const createTelegramStore = (
           }
         }
         if (deletedIds.length > 0) {
-          const removed = new Set(deletedIds);
-          const messages = new Map(get().messages);
-          messages.set(chatId, (messages.get(chatId) ?? []).filter((message) => !removed.has(message.id)));
+          for (const messageId of deletedIds) markMessageRemoving(chatId, messageId);
           sharedMediaIndex.remove(chatId, deletedIds);
-          set({ messages });
           scheduleCacheWrite();
         }
         set({
@@ -2399,12 +2419,8 @@ export const createTelegramStore = (
         }
         try {
           await transport.deleteMessage({ chatId, messageId, revoke });
-          const messages = new Map(get().messages);
-          messages.set(
-            chatId,
-            (messages.get(chatId) ?? []).filter((message) => message.id !== messageId),
-          );
-          set({ messages, operationError: undefined });
+          markMessageRemoving(chatId, messageId);
+          set({ operationError: undefined });
           sharedMediaIndex.remove(chatId, [messageId]);
           scheduleCacheWrite();
           return true;
@@ -2618,12 +2634,8 @@ export const createTelegramStore = (
         }
         try {
           await transport.cancelFileUpload(chatId, messageId);
-          const messages = new Map(get().messages);
-          messages.set(
-            chatId,
-            (messages.get(chatId) ?? []).filter((message) => message.id !== messageId),
-          );
-          set({ messages, operationError: undefined });
+          markMessageRemoving(chatId, messageId);
+          set({ operationError: undefined });
           scheduleCacheWrite();
         } catch (error) {
           set({ operationError: error instanceof Error ? error.message : "取消上传失败" });

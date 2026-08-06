@@ -157,6 +157,7 @@ interface ConversationProps {
   onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
   onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<import("../telegram/types").ChatReportOptions | undefined>;
   onReportChat: (input: import("../telegram/types").ReportChatInput) => Promise<boolean>;
+  onBlockSender: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
 }
 
 export function Conversation({
@@ -219,6 +220,7 @@ export function Conversation({
   onSendBotStart,
   onGetReportOptions,
   onReportChat,
+  onBlockSender,
 }: ConversationProps) {
   const [actionMenu, setActionMenu] = useState<{
     messageId: string;
@@ -240,6 +242,8 @@ export function Conversation({
   const [pinnedUnpinId, setPinnedUnpinId] = useState<string>();
   const [autoDeleteDialogOpen, setAutoDeleteDialogOpen] = useState(false);
   const [autoDeletePending, setAutoDeletePending] = useState(false);
+  const groupManagement = useTelegramStore((state) => state.groupManagement);
+  const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
   const draftReplyToMessageId = useTelegramStore((state) =>
     chat ? state.drafts.get(chat.id)?.replyToMessageId : undefined,
   );
@@ -265,6 +269,20 @@ export function Conversation({
     autoDownloadLimitMb,
     autoDownloadVideos,
   ]);
+  useEffect(() => {
+    if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return;
+    if (groupManagement?.chatId === chat.id) return;
+    void loadChatManagement(chat.id);
+  }, [chat, groupManagement?.chatId, loadChatManagement]);
+  const memberLabels = useMemo(() => new Map(
+    groupManagement?.chatId === chat?.id
+      ? (groupManagement?.members ?? []).flatMap((member) => {
+          const label = member.customTitle ||
+            (member.status === "owner" ? "群主" : member.status === "administrator" ? "管理员" : undefined);
+          return label ? [[member.user.id, label] as const] : [];
+        })
+      : [],
+  ), [chat?.id, groupManagement]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const selectionMessageRef = useRef<HTMLElement | null>(null);
   const positionedNotificationFrameRef = useRef<number | undefined>(undefined);
@@ -862,6 +880,23 @@ export function Conversation({
     if (deleted) setDeleteTarget(undefined);
   };
 
+  const fuckOff = async () => {
+    if (!deleteTarget || deletePending) return;
+    setDeletePending(true);
+    const target = deleteTarget;
+    const options = await onGetReportOptions(chat.id, [target.id]);
+    const option = options?.options.find((item) => /spam|scam|垃圾|诈骗/i.test(item.title)) ?? options?.options[0];
+    const chatSenderId = senderChatId(target.senderId);
+    const operations: Promise<boolean>[] = [onDeleteMessage(target.id, target.permissions?.canDeleteForAllUsers === true)];
+    if (!target.outgoing && target.senderId !== "unknown") {
+      operations.push(onBlockSender(chatSenderId ?? target.senderId, chatSenderId ? "chat" : "user", true));
+    }
+    if (option) operations.push(onReportChat({ chatId: chat.id, messageIds: [target.id], optionId: option.id }));
+    const results = await Promise.all(operations);
+    setDeletePending(false);
+    if (results.every(Boolean)) setDeleteTarget(undefined);
+  };
+
   const openPinnedMessages = async () => {
     if (!chat || pinnedDialogLoading) return;
     setChatMenuOpen(false);
@@ -1159,6 +1194,7 @@ export function Conversation({
                         message={message}
                         entrance={messageEntranceFor(message)}
                         senderName={senderName}
+                        senderLabel={memberLabels.get(message.senderId)}
                         senderProfileAvailable={!message.outgoing && message.senderId !== "unknown"}
                         groupPosition={positions.get(message.id) ?? "single"}
                         replyPreview={replyPreviewFor(
@@ -1286,15 +1322,13 @@ export function Conversation({
                 requestVideoWindowPlayback(`${actionMessage.chatId}:${actionMessage.id}`);
               }
             : undefined}
-          onDownloadVideo={actionMessage.content.kind === "media" &&
-            ["video", "videoNote"].includes(actionMessage.content.mediaType) &&
+          onDownload={(actionMessage.content.kind === "media" || actionMessage.content.kind === "file") &&
             actionMessage.content.fileId !== undefined &&
             actionMessage.content.canDownload !== false &&
-            actionMessage.content.isDownloaded !== true &&
             actionMessage.content.isDownloading !== true
             ? () => {
-                const content = actionMessage.content;
-                if (content.kind !== "media" || content.fileId === undefined) return;
+              const content = actionMessage.content;
+                if ((content.kind !== "media" && content.kind !== "file") || content.fileId === undefined) return;
                 closeActionMenu(false);
                 void onDownloadFile(
                   content.fileId,
@@ -1332,6 +1366,7 @@ export function Conversation({
         editingMessage={editingMessage}
         replyingTo={replyingTo}
         contextTitle={composerContextTitle}
+        defaultBotUsername={chat.kind === "direct" && chat.peerId ? users.get(chat.peerId)?.username : undefined}
         inputRef={composerInputRef}
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}
@@ -1357,6 +1392,7 @@ export function Conversation({
           message={deleteTarget}
           pending={deletePending}
           onConfirm={(revoke) => void confirmDelete(revoke)}
+          onFuckOff={() => void fuckOff()}
           onClose={() => setDeleteTarget(undefined)}
         />
       )}

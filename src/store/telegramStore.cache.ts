@@ -104,6 +104,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
 const cacheableMessage = (message: Message): Message => {
   const result = { ...message };
   delete result.permissions;
+  delete result.isRemoving;
   if (
     result.content.kind !== "media" ||
     !result.content.previewDataUrl ||

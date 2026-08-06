@@ -94,6 +94,7 @@ export interface TelegramState {
   chatListReady: boolean;
   chatLists: Map<string, ChatListState>;
   messages: Map<string, Message[]>;
+  removingMessages: Map<string, Message[]>;
   drafts: Map<string, ChatDraft>;
   typingUserIds: Map<string, string[]>;
   outbox: QueuedOutgoingMessage[];

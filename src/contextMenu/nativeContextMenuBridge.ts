@@ -45,6 +45,7 @@ export type NativeContextMenuMessage =
 
 export const NATIVE_CONTEXT_MENU_CHANNEL = "notgram-context-menu-v1";
 const MENU_SCREEN_GAP = 4;
+const MENU_FIRST_ITEM_CENTER_OFFSET = 33;
 
 const menuId = () => {
   const random = globalThis.crypto?.randomUUID?.().replaceAll("-", "");
@@ -78,7 +79,7 @@ const menuPlacement = async (point: ContextMenuPoint, width: number, height: num
   const right = workPosition.x + workSize.width;
   const bottom = workPosition.y + workSize.height;
   let x = anchor.x + gapPx;
-  let y = anchor.y + gapPx;
+  let y = anchor.y - MENU_FIRST_ITEM_CENTER_OFFSET * targetScale;
   if (x + widthPx + marginPx > right) x = anchor.x - widthPx - gapPx;
   if (y + heightPx + marginPx > bottom) y = anchor.y - heightPx - gapPx;
   x = Math.max(workPosition.x + marginPx, Math.min(x, right - widthPx - marginPx));

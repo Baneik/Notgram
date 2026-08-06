@@ -31,6 +31,7 @@ interface ConversationComposerProps {
   editingMessage?: Message;
   replyingTo?: Message;
   contextTitle?: string;
+  defaultBotUsername?: string;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
@@ -67,6 +68,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   editingMessage,
   replyingTo,
   contextTitle,
+  defaultBotUsername,
   inputRef,
   connectionStatus,
   queuedMessageCount,
@@ -128,8 +130,14 @@ export const ConversationComposer = memo(function ConversationComposer({
     const slash = !editingMessage ? draft.match(/^\/([A-Za-z0-9_]*)(?:@([A-Za-z0-9_]{5,32}))?$/) : null;
     const inline = !editingMessage ? draft.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/) : null;
     if (slash) {
-      const username = slash[2] || "notgram_bot";
-      botQueryTimerRef.current = globalThis.setTimeout(() => { void onGetBotCommands(username, slash[1]).then(setBotSuggestions); }, 140);
+      const username = slash[2] || defaultBotUsername;
+      if (username) {
+        botQueryTimerRef.current = globalThis.setTimeout(() => {
+          void onGetBotCommands(username, slash[1]).then(setBotSuggestions).catch(() => setBotSuggestions([]));
+        }, 80);
+      } else {
+        setBotSuggestions([]);
+      }
       setInlineResults(undefined);
     } else if (inline) {
       setBotSuggestions([]);
@@ -141,7 +149,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       setInlineLoading(false);
     }
     return () => { if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current); };
-  }, [draft, editingMessage, onGetBotCommands, onGetInlineResults]);
+  }, [defaultBotUsername, draft, editingMessage, onGetBotCommands, onGetInlineResults]);
 
   useComposerAutoResize(inputRef, draft, !composing, chatId);
 

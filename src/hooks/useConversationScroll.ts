@@ -228,6 +228,7 @@ export const useConversationScroll = ({
   } | undefined>(undefined);
   const scrollPointerActiveRef = useRef(false);
   const userScrollIntentUntilRef = useRef(0);
+  const lastWheelDeltaRef = useRef(0);
   const initialLocationRef = useRef<{
     identity: string;
     location: IndexLocationWithAlign | number;
@@ -552,6 +553,13 @@ export const useConversationScroll = ({
     // quiet, then converge without correcting every individual notification.
     heightCorrectionTimerRef.current = globalThis.setTimeout(() => {
       heightCorrectionTimerRef.current = undefined;
+      if (scrollPointerActiveRef.current || performance.now() <= userScrollIntentUntilRef.current) {
+        heightCorrectionTimerRef.current = globalThis.setTimeout(() => {
+          heightCorrectionTimerRef.current = undefined;
+          scheduleExactBottomCorrection();
+        }, 120);
+        return;
+      }
       if (performance.now() < smoothScrollUntilRef.current) {
         heightCorrectionTimerRef.current = globalThis.setTimeout(() => {
           heightCorrectionTimerRef.current = undefined;
@@ -563,6 +571,11 @@ export const useConversationScroll = ({
       const settleLatest = () => {
         if (!conversationScrollMemory.get(currentScrollKey)?.followLatest) {
           heightCorrectionFrameRef.current = undefined;
+          return;
+        }
+        if (scrollPointerActiveRef.current || performance.now() <= userScrollIntentUntilRef.current) {
+          heightCorrectionFrameRef.current = undefined;
+          scheduleExactBottomCorrection();
           return;
         }
         scrollToLatestPosition();
@@ -1298,7 +1311,8 @@ export const useConversationScroll = ({
 
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
-    if (event.deltaY > 0 && distanceFromBottom(element) <= 1) {
+    lastWheelDeltaRef.current = event.deltaY;
+    if (event.deltaY > 0 && distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX) {
       event.preventDefault();
       element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
       if (currentScrollKey) {
@@ -1342,9 +1356,12 @@ export const useConversationScroll = ({
       const stored = conversationScrollMemory.get(currentScrollKey);
       const userInitiated = scrollPointerActiveRef.current ||
         performance.now() <= userScrollIntentUntilRef.current;
-      const followLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX ||
+      const bottomDistance = distanceFromBottom(element);
+      const downwardBottomIntent = userInitiated && lastWheelDeltaRef.current > 0 &&
+        stored?.followLatest === true && bottomDistance <= BOTTOM_PROXIMITY_PX + 8;
+      const followLatest = bottomDistance <= BOTTOM_PROXIMITY_PX || downwardBottomIntent ||
         (!userInitiated && stored?.followLatest === true);
-      const shouldFollowLatest = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX || followLatest;
+      const shouldFollowLatest = followLatest;
       const anchor = shouldFollowLatest ? undefined : nearbyVisibleAnchor(element);
       const memory: ConversationScrollMemory = {
         scrollTop: element.scrollTop,
@@ -1356,7 +1373,7 @@ export const useConversationScroll = ({
       };
       conversationScrollMemory.set(currentScrollKey, memory);
       updateNewMessageNotice(currentScrollKey, memory.pendingNewCount);
-      updateLatestPosition(currentScrollKey, distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX);
+      updateLatestPosition(currentScrollKey, shouldFollowLatest);
     }
     if (
       positionedScrollIdentity === initialLocationIdentity &&

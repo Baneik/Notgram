@@ -44,6 +44,7 @@ import {
   type AutoDownloadPolicy,
 } from "../media/autoDownload";
 import { consumeMessageEntrance, type MessageEntrance } from "../utils/messageEntrance";
+import { isLargeEmojiText } from "../utils/largeEmoji";
 import { channelPostTargetFor } from "./conversationMessages";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { PollMessage } from "./PollMessage";
@@ -61,6 +62,7 @@ interface MessageBubbleProps {
   message: Message;
   entrance?: MessageEntrance;
   senderName: string;
+  senderLabel?: string;
   senderProfileAvailable: boolean;
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
@@ -113,6 +115,7 @@ function MessageBubbleComponent({
   message,
   entrance,
   senderName,
+  senderLabel,
   senderProfileAvailable,
   groupPosition,
   replyPreview,
@@ -402,7 +405,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${entrancePending ? "is-awaiting-entrance" : ""} ${entering ? `is-entering-${entranceKindRef.current}` : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${entrancePending ? "is-awaiting-entrance" : ""} ${entering ? `is-entering-${entranceKindRef.current}` : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget) setEntering(false);
@@ -457,9 +460,9 @@ function MessageBubbleComponent({
                 type="button"
                 onClick={() => onOpenSenderProfile(message.senderId)}
               >
-                {senderName}
+                <span>{senderName}</span>{senderLabel && <small>{senderLabel}</small>}
               </button>
-            ) : <span className="message-sender">{senderName}</span>
+            ) : <span className="message-sender"><span>{senderName}</span>{senderLabel && <small>{senderLabel}</small>}</span>
           )}
           {!albumItem && !isService && replyPreview && (
             <button
@@ -479,7 +482,7 @@ function MessageBubbleComponent({
           {content.kind === "text" ? (
             <div
               ref={textFlowRef}
-              className={`message-text-flow ${metaWrapped ? "is-meta-wrapped" : ""}`}
+              className={`message-text-flow ${isLargeEmojiText(content.text) ? "is-large-emoji" : ""} ${metaWrapped ? "is-meta-wrapped" : ""}`}
               style={{ "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}
             >
               <MessageRichText text={content.text} entities={content.entities} />
@@ -571,7 +574,7 @@ function MessageBubbleComponent({
                     autoplay={autoplayAnimations}
                     onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
-                ) : usableFullMediaSource && content.mediaType === "animation" ? (
+                ) : usableFullMediaSource && content.mediaType === "animation" && /^video\//i.test(content.mimeType ?? "") ? (
                   <video
                     src={usableFullMediaSource}
                     poster={usablePreviewSource}
@@ -585,6 +588,19 @@ function MessageBubbleComponent({
                       event.currentTarget.videoHeight,
                     )}
                     onError={() => markMediaSourceFailed(usableFullMediaSource)}
+                  />
+                ) : imageMediaSource && content.mediaType === "animation" ? (
+                  <img
+                    src={imageMediaSource}
+                    alt={content.caption || content.fileName}
+                    loading="lazy"
+                    decoding="async"
+                    onLoad={(event) => rememberMediaSize(
+                      imageMediaSource,
+                      event.currentTarget.naturalWidth,
+                      event.currentTarget.naturalHeight,
+                    )}
+                    onError={() => markMediaSourceFailed(imageMediaSource)}
                   />
                 ) : imageMediaSource && content.mediaType === "photo" && onOpenMedia ? (
                   <button

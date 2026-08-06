@@ -85,6 +85,7 @@ export function App() {
   const contactsLoading = useTelegramStore((state) => state.contactsLoading);
   const contactsError = useTelegramStore((state) => state.contactsError);
   const messages = useTelegramStore((state) => state.messages);
+  const removingMessages = useTelegramStore((state) => state.removingMessages);
   const typingUserIds = useTelegramStore((state) => state.typingUserIds);
   const outbox = useTelegramStore((state) => state.outbox);
   const histories = useTelegramStore((state) => state.histories);
@@ -182,6 +183,8 @@ export function App() {
   const loadMoreHistory = useTelegramStore((state) => state.loadMoreHistory);
   const clearError = useTelegramStore((state) => state.clearError);
   const clearOperationError = useTelegramStore((state) => state.clearOperationError);
+  const clearMediaCache = useTelegramStore((state) => state.clearMediaCache);
+  const cacheRetentionDays = usePreferencesStore((state) => state.cacheRetentionDays);
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -192,6 +195,14 @@ export function App() {
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  useEffect(() => {
+    if (phase !== "ready" || cacheRetentionDays <= 0) return;
+    const key = `notgram:cache-cleanup:${activeAccountId}`;
+    const lastRun = Number(globalThis.localStorage?.getItem(key) ?? 0);
+    if (Date.now() - lastRun < 86_400_000) return;
+    globalThis.localStorage?.setItem(key, String(Date.now()));
+    void clearMediaCache(["image", "video", "audio", "document", "other"], cacheRetentionDays);
+  }, [activeAccountId, cacheRetentionDays, clearMediaCache, phase]);
   const openChatManagement = useCallback((chatId: string) => {
     clearProfile();
     setManagementChatId(chatId);
@@ -639,6 +650,12 @@ export function App() {
 
   const activeChat = activeChatId ? chats.get(activeChatId) : undefined;
   const activeMessages = activeChatId ? messages.get(activeChatId) ?? [] : [];
+  const activeRemovingMessages = activeChatId ? removingMessages.get(activeChatId) ?? [] : [];
+  const activeDisplayMessages = activeRemovingMessages.length > 0
+    ? [...activeMessages, ...activeRemovingMessages].sort((left, right) =>
+        Date.parse(left.sentAt) - Date.parse(right.sentAt),
+      )
+    : activeMessages;
   const activeHistory = activeChatId
     ? histories.get(activeChatId) ?? { loading: false, hasMore: true, initialized: false }
     : { loading: false, hasMore: false, initialized: false };
@@ -810,7 +827,7 @@ export function App() {
           entryScrollRequest={entryScrollRequest}
           latestScrollRequest={latestScrollRequest}
           messageScrollRequest={messageScrollRequest}
-          messages={activeMessages}
+            messages={activeDisplayMessages}
           forwardTargets={forwardTargets}
           users={users}
           historyLoading={activeHistory.loading}
@@ -886,6 +903,7 @@ export function App() {
           onSendBotStart={sendComposerBotStart}
           onGetReportOptions={getChatReportOptions}
           onReportChat={reportChat}
+          onBlockSender={setMessageSenderBlocked}
           onBack={() => setMobileChatOpen(false)}
             />
           </Profiler>

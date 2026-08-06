@@ -79,7 +79,7 @@ export function NavigationRail({
         <span>{accountName}</span>
       </button>
       <div className="rail-actions">
-        {folders.map((folder) => (
+        {folders.filter((folder) => folder.id !== "archive").map((folder) => (
           <button className={`rail-button ${filter === folder.id ? "is-active" : ""}`} key={folder.id}
             type="button" aria-label={folder.title} aria-pressed={filter === folder.id} title={folder.title}
             onClick={() => onFilterChange(folder.id)}

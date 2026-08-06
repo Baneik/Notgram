@@ -38,7 +38,7 @@ interface MessageActionMenuProps {
   onPin?: () => void;
   onUnpin?: () => void;
   onPlayInWindow?: () => void;
-  onDownloadVideo?: () => void;
+  onDownload?: () => void;
   onCopy: () => void;
   onCopyRaw?: () => void;
   onDismiss: () => void;
@@ -57,7 +57,7 @@ export function MessageActionMenu({
   onPin,
   onUnpin,
   onPlayInWindow,
-  onDownloadVideo,
+  onDownload,
   onCopy,
   onCopyRaw,
   onDismiss,
@@ -69,12 +69,13 @@ export function MessageActionMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const fallbackPosition = {
     left: Math.max(8, Math.min(position.left, window.innerWidth - 184 - 8)),
-    top: Math.max(8, Math.min(position.top, window.innerHeight - 326 - 8)),
+    top: Math.max(8, Math.min(position.top - 21, window.innerHeight - 326 - 8)),
   };
   const nativeItems: NativeContextMenuItem[] = permissions ? [
     ...(permissions.canReply ? [{ id: "reply", label: "回复", icon: "reply" as const }] : []),
     ...(permissions.canForward ? [{ id: "forward", label: "转发", icon: "forward" as const }] : []),
     { id: "copy", label: "复制", icon: "copy" },
+    ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
     ...(permissions.canEdit && message.content.kind === "text"
       ? [{ id: "edit", label: "编辑", icon: "edit" as const }]
       : []),
@@ -84,7 +85,6 @@ export function MessageActionMenu({
     ...(message.isPinned ? (onUnpin ? [{ id: "unpin", label: "取消置顶", icon: "pin" as const }] : [])
       : (onPin ? [{ id: "pin-message", label: "置顶消息", icon: "pin" as const }] : [])),
     ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
-    ...(onDownloadVideo ? [{ id: "download", label: "下载视频", icon: "download" as const }] : []),
     ...(onCopyRaw ? [{ id: "copy-raw", label: "复制原始消息", icon: "copy" as const }] : []),
     ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true }] : []),
   ] : [];
@@ -101,7 +101,7 @@ export function MessageActionMenu({
     else if (actionId === "pin-message") onPin?.();
     else if (actionId === "unpin") onUnpin?.();
     else if (actionId === "play-window") onPlayInWindow?.();
-    else if (actionId === "download") onDownloadVideo?.();
+    else if (actionId === "download") onDownload?.();
     else if (actionId === "copy-raw") onCopyRaw?.();
     else if (actionId === "report") onReport?.();
   }, onDismiss, { enabled: Boolean(permissions) });
@@ -131,6 +131,12 @@ export function MessageActionMenu({
             <Copy size={16} strokeWidth={1.9} />
             <span>复制</span>
           </button>
+          {onDownload && (
+            <button type="button" role="menuitem" onClick={onDownload}>
+              <Download size={16} strokeWidth={1.9} />
+              <span>下载</span>
+            </button>
+          )}
           <div className="message-action-status" role="status">
             {loading ? (
               <><LoaderCircle className="spin" size={15} />正在读取操作权限</>
@@ -186,12 +192,6 @@ export function MessageActionMenu({
               <span>以小窗播放</span>
             </button>
           )}
-          {onDownloadVideo && (
-            <button type="button" role="menuitem" onClick={onDownloadVideo}>
-              <Download size={16} strokeWidth={1.9} />
-              <span>下载视频</span>
-            </button>
-          )}
           {onCopyRaw && (
             <button type="button" role="menuitem" onClick={onCopyRaw}>
               <Copy size={16} strokeWidth={1.9} />
@@ -209,6 +209,7 @@ interface DeleteMessageDialogProps {
   message: Message;
   pending: boolean;
   onConfirm: (revoke: boolean) => void;
+  onFuckOff: () => void;
   onClose: () => void;
 }
 
@@ -216,6 +217,7 @@ export function DeleteMessageDialog({
   message,
   pending,
   onConfirm,
+  onFuckOff,
   onClose,
 }: DeleteMessageDialogProps) {
   const permissions = message.permissions;
@@ -239,6 +241,10 @@ export function DeleteMessageDialog({
           </div>
         </div>
         <div className="message-delete-actions">
+          <button className="dialog-danger" type="button" disabled={pending} onClick={onFuckOff}>
+            {pending ? <LoaderCircle className="spin" size={16} /> : <Flag size={16} />}
+            Fuck Off
+          </button>
           {permissions.canDeleteOnlyForSelf && (
             <button
               className="dialog-secondary"

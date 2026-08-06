@@ -721,6 +721,7 @@ export interface Message {
   interaction?: MessageInteraction;
   isPinned?: boolean;
   permissions?: MessagePermissions;
+  isRemoving?: boolean;
   content: MessageContent;
 }
 

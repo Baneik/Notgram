@@ -14,6 +14,18 @@ interface ReportDialogProps {
   onClose: () => void;
 }
 
+const reportReasonLabel = (title: string) => {
+  const normalized = title.trim().toLowerCase();
+  if (/spam|scam|垃圾|诈骗/.test(normalized)) return "垃圾信息或诈骗";
+  if (/violence|暴力/.test(normalized)) return "暴力内容";
+  if (/porn|sexual|色情/.test(normalized)) return "色情内容";
+  if (/child|儿童/.test(normalized)) return "儿童伤害";
+  if (/copyright|版权/.test(normalized)) return "侵犯版权";
+  if (/personal|个人信息/.test(normalized)) return "泄露个人信息";
+  if (/other|其他/.test(normalized)) return "其他原因";
+  return title;
+};
+
 export function ReportDialog({ chatId, messageIds, title, onGetOptions, onSubmit, onDeleteChat, onClose }: ReportDialogProps) {
   const [options, setOptions] = useState<ChatReportOptions>();
   const [optionId, setOptionId] = useState("");
@@ -31,7 +43,7 @@ export function ReportDialog({ chatId, messageIds, title, onGetOptions, onSubmit
     else setError("举报未提交，请检查说明后重试");
     setPending(false);
   };
-  return <div className="profile-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title"><header><div><h2 id="report-dialog-title">举报“{title}”</h2><small>{messageIds.length > 1 ? `已选择 ${messageIds.length} 条消息` : "举报会发送给 Telegram 审核"}</small></div><button className="icon-button" type="button" aria-label="关闭举报" onClick={onClose}>×</button></header>{!options ? <div className="profile-state"><LoaderCircle className="spin" size={22} /></div> : <div className="report-dialog-body"><label><span>举报原因</span><select aria-label="举报原因" value={optionId} onChange={(event) => setOptionId(event.target.value)}>{options.options.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>{selected?.requiresText && <label><span>补充说明</span><textarea aria-label="举报说明" value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} rows={4} placeholder="请描述具体问题" /> </label>}{onDeleteChat && <label className="management-check"><input type="checkbox" checked={deleteChat} onChange={(event) => setDeleteChat(event.target.checked)} /><span>同时删除这个会话</span></label>}{error && <div className="profile-state is-error" role="alert">{error}</div>}<footer><button className="dialog-secondary" type="button" onClick={onClose}>取消</button><button className="dialog-danger" type="button" disabled={pending || !optionId || Boolean(selected?.requiresText && !text.trim())} onClick={() => void submit()}>{pending ? <LoaderCircle className="spin" size={15} /> : <ShieldAlert size={15} />}提交举报</button></footer></div>}</section></div>;
+  return <div className="profile-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title"><header><div><h2 id="report-dialog-title">举报“{title}”</h2><small>{messageIds.length > 1 ? `已选择 ${messageIds.length} 条消息` : "举报会发送给 Telegram 审核"}</small></div><button className="icon-button" type="button" aria-label="关闭举报" onClick={onClose}>×</button></header>{!options ? <div className="profile-state"><LoaderCircle className="spin" size={22} /></div> : <div className="report-dialog-body"><div><span>举报原因</span><div className="report-reason-options" role="radiogroup" aria-label="举报原因">{options.options.map((option) => <button className={option.id === optionId ? "is-selected" : ""} key={option.id} type="button" role="radio" aria-checked={option.id === optionId} onClick={() => setOptionId(option.id)}>{reportReasonLabel(option.title)}</button>)}</div></div>{selected?.requiresText && <label><span>补充说明</span><textarea aria-label="举报说明" value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} rows={4} placeholder="请描述具体问题" /> </label>}{onDeleteChat && <label className="management-check"><input type="checkbox" checked={deleteChat} onChange={(event) => setDeleteChat(event.target.checked)} /><span>同时删除这个会话</span></label>}{error && <div className="profile-state is-error" role="alert">{error}</div>}<footer><button className="dialog-secondary" type="button" onClick={onClose}>取消</button><button className="dialog-danger" type="button" disabled={pending || !optionId || Boolean(selected?.requiresText && !text.trim())} onClick={() => void submit()}>{pending ? <LoaderCircle className="spin" size={15} /> : <ShieldAlert size={15} />}提交举报</button></footer></div>}</section></div>;
 }
 
 export function SafetySettings() {
