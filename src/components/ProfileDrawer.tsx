@@ -72,7 +72,7 @@ export function ProfileDrawer({
         <div className="profile-drawer-scroll">
           {state.loading && !profile ? (
             <div className="profile-state" role="status"><LoaderCircle className="spin" size={22} /></div>
-          ) : state.error ? (
+          ) : state.error && !profile ? (
             <div className="profile-state is-error" role="alert">
               <span>{state.error}</span>
               <button className="dialog-secondary" type="button" onClick={onRetry}>

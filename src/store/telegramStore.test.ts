@@ -1607,6 +1607,31 @@ describe("profiles and contacts state", () => {
     });
   });
 
+  it("reuses a recently loaded chat profile after the drawer closes", async () => {
+    class CountingProfileTransport extends MockTelegramTransport {
+      chatProfileCalls = 0;
+
+      override async getChatProfile(chatId: string) {
+        this.chatProfileCalls += 1;
+        return super.getChatProfile(chatId);
+      }
+    }
+
+    const transport = new CountingProfileTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().loadChatProfile("chat-product");
+    store.getState().clearProfile();
+    await store.getState().loadChatProfile("chat-product");
+
+    expect(transport.chatProfileCalls).toBe(1);
+    expect(store.getState().profile).toMatchObject({
+      target: { kind: "chat", chatId: "chat-product" },
+      value: { title: "产品讨论" },
+      loading: false,
+    });
+  });
+
   it("discards a profile response after a newer target is requested", async () => {
     class DelayedProfileTransport extends MockTelegramTransport {
       requests: Array<{

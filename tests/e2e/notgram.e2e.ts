@@ -1528,6 +1528,7 @@ test("chat profiles expose members and shared media with focus restoration", asy
   await expect(profile.getByText("u-mia", { exact: true })).toBeVisible();
   await profile.getByRole("button", { name: "关闭资料" }).click();
   await profileTrigger.click();
+  await expect(profile.locator(".profile-state")).toHaveCount(0);
 
   await profile.getByRole("button", { name: "共享媒体" }).click();
   await expect(profile.locator(".profile-media-list button")).not.toHaveCount(0);
@@ -1541,6 +1542,39 @@ test("chat profiles expose members and shared media with focus restoration", asy
   expect(await horizontalOverflow(page)).toBe(false);
   await profile.getByRole("button", { name: "关闭资料" }).click();
   await expect(profileTrigger).toBeFocused();
+});
+
+test("dark mode keeps interactive hover surfaces dark across the main UI", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => document.documentElement.classList.add("theme-dark"));
+
+  const assertDarkHover = async (locator: ReturnType<typeof page.locator>) => {
+    await locator.hover();
+    const background = await locator.evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect(background).not.toBe("rgb(255, 255, 255)");
+    expect(background).not.toBe("rgb(244, 248, 250)");
+  };
+
+  await assertDarkHover(page.locator(".rail-button").first());
+  await assertDarkHover(page.locator(".chat-row").first());
+  await assertDarkHover(page.locator(".conversation-profile-trigger"));
+
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
+  await expect(profile).toBeVisible();
+  await assertDarkHover(profile.locator(".profile-member-identity").first());
+  await profile.getByRole("button", { name: "关闭资料" }).click();
+
+  await page.locator(".message-bubble-shell").last().click({ button: "right" });
+  const messageMenu = page.getByRole("menu", { name: "消息操作" });
+  await expect(messageMenu).toBeVisible();
+  await assertDarkHover(messageMenu.getByRole("menuitem").first());
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "表情" }).click();
+  const emojiPicker = page.locator(".emoji-picker");
+  await expect(emojiPicker).toBeVisible();
+  await assertDarkHover(emojiPicker.locator(".emoji-picker-tabs > button").first());
 });
 
 test("reply previews jump to their source and channel senders keep their identity", async ({ page }) => {
@@ -2167,6 +2201,14 @@ test("photo albums preserve order, captions, clipping, and tile geometry", async
   ]);
   await expect(tallRow).toHaveClass(/group-first/);
   await expect(squareRow).toHaveClass(/group-last/);
+  await expect(album.locator(".media-album-grid")).toHaveCSS("gap", "2px");
+  await expect(album.locator(".media-album-grid")).toHaveCSS("background-color", "rgb(223, 227, 230)");
+  const albumTime = squareRow.locator(".message-meta");
+  await expect(albumTime).toHaveCSS("opacity", "0");
+  const photoBounds = await squareRow.locator(".photo-open").boundingBox();
+  expect(photoBounds).not.toBeNull();
+  await page.mouse.move(photoBounds!.x + photoBounds!.width / 2, photoBounds!.y + photoBounds!.height / 2);
+  await expect(albumTime).toHaveCSS("opacity", "1");
   await expect.poll(() => tallRow.locator("img").evaluate((image) => {
     const media = image as HTMLImageElement;
     return `${media.naturalWidth}x${media.naturalHeight}`;

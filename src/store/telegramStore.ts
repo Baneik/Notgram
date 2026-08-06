@@ -7,6 +7,7 @@ import type { TelegramTransport } from "../telegram/transport";
 import type {
   CachedTelegramSnapshot,
   ChatDraft,
+  ChatProfile,
   QueuedOutgoingMessage,
   TelegramEvent,
   TelegramAccountState,
@@ -59,6 +60,7 @@ export { filterAndSortChats, selectVisibleChats } from "./telegramStore.selector
 
 const CACHE_WRITE_DELAY_MS = 2_000;
 const CACHE_WRITE_IDLE_TIMEOUT_MS = 1_500;
+const PROFILE_CACHE_TTL_MS = 5 * 60_000;
 
 const errorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -94,6 +96,7 @@ export const createTelegramStore = (
     let outboxFlush: Promise<void> | undefined;
     let globalSearchGeneration = 0;
     let profileGeneration = 0;
+    const profileCache = new Map<string, { value: ChatProfile; cachedAt: number }>();
     let accountProfileGeneration = 0;
     let contactsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -203,6 +206,7 @@ export const createTelegramStore = (
       globalSearchGeneration += 1;
       accountProfileGeneration += 1;
       profileGeneration += 1;
+      profileCache.clear();
       contactsGeneration += 1;
       set({
         currentUserId: undefined,
@@ -1572,17 +1576,30 @@ export const createTelegramStore = (
       },
 
       loadChatProfile: async (chatId) => {
+        const target = { kind: "chat" as const, chatId };
+        const current = get().profile;
+        if (current.loading && current.target?.kind === "chat" && current.target.chatId === chatId) {
+          return;
+        }
         const generation = ++profileGeneration;
-        set({ profile: { target: { kind: "chat", chatId }, loading: true } });
+        const cacheKey = `chat:${chatId}`;
+        const cached = profileCache.get(cacheKey);
+        if (cached && Date.now() - cached.cachedAt < PROFILE_CACHE_TTL_MS) {
+          set({ profile: { target, value: cached.value, loading: false } });
+          return;
+        }
+        set({ profile: { target, value: cached?.value, loading: true } });
         try {
           const value = await transport.getChatProfile(chatId);
+          profileCache.set(cacheKey, { value, cachedAt: Date.now() });
           if (generation !== profileGeneration) return;
-          set({ profile: { target: { kind: "chat", chatId }, value, loading: false } });
+          set({ profile: { target, value, loading: false } });
         } catch (error) {
           if (generation !== profileGeneration) return;
           set({
             profile: {
-              target: { kind: "chat", chatId },
+              target,
+              value: cached?.value,
               loading: false,
               error: errorMessage(error, "无法读取聊天资料"),
             },
@@ -1591,17 +1608,30 @@ export const createTelegramStore = (
       },
 
       loadUserProfile: async (userId) => {
+        const target = { kind: "user" as const, userId };
+        const current = get().profile;
+        if (current.loading && current.target?.kind === "user" && current.target.userId === userId) {
+          return;
+        }
         const generation = ++profileGeneration;
-        set({ profile: { target: { kind: "user", userId }, loading: true } });
+        const cacheKey = `user:${userId}`;
+        const cached = profileCache.get(cacheKey);
+        if (cached && Date.now() - cached.cachedAt < PROFILE_CACHE_TTL_MS) {
+          set({ profile: { target, value: cached.value, loading: false } });
+          return;
+        }
+        set({ profile: { target, value: cached?.value, loading: true } });
         try {
           const value = await transport.getUserProfile(userId);
+          profileCache.set(cacheKey, { value, cachedAt: Date.now() });
           if (generation !== profileGeneration) return;
-          set({ profile: { target: { kind: "user", userId }, value, loading: false } });
+          set({ profile: { target, value, loading: false } });
         } catch (error) {
           if (generation !== profileGeneration) return;
           set({
             profile: {
-              target: { kind: "user", userId },
+              target,
+              value: cached?.value,
               loading: false,
               error: errorMessage(error, "无法读取用户资料"),
             },
