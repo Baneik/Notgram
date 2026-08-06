@@ -1440,6 +1440,30 @@ test("offline attachments survive restart and can be cancelled", async ({ page }
   await expect(page.locator(".composer-outbox-status")).toBeHidden();
 });
 
+test("creates a public supergroup with initial members and permissions", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "新建群组或频道" }).click();
+  const dialog = page.getByRole("dialog", { name: "新建聊天" });
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByText("超级群组", { exact: true }).click();
+  await dialog.getByLabel("名称", { exact: true }).fill("Notgram QA Team");
+  await dialog.getByLabel("简介", { exact: true }).fill("桌面客户端验收协作");
+  await dialog.getByRole("checkbox", { name: "公开聊天" }).check();
+  await dialog.getByLabel("公开用户名", { exact: true }).fill("notgram_qa_team");
+  await dialog.getByLabel("成员权限模板").selectOption("restricted");
+  await dialog.locator(".new-chat-member-row", { hasText: "Mia Chen" }).getByRole("checkbox").check();
+  await dialog.getByRole("button", { name: "创建", exact: true }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Notgram QA Team");
+  await expect(page.locator('.chat-row[data-chat-id^="chat-created-"]')).toContainText("Notgram QA Team");
+  await page.locator(".conversation-profile-trigger").click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await expect(profile).toContainText("桌面客户端验收协作");
+  await expect(profile.locator(".profile-member-row")).toHaveCount(2);
+});
+
 test("keyboard navigation closes modals and completes message workflows", async ({ page }) => {
   await page.goto("/");
 

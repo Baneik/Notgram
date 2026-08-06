@@ -17,6 +17,7 @@ import { SettingsDialog } from "../components/SettingsDialog";
 import { ProfileDrawer } from "../components/ProfileDrawer";
 import { FolderManagerDialog } from "../components/FolderManagerDialog";
 import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
+import { NewChatDialog } from "../components/NewChatDialog";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
@@ -79,6 +80,9 @@ export function App() {
   const chatLists = useTelegramStore((state) => state.chatLists);
   const folders = useTelegramStore((state) => state.folders);
   const users = useTelegramStore((state) => state.users);
+  const contacts = useTelegramStore((state) => state.contacts);
+  const contactsLoading = useTelegramStore((state) => state.contactsLoading);
+  const contactsError = useTelegramStore((state) => state.contactsError);
   const messages = useTelegramStore((state) => state.messages);
   const typingUserIds = useTelegramStore((state) => state.typingUserIds);
   const outbox = useTelegramStore((state) => state.outbox);
@@ -88,6 +92,7 @@ export function App() {
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const chatManagementPending = useTelegramStore((state) => state.chatManagementPending);
   const folderManagementPending = useTelegramStore((state) => state.folderManagementPending);
+  const chatCreationPending = useTelegramStore((state) => state.chatCreationPending);
   const connectionStatus = useTelegramStore((state) => state.connectionStatus);
   const authorization = useTelegramStore((state) => state.authorization);
   const authorizationPending = useTelegramStore((state) => state.authorizationPending);
@@ -101,6 +106,8 @@ export function App() {
   const loadCurrentUserProfile = useTelegramStore((state) => state.loadCurrentUserProfile);
   const clearProfile = useTelegramStore((state) => state.clearProfile);
   const startPrivateChat = useTelegramStore((state) => state.startPrivateChat);
+  const loadContacts = useTelegramStore((state) => state.loadContacts);
+  const createChat = useTelegramStore((state) => state.createChat);
   const loadMoreChats = useTelegramStore((state) => state.loadMoreChats);
   const reorderPinnedChats = useTelegramStore((state) => state.reorderPinnedChats);
   const setChatPinned = useTelegramStore((state) => state.setChatPinned);
@@ -153,6 +160,7 @@ export function App() {
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
+  const [newChatOpen, setNewChatOpen] = useState(false);
   const [folderManagerInitialId, setFolderManagerInitialId] = useState<string>();
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -585,8 +593,8 @@ export function App() {
   return (
     <>
       <main
-        inert={settingsOpen || folderManagerOpen || Boolean(pendingConfirmation)}
-        aria-hidden={settingsOpen || folderManagerOpen || Boolean(pendingConfirmation) || undefined}
+        inert={settingsOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation)}
+        aria-hidden={settingsOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
         <NavigationRail
@@ -708,6 +716,7 @@ export function App() {
             chatId: chat.id,
             title: chat.title,
           })}
+          onCreateChat={() => setNewChatOpen(true)}
           width={sidebarWidth}
           onWidthPreview={previewSidebarWidth}
           onWidthChange={setSidebarWidth}
@@ -847,6 +856,22 @@ export function App() {
           onDelete={deleteChatFolder}
           onSetMembership={setChatFolderMembership}
           onClose={closeFolderManager}
+        />
+      )}
+      {newChatOpen && (
+        <NewChatDialog
+          contacts={contacts}
+          currentUserId={currentUserId}
+          contactsLoading={contactsLoading}
+          contactsError={contactsError}
+          pending={chatCreationPending}
+          onLoadContacts={loadContacts}
+          onCreate={async (input) => {
+            const chatId = await createChat(input);
+            if (chatId) setMobileChatOpen(true);
+            return chatId;
+          }}
+          onClose={() => { if (!chatCreationPending) setNewChatOpen(false); }}
         />
       )}
       {pendingConfirmation && (

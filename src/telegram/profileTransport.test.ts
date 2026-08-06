@@ -53,6 +53,30 @@ describe("profile transport", () => {
     expect(privateChat).toMatchObject({ kind: "direct", peerId: "u-jules" });
   });
 
+  it("creates mock groups and channels with their selected initial settings", async () => {
+    const transport = new MockTelegramTransport();
+    const group = await transport.createChat({
+      kind: "supergroup",
+      title: "桌面客户端协作",
+      description: "Notgram 开发协作",
+      memberUserIds: ["u-mia", "u-jules"],
+      isPublic: true,
+      username: "notgram_team",
+      historyAvailable: true,
+      permissionTemplate: "restricted",
+    });
+    const profile = await transport.getChatProfile(group.id);
+
+    expect(group).toMatchObject({ kind: "group", title: "桌面客户端协作" });
+    expect(profile).toMatchObject({
+      kind: "group",
+      bio: "Notgram 开发协作",
+      username: "notgram_team",
+      memberCount: 3,
+    });
+    expect(profile.members.map(({ user }) => user.id)).toEqual(["self", "u-mia", "u-jules"]);
+  });
+
   it("loads current-user full info and remembers the resolved identity", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as {

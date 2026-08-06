@@ -22,6 +22,7 @@ import type {
   CacheUsage,
   CachedTelegramSnapshot,
   Chat,
+  CreateChatInput,
   ChatFolder,
   ChatProfile,
   TelegramEvent,
@@ -76,6 +77,7 @@ export interface TelegramTransport {
   getUserProfile(userId: string): Promise<ChatProfile>;
   getContacts(): Promise<User[]>;
   createPrivateChat(userId: string): Promise<Chat>;
+  createChat(input: CreateChatInput): Promise<Chat>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;

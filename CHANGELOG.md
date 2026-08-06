@@ -21,6 +21,9 @@ with prerelease identifiers used for release candidates.
 - Queue attachment uploads while offline with encrypted snapshot metadata,
   persistent browser storage, SHA-256 change detection, expiry and quota limits,
   reconnect recovery, cancellation, and explicit retry states.
+- Create basic groups, supergroups, and channels with initial members,
+  descriptions, public usernames, history visibility, permission templates,
+  and native-path-safe chat photo selection.
 - Add a lightweight WebView performance timeline for startup, interaction, rendering,
   history, and media stalls, backed by a separately rotated performance log.
 - Support `reg:` regular expressions in global and current-conversation message search.

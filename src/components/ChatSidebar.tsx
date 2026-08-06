@@ -1,4 +1,4 @@
-import { Archive, CheckCheck, LoaderCircle, Pin, Search } from "lucide-react";
+import { Archive, CheckCheck, LoaderCircle, Pin, Plus, Search } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -51,6 +51,7 @@ interface ChatSidebarProps {
     included: boolean,
   ) => Promise<boolean>;
   onRequestLeaveGroup: (chat: Chat) => void;
+  onCreateChat: () => void;
   width: number;
   onWidthPreview: (width: number) => void;
   onWidthChange: (width: number) => void;
@@ -86,6 +87,7 @@ export function ChatSidebar({
   onSetPinned,
   onSetFolderMembership,
   onRequestLeaveGroup,
+  onCreateChat,
   width,
   onWidthPreview,
   onWidthChange,
@@ -337,6 +339,9 @@ export function ChatSidebar({
         <div>
           <h1>{folderTitle}</h1>
         </div>
+        <button className="icon-button" type="button" aria-label="新建群组或频道" title="新建群组或频道" onClick={onCreateChat}>
+          <Plus size={20} strokeWidth={1.9} />
+        </button>
       </div>
 
       <label className="search-field">

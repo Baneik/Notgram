@@ -10,6 +10,7 @@ import type {
   Chat,
   ChatProfile,
   ConnectionStatus,
+  CreateChatInput,
   DeleteMessageInput,
   EditMessageInput,
   EmojiPickerAsset,
@@ -173,6 +174,7 @@ export class MockTelegramTransport implements TelegramTransport {
   private accountState: TelegramAccountState;
   private historyOffsets = new Map<string, number>();
   private drafts = new Map((mockSnapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
+  private createdChatSettings = new Map<string, CreateChatInput>();
   private authFlow: boolean;
   private connectionStatus: ConnectionStatus;
   private initialTyping?: { chatId: string; senderId: string };
@@ -617,11 +619,18 @@ export class MockTelegramTransport implements TelegramTransport {
         groupInCommonCount: user.id === this.snapshot.currentUserId ? 0 : 2,
       };
     }
-    const members = chat.kind === "channel"
+    const settings = this.createdChatSettings.get(chat.id);
+    const memberUsers = settings
+      ? [
+          this.snapshot.users.find((user) => user.id === this.snapshot.currentUserId),
+          ...settings.memberUserIds.map((id) => this.snapshot.users.find((user) => user.id === id)),
+        ].filter((user): user is User => Boolean(user))
+      : this.snapshot.users.slice(0, 4);
+    const members = chat.kind === "channel" && !settings
       ? []
-      : this.snapshot.users.slice(0, 4).map((user, index) => ({
+      : memberUsers.map((user, index) => ({
           user: clone(user),
-          role: index === 0 ? "owner" as const : index === 1
+          role: index === 0 ? "owner" as const : !settings && index === 1
             ? "administrator" as const
             : "member" as const,
         }));
@@ -631,11 +640,14 @@ export class MockTelegramTransport implements TelegramTransport {
       chatId: chat.id,
       title: chat.title,
       avatar: clone(chat.avatar),
-      statusLabel: chat.kind === "channel" ? "1,248 位订阅者" : `${members.length} 位成员`,
-      bio: chat.kind === "channel" ? "桌面版本更新与发布说明。" : "产品、设计与开发协作群。",
-      memberCount: chat.kind === "channel" ? 1_248 : members.length,
+      statusLabel: settings
+        ? `${members.length} 位${chat.kind === "channel" ? "订阅者" : "成员"}`
+        : chat.kind === "channel" ? "1,248 位订阅者" : `${members.length} 位成员`,
+      bio: settings?.description || (chat.kind === "channel" ? "桌面版本更新与发布说明。" : "产品、设计与开发协作群。"),
+      username: settings?.isPublic ? settings.username : undefined,
+      memberCount: settings ? members.length : chat.kind === "channel" ? 1_248 : members.length,
       members,
-      canViewMembers: chat.kind !== "channel",
+      canViewMembers: chat.kind !== "channel" || Boolean(settings),
     };
   }
 
@@ -661,6 +673,50 @@ export class MockTelegramTransport implements TelegramTransport {
       pinned: false,
       muted: false,
     };
+    this.snapshot.chats.push(chat);
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+    return clone(chat);
+  }
+
+  async createChat(input: CreateChatInput): Promise<Chat> {
+    const title = input.title.trim();
+    const description = input.description?.trim() ?? "";
+    const username = input.username?.trim() ?? "";
+    if (!title || [...title].length > 128 || /[\r\n]/.test(title)) {
+      throw new Error("群组或频道名称需包含 1 至 128 个字符");
+    }
+    if ([...description].length > 255) throw new Error("简介最多 255 个字符");
+    if (input.isPublic && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(username)) {
+      throw new Error("公开用户名需包含 5 至 32 个英文字母、数字或下划线，并以字母开头");
+    }
+    const uniqueMemberIds = [...new Set(input.memberUserIds)];
+    if (uniqueMemberIds.length > 200 || uniqueMemberIds.some((id) =>
+      !this.snapshot.users.some((user) => user.id === id) || id === this.snapshot.currentUserId)) {
+      throw new Error("初始成员列表无效");
+    }
+    const id = `chat-created-${crypto.randomUUID()}`;
+    const chat: Chat = {
+      id,
+      kind: input.kind === "channel" ? "channel" : "group",
+      folderIds: ["main"],
+      title,
+      avatar: {
+        label: [...title][0] ?? "群",
+        color: input.kind === "channel" ? "#397a78" : "#75579a",
+      },
+      preview: input.kind === "channel" ? "频道已创建" : "群组已创建",
+      updatedAt: new Date().toISOString(),
+      unreadCount: 0,
+      pinned: false,
+      muted: false,
+    };
+    this.createdChatSettings.set(id, {
+      ...clone(input),
+      title,
+      description,
+      username: input.isPublic ? username : undefined,
+      memberUserIds: uniqueMemberIds,
+    });
     this.snapshot.chats.push(chat);
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
     return clone(chat);

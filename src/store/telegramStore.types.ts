@@ -12,6 +12,7 @@ import type {
   CacheCleanupResult,
   CacheUsage,
   ConnectionStatus,
+  CreateChatInput,
   ForwardMessagesResult,
   EmojiPickerAsset,
   EmojiPickerCatalog,
@@ -90,6 +91,7 @@ export interface TelegramState {
   contactPendingUserId?: string;
   chatManagementPending: Set<string>;
   folderManagementPending: boolean;
+  chatCreationPending: boolean;
   initialize: (options?: { settingsOnly?: boolean }) => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
@@ -141,6 +143,7 @@ export interface TelegramState {
   clearProfile: () => void;
   loadContacts: () => Promise<void>;
   startPrivateChat: (userId: string) => Promise<string | undefined>;
+  createChat: (input: CreateChatInput) => Promise<string | undefined>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   loadPinnedMessages: (chatId: string) => Promise<Message[]>;

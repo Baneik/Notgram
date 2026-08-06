@@ -76,6 +76,7 @@ import type {
   MessagePermissions,
   PinMessageInput,
   ConnectionStatus,
+  CreateChatInput,
   ProxySettings,
   SendEmojiAssetInput,
   SendFileInput,
@@ -127,6 +128,27 @@ const profileField = (value: string, maximum: number, label: string, required = 
     throw new Error(`${label}格式不正确`);
   }
   return normalized;
+};
+
+const chatPermissionsForTemplate = (template: CreateChatInput["permissionTemplate"]): TdObject => {
+  const open = template !== "restricted";
+  return {
+    "@type": "chatPermissions",
+    can_send_basic_messages: true,
+    can_send_audios: open,
+    can_send_documents: open,
+    can_send_photos: open,
+    can_send_videos: open,
+    can_send_video_notes: open,
+    can_send_voice_notes: open,
+    can_send_polls: open,
+    can_send_other_messages: open,
+    can_add_link_previews: open,
+    can_change_info: false,
+    can_invite_users: open,
+    can_pin_messages: false,
+    can_create_topics: false,
+  };
 };
 
 const globalSearchFilterObject = (filter: GlobalSearchFilter): TdObject | null => {
@@ -761,6 +783,83 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.upsertChat(raw);
     const chat = mapTdChat(raw, this.currentUserId);
     if (!chat) throw new Error("TDLib 未返回私聊");
+    return chat;
+  }
+
+  async createChat(input: CreateChatInput) {
+    const title = profileField(input.title, 128, "名称", true);
+    const description = profileField(input.description ?? "", 255, "简介");
+    const username = profileField(input.username ?? "", 32, "公开用户名");
+    if (input.isPublic && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(username)) {
+      throw new Error("公开用户名需包含 5 至 32 个英文字母、数字或下划线，并以字母开头");
+    }
+    const memberUserIds = [...new Set(input.memberUserIds)];
+    if (memberUserIds.length > 200) throw new Error("初始成员不能超过 200 人");
+    const numericUserIds = memberUserIds.map(numericId);
+
+    let chatId: string;
+    let rawChat: TdObject;
+    if (input.kind === "basicGroup") {
+      const created = await this.request({
+        "@type": "createNewBasicGroupChat",
+        user_ids: numericUserIds,
+        title,
+        message_auto_delete_time: 0,
+      });
+      chatId = tdId(created.chat_id);
+      if (!chatId) throw new Error("TDLib 未返回新群组标识");
+      rawChat = await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
+    } else {
+      rawChat = await this.request({
+        "@type": "createNewSupergroupChat",
+        title,
+        is_forum: false,
+        is_channel: input.kind === "channel",
+        description,
+        location: null,
+        message_auto_delete_time: 0,
+        for_import: false,
+      });
+      chatId = tdId(rawChat.id);
+      if (!chatId) throw new Error("TDLib 未返回新超级群组标识");
+      if (numericUserIds.length > 0) {
+        await this.request({
+          "@type": "addChatMembers",
+          chat_id: numericId(chatId),
+          user_ids: numericUserIds,
+        });
+      }
+      const type = asTdObject(rawChat.type);
+      const supergroupId = tdId(type?.supergroup_id);
+      if (!supergroupId) throw new Error("TDLib 未返回超级群组类型信息");
+      if (input.isPublic && username) {
+        await this.request({
+          "@type": "setSupergroupUsername",
+          supergroup_id: numericId(supergroupId),
+          username,
+        });
+      }
+      if (input.kind === "supergroup") {
+        await this.request({
+          "@type": "toggleSupergroupIsAllHistoryAvailable",
+          supergroup_id: numericId(supergroupId),
+          is_all_history_available: input.historyAvailable !== false,
+        });
+      }
+    }
+
+    if (input.kind !== "channel") {
+      await this.request({
+        "@type": "setChatPermissions",
+        chat_id: numericId(chatId),
+        permissions: chatPermissionsForTemplate(input.permissionTemplate),
+      });
+    }
+    if (input.selectPhoto) await this.requestPreparedChatPhoto(chatId);
+    rawChat = await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
+    this.upsertChat(rawChat);
+    const chat = mapTdChat(rawChat, this.currentUserId);
+    if (!chat) throw new Error("TDLib 未返回已创建的聊天");
     return chat;
   }
 
@@ -1727,6 +1826,10 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private requestPreparedProfilePhoto() {
     return this.requestBroker.requestPreparedProfilePhoto();
+  }
+
+  private requestPreparedChatPhoto(chatId: string) {
+    return this.requestBroker.requestPreparedChatPhoto(chatId);
   }
 
   private async applyProxy(settings: ProxySettings) {

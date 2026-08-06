@@ -3,12 +3,15 @@ use std::path::Path;
 
 const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "addChatToList",
+    "addChatMembers",
     "addMessageReaction",
     "addProxy",
     "checkAuthenticationCode",
     "checkAuthenticationEmailCode",
     "checkAuthenticationPassword",
     "createChatFolder",
+    "createNewBasicGroupChat",
+    "createNewSupergroupChat",
     "createPrivateChat",
     "deleteChatFolder",
     "deleteMessages",
@@ -62,14 +65,17 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setAuthenticationEmailAddress",
     "setAuthenticationPhoneNumber",
     "setChatDraftMessage",
+    "setChatPermissions",
     "setChatNotificationSettings",
     "setChatMessageAutoDeleteTime",
     "setName",
     "setPinnedChats",
     "setPollAnswer",
+    "setSupergroupUsername",
     "setUsername",
     "toggleChatIsMarkedAsUnread",
     "toggleChatIsPinned",
+    "toggleSupergroupIsAllHistoryAvailable",
     "unpinChatMessage",
     "viewMessages",
 ];
@@ -152,6 +158,53 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid Telegram username".to_string());
             }
         }
+        "createNewBasicGroupChat" => {
+            validate_profile_text(request, "title", 128, false, true)?;
+            validate_user_ids(request, "user_ids", 200)?;
+            validate_auto_delete_time(request)?;
+        }
+        "createNewSupergroupChat" => {
+            validate_profile_text(request, "title", 128, false, true)?;
+            validate_profile_text(request, "description", 255, true, false)?;
+            validate_auto_delete_time(request)?;
+            if request.get("is_forum").and_then(Value::as_bool).is_none()
+                || request.get("is_channel").and_then(Value::as_bool).is_none()
+                || request.get("for_import").and_then(Value::as_bool) != Some(false)
+                || !request.get("location").is_some_and(Value::is_null)
+            {
+                return Err("Invalid supergroup creation options".to_string());
+            }
+        }
+        "addChatMembers" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_user_ids(request, "user_ids", 200)?;
+        }
+        "setSupergroupUsername" => {
+            validate_nonzero_identifier(request, "supergroup_id")?;
+            let username = validate_profile_text(request, "username", 32, false, true)?;
+            if username.chars().count() < 5
+                || !username
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_ascii_alphabetic())
+                || !username
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '_')
+            {
+                return Err("Invalid public chat username".to_string());
+            }
+        }
+        "toggleSupergroupIsAllHistoryAvailable" => {
+            validate_nonzero_identifier(request, "supergroup_id")?;
+            if request
+                .get("is_all_history_available")
+                .and_then(Value::as_bool)
+                .is_none()
+            {
+                return Err("History visibility is missing".to_string());
+            }
+        }
+        "setChatPermissions" => validate_chat_permissions(request)?,
         "setPollAnswer" => {
             let positions = request
                 .get("option_ids")
@@ -299,6 +352,85 @@ fn validate_profile_text<'a>(
         return Err(format!("Invalid profile field: {field}"));
     }
     Ok(value)
+}
+
+fn validate_nonzero_identifier(request: &Value, field: &str) -> Result<i64, String> {
+    let identifier = request
+        .get(field)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| format!("Identifier is missing: {field}"))?;
+    if identifier == 0 {
+        return Err(format!("Invalid identifier: {field}"));
+    }
+    Ok(identifier)
+}
+
+fn validate_user_ids(request: &Value, field: &str, maximum: usize) -> Result<(), String> {
+    let values = request
+        .get(field)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("User identifiers are missing: {field}"))?;
+    if values.len() > maximum
+        || values
+            .iter()
+            .any(|value| value.as_i64().is_none_or(|id| id == 0))
+    {
+        return Err("Invalid user identifiers".to_string());
+    }
+    let mut unique = values.iter().filter_map(Value::as_i64).collect::<Vec<_>>();
+    unique.sort_unstable();
+    unique.dedup();
+    if unique.len() != values.len() {
+        return Err("User identifiers must be unique".to_string());
+    }
+    Ok(())
+}
+
+fn validate_auto_delete_time(request: &Value) -> Result<(), String> {
+    let value = request
+        .get("message_auto_delete_time")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| "Auto-delete time is missing".to_string())?;
+    if !(0..=31_536_000).contains(&value) || (value != 0 && value % 86_400 != 0) {
+        return Err("Invalid auto-delete settings".to_string());
+    }
+    Ok(())
+}
+
+fn validate_chat_permissions(request: &Value) -> Result<(), String> {
+    validate_nonzero_identifier(request, "chat_id")?;
+    let permissions = request
+        .get("permissions")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "Chat permissions are missing".to_string())?;
+    let allowed = [
+        "@type",
+        "can_send_basic_messages",
+        "can_send_audios",
+        "can_send_documents",
+        "can_send_photos",
+        "can_send_videos",
+        "can_send_video_notes",
+        "can_send_voice_notes",
+        "can_send_polls",
+        "can_send_other_messages",
+        "can_add_link_previews",
+        "can_change_info",
+        "can_invite_users",
+        "can_pin_messages",
+        "can_create_topics",
+    ];
+    if permissions.get("@type").and_then(Value::as_str) != Some("chatPermissions")
+        || permissions
+            .keys()
+            .any(|key| !allowed.contains(&key.as_str()))
+        || allowed[1..]
+            .iter()
+            .any(|field| permissions.get(*field).and_then(Value::as_bool).is_none())
+    {
+        return Err("Invalid chat permission matrix".to_string());
+    }
+    Ok(())
 }
 
 fn is_photo_upload(file: &crate::storage::UploadFileInfo) -> bool {
@@ -643,6 +775,34 @@ pub(super) fn prepared_profile_photo_request(
             "photo": { "@type": "inputFileLocal", "path": file.path }
         },
         "is_public": false,
+        "@extra": extra
+    }))
+}
+
+pub(super) fn prepared_chat_photo_request(
+    chat_id: i64,
+    extra: &str,
+    file: &crate::storage::UploadFileInfo,
+) -> Result<Value, String> {
+    validate_webview_extra(extra)?;
+    if chat_id == 0 {
+        return Err("Invalid chat photo target".to_string());
+    }
+    let extension = Path::new(&file.path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(extension.as_str(), "jpg" | "jpeg") || file.size > 10 * 1024 * 1024 {
+        return Err("Chat photos must be JPEG files no larger than 10 MB".to_string());
+    }
+    Ok(json!({
+        "@type": "setChatPhoto",
+        "chat_id": chat_id,
+        "photo": {
+            "@type": "inputChatPhotoStatic",
+            "photo": { "@type": "inputFileLocal", "path": file.path }
+        },
         "@extra": extra
     }))
 }
@@ -1089,6 +1249,76 @@ mod tests {
         };
         let request = prepared_profile_photo_request(EXTRA, &photo).unwrap();
         assert_eq!(request["photo"]["@type"], "inputChatPhotoStatic");
+        assert!(validate_webview_tdlib_request(&request).is_err());
+    }
+
+    #[test]
+    fn validates_chat_creation_and_keeps_chat_photos_native_only() {
+        let supergroup = json!({
+            "@type": "createNewSupergroupChat",
+            "title": "Notgram Team",
+            "is_forum": false,
+            "is_channel": false,
+            "description": "Desktop collaboration",
+            "location": null,
+            "message_auto_delete_time": 0,
+            "for_import": false,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&supergroup).is_ok());
+
+        let mut oversized = supergroup.clone();
+        oversized["title"] = json!("x".repeat(129));
+        assert!(validate_webview_tdlib_request(&oversized).is_err());
+
+        let members = json!({
+            "@type": "addChatMembers",
+            "chat_id": 72,
+            "user_ids": [11, 12],
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&members).is_ok());
+        let mut duplicated = members.clone();
+        duplicated["user_ids"] = json!([11, 11]);
+        assert!(validate_webview_tdlib_request(&duplicated).is_err());
+
+        let permissions = json!({
+            "@type": "setChatPermissions",
+            "chat_id": 72,
+            "permissions": {
+                "@type": "chatPermissions",
+                "can_send_basic_messages": true,
+                "can_send_audios": false,
+                "can_send_documents": false,
+                "can_send_photos": false,
+                "can_send_videos": false,
+                "can_send_video_notes": false,
+                "can_send_voice_notes": false,
+                "can_send_polls": false,
+                "can_send_other_messages": false,
+                "can_add_link_previews": false,
+                "can_change_info": false,
+                "can_invite_users": false,
+                "can_pin_messages": false,
+                "can_create_topics": false
+            },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&permissions).is_ok());
+        let mut incomplete = permissions.clone();
+        incomplete["permissions"]
+            .as_object_mut()
+            .unwrap()
+            .remove("can_send_polls");
+        assert!(validate_webview_tdlib_request(&incomplete).is_err());
+
+        let photo = crate::storage::UploadFileInfo {
+            path: "C:\\selected\\group.jpg".to_string(),
+            size: 2_000_000,
+        };
+        let request = prepared_chat_photo_request(72, EXTRA, &photo).unwrap();
+        assert_eq!(request["@type"], "setChatPhoto");
+        assert_eq!(request["chat_id"], 72);
         assert!(validate_webview_tdlib_request(&request).is_err());
     }
 }

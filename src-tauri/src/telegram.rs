@@ -8,9 +8,10 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use libloading::Library;
 use runtime_log::RuntimeLogger;
 use security::{
-    PreparedUpload, prepared_file_request, prepared_profile_photo_request,
-    prepared_upload_album_request_with_caption, prepared_upload_request_with_caption,
-    request_type_from_extra, validate_webview_extra, validate_webview_tdlib_request,
+    PreparedUpload, prepared_chat_photo_request, prepared_file_request,
+    prepared_profile_photo_request, prepared_upload_album_request_with_caption,
+    prepared_upload_request_with_caption, request_type_from_extra, validate_webview_extra,
+    validate_webview_tdlib_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1360,6 +1361,31 @@ pub async fn telegram_pick_profile_photo(
         .map_err(|error| format!("Unable to resolve selected profile photo: {error}"))?;
     let file = crate::storage::prepare_upload_file(&path)?;
     runtime.send(&prepared_profile_photo_request(&extra, &file)?)?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn telegram_pick_chat_photo(
+    app: AppHandle,
+    chat_id: i64,
+    extra: String,
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<bool, String> {
+    validate_webview_extra(&extra)?;
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .set_title("选择群组或频道头像")
+        .add_filter("JPEG 图像", &["jpg", "jpeg"])
+        .blocking_pick_file()
+    else {
+        return Ok(false);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|error| format!("Unable to resolve selected chat photo: {error}"))?;
+    let file = crate::storage::prepare_upload_file(&path)?;
+    runtime.send(&prepared_chat_photo_request(chat_id, &extra, &file)?)?;
     Ok(true)
 }
 

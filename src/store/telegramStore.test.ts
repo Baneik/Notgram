@@ -230,6 +230,30 @@ describe("telegram store", () => {
     expect(restoredStore.getState().outbox).toHaveLength(0);
   });
 
+  it("creates a group, selects it, and persists it in the chat map", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    const chatId = await store.getState().createChat({
+      kind: "basicGroup",
+      title: "QA 验收群",
+      memberUserIds: ["u-mia"],
+      permissionTemplate: "open",
+    });
+
+    expect(chatId).toBeDefined();
+    expect(store.getState()).toMatchObject({
+      activeChatId: chatId,
+      chatCreationPending: false,
+      chatFilter: "main",
+    });
+    expect(store.getState().chats.get(chatId!)).toMatchObject({
+      kind: "group",
+      title: "QA 验收群",
+    });
+    expect(store.getState().messages.get(chatId!)).toEqual([]);
+  });
+
   it("finishes loading the cached chat list before starting live updates", async () => {
     class CacheFirstTransport extends MockTelegramTransport {
       connectStarted = false;

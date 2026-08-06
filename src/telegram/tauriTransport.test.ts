@@ -84,6 +84,69 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("creates a public supergroup and applies members, history, and permissions", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as {
+      request: (request: TdObject) => Promise<TdObject>;
+    };
+    const requests: TdObject[] = [];
+    const createdChat: TdObject = {
+      "@type": "chat",
+      id: 72,
+      title: "Notgram Team",
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+      positions: [{
+        list: { "@type": "chatListMain" },
+        order: "1700000000",
+        is_pinned: false,
+      }],
+      last_message: null,
+      unread_count: 0,
+      notification_settings: { mute_for: 0 },
+    };
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "createNewSupergroupChat" || request["@type"] === "getChat") {
+        return createdChat;
+      }
+      return { "@type": "ok" };
+    };
+
+    const chat = await transport.createChat({
+      kind: "supergroup",
+      title: "Notgram Team",
+      description: "Desktop collaboration",
+      memberUserIds: ["11", "12"],
+      isPublic: true,
+      username: "notgram_team",
+      historyAvailable: false,
+      permissionTemplate: "restricted",
+    });
+
+    expect(chat).toMatchObject({ id: "72", kind: "group", title: "Notgram Team" });
+    expect(requests.map((request) => request["@type"])).toEqual([
+      "createNewSupergroupChat",
+      "addChatMembers",
+      "setSupergroupUsername",
+      "toggleSupergroupIsAllHistoryAvailable",
+      "setChatPermissions",
+      "getChat",
+    ]);
+    expect(requests[0]).toMatchObject({
+      is_forum: false,
+      is_channel: false,
+      description: "Desktop collaboration",
+      location: null,
+      for_import: false,
+    });
+    expect(requests[3]).toMatchObject({ is_all_history_available: false });
+    expect(requests[4].permissions).toMatchObject({
+      can_send_basic_messages: true,
+      can_send_documents: false,
+      can_invite_users: false,
+    });
+  });
+
   it("updates current profile fields and refreshes the mapped account", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

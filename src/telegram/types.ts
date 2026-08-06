@@ -153,6 +153,21 @@ export interface Chat {
   messageAutoDeleteTime?: number;
 }
 
+export type NewChatKind = "basicGroup" | "supergroup" | "channel";
+export type ChatPermissionTemplate = "open" | "restricted";
+
+export interface CreateChatInput {
+  kind: NewChatKind;
+  title: string;
+  description?: string;
+  memberUserIds: string[];
+  isPublic?: boolean;
+  username?: string;
+  historyAvailable?: boolean;
+  permissionTemplate?: ChatPermissionTemplate;
+  selectPhoto?: boolean;
+}
+
 export interface ChatDraft {
   chatId: string;
   text: string;

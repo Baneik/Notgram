@@ -26,6 +26,19 @@ describe("TdRequestBroker prepared files", () => {
     expect(broker.settle({ "@type": "ok", "@extra": extra })).toBe(false);
   });
 
+  it("routes a selected chat photo through the native picker", async () => {
+    let broker!: TdRequestBroker;
+    broker = new TdRequestBroker(async (command, args) => {
+      expect(command).toBe("telegram_pick_chat_photo");
+      const input = args as { chatId: number; extra: string };
+      expect(input.chatId).toBe(72);
+      expect(broker.settle({ "@type": "ok", "@extra": input.extra })).toBe(true);
+      return true;
+    });
+
+    await expect(broker.requestPreparedChatPhoto("72")).resolves.toBe(true);
+  });
+
   it("settles a response that arrives before the native picker command returns", async () => {
     let broker!: TdRequestBroker;
     const reportError = vi.fn();

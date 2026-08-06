@@ -241,6 +241,7 @@ export const createTelegramStore = (
         contactPendingUserId: undefined,
         chatManagementPending: new Set(),
         folderManagementPending: false,
+        chatCreationPending: false,
         chatFilter: "main",
         cacheHealth: clearSnapshot ? "empty" : get().cacheHealth,
       });
@@ -908,6 +909,7 @@ export const createTelegramStore = (
       contactsLoading: false,
       chatManagementPending: new Set(),
       folderManagementPending: false,
+      chatCreationPending: false,
 
       initialize: async (options = {}) => {
         if (get().phase !== "idle") return;
@@ -1745,6 +1747,33 @@ export const createTelegramStore = (
           set({
             contactPendingUserId: undefined,
             contactsError: errorMessage(error, "无法发起私聊"),
+          });
+          return undefined;
+        }
+      },
+
+      createChat: async (input) => {
+        if (get().chatCreationPending) return undefined;
+        set({ chatCreationPending: true, operationError: undefined });
+        try {
+          const chat = await transport.createChat(input);
+          const chats = new Map(get().chats);
+          chats.set(chat.id, chat);
+          const messages = new Map(get().messages);
+          if (!messages.has(chat.id)) messages.set(chat.id, []);
+          set({
+            chats,
+            messages,
+            activeChatId: chat.id,
+            chatCreationPending: false,
+            chatFilter: "main",
+          });
+          scheduleCacheWrite();
+          return chat.id;
+        } catch (error) {
+          set({
+            chatCreationPending: false,
+            operationError: errorMessage(error, "无法创建群组或频道"),
           });
           return undefined;
         }
