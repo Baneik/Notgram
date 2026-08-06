@@ -12,6 +12,7 @@ import type {
   Message,
   MessagePermissions,
   SendMessageInput,
+  SendFilesInput,
   SetChatDraftInput,
   TelegramAccount,
   TelegramAccountState,
@@ -169,6 +170,64 @@ describe("telegram store", () => {
     await store.getState().retryMessage(failed!.id);
     expect(transport.sends).toBe(2);
     expect(store.getState().outbox).toHaveLength(0);
+  });
+
+  it("persists offline attachments and uploads them once after restart", async () => {
+    class TrackingAttachmentTransport extends MockTelegramTransport {
+      uploads: SendFilesInput[] = [];
+
+      override async sendFiles(input: SendFilesInput) {
+        this.uploads.push(input);
+        return super.sendFiles(input);
+      }
+    }
+
+    const offlineTransport = new TrackingAttachmentTransport({
+      connectionStatus: "waitingForNetwork",
+    });
+    const offlineStore = createTelegramStore(offlineTransport);
+    await offlineStore.getState().initialize();
+    const file = new File(["offline attachment"], "offline.txt", {
+      type: "text/plain",
+      lastModified: 1_775_000_000_000,
+    });
+
+    await expect(offlineStore.getState().sendFiles([{
+      file,
+      kind: "document",
+    }], "offline caption")).resolves.toBe(true);
+    expect(offlineTransport.uploads).toHaveLength(0);
+    expect(offlineStore.getState().outbox).toMatchObject([{
+      kind: "attachments",
+      caption: "offline caption",
+      status: "queued",
+      attachments: [{ name: "offline.txt", size: file.size }],
+    }]);
+    expect(offlineStore.getState().messages.get("chat-product")?.at(-1)).toMatchObject({
+      delivery: "sending",
+      content: { kind: "file", fileName: "offline.txt", isUploading: true },
+    });
+
+    const persisted = await offlineTransport.loadCachedSnapshot();
+    const restoredTransport = new TrackingAttachmentTransport({
+      cachedSnapshot: persisted,
+      connectionStatus: "waitingForNetwork",
+    });
+    const restoredStore = createTelegramStore(restoredTransport);
+    await restoredStore.getState().initialize();
+    expect(restoredStore.getState().outbox).toHaveLength(1);
+
+    restoredTransport.setConnectionStatus("online");
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(restoredTransport.uploads).toHaveLength(1);
+    expect(restoredTransport.uploads[0]).toMatchObject({
+      chatId: "chat-product",
+      caption: "offline caption",
+      attachments: [{ kind: "document", file: { name: "offline.txt", type: "text/plain" } }],
+    });
+    expect(restoredStore.getState().outbox).toHaveLength(0);
   });
 
   it("finishes loading the cached chat list before starting live updates", async () => {

@@ -1,5 +1,6 @@
 import type { CachedTelegramSnapshot, ChatProfile, Message } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
+import type { QueuedOutgoingAttachment } from "../telegram/types";
 
 export const TELEGRAM_CACHE_VERSION = 2 as const;
 const MAX_CACHED_MESSAGES_PER_CHAT = 60;
@@ -17,6 +18,25 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const hasStringKey = (value: unknown, key: string) =>
   isRecord(value) && typeof value[key] === "string";
+
+const isQueuedAttachment = (value: unknown): value is QueuedOutgoingAttachment =>
+  isRecord(value) &&
+  hasStringKey(value, "storageId") &&
+  hasStringKey(value, "name") &&
+  hasStringKey(value, "mimeType") &&
+  hasStringKey(value, "fingerprint") &&
+  typeof value.size === "number" && value.size >= 0 &&
+  typeof value.lastModified === "number" && value.lastModified >= 0 &&
+  typeof value.kind === "string" &&
+  ["photo", "video", "audio", "animation", "document"].includes(value.kind) &&
+  (value.thumbnailStorageId === undefined || typeof value.thumbnailStorageId === "string") &&
+  (value.width === undefined || typeof value.width === "number") &&
+  (value.height === undefined || typeof value.height === "number") &&
+  (value.duration === undefined || typeof value.duration === "number") &&
+  (value.title === undefined || typeof value.title === "string") &&
+  (value.performer === undefined || typeof value.performer === "string") &&
+  (value.hasSpoiler === undefined || typeof value.hasSpoiler === "boolean") &&
+  (value.showCaptionAboveMedia === undefined || typeof value.showCaptionAboveMedia === "boolean");
 
 export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration => {
   if (value === undefined || value === null) return { health: "empty" };
@@ -50,7 +70,15 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
         hasStringKey(item, "createdAt") &&
         isRecord(item) &&
         (item.status === "queued" || item.status === "failed") &&
-        (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string")
+        (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string") &&
+        (item.kind === undefined || item.kind === "text" || item.kind === "attachments") &&
+        (item.caption === undefined || typeof item.caption === "string") &&
+        (item.error === undefined || typeof item.error === "string") &&
+        (item.attachments === undefined || (
+          Array.isArray(item.attachments) &&
+          item.attachments.length > 0 &&
+          item.attachments.every(isQueuedAttachment)
+        ))
       )
     )) ||
     (value.activeChatId !== undefined && typeof value.activeChatId !== "string") ||

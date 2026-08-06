@@ -35,6 +35,8 @@ interface ConversationComposerProps {
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
   failedQueuedMessageCount: number;
+  queuedAttachmentCount: number;
+  failedAttachmentCount: number;
   onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDraftChange: (chatId: string, text: string, replyToMessageId?: string) => void;
@@ -65,6 +67,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   connectionStatus,
   queuedMessageCount,
   failedQueuedMessageCount,
+  queuedAttachmentCount,
+  failedAttachmentCount,
   onSendMessage,
   onEditMessage,
   onDraftChange,
@@ -566,11 +570,14 @@ export const ConversationComposer = memo(function ConversationComposer({
           status={connectionStatus}
         />
       )}
-      {(queuedMessageCount > 0 || failedQueuedMessageCount > 0) && (
+      {(queuedMessageCount > 0 || failedQueuedMessageCount > 0 || queuedAttachmentCount > 0 || failedAttachmentCount > 0) && (
         <div className="composer-outbox-status" role="status">
-          {failedQueuedMessageCount > 0
-            ? `${failedQueuedMessageCount} 条离线消息需要手动重试`
-            : `${queuedMessageCount} 条消息将在联网后发送`}
+          {[
+            failedQueuedMessageCount > 0 ? `${failedQueuedMessageCount} 条离线消息需要手动重试` : undefined,
+            failedAttachmentCount > 0 ? `${failedAttachmentCount} 个离线附件需要手动重试` : undefined,
+            queuedMessageCount > 0 ? `${queuedMessageCount} 条消息将在联网后发送` : undefined,
+            queuedAttachmentCount > 0 ? `${queuedAttachmentCount} 个附件将在联网后上传` : undefined,
+          ].filter(Boolean).join("；")}
         </div>
       )}
       {composerContextMessage && (

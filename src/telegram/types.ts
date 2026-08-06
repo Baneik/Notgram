@@ -489,6 +489,28 @@ export interface QueuedOutgoingMessage {
   replyToMessageId?: string;
   createdAt: string;
   status: "queued" | "failed";
+  kind?: "text" | "attachments";
+  caption?: string;
+  attachments?: QueuedOutgoingAttachment[];
+  error?: string;
+}
+
+export interface QueuedOutgoingAttachment {
+  storageId: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  lastModified: number;
+  fingerprint: string;
+  kind: OutgoingAttachmentKind;
+  width?: number;
+  height?: number;
+  duration?: number;
+  title?: string;
+  performer?: string;
+  thumbnailStorageId?: string;
+  hasSpoiler?: boolean;
+  showCaptionAboveMedia?: boolean;
 }
 
 export type TelegramEvent =

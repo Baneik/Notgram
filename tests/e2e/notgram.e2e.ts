@@ -1407,6 +1407,39 @@ test("offline text messages survive a restart in the snapshot model", async ({ p
   await expect(page.getByText("queued across restart", { exact: true })).toBeVisible();
 });
 
+test("offline attachments survive restart and can be cancelled", async ({ page }) => {
+  await page.goto("/?connection=waitingForNetwork");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.evaluate((element) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["offline attachment"], "offline-note.txt", {
+      type: "text/plain",
+      lastModified: 1_775_000_000_000,
+    }));
+    element.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    }));
+  });
+  await composer.fill("离线附件说明");
+  await page.getByRole("button", { name: "发送附件" }).click();
+
+  await expect(page.locator(".composer-outbox-status"))
+    .toContainText("1 个附件将在联网后上传");
+  await expect(page.getByText("offline-note.txt", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "取消上传 offline-note.txt" })).toBeVisible();
+
+  await page.reload();
+  await expect(page.locator(".composer-outbox-status"))
+    .toContainText("1 个附件将在联网后上传");
+  await expect(page.getByText("offline-note.txt", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "取消上传 offline-note.txt" }).click();
+  await expect(page.getByText("offline-note.txt", { exact: true })).toBeHidden();
+  await expect(page.locator(".composer-outbox-status")).toBeHidden();
+});
+
 test("keyboard navigation closes modals and completes message workflows", async ({ page }) => {
   await page.goto("/");
 

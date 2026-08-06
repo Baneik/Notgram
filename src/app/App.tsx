@@ -754,8 +754,14 @@ export function App() {
           historyInitialized={activeHistory.initialized === true}
           hasOlderMessages={activeHistory.hasMore}
           connectionStatus={connectionStatus}
-          queuedMessageCount={activeOutbox.filter((item) => item.status === "queued").length}
-          failedQueuedMessageCount={activeOutbox.filter((item) => item.status === "failed").length}
+          queuedMessageCount={activeOutbox.filter((item) => item.status === "queued" && !item.attachments?.length).length}
+          failedQueuedMessageCount={activeOutbox.filter((item) => item.status === "failed" && !item.attachments?.length).length}
+          queuedAttachmentCount={activeOutbox
+            .filter((item) => item.status === "queued")
+            .reduce((count, item) => count + (item.attachments?.length ?? 0), 0)}
+          failedAttachmentCount={activeOutbox
+            .filter((item) => item.status === "failed")
+            .reduce((count, item) => count + (item.attachments?.length ?? 0), 0)}
           typingUserIds={activeChatId ? typingUserIds.get(activeChatId) ?? [] : []}
           chatListId={activeChat?.folderIds.includes(chatFilter)
             ? chatFilter

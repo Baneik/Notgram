@@ -104,6 +104,8 @@ interface ConversationProps {
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
   failedQueuedMessageCount: number;
+  queuedAttachmentCount: number;
+  failedAttachmentCount: number;
   typingUserIds: string[];
   chatListId: string;
   chatManagementPending: boolean;
@@ -165,6 +167,8 @@ export function Conversation({
   connectionStatus,
   queuedMessageCount,
   failedQueuedMessageCount,
+  queuedAttachmentCount,
+  failedAttachmentCount,
   typingUserIds,
   chatListId,
   chatManagementPending,
@@ -1315,6 +1319,8 @@ export function Conversation({
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}
         failedQueuedMessageCount={failedQueuedMessageCount}
+        queuedAttachmentCount={queuedAttachmentCount}
+        failedAttachmentCount={failedAttachmentCount}
         onSendMessage={sendMessageAndFollowLatest}
         onEditMessage={onEditMessage}
         onDraftChange={onDraftChange}

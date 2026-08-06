@@ -49,6 +49,11 @@ import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
 import { emptyProfileState } from "./profileState";
 import { isRegexMessageSearchQuery } from "../telegram/messageSearch";
 import { SharedMediaIndex } from "./sharedMediaIndex";
+import {
+  attachmentOutbox,
+  describeOutgoingAttachments,
+} from "./attachmentOutbox";
+import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 
 export type {
   ChatFilter,
@@ -315,22 +320,36 @@ export const createTelegramStore = (
           const item = get().outbox.find((candidate) => candidate.status === "queued");
           if (!item) return;
           try {
-            await transport.sendMessage({
-              chatId: item.chatId,
-              text: item.text,
-              replyToMessageId: item.replyToMessageId,
-              clearDraft: !get().drafts.has(item.chatId),
-            });
+            if (item.attachments?.length) {
+              const stored = await attachmentOutbox.get(item.id);
+              if (!stored) throw new Error("离线附件已过期或文件内容已变更，请重新选择");
+              const sent = await transport.sendFiles({
+                chatId: item.chatId,
+                attachments: stored.attachments,
+                caption: item.caption,
+              });
+              if (!sent) throw new Error("附件上传未完成");
+            } else {
+              await transport.sendMessage({
+                chatId: item.chatId,
+                text: item.text,
+                replyToMessageId: item.replyToMessageId,
+                clearDraft: !get().drafts.has(item.chatId),
+              });
+            }
           } catch (error) {
             setOutbox(get().outbox.map((candidate) =>
-              candidate.id === item.id ? { ...candidate, status: "failed" } : candidate,
+              candidate.id === item.id
+                ? { ...candidate, status: "failed", error: errorMessage(error, "离线发送失败") }
+                : candidate,
             ));
-            set({ operationError: errorMessage(error, "离线消息恢复发送失败") });
+            set({ operationError: errorMessage(error, item.attachments?.length ? "离线附件恢复发送失败" : "离线消息恢复发送失败") });
             await persistOutboxState();
             return;
           }
 
           setOutbox(get().outbox.filter((candidate) => candidate.id !== item.id));
+          if (item.attachments?.length) await attachmentOutbox.remove(item.id);
           if (!await persistOutboxState()) return;
         }
       })();
@@ -2143,6 +2162,18 @@ export const createTelegramStore = (
       deleteMessage: async (messageId, revoke) => {
         const chatId = get().activeChatId;
         if (!chatId) return false;
+        const queuedItemId = outboxItemId(messageId);
+        if (queuedItemId) {
+          const item = get().outbox.find((candidate) => candidate.id === queuedItemId);
+          if (!item) return false;
+          setOutbox(get().outbox.filter((candidate) => candidate.id !== queuedItemId));
+          if (item.attachments?.length) {
+            await attachmentOutbox.remove(queuedItemId).catch(() => undefined);
+          }
+          await persistOutboxState();
+          set({ operationError: undefined });
+          return true;
+        }
         try {
           await transport.deleteMessage({ chatId, messageId, revoke });
           const messages = new Map(get().messages);
@@ -2263,7 +2294,9 @@ export const createTelegramStore = (
           const item = previous.find((candidate) => candidate.id === itemId);
           if (!item) return;
           setOutbox(previous.map((candidate) =>
-            candidate.id === itemId ? { ...candidate, status: "queued" } : candidate,
+            candidate.id === itemId
+              ? { ...candidate, status: "queued", error: undefined }
+              : candidate,
           ));
           try {
             await flushCachedSnapshot();
@@ -2289,6 +2322,9 @@ export const createTelegramStore = (
       sendFile: async (file) => {
         const chatId = get().activeChatId;
         if (!chatId) return false;
+        if (file && !connectionPresentation(get().connectionStatus).operational) {
+          return get().sendFiles([await inspectOutgoingAttachment(file)]);
+        }
         try {
           const sent = await transport.sendFile({ chatId, file });
           if (sent) set({ operationError: undefined });
@@ -2302,6 +2338,38 @@ export const createTelegramStore = (
       sendFiles: async (attachments, caption) => {
         const chatId = get().activeChatId;
         if (!chatId || attachments.length === 0) return false;
+        if (!connectionPresentation(get().connectionStatus).operational) {
+          const id = globalThis.crypto.randomUUID();
+          const createdAt = new Date().toISOString();
+          try {
+            const metadata = await describeOutgoingAttachments(id, attachments);
+            await attachmentOutbox.put({ id, createdAt, attachments, metadata });
+            const previousOutbox = get().outbox;
+            const previousMessages = get().messages;
+            const item: QueuedOutgoingMessage = {
+              id,
+              chatId,
+              text: caption?.trim() || metadata.map(({ name }) => name).join("、"),
+              caption: caption?.trim() || undefined,
+              kind: "attachments",
+              attachments: metadata,
+              createdAt,
+              status: "queued",
+            };
+            setOutbox([...get().outbox, item]);
+            set({ operationError: undefined });
+            if (!await persistOutboxState()) {
+              set({ outbox: previousOutbox, messages: previousMessages });
+              await attachmentOutbox.remove(id).catch(() => undefined);
+              return false;
+            }
+            return true;
+          } catch (error) {
+            await attachmentOutbox.remove(id).catch(() => undefined);
+            set({ operationError: errorMessage(error, "无法保存离线附件") });
+            return false;
+          }
+        }
         try {
           const sent = await transport.sendFiles({ chatId, attachments, caption });
           if (sent) set({ operationError: undefined });
@@ -2315,6 +2383,16 @@ export const createTelegramStore = (
       cancelFileUpload: async (messageId) => {
         const chatId = get().activeChatId;
         if (!chatId) return;
+        const itemId = outboxItemId(messageId);
+        if (itemId) {
+          const item = get().outbox.find((candidate) => candidate.id === itemId);
+          if (!item) return;
+          setOutbox(get().outbox.filter((candidate) => candidate.id !== itemId));
+          await attachmentOutbox.remove(itemId).catch(() => undefined);
+          await persistOutboxState();
+          set({ operationError: undefined });
+          return;
+        }
         try {
           await transport.cancelFileUpload(chatId, messageId);
           const messages = new Map(get().messages);

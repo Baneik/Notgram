@@ -18,6 +18,9 @@ with prerelease identifiers used for release candidates.
   TTL-backed indexing, message jumps, batch downloads, forwarding, and deletion.
 - Continue adjacent audio and voice messages automatically within the active
   conversation while retaining a single active playback session.
+- Queue attachment uploads while offline with encrypted snapshot metadata,
+  persistent browser storage, SHA-256 change detection, expiry and quota limits,
+  reconnect recovery, cancellation, and explicit retry states.
 - Add a lightweight WebView performance timeline for startup, interaction, rendering,
   history, and media stalls, backed by a separately rotated performance log.
 - Support `reg:` regular expressions in global and current-conversation message search.
