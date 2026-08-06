@@ -6,6 +6,7 @@ import { createTelegramTransport } from "../telegram/createTransport";
 import type { TelegramTransport } from "../telegram/transport";
 import type {
   CachedTelegramSnapshot,
+  ChatManagement,
   ChatDraft,
   ChatProfile,
   QueuedOutgoingMessage,
@@ -104,6 +105,7 @@ export const createTelegramStore = (
     let profileGeneration = 0;
     const profileCache = new Map<string, { value: ChatProfile; cachedAt: number }>();
     const profileRefreshes = new Map<string, Promise<ChatProfile>>();
+    const groupManagementLoads = new Map<string, Promise<ChatManagement | undefined>>();
     let accountProfileGeneration = 0;
     let contactsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1812,16 +1814,25 @@ export const createTelegramStore = (
         }
       },
 
-      loadChatManagement: async (chatId, memberOffset = 0) => {
-        set({ groupManagementLoading: true, groupManagementError: undefined });
-        try {
-          const value = await transport.getChatManagement(chatId, memberOffset);
-          set({ groupManagement: value, groupManagementLoading: false });
-          return value;
-        } catch (error) {
-          set({ groupManagementLoading: false, groupManagementError: errorMessage(error, "无法读取群组管理资料") });
-          return undefined;
-        }
+      loadChatManagement: (chatId, memberOffset = 0) => {
+        const key = `${chatId}:${memberOffset}`;
+        const existing = groupManagementLoads.get(key);
+        if (existing) return existing;
+        const request = (async () => {
+          set({ groupManagementLoading: true, groupManagementError: undefined });
+          try {
+            const value = await transport.getChatManagement(chatId, memberOffset);
+            set({ groupManagement: value, groupManagementLoading: false });
+            return value;
+          } catch (error) {
+            set({ groupManagementLoading: false, groupManagementError: errorMessage(error, "无法读取群组管理资料") });
+            return undefined;
+          } finally {
+            groupManagementLoads.delete(key);
+          }
+        })();
+        groupManagementLoads.set(key, request);
+        return request;
       },
 
       addChatMembers: async (chatId, userIds) => {

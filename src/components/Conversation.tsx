@@ -243,7 +243,9 @@ export function Conversation({
   const [autoDeleteDialogOpen, setAutoDeleteDialogOpen] = useState(false);
   const [autoDeletePending, setAutoDeletePending] = useState(false);
   const groupManagement = useTelegramStore((state) => state.groupManagement);
+  const groupManagementLoading = useTelegramStore((state) => state.groupManagementLoading);
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
+  const memberLabelLoadAttemptsRef = useRef(new Set<string>());
   const draftReplyToMessageId = useTelegramStore((state) =>
     chat ? state.drafts.get(chat.id)?.replyToMessageId : undefined,
   );
@@ -271,9 +273,14 @@ export function Conversation({
   ]);
   useEffect(() => {
     if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return;
-    if (groupManagement?.chatId === chat.id) return;
+    if (
+      groupManagement?.chatId === chat.id ||
+      groupManagementLoading ||
+      memberLabelLoadAttemptsRef.current.has(chat.id)
+    ) return;
+    memberLabelLoadAttemptsRef.current.add(chat.id);
     void loadChatManagement(chat.id);
-  }, [chat, groupManagement?.chatId, loadChatManagement]);
+  }, [chat?.id, chat?.kind, groupManagement?.chatId, groupManagementLoading, loadChatManagement]);
   const memberLabels = useMemo(() => new Map(
     groupManagement?.chatId === chat?.id
       ? (groupManagement?.members ?? []).flatMap((member) => {

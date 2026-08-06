@@ -2105,6 +2105,32 @@ describe("chat filtering", () => {
     expect(store.getState().chatManagementPending.size).toBe(0);
   });
 
+  it("deduplicates concurrent group management loads", async () => {
+    let release: () => void = () => undefined;
+    class DeferredGroupManagementTransport extends MockTelegramTransport {
+      calls = 0;
+
+      override async getChatManagement(chatId: string, memberOffset = 0) {
+        this.calls += 1;
+        await new Promise<void>((resolve) => { release = resolve; });
+        return super.getChatManagement(chatId, memberOffset);
+      }
+    }
+
+    const transport = new DeferredGroupManagementTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const first = store.getState().loadChatManagement("chat-product");
+    const second = store.getState().loadChatManagement("chat-product");
+
+    expect(transport.calls).toBe(1);
+    expect(first).toBe(second);
+    release();
+    const [left, right] = await Promise.all([first, second]);
+    expect(left).toEqual(right);
+    expect(store.getState().groupManagementLoading).toBe(false);
+  });
+
   it("leaves confirmed group chats and rejects non-group chats", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();
