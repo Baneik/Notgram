@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "media-viewer-window",
+  "description": "Restricted controls for dedicated fullscreen image viewer windows",
+  "windows": ["media-viewer-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-set-theme"
+  ]
+}

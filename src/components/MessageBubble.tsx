@@ -276,6 +276,22 @@ function MessageBubbleComponent({
     }
   };
 
+  const messageMeta = !isService ? (
+    <span className="message-meta">
+      {message.editedAt && <span>已编辑</span>}
+      <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
+      {message.outgoing && (
+        message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
+          : message.delivery === "sending" ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
+            : message.delivery === "failed" ? (
+              <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? "重试发送" : "发送失败"} onClick={() => void onRetry(message.id)}>
+                {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
+              </button>
+            ) : <Check size={14} strokeWidth={2.2} />
+      )}
+    </span>
+  ) : null;
+
   return (
     <article
       ref={lazyMediaRef}
@@ -354,7 +370,10 @@ function MessageBubbleComponent({
             </button>
           )}
           {content.kind === "text" ? (
-            <MessageRichText text={content.text} entities={content.entities} />
+            <div className="message-text-flow">
+              <MessageRichText text={content.text} entities={content.entities} />
+              {messageMeta}
+            </div>
           ) : content.kind === "rich" ? (
             <RichMessageContent
               blocks={content.blocks}
@@ -613,19 +632,7 @@ function MessageBubbleComponent({
               )}
             </div>
           )}
-          {!isService && <span className="message-meta">
-            {message.editedAt && <span>已编辑</span>}
-            <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
-            {message.outgoing && (
-              message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
-                : message.delivery === "sending" ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
-                  : message.delivery === "failed" ? (
-                    <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? "重试发送" : "发送失败"} onClick={() => void onRetry(message.id)}>
-                      {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
-                    </button>
-                  ) : <Check size={14} strokeWidth={2.2} />
-            )}
-          </span>}
+          {content.kind !== "text" && messageMeta}
         </div>
         {!albumItem && !selectionMode && !isService && reactions.length > 0 && (
           <div className="message-reactions">

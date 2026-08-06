@@ -53,9 +53,9 @@ import {
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { ConversationComposer } from "./ConversationComposer";
-import { MediaViewer } from "./MediaViewer";
 import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
+import { openMediaViewerWindow } from "../media/mediaViewerWindowBridge";
 import {
   indexMessagesByVirtualBlock,
   virtualizeMessageGroups,
@@ -203,13 +203,13 @@ export function Conversation({
   const [editingMessage, setEditingMessage] = useState<Message>();
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
-  const [viewerMessageId, setViewerMessageId] = useState<string>();
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const draftReplyToMessageId = useTelegramStore((state) =>
     chat ? state.drafts.get(chat.id)?.replyToMessageId : undefined,
   );
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const developerMode = usePreferencesStore((state) => state.developerMode);
+  const colorTheme = usePreferencesStore((state) => state.colorTheme);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
   const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
   const autoDownloadAudio = usePreferencesStore((state) => state.autoDownloadAudio);
@@ -322,6 +322,14 @@ export function Conversation({
     [visibleMessageBlocks],
   );
   const viewerPhotos = useMemo(() => photoMessages(displayMessages), [displayMessages]);
+  const openMediaViewer = useCallback((messageId: string) => {
+    if (!viewerPhotos.some((message) => message.id === messageId)) return;
+    void openMediaViewerWindow({
+      messages: viewerPhotos,
+      activeMessageId: messageId,
+      colorTheme,
+    }, onDownloadFile);
+  }, [colorTheme, onDownloadFile, viewerPhotos]);
 
   useLayoutEffect(() => {
     const tracing = isConversationSwitchActive(performanceTraceId);
@@ -346,7 +354,6 @@ export function Conversation({
   ]);
 
   useEffect(() => {
-    setViewerMessageId(undefined);
     setChatMenuOpen(false);
   }, [chat?.id]);
 
@@ -378,12 +385,6 @@ export function Conversation({
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [chatMenuOpen, closeChatMenu]);
-
-  useEffect(() => {
-    if (viewerMessageId && !viewerPhotos.some((message) => message.id === viewerMessageId)) {
-      setViewerMessageId(undefined);
-    }
-  }, [viewerMessageId, viewerPhotos]);
 
   const messagesById = useMemo(
     () => new Map(displayMessages.map((message) => [message.id, message])),
@@ -1001,7 +1002,7 @@ export function Conversation({
                         onReaction={onSetMessageReaction}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}
-                        onOpenMedia={selectionMode ? undefined : setViewerMessageId}
+                        onOpenMedia={selectionMode ? undefined : openMediaViewer}
                         albumItem={albumItem}
                         autoplayAnimations={autoplayAnimations}
                         autoDownloadPolicy={autoDownloadPolicy}
@@ -1171,15 +1172,6 @@ export function Conversation({
         />
       )}
 
-      {viewerMessageId && (
-        <MediaViewer
-          messages={viewerPhotos}
-          activeMessageId={viewerMessageId}
-          onActiveMessageChange={setViewerMessageId}
-          onClose={() => setViewerMessageId(undefined)}
-          onDownload={onDownloadFile}
-        />
-      )}
     </section>
   );
 }

@@ -1546,6 +1546,13 @@ test("reply previews jump to their source and channel senders keep their identit
     "background-color",
     "rgba(0, 0, 0, 0)",
   );
+  const [replyBounds, bubbleBounds] = await Promise.all([
+    channelMessage.locator(".message-reply-preview").boundingBox(),
+    channelMessage.locator(".message-bubble").boundingBox(),
+  ]);
+  expect(Math.abs(
+    replyBounds!.x + replyBounds!.width - (bubbleBounds!.x + bubbleBounds!.width - 10),
+  )).toBeLessThanOrEqual(1);
   await expect(channelMessage.getByRole("button", { name: "前往频道原消息" })).toBeVisible();
 
   await channelMessage.locator(".message-reply-preview").click();
@@ -1577,6 +1584,64 @@ test("reply previews jump to their source and channel senders keep their identit
     if (!list) return false;
     return row.top >= list.top - 1 && row.bottom <= list.bottom + 1;
   })).toBe(true);
+});
+
+test("text message time stays on the last line when it fits and wraps without widening the bubble", async ({ page }) => {
+  await page.goto("/");
+  const shortMessage = page.locator('[data-message-id="p-rich-entities"]');
+  await expect(shortMessage.locator('.message-rich-text[data-rich-text="entities"]')).toBeVisible();
+  const shortGeometry = await shortMessage.evaluate((element) => {
+    const text = element.querySelector<HTMLElement>(".message-rich-text");
+    const meta = element.querySelector<HTMLElement>(".message-meta");
+    const shell = element.querySelector<HTMLElement>(".message-bubble-shell");
+    const stack = element.closest<HTMLElement>(".message-group-stack");
+    if (!text || !meta || !shell || !stack) return undefined;
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const lastLine = [...range.getClientRects()].at(-1);
+    const metaBounds = meta.getBoundingClientRect();
+    return {
+      lastLineTop: lastLine?.top,
+      lastLineRight: lastLine?.right,
+      metaTop: metaBounds.top,
+      metaLeft: metaBounds.left,
+      shellWidth: shell.getBoundingClientRect().width,
+      stackWidth: stack.getBoundingClientRect().width,
+    };
+  });
+  expect(shortGeometry).toBeTruthy();
+  expect(Math.abs(shortGeometry!.metaTop - shortGeometry!.lastLineTop!)).toBeLessThan(6);
+  expect(shortGeometry!.metaLeft).toBeGreaterThan(shortGeometry!.lastLineRight!);
+  expect(shortGeometry!.shellWidth).toBeLessThanOrEqual(Math.min(shortGeometry!.stackWidth * 0.74, 720) + 1);
+
+  const longMessage = page.locator('[data-message-id="p-2"]');
+  await expect(longMessage.locator('.message-rich-text[data-rich-text="markdown"]')).toBeVisible();
+  const wrappedGeometry = await longMessage.locator(".message-bubble-shell").evaluate((shell) => {
+    const element = shell as HTMLElement;
+    const text = element.querySelector<HTMLElement>(".message-rich-text");
+    const meta = element.querySelector<HTMLElement>(".message-meta");
+    const bubble = element.querySelector<HTMLElement>(".message-bubble");
+    if (!text || !meta || !bubble) return undefined;
+    for (let width = 140; width <= 360; width += 1) {
+      element.style.width = `${width}px`;
+      element.style.maxWidth = `${width}px`;
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      const lastLine = [...range.getClientRects()].at(-1);
+      const metaBounds = meta.getBoundingClientRect();
+      if (lastLine && metaBounds.top > lastLine.top + 4) {
+        const bubbleBounds = bubble.getBoundingClientRect();
+        return {
+          width,
+          metaRight: metaBounds.right,
+          bubbleRight: bubbleBounds.right,
+        };
+      }
+    }
+    return undefined;
+  });
+  expect(wrappedGeometry).toBeTruthy();
+  expect(wrappedGeometry!.metaRight).toBeLessThanOrEqual(wrappedGeometry!.bubbleRight - 9);
 });
 
 test("caption text sizes media bubbles and media is centered with letterboxing", async ({ page }) => {
@@ -1706,29 +1771,43 @@ test("unloaded media uses a blurred glass preview instead of exposing thumbnail 
   await expect(page.locator('[data-message-id="p-video"] .photo-preview')).not.toHaveClass(/is-preview-only/);
 });
 
-test("single-clicking a photo opens the full viewer with zoom, navigation, and thumbnails", async ({ page }) => {
+test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoom and dragging", async ({ page }) => {
   await page.goto("/");
+  const popupPromise = page.waitForEvent("popup");
   await page.locator('[data-message-id="p-5"] .photo-open').click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
 
-  await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
-  const viewer = page.locator(".media-viewer");
-  const viewerBounds = await page.locator(".media-viewer-backdrop").boundingBox();
-  const viewport = page.viewportSize();
+  await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toHaveCount(0);
+  await expect(popup.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
+  const viewer = popup.locator(".media-viewer");
+  const viewerBounds = await popup.locator(".media-viewer-backdrop").boundingBox();
+  const viewport = popup.viewportSize();
   expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
   const thumbnails = viewer.getByRole("navigation", { name: "会话图片预览" });
   await expect(thumbnails.getByRole("button")).toHaveCount(2);
   await expect(thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }))
     .toHaveAttribute("aria-current", "true");
 
-  await viewer.getByRole("button", { name: "放大" }).click();
+  const stage = popup.locator(".media-viewer-stage");
+  await stage.hover();
+  await popup.mouse.wheel(0, -240);
   await expect(viewer.locator(".media-viewer-zoom")).toHaveText("150%");
-  await page.keyboard.press("ArrowLeft");
+  const stageBounds = await stage.boundingBox();
+  await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2, stageBounds!.y + stageBounds!.height / 2);
+  await popup.mouse.down();
+  await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2 + 48, stageBounds!.y + stageBounds!.height / 2 + 32);
+  await popup.mouse.up();
+  await expect(popup.locator(".media-viewer-image")).toHaveAttribute("style", /translate\(48px, 32px\) scale\(1\.5\)/);
+  await popup.keyboard.press("ArrowLeft");
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("纵向图片.jpg");
   await thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }).click();
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("界面预览.jpg");
 
-  await page.keyboard.press("Escape");
-  await expect(viewer).toBeHidden();
+  const closed = popup.waitForEvent("close");
+  await popup.keyboard.down("Escape");
+  await closed;
+  await expect(page.locator(".conversation")).toBeVisible();
 });
 
 test("chat switching and ordinary message interactions keep typing focus in the composer", async ({ page }) => {
@@ -2003,7 +2082,7 @@ test("video uses synchronized transparent playback windows and owns the playback
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
     .toBe("0");
   const popupClosed = popup.waitForEvent("close");
-  await popup.mouse.click(20, 20);
+  await popup.keyboard.down("Escape");
   await popupClosed;
   await expect(player).toBeVisible();
   await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
@@ -2028,7 +2107,7 @@ test("video uses synchronized transparent playback windows and owns the playback
     (element) => getComputedStyle(element).opacity,
   )).toBe("1");
   const fullscreenClosed = fullscreenPopup.waitForEvent("close");
-  await fullscreenPopup.getByRole("button", { name: "关闭播放窗口" }).click();
+  await fullscreenPopup.keyboard.down("Escape");
   await fullscreenClosed;
   await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
     .toBe(true);

@@ -1,5 +1,4 @@
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ChevronLeft,
   ChevronRight,
@@ -11,7 +10,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import {
   adjacentPhotoId,
@@ -35,6 +34,11 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.5;
 
+interface PanPosition {
+  x: number;
+  y: number;
+}
+
 export function MediaViewer({
   messages,
   activeMessageId,
@@ -44,6 +48,14 @@ export function MediaViewer({
 }: MediaViewerProps) {
   const active = messages.find((message) => message.id === activeMessageId);
   const [zoom, setZoom] = useState(MIN_ZOOM);
+  const [pan, setPan] = useState<PanPosition>({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    origin: PanPosition;
+  } | undefined>(undefined);
   const [failedSource, setFailedSource] = useState<string>();
   const [retryKey, setRetryKey] = useState(0);
   const activeThumbnailRef = useRef<HTMLButtonElement>(null);
@@ -58,33 +70,16 @@ export function MediaViewer({
 
   useEffect(() => {
     setZoom(MIN_ZOOM);
+    setPan({ x: 0, y: 0 });
+    setDragging(false);
+    dragRef.current = undefined;
     setFailedSource(undefined);
     setRetryKey(0);
   }, [activeMessageId, source]);
 
   useEffect(() => {
-    if (!isTauri()) return;
-    const appWindow = getCurrentWindow();
-    let active = true;
-    let restoreWindowed = false;
-    void (async () => {
-      const alreadyFullscreen = await appWindow.isFullscreen().catch(() => false);
-      if (!active || alreadyFullscreen) return;
-      const enteredFullscreen = await appWindow.setFullscreen(true)
-        .then(() => true)
-        .catch(() => false);
-      if (!enteredFullscreen) return;
-      if (!active) {
-        await appWindow.setFullscreen(false).catch(() => undefined);
-        return;
-      }
-      restoreWindowed = true;
-    })();
-    return () => {
-      active = false;
-      if (restoreWindowed) void appWindow.setFullscreen(false).catch(() => undefined);
-    };
-  }, []);
+    if (zoom === MIN_ZOOM) setPan({ x: 0, y: 0 });
+  }, [zoom]);
 
   useEffect(() => {
     activeThumbnailRef.current?.scrollIntoView({
@@ -121,6 +116,44 @@ export function MediaViewer({
     content.canDownload !== false &&
     !content.isDownloading &&
     !content.isDownloaded;
+  const updateZoom = (nextZoom: number) => {
+    const normalized = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+    setZoom(normalized);
+  };
+  const handleWheel = (event: WheelEvent<HTMLElement>) => {
+    event.preventDefault();
+    updateZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+  };
+  const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || zoom <= MIN_ZOOM) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("button, .media-viewer-thumbnails")) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      origin: pan,
+    };
+    setDragging(true);
+  };
+  const handlePointerMove = (event: PointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setPan({
+      x: drag.origin.x + event.clientX - drag.startX,
+      y: drag.origin.y + event.clientY - drag.startY,
+    });
+  };
+  const finishDragging = (event: PointerEvent<HTMLElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = undefined;
+    setDragging(false);
+  };
 
   return (
     <div
@@ -144,14 +177,14 @@ export function MediaViewer({
             <small>{messages.findIndex((message) => message.id === activeMessageId) + 1} / {messages.length}</small>
           </span>
           <div className="media-viewer-tools" role="toolbar" aria-label="图片缩放">
-            <button type="button" aria-label="缩小" title="缩小" disabled={zoom <= MIN_ZOOM} onClick={() => setZoom((current) => Math.max(MIN_ZOOM, current - ZOOM_STEP))}>
+            <button type="button" aria-label="缩小" title="缩小" disabled={zoom <= MIN_ZOOM} onClick={() => updateZoom(zoom - ZOOM_STEP)}>
               <ZoomOut size={19} />
             </button>
             <span className="media-viewer-zoom">{Math.round(zoom * 100)}%</span>
-            <button type="button" aria-label="放大" title="放大" disabled={zoom >= MAX_ZOOM} onClick={() => setZoom((current) => Math.min(MAX_ZOOM, current + ZOOM_STEP))}>
+            <button type="button" aria-label="放大" title="放大" disabled={zoom >= MAX_ZOOM} onClick={() => updateZoom(zoom + ZOOM_STEP)}>
               <ZoomIn size={19} />
             </button>
-            <button type="button" aria-label="重置缩放" title="重置缩放" disabled={zoom === MIN_ZOOM} onClick={() => setZoom(MIN_ZOOM)}>
+            <button type="button" aria-label="重置缩放" title="重置缩放" disabled={zoom === MIN_ZOOM} onClick={() => updateZoom(MIN_ZOOM)}>
               <RotateCcw size={18} />
             </button>
             {(canDownload || content.isDownloading) && (
@@ -173,14 +206,22 @@ export function MediaViewer({
           </div>
         </header>
 
-        <main className={`media-viewer-stage ${messages.length > 1 ? "has-thumbnails" : ""}`}>
+        <main
+          className={`media-viewer-stage ${messages.length > 1 ? "has-thumbnails" : ""} ${zoom > MIN_ZOOM ? "is-pannable" : ""} ${dragging ? "is-dragging" : ""}`}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={finishDragging}
+          onPointerCancel={finishDragging}
+        >
           {source && !failed ? (
             <img
               key={`${source}:${retryKey}`}
               className="media-viewer-image"
               src={source}
               alt={content.caption || content.fileName}
-              style={{ transform: `scale(${zoom})` }}
+              draggable={false}
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
               onError={() => setFailedSource(source)}
             />
           ) : (

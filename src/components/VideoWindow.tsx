@@ -258,7 +258,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
       if (event.key === "Escape" && fullscreenRef.current) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        void toggleFullscreen();
+        void closeWindow();
       } else if (event.key.toLocaleLowerCase() === "f") {
         event.preventDefault();
         event.stopImmediatePropagation();

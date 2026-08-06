@@ -5,6 +5,7 @@ mod development;
 mod diagnostics;
 mod distribution;
 mod external_links;
+mod media_viewer_window;
 mod proxy;
 mod settings_window;
 mod storage;
@@ -57,6 +58,8 @@ pub fn run() {
             context_menu_window::notgram_resize_context_menu_window,
             external_links::notgram_open_external_url,
             settings_window::notgram_open_settings_window,
+            media_viewer_window::notgram_close_media_viewer_window,
+            media_viewer_window::notgram_open_media_viewer_window,
             video_window::notgram_close_video_window,
             video_window::notgram_open_video_window,
             telegram::telegram_runtime_status,
