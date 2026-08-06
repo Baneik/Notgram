@@ -18,6 +18,8 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Preserve TDLib voice-note duration before media loading and disable unavailable
+  voice controls instead of presenting an inert play action.
 - Merge chat and message search into the single conversation-sidebar field, and hide
   the contacts navigation entry until it is assigned a new location.
 - Prefetch image and video covers above the viewport, replace percentage media loaders

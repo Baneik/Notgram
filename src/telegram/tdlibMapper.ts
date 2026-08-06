@@ -256,6 +256,7 @@ const mediaContent = (
     previewDataUrl?: string;
     width?: number;
     height?: number;
+    duration?: number;
   } = {},
 ): MessageContent => ({
   kind: "media",
@@ -947,6 +948,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
           ...formattedCaption(content.caption),
           mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
           thumbnailPath: thumbnailPath(audio?.album_cover_thumbnail),
+          duration: tdNumber(audio?.duration),
         },
       );
     }
@@ -955,6 +957,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
       return mediaContent("voice", "语音消息", voice?.voice, {
         ...formattedCaption(content.caption),
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
+        duration: tdNumber(voice?.duration),
       });
     }
     case "messageVideoNote": {

@@ -700,6 +700,7 @@ function MessageBubbleComponent({
                   fileId={content.fileId}
                   size={content.size}
                   mimeType={content.mimeType}
+                  durationHint={content.duration}
                   downloadProgress={content.progress}
                   onRequestStream={onStream}
                   onDownload={canDownload && downloadFileId !== undefined

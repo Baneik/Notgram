@@ -313,6 +313,43 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("keeps voice-note duration and degrades safely when its file is unavailable", () => {
+    expect(mapTdMessageContent({
+      "@type": "messageVoiceNote",
+      caption: { "@type": "formattedText", text: "voice caption", entities: [] },
+      voice_note: {
+        duration: 37,
+        mime_type: "audio/ogg",
+        voice: {
+          id: 81,
+          size: 240_000,
+          local: { can_be_downloaded: true, is_downloading_completed: false },
+        },
+      },
+    })).toMatchObject({
+      kind: "media",
+      mediaType: "voice",
+      fileName: "语音消息",
+      fileId: 81,
+      size: 240_000,
+      duration: 37,
+      mimeType: "audio/ogg",
+      caption: "voice caption",
+    });
+
+    expect(mapTdMessageContent({
+      "@type": "messageVoiceNote",
+      voice_note: { duration: 12, mime_type: "audio/ogg" },
+    })).toMatchObject({
+      kind: "media",
+      mediaType: "voice",
+      fileName: "语音消息",
+      fileId: undefined,
+      size: 0,
+      duration: 12,
+    });
+  });
+
   it("maps stickers and video notes as playable media", () => {
     const sticker = mapTdMessage({
       id: 1004,

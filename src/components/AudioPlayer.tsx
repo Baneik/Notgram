@@ -14,6 +14,7 @@ interface AudioPlayerProps {
   fileId?: number;
   size?: number;
   mimeType?: string;
+  durationHint?: number;
   downloadProgress?: number;
   onRequestStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onDownload?: () => void;
@@ -27,6 +28,7 @@ export function AudioPlayer({
   fileId,
   size,
   mimeType,
+  durationHint,
   downloadProgress,
   onRequestStream,
   onDownload,
@@ -39,7 +41,7 @@ export function AudioPlayer({
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(durationHint ?? 0);
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
 
@@ -48,6 +50,10 @@ export function AudioPlayer({
     setResolvedSource(source);
     setFailed(false);
   }, [source]);
+
+  useEffect(() => {
+    if (duration <= 0 && durationHint && durationHint > 0) setDuration(durationHint);
+  }, [duration, durationHint]);
 
   useEffect(() => () => {
     const audio = audioRef.current;
@@ -96,6 +102,11 @@ export function AudioPlayer({
     setPlaybackRate(next);
   };
 
+  const canPlay = Boolean(resolvedSource || (fileId !== undefined && size && size > 0));
+  const playbackLabel = canPlay
+    ? playing ? `暂停 ${label}` : `播放 ${label}`
+    : `${label} 暂不可播放`;
+
   return (
     <div className="audio-player" role="group" aria-label={label}>
       <audio
@@ -142,10 +153,17 @@ export function AudioPlayer({
         }}
         onError={() => { setFailed(true); setPlaying(false); }}
       />
-      <button className="audio-play" type="button" aria-label={playing ? `暂停 ${label}` : `播放 ${label}`} title={playing ? "暂停" : "播放"} onClick={togglePlayback}>
+      <button
+        className="audio-play"
+        type="button"
+        aria-label={playbackLabel}
+        title={canPlay ? playing ? "暂停" : "播放" : "音频文件暂不可用"}
+        disabled={!canPlay}
+        onClick={togglePlayback}
+      >
         {loading
           ? <LoaderCircle className="spin" size={17} />
-          : failed ? <AlertCircle size={17} />
+          : failed || !canPlay ? <AlertCircle size={17} />
             : playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}
       </button>
       <span className="audio-time">{formatPlaybackTime(currentTime)}</span>
