@@ -21,7 +21,7 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
     }
 
     let url = WebviewUrl::App(format!("index.html?mediaViewerWindow={id}").into());
-    WebviewWindowBuilder::new(&app, label, url)
+    let mut builder = WebviewWindowBuilder::new(&app, label, url)
         .title("Notgram 图片")
         .inner_size(1280.0, 800.0)
         .resizable(false)
@@ -35,7 +35,17 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
         .visible(false)
         .fullscreen(false)
         .zoom_hotkeys_enabled(false)
-        .prevent_overflow()
+        .prevent_overflow();
+    builder = if let Some((x, y)) =
+        crate::window_placement::centered_on_main_monitor(&app, 1280.0, 800.0)
+    {
+        builder.position(x, y)
+    } else {
+        builder.center()
+    };
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.transparent(true);
+    builder
         .on_page_load(|window, payload| {
             if payload.event() != PageLoadEvent::Finished {
                 return;

@@ -59,6 +59,7 @@ export function MediaViewer({
   const [failedSource, setFailedSource] = useState<string>();
   const [retryKey, setRetryKey] = useState(0);
   const activeThumbnailRef = useRef<HTMLButtonElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   const dialogRef = useModalFocus<HTMLDivElement>(onClose);
   const previousId = adjacentPhotoId(messages, activeMessageId, -1);
   const nextId = adjacentPhotoId(messages, activeMessageId, 1);
@@ -125,9 +126,18 @@ export function MediaViewer({
     updateZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
   };
   const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
-    if (event.button !== 0 || zoom <= MIN_ZOOM) return;
+    if (event.button !== 0) return;
     const target = event.target;
     if (target instanceof Element && target.closest("button, .media-viewer-thumbnails")) return;
+    const imageBounds = imageRef.current?.getBoundingClientRect();
+    const insideImage = imageBounds && event.clientX >= imageBounds.left && event.clientX <= imageBounds.right &&
+      event.clientY >= imageBounds.top && event.clientY <= imageBounds.bottom;
+    if (!insideImage) {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (zoom <= MIN_ZOOM) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
@@ -217,6 +227,7 @@ export function MediaViewer({
           {source && !failed ? (
             <img
               key={`${source}:${retryKey}`}
+              ref={imageRef}
               className="media-viewer-image"
               src={source}
               alt={content.caption || content.fileName}

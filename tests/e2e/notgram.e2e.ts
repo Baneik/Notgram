@@ -1272,6 +1272,9 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
     return groups.map((group) => ({
       avatarSlots: group.querySelectorAll(".message-group-avatar").length,
       avatars: group.querySelectorAll(".message-group-avatar .avatar").length,
+      avatarPosition: group.querySelector<HTMLElement>(".message-sender-avatar")
+        ? getComputedStyle(group.querySelector<HTMLElement>(".message-sender-avatar")!).position
+        : null,
       stackOffset: Math.round(
         (group.querySelector<HTMLElement>(".message-group-stack")?.getBoundingClientRect().left
           ?? Number.POSITIVE_INFINITY) - contentLeft,
@@ -1279,8 +1282,8 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
     }));
   });
   expect(alignment).toEqual([
-    { avatarSlots: 1, avatars: 0, stackOffset: 42 },
-    { avatarSlots: 1, avatars: 1, stackOffset: 42 },
+    { avatarSlots: 1, avatars: 0, avatarPosition: null, stackOffset: 42 },
+    { avatarSlots: 1, avatars: 1, avatarPosition: "sticky", stackOffset: 42 },
   ]);
 });
 
@@ -1594,8 +1597,9 @@ test("text message time stays on the last line when it fits and wraps without wi
     const text = element.querySelector<HTMLElement>(".message-rich-text");
     const meta = element.querySelector<HTMLElement>(".message-meta");
     const shell = element.querySelector<HTMLElement>(".message-bubble-shell");
+    const bubble = element.querySelector<HTMLElement>(".message-bubble");
     const stack = element.closest<HTMLElement>(".message-group-stack");
-    if (!text || !meta || !shell || !stack) return undefined;
+    if (!text || !meta || !shell || !bubble || !stack) return undefined;
     const range = document.createRange();
     range.selectNodeContents(text);
     const lastLine = [...range.getClientRects()].at(-1);
@@ -1605,6 +1609,8 @@ test("text message time stays on the last line when it fits and wraps without wi
       lastLineRight: lastLine?.right,
       metaTop: metaBounds.top,
       metaLeft: metaBounds.left,
+      metaRight: metaBounds.right,
+      bubbleRight: bubble.getBoundingClientRect().right,
       shellWidth: shell.getBoundingClientRect().width,
       stackWidth: stack.getBoundingClientRect().width,
     };
@@ -1612,6 +1618,7 @@ test("text message time stays on the last line when it fits and wraps without wi
   expect(shortGeometry).toBeTruthy();
   expect(Math.abs(shortGeometry!.metaTop - shortGeometry!.lastLineTop!)).toBeLessThan(6);
   expect(shortGeometry!.metaLeft).toBeGreaterThan(shortGeometry!.lastLineRight!);
+  expect(Math.abs(shortGeometry!.metaRight - (shortGeometry!.bubbleRight - 10))).toBeLessThanOrEqual(1);
   expect(shortGeometry!.shellWidth).toBeLessThanOrEqual(Math.min(shortGeometry!.stackWidth * 0.74, 720) + 1);
 
   const longMessage = page.locator('[data-message-id="p-2"]');
@@ -1784,6 +1791,12 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const viewerBounds = await popup.locator(".media-viewer-backdrop").boundingBox();
   const viewport = popup.viewportSize();
   expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
+  await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS(
+    "background-color",
+    "rgba(12, 18, 20, 0.62)",
+  );
+  await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    .toBe("rgba(0, 0, 0, 0)");
   const thumbnails = viewer.getByRole("navigation", { name: "会话图片预览" });
   await expect(thumbnails.getByRole("button")).toHaveCount(2);
   await expect(thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }))
@@ -1805,7 +1818,8 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("界面预览.jpg");
 
   const closed = popup.waitForEvent("close");
-  await popup.keyboard.down("Escape");
+  const finalStageBounds = await stage.boundingBox();
+  await popup.mouse.click(finalStageBounds!.x + 8, finalStageBounds!.y + 8);
   await closed;
   await expect(page.locator(".conversation")).toBeVisible();
 });
