@@ -10,6 +10,7 @@ project.md
 .env
 .env.*
 !.env.example
+docs/tdlib-feature-selection.md
 
 # Bundled/generated native binaries
 src-tauri/tdlib/*.dll
