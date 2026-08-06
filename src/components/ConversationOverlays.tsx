@@ -1,24 +1,28 @@
 import { isTauri } from "@tauri-apps/api/core";
 import {
   AlertCircle,
+  Check,
   Copy,
   ChevronLeft,
   Download,
   Edit3,
   Forward,
   LoaderCircle,
+  Pin,
+  PinOff,
   PictureInPicture2,
   Reply,
   Search,
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNativeContextMenu, type NativeContextMenuItem } from "../contextMenu/nativeContextMenuBridge";
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, Message } from "../telegram/types";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
+import { formatMessageTime } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 import { messageSummary } from "./conversationMessages";
 
@@ -30,6 +34,8 @@ interface MessageActionMenuProps {
   onEdit: () => void;
   onForward: () => void;
   onDelete: () => void;
+  onPin?: () => void;
+  onUnpin?: () => void;
   onPlayInWindow?: () => void;
   onDownloadVideo?: () => void;
   onCopy: () => void;
@@ -46,6 +52,8 @@ export function MessageActionMenu({
   onEdit,
   onForward,
   onDelete,
+  onPin,
+  onUnpin,
   onPlayInWindow,
   onDownloadVideo,
   onCopy,
@@ -70,6 +78,8 @@ export function MessageActionMenu({
     ...(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers
       ? [{ id: "delete", label: "删除", icon: "trash" as const, danger: true }]
       : []),
+    ...(message.isPinned ? (onUnpin ? [{ id: "unpin", label: "取消置顶", icon: "pin" as const }] : [])
+      : (onPin ? [{ id: "pin-message", label: "置顶消息", icon: "pin" as const }] : [])),
     ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
     ...(onDownloadVideo ? [{ id: "download", label: "下载视频", icon: "download" as const }] : []),
     ...(onCopyRaw ? [{ id: "copy-raw", label: "复制原始消息", icon: "copy" as const }] : []),
@@ -84,6 +94,8 @@ export function MessageActionMenu({
     else if (actionId === "copy") onCopy();
     else if (actionId === "edit") onEdit();
     else if (actionId === "delete") onDelete();
+    else if (actionId === "pin-message") onPin?.();
+    else if (actionId === "unpin") onUnpin?.();
     else if (actionId === "play-window") onPlayInWindow?.();
     else if (actionId === "download") onDownloadVideo?.();
     else if (actionId === "copy-raw") onCopyRaw?.();
@@ -150,6 +162,17 @@ export function MessageActionMenu({
             <button className="is-danger" type="button" role="menuitem" onClick={onDelete}>
               <Trash2 size={16} strokeWidth={1.9} />
               <span>删除</span>
+            </button>
+          )}
+          {message.isPinned ? onUnpin && (
+            <button type="button" role="menuitem" onClick={onUnpin}>
+              <PinOff size={16} strokeWidth={1.9} />
+              <span>取消置顶</span>
+            </button>
+          ) : onPin && (
+            <button type="button" role="menuitem" onClick={onPin}>
+              <Pin size={16} strokeWidth={1.9} />
+              <span>置顶消息</span>
             </button>
           )}
           {onPlayInWindow && (
@@ -234,6 +257,124 @@ export function DeleteMessageDialog({
           <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>
             取消
           </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+interface PinMessageDialogProps {
+  message: Message;
+  pending: boolean;
+  allowOnlyForSelf: boolean;
+  allowNotification: boolean;
+  onConfirm: (disableNotification: boolean, onlyForSelf: boolean) => void;
+  onClose: () => void;
+}
+
+export function PinMessageDialog({ message, pending, allowOnlyForSelf, allowNotification, onConfirm, onClose }: PinMessageDialogProps) {
+  const dialogRef = useModalFocus<HTMLElement>(onClose, pending);
+  const [disableNotification, setDisableNotification] = useState(false);
+  const [onlyForSelf, setOnlyForSelf] = useState(false);
+  return (
+    <div className="message-delete-backdrop" role="presentation">
+      <section ref={dialogRef} className="message-pin-dialog" role="dialog" aria-modal="true" aria-labelledby="pin-message-title" tabIndex={-1}>
+        <header className="message-forward-heading">
+          <span className="message-forward-heading-icon"><Pin size={18} strokeWidth={1.9} /></span>
+          <div><h3 id="pin-message-title">置顶消息</h3><p>{message.content.kind === "text" ? message.content.text : "这条消息"}</p></div>
+        </header>
+        <div className="message-pin-options">
+          {allowOnlyForSelf && <label><input type="checkbox" checked={onlyForSelf} onChange={(event) => setOnlyForSelf(event.target.checked)} />仅为我置顶</label>}
+          {allowNotification && !onlyForSelf && <label><input type="checkbox" checked={disableNotification} onChange={(event) => setDisableNotification(event.target.checked)} />静音置顶通知</label>}
+        </div>
+        <div className="message-delete-actions">
+          <button className="dialog-primary" type="button" disabled={pending} onClick={() => onConfirm(disableNotification, onlyForSelf)}>
+            {pending ? <LoaderCircle className="spin" size={16} /> : <Pin size={16} />}置顶
+          </button>
+          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+interface PinnedMessagesDialogProps {
+  messages: Message[];
+  loading: boolean;
+  pendingMessageId?: string;
+  onOpen: (message: Message) => void;
+  onUnpin: (message: Message) => void;
+  onClose: () => void;
+}
+
+export function PinnedMessagesDialog({ messages, loading, pendingMessageId, onOpen, onUnpin, onClose }: PinnedMessagesDialogProps) {
+  const dialogRef = useModalFocus<HTMLElement>(onClose, loading || Boolean(pendingMessageId));
+  return (
+    <div className="message-delete-backdrop" role="presentation">
+      <section ref={dialogRef} className="pinned-messages-dialog" role="dialog" aria-modal="true" aria-labelledby="pinned-messages-title" tabIndex={-1}>
+        <header className="message-forward-heading">
+          <span className="message-forward-heading-icon"><Pin size={18} strokeWidth={1.9} /></span>
+          <div><h3 id="pinned-messages-title">置顶消息</h3><p>{loading ? "正在读取置顶消息" : `${messages.length} 条置顶消息`}</p></div>
+          <button className="icon-button" type="button" aria-label="关闭置顶消息" title="关闭" onClick={onClose} disabled={loading || Boolean(pendingMessageId)}><X size={18} /></button>
+        </header>
+        <div className="pinned-messages-list">
+          {loading ? <div className="pinned-messages-empty"><LoaderCircle className="spin" size={18} />正在读取</div> : messages.length === 0 ? <div className="pinned-messages-empty">当前没有置顶消息</div> : messages.map((message) => (
+            <div className="pinned-message-row" key={message.id}>
+              <button type="button" className="pinned-message-open" disabled={Boolean(pendingMessageId)} onClick={() => onOpen(message)}>
+                <strong>{message.content.kind === "text" ? message.content.text : messageSummary(message.content)}</strong>
+                <small>{formatMessageTime(message.sentAt)}</small>
+              </button>
+              <button type="button" className="icon-button" aria-label={`取消置顶 ${message.id}`} title="取消置顶" disabled={Boolean(pendingMessageId)} onClick={() => onUnpin(message)}>
+                {pendingMessageId === message.id ? <LoaderCircle className="spin" size={16} /> : <PinOff size={16} />}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+interface AutoDeleteDialogProps {
+  currentTime: number;
+  pending: boolean;
+  onConfirm: (seconds: number) => void;
+  onClose: () => void;
+}
+
+const AUTO_DELETE_PRESETS = [
+  [0, "关闭"],
+  [86400, "1 天"],
+  [604800, "1 周"],
+  [2592000, "1 个月"],
+] as const;
+
+export function AutoDeleteDialog({ currentTime, pending, onConfirm, onClose }: AutoDeleteDialogProps) {
+  const dialogRef = useModalFocus<HTMLElement>(onClose, pending);
+  const isPreset = AUTO_DELETE_PRESETS.some(([seconds]) => seconds === currentTime);
+  const [selection, setSelection] = useState(isPreset ? String(currentTime) : "custom");
+  const [customDays, setCustomDays] = useState(String(Math.max(1, Math.ceil((currentTime || 86400) / 86400))));
+  const seconds = selection === "custom" ? Number(customDays) * 86400 : Number(selection);
+  const valid = Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 31_536_000;
+  return (
+    <div className="message-delete-backdrop" role="presentation">
+      <section ref={dialogRef} className="auto-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="auto-delete-title" tabIndex={-1}>
+        <header className="message-forward-heading">
+          <span className="message-forward-heading-icon"><Trash2 size={18} strokeWidth={1.9} /></span>
+          <div><h3 id="auto-delete-title">自动删除消息</h3><p>新消息会在设定时间后自动删除，历史消息不会受影响</p></div>
+        </header>
+        <label className="auto-delete-field">删除时间
+          <select aria-label="自动删除时长" value={selection} onChange={(event) => setSelection(event.target.value)} disabled={pending}>
+            {AUTO_DELETE_PRESETS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            <option value="custom">自定义</option>
+          </select>
+        </label>
+        {selection === "custom" && <label className="auto-delete-field">自定义天数
+          <input aria-label="自定义天数" type="number" min={1} max={365} step={1} value={customDays} onChange={(event) => setCustomDays(event.target.value)} disabled={pending} />
+        </label>}
+        <div className="message-delete-actions">
+          <button className="dialog-primary" type="button" disabled={pending || !valid} onClick={() => onConfirm(seconds)}>{pending ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}保存</button>
+          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
         </div>
       </section>
     </div>

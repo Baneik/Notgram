@@ -141,6 +141,17 @@ export interface TelegramState {
   startPrivateChat: (userId: string) => Promise<string | undefined>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
+  loadPinnedMessages: (chatId: string) => Promise<Message[]>;
+  pinMessage: (
+    messageId: string,
+    disableNotification: boolean,
+    onlyForSelf: boolean,
+  ) => Promise<boolean>;
+  unpinMessage: (messageId: string) => Promise<boolean>;
+  setChatMessageAutoDeleteTime: (
+    chatId: string,
+    messageAutoDeleteTime: number,
+  ) => Promise<boolean>;
   loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
   loadStickerSet: (stickerSetId: string) => Promise<StickerSet | undefined>;
   searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[]>;

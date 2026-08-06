@@ -42,6 +42,9 @@ import {
   DeleteMessageDialog,
   ForwardMessagesDialog,
   MessageActionMenu,
+  AutoDeleteDialog,
+  PinMessageDialog,
+  PinnedMessagesDialog,
 } from "./ConversationOverlays";
 import {
   forwardLabelFor,
@@ -121,6 +124,10 @@ interface ConversationProps {
   onLoadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onSetPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
+  onLoadPinnedMessages: (chatId: string) => Promise<Message[]>;
+  onPinMessage: (messageId: string, disableNotification: boolean, onlyForSelf: boolean) => Promise<boolean>;
+  onUnpinMessage: (messageId: string) => Promise<boolean>;
+  onSetChatMessageAutoDeleteTime: (chatId: string, seconds: number) => Promise<boolean>;
   onSearchMessages: (query: string) => Promise<void>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onCancelFileDownload: (fileId: number) => Promise<void>;
@@ -171,6 +178,10 @@ export function Conversation({
   onLoadRawMessage,
   onSetMessageReaction,
   onSetPollAnswer,
+  onLoadPinnedMessages,
+  onPinMessage,
+  onUnpinMessage,
+  onSetChatMessageAutoDeleteTime,
   onSearchMessages,
   onDownloadFile,
   onCancelFileDownload,
@@ -204,6 +215,13 @@ export function Conversation({
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [pinTarget, setPinTarget] = useState<Message>();
+  const [pinPending, setPinPending] = useState(false);
+  const [pinnedDialogOpen, setPinnedDialogOpen] = useState(false);
+  const [pinnedDialogLoading, setPinnedDialogLoading] = useState(false);
+  const [pinnedUnpinId, setPinnedUnpinId] = useState<string>();
+  const [autoDeleteDialogOpen, setAutoDeleteDialogOpen] = useState(false);
+  const [autoDeletePending, setAutoDeletePending] = useState(false);
   const draftReplyToMessageId = useTelegramStore((state) =>
     chat ? state.drafts.get(chat.id)?.replyToMessageId : undefined,
   );
@@ -817,6 +835,42 @@ export function Conversation({
     if (deleted) setDeleteTarget(undefined);
   };
 
+  const openPinnedMessages = async () => {
+    if (!chat || pinnedDialogLoading) return;
+    setChatMenuOpen(false);
+    setPinnedDialogOpen(true);
+    setPinnedDialogLoading(true);
+    await onLoadPinnedMessages(chat.id);
+    setPinnedDialogLoading(false);
+  };
+
+  const confirmPin = async (disableNotification: boolean, onlyForSelf: boolean) => {
+    if (!pinTarget || pinPending) return;
+    setPinPending(true);
+    const succeeded = await onPinMessage(pinTarget.id, disableNotification, onlyForSelf);
+    setPinPending(false);
+    if (succeeded) setPinTarget(undefined);
+  };
+
+  const unpinFromMenu = async (message: Message) => {
+    if (pinnedUnpinId) return;
+    setPinnedUnpinId(message.id);
+    await onUnpinMessage(message.id);
+    setPinnedUnpinId(undefined);
+  };
+
+  const saveAutoDelete = async (seconds: number) => {
+    if (!chat || autoDeletePending) return;
+    setAutoDeletePending(true);
+    const succeeded = await onSetChatMessageAutoDeleteTime(chat.id, seconds);
+    setAutoDeletePending(false);
+    if (succeeded) setAutoDeleteDialogOpen(false);
+  };
+
+  const pinnedMessages = messages
+    .filter((message) => message.isPinned)
+    .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+
   const startForwardSelection = (message: Message) => {
     if (editingMessage) {
       setEditingMessage(undefined);
@@ -914,6 +968,11 @@ export function Conversation({
                   onSetPinned={onSetChatPinned}
                   onSetMuted={onSetChatMuted}
                   onSetArchived={onSetChatArchived}
+                  onOpenPinned={openPinnedMessages}
+                  onOpenAutoDelete={() => {
+                    setChatMenuOpen(false);
+                    setAutoDeleteDialogOpen(true);
+                  }}
                   onClose={() => closeChatMenu(true)}
                 />
               )}
@@ -1184,6 +1243,14 @@ export function Conversation({
             setDeleteTarget(actionMessage);
             setActionMenu(undefined);
           }}
+          onPin={actionMessage.permissions?.canPin ? () => {
+            setPinTarget(actionMessage);
+            setActionMenu(undefined);
+          } : undefined}
+          onUnpin={actionMessage.permissions?.canPin ? () => {
+            setActionMenu(undefined);
+            void unpinFromMenu(actionMessage);
+          } : undefined}
           onPlayInWindow={actionMessage.content.kind === "media" &&
             ["video", "videoNote"].includes(actionMessage.content.mediaType)
             ? () => {
@@ -1254,6 +1321,40 @@ export function Conversation({
           pending={deletePending}
           onConfirm={(revoke) => void confirmDelete(revoke)}
           onClose={() => setDeleteTarget(undefined)}
+        />
+      )}
+
+      {pinTarget && (
+        <PinMessageDialog
+          message={pinTarget}
+          pending={pinPending}
+          allowOnlyForSelf={chat.kind === "direct"}
+          allowNotification={chat.kind === "group"}
+          onConfirm={(disableNotification, onlyForSelf) => void confirmPin(disableNotification, onlyForSelf)}
+          onClose={() => { if (!pinPending) setPinTarget(undefined); }}
+        />
+      )}
+
+      {pinnedDialogOpen && (
+        <PinnedMessagesDialog
+          messages={pinnedMessages}
+          loading={pinnedDialogLoading}
+          pendingMessageId={pinnedUnpinId}
+          onOpen={(message) => {
+            setPinnedDialogOpen(false);
+            onOpenMessage(message.chatId, message.id);
+          }}
+          onUnpin={(message) => void unpinFromMenu(message)}
+          onClose={() => { if (!pinnedDialogLoading && !pinnedUnpinId) setPinnedDialogOpen(false); }}
+        />
+      )}
+
+      {autoDeleteDialogOpen && chat && (
+        <AutoDeleteDialog
+          currentTime={chat.messageAutoDeleteTime ?? 0}
+          pending={autoDeletePending}
+          onConfirm={(seconds) => void saveAutoDelete(seconds)}
+          onClose={() => { if (!autoDeletePending) setAutoDeleteDialogOpen(false); }}
         />
       )}
 

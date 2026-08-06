@@ -1423,13 +1423,19 @@ const mapTdInteraction = (value: unknown): MessageInteraction | undefined => {
   };
 };
 
-export const mapTdMessageProperties = (raw: TdObject): MessagePermissions => ({
-  canReply: raw.can_be_replied === true,
-  canEdit: raw.can_be_edited === true,
-  canDeleteOnlyForSelf: raw.can_be_deleted_only_for_self === true,
-  canDeleteForAllUsers: raw.can_be_deleted_for_all_users === true,
-  canForward: raw.can_be_forwarded === true,
-});
+export const mapTdMessageProperties = (raw: TdObject): MessagePermissions => {
+  const includesPinPermissions = "can_be_pinned" in raw;
+  return {
+    canReply: raw.can_be_replied === true,
+    canEdit: raw.can_be_edited === true,
+    canDeleteOnlyForSelf: raw.can_be_deleted_only_for_self === true,
+    canDeleteForAllUsers: raw.can_be_deleted_for_all_users === true,
+    canForward: raw.can_be_forwarded === true,
+    ...(includesPinPermissions ? {
+      canPin: raw.can_be_pinned === true,
+    } : {}),
+  };
+};
 
 export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const id = tdId(raw.id);
@@ -1458,6 +1464,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     replyTo: mapTdReplyTarget(raw.reply_to),
     forwardInfo: mapTdForwardInfo(raw.forward_info),
     interaction: mapTdInteraction(raw.interaction_info),
+    ...(typeof raw.is_pinned === "boolean" ? { isPinned: raw.is_pinned } : {}),
     content,
   };
 };
@@ -1572,6 +1579,9 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
     pinnedFolderIds,
     listOrderByFolder,
     muted: (tdNumber(notifications?.mute_for) ?? 0) > 0,
+    ...(tdNumber(raw.message_auto_delete_time) !== undefined
+      ? { messageAutoDeleteTime: Math.max(0, tdNumber(raw.message_auto_delete_time) ?? 0) }
+      : {}),
   };
 };
 

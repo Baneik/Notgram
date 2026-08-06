@@ -1776,6 +1776,85 @@ export const createTelegramStore = (
         }
       },
 
+      loadPinnedMessages: async (chatId) => {
+        if (!get().chats.has(chatId)) return [];
+        try {
+          const pinned = await transport.getPinnedMessages(chatId);
+          if (pinned.length > 0) {
+            const messages = new Map(get().messages);
+            messages.set(chatId, upsertMessages(messages.get(chatId) ?? [], pinned));
+            set({ messages, operationError: undefined });
+            scheduleCacheWrite();
+          } else {
+            set({ operationError: undefined });
+          }
+          return pinned;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法读取置顶消息") });
+          return [];
+        }
+      },
+
+      pinMessage: async (messageId, disableNotification, onlyForSelf) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return false;
+        try {
+          await transport.pinMessage({
+            chatId,
+            messageId,
+            disableNotification,
+            onlyForSelf,
+          });
+          const messages = new Map(get().messages);
+          messages.set(chatId, (messages.get(chatId) ?? []).map((message) =>
+            message.id === messageId ? { ...message, isPinned: true, permissions: undefined } : message
+          ));
+          set({ messages, operationError: undefined });
+          scheduleCacheWrite();
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法置顶消息") });
+          return false;
+        }
+      },
+
+      unpinMessage: async (messageId) => {
+        const chatId = get().activeChatId;
+        if (!chatId) return false;
+        try {
+          await transport.unpinMessage(chatId, messageId);
+          const messages = new Map(get().messages);
+          messages.set(chatId, (messages.get(chatId) ?? []).map((message) =>
+            message.id === messageId ? { ...message, isPinned: false, permissions: undefined } : message
+          ));
+          set({ messages, operationError: undefined });
+          scheduleCacheWrite();
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法取消置顶消息") });
+          return false;
+        }
+      },
+
+      setChatMessageAutoDeleteTime: async (chatId, messageAutoDeleteTime) => {
+        if (!get().chats.has(chatId)) return false;
+        try {
+          await transport.setChatMessageAutoDeleteTime({
+            chatId,
+            messageAutoDeleteTime,
+          });
+          const chats = new Map(get().chats);
+          const chat = chats.get(chatId);
+          if (chat) chats.set(chatId, { ...chat, messageAutoDeleteTime });
+          set({ chats, operationError: undefined });
+          scheduleCacheWrite();
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法设置自动删除") });
+          return false;
+        }
+      },
+
       loadEmojiPicker: async () => {
         if (get().authorization.kind !== "ready") return undefined;
         try {

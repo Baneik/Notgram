@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   LoaderCircle,
   Play,
+  Pin,
   RotateCcw,
   Save,
   X,
@@ -382,6 +383,7 @@ function MessageBubbleComponent({
   const messageMeta = !isService ? (
     <span className="message-meta">
       {message.editedAt && <span>已编辑</span>}
+      {message.isPinned && <Pin size={13} strokeWidth={2} aria-label="已置顶" />}
       <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
       {message.outgoing && (
         message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />

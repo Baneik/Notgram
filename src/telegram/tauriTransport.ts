@@ -74,6 +74,7 @@ import type {
   GlobalSearchPage,
   Message,
   MessagePermissions,
+  PinMessageInput,
   ConnectionStatus,
   ProxySettings,
   SendEmojiAssetInput,
@@ -81,6 +82,7 @@ import type {
   SendFilesInput,
   SendMessageInput,
   SetChatDraftInput,
+  SetChatMessageAutoDeleteTimeInput,
   SetMessageReactionInput,
   SetPollAnswerInput,
   StorageSettings,
@@ -1132,6 +1134,85 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (tdId(refreshed.chat_id) === input.chatId && tdId(refreshed.id) === input.messageId) {
       this.emitMessage(refreshed);
     }
+  }
+
+  async getPinnedMessages(chatId: string) {
+    const known = [...(this.rawMessages.get(chatId)?.values() ?? [])]
+      .filter((raw) => raw.is_pinned === true)
+      .map((raw) => this.mapMessage(raw))
+      .filter((message): message is Message => Boolean(message));
+    const pinnedById = new Map(known.map((message) => [message.id, message]));
+    try {
+      const result = await this.request({
+        "@type": "searchChatMessages",
+        chat_id: numericId(chatId),
+        topic_id: null,
+        query: "",
+        sender_id: null,
+        from_message_id: 0,
+        offset: 0,
+        limit: 100,
+        filter: { "@type": "searchMessagesFilterPinned" },
+      });
+      for (const raw of asTdObjects(result.messages)) {
+        const pinnedRaw = { ...raw, is_pinned: true };
+        const message = this.mapMessage(pinnedRaw);
+        if (!message || message.chatId !== chatId) continue;
+        pinnedById.set(message.id, message);
+        this.emitMessage(pinnedRaw);
+      }
+    } catch {
+      // Fall back to the latest pinned message on older TDLib deployments.
+    }
+    if (pinnedById.size === 0) try {
+      const raw = await this.request({
+        "@type": "getChatPinnedMessage",
+        chat_id: numericId(chatId),
+      });
+      const pinned = this.mapMessage(raw);
+      if (pinned && pinned.chatId === chatId) {
+        this.emitMessage({ ...raw, is_pinned: true });
+        pinnedById.set(pinned.id, { ...pinned, isPinned: true });
+      }
+    } catch {
+      // Chats without a pinned message return an ordinary TDLib error.
+    }
+    return [...pinnedById.values()]
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+  }
+
+  async pinMessage(input: PinMessageInput) {
+    await this.request({
+      "@type": "pinChatMessage",
+      chat_id: numericId(input.chatId),
+      message_id: numericId(input.messageId),
+      disable_notification: input.disableNotification,
+      only_for_self: input.onlyForSelf,
+    });
+    this.patchMessage(input.chatId, input.messageId, { is_pinned: true });
+  }
+
+  async unpinMessage(chatId: string, messageId: string) {
+    await this.request({
+      "@type": "unpinChatMessage",
+      chat_id: numericId(chatId),
+      message_id: numericId(messageId),
+    });
+    this.patchMessage(chatId, messageId, { is_pinned: false });
+  }
+
+  async setChatMessageAutoDeleteTime(input: SetChatMessageAutoDeleteTimeInput) {
+    if (!Number.isSafeInteger(input.messageAutoDeleteTime) ||
+      input.messageAutoDeleteTime < 0 || input.messageAutoDeleteTime > 31_536_000 ||
+      (input.messageAutoDeleteTime !== 0 && input.messageAutoDeleteTime % 86_400 !== 0)) {
+      throw new Error("自动删除时间无效");
+    }
+    await this.request({
+      "@type": "setChatMessageAutoDeleteTime",
+      chat_id: numericId(input.chatId),
+      message_auto_delete_time: input.messageAutoDeleteTime,
+    });
+    await this.refreshChat(input.chatId);
   }
 
   async getEmojiPickerCatalog(): Promise<EmojiPickerCatalog> {

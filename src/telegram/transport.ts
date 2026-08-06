@@ -34,6 +34,8 @@ import type {
   StickerSet,
   Message,
   MessagePermissions,
+  PinMessageInput,
+  SetChatMessageAutoDeleteTimeInput,
   User,
 } from "./types";
 import type { AuthorizationAction } from "./types";
@@ -92,6 +94,10 @@ export interface TelegramTransport {
   getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
   setMessageReaction(input: SetMessageReactionInput): Promise<void>;
   setPollAnswer(input: SetPollAnswerInput): Promise<void>;
+  getPinnedMessages(chatId: string): Promise<Message[]>;
+  pinMessage(input: PinMessageInput): Promise<void>;
+  unpinMessage(chatId: string, messageId: string): Promise<void>;
+  setChatMessageAutoDeleteTime(input: SetChatMessageAutoDeleteTimeInput): Promise<void>;
   getEmojiPickerCatalog(): Promise<EmojiPickerCatalog>;
   getStickerSet(stickerSetId: string): Promise<StickerSet>;
   searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]>;

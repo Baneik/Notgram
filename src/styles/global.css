@@ -1235,6 +1235,29 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .forward-target-row small { color: var(--muted); font-size: 11px; }
 .forward-target-arrow { color: #90999e; transform: rotate(180deg); }
 .forward-target-empty { min-height: 130px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.message-pin-dialog, .auto-delete-dialog {
+  width: min(420px, calc(100vw - 40px)); padding: 0 18px 18px; display: grid; gap: 15px;
+  color: var(--ink); background: #ffffff; border-radius: 8px; box-shadow: 0 16px 48px rgba(10, 20, 28, 0.24);
+}
+.message-pin-options { display: grid; gap: 10px; color: var(--ink); font-size: 13px; }
+.message-pin-options label, .message-pin-checkbox { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.message-pin-options input, .message-pin-checkbox input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.pinned-messages-dialog {
+  width: min(480px, calc(100vw - 40px)); max-height: min(620px, calc(100vh - 40px)); min-height: 0; display: grid;
+  grid-template-rows: auto minmax(0, 1fr); overflow: hidden; color: var(--ink); background: #ffffff; border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(10, 20, 28, 0.24);
+}
+.pinned-messages-list { min-height: 0; padding: 0 9px 10px; overflow-y: auto; border-top: 1px solid var(--line); }
+.pinned-messages-empty { min-height: 130px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.pinned-message-row { min-width: 0; min-height: 58px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.pinned-message-open { min-width: 0; padding: 7px 8px; display: grid; gap: 3px; text-align: left; color: var(--ink); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
+.pinned-message-open:hover:not(:disabled), .pinned-message-open:focus-visible { background: var(--surface-hover); }
+.pinned-message-open strong, .pinned-message-open small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pinned-message-open strong { font-size: 13px; }
+.pinned-message-open small { color: var(--muted); font-size: 11px; }
+.auto-delete-field { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.auto-delete-field select, .auto-delete-field input { width: 100%; height: 38px; padding: 0 10px; color: var(--ink); background: #ffffff; border: 1px solid #cbd1d5; border-radius: 7px; outline: 0; }
+.auto-delete-field select:focus, .auto-delete-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .dialog-danger {
   min-height: 40px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   color: #ffffff; background: #c94b40; border: 1px solid #c94b40; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650;
@@ -1946,6 +1969,9 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 
   .theme-dark .message-delete-dialog,
   .theme-dark .message-forward-dialog,
+  .theme-dark .message-pin-dialog,
+  .theme-dark .pinned-messages-dialog,
+  .theme-dark .auto-delete-dialog,
   .theme-dark .folder-dialog,
   .theme-dark .settings-dialog,
   .theme-dark .settings-dialog-header,
@@ -1960,7 +1986,11 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .theme-dark .profile-actions button { background: var(--accent-soft); border-color: #31536e; }
   .theme-dark .forward-target-row:hover:not(:disabled),
   .theme-dark .forward-target-row:focus-visible,
+  .theme-dark .pinned-message-open:hover:not(:disabled),
+  .theme-dark .pinned-message-open:focus-visible,
   .theme-dark .folder-chat-row:hover { background: var(--surface-hover); }
+  .theme-dark .auto-delete-field select,
+  .theme-dark .auto-delete-field input { color: var(--ink); background: #1b2733; border-color: #405161; }
   .theme-dark .account-row,
   .theme-dark .update-status,
   .theme-dark .update-notes,

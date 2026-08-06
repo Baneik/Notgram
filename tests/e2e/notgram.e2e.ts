@@ -2918,6 +2918,61 @@ test("chat organization menu confirms pin, mute, and archive changes", async ({ 
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("messages support pin lists, notification scope, and auto-delete settings", async ({ page }) => {
+  await page.goto("/");
+  const target = page.locator(".message-row").filter({ hasText: "早上好，左侧会话列表的密度已经调整好了。" }).first();
+  await target.locator(".message-bubble-shell").click({ button: "right" });
+  const messageMenu = page.getByRole("menu", { name: "消息操作" });
+  await expect(messageMenu.getByRole("menuitem", { name: "置顶消息" })).toBeVisible();
+  await messageMenu.getByRole("menuitem", { name: "置顶消息" }).click();
+  const pinDialog = page.getByRole("dialog", { name: "置顶消息" });
+  await expect(pinDialog).toBeVisible();
+  await pinDialog.getByLabel("静音置顶通知").check();
+  await pinDialog.getByRole("button", { name: /^置顶/ }).click();
+  await expect(pinDialog).toBeHidden();
+  await expect(target.locator('[aria-label="已置顶"]')).toBeVisible();
+
+  await page.getByRole("button", { name: "更多操作" }).click();
+  const chatMenu = page.getByRole("menu", { name: "会话操作" });
+  await chatMenu.getByRole("menuitem", { name: "查看置顶消息" }).click();
+  const pinnedDialog = page.getByRole("dialog", { name: "置顶消息" });
+  await expect(pinnedDialog).toContainText("早上好，左侧会话列表的密度已经调整好了。");
+  await expect(pinnedDialog).toContainText("我把交互稿更新到最新版本了");
+  await pinnedDialog.getByRole("button", { name: /取消置顶/ }).first().click();
+  await expect(pinnedDialog).not.toContainText("我把交互稿更新到最新版本了");
+  await pinnedDialog.getByRole("button", { name: "关闭置顶消息" }).click();
+  await expect(pinnedDialog).toBeHidden();
+
+  await page.getByRole("button", { name: "更多操作" }).click();
+  await chatMenu.getByRole("menuitem", { name: "自动删除消息" }).click();
+  const autoDeleteDialog = page.getByRole("dialog", { name: "自动删除消息" });
+  await autoDeleteDialog.getByLabel("自动删除时长").selectOption("604800");
+  await autoDeleteDialog.getByRole("button", { name: "保存" }).click();
+  await expect(autoDeleteDialog).toBeHidden();
+  await expect.poll(async () => page.evaluate(async () => {
+    const module = await import("/src/store/telegramStore.ts" as string) as {
+      telegramStore: {
+        getState: () => { chats: Map<string, { messageAutoDeleteTime?: number }> };
+      };
+    };
+    return module.telegramStore.getState().chats.get("chat-product")?.messageAutoDeleteTime;
+  })).toBe(604800);
+
+  await page.getByRole("button", { name: "更多操作" }).click();
+  await chatMenu.getByRole("menuitem", { name: "自动删除消息" }).click();
+  await autoDeleteDialog.getByLabel("自动删除时长").selectOption("custom");
+  await autoDeleteDialog.getByLabel("自定义天数").fill("12");
+  await autoDeleteDialog.getByRole("button", { name: "保存" }).click();
+  await expect.poll(async () => page.evaluate(async () => {
+    const module = await import("/src/store/telegramStore.ts" as string) as {
+      telegramStore: {
+        getState: () => { chats: Map<string, { messageAutoDeleteTime?: number }> };
+      };
+    };
+    return module.telegramStore.getState().chats.get("chat-product")?.messageAutoDeleteTime;
+  })).toBe(1_036_800);
+});
+
 test("native context menu rows fill a consistently rounded popup frame", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {

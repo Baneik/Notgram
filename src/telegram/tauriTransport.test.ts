@@ -1254,6 +1254,66 @@ describe("TauriTelegramTransport message operations", () => {
     });
   });
 
+  it("pins, unpins, and configures auto-delete through typed TDLib requests", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.emitMessage(rawMessage(12));
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getChatPinnedMessage") return { ...rawMessage(12), is_pinned: true };
+      return { "@type": "ok" };
+    };
+
+    await transport.pinMessage({
+      chatId: "7",
+      messageId: "12",
+      disableNotification: true,
+      onlyForSelf: false,
+    });
+    await transport.unpinMessage("7", "12");
+    await transport.setChatMessageAutoDeleteTime({
+      chatId: "7",
+      messageAutoDeleteTime: 604800,
+    });
+    await expect(transport.getPinnedMessages("7")).resolves.toHaveLength(1);
+
+    expect(requests).toEqual([
+      {
+        "@type": "pinChatMessage",
+        chat_id: 7,
+        message_id: 12,
+        disable_notification: true,
+        only_for_self: false,
+      },
+      { "@type": "unpinChatMessage", chat_id: 7, message_id: 12 },
+      {
+        "@type": "setChatMessageAutoDeleteTime",
+        chat_id: 7,
+        message_auto_delete_time: 604800,
+      },
+      { "@type": "getChat", chat_id: 7 },
+      {
+        "@type": "searchChatMessages",
+        chat_id: 7,
+        topic_id: null,
+        query: "",
+        sender_id: null,
+        from_message_id: 0,
+        offset: 0,
+        limit: 100,
+        filter: { "@type": "searchMessagesFilterPinned" },
+      },
+      { "@type": "getChatPinnedMessage", chat_id: 7 },
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      type: "message.upsert",
+      message: { id: "12", isPinned: true },
+    });
+  });
+
   it("preserves 64-bit sticker set identifiers and maps animated sticker assets", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

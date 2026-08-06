@@ -21,6 +21,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChat",
     "getChatFolder",
     "getChatHistory",
+    "getChatPinnedMessage",
     "getChats",
     "getBasicGroupFullInfo",
     "getContacts",
@@ -46,6 +47,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "loadChats",
     "logOut",
     "parseMarkdown",
+    "pinChatMessage",
     "pingProxy",
     "registerUser",
     "requestQrCodeAuthentication",
@@ -61,12 +63,14 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setAuthenticationPhoneNumber",
     "setChatDraftMessage",
     "setChatNotificationSettings",
+    "setChatMessageAutoDeleteTime",
     "setName",
     "setPinnedChats",
     "setPollAnswer",
     "setUsername",
     "toggleChatIsMarkedAsUnread",
     "toggleChatIsPinned",
+    "unpinChatMessage",
     "viewMessages",
 ];
 
@@ -172,6 +176,30 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Poll option identifiers must be unique".to_string());
             }
         }
+        "pinChatMessage" => {
+            validate_message_target(request)?;
+            if request
+                .get("disable_notification")
+                .and_then(Value::as_bool)
+                .is_none()
+                || request
+                    .get("only_for_self")
+                    .and_then(Value::as_bool)
+                    .is_none()
+            {
+                return Err("Pin options are missing".to_string());
+            }
+        }
+        "unpinChatMessage" => validate_message_target(request)?,
+        "setChatMessageAutoDeleteTime" => {
+            let time = request
+                .get("message_auto_delete_time")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Auto-delete time is missing".to_string())?;
+            if !(0..=31_536_000).contains(&time) || (time != 0 && time % 86_400 != 0) {
+                return Err("Invalid auto-delete settings".to_string());
+            }
+        }
         _ => {}
     }
     if request_type == "createPrivateChat"
@@ -213,6 +241,21 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
             }
             _ => return Err("Unsupported generic message content".to_string()),
         }
+    }
+    Ok(())
+}
+
+fn validate_message_target(request: &Value) -> Result<(), String> {
+    let chat_id = request
+        .get("chat_id")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| "Chat identifier is missing".to_string())?;
+    let message_id = request
+        .get("message_id")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| "Message identifier is missing".to_string())?;
+    if chat_id == 0 || message_id <= 0 {
+        return Err("Invalid message target".to_string());
     }
     Ok(())
 }
@@ -825,6 +868,41 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&local_file).is_err());
+    }
+
+    #[test]
+    fn validates_message_pin_and_auto_delete_requests() {
+        let pin = json!({
+            "@type": "pinChatMessage",
+            "chat_id": 7,
+            "message_id": 31,
+            "disable_notification": true,
+            "only_for_self": false,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&pin).is_ok());
+        let mut invalid_pin = pin.clone();
+        invalid_pin["message_id"] = json!(0);
+        assert!(validate_webview_tdlib_request(&invalid_pin).is_err());
+
+        let unpin = json!({
+            "@type": "unpinChatMessage",
+            "chat_id": 7,
+            "message_id": 31,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&unpin).is_ok());
+
+        let auto_delete = json!({
+            "@type": "setChatMessageAutoDeleteTime",
+            "chat_id": 7,
+            "message_auto_delete_time": 604800,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&auto_delete).is_ok());
+        let mut invalid_auto_delete = auto_delete.clone();
+        invalid_auto_delete["message_auto_delete_time"] = json!(31_536_001);
+        assert!(validate_webview_tdlib_request(&invalid_auto_delete).is_err());
     }
 
     #[test]

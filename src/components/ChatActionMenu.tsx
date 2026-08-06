@@ -3,6 +3,7 @@ import {
   ArchiveRestore,
   Bell,
   BellOff,
+  Clock3,
   LoaderCircle,
   Pin,
   PinOff,
@@ -18,6 +19,8 @@ interface ChatActionMenuProps {
   onSetPinned: (pinned: boolean) => Promise<boolean>;
   onSetMuted: (muted: boolean) => Promise<boolean>;
   onSetArchived: (archived: boolean) => Promise<boolean>;
+  onOpenPinned: () => void;
+  onOpenAutoDelete: () => void;
   onClose: () => void;
 }
 
@@ -30,6 +33,8 @@ export function ChatActionMenu({
   onSetPinned,
   onSetMuted,
   onSetArchived,
+  onOpenPinned,
+  onOpenAutoDelete,
   onClose,
 }: ChatActionMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -76,6 +81,20 @@ export function ChatActionMenu({
           ? <PinOff size={16} strokeWidth={1.9} />
           : <Pin size={16} strokeWidth={1.9} />)}
         <span>{pinned ? "取消置顶" : "置顶会话"}</span>
+      </button>
+      <button type="button" role="menuitem" disabled={busy} onClick={onOpenPinned}>
+        <Pin size={16} strokeWidth={1.9} />
+        <span>查看置顶消息</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy || chat.kind === "saved"}
+        title={chat.kind === "saved" ? "收藏夹不支持自动删除" : undefined}
+        onClick={onOpenAutoDelete}
+      >
+        <Clock3 size={16} strokeWidth={1.9} />
+        <span>自动删除消息</span>
       </button>
       <button
         type="button"

@@ -125,6 +125,10 @@ export function App() {
   const loadRawMessage = useTelegramStore((state) => state.loadRawMessage);
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
   const setPollAnswer = useTelegramStore((state) => state.setPollAnswer);
+  const loadPinnedMessages = useTelegramStore((state) => state.loadPinnedMessages);
+  const pinMessage = useTelegramStore((state) => state.pinMessage);
+  const unpinMessage = useTelegramStore((state) => state.unpinMessage);
+  const setChatMessageAutoDeleteTime = useTelegramStore((state) => state.setChatMessageAutoDeleteTime);
   const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
   const searchGlobal = useTelegramStore((state) => state.searchGlobal);
   const loadMoreGlobalSearch = useTelegramStore((state) => state.loadMoreGlobalSearch);
@@ -767,6 +771,10 @@ export function App() {
           onLoadRawMessage={loadRawMessage}
           onSetMessageReaction={setMessageReaction}
           onSetPollAnswer={setPollAnswer}
+          onLoadPinnedMessages={loadPinnedMessages}
+          onPinMessage={pinMessage}
+          onUnpinMessage={unpinMessage}
+          onSetChatMessageAutoDeleteTime={setChatMessageAutoDeleteTime}
           onSearchMessages={searchChatMessages}
           onDownloadFile={downloadFile}
           onCancelFileDownload={cancelFileDownload}

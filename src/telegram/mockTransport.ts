@@ -20,12 +20,14 @@ import type {
   GlobalSearchPage,
   Message,
   MessagePermissions,
+  PinMessageInput,
   ProxySettings,
   SendEmojiAssetInput,
   SendFileInput,
   SendFilesInput,
   SendMessageInput,
   SetChatDraftInput,
+  SetChatMessageAutoDeleteTimeInput,
   SetMessageReactionInput,
   SetPollAnswerInput,
   StorageSettings,
@@ -795,6 +797,7 @@ export class MockTelegramTransport implements TelegramTransport {
       canDeleteOnlyForSelf: !message.outgoing,
       canDeleteForAllUsers: message.outgoing,
       canForward: true,
+      canPin: true,
     });
   }
 
@@ -857,6 +860,44 @@ export class MockTelegramTransport implements TelegramTransport {
     poll.totalVoterCount = nextTotal;
     poll.canSeeResults = true;
     this.listener?.({ type: "message.upsert", message: clone(message) });
+  }
+
+  async getPinnedMessages(chatId: string) {
+    return clone(this.snapshot.messages
+      .filter((message) => message.chatId === chatId && message.isPinned)
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt)));
+  }
+
+  async pinMessage(input: PinMessageInput) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === input.chatId && item.id === input.messageId,
+    );
+    if (!message) throw new Error("找不到需要置顶的消息");
+    message.isPinned = true;
+    delete message.permissions;
+    this.listener?.({ type: "message.upsert", message: clone(message) });
+  }
+
+  async unpinMessage(chatId: string, messageId: string) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === chatId && item.id === messageId,
+    );
+    if (!message) throw new Error("找不到需要取消置顶的消息");
+    message.isPinned = false;
+    delete message.permissions;
+    this.listener?.({ type: "message.upsert", message: clone(message) });
+  }
+
+  async setChatMessageAutoDeleteTime(input: SetChatMessageAutoDeleteTimeInput) {
+    if (!Number.isSafeInteger(input.messageAutoDeleteTime) ||
+      input.messageAutoDeleteTime < 0 || input.messageAutoDeleteTime > 31_536_000 ||
+      (input.messageAutoDeleteTime !== 0 && input.messageAutoDeleteTime % 86_400 !== 0)) {
+      throw new Error("自动删除时间无效");
+    }
+    const chat = this.snapshot.chats.find((item) => item.id === input.chatId);
+    if (!chat) throw new Error("找不到会话");
+    chat.messageAutoDeleteTime = input.messageAutoDeleteTime;
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
   async getEmojiPickerCatalog(): Promise<EmojiPickerCatalog> {

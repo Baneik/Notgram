@@ -75,6 +75,7 @@ const chats: Chat[] = [
     pinnedFolderIds: ["main", "folder:work"],
     listOrderByFolder: { main: "200", "folder:work": "200" },
     muted: false,
+    messageAutoDeleteTime: 0,
   },
   {
     id: "chat-mia",
@@ -397,6 +398,7 @@ const messages: Message[] = [
     outgoing: false,
     sentAt: "2026-08-01T09:48:00+08:00",
     delivery: "read",
+    isPinned: true,
     content: { kind: "text", text: "我把交互稿更新到最新版本了，下午可以直接走查。" },
   },
   {

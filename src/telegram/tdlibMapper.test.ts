@@ -1083,6 +1083,34 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("maps pin state, pin permissions, and chat auto-delete settings", () => {
+    expect(mapTdMessageProperties({
+      can_be_replied: true,
+      can_be_edited: false,
+      can_be_deleted_only_for_self: false,
+      can_be_deleted_for_all_users: false,
+      can_be_forwarded: true,
+      can_be_pinned: true,
+    })).toMatchObject({
+      canPin: true,
+    });
+    expect(mapTdChat({
+      id: 7,
+      type: { "@type": "chatTypeBasicGroup" },
+      title: "Group",
+      message_auto_delete_time: 604800,
+    })).toMatchObject({ messageAutoDeleteTime: 604800 });
+    expect(mapTdMessage({
+      id: 12,
+      chat_id: 7,
+      sender_id: { "@type": "messageSenderUser", user_id: 9 },
+      is_outgoing: false,
+      is_pinned: true,
+      date: 1_700_000_000,
+      content: { "@type": "messageText", text: { text: "pinned", entities: [] } },
+    })).toMatchObject({ id: "12", isPinned: true });
+  });
+
   it("maps server folders, custom memberships, and downloaded chat photos", () => {
     const folders = mapTdChatFolders([
       {

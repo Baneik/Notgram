@@ -150,6 +150,7 @@ export interface Chat {
   pinnedFolderIds?: string[];
   listOrderByFolder?: Record<string, string>;
   muted: boolean;
+  messageAutoDeleteTime?: number;
 }
 
 export interface ChatDraft {
@@ -435,6 +436,7 @@ export interface MessagePermissions {
   canDeleteOnlyForSelf: boolean;
   canDeleteForAllUsers: boolean;
   canForward: boolean;
+  canPin?: boolean;
 }
 
 export interface Message {
@@ -450,6 +452,7 @@ export interface Message {
   replyTo?: MessageReplyTarget;
   forwardInfo?: MessageForwardInfo;
   interaction?: MessageInteraction;
+  isPinned?: boolean;
   permissions?: MessagePermissions;
   content: MessageContent;
 }
@@ -557,6 +560,18 @@ export interface SetPollAnswerInput {
   chatId: string;
   messageId: string;
   optionPositions: number[];
+}
+
+export interface PinMessageInput {
+  chatId: string;
+  messageId: string;
+  disableNotification: boolean;
+  onlyForSelf: boolean;
+}
+
+export interface SetChatMessageAutoDeleteTimeInput {
+  chatId: string;
+  messageAutoDeleteTime: number;
 }
 
 export interface SendFileInput {

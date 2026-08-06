@@ -95,6 +95,16 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
         notification_settings: update.notification_settings,
       });
       return;
+    case "updateChatMessageAutoDeleteTime":
+      handlers.patchChat(update.chat_id, {
+        message_auto_delete_time: update.message_auto_delete_time,
+      });
+      return;
+    case "updateMessageIsPinned":
+      handlers.patchMessage(update.chat_id, update.message_id, {
+        is_pinned: update.is_pinned,
+      });
+      return;
     case "updateNewMessage":
       handlers.emitMessage(asTdObject(update.message), true);
       return;
