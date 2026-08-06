@@ -13,6 +13,7 @@ import type {
 import { AudioPlayer } from "./AudioPlayer";
 import { VideoPlayer } from "./VideoPlayer";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
+import { MediaProgressRing } from "./MediaProgressRing";
 
 interface RichMessageContentProps {
   blocks: MessageRichBlock[];
@@ -203,6 +204,7 @@ function RichMediaBlock({ media, context, blockKey }: {
         mediaWidth={media.width}
         mediaHeight={media.height}
         downloading={media.isDownloading}
+        downloadProgress={media.progress}
         canDownload={canDownload}
         onDownload={requestDownload}
         onRequestStream={context.onStream}
@@ -226,7 +228,7 @@ function RichMediaBlock({ media, context, blockKey }: {
         aria-label={requestDownload ? `下载 ${media.fileName}` : media.fileName}
       >
         {media.isDownloading
-          ? <LoaderCircle className="spin" size={24} />
+          ? <MediaProgressRing progress={media.progress} size={28} />
           : requestDownload ? <Download size={24} /> : <ImageIcon size={24} />}
         <span>{media.fileName}</span>
         {media.sizeLabel && <small>{media.sizeLabel}</small>}

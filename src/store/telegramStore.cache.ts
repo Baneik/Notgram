@@ -1,4 +1,4 @@
-import type { CachedTelegramSnapshot, Message } from "../telegram/types";
+import type { CachedTelegramSnapshot, ChatProfile, Message } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
 
 export const TELEGRAM_CACHE_VERSION = 2 as const;
@@ -54,7 +54,11 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       )
     )) ||
     (value.activeChatId !== undefined && typeof value.activeChatId !== "string") ||
-    (value.chatFilter !== undefined && typeof value.chatFilter !== "string")
+    (value.chatFilter !== undefined && typeof value.chatFilter !== "string") ||
+    (value.profiles !== undefined && (
+      !Array.isArray(value.profiles) ||
+      !value.profiles.every((profile) => hasStringKey(profile, "id"))
+    ))
   ) {
     return { health: "invalid" };
   }
@@ -107,7 +111,10 @@ export const recentMessagesForCache = (state: TelegramState) => {
   return messages;
 };
 
-export const cachedSnapshotFrom = (state: TelegramState): CachedTelegramSnapshot => ({
+export const cachedSnapshotFrom = (
+  state: TelegramState,
+  profiles: ChatProfile[] = [],
+): CachedTelegramSnapshot => ({
   version: TELEGRAM_CACHE_VERSION,
   savedAt: new Date().toISOString(),
   currentUserId: state.currentUserId ?? "",
@@ -119,4 +126,5 @@ export const cachedSnapshotFrom = (state: TelegramState): CachedTelegramSnapshot
   outbox: state.outbox ?? [],
   activeChatId: state.activeChatId,
   chatFilter: state.chatFilter,
+  profiles,
 });

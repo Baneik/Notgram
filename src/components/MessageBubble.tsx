@@ -35,8 +35,9 @@ import {
   shouldAutoDownload,
   type AutoDownloadPolicy,
 } from "../media/autoDownload";
-import type { MessageEntrance } from "../utils/messageEntrance";
+import { consumeMessageEntrance, type MessageEntrance } from "../utils/messageEntrance";
 import { channelPostTargetFor } from "./conversationMessages";
+import { MediaProgressRing } from "./MediaProgressRing";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
@@ -141,6 +142,10 @@ function MessageBubbleComponent({
     width: number;
     height: number;
   }>();
+
+  useLayoutEffect(() => {
+    if (entrance) consumeMessageEntrance(message);
+  }, [entrance, message.chatId, message.id]);
   const textFlowRef = useRef<HTMLDivElement>(null);
   const [metaWrapped, setMetaWrapped] = useState(false);
   const content = message.content;
@@ -234,6 +239,9 @@ function MessageBubbleComponent({
   const fileProgress = (content.kind === "file" || content.kind === "media") && content.progress !== undefined
     ? `${Math.round(content.progress * 100)}%`
     : undefined;
+  const transferProgress = content.kind === "file" || content.kind === "media"
+    ? content.progress ?? 0
+    : 0;
   const downloadFileId = content.kind === "file" || content.kind === "media"
     ? content.fileId
     : undefined;
@@ -457,6 +465,7 @@ function MessageBubbleComponent({
                     mediaWidth={content.width}
                     mediaHeight={content.height}
                     downloading={content.isDownloading === true}
+                    downloadProgress={content.progress}
                     round={content.mediaType === "videoNote"}
                     canDownload={canDownload && downloadFileId !== undefined}
                     onDownload={canDownload && downloadFileId !== undefined
@@ -576,15 +585,22 @@ function MessageBubbleComponent({
                   </button>
                 )}
                 {(content.isDownloading || content.isUploading) && (
-                  <span className="media-progress">
+                  <span
+                    className="media-progress"
+                    role="progressbar"
+                    aria-label={`${content.isUploading ? "上传" : "下载"} ${downloadFileName}`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(transferProgress * 100)}
+                  >
                     {(canCancelUpload || canCancelDownload) && (
                       <button type="button" aria-label={`${canCancelUpload ? "取消上传" : "取消下载"} ${downloadFileName}`} title={canCancelUpload ? "取消上传" : "取消下载"} onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onCancelDownload(downloadFileId!)}>
-                        <LoaderCircle className="spin" size={30} strokeWidth={1.8} />
+                        <MediaProgressRing progress={transferProgress} size={30} />
                         <X className="media-progress-cancel" size={14} strokeWidth={2.2} />
                       </button>
                     )}
                     {!canCancelUpload && !canCancelDownload && (
-                      <span><LoaderCircle className="spin" size={28} strokeWidth={1.8} /></span>
+                      <span><MediaProgressRing progress={transferProgress} /></span>
                     )}
                   </span>
                 )}

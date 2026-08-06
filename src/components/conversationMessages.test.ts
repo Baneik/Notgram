@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Message } from "../telegram/types";
-import { channelPostTargetFor } from "./conversationMessages";
+import type { Chat, Message, User } from "../telegram/types";
+import { channelPostTargetFor, replyPreviewFor } from "./conversationMessages";
 
 const linkedChannelPost = (overrides: Partial<Message> = {}): Message => ({
   id: "group-copy",
@@ -45,5 +45,42 @@ describe("channel post targets", () => {
       chatId: "source-channel",
       messageId: "source-message",
     });
+  });
+});
+
+describe("reply preview authors", () => {
+  it("uses the current user's real name when another person quotes their message", () => {
+    const currentUser: User = {
+      id: "self",
+      displayName: "林然",
+      avatar: { label: "林", color: "#d16f45" },
+      presence: "online",
+    };
+    const chat = {
+      id: "chat-product",
+      kind: "group",
+      title: "产品讨论",
+    } as Chat;
+    const quoted = linkedChannelPost({
+      id: "quoted-self",
+      chatId: chat.id,
+      senderId: currentUser.id,
+      outgoing: true,
+      forwardInfo: undefined,
+    });
+    const reply = linkedChannelPost({
+      id: "reply",
+      chatId: chat.id,
+      senderId: "u-jules",
+      replyTo: { kind: "message", messageId: quoted.id },
+      forwardInfo: undefined,
+    });
+
+    expect(replyPreviewFor(
+      reply,
+      new Map([[quoted.id, quoted]]),
+      new Map([[currentUser.id, currentUser]]),
+      chat,
+    )?.author).toBe("林然");
   });
 });

@@ -14,5 +14,10 @@ export const markMessageEntrance = (message: Message) => {
   globalThis.setTimeout(() => pendingEntrances.delete(key), ENTRANCE_LIFETIME_MS);
 };
 
-export const messageEntranceFor = (message: Message) =>
-  pendingEntrances.get(messageKey(message));
+export const messageEntranceFor = (message: Message) => {
+  return pendingEntrances.get(messageKey(message));
+};
+
+export const consumeMessageEntrance = (message: Message) => {
+  pendingEntrances.delete(messageKey(message));
+};

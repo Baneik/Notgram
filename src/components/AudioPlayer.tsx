@@ -5,6 +5,7 @@ import {
   mediaPlaybackCoordinator,
   nextPlaybackRate,
 } from "../media/mediaPlayback";
+import { MediaProgressRing } from "./MediaProgressRing";
 
 interface AudioPlayerProps {
   source?: string;
@@ -168,8 +169,14 @@ export function AudioPlayer({
       </button>
       {onCancelDownload ? (
         <button className="audio-download" type="button" aria-label={`取消下载 ${label}`} title="取消下载" onClick={onCancelDownload}>
-          <span className="audio-transfer-indicator">
-            <LoaderCircle className="spin" size={22} strokeWidth={1.8} />
+          <span
+            className="audio-transfer-indicator"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round((downloadProgress ?? 0) * 100)}
+          >
+            <MediaProgressRing progress={downloadProgress} size={22} />
             <X className="audio-transfer-cancel" size={12} />
           </span>
         </button>
@@ -179,8 +186,15 @@ export function AudioPlayer({
         </button>
       )}
       {!resolvedSource && downloadProgress !== undefined && downloadProgress > 0 && !onCancelDownload && (
-        <span className="audio-transfer-indicator" aria-label="音频加载中">
-          <LoaderCircle className="spin" size={22} strokeWidth={1.8} />
+        <span
+          className="audio-transfer-indicator"
+          role="progressbar"
+          aria-label="音频加载进度"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(downloadProgress * 100)}
+        >
+          <MediaProgressRing progress={downloadProgress} size={22} />
         </span>
       )}
     </div>

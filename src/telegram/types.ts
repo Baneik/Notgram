@@ -444,6 +444,7 @@ export interface CachedTelegramSnapshot {
   outbox?: QueuedOutgoingMessage[];
   activeChatId?: string;
   chatFilter?: string;
+  profiles?: ChatProfile[];
 }
 
 export interface QueuedOutgoingMessage {

@@ -19,6 +19,7 @@ import { Avatar } from "./Avatar";
 import { GlobalSearchResults } from "./GlobalSearchView";
 import { ChatContextMenu } from "./SidebarContextMenus";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
+import { usePreferencesStore, type UnreadBadgePosition } from "../store/preferencesStore";
 
 interface ChatSidebarProps {
   chats: Chat[];
@@ -89,6 +90,7 @@ export function ChatSidebar({
   onWidthPreview,
   onWidthChange,
 }: ChatSidebarProps) {
+  const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const sidebarRef = useRef<HTMLElement>(null);
   const chatListRef = useRef<HTMLDivElement>(null);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
@@ -399,6 +401,7 @@ export function ChatSidebar({
               <ChatRow
                 key={chat.id}
                 chat={chat}
+                unreadBadgePosition={unreadBadgePosition}
                 previewSenderName={chat.previewSenderId
                   ? users.get(chat.previewSenderId)?.displayName ?? (
                       chat.previewSenderId.startsWith("chat:")
@@ -476,6 +479,7 @@ export function ChatSidebar({
 
 const ChatRow = memo(function ChatRow({
   chat,
+  unreadBadgePosition,
   previewSenderName,
   folderId,
   active,
@@ -491,6 +495,7 @@ const ChatRow = memo(function ChatRow({
   onLostPointerCapture,
 }: {
   chat: Chat;
+  unreadBadgePosition: UnreadBadgePosition;
   previewSenderName?: string;
   folderId: string;
   active: boolean;
@@ -546,7 +551,14 @@ const ChatRow = memo(function ChatRow({
       onPointerCancel={onPointerCancel}
       onLostPointerCapture={onLostPointerCapture}
     >
-      <Avatar avatar={chat.avatar} />
+      <span className="chat-avatar-wrap">
+        <Avatar avatar={chat.avatar} />
+        {unreadBadgePosition === "avatar" && chat.unreadCount > 0 && (
+          <span className={`unread-count unread-count-avatar ${chat.muted ? "is-muted" : ""}`}>
+            {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
+          </span>
+        )}
+      </span>
       <span className="chat-row-body">
         <span className="chat-row-topline">
           <strong>{chat.title}</strong>
@@ -566,7 +578,7 @@ const ChatRow = memo(function ChatRow({
           <span className="chat-row-meta">
             {isChatPinnedInFolder(chat, folderId) && <Pin size={13} strokeWidth={2} />}
             {chat.folderIds.includes("archive") && <Archive size={13} strokeWidth={2} />}
-            {chat.unreadCount > 0 && (
+            {unreadBadgePosition === "right" && chat.unreadCount > 0 && (
               <span className={`unread-count ${chat.muted ? "is-muted" : ""}`}>{chat.unreadCount}</span>
             )}
           </span>

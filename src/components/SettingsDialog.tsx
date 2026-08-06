@@ -217,6 +217,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const messageGroupSpacing = usePreferencesStore((state) => state.messageGroupSpacing);
   const messageRowSpacing = usePreferencesStore((state) => state.messageRowSpacing);
   const messageBubblePadding = usePreferencesStore((state) => state.messageBubblePadding);
+  const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const colorTheme = usePreferencesStore((state) => state.colorTheme);
   const preferences: AppPreferences = {
     notificationsEnabled,
@@ -238,6 +239,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     messageGroupSpacing,
     messageRowSpacing,
     messageBubblePadding,
+    unreadBadgePosition,
     colorTheme,
   };
   const setPreference = usePreferencesStore((state) => state.setPreference);
@@ -547,6 +549,25 @@ function PreferenceSettings({
               suffix="%"
               onChange={(value) => onChange("interfaceScale", value)}
             />
+            <div className="theme-preference">
+              <strong>未读消息计数器位置</strong>
+              <div className="theme-segmented-control" aria-label="未读消息计数器位置">
+                <button
+                  type="button"
+                  aria-pressed={preferences.unreadBadgePosition === "right"}
+                  onClick={() => onChange("unreadBadgePosition", "right")}
+                >
+                  右侧
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={preferences.unreadBadgePosition === "avatar"}
+                  onClick={() => onChange("unreadBadgePosition", "avatar")}
+                >
+                  头像右下角
+                </button>
+              </div>
+            </div>
           </div>
           <button
             className="storage-reset display-reset"
@@ -554,12 +575,14 @@ function PreferenceSettings({
             disabled={
               preferences.colorTheme === "light" &&
               preferences.chatFontSize === 14 &&
-              preferences.interfaceScale === 100
+              preferences.interfaceScale === 100 &&
+              preferences.unreadBadgePosition === "right"
             }
             onClick={() => {
               onChange("colorTheme", "light");
               onChange("chatFontSize", 14);
               onChange("interfaceScale", 100);
+              onChange("unreadBadgePosition", "right");
             }}
           >
             <RotateCcw size={15} strokeWidth={2} />

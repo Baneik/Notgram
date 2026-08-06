@@ -5,6 +5,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export type ColorTheme = "light" | "dark";
+export type UnreadBadgePosition = "right" | "avatar";
 
 export interface AppPreferences {
   notificationsEnabled: boolean;
@@ -26,6 +27,7 @@ export interface AppPreferences {
   messageGroupSpacing: number;
   messageRowSpacing: number;
   messageBubblePadding: number;
+  unreadBadgePosition: UnreadBadgePosition;
   colorTheme: ColorTheme;
 }
 
@@ -57,6 +59,7 @@ const defaults: AppPreferences = {
   messageGroupSpacing: 10,
   messageRowSpacing: 1,
   messageBubblePadding: 8,
+  unreadBadgePosition: "right",
   colorTheme: "light",
 };
 
@@ -116,6 +119,9 @@ const readPreferences = (): AppPreferences => {
         4,
         12,
       ),
+      unreadBadgePosition: stored.unreadBadgePosition === "avatar"
+        ? "avatar"
+        : defaults.unreadBadgePosition,
       colorTheme: stored.colorTheme === "dark" ? "dark" : defaults.colorTheme,
     };
   } catch {
@@ -198,6 +204,7 @@ preferencesStore.subscribe((state) => {
     messageGroupSpacing: state.messageGroupSpacing,
     messageRowSpacing: state.messageRowSpacing,
     messageBubblePadding: state.messageBubblePadding,
+    unreadBadgePosition: state.unreadBadgePosition,
     colorTheme: state.colorTheme,
   };
   applyPreferences(preferences);

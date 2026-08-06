@@ -28,6 +28,8 @@ export const senderNameForMessage = (
   chat: Chat,
   chats?: Map<string, Chat>,
 ) => {
+  const knownUserName = users.get(message.senderId)?.displayName;
+  if (knownUserName) return knownUserName;
   if (message.outgoing) return "你";
   const senderChat = senderChatId(message.senderId);
   return users.get(message.senderId)?.displayName ??

@@ -60,7 +60,6 @@ export { filterAndSortChats, selectVisibleChats } from "./telegramStore.selector
 
 const CACHE_WRITE_DELAY_MS = 2_000;
 const CACHE_WRITE_IDLE_TIMEOUT_MS = 1_500;
-const PROFILE_CACHE_TTL_MS = 5 * 60_000;
 
 const errorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -97,6 +96,7 @@ export const createTelegramStore = (
     let globalSearchGeneration = 0;
     let profileGeneration = 0;
     const profileCache = new Map<string, { value: ChatProfile; cachedAt: number }>();
+    const profileRefreshes = new Map<string, Promise<ChatProfile>>();
     let accountProfileGeneration = 0;
     let contactsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -159,7 +159,10 @@ export const createTelegramStore = (
           cacheIdleCallback = undefined;
           const current = get();
           if (current.authorization.kind !== "ready" || !current.currentUserId) return;
-          const snapshot = cachedSnapshotFrom(current);
+          const snapshot = cachedSnapshotFrom(
+            current,
+            [...profileCache.values()].map(({ value }) => value),
+          );
           cacheWrite = cacheWrite
             .catch(() => undefined)
             .then(() => transport.saveCachedSnapshot(snapshot))
@@ -207,6 +210,7 @@ export const createTelegramStore = (
       accountProfileGeneration += 1;
       profileGeneration += 1;
       profileCache.clear();
+      profileRefreshes.clear();
       contactsGeneration += 1;
       set({
         currentUserId: undefined,
@@ -269,7 +273,9 @@ export const createTelegramStore = (
       await cacheWrite.catch(() => undefined);
       const state = get();
       if (state.authorization.kind === "ready" && state.currentUserId) {
-        await transport.saveCachedSnapshot(cachedSnapshotFrom(state));
+        await transport.saveCachedSnapshot(
+          cachedSnapshotFrom(state, [...profileCache.values()].map(({ value }) => value)),
+        );
         set({ cacheHealth: "healthy" });
       }
     };
@@ -344,6 +350,13 @@ export const createTelegramStore = (
         return;
       }
       const current = get();
+      profileCache.clear();
+      for (const value of snapshot.profiles ?? []) {
+        const cacheKey = value.chatId
+          ? `chat:${value.chatId}`
+          : value.userId ? `user:${value.userId}` : undefined;
+        if (cacheKey) profileCache.set(cacheKey, { value, cachedAt: Date.now() });
+      }
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
       let messages = messageMapFrom(snapshot.messages);
@@ -823,6 +836,23 @@ export const createTelegramStore = (
       }
     };
 
+    const refreshProfileCache = (
+      cacheKey: string,
+      loadProfile: () => Promise<ChatProfile>,
+    ) => {
+      const pending = profileRefreshes.get(cacheKey);
+      if (pending) return pending;
+      const request = loadProfile().then((value) => {
+        profileCache.set(cacheKey, { value, cachedAt: Date.now() });
+        scheduleCacheWrite();
+        return value;
+      }).finally(() => {
+        if (profileRefreshes.get(cacheKey) === request) profileRefreshes.delete(cacheKey);
+      });
+      profileRefreshes.set(cacheKey, request);
+      return request;
+    };
+
     return {
       phase: "idle",
       transportKind: transport.kind,
@@ -1101,7 +1131,10 @@ export const createTelegramStore = (
         try {
           await cacheWrite.catch(() => undefined);
           await transport.clearCachedSnapshot();
-          await transport.saveCachedSnapshot(cachedSnapshotFrom(get()));
+          await transport.saveCachedSnapshot(cachedSnapshotFrom(
+            get(),
+            [...profileCache.values()].map(({ value }) => value),
+          ));
           set({ cacheHealth: "rebuilt", storagePending: false });
           return true;
         } catch (error) {
@@ -1584,14 +1617,16 @@ export const createTelegramStore = (
         const generation = ++profileGeneration;
         const cacheKey = `chat:${chatId}`;
         const cached = profileCache.get(cacheKey);
-        if (cached && Date.now() - cached.cachedAt < PROFILE_CACHE_TTL_MS) {
+        if (cached) {
           set({ profile: { target, value: cached.value, loading: false } });
           return;
         }
-        set({ profile: { target, value: cached?.value, loading: true } });
+        set({ profile: { target, loading: true } });
         try {
-          const value = await transport.getChatProfile(chatId);
-          profileCache.set(cacheKey, { value, cachedAt: Date.now() });
+          const value = await refreshProfileCache(
+            cacheKey,
+            () => transport.getChatProfile(chatId),
+          );
           if (generation !== profileGeneration) return;
           set({ profile: { target, value, loading: false } });
         } catch (error) {
@@ -1599,11 +1634,26 @@ export const createTelegramStore = (
           set({
             profile: {
               target,
-              value: cached?.value,
               loading: false,
               error: errorMessage(error, "无法读取聊天资料"),
             },
           });
+        }
+      },
+
+      refreshChatProfile: async (chatId) => {
+        const cacheKey = `chat:${chatId}`;
+        try {
+          const value = await refreshProfileCache(
+            cacheKey,
+            () => transport.getChatProfile(chatId),
+          );
+          const current = get().profile;
+          if (current.target?.kind === "chat" && current.target.chatId === chatId) {
+            set({ profile: { ...current, value, loading: false, error: undefined } });
+          }
+        } catch {
+          // Conversation entry refresh is best-effort and never blocks the UI.
         }
       },
 
@@ -1616,14 +1666,16 @@ export const createTelegramStore = (
         const generation = ++profileGeneration;
         const cacheKey = `user:${userId}`;
         const cached = profileCache.get(cacheKey);
-        if (cached && Date.now() - cached.cachedAt < PROFILE_CACHE_TTL_MS) {
+        if (cached) {
           set({ profile: { target, value: cached.value, loading: false } });
           return;
         }
-        set({ profile: { target, value: cached?.value, loading: true } });
+        set({ profile: { target, loading: true } });
         try {
-          const value = await transport.getUserProfile(userId);
-          profileCache.set(cacheKey, { value, cachedAt: Date.now() });
+          const value = await refreshProfileCache(
+            cacheKey,
+            () => transport.getUserProfile(userId),
+          );
           if (generation !== profileGeneration) return;
           set({ profile: { target, value, loading: false } });
         } catch (error) {
@@ -1631,7 +1683,6 @@ export const createTelegramStore = (
           set({
             profile: {
               target,
-              value: cached?.value,
               loading: false,
               error: errorMessage(error, "无法读取用户资料"),
             },

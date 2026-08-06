@@ -6,7 +6,6 @@ import {
   Forward,
   MoreVertical,
   LoaderCircle,
-  Phone,
   Search,
   X,
 } from "lucide-react";
@@ -233,7 +232,7 @@ export function Conversation({
     autoDownloadVideos,
   ]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
-  const suppressComposerAutofocusRef = useRef(false);
+  const selectionMessageRef = useRef<HTMLElement | null>(null);
   const positionedNotificationFrameRef = useRef<number | undefined>(undefined);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -485,22 +484,74 @@ export function Conversation({
     )
   );
 
-  useLayoutEffect(() => {
-    suppressComposerAutofocusRef.current = false;
+  useEffect(() => {
+    if (!chat) return;
+    let focusTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+    const isEditable = (target: Element | null) => target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLInputElement && !["checkbox", "radio", "range", "file"].includes(target.type)) ||
+      target?.getAttribute("contenteditable") === "true";
+    const isProtectedSurface = (target: Element | null) => Boolean(
+      target?.closest("[role='dialog'], [role='menu'], .context-menu-panel, .chat-action-menu"),
+    );
+    const focusComposerWhenFree = (onlyWhenUnfocused = false) => {
+      if (window.matchMedia("(forced-colors: active)").matches) return;
+      if (focusTimer !== undefined) globalThis.clearTimeout(focusTimer);
+      focusTimer = globalThis.setTimeout(() => {
+        focusTimer = undefined;
+        const active = document.activeElement;
+        if (!document.hasFocus() || isEditable(active) || isProtectedSurface(active)) return;
+        if (onlyWhenUnfocused && active !== document.body && active !== document.documentElement) return;
+        composerInputRef.current?.focus({ preventScroll: true });
+      }, 80);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (isEditable(target) || isProtectedSurface(target)) return;
+      focusComposerWhenFree();
+    };
+    const onFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+      if (next && next !== document.body && next !== document.documentElement) return;
+      focusComposerWhenFree(true);
+    };
+    const onWindowFocus = () => focusComposerWhenFree(true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("focusout", onFocusOut);
+    window.addEventListener("focus", onWindowFocus);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("focusout", onFocusOut);
+      window.removeEventListener("focus", onWindowFocus);
+      if (focusTimer !== undefined) globalThis.clearTimeout(focusTimer);
+    };
   }, [chat?.id]);
 
-  useLayoutEffect(() => {
-    if (!chat || !positioning) return;
-    const preserveIntentionalFocus = (event: FocusEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element) || target === composerInputRef.current) return;
-      if (target.closest("button, a, input, textarea, select, [contenteditable='true']")) {
-        suppressComposerAutofocusRef.current = true;
-      }
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const row = target?.closest<HTMLElement>(".message-row");
+      selectionMessageRef.current = row?.querySelector(".message-rich-text") ? row : null;
     };
-    document.addEventListener("focusin", preserveIntentionalFocus);
-    return () => document.removeEventListener("focusin", preserveIntentionalFocus);
-  }, [chat?.id, positioning]);
+    const onSelectionChange = () => {
+      const selection = globalThis.getSelection();
+      const boundary = selectionMessageRef.current;
+      if (!selection || selection.isCollapsed || !boundary) return;
+      const anchorRow = selection.anchorNode instanceof Element
+        ? selection.anchorNode.closest<HTMLElement>(".message-row")
+        : selection.anchorNode?.parentElement?.closest<HTMLElement>(".message-row");
+      const focusRow = selection.focusNode instanceof Element
+        ? selection.focusNode.closest<HTMLElement>(".message-row")
+        : selection.focusNode?.parentElement?.closest<HTMLElement>(".message-row");
+      if (anchorRow !== boundary || focusRow !== boundary) selection.removeAllRanges();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("selectionchange", onSelectionChange);
+      selectionMessageRef.current = null;
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (
@@ -508,9 +559,13 @@ export function Conversation({
       positioning ||
       historyLoading ||
       searchOpen ||
-      selectionMode ||
-      suppressComposerAutofocusRef.current
+      selectionMode
     ) return;
+    const active = document.activeElement;
+    const activeChatRow = active instanceof Element && Boolean(active.closest(".chat-row"));
+    if (active && active !== document.body && active !== document.documentElement &&
+      active !== composerInputRef.current &&
+      (!activeChatRow || window.matchMedia("(forced-colors: active)").matches)) return;
     composerInputRef.current?.focus({ preventScroll: true });
   }, [chat?.id, historyLoading, positioning, searchOpen, selectionMode]);
 
@@ -806,9 +861,6 @@ export function Conversation({
               </span>
             </button>
             <div className="conversation-actions">
-              <button className="icon-button" type="button" aria-label="语音通话" title="语音通话">
-                <Phone size={19} strokeWidth={1.8} />
-              </button>
               <button
                 className={`icon-button ${searchOpen ? "is-active" : ""}`}
                 type="button"

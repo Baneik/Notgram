@@ -35,6 +35,7 @@ import {
   type VideoWindowState,
 } from "../media/videoWindowBridge";
 import { logPerformance } from "../utils/performanceMonitor";
+import { MediaProgressRing } from "./MediaProgressRing";
 
 interface VideoPlayerProps {
   source?: string;
@@ -47,6 +48,7 @@ interface VideoPlayerProps {
   mediaWidth?: number;
   mediaHeight?: number;
   downloading?: boolean;
+  downloadProgress?: number;
   round?: boolean;
   canDownload?: boolean;
   onDownload?: () => void | Promise<void>;
@@ -78,6 +80,7 @@ export function VideoPlayer({
   mediaWidth,
   mediaHeight,
   downloading = false,
+  downloadProgress,
   round = false,
   canDownload = false,
   onDownload,
@@ -756,8 +759,10 @@ export function VideoPlayer({
             togglePlaybackFromControl();
           }}
         >
-          {loading || buffering || downloading
-            ? <LoaderCircle className="spin" size={23} />
+          {downloading
+            ? <MediaProgressRing progress={downloadProgress} size={27} />
+            : loading || buffering
+              ? <LoaderCircle className="spin" size={23} />
             : playing
               ? <Pause size={22} fill="currentColor" />
               : <Play size={22} fill="currentColor" />}

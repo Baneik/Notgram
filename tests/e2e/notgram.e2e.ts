@@ -1965,6 +1965,59 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
   await expect(page.locator(".chat-row .lucide-volume-x")).toHaveCount(0);
 });
 
+test("chat settings move unread counters onto avatars and persist the choice", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /聊天设置/ }).click();
+  await page.getByRole("button", { name: "头像右下角", exact: true }).click();
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+
+  const releaseRow = page.locator('.chat-row[data-chat-id="chat-release"]');
+  await expect(releaseRow.locator(".chat-avatar-wrap .unread-count-avatar")).toHaveText("8");
+  await expect(releaseRow.locator(".chat-row-meta .unread-count")).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.locator(
+    '.chat-row[data-chat-id="chat-release"] .chat-avatar-wrap .unread-count-avatar',
+  )).toHaveText("8");
+});
+
+test("media transfers expose their exact circular progress", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const chatMessages = [...(messages.get("chat-product") ?? [])];
+    const index = chatMessages.findIndex((message) => message.id === "p-video");
+    if (index < 0) return;
+    const message = chatMessages[index];
+    chatMessages[index] = {
+      ...message,
+      content: {
+        ...(message.content as Record<string, unknown>),
+        isDownloaded: false,
+        isDownloading: true,
+        progress: 0.37,
+      },
+    };
+    messages.set("chat-product", chatMessages);
+    storeModule.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const progress = page.locator('[data-message-id="p-video"] [role="progressbar"]');
+  await expect(progress).toHaveAttribute("aria-valuenow", "37");
+  const ring = progress.locator(".media-progress-ring-value");
+  const dashOffset = Number(await ring.getAttribute("stroke-dashoffset"));
+  expect(dashOffset).toBeGreaterThan(47);
+  expect(dashOffset).toBeLessThan(48);
+});
+
 test("pinned chats can be dragged into a fixed order", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');
@@ -2469,6 +2522,11 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await page.getByRole("button", { name: "发送消息" }).click();
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+
+  await page.locator(".message-list").hover();
+  for (let attempt = 0; attempt < 5; attempt += 1) await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(180);
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
 
   await scrollAwayFromBottom(page);
   await page.locator('[data-chat-id="chat-mia"]').click();

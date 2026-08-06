@@ -1632,6 +1632,38 @@ describe("profiles and contacts state", () => {
     });
   });
 
+  it("persists profiles and refreshes the active chat without opening the drawer", async () => {
+    class CountingProfileTransport extends MockTelegramTransport {
+      chatProfileCalls = 0;
+
+      override async getChatProfile(chatId: string) {
+        this.chatProfileCalls += 1;
+        return super.getChatProfile(chatId);
+      }
+    }
+
+    const transport = new CountingProfileTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().refreshChatProfile("chat-product");
+
+    expect(transport.chatProfileCalls).toBe(1);
+    expect(store.getState().profile.target).toBeUndefined();
+    await expect(store.getState().rebuildCachedSnapshot()).resolves.toBe(true);
+    const persisted = await transport.loadCachedSnapshot();
+    expect(persisted?.profiles).toEqual([
+      expect.objectContaining({ chatId: "chat-product", title: "产品讨论" }),
+    ]);
+
+    const restartedTransport = new CountingProfileTransport({ cachedSnapshot: persisted });
+    const restartedStore = createTelegramStore(restartedTransport);
+    await restartedStore.getState().initialize();
+    await restartedStore.getState().loadChatProfile("chat-product");
+
+    expect(restartedTransport.chatProfileCalls).toBe(0);
+    expect(restartedStore.getState().profile.value).toMatchObject({ title: "产品讨论" });
+  });
+
   it("discards a profile response after a newer target is requested", async () => {
     class DelayedProfileTransport extends MockTelegramTransport {
       requests: Array<{
