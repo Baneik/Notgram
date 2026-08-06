@@ -388,6 +388,71 @@ test("live messages animate without replaying history rows", async ({ page }) =>
   await expect(page.locator(".message-row.is-entering-outgoing")).toHaveCount(0);
 });
 
+test("new messages stay pinned without viewport rebound", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("逐帧滚动稳定性测试");
+  const samplesPromise = page.evaluate(() => new Promise<Array<{
+    scrollTop: number;
+    distanceBottom: number;
+    rowBottom?: number;
+    rowVisible: boolean;
+    listBottom: number;
+  }>>((resolve) => {
+    const samples: Array<{
+      scrollTop: number;
+      distanceBottom: number;
+      rowBottom?: number;
+      rowVisible: boolean;
+      listBottom: number;
+    }> = [];
+    let frames = 0;
+    const sample = () => {
+      const list = document.querySelector<HTMLElement>(".message-list");
+      const row = [...document.querySelectorAll<HTMLElement>("[data-message-id]")]
+        .find((candidate) => candidate.textContent?.includes("逐帧滚动稳定性测试"));
+      if (list) {
+        samples.push({
+          scrollTop: list.scrollTop,
+          distanceBottom: list.scrollHeight - list.clientHeight - list.scrollTop,
+          rowBottom: row?.getBoundingClientRect().bottom,
+          rowVisible: Boolean(row && getComputedStyle(row).visibility !== "hidden"),
+          listBottom: list.getBoundingClientRect().bottom,
+        });
+      }
+      frames += 1;
+      if (frames < 90) requestAnimationFrame(sample);
+      else resolve(samples);
+    };
+    requestAnimationFrame(sample);
+  }));
+
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const samples = await samplesPromise;
+  const afterAppend = samples.findIndex((sample) => sample.rowBottom !== undefined);
+  expect(afterAppend).toBeGreaterThanOrEqual(0);
+  const visibleSamples = samples.slice(afterAppend);
+  const viewportRebounds = visibleSamples.slice(1).filter((sample, index) =>
+    sample.scrollTop < visibleSamples[index].scrollTop - 0.5,
+  );
+  expect(viewportRebounds, JSON.stringify(visibleSamples)).toHaveLength(0);
+  const animatedSamples = visibleSamples.filter((sample) => sample.rowVisible);
+  const bubbleRebounds = animatedSamples.slice(1).filter((sample, index) =>
+    sample.rowBottom !== undefined && animatedSamples[index].rowBottom !== undefined &&
+    sample.rowBottom > animatedSamples[index].rowBottom! + 0.5,
+  );
+  expect(bubbleRebounds, JSON.stringify(animatedSamples)).toHaveLength(0);
+  expect(visibleSamples.at(-1)?.distanceBottom).toBeLessThanOrEqual(1);
+  expect(Math.abs(
+    (visibleSamples.at(-1)?.listBottom ?? 0) - (visibleSamples.at(-1)?.rowBottom ?? 0),
+  )).toBeLessThanOrEqual(13);
+});
+
 test("history loading hides transient scrollbar geometry until anchoring settles", async ({ page }) => {
   await page.addInitScript(() => {
     const state = { observed: false };

@@ -567,7 +567,6 @@ export const useConversationScroll = ({
         }, Math.max(16, smoothScrollUntilRef.current - performance.now()));
         return;
       }
-      let remainingFrames = 4;
       const settleLatest = () => {
         if (!conversationScrollMemory.get(currentScrollKey)?.followLatest) {
           heightCorrectionFrameRef.current = undefined;
@@ -579,14 +578,9 @@ export const useConversationScroll = ({
           return;
         }
         scrollToLatestPosition();
-        remainingFrames -= 1;
-        if (remainingFrames > 0) {
-          heightCorrectionFrameRef.current = requestAnimationFrame(settleLatest);
-        } else {
-          heightCorrectionFrameRef.current = undefined;
-        }
+        heightCorrectionFrameRef.current = undefined;
       };
-      settleLatest();
+      heightCorrectionFrameRef.current = requestAnimationFrame(settleLatest);
     }, 80);
   }, [currentScrollKey, scrollToLatestPosition, search]);
 
@@ -631,11 +625,13 @@ export const useConversationScroll = ({
     updateLatestPosition(currentScrollKey, true);
   }, [currentScrollKey, lastVisibleMessageId, scheduleExactBottomCorrection, scrollToLatestPosition]);
 
-  const followOutput = useCallback((): "smooth" | false => {
+  const followOutput = useCallback((): "auto" | false => {
     if (!currentScrollKey) return false;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest !== true) return false;
-    smoothScrollUntilRef.current = performance.now() + 520;
-    return "smooth";
+    // Keep the viewport fixed to the bottom while the bubble performs its own
+    // entrance animation. A second smooth viewport animation races Virtuoso's
+    // height measurement and can visibly rebound when the correction settles.
+    return "auto";
   }, [currentScrollKey]);
 
   const onTotalListHeightChanged = useCallback(() => {
@@ -808,6 +804,10 @@ export const useConversationScroll = ({
         if (stored.followLatest) {
           pendingNewCount = 0;
           followLatest = true;
+          // Position the appended row in the same layout commit. Waiting for the
+          // quiet-period correction leaves the new row below the viewport long
+          // enough to look like a bounce when it is finally revealed.
+          scrollToLatestPosition();
         } else {
           pendingNewCount += appendedMessageCount(visibleMessages, stored.lastKnownMessageId);
           followLatest = false;
