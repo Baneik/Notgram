@@ -17,6 +17,7 @@ import {
 } from "../utils/performanceMonitor";
 
 const BOTTOM_PROXIMITY_PX = 32;
+const BOTTOM_EPSILON_PX = 1;
 const HISTORY_TRIGGER_PX = 64;
 const SMOOTH_SCROLL_DURATION_MS = 480;
 
@@ -50,6 +51,7 @@ interface InitialLocation {
   location: IndexLocationWithAlign | number;
   mode: "empty" | "bottom" | "anchor" | "search" | "pending";
   targetMessageId?: string;
+  targetOffset?: number;
 }
 
 export interface LatestConversationScrollRequest {
@@ -169,6 +171,7 @@ export const useConversationScroll = ({
   const bottomFrameRef = useRef<number | undefined>(undefined);
   const bottomSettleFrameRef = useRef<number | undefined>(undefined);
   const anchorFrameRef = useRef<number | undefined>(undefined);
+  const positioningAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningFrameRef = useRef<number | undefined>(undefined);
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const smoothScrollUntilRef = useRef(0);
@@ -217,14 +220,20 @@ export const useConversationScroll = ({
     : undefined;
   const requestedTargetId = pendingMessageRequest?.messageId ?? pendingEntryRequest?.serverMessageId;
   const targetReady = requestedTargetId ? messageItemIndexes.has(requestedTargetId) : false;
+  const requestIdentityTargetId = matchingMessageRequest?.messageId ??
+    matchingEntryRequest?.serverMessageId;
   const searchActive = Boolean(search);
   const dataPhase = virtualItemCount > 0 ? "ready" : historyLoading ? "loading" : "empty";
-  const targetPhase = !requestedTargetId ? "none" : targetReady ? "ready" : "pending";
+  const targetPhase = !requestIdentityTargetId
+    ? "none"
+    : messageItemIndexes.has(requestIdentityTargetId)
+      ? "ready"
+      : "pending";
   const initialLocationIdentity = [
     currentScrollKey ?? scope,
-    pendingEntryRequest?.requestId ?? 0,
-    pendingLatestRequest?.requestId ?? 0,
-    pendingMessageRequest?.requestId ?? 0,
+    matchingEntryRequest?.requestId ?? 0,
+    matchingLatestRequest?.requestId ?? 0,
+    matchingMessageRequest?.requestId ?? 0,
     searchActive ? "search" : "conversation",
     historyInitialized ? "history-ready" : "history-initial",
     dataPhase,
@@ -250,6 +259,7 @@ export const useConversationScroll = ({
     let location: IndexLocationWithAlign | number = 0;
     let mode: InitialLocation["mode"] = "empty";
     let targetMessageId: string | undefined;
+    let targetOffset: number | undefined;
 
     if (virtualItemCount > 0) {
       if (searchActive) {
@@ -273,6 +283,7 @@ export const useConversationScroll = ({
         };
         mode = "anchor";
         targetMessageId = memory?.anchorMessageId;
+        targetOffset = memory?.anchorOffset;
       } else {
         location = { index: "LAST", align: "end", behavior: "auto" };
         mode = "bottom";
@@ -283,6 +294,7 @@ export const useConversationScroll = ({
       location,
       mode,
       targetMessageId,
+      targetOffset,
     };
   }
 
@@ -433,6 +445,11 @@ export const useConversationScroll = ({
   ) => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
+    const needsConvergence = converge || distanceFromBottom(element) > BOTTOM_PROXIMITY_PX;
+    if (positioningAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(positioningAnchorFrameRef.current);
+      positioningAnchorFrameRef.current = undefined;
+    }
     userIntentUntilRef.current = 0;
     pointerActiveRef.current = false;
     writeMemory(currentScrollKey, element, true, 0, false);
@@ -451,7 +468,7 @@ export const useConversationScroll = ({
       }, SMOOTH_SCROLL_DURATION_MS);
     } else {
       smoothScrollUntilRef.current = 0;
-      if (converge) {
+      if (needsConvergence) {
         virtuosoRef.current?.scrollToIndex({
           index: "LAST",
           align: "end",
@@ -459,7 +476,7 @@ export const useConversationScroll = ({
         });
       }
       pinToBottom();
-      if (converge) {
+      if (needsConvergence) {
         scheduleBottomPin();
         settleBottomPosition(initialLocationIdentity, virtuosoKey);
       }
@@ -513,6 +530,32 @@ export const useConversationScroll = ({
       correctMountedAnchor();
     });
   }, []);
+
+  const settleAnchorPosition = useCallback((
+    element: HTMLElement,
+    messageId: string,
+    expectedOffset: number,
+    identity: string,
+    expectedVirtuosoKey: string,
+  ) => {
+    if (positioningAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(positioningAnchorFrameRef.current);
+    }
+    let remainingFrames = 18;
+    const settle = () => {
+      positioningAnchorFrameRef.current = undefined;
+      if (
+        initialLocationRef.current?.identity !== identity ||
+        element.dataset.conversationVirtuosoKey !== expectedVirtuosoKey
+      ) return;
+      restoreAnchor(element, messageId, expectedOffset);
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        positioningAnchorFrameRef.current = requestAnimationFrame(settle);
+      }
+    };
+    positioningAnchorFrameRef.current = requestAnimationFrame(settle);
+  }, [restoreAnchor]);
 
   const loadOlder = useCallback(() => {
     const element = messageListRef.current;
@@ -592,6 +635,19 @@ export const useConversationScroll = ({
         if (initialLocationRef.current.mode === "bottom") {
           pinToBottom();
           settleBottomPosition(identity, expectedVirtuosoKey);
+        } else if (
+          initialLocationRef.current.mode === "anchor" &&
+          initialLocationRef.current.targetMessageId &&
+          initialLocationRef.current.targetOffset !== undefined &&
+          messageListRef.current
+        ) {
+          settleAnchorPosition(
+            messageListRef.current,
+            initialLocationRef.current.targetMessageId,
+            initialLocationRef.current.targetOffset,
+            identity,
+            expectedVirtuosoKey,
+          );
         }
         positionedIdentityRef.current = identity;
         setPositionedIdentity(identity);
@@ -616,6 +672,7 @@ export const useConversationScroll = ({
     matchingMessageRequest?.performanceTraceId,
     virtuosoKey,
     pinToBottom,
+    settleAnchorPosition,
     settleBottomPosition,
   ]);
 
@@ -934,6 +991,9 @@ export const useConversationScroll = ({
     if (bottomFrameRef.current !== undefined) cancelAnimationFrame(bottomFrameRef.current);
     if (bottomSettleFrameRef.current !== undefined) cancelAnimationFrame(bottomSettleFrameRef.current);
     if (anchorFrameRef.current !== undefined) cancelAnimationFrame(anchorFrameRef.current);
+    if (positioningAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(positioningAnchorFrameRef.current);
+    }
     if (positioningFrameRef.current !== undefined) cancelAnimationFrame(positioningFrameRef.current);
     if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);
     if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
@@ -994,12 +1054,30 @@ export const useConversationScroll = ({
     }
   }, [completePositioning, currentScrollKey, updateFollowingState]);
 
+  useEffect(() => {
+    if (!messageListElement) return;
+    const preventBottomOverscroll = (event: WheelEvent) => {
+      const rawDistance = messageListElement.scrollHeight -
+        messageListElement.clientHeight - messageListElement.scrollTop;
+      if (event.deltaY > 0 && rawDistance <= BOTTOM_EPSILON_PX) {
+        event.preventDefault();
+      }
+    };
+    messageListElement.addEventListener("wheel", preventBottomOverscroll, { passive: false });
+    return () => messageListElement.removeEventListener("wheel", preventBottomOverscroll);
+  }, [messageListElement]);
+
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
-    if (event.deltaY > 0 && distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX) {
+    const rawDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
+    if (event.deltaY > 0 && rawDistance <= BOTTOM_EPSILON_PX) {
       event.preventDefault();
-      if (currentScrollKey) writeMemory(currentScrollKey, element, true, 0, false);
-      pinToBottom();
+      if (currentScrollKey) {
+        const memory = conversationScrollMemory.get(currentScrollKey);
+        if (memory?.followLatest !== true || memory.pendingNewCount !== 0) {
+          writeMemory(currentScrollKey, element, true, 0, false);
+        }
+      }
       return;
     }
     if (event.deltaY !== 0) {
@@ -1064,6 +1142,15 @@ export const useConversationScroll = ({
     }
   };
 
+  const previousLayout = previousLayoutRef.current;
+  const appendMountMessageId = currentScrollKey && !searchActive && lastVisibleMessageId &&
+    previousLayout?.key === currentScrollKey &&
+    previousLayout.lastId !== lastVisibleMessageId &&
+    appendedMessageCount(visibleMessages, previousLayout.lastId) > 0 &&
+    conversationScrollMemory.get(currentScrollKey)?.followLatest !== false
+    ? lastVisibleMessageId
+    : undefined;
+
   return {
     messageListRef,
     setMessageListRef,
@@ -1091,6 +1178,7 @@ export const useConversationScroll = ({
     ),
     jumpToLatest,
     pinFollowingMessageMount,
+    appendMountMessageId,
     revealAttentionMessage,
     revealMessageStart,
     followOutput,

@@ -454,6 +454,111 @@ test("new messages stay pinned without viewport rebound", async ({ page }) => {
   )).toBeLessThanOrEqual(13);
 });
 
+test("expired entrance metadata does not delay appended-message anchoring", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+
+  const firstVisibleFrame = page.evaluate(() => new Promise<{
+    className: string;
+    rowBottom: number;
+    listBottom: number;
+  }>((resolve) => {
+    const observer = new MutationObserver(() => {
+      const row = document.querySelector<HTMLElement>('[data-message-id="p-expired-entrance"]');
+      const list = document.querySelector<HTMLElement>(".message-list");
+      if (!row || !list) return;
+      observer.disconnect();
+      resolve({
+        className: row.className,
+        rowBottom: row.getBoundingClientRect().bottom,
+        listBottom: list.getBoundingClientRect().bottom,
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  }));
+
+  await page.evaluate(async ({ storePath, entrancePath }) => {
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const entranceModule = await import(entrancePath) as {
+      markMessageEntrance: (message: Record<string, unknown>) => void;
+    };
+    const { telegramStore } = storeModule;
+    const { markMessageEntrance } = entranceModule;
+    const state = telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-product") ?? [])];
+    const latest = current.at(-1);
+    if (!latest) return;
+    const appended = {
+      ...latest,
+      id: "p-expired-entrance",
+      renderKey: undefined,
+      outgoing: false,
+      senderId: "u-mia",
+      sentAt: new Date(Date.now() + 2_000).toISOString(),
+      content: { kind: "text", text: "延迟挂载的新消息" },
+    };
+    markMessageEntrance(appended);
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 1_100));
+    current.push(appended);
+    messages.set("chat-product", current);
+    telegramStore.setState({ messages });
+  }, {
+    storePath: "/src/store/telegramStore.ts",
+    entrancePath: "/src/utils/messageEntrance.ts",
+  });
+
+  const report = await firstVisibleFrame;
+  expect(report.className).not.toContain("is-entering-");
+  expect(report.rowBottom).toBeLessThanOrEqual(report.listBottom + 1);
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+});
+
+test("downward wheel input at the exact bottom never rebounds", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+  await page.waitForTimeout(400);
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+
+  const samplesPromise = page.evaluate(() => new Promise<number[]>((resolve) => {
+    const samples: number[] = [];
+    let frames = 0;
+    const sample = () => {
+      const list = document.querySelector<HTMLElement>(".message-list");
+      if (list) samples.push(list.scrollHeight - list.clientHeight - list.scrollTop);
+      frames += 1;
+      if (frames < 45) requestAnimationFrame(sample);
+      else resolve(samples);
+    };
+    requestAnimationFrame(sample);
+  }));
+  await messageList.hover();
+  for (let attempt = 0; attempt < 8; attempt += 1) await page.mouse.wheel(0, 600);
+  const samples = await samplesPromise;
+  const directions = samples.slice(1)
+    .map((sample, index) => sample - samples[index])
+    .filter((delta) => Math.abs(delta) > 1)
+    .map((delta) => Math.sign(delta));
+  const reversals = directions.slice(1)
+    .filter((direction, index) => direction !== directions[index]);
+  expect(reversals, JSON.stringify(samples)).toHaveLength(0);
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(13);
+});
+
 test("history loading hides transient scrollbar geometry until anchoring settles", async ({ page }) => {
   await page.addInitScript(() => {
     const state = { observed: false };

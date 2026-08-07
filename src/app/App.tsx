@@ -366,6 +366,8 @@ export function App() {
     await selectChat(chatId);
     closeSearch();
     setMobileChatOpen(true);
+    setEntryScrollRequest(undefined);
+    setMessageScrollRequest(undefined);
     latestScrollRequestIdRef.current += 1;
     setLatestScrollRequest({
       chatId,
@@ -393,6 +395,8 @@ export function App() {
     await loadMessage(chatId, messageId);
     closeSearch();
     setMobileChatOpen(true);
+    setEntryScrollRequest(undefined);
+    setLatestScrollRequest(undefined);
     messageScrollRequestIdRef.current += 1;
     setMessageScrollRequest({
       chatId,
@@ -491,6 +495,8 @@ export function App() {
     await telegramStore.getState().loadMessage(route.chatId, route.messageId);
     clearPendingNotificationRoute();
     setMobileChatOpen(true);
+    setEntryScrollRequest(undefined);
+    setLatestScrollRequest(undefined);
     messageScrollRequestIdRef.current += 1;
     setMessageScrollRequest({
       chatId: route.chatId,
@@ -628,6 +634,7 @@ export function App() {
     markConversationSwitch(performanceTraceId, "selectionCommitted");
     flushSync(() => {
       setEntryScrollRequest(undefined);
+      setMessageScrollRequest(undefined);
       latestScrollRequestIdRef.current += 1;
       setLatestScrollRequest({
         chatId,
@@ -767,6 +774,7 @@ export function App() {
                 if (latestConversationIntentChatIdRef.current !== chatId) {
                   setLatestScrollRequest(undefined);
                 }
+                setMessageScrollRequest(undefined);
                 setEntryScrollRequest({
                   chatId,
                   serverMessageId,

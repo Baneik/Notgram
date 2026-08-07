@@ -527,6 +527,7 @@ export function Conversation({
     awayFromLatest,
     jumpToLatest,
     pinFollowingMessageMount,
+    appendMountMessageId,
     revealAttentionMessage,
     revealMessageStart,
     followOutput,
@@ -1196,7 +1197,9 @@ export function Conversation({
                         onPollAnswer={onSetPollAnswer}
                         onBotCallback={onBotCallback}
                         onExpandLongText={revealMessageStart}
-                        onMount={entrance ? pinFollowingMessageMount : undefined}
+                        onMount={message.id === appendMountMessageId
+                          ? pinFollowingMessageMount
+                          : undefined}
                         nextAudioPlaybackId={nextAudioPlaybackIdByMessage.get(message.id)}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}
