@@ -61,6 +61,7 @@ export interface ReplyPreview {
   text: string;
   chatId?: string;
   messageId?: string;
+  isCurrentUser?: boolean;
 }
 
 interface MessageBubbleProps {
@@ -156,7 +157,7 @@ function MessageBubbleComponent({
   autoDownloadPolicy,
   developerMode,
 }: MessageBubbleProps) {
-  const entranceKindRef = useRef<MessageEntrance | undefined>(entrance);
+  const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
   const [reactionPending, setReactionPending] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
@@ -169,9 +170,6 @@ function MessageBubbleComponent({
     height: number;
   }>();
 
-  useLayoutEffect(() => {
-    if (entrance) consumeMessageEntrance(message);
-  }, [entrance, message.chatId, message.id]);
   const textFlowRef = useRef<HTMLDivElement>(null);
   const [metaWrapped, setMetaWrapped] = useState(false);
   const [metaInlineOffset, setMetaInlineOffset] = useState(0);
@@ -226,7 +224,7 @@ function MessageBubbleComponent({
 
   useLayoutEffect(() => {
     setTextExpanded(false);
-  }, [collapseThresholdLines, collapsedLines, content, message.id]);
+  }, [collapseThresholdLines, collapsedLines, content.kind === "text" ? content.text : content.kind, message.id]);
 
   useLayoutEffect(() => {
     const flow = textFlowRef.current;
@@ -255,7 +253,11 @@ function MessageBubbleComponent({
       const rectHeight = rects.length > 0
         ? Math.max(...rects.map((rect) => rect.bottom)) - Math.min(...rects.map((rect) => rect.top))
         : 0;
-      const lineCount = Math.max(lineTops.length, Math.ceil(rectHeight / lineHeight));
+      const lineCount = Math.max(
+        lineTops.length,
+        Math.ceil(rectHeight / lineHeight),
+        Math.ceil(text.scrollHeight / lineHeight),
+      );
       setTextLineCount((current) => current === lineCount ? current : lineCount);
       const nextHeight = lineHeight * collapsedLines;
       setCollapsedTextHeight((current) => Math.abs(current - nextHeight) < 0.25
@@ -380,7 +382,13 @@ function MessageBubbleComponent({
   const setMessageRowRef = useCallback((element: HTMLElement | null) => {
     rowRef.current = element;
     lazyMediaRef.current = element;
-  }, [lazyMediaRef]);
+    if (!element || !entrance) return;
+    const claimedEntrance = consumeMessageEntrance(message);
+    if (!claimedEntrance) return;
+    entranceKindRef.current = claimedEntrance;
+    void element.offsetWidth;
+    element.classList.add(`is-entering-${claimedEntrance}`);
+  }, [entrance, lazyMediaRef, message.chatId, message.id]);
 
   const selectionDisabled = selectionPending ||
     message.permissions?.canForward === false ||
@@ -427,7 +435,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${entranceKindRef.current ? `is-entering-${entranceKindRef.current}` : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       onAnimationEnd={(event) => {
         if (
@@ -436,6 +444,7 @@ function MessageBubbleComponent({
           entranceKindRef.current
         ) {
           event.currentTarget.classList.remove(`is-entering-${entranceKindRef.current}`);
+          entranceKindRef.current = undefined;
         }
       }}
     >
@@ -474,7 +483,7 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget);
         }}
       >
-        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""}`}>
+        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             <span className="message-forward-label">
               <Forward size={12} strokeWidth={2} />
@@ -497,7 +506,7 @@ function MessageBubbleComponent({
           )}
           {!albumItem && !isService && replyPreview && (
             <button
-              className="message-reply-preview"
+              className={`message-reply-preview ${replyPreview.isCurrentUser ? "is-current-user" : ""}`}
               type="button"
               disabled={!replyPreview.messageId}
               onClick={() => {
@@ -521,6 +530,16 @@ function MessageBubbleComponent({
               } as CSSProperties}
             >
               <MessageRichText text={content.text} entities={content.entities} />
+              {message.isPending && (
+                content.text ? (
+                  <span className="pending-message-caret" aria-label="机器人仍在生成"><span /></span>
+                ) : (
+                  <span className="pending-message-thinking" role="status">
+                    <LoaderCircle className="spin" size={14} />
+                    正在生成
+                  </span>
+                )
+              )}
               {textCollapsible && !textExpanded && (
                 <button
                   className="long-message-expand"

@@ -454,7 +454,10 @@ export const ConversationComposer = memo(function ConversationComposer({
 
     const startCommand = submitted.match(/^\/start(?:@([A-Za-z0-9_]{5,32}))?(?:\s+(.+))?$/);
     const startBot = selectedBotRef.current;
-    if (startCommand && startBot) {
+    const canUseBotStartApi = startCommand && startBot && startBot.command === "start" &&
+      Boolean(defaultBotUsername) &&
+      startBot.botUsername.toLocaleLowerCase() === defaultBotUsername?.toLocaleLowerCase();
+    if (startCommand && startBot && canUseBotStartApi) {
       if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
       draftTimerRef.current = undefined;
       pendingDraftRef.current = undefined;

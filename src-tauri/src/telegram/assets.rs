@@ -40,14 +40,17 @@ fn trusted_tdlib_asset_paths(value: &Value, trusted_roots: &[PathBuf]) -> Vec<Pa
         match value {
             Value::Object(object) => {
                 if let Some(local) = object.get("local").and_then(Value::as_object)
-                    && local
-                        .get("is_downloading_completed")
-                        .and_then(Value::as_bool)
-                        == Some(true)
                     && let Some(path) = local.get("path").and_then(Value::as_str)
                     && !path.is_empty()
                     && let Ok(path) = PathBuf::from(path).canonicalize()
                     && trusted_roots.iter().any(|root| path.starts_with(root))
+                    && (local
+                        .get("is_downloading_completed")
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                        || path
+                            .components()
+                            .any(|component| component.as_os_str() == ".notgram-sent-media"))
                 {
                     paths.push(path);
                 }
@@ -95,10 +98,14 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         let trusted_file = trusted.join("avatar.jpg");
         let incomplete_file = trusted.join("partial.jpg");
+        let sent_directory = trusted.join(".notgram-sent-media");
         let outside_file = outside.join("private.txt");
+        fs::create_dir_all(&sent_directory).unwrap();
+        let sent_file = sent_directory.join("upload.jpg");
         fs::write(&trusted_file, b"image").unwrap();
         fs::write(&incomplete_file, b"partial").unwrap();
         fs::write(&outside_file, b"private").unwrap();
+        fs::write(&sent_file, b"upload").unwrap();
         let update = json!({
             "files": [
                 {
@@ -118,6 +125,13 @@ mod tests {
                 {
                     "@type": "file",
                     "local": {
+                        "is_downloading_completed": false,
+                        "path": sent_file.display().to_string()
+                    }
+                },
+                {
+                    "@type": "file",
+                    "local": {
                         "is_downloading_completed": true,
                         "path": outside_file.display().to_string()
                     }
@@ -126,7 +140,13 @@ mod tests {
         });
 
         let paths = trusted_tdlib_asset_paths(&update, &[trusted.canonicalize().unwrap()]);
-        assert_eq!(paths, vec![trusted_file.canonicalize().unwrap()]);
+        assert_eq!(
+            paths,
+            vec![
+                sent_file.canonicalize().unwrap(),
+                trusted_file.canonicalize().unwrap()
+            ]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

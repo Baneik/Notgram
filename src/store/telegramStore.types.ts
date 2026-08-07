@@ -132,6 +132,7 @@ export interface TelegramState {
   switchAccount: (accountId: string) => Promise<boolean>;
   logOutCurrentAccount: () => Promise<boolean>;
   selectChat: (chatId: string) => Promise<void>;
+  resolveTelegramLink: (url: string) => Promise<import("../telegram/types").TelegramLinkTarget | undefined>;
   loadMoreChats: (chatListId?: string) => Promise<void>;
   setChatPinned: (chatListId: string, chatId: string, pinned: boolean) => Promise<boolean>;
   reorderPinnedChats: (chatListId: string, chatIds: string[]) => Promise<boolean>;

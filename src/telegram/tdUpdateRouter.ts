@@ -16,6 +16,7 @@ export interface TdUpdateHandlers {
   emitMessage: (message?: TdObject, animateEntrance?: boolean) => void;
   replaceSentMessage: (update: TdObject) => void;
   updateMessageContent: (update: TdObject) => void;
+  updatePendingMessage: (update: TdObject) => void;
   updatePoll: (update: TdObject) => void;
   patchMessage: (chatId: unknown, messageId: unknown, patch: TdObject) => void;
   updateReadOutbox: (update: TdObject) => void;
@@ -114,6 +115,9 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
       return;
     case "updateMessageContent":
       handlers.updateMessageContent(update);
+      return;
+    case "updatePendingMessage":
+      handlers.updatePendingMessage(update);
       return;
     case "updatePoll":
       handlers.updatePoll(update);

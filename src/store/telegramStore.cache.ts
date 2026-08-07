@@ -133,7 +133,7 @@ export const recentMessagesForCache = (state: TelegramState) => {
   for (const chatId of orderedChatIds) {
     const remaining = MAX_CACHED_MESSAGES - messages.length;
     if (remaining <= 0) break;
-    const recent = (state.messages.get(chatId) ?? []).slice(
+    const recent = (state.messages.get(chatId) ?? []).filter((message) => !message.isPending).slice(
       -Math.min(MAX_CACHED_MESSAGES_PER_CHAT, remaining),
     );
     messages.push(...recent.map(cacheableMessage));

@@ -1251,19 +1251,14 @@ pub async fn telegram_send_pasted_files(
     if chat_id == 0 || files.is_empty() || files.len() > MAX_PASTED_UPLOAD_FILES {
         return Err("Pasted uploads must contain between 1 and 10 files".to_string());
     }
-    let cache_root = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("Unable to resolve upload cache: {error}"))?
-        .join("pasted-uploads")
-        .join(format!(
-            "{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
+    let cache_root = crate::storage::sent_media_directory(&app)?.join(format!(
+        "{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
     fs::create_dir_all(&cache_root)
         .map_err(|error| format!("Unable to create upload cache: {error}"))?;
 

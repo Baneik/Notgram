@@ -410,6 +410,20 @@ export function App() {
     void openGlobalSearchMessage(chatId, messageId);
   }, [clearProfile, openGlobalSearchMessage]);
 
+  useEffect(() => {
+    const openTelegramLink = (event: Event) => {
+      const detail = (event as CustomEvent<{ chatId?: unknown; messageId?: unknown }>).detail;
+      if (typeof detail?.chatId !== "string" || !detail.chatId) return;
+      if (typeof detail.messageId === "string" && detail.messageId) {
+        void openGlobalSearchMessage(detail.chatId, detail.messageId);
+      } else {
+        void openGlobalSearchChat(detail.chatId);
+      }
+    };
+    globalThis.addEventListener("notgram:telegram-link-opened", openTelegramLink);
+    return () => globalThis.removeEventListener("notgram:telegram-link-opened", openTelegramLink);
+  }, [openGlobalSearchChat, openGlobalSearchMessage]);
+
   const openProfilePrivateChat = useCallback(async (userId: string) => {
     const chatId = await startPrivateChat(userId);
     if (!chatId) return;

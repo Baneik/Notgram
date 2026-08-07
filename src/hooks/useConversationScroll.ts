@@ -167,6 +167,7 @@ export const useConversationScroll = ({
   const historyLoadFrameRef = useRef<number | undefined>(undefined);
   const historyRestoreFrameRef = useRef<number | undefined>(undefined);
   const bottomFrameRef = useRef<number | undefined>(undefined);
+  const bottomSettleFrameRef = useRef<number | undefined>(undefined);
   const anchorFrameRef = useRef<number | undefined>(undefined);
   const positioningFrameRef = useRef<number | undefined>(undefined);
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
@@ -202,16 +203,28 @@ export const useConversationScroll = ({
   const matchingEntryRequest = entryRequest?.chatId === chatId ? entryRequest : undefined;
   const matchingLatestRequest = latestRequest?.chatId === chatId ? latestRequest : undefined;
   const matchingMessageRequest = messageRequest?.chatId === chatId ? messageRequest : undefined;
-  const requestedTargetId = matchingMessageRequest?.messageId ?? matchingEntryRequest?.serverMessageId;
+  const pendingEntryRequest = matchingEntryRequest &&
+    matchingEntryRequest.requestId > handledEntryRequestRef.current
+    ? matchingEntryRequest
+    : undefined;
+  const pendingLatestRequest = matchingLatestRequest &&
+    matchingLatestRequest.requestId > handledLatestRequestRef.current
+    ? matchingLatestRequest
+    : undefined;
+  const pendingMessageRequest = matchingMessageRequest &&
+    matchingMessageRequest.requestId > handledMessageRequestRef.current
+    ? matchingMessageRequest
+    : undefined;
+  const requestedTargetId = pendingMessageRequest?.messageId ?? pendingEntryRequest?.serverMessageId;
   const targetReady = requestedTargetId ? messageItemIndexes.has(requestedTargetId) : false;
   const searchActive = Boolean(search);
   const dataPhase = virtualItemCount > 0 ? "ready" : historyLoading ? "loading" : "empty";
   const targetPhase = !requestedTargetId ? "none" : targetReady ? "ready" : "pending";
   const initialLocationIdentity = [
     currentScrollKey ?? scope,
-    matchingEntryRequest?.requestId ?? 0,
-    matchingLatestRequest?.requestId ?? 0,
-    matchingMessageRequest?.requestId ?? 0,
+    pendingEntryRequest?.requestId ?? 0,
+    pendingLatestRequest?.requestId ?? 0,
+    pendingMessageRequest?.requestId ?? 0,
     searchActive ? "search" : "conversation",
     historyInitialized ? "history-ready" : "history-initial",
     dataPhase,
@@ -248,7 +261,7 @@ export const useConversationScroll = ({
         location = { index: targetIndex, align: "center", behavior: "auto" };
         mode = "anchor";
         targetMessageId = requestedTargetId;
-      } else if (matchingLatestRequest || memory?.followLatest !== false) {
+      } else if (pendingLatestRequest || memory?.followLatest !== false) {
         location = { index: "LAST", align: "end", behavior: "auto" };
         mode = "bottom";
       } else if (storedAnchorIndex !== undefined) {
@@ -282,7 +295,7 @@ export const useConversationScroll = ({
   const storedSnapshot = currentScrollKey
     ? conversationVirtuosoSnapshots.get(currentScrollKey)
     : undefined;
-  const restoreStateFrom = !searchActive && !matchingLatestRequest && !requestedTargetId &&
+  const restoreStateFrom = !searchActive && !pendingLatestRequest && !requestedTargetId &&
       storedMemory?.followLatest === false && storedSnapshot &&
       storedSnapshot.firstMessageId === firstVisibleMessageId &&
       storedSnapshot.lastMessageId === lastVisibleMessageId &&
@@ -373,6 +386,32 @@ export const useConversationScroll = ({
       bottomFrameRef.current = undefined;
       pinToBottom();
     });
+  }, [currentScrollKey, pinToBottom, searchActive]);
+
+  const settleBottomPosition = useCallback((identity: string, expectedVirtuosoKey: string) => {
+    if (!currentScrollKey || searchActive) return;
+    if (bottomSettleFrameRef.current !== undefined) {
+      cancelAnimationFrame(bottomSettleFrameRef.current);
+    }
+    let remainingFrames = 60;
+    const settle = () => {
+      bottomSettleFrameRef.current = undefined;
+      const element = messageListRef.current;
+      if (
+        !element ||
+        initialLocationRef.current?.identity !== identity ||
+        element.dataset.conversationVirtuosoKey !== expectedVirtuosoKey ||
+        conversationScrollMemory.get(currentScrollKey)?.followLatest === false ||
+        pointerActiveRef.current ||
+        performance.now() <= userIntentUntilRef.current
+      ) return;
+      pinToBottom();
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        bottomSettleFrameRef.current = requestAnimationFrame(settle);
+      }
+    };
+    bottomSettleFrameRef.current = requestAnimationFrame(settle);
   }, [currentScrollKey, pinToBottom, searchActive]);
 
   const stopFollowingLatest = useCallback(() => {
@@ -522,7 +561,10 @@ export const useConversationScroll = ({
           finishWhenRendered();
           return;
         }
-        if (initialLocationRef.current.mode === "bottom") pinToBottom();
+        if (initialLocationRef.current.mode === "bottom") {
+          pinToBottom();
+          settleBottomPosition(identity, expectedVirtuosoKey);
+        }
         positionedIdentityRef.current = identity;
         setPositionedIdentity(identity);
         markConversationSwitch(
@@ -546,6 +588,7 @@ export const useConversationScroll = ({
     matchingMessageRequest?.performanceTraceId,
     virtuosoKey,
     pinToBottom,
+    settleBottomPosition,
   ]);
 
   const revealTarget = useCallback((
@@ -856,6 +899,7 @@ export const useConversationScroll = ({
     if (historyLoadFrameRef.current !== undefined) cancelAnimationFrame(historyLoadFrameRef.current);
     if (historyRestoreFrameRef.current !== undefined) cancelAnimationFrame(historyRestoreFrameRef.current);
     if (bottomFrameRef.current !== undefined) cancelAnimationFrame(bottomFrameRef.current);
+    if (bottomSettleFrameRef.current !== undefined) cancelAnimationFrame(bottomSettleFrameRef.current);
     if (anchorFrameRef.current !== undefined) cancelAnimationFrame(anchorFrameRef.current);
     if (positioningFrameRef.current !== undefined) cancelAnimationFrame(positioningFrameRef.current);
     if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);

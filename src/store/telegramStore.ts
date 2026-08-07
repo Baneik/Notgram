@@ -710,6 +710,15 @@ export const createTelegramStore = (
       }
 
       if (event.type === "message.remove") {
+        if (event.immediate) {
+          const messages = new Map(get().messages);
+          messages.set(event.chatId, (messages.get(event.chatId) ?? []).filter((message) => message.id !== event.messageId));
+          const removingMessages = new Map(get().removingMessages);
+          removingMessages.set(event.chatId, (removingMessages.get(event.chatId) ?? []).filter((message) => message.id !== event.messageId));
+          if (removingMessages.get(event.chatId)?.length === 0) removingMessages.delete(event.chatId);
+          set({ messages, removingMessages });
+          return;
+        }
         markMessageRemoving(event.chatId, event.messageId);
         scheduleCacheWrite();
         return;
@@ -1287,6 +1296,15 @@ export const createTelegramStore = (
         if (get().authorization.kind !== "ready") return;
         void loadHistory(chatId, "ensure");
         void markChatRead(chatId);
+      },
+
+      resolveTelegramLink: async (url) => {
+        try {
+          return await transport.resolveTelegramLink(url);
+        } catch (error) {
+          set({ operationError: error instanceof Error ? error.message : "Telegram 链接无法打开" });
+          return undefined;
+        }
       },
 
       loadMoreChats: loadChats,

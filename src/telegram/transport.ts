@@ -126,6 +126,7 @@ export interface TelegramTransport {
   terminateAllOtherSessions(): Promise<void>;
   getPrivacySettingRules(setting: PrivacySettingKey): Promise<PrivacyRule[]>;
   setPrivacySettingRules(setting: PrivacySettingKey, rules: PrivacyRule[]): Promise<void>;
+  resolveTelegramLink(url: string): Promise<import("./types").TelegramLinkTarget | undefined>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;

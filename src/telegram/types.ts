@@ -329,6 +329,11 @@ export type PrivacySettingKey = "showStatus" | "showPhoneNumber" | "showProfileP
 export type PrivacyRuleKind = "allowAll" | "allowContacts" | "allowUsers" | "restrictAll" | "restrictContacts" | "restrictUsers";
 export interface PrivacyRule { kind: PrivacyRuleKind; userIds?: string[]; }
 
+export interface TelegramLinkTarget {
+  chatId: string;
+  messageId?: string;
+}
+
 export interface ProfileMember {
   user: User;
   role: ProfileMemberRole;
@@ -749,6 +754,7 @@ export interface Message {
   isPinned?: boolean;
   permissions?: MessagePermissions;
   isRemoving?: boolean;
+  isPending?: boolean;
   replyMarkup?: MessageInlineKeyboard;
   content: MessageContent;
 }
@@ -816,7 +822,7 @@ export type TelegramEvent =
   | { type: "message.upsert"; message: Message; animateEntrance?: boolean }
   | { type: "message.replace"; oldMessageId: string; message: Message }
   | { type: "messages.upserted"; messages: Message[] }
-  | { type: "message.remove"; chatId: string; messageId: string }
+  | { type: "message.remove"; chatId: string; messageId: string; immediate?: boolean }
   | { type: "folders.replaced"; folders: ChatFolder[] }
   | { type: "chats.upserted"; chats: Chat[] }
   | { type: "chat.upsert"; chat: Chat }

@@ -118,6 +118,7 @@ import type {
   TelegramSnapshot,
   TelegramAccount,
   TelegramAccountState,
+  TelegramLinkTarget,
   UpdateCurrentUserProfileInput,
   User,
 } from "./types";
@@ -466,6 +467,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private richMessageHydrationTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
   private richMessageHydrationFailures = new Map<string, number>();
   private pendingSenderChatLoads = new Set<string>();
+  private pendingBotDrafts = new Map<string, string>();
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
   private chatListIds = new Map<string, Set<string>>();
@@ -491,6 +493,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     emitMessage: (message, animateEntrance) => this.emitMessage(message, animateEntrance),
     replaceSentMessage: (update) => this.replaceSentMessage(update),
     updateMessageContent: (update) => this.updateMessageContent(update),
+    updatePendingMessage: (update) => this.updatePendingMessage(update),
     updatePoll: (update) => this.updatePoll(update),
     patchMessage: (chatId, messageId, patch) =>
       this.patchMessage(chatId, messageId, patch),
@@ -1250,10 +1253,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         }
       }
     }
-    if (
-      canDiscoverGroupBots &&
-      !commandGroups.some((group) => asTdObjects(group.commands).length > 0)
-    ) {
+    if (canDiscoverGroupBots) {
       const members = await this.request({
         "@type": "searchChatMembers",
         chat_id: numericId(chatId),
@@ -1261,11 +1261,15 @@ export class TauriTelegramTransport implements TelegramTransport {
         limit: 200,
         filter: { "@type": "chatMembersFilterBots" },
       });
+      const knownBotUserIds = new Set(commandGroups
+        .filter((group) => asTdObjects(group.commands).length > 0)
+        .map((group) => tdId(group.bot_user_id))
+        .filter(Boolean));
       const botUserIds = [...new Set(asTdObjects(members.members).flatMap((member) => {
         const sender = asTdObject(member.member_id);
         const userId = sender?.["@type"] === "messageSenderUser" ? tdId(sender.user_id) : "";
         return userId ? [userId] : [];
-      }))];
+      }))].filter((userId) => !knownBotUserIds.has(userId));
       const discovered = await Promise.all(botUserIds.map(async (
         botUserId,
       ): Promise<TdObject | undefined> => {
@@ -1279,7 +1283,10 @@ export class TauriTelegramTransport implements TelegramTransport {
           return undefined;
         }
       }));
-      commandGroups = discovered.filter((group): group is TdObject => Boolean(group));
+      commandGroups = [
+        ...commandGroups,
+        ...discovered.filter((group): group is TdObject => Boolean(group)),
+      ];
     }
     const normalized = query.replace(/^\//, "").toLocaleLowerCase();
     const suggestions = await Promise.all(commandGroups.map(async (group) => {
@@ -1403,7 +1410,62 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
   async setPrivacySettingRules(setting: PrivacySettingKey, rules: PrivacyRule[]): Promise<void> {
     const mapped = rules.map((rule) => ({ "@type": `userPrivacySettingRule${rule.kind === "allowAll" ? "AllowAll" : rule.kind === "allowContacts" ? "AllowContacts" : rule.kind === "allowUsers" ? "AllowUsers" : rule.kind === "restrictAll" ? "RestrictAll" : rule.kind === "restrictContacts" ? "RestrictContacts" : "RestrictUsers"}`, ...(rule.userIds ? { user_ids: rule.userIds.map(numericId) } : {}) }));
-    await this.request({ "@type": "setUserPrivacySettingRules", setting: { "@type": PRIVACY_SETTING_TYPES[setting] }, rules: mapped });
+    await this.request({
+      "@type": "setUserPrivacySettingRules",
+      setting: { "@type": PRIVACY_SETTING_TYPES[setting] },
+      rules: { "@type": "userPrivacySettingRules", rules: mapped },
+    });
+  }
+
+  async resolveTelegramLink(url: string): Promise<TelegramLinkTarget | undefined> {
+    const parsed = (() => {
+      try { return new URL(url); } catch { return undefined; }
+    })();
+    if (!parsed) return undefined;
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const isTelegram = parsed.protocol === "tg:" || host === "t.me" || host === "telegram.me" || host === "telegram.dog";
+    if (!isTelegram) return undefined;
+
+    const path = parsed.pathname.split("/").filter(Boolean);
+    const hasMessageReference = parsed.protocol === "tg:"
+      ? /^\d+$/.test(parsed.searchParams.get("post") ?? "")
+      : path[0]?.toLowerCase() === "c"
+        ? /^\d+$/.test(path[2] ?? "")
+        : /^\d+$/.test(path[1] ?? "");
+    if (hasMessageReference) {
+      const linkInfo = await this.request({
+        "@type": "getMessageLinkInfo",
+        url: parsed.toString(),
+      }).catch(() => undefined);
+      const linkedMessage = asTdObject(linkInfo?.message);
+      const linkedChatId = tdId(linkInfo?.chat_id) || tdId(linkedMessage?.chat_id);
+      if (linkedChatId) {
+        const rawChat = this.rawChats.get(linkedChatId) ?? await this.request({
+          "@type": "getChat",
+          chat_id: numericId(linkedChatId),
+        }).catch(() => undefined);
+        if (rawChat) this.upsertChat(rawChat);
+        if (linkedMessage) this.emitMessage(linkedMessage);
+        return { chatId: linkedChatId, messageId: tdId(linkedMessage?.id) || undefined };
+      }
+    }
+    if (parsed.protocol !== "tg:" && path[0]?.toLowerCase() === "c" && /^\d+$/.test(path[1] ?? "")) {
+      const internalChatId = `-100${path[1]}`;
+      const raw = this.rawChats.get(internalChatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(internalChatId) }).catch(() => undefined);
+      if (raw) {
+        this.upsertChat(raw);
+        return { chatId: internalChatId };
+      }
+      return undefined;
+    }
+    const domain = parsed.protocol === "tg:" ? parsed.searchParams.get("domain") : path[0];
+    if (!domain || !/^[A-Za-z0-9_]{5,32}$/.test(domain)) return undefined;
+    const raw = await this.request({ "@type": "searchPublicChat", username: domain });
+    const chatId = tdId(raw.id);
+    const chatType = asTdObject(raw.type);
+    if (!chatId || (chatType?.["@type"] !== "chatTypeSupergroup" && chatType?.["@type"] !== "chatTypeBasicGroup")) return undefined;
+    this.upsertChat(raw);
+    return { chatId };
   }
 
   async searchGlobal({
@@ -2956,6 +3018,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private emitMessage(raw?: TdObject, animateEntrance = false) {
     if (!raw) return;
+    if (raw.is_outgoing !== true && raw.is_pending !== true) this.clearPendingBotDrafts(tdId(raw.chat_id));
     const message = this.mapMessage(raw);
     if (!message) return;
     const chatMessages = this.rawMessages.get(message.chatId) ?? new Map<string, TdObject>();
@@ -2964,8 +3027,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.indexMessageFiles(message.chatId, message.id, raw);
     this.listener?.({ type: "message.upsert", message, animateEntrance });
     this.ensureMessageSenderChat(raw);
-    this.ensureReplyContent(raw);
-    this.ensureFullRichMessage(raw);
+    if (raw.is_pending !== true) {
+      this.ensureReplyContent(raw);
+      this.ensureFullRichMessage(raw);
+    }
   }
 
   private emitMessages(rawMessages: TdObject[]) {
@@ -3215,6 +3280,48 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
+  private pendingBotDraftKey(chatId: string, topicId: string, draftId: string) {
+    return `${chatId}:${topicId || "0"}:${draftId}`;
+  }
+
+  private clearPendingBotDrafts(chatId: string) {
+    if (!chatId) return;
+    for (const [key, messageId] of this.pendingBotDrafts) {
+      if (!key.startsWith(`${chatId}:`)) continue;
+      this.pendingBotDrafts.delete(key);
+      this.rawMessages.get(chatId)?.delete(messageId);
+      this.unindexMessageFiles(chatId, messageId);
+      this.listener?.({ type: "message.remove", chatId, messageId, immediate: true });
+    }
+  }
+
+  private updatePendingMessage(update: TdObject) {
+    const chatId = tdId(update.chat_id);
+    const draftId = tdId(update.draft_id);
+    if (!chatId || !draftId || !update.content) return;
+    const topicId = tdId(update.forum_topic_id);
+    const key = this.pendingBotDraftKey(chatId, topicId, draftId);
+    const existingMessageId = this.pendingBotDrafts.get(key);
+    const messageId = existingMessageId ?? `pending:${chatId}:${topicId || "0"}:${draftId}`;
+    this.pendingBotDrafts.set(key, messageId);
+    const chat = this.rawChats.get(chatId);
+    const chatType = asTdObject(chat?.type);
+    const peerId = tdId(chatType?.user_id);
+    const senderId = chatType?.["@type"] === "chatTypePrivate" && peerId
+      ? { "@type": "messageSenderUser", user_id: numericId(peerId) }
+      : { "@type": "messageSenderChat", chat_id: numericId(chatId) };
+    this.emitMessage({
+      "@type": "message",
+      id: messageId,
+      chat_id: numericId(chatId),
+      sender_id: senderId,
+      is_outgoing: false,
+      is_pending: true,
+      date: Math.floor(Date.now() / 1_000),
+      content: update.content,
+    }, existingMessageId === undefined);
+  }
+
   private updatePoll(update: TdObject) {
     const poll = asTdObject(update.poll);
     const pollId = tdId(poll?.id);
@@ -3290,6 +3397,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.pendingReplyHydrations.clear();
     this.unavailableReplyHydrations.clear();
     this.pendingRichMessageHydrations.clear();
+    this.pendingBotDrafts.clear();
     this.unavailableRichMessageHydrations.clear();
     for (const timer of this.richMessageHydrationTimers.values()) globalThis.clearTimeout(timer);
     this.richMessageHydrationTimers.clear();

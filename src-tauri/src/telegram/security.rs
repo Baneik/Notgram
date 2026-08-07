@@ -31,6 +31,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChatHistory",
     "getChatInviteLinks",
     "getChatJoinRequests",
+    "getMessageLinkInfo",
     "getChatAdministrators",
     "getBlockedMessageSenders",
     "getActiveSessions",
@@ -74,6 +75,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "searchChatMembers",
     "searchChatsOnServer",
     "searchMessages",
+    "searchPublicChat",
     "searchPublicChats",
     "sendMessage",
     "sendInlineQueryResultMessage",
@@ -458,6 +460,31 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid public chat username".to_string());
             }
         }
+        "searchPublicChat" => {
+            let username = validate_profile_text(request, "username", 32, true, true)?;
+            if username.chars().count() < 5
+                || !username
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '_')
+            {
+                return Err("Invalid public chat username".to_string());
+            }
+        }
+        "getMessageLinkInfo" => {
+            let url = request
+                .get("url")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Message link is missing".to_string())?;
+            let lower = url.to_ascii_lowercase();
+            if url.len() > 4_096
+                || !(lower.starts_with("https://t.me/")
+                    || lower.starts_with("https://telegram.me/")
+                    || lower.starts_with("https://telegram.dog/")
+                    || lower.starts_with("tg:"))
+            {
+                return Err("Invalid Telegram message link".to_string());
+            }
+        }
         "toggleSupergroupIsAllHistoryAvailable" => {
             validate_nonzero_identifier(request, "supergroup_id")?;
             if request
@@ -736,6 +763,11 @@ fn validate_privacy_rules(request: &Value, has_rules: bool) -> Result<(), String
     if has_rules {
         let rules = request
             .get("rules")
+            .and_then(Value::as_object)
+            .filter(|value| {
+                value.get("@type").and_then(Value::as_str) == Some("userPrivacySettingRules")
+            })
+            .and_then(|value| value.get("rules"))
             .and_then(Value::as_array)
             .ok_or_else(|| "Privacy rules are missing".to_string())?;
         if rules.is_empty() || rules.len() > 10 {

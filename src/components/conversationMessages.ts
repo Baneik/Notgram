@@ -6,6 +6,7 @@ export interface ReplyPreview {
   text: string;
   chatId?: string;
   messageId?: string;
+  isCurrentUser?: boolean;
 }
 
 export const senderChatId = (senderId: string) =>
@@ -63,6 +64,7 @@ export const replyPreviewFor = (
   users: Map<string, User>,
   chat: Chat,
   chats?: Map<string, Chat>,
+  currentUserId?: string,
 ): ReplyPreview | undefined => {
   if (!message.replyTo) return undefined;
   if (message.replyTo.kind === "story") {
@@ -77,6 +79,7 @@ export const replyPreviewFor = (
       text: messageSummary(target.content),
       chatId: target.chatId,
       messageId: target.id,
+      isCurrentUser: target.outgoing,
     };
   }
   const origin = message.replyTo.origin;
@@ -93,6 +96,7 @@ export const replyPreviewFor = (
       (message.replyTo.content ? messageSummary(message.replyTo.content) : "原消息不可用"),
     chatId: message.replyTo.chatId ?? message.chatId,
     messageId: message.replyTo.messageId,
+    isCurrentUser: origin?.kind === "user" && origin.userId === currentUserId,
   };
 };
 

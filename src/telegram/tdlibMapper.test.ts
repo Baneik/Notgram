@@ -272,6 +272,45 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("uses an outgoing upload's local path before TDLib marks it downloaded", () => {
+    const message = mapTdMessage({
+      id: -1004,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      is_outgoing: true,
+      date: 1_700_000_000,
+      content: {
+        "@type": "messagePhoto",
+        caption: { "@type": "formattedText", text: "local preview", entities: [] },
+        photo: {
+          sizes: [{
+            width: 1280,
+            height: 720,
+            photo: {
+              "@type": "file",
+              id: 10,
+              size: 4000,
+              local: {
+                path: "C:\\cache\\.notgram-sent-media\\upload.jpg",
+                is_downloading_completed: false,
+              },
+              remote: { is_uploading_active: true, uploaded_size: 1000 },
+            },
+          }],
+        },
+      },
+    });
+
+    expect(message?.content).toMatchObject({
+      kind: "media",
+      mediaType: "photo",
+      localPath: "C:\\cache\\.notgram-sent-media\\upload.jpg",
+      isDownloaded: true,
+      isUploading: true,
+      progress: 0.25,
+    });
+  });
+
   it("maps a video cover and its downloadable thumbnail", () => {
     const content = mapTdMessageContent({
       "@type": "messageVideo",

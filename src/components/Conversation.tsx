@@ -224,6 +224,7 @@ export function Conversation({
   onReportChat,
   onBlockSender,
 }: ConversationProps) {
+  const currentUserId = useTelegramStore((state) => state.currentUserId);
   const [actionMenu, setActionMenu] = useState<{
     messageId: string;
     left: number;
@@ -1101,7 +1102,8 @@ export function Conversation({
             const reserveSenderAvatar = firstMessage.content.kind !== "service" &&
               firstMessage.content.kind !== "unsupported" &&
               !firstMessage.outgoing && chat.kind !== "direct";
-            const showSenderAvatar = reserveSenderAvatar && !groupModel.continuesAfter;
+            const showSenderAvatar = reserveSenderAvatar && !groupModel.continuesAfter &&
+              messageGroup.some((message) => !message.isRemoving);
             const sender = users.get(firstMessage.senderId);
             const senderChat = senderChatId(firstMessage.senderId);
             const senderChatDetails = senderChat ? forwardTargetsById.get(senderChat) : undefined;
@@ -1159,6 +1161,7 @@ export function Conversation({
                           users,
                           chat,
                           forwardTargetsById,
+                          currentUserId,
                         )}
                         forwardLabel={forwardLabelFor(message, users, forwardTargetsById)}
                         selectionMode={selectionMode}
@@ -1196,6 +1199,14 @@ export function Conversation({
                     const captionMessages = segment.messages.filter((message) =>
                       message.content.kind === "media" && Boolean(message.content.caption),
                     );
+                    const albumReply = segment.messages.map((message) => replyPreviewFor(
+                      message,
+                      messagesById,
+                      users,
+                      chat,
+                      forwardTargetsById,
+                      currentUserId,
+                    )).find(Boolean);
                     return (
                       <div
                         className={`media-album ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
@@ -1204,6 +1215,19 @@ export function Conversation({
                         role="group"
                         aria-label={`${segment.messages.length} 项媒体相册`}
                       >
+                        {albumReply && (
+                          <button
+                            className={`message-reply-preview media-album-reply ${albumReply.isCurrentUser ? "is-current-user" : ""}`}
+                            type="button"
+                            disabled={!albumReply.messageId}
+                            onClick={() => {
+                              if (albumReply.chatId && albumReply.messageId) onOpenMessage(albumReply.chatId, albumReply.messageId);
+                            }}
+                          >
+                            <strong>{albumReply.author}</strong>
+                            <small>{albumReply.text}</small>
+                          </button>
+                        )}
                         <div
                           className="media-album-grid"
                           data-count={Math.min(segment.messages.length, 5)}
@@ -1243,7 +1267,7 @@ export function Conversation({
                 ? `跳到最新消息，${newMessageNotice.count} 条新消息`
                 : "跳到最新消息"}
               title="跳到最新消息"
-              onClick={() => jumpToLatest("smooth")}
+              onClick={() => jumpToLatest("auto")}
             >
               <ArrowDown size={19} strokeWidth={2.1} />
               {newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0 && (

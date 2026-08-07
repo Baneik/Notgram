@@ -18,8 +18,8 @@ describe("reportReasonLabel", () => {
     expect(reportReasonLabel(source)).toBe(expected);
   });
 
-  it("never exposes an unknown English server option", () => {
-    expect(reportReasonLabel("A newly introduced server reason")).toBe("其他原因");
+  it("keeps an unknown server option distinct instead of duplicating Other", () => {
+    expect(reportReasonLabel("A newly introduced server reason")).toBe("A newly introduced server reason");
     expect(reportReasonLabel("已本地化原因")).toBe("已本地化原因");
   });
 });

@@ -150,10 +150,10 @@ const pollRestrictionReason = (value: unknown) => {
   }
 };
 
-export const tdLocalFilePath = (value: unknown) => {
+export const tdLocalFilePath = (value: unknown, includePendingUpload = false) => {
   const file = asTdObject(value);
   const local = asTdObject(file?.local);
-  return local?.is_downloading_completed === true && typeof local.path === "string" && local.path
+  return (local?.is_downloading_completed === true || includePendingUpload) && typeof local?.path === "string" && local.path
     ? local.path
     : undefined;
 };
@@ -177,7 +177,7 @@ const readableSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
-const fileDetails = (value: unknown) => {
+const fileDetails = (value: unknown, includePendingUpload = false) => {
   const file = asTdObject(value);
   const local = asTdObject(file?.local);
   const remote = asTdObject(file?.remote);
@@ -189,10 +189,10 @@ const fileDetails = (value: unknown) => {
     fileId: tdNumber(file?.id),
     size,
     sizeLabel: readableSize(size),
-    localPath: tdLocalFilePath(file),
+    localPath: tdLocalFilePath(file, includePendingUpload),
     canDownload: local?.can_be_downloaded === true,
     isDownloading: local?.is_downloading_active === true,
-    isDownloaded: local?.is_downloading_completed === true,
+    isDownloaded: local?.is_downloading_completed === true || Boolean(tdLocalFilePath(file, includePendingUpload)),
     isUploading: remote?.is_uploading_active === true,
     downloadedSize,
     uploadedSize,
@@ -247,13 +247,17 @@ const fileContent = (
     thumbnailIsDownloading?: boolean;
     width?: number;
     height?: number;
+    includePendingUpload?: boolean;
   } = {},
-): MessageContent => ({
-  kind: "file",
-  fileName,
-  ...fileDetails(file),
-  ...options,
-});
+): MessageContent => {
+  const { includePendingUpload = false, ...contentOptions } = options;
+  return {
+    kind: "file",
+    fileName,
+    ...fileDetails(file, includePendingUpload),
+    ...contentOptions,
+  };
+};
 
 const mediaContent = (
   mediaType: "photo" | "video" | "videoNote" | "audio" | "voice" | "animation" | "sticker",
@@ -271,14 +275,18 @@ const mediaContent = (
     width?: number;
     height?: number;
     duration?: number;
+    includePendingUpload?: boolean;
   } = {},
-): MessageContent => ({
-  kind: "media",
-  mediaType,
-  fileName,
-  ...fileDetails(file),
-  ...options,
-});
+): MessageContent => {
+  const { includePendingUpload = false, ...contentOptions } = options;
+  return {
+    kind: "media",
+    mediaType,
+    fileName,
+    ...fileDetails(file, includePendingUpload),
+    ...contentOptions,
+  };
+};
 
 const minithumbnailDataUrl = (value: unknown) => {
   const minithumbnail = asTdObject(value);
@@ -870,7 +878,7 @@ const durationText = (secondsValue: unknown) => {
   return `消息将在 ${seconds} 秒后自动删除`;
 };
 
-export const mapTdMessageContent = (value: unknown): MessageContent => {
+export const mapTdMessageContent = (value: unknown, includePendingUpload = false): MessageContent => {
   const content = asTdObject(value);
   switch (content?.["@type"]) {
     case "messageText": {
@@ -890,6 +898,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         ...formattedCaption(content.caption),
         mimeType: typeof document?.mime_type === "string" ? document.mime_type : undefined,
         thumbnailPath: thumbnailPath(document?.thumbnail),
+        includePendingUpload,
       });
     }
     case "messagePhoto": {
@@ -918,6 +927,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
         width: tdNumber(largest?.width),
         height: tdNumber(largest?.height),
+        includePendingUpload,
       });
     }
     case "messageVideo": {
@@ -933,6 +943,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
           previewDataUrl: minithumbnailDataUrl(video?.minithumbnail),
           width: tdNumber(video?.width),
           height: tdNumber(video?.height),
+          includePendingUpload,
         },
       );
     }
@@ -949,6 +960,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
           previewDataUrl: minithumbnailDataUrl(animation?.minithumbnail),
           width: tdNumber(animation?.width),
           height: tdNumber(animation?.height),
+          includePendingUpload,
         },
       );
     }
@@ -963,6 +975,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
           mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
           thumbnailPath: thumbnailPath(audio?.album_cover_thumbnail),
           duration: tdNumber(audio?.duration),
+          includePendingUpload,
         },
       );
     }
@@ -972,6 +985,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         ...formattedCaption(content.caption),
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
         duration: tdNumber(voice?.duration),
+        includePendingUpload,
       });
     }
     case "messageVideoNote": {
@@ -982,6 +996,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         previewDataUrl: minithumbnailDataUrl(videoNote?.minithumbnail),
         width: length,
         height: length,
+        includePendingUpload,
       });
     }
     case "messageSticker": {
@@ -993,6 +1008,7 @@ export const mapTdMessageContent = (value: unknown): MessageContent => {
         mimeType: tdStickerMimeType(sticker?.format),
         width: tdNumber(sticker?.width),
         height: tdNumber(sticker?.height),
+        includePendingUpload,
       });
     }
     case "messageContact": {
@@ -1506,7 +1522,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const senderId = messageSenderId(raw.sender_id) || "unknown";
   const sendingState = asTdObject(raw.sending_state);
   const failed = sendingState?.["@type"] === "messageSendingStateFailed";
-  const mappedContent = mapTdMessageContent(raw.content);
+  const mappedContent = mapTdMessageContent(raw.content, raw.is_outgoing === true);
   const content = mappedContent.kind === "unsupported"
     ? { ...mappedContent, raw: serializeTdObject(raw) }
     : mappedContent;
@@ -1529,6 +1545,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     interaction: mapTdInteraction(raw.interaction_info),
     ...(typeof raw.is_pinned === "boolean" ? { isPinned: raw.is_pinned } : {}),
     replyMarkup: mapTdReplyMarkup(raw.reply_markup),
+    isPending: raw.is_pending === true,
     content,
   };
 };

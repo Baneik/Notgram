@@ -421,6 +421,9 @@ const main = async () => {
           sentAt: new Date(Date.now() + ${index} * 1_000).toISOString(),
           delivery: "read",
           mediaAlbumId: undefined,
+          replyTo: ${JSON.stringify(contentKind)} === "media"
+            ? { kind: "message", chatId: "chat-product", messageId: "p-4" }
+            : source.replyTo,
           content: source.content.kind === "text"
             ? { kind: "text", text: "WebView mixed incoming " + ${JSON.stringify(mixedRunId)} + " " + ${index} }
             : structuredClone(source.content),
@@ -463,11 +466,14 @@ const main = async () => {
       const outgoingTexts = messages.filter((message) => message.outgoing &&
         message.content.kind === "text" &&
         message.content.text.startsWith("WebView mixed outgoing " + ${JSON.stringify(mixedRunId)}));
+      const incomingMediaReplies = incoming.filter((message) =>
+        message.content.kind === "media" && message.replyTo?.kind === "message");
       return {
         incomingCount: incoming.length,
         incomingKinds: [...new Set(incoming.map((message) => message.content.kind))].sort(),
         outgoingPhotoCount: outgoingPhotos.length,
         outgoingTextCount: outgoingTexts.length,
+        incomingMediaReplyCount: incomingMediaReplies.length,
         uniqueIds: new Set([...incoming, ...outgoingPhotos, ...outgoingTexts].map((message) => message.id)).size,
         removingMessages: (telegramStore.getState().removingMessages.get("chat-product") ?? []).length,
         awaitingEntranceRows: document.querySelectorAll(".is-awaiting-entrance").length,
@@ -478,11 +484,36 @@ const main = async () => {
       JSON.stringify(mixedDom.incomingKinds) !== JSON.stringify(["media", "rich", "service", "text"]) ||
       mixedDom.outgoingPhotoCount !== 4 ||
       mixedDom.outgoingTextCount !== 4 ||
+      mixedDom.incomingMediaReplyCount !== 1 ||
       mixedDom.uniqueIds !== 12 ||
       mixedDom.removingMessages !== 0 ||
       mixedDom.awaitingEntranceRows !== 0
     ) {
       throw new Error(`Mixed message invariant failed: ${JSON.stringify(mixedDom)}`);
+    }
+
+    const mixedReplyMessageId = `${mixedRunId}-incoming-3`;
+    await evaluate(`(() => {
+      globalThis.dispatchEvent(new CustomEvent("notgram:telegram-link-opened", {
+        detail: { chatId: "chat-product", messageId: ${JSON.stringify(mixedReplyMessageId)} },
+      }));
+      return true;
+    })()`);
+    await waitFor(`document.querySelector('[data-message-id=${JSON.stringify(mixedReplyMessageId)}]')`,
+      "the mixed media reply");
+    await frame();
+    const mixedReplyDom = await evaluate(`(() => {
+      const row = document.querySelector('[data-message-id=${JSON.stringify(mixedReplyMessageId)}]');
+      const bubble = row?.querySelector(".message-bubble.is-photo.has-reply");
+      const reply = bubble?.querySelector(".message-reply-preview");
+      return {
+        rendered: Boolean(row),
+        replyInsideBubble: Boolean(bubble && reply && bubble.contains(reply)),
+        wholeRowHighlighted: row?.classList.contains("is-notification-target") === true,
+      };
+    })()`);
+    if (!mixedReplyDom.rendered || !mixedReplyDom.replyInsideBubble || !mixedReplyDom.wholeRowHighlighted) {
+      throw new Error(`Mixed media reply invariant failed: ${JSON.stringify(mixedReplyDom)}`);
     }
 
     const phases = [];
@@ -563,6 +594,33 @@ const main = async () => {
     };
     if (bottomBoundary.scrollTopSpread > 0.5 || bottomBoundary.maximumBottomDistance > 0.5) {
       throw new Error(`Bottom wheel boundary moved: ${JSON.stringify(bottomBoundary)}`);
+    }
+
+    await click('[data-chat-id="chat-mia"]');
+    await waitFor(`(() => {
+      const list = document.querySelector(".message-list");
+      return document.querySelector('.chat-row.is-active')?.getAttribute('data-chat-id') === "chat-mia" &&
+        list?.getAttribute("aria-busy") === "false";
+    })()`, "the intermediate conversation");
+    await click('[data-chat-id="chat-product"]');
+    await waitFor(`(() => {
+      const list = document.querySelector(".message-list");
+      return document.querySelector('.chat-row.is-active')?.getAttribute('data-chat-id') === "chat-product" &&
+        list?.getAttribute("aria-busy") === "false" && Boolean(list.querySelector("[data-message-id]"));
+    })()`, "the restored latest position");
+    await waitFor(`(() => {
+      const list = document.querySelector(".message-list");
+      return list && Math.max(0, list.scrollHeight - list.clientHeight - list.scrollTop) <= 0.5;
+    })()`, "the restored bottom boundary");
+    const bottomRestore = await evaluate(`(() => {
+      const list = document.querySelector(".message-list");
+      return {
+        scrollTop: list.scrollTop,
+        distanceBottom: Math.max(0, list.scrollHeight - list.clientHeight - list.scrollTop),
+      };
+    })()`);
+    if (bottomRestore.distanceBottom > 0.5) {
+      throw new Error(`Latest position was not restored: ${JSON.stringify(bottomRestore)}`);
     }
 
     if (!options.messagesOnly) {
@@ -646,9 +704,11 @@ const main = async () => {
       mixed: {
         runId: mixedRunId,
         dom: mixedDom,
+        replyDom: mixedReplyDom,
       },
       messageMonitor,
       bottomBoundary,
+      bottomRestore,
       phases,
       records: finalRecords,
     };

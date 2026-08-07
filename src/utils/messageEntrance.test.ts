@@ -30,8 +30,9 @@ describe("message entrance registry", () => {
 
     expect(messageEntranceFor(incoming)).toBe("incoming");
     expect(messageEntranceFor(outgoing)).toBe("outgoing");
-    consumeMessageEntrance(incoming);
-    consumeMessageEntrance(outgoing);
+    expect(consumeMessageEntrance(incoming)).toBe("incoming");
+    expect(consumeMessageEntrance(outgoing)).toBe("outgoing");
+    expect(consumeMessageEntrance(incoming)).toBeUndefined();
     expect(messageEntranceFor(incoming)).toBeUndefined();
     expect(messageEntranceFor(outgoing)).toBeUndefined();
   });

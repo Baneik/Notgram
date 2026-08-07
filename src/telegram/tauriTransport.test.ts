@@ -176,6 +176,124 @@ describe("TauriTelegramTransport startup", () => {
     });
   });
 
+  it("fills commands for bots omitted from otherwise partial group metadata", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & { rawChats: Map<string, TdObject> };
+    const requests: TdObject[] = [];
+    internal.rawChats.set("72", {
+      "@type": "chat",
+      id: 72,
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getSupergroupFullInfo") {
+        return {
+          "@type": "supergroupFullInfo",
+          bot_commands: [
+            {
+              bot_user_id: 901,
+              commands: [{ "@type": "botCommand", command: "help", description: "Help" }],
+            },
+            { bot_user_id: 902, commands: [] },
+          ],
+        };
+      }
+      if (request["@type"] === "searchChatMembers") {
+        return {
+          "@type": "chatMembers",
+          members: [901, 902].map((userId) => ({
+            member_id: { "@type": "messageSenderUser", user_id: userId },
+          })),
+        };
+      }
+      if (request["@type"] === "getUserFullInfo") {
+        return {
+          "@type": "userFullInfo",
+          bot_info: {
+            "@type": "botInfo",
+            commands: [{ "@type": "botCommand", command: "settings", description: "Settings" }],
+          },
+        };
+      }
+      if (request["@type"] === "getUser") {
+        return {
+          "@type": "user",
+          id: request.user_id,
+          first_name: `Bot ${request.user_id}`,
+          usernames: { active_usernames: [`bot_${request.user_id}`] },
+          type: { "@type": "userTypeBot" },
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.getBotCommandSuggestions("72", "")).resolves.toMatchObject([
+      { botUserId: "901", command: "help" },
+      { botUserId: "902", command: "settings" },
+    ]);
+    expect(requests.filter((request) => request["@type"] === "getUserFullInfo"))
+      .toEqual([{ "@type": "getUserFullInfo", user_id: 902 }]);
+  });
+
+  it("wraps privacy rules in the TDLib container object", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.setPrivacySettingRules("showStatus", [{ kind: "allowContacts" }]);
+
+    expect(requests).toEqual([{
+      "@type": "setUserPrivacySettingRules",
+      setting: { "@type": "userPrivacySettingShowStatus" },
+      rules: {
+        "@type": "userPrivacySettingRules",
+        rules: [{ "@type": "userPrivacySettingRuleAllowContacts" }],
+      },
+    }]);
+  });
+
+  it("uses TDLib message link info instead of treating a public post number as a message id", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getMessageLinkInfo") {
+        return {
+          "@type": "messageLinkInfo",
+          chat_id: -10072,
+          message: {
+            ...rawMessage(128_974_848),
+            chat_id: -10072,
+            sender_id: { "@type": "messageSenderChat", chat_id: -10072 },
+          },
+        };
+      }
+      if (request["@type"] === "getChat") {
+        return {
+          "@type": "chat",
+          id: -10072,
+          title: "Release channel",
+          type: { "@type": "chatTypeSupergroup", supergroup_id: 72, is_channel: true },
+          positions: [],
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.resolveTelegramLink("https://t.me/release_channel/123"))
+      .resolves.toEqual({ chatId: "-10072", messageId: "128974848" });
+    expect(requests.map((request) => request["@type"])).toEqual([
+      "getMessageLinkInfo",
+      "getChat",
+    ]);
+  });
+
   it("loads complete administrator labels independently of the member page", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as {
@@ -1058,6 +1176,54 @@ describe("TauriTelegramTransport message operations", () => {
       oldMessageId: "-21",
       message: expect.objectContaining({ id: "210", delivery: "sent", outgoing: true }),
     }]);
+  });
+
+  it("updates one pending bot draft in place and removes it before the final message", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat(rawChat(7, 1_700_000_000));
+
+    internal.handleUpdate({
+      "@type": "updatePendingMessage",
+      chat_id: 7,
+      forum_topic_id: 0,
+      draft_id: 81,
+      content: {
+        "@type": "messageText",
+        text: { "@type": "formattedText", text: "First", entities: [] },
+      },
+    });
+    internal.handleUpdate({
+      "@type": "updatePendingMessage",
+      chat_id: 7,
+      forum_topic_id: 0,
+      draft_id: 81,
+      content: {
+        "@type": "messageText",
+        text: { "@type": "formattedText", text: "First complete", entities: [] },
+      },
+    });
+    internal.handleUpdate({
+      "@type": "updateNewMessage",
+      message: rawMessage(82),
+    });
+
+    expect(events).toMatchObject([
+      {
+        type: "message.upsert",
+        animateEntrance: true,
+        message: { id: "pending:7:0:81", isPending: true, content: { text: "First" } },
+      },
+      {
+        type: "message.upsert",
+        animateEntrance: false,
+        message: { id: "pending:7:0:81", isPending: true, content: { text: "First complete" } },
+      },
+      { type: "message.remove", chatId: "7", messageId: "pending:7:0:81", immediate: true },
+      { type: "message.upsert", animateEntrance: true, message: { id: "82" } },
+    ]);
   });
 
   it("applies late poll updates to every known message with the same poll", () => {

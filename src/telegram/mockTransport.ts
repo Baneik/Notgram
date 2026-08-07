@@ -1130,6 +1130,18 @@ export class MockTelegramTransport implements TelegramTransport {
   async getPrivacySettingRules(setting: PrivacySettingKey): Promise<PrivacyRule[]> { return clone(this.privacyRules[setting]); }
   async setPrivacySettingRules(setting: PrivacySettingKey, rules: PrivacyRule[]): Promise<void> { if (rules.length === 0 || rules.length > 10) throw new Error("隐私规则无效"); this.privacyRules[setting] = clone(rules); }
 
+  async resolveTelegramLink(url: string) {
+    let parsed: URL;
+    try { parsed = new URL(url); } catch { return undefined; }
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (parsed.protocol !== "tg:" && !["t.me", "telegram.me", "telegram.dog"].includes(host)) return undefined;
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const username = parsed.protocol === "tg:" ? parsed.searchParams.get("domain") : parts[0];
+    if (!username) return undefined;
+    const chat = this.snapshot.chats.find((candidate) => candidate.title.toLowerCase() === username.toLowerCase());
+    return chat ? { chatId: chat.id, messageId: parts[1] && /^\d+$/.test(parts[1]) ? parts[1] : parsed.searchParams.get("post") || undefined } : undefined;
+  }
+
   async searchChats(query: string, limit = 50) {
     const normalized = query.trim().toLocaleLowerCase();
     if (!normalized) return;

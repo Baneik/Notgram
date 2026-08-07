@@ -210,6 +210,10 @@ pub fn telegram_clear_media_cache(
         &root,
         registry.protected_paths().into_iter(),
     ));
+    protected.extend(canonical_paths_within_root(
+        &root,
+        cache_files(&sent_media_directory(&app)?)?.into_iter(),
+    ));
     let modified_before = request.older_than_days.and_then(|days| {
         SystemTime::now().checked_sub(Duration::from_secs(u64::from(days) * 86_400))
     });
@@ -356,7 +360,7 @@ pub fn download_directory(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(PathBuf::from(resolved.download_path))
 }
 
-fn trusted_tdlib_files_directory(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn trusted_tdlib_files_directory(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = tdlib_cache_directory(app)?.join("files");
     fs::create_dir_all(&directory).map_err(|error| {
         format!(
@@ -367,6 +371,19 @@ fn trusted_tdlib_files_directory(app: &AppHandle) -> Result<PathBuf, String> {
     directory
         .canonicalize()
         .map_err(|error| format!("Unable to resolve trusted TDLib files directory: {error}"))
+}
+
+pub(crate) fn sent_media_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    let directory = trusted_tdlib_files_directory(app)?.join(".notgram-sent-media");
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Unable to create sent media directory {}: {error}",
+            directory.display()
+        )
+    })?;
+    directory
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve sent media directory: {error}"))
 }
 
 fn trusted_local_file(app: &AppHandle, source_path: &str) -> Result<PathBuf, String> {

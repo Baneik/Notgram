@@ -47,5 +47,8 @@ export const messageEntranceFor = (message: Message) => {
 };
 
 export const consumeMessageEntrance = (message: Message) => {
-  pendingEntrances.delete(messageKey(message));
+  const key = messageKey(message);
+  const entrance = pendingEntrances.get(key)?.kind;
+  pendingEntrances.delete(key);
+  return entrance;
 };
