@@ -636,6 +636,10 @@ export const useConversationScroll = ({
           if (attempts < 12) finishWhenRendered();
           return;
         }
+        if (revealTargetTokenRef.current) {
+          finishWhenRendered();
+          return;
+        }
         const hasRenderedContent = visibleMessagesRef.current.length === 0 || Boolean(
           messageListRef.current?.querySelector("[data-message-id]"),
         );
@@ -691,6 +695,7 @@ export const useConversationScroll = ({
     messageId: string,
     behavior: "auto" | "smooth",
     highlight: boolean,
+    onSettled?: () => void,
   ) => {
     const element = messageListRef.current;
     const itemIndex = messageItemIndexesRef.current.get(messageId);
@@ -753,6 +758,7 @@ export const useConversationScroll = ({
         }
         revealTargetTokenRef.current = undefined;
         persistTargetPosition();
+        onSettled?.();
         completePositioning();
       };
       const settle = () => {
@@ -768,11 +774,14 @@ export const useConversationScroll = ({
           }
           return;
         }
-        virtuosoRef.current?.scrollToIndex({
-          index: itemIndex,
-          align: "center",
-          behavior: "auto",
-        });
+        const latestItemIndex = messageItemIndexesRef.current.get(messageId);
+        if (latestItemIndex !== undefined) {
+          virtuosoRef.current?.scrollToIndex({
+            index: latestItemIndex,
+            align: "center",
+            behavior: "auto",
+          });
+        }
         remainingFrames -= 1;
         if (remainingFrames > 0) {
           requestAnimationFrame(settle);
@@ -788,7 +797,7 @@ export const useConversationScroll = ({
     };
     if (mounted) {
       centerMountedTarget(mounted);
-      if (mounted.closest(".media-album")) scheduleTargetSettlement();
+      scheduleTargetSettlement();
     } else {
       virtuosoRef.current?.scrollToIndex({
         index: itemIndex,
@@ -993,9 +1002,13 @@ export const useConversationScroll = ({
       matchingMessageRequest.requestId <= handledMessageRequestRef.current ||
       !targetReady
     ) return;
-    if (revealTarget(matchingMessageRequest.messageId, "smooth", true)) {
-      handledMessageRequestRef.current = matchingMessageRequest.requestId;
-    }
+    const requestId = matchingMessageRequest.requestId;
+    revealTarget(matchingMessageRequest.messageId, "smooth", true, () => {
+      handledMessageRequestRef.current = Math.max(
+        handledMessageRequestRef.current,
+        requestId,
+      );
+    });
   }, [matchingMessageRequest, revealTarget, targetReady]);
 
   useLayoutEffect(() => {
@@ -1009,9 +1022,13 @@ export const useConversationScroll = ({
       return;
     }
     if (!targetReady) return;
-    if (revealTarget(matchingEntryRequest.serverMessageId, "auto", false)) {
-      handledEntryRequestRef.current = matchingEntryRequest.requestId;
-    }
+    const requestId = matchingEntryRequest.requestId;
+    revealTarget(matchingEntryRequest.serverMessageId, "auto", false, () => {
+      handledEntryRequestRef.current = Math.max(
+        handledEntryRequestRef.current,
+        requestId,
+      );
+    });
   }, [completePositioning, matchingEntryRequest, revealTarget, targetReady]);
 
   useLayoutEffect(() => {

@@ -1123,7 +1123,7 @@ export function Conversation({
       )}
 
       <div className={`message-list-shell ${positioning ? "is-positioning" : ""}`}>
-        {positioning && !preservePositioningFrame && (
+        {positioning && visibleMessages.length === 0 && !preservePositioningFrame && (
           <div
             className={`message-positioning-placeholder ${visibleMessages.length > 0 ? "is-warm" : ""}`}
             role="status"
