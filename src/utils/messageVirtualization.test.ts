@@ -61,6 +61,29 @@ describe("message virtualization", () => {
     expect(blocks[1]?.messages.map(({ id }) => id)).toEqual(["6"]);
   });
 
+  it("uses positions local to an album inside a longer sender group", () => {
+    const media = (id: string): Message => message(id, {
+      mediaAlbumId: "album",
+      content: {
+        kind: "media",
+        mediaType: "photo",
+        fileName: `${id}.jpg`,
+        sizeLabel: "1 MB",
+      },
+    });
+    const blocks = virtualizeMessageGroups([
+      message("before"),
+      media("album-first"),
+      media("album-last"),
+      message("after"),
+    ]);
+
+    expect(blocks[0]?.positions.get("before")).toBe("first");
+    expect(blocks[0]?.positions.get("album-first")).toBe("first");
+    expect(blocks[0]?.positions.get("album-last")).toBe("last");
+    expect(blocks[0]?.positions.get("after")).toBe("last");
+  });
+
   it("indexes every message by its containing virtual block", () => {
     const blocks = virtualizeMessageGroups(
       Array.from({ length: 7 }, (_, index) => message(String(index + 1))),

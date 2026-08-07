@@ -57,6 +57,15 @@ export const virtualizeMessageGroups = (
       messageGroupPosition(group, messageIndex),
     ]));
     const chunks = splitSegments(segmentMediaAlbums(group), maximumMessages);
+    for (const segment of chunks.flat()) {
+      if (segment.kind !== "album") continue;
+      segment.messages.forEach((message, messageIndex) => {
+        positions.set(
+          message.id,
+          messageGroupPosition(segment.messages, messageIndex),
+        );
+      });
+    }
 
     return chunks.map((segments, chunkIndex) => {
       const chunkMessages = segments.flatMap(segmentMessages);

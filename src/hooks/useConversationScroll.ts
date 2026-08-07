@@ -171,6 +171,7 @@ export const useConversationScroll = ({
   const bottomFrameRef = useRef<number | undefined>(undefined);
   const bottomSettleFrameRef = useRef<number | undefined>(undefined);
   const anchorFrameRef = useRef<number | undefined>(undefined);
+  const contentAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningFrameRef = useRef<number | undefined>(undefined);
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
@@ -568,6 +569,32 @@ export const useConversationScroll = ({
     positioningAnchorFrameRef.current = requestAnimationFrame(settle);
   }, [restoreAnchor]);
 
+  const settleContentAnchorPosition = useCallback((
+    element: HTMLElement,
+    messageId: string,
+    expectedOffset: number,
+    expectedVirtuosoKey: string,
+    onSettled?: () => void,
+  ) => {
+    if (contentAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(contentAnchorFrameRef.current);
+    }
+    let remainingFrames = 18;
+    const settle = () => {
+      contentAnchorFrameRef.current = undefined;
+      if (
+        messageListRef.current !== element ||
+        element.dataset.conversationVirtuosoKey !== expectedVirtuosoKey
+      ) return;
+      restoreAnchor(element, messageId, expectedOffset);
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        contentAnchorFrameRef.current = requestAnimationFrame(settle);
+      } else onSettled?.();
+    };
+    settle();
+  }, [restoreAnchor]);
+
   const loadOlder = useCallback(() => {
     const element = messageListRef.current;
     if (
@@ -835,15 +862,18 @@ export const useConversationScroll = ({
 
   const revealMessageStart = useCallback((messageId: string) => {
     const element = messageListRef.current;
-    const row = element?.querySelector<HTMLElement>(
-      `[data-message-id="${CSS.escape(messageId)}"]`,
-    );
-    if (!element || !row || !currentScrollKey) return;
-    const expectedOffset = row.getBoundingClientRect().top -
-      element.getBoundingClientRect().top;
+    if (!element || !currentScrollKey) return;
     stopFollowingLatest();
-    requestAnimationFrame(() => {
-      restoreAnchor(element, messageId, expectedOffset);
+    const current = conversationScrollMemory.get(currentScrollKey);
+    conversationScrollMemory.set(currentScrollKey, {
+      scrollTop: element.scrollTop,
+      followLatest: false,
+      lastKnownMessageId: current?.lastKnownMessageId,
+      pendingNewCount: current?.pendingNewCount ?? 0,
+      anchorMessageId: messageId,
+      anchorOffset: 0,
+    });
+    settleContentAnchorPosition(element, messageId, 0, virtuosoKey, () => {
       const current = conversationScrollMemory.get(currentScrollKey);
       writeMemory(
         currentScrollKey,
@@ -853,7 +883,13 @@ export const useConversationScroll = ({
         true,
       );
     });
-  }, [currentScrollKey, restoreAnchor, stopFollowingLatest, writeMemory]);
+  }, [
+    currentScrollKey,
+    settleContentAnchorPosition,
+    stopFollowingLatest,
+    virtuosoKey,
+    writeMemory,
+  ]);
 
   const revealAttentionMessage = useCallback(
     (messageId: string) => revealTarget(messageId, "auto", true),
@@ -925,26 +961,29 @@ export const useConversationScroll = ({
       pendingHistory.previousFirstId !== firstVisibleMessageId
     ) {
       pendingHistoryRestoreRef.current = undefined;
-      restoreAnchor(
+      settleContentAnchorPosition(
         messageListElement,
         pendingHistory.anchorMessageId,
         pendingHistory.anchorOffset,
+        virtuosoKey,
+        () => {
+          const anchor = messageListElement.querySelector<HTMLElement>(
+            `[data-message-id="${CSS.escape(pendingHistory.anchorMessageId)}"]`,
+          );
+          const actualOffset = anchor
+            ? anchor.getBoundingClientRect().top - messageListElement.getBoundingClientRect().top
+            : undefined;
+          logPerformance("ui_history_render", {
+            durationMs: performance.now() - pendingHistory.startedAt,
+            addedCount: Math.max(0, visibleMessages.length - pendingHistory.beforeCount),
+            scrollTop: messageListElement.scrollTop,
+            scrollHeight: messageListElement.scrollHeight,
+            anchorShiftPx: actualOffset === undefined
+              ? undefined
+              : Math.abs(actualOffset - pendingHistory.anchorOffset),
+          });
+        },
       );
-      const anchor = messageListElement.querySelector<HTMLElement>(
-        `[data-message-id="${CSS.escape(pendingHistory.anchorMessageId)}"]`,
-      );
-      const actualOffset = anchor
-        ? anchor.getBoundingClientRect().top - messageListElement.getBoundingClientRect().top
-        : undefined;
-      logPerformance("ui_history_render", {
-        durationMs: performance.now() - pendingHistory.startedAt,
-        addedCount: Math.max(0, visibleMessages.length - pendingHistory.beforeCount),
-        scrollTop: messageListElement.scrollTop,
-        scrollHeight: messageListElement.scrollHeight,
-        anchorShiftPx: actualOffset === undefined
-          ? undefined
-          : Math.abs(actualOffset - pendingHistory.anchorOffset),
-      });
     }
 
     previousLayoutRef.current = {
@@ -958,11 +997,12 @@ export const useConversationScroll = ({
     firstVisibleMessageId,
     lastVisibleMessageId,
     messageListElement,
-    restoreAnchor,
     scheduleBottomPin,
     searchActive,
+    settleContentAnchorPosition,
     updateNewMessageNotice,
     visibleMessages,
+    virtuosoKey,
   ]);
 
   useLayoutEffect(() => {
@@ -1104,6 +1144,9 @@ export const useConversationScroll = ({
     if (bottomFrameRef.current !== undefined) cancelAnimationFrame(bottomFrameRef.current);
     if (bottomSettleFrameRef.current !== undefined) cancelAnimationFrame(bottomSettleFrameRef.current);
     if (anchorFrameRef.current !== undefined) cancelAnimationFrame(anchorFrameRef.current);
+    if (contentAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(contentAnchorFrameRef.current);
+    }
     if (positioningAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(positioningAnchorFrameRef.current);
     }
@@ -1195,6 +1238,10 @@ export const useConversationScroll = ({
       return;
     }
     if (event.deltaY !== 0) {
+      if (contentAnchorFrameRef.current !== undefined) {
+        cancelAnimationFrame(contentAnchorFrameRef.current);
+        contentAnchorFrameRef.current = undefined;
+      }
       revealTargetTokenRef.current = undefined;
       completePositioning();
       userIntentUntilRef.current = performance.now() + 320;
@@ -1203,6 +1250,10 @@ export const useConversationScroll = ({
   };
 
   const onPointerDown = () => {
+    if (contentAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(contentAnchorFrameRef.current);
+      contentAnchorFrameRef.current = undefined;
+    }
     revealTargetTokenRef.current = undefined;
     completePositioning();
     pointerActiveRef.current = true;

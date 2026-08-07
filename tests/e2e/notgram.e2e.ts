@@ -3146,6 +3146,7 @@ test("video uses synchronized transparent playback windows and owns the playback
 test("photo albums preserve order, captions, clipping, and tile geometry", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   const squareRow = page.locator('[data-message-id="p-5"]');
   const tallRow = page.locator('[data-message-id="p-tall"]');
   const album = page.locator('[data-media-album-id="mock-album-product"]');
@@ -3166,6 +3167,10 @@ test("photo albums preserve order, captions, clipping, and tile geometry", async
   await expect(album.locator(".media-album-grid")).toHaveCSS("background-color", "rgb(223, 227, 230)");
   const albumTime = squareRow.locator(".message-meta");
   await expect(albumTime).toHaveCSS("opacity", "0");
+  await page.locator(".message-list").evaluate((element) => {
+    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -1 }));
+  });
+  await squareRow.scrollIntoViewIfNeeded();
   const photoBounds = await squareRow.locator(".photo-open").boundingBox();
   expect(photoBounds).not.toBeNull();
   await page.mouse.move(photoBounds!.x + photoBounds!.width / 2, photoBounds!.y + photoBounds!.height / 2);
