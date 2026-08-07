@@ -164,6 +164,12 @@ export function MessageActionMenu({
             <Copy size={16} strokeWidth={1.9} />
             <span>复制</span>
           </button>
+          {onDownload && (
+            <button type="button" role="menuitem" onClick={onDownload}>
+              <Download size={16} strokeWidth={1.9} />
+              <span>下载</span>
+            </button>
+          )}
           {permissions.canEdit && message.content.kind === "text" && (
             <button type="button" role="menuitem" onClick={onEdit}>
               <Edit3 size={16} strokeWidth={1.9} />

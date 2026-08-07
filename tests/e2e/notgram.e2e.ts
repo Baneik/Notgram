@@ -52,6 +52,36 @@ const scrollAwayFromBottom = async (page: Page) => {
   }));
 };
 
+const revealVirtualMessage = async (page: Page, messageId: string) => {
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await messageList.evaluate((element) => {
+    element.dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -1,
+    }));
+  });
+  await expect.poll(() => messageList.evaluate((element, targetId) => {
+    const target = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((row) => row.dataset.messageId === targetId);
+    if (target) {
+      target.scrollIntoView({ block: "center", behavior: "auto" });
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+      return true;
+    }
+    element.scrollTop = Math.max(0, element.scrollTop - Math.max(320, element.clientHeight * 0.75));
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    return false;
+  }, messageId)).toBe(true);
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  const row = page.locator(`[data-message-id="${messageId}"]`);
+  await expect(row).toBeVisible();
+  return row;
+};
+
 test("the top bar keeps only window controls and the account entry opens settings", async ({ page }) => {
   await page.goto("/");
 
@@ -697,13 +727,16 @@ test("composer coalesces resizing and persists drafts without blocking input", a
     const observer = new MutationObserver(() => undefined);
     observer.observe(input, { attributes: true, attributeFilter: ["style"] });
     const startedAt = performance.now();
-    for (const character of text) {
+    for (const [index, character] of [...text].entries()) {
       valueSetter.call(input, input.value + character);
       input.dispatchEvent(new InputEvent("input", {
         bubbles: true,
         data: character,
         inputType: "insertText",
       }));
+      if ((index + 1) % 24 === 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
     }
     const dispatchMs = performance.now() - startedAt;
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -1568,6 +1601,9 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
 });
 
 test("media cache controls clean selected data and protect active files", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("notgram:cache-cleanup:default", String(Date.now()));
+  });
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /高级设置/ }).click();
@@ -1581,7 +1617,7 @@ test("media cache controls clean selected data and protect active files", async 
     await cacheSection.locator(".cache-category-row", { hasText: category })
       .getByRole("checkbox").uncheck();
   }
-  await cacheSection.getByLabel("清理范围").selectOption("30");
+  await cacheSection.getByLabel("自动清理周期").selectOption("30");
   await cacheSection.getByRole("button", { name: "清理所选" }).click();
   await expect(cacheSection.locator(".cache-cleanup-result"))
     .toContainText("已清理 6.0 MB，共 9 个文件；已保护 1 个正在使用的文件");
@@ -1788,8 +1824,7 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
 
 test("renders and activates TDLib inline bot keyboards", async ({ page }) => {
   await page.goto("/");
-  const row = page.locator('[data-message-id="p-bot-keyboard"]');
-  await row.scrollIntoViewIfNeeded();
+  const row = await revealVirtualMessage(page, "p-bot-keyboard");
   const keyboard = row.locator(".message-inline-keyboard");
   await expect(keyboard).toBeVisible();
   await expect(keyboard.locator(".message-inline-keyboard-row")).toHaveCount(2);
@@ -1923,9 +1958,8 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(settingsDialog).toBeHidden();
   await expect(settingsButton).toBeFocused();
 
-  const editableMessage = page.locator('[data-message-id="p-2"]');
   const focusEditableMessage = async () => {
-    await editableMessage.scrollIntoViewIfNeeded();
+    const editableMessage = await revealVirtualMessage(page, "p-2");
     const trigger = editableMessage.locator(".message-bubble-shell");
     await trigger.focus();
     await expect(trigger).toBeFocused();
@@ -2611,7 +2645,9 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
 
   const stage = popup.locator(".media-viewer-stage");
   await stage.hover();
+  await popup.keyboard.down("Control");
   await popup.mouse.wheel(0, -240);
+  await popup.keyboard.up("Control");
   await expect(viewer.locator(".media-viewer-zoom")).toHaveText("150%");
   const stageBounds = await stage.boundingBox();
   await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2, stageBounds!.y + stageBounds!.height / 2);
@@ -3049,7 +3085,7 @@ test("video uses synchronized transparent playback windows and owns the playback
   await expect(actionMenu.getByRole("menuitem").nth(1)).toHaveText("转发");
   await expect(actionMenu.getByRole("menuitem").nth(2)).toHaveText("复制");
   await expect(actionMenu.getByRole("menuitem", { name: "以小窗播放" })).toBeVisible();
-  await expect(actionMenu.getByRole("menuitem", { name: "下载视频" })).toBeVisible();
+  await expect(actionMenu.getByRole("menuitem", { name: "下载", exact: true })).toBeVisible();
   const popupPromise = page.waitForEvent("popup");
   await actionMenu.getByRole("menuitem", { name: "以小窗播放" }).click();
   const popup = await popupPromise;
@@ -3321,7 +3357,7 @@ test("saved and direct messages align to the conversation edges", async ({ page 
 test("group service messages render as centered notices", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
-  const notice = page.locator('[data-message-id="p-service"]');
+  const notice = await revealVirtualMessage(page, "p-service");
   await expect(notice).toBeVisible();
   await expect(notice).toHaveClass(/is-service/);
   await expect(notice.locator(".message-bubble")).toHaveText("Mia Chen 加入了群聊");
@@ -3345,7 +3381,7 @@ test("developer mode copies the complete raw unknown message", async ({ page, co
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
 
-  const notice = page.locator('[data-message-id="p-unknown"]');
+  const notice = await revealVirtualMessage(page, "p-unknown");
   await expect(notice).toContainText("收到新类型消息（messageFutureType）");
   await expect(notice.locator(".unknown-message-copy")).toHaveCount(0);
 
@@ -3364,7 +3400,7 @@ test("developer mode copies the complete raw unknown message", async ({ page, co
     content: { "@type": "messageFutureType" },
   });
 
-  const regularMessage = page.locator('[data-message-id="p-2"]');
+  const regularMessage = await revealVirtualMessage(page, "p-2");
   await regularMessage.locator(".message-bubble-shell").click({ button: "right" });
   const rawMenuItem = page.getByRole("menuitem", { name: "复制原始消息" });
   await expect(rawMenuItem).toBeVisible();
@@ -3963,7 +3999,7 @@ test("chat organization menu confirms pin, mute, and archive changes", async ({ 
 
 test("messages support pin lists, notification scope, and auto-delete settings", async ({ page }) => {
   await page.goto("/");
-  const target = page.locator(".message-row").filter({ hasText: "早上好，左侧会话列表的密度已经调整好了。" }).first();
+  const target = await revealVirtualMessage(page, "p-1");
   await target.locator(".message-bubble-shell").click({ button: "right" });
   const messageMenu = page.getByRole("menu", { name: "消息操作" });
   await expect(messageMenu.getByRole("menuitem", { name: "置顶消息" })).toBeVisible();
@@ -4246,8 +4282,7 @@ test("message context menu closes when the conversation scrolls", async ({ page 
   await page.goto("/");
 
   const messageList = page.locator(".message-list");
-  const visibleBubble = page.locator('[data-message-id="p-2"] .message-bubble-shell');
-  await visibleBubble.scrollIntoViewIfNeeded();
+  const visibleBubble = (await revealVirtualMessage(page, "p-2")).locator(".message-bubble-shell");
   await visibleBubble.click({ button: "right" });
   const menu = page.getByRole("menu", { name: "消息操作" });
   await expect(menu).toBeVisible();
