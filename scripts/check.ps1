@@ -16,6 +16,9 @@ try {
     npm run release:policy:check
     if ($LASTEXITCODE -ne 0) { throw "Release policy check failed." }
 
+    npm run theme:check
+    if ($LASTEXITCODE -ne 0) { throw "Theme contract check failed." }
+
     npm test
     if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed." }
 

@@ -31,6 +31,7 @@ import {
   type VideoWindowState,
 } from "../media/videoWindowBridge";
 import { logPerformance } from "../utils/performanceMonitor";
+import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
 
 const CONTROL_IDLE_TIMEOUT_MS = 1_000;
 const READY_RETRY_INTERVAL_MS = 250;
@@ -232,8 +233,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
         setVolume(initial.volume);
         setMuted(initial.mode === "fullscreen" ? false : initial.muted);
         setFullscreen(initial.mode === "fullscreen");
-        document.documentElement.classList.toggle("theme-dark", initial.colorTheme === "dark");
-        document.documentElement.style.colorScheme = initial.colorTheme;
+        applyThemeToDocument(themeIdForColorTheme(initial.colorTheme));
         if (isTauri()) {
           void getCurrentWindow().setTheme(initial.colorTheme).catch(() => undefined);
         }
@@ -287,7 +287,8 @@ export function VideoWindow({ id }: VideoWindowProps) {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       channel.close();
       channelRef.current = undefined;
-      document.documentElement.classList.remove("video-window-page");
+      document.documentElement.classList.remove("video-window-page", "theme-dark");
+      document.documentElement.removeAttribute("data-theme");
       document.body.classList.remove("video-window-page");
     };
   }, [id]);

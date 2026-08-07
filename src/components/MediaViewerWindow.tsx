@@ -7,6 +7,7 @@ import {
   type MediaViewerWindowMessage,
 } from "../media/mediaViewerWindowBridge";
 import { MediaViewer } from "./MediaViewer";
+import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
 
 const READY_RETRY_INTERVAL_MS = 250;
 
@@ -21,8 +22,7 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
   const [activeMessageId, setActiveMessageId] = useState<string>();
 
   const applyTheme = (colorTheme: MediaViewerWindowDescriptor["colorTheme"]) => {
-    document.documentElement.classList.toggle("theme-dark", colorTheme === "dark");
-    document.documentElement.style.colorScheme = colorTheme;
+    applyThemeToDocument(themeIdForColorTheme(colorTheme));
     if (isTauri()) void getCurrentWindow().setTheme(colorTheme).catch(() => undefined);
   };
 
@@ -82,6 +82,7 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
       channel.close();
       channelRef.current = undefined;
       document.documentElement.classList.remove("media-viewer-window-page", "theme-dark");
+      document.documentElement.removeAttribute("data-theme");
       document.body.classList.remove("media-viewer-window-page");
     };
   }, [id]);

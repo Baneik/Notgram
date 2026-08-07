@@ -3,8 +3,15 @@ import { useStore } from "zustand";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  applyThemeToDocument,
+  colorThemeForThemeId,
+  resolveThemeId,
+  type ColorScheme,
+  type ThemeId,
+} from "../theme/theme";
 
-export type ColorTheme = "light" | "dark";
+export type ColorTheme = ColorScheme;
 export type UnreadBadgePosition = "right" | "avatar";
 
 export interface AppPreferences {
@@ -31,7 +38,7 @@ export interface AppPreferences {
   messageCollapseThresholdLines: number;
   messageCollapsedLines: number;
   unreadBadgePosition: UnreadBadgePosition;
-  colorTheme: ColorTheme;
+  themeId: ThemeId;
 }
 
 interface PreferencesState extends AppPreferences {
@@ -66,7 +73,7 @@ const defaults: AppPreferences = {
   messageCollapseThresholdLines: 100,
   messageCollapsedLines: 50,
   unreadBadgePosition: "right",
-  colorTheme: "light",
+  themeId: "notgram-light",
 };
 
 const boundedInteger = (value: unknown, fallback: number, minimum: number, maximum: number) =>
@@ -78,7 +85,10 @@ const readPreferences = (): AppPreferences => {
   try {
     const serialized = globalThis.localStorage?.getItem(STORAGE_KEY);
     if (!serialized) return defaults;
-    const stored = JSON.parse(serialized) as Partial<AppPreferences> & { compactMode?: boolean };
+    const stored = JSON.parse(serialized) as Partial<AppPreferences> & {
+      colorTheme?: ColorTheme;
+      compactMode?: boolean;
+    };
     const legacyCompact = stored.compactMode === true;
     const messageCollapseThresholdLines = boundedInteger(
       stored.messageCollapseThresholdLines,
@@ -146,7 +156,7 @@ const readPreferences = (): AppPreferences => {
       unreadBadgePosition: stored.unreadBadgePosition === "avatar"
         ? "avatar"
         : defaults.unreadBadgePosition,
-      colorTheme: stored.colorTheme === "dark" ? "dark" : defaults.colorTheme,
+      themeId: resolveThemeId(stored.themeId, stored.colorTheme),
     };
   } catch {
     return defaults;
@@ -155,7 +165,7 @@ const readPreferences = (): AppPreferences => {
 
 const initialPreferences = readPreferences();
 let appliedInterfaceScale: number | undefined;
-let appliedColorTheme: ColorTheme | undefined;
+let appliedThemeId: ThemeId | undefined;
 
 export const preferencesStore = createStore<PreferencesState>((set) => ({
   ...initialPreferences,
@@ -196,12 +206,12 @@ const applyPreferences = (preferences: AppPreferences) => {
       document.documentElement.style.setProperty("zoom", String(scale));
     }
   }
-  if (appliedColorTheme !== preferences.colorTheme) {
-    appliedColorTheme = preferences.colorTheme;
-    document.documentElement.classList.toggle("theme-dark", preferences.colorTheme === "dark");
-    document.documentElement.style.colorScheme = preferences.colorTheme;
+  if (appliedThemeId !== preferences.themeId) {
+    appliedThemeId = preferences.themeId;
+    const colorScheme = colorThemeForThemeId(preferences.themeId);
+    applyThemeToDocument(preferences.themeId);
     if (isTauri()) {
-      void getCurrentWindow().setTheme(preferences.colorTheme).catch(() => undefined);
+      void getCurrentWindow().setTheme(colorScheme).catch(() => undefined);
     }
   }
 };
@@ -232,7 +242,7 @@ preferencesStore.subscribe((state) => {
     messageCollapseThresholdLines: state.messageCollapseThresholdLines,
     messageCollapsedLines: state.messageCollapsedLines,
     unreadBadgePosition: state.unreadBadgePosition,
-    colorTheme: state.colorTheme,
+    themeId: state.themeId,
   };
   applyPreferences(preferences);
   try {

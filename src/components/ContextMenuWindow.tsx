@@ -27,6 +27,7 @@ import {
   measureNativeContextMenuLabel,
 } from "../contextMenu/nativeContextMenuLayout";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
+import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
 
 const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   archive: Archive,
@@ -71,11 +72,7 @@ export function ContextMenuWindow({ id }: { id: string }) {
       if (readyTimer !== undefined) globalThis.clearInterval(readyTimer);
       readyTimer = undefined;
       setDescriptor(message.descriptor);
-      document.documentElement.classList.toggle(
-        "theme-dark",
-        message.descriptor.colorTheme === "dark",
-      );
-      document.documentElement.style.colorScheme = message.descriptor.colorTheme;
+      applyThemeToDocument(themeIdForColorTheme(message.descriptor.colorTheme));
       void getCurrentWindow().setTheme(message.descriptor.colorTheme).catch(() => undefined);
       globalThis.setTimeout(() => { blurArmedRef.current = true; }, 100);
     };
@@ -91,6 +88,7 @@ export function ContextMenuWindow({ id }: { id: string }) {
       channel.close();
       channelRef.current = undefined;
       document.documentElement.classList.remove("context-menu-window-page");
+      document.documentElement.removeAttribute("data-theme");
       document.body.classList.remove("context-menu-window-page");
     };
   }, [id]);

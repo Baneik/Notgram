@@ -284,7 +284,7 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   await darkTheme.click();
   await expect(page.locator("html")).toHaveClass(/theme-dark/);
   await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".settings-dialog")).toHaveCSS("background-color", "rgb(23, 33, 43)");
+  await expect(page.locator(".settings-dialog")).toHaveCSS("background-color", "rgb(29, 42, 55)");
   await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(14, 22, 33)");
   await expect(page.locator(".message-row.is-incoming:has(.message-rich-text) .message-bubble").first())
     .toHaveCSS("background-color", "rgb(24, 37, 51)");
@@ -1940,8 +1940,35 @@ test("shared media supports server categories, filters, forwarding, and batch de
 });
 
 test("dark mode keeps interactive hover surfaces dark across the main UI", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("notgram:preferences:v1", JSON.stringify({ themeId: "notgram-dark" }));
+  });
   await page.goto("/");
-  await page.evaluate(() => document.documentElement.classList.add("theme-dark"));
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "notgram-dark");
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+
+  const missingTokens = await page.evaluate(() => {
+    const contract = [
+      "--color-bg-canvas",
+      "--color-bg-surface",
+      "--color-bg-elevated",
+      "--color-bg-control",
+      "--color-text-primary",
+      "--color-text-secondary",
+      "--color-border-default",
+      "--color-border-strong",
+      "--color-border-focus",
+      "--color-accent",
+      "--color-status-danger",
+      "--color-message-incoming",
+      "--color-message-outgoing",
+      "--color-overlay",
+      "--color-shadow",
+    ];
+    const style = getComputedStyle(document.documentElement);
+    return contract.filter((token) => style.getPropertyValue(token).trim() === "");
+  });
+  expect(missingTokens).toEqual([]);
 
   const assertDarkHover = async (locator: ReturnType<typeof page.locator>) => {
     await locator.hover();
@@ -1957,8 +1984,21 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
   const profile = page.getByRole("dialog", { name: "资料" });
   await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
   await expect(profile).toBeVisible();
+  await expect(profile).toHaveCSS("background-color", "rgb(29, 42, 55)");
+  await expect(profile).toHaveCSS("border-color", "rgb(64, 81, 97)");
   await assertDarkHover(profile.locator(".profile-member-identity").first());
-  await profile.getByRole("button", { name: "关闭资料" }).click();
+
+  await profile.getByRole("button", { name: "管理", exact: true }).click();
+  const management = page.getByRole("dialog", { name: /管理“产品讨论”/ });
+  await management.getByRole("button", { name: "邀请", exact: true }).click();
+  const inviteName = management.getByLabel("邀请链接名称");
+  await expect(inviteName).toHaveCSS("background-color", "rgb(32, 44, 56)");
+  await expect(inviteName).toHaveCSS("border-color", "rgb(64, 81, 97)");
+  await expect(inviteName).toHaveCSS("color", "rgb(237, 242, 247)");
+  await management.getByRole("button", { name: "关闭管理面板" }).click();
+  if (await profile.isVisible()) {
+    await profile.getByRole("button", { name: "关闭资料" }).click();
+  }
 
   await page.locator(".message-bubble-shell").last().click({ button: "right" });
   const messageMenu = page.getByRole("menu", { name: "消息操作" });
@@ -1969,7 +2009,14 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
   await page.getByRole("button", { name: "表情" }).click();
   const emojiPicker = page.locator(".emoji-picker");
   await expect(emojiPicker).toBeVisible();
+  await expect(emojiPicker).toHaveCSS("background-color", "rgb(29, 42, 55)");
   await assertDarkHover(emojiPicker.locator(".emoji-picker-tabs > button").first());
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await expect(settings).toHaveCSS("background-color", "rgb(29, 42, 55)");
+  await expect(settings.locator(".settings-categories")).toHaveCSS("background-color", "rgb(32, 46, 59)");
 });
 
 test("reply previews jump to their source and channel senders keep their identity", async ({ page }) => {

@@ -54,6 +54,7 @@ import {
 } from "./conversationMessages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
 import { ReportDialog } from "./SafetySettings";
 import { MessageRichText } from "./MessageRichText";
@@ -253,7 +254,7 @@ export function Conversation({
   const cacheFile = useTelegramStore((state) => state.cacheFile);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const developerMode = usePreferencesStore((state) => state.developerMode);
-  const colorTheme = usePreferencesStore((state) => state.colorTheme);
+  const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
   const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
   const autoDownloadAudio = usePreferencesStore((state) => state.autoDownloadAudio);

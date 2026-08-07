@@ -14,6 +14,7 @@ import {
 import { useState, type KeyboardEvent } from "react";
 import { useNativeContextMenu } from "../contextMenu/nativeContextMenuBridge";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
+import { currentColorTheme } from "../theme/theme";
 import type { Chat, ChatFolder } from "../telegram/types";
 import {
   ContextMenuPanel,
@@ -74,7 +75,7 @@ export function ChatContextMenu({
 
   const nativeMenu = useNativeContextMenu({
     label: `会话操作：${chat.title}`,
-    colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
+    colorTheme: currentColorTheme(),
     items: [
       {
         id: "pin",
@@ -235,7 +236,7 @@ export function FolderContextMenu({
 
   const nativeMenu = useNativeContextMenu({
     label: `分组操作：${folder.title}`,
-    colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
+    colorTheme: currentColorTheme(),
     items: [
       ...(custom ? [{ id: "edit", label: "编辑文件夹", icon: "edit" as const, disabled: busy }] : []),
       { id: "read", label: "标记为已读", icon: "check", disabled: busy || unreadCount === 0 },

@@ -1,0 +1,127 @@
+/*
+ * Theme contract. Component styles consume these semantic roles; only this
+ * file should define a theme's actual palette.
+ */
+:root,
+[data-theme="notgram-light"] {
+  color-scheme: light;
+  --color-bg-canvas: #dfe7e4;
+  --color-bg-surface: #ffffff;
+  --color-bg-surface-hover: #f4f4f5;
+  --color-bg-elevated: #ffffff;
+  --color-bg-control: #ffffff;
+  --color-bg-control-hover: #f1f3f4;
+  --color-bg-selected: #e5f2fc;
+  --color-text-primary: #1f2326;
+  --color-text-secondary: #707579;
+  --color-text-tertiary: #9aa1a6;
+  --color-text-disabled: #aeb8bd;
+  --color-text-on-accent: #ffffff;
+  --color-border-subtle: #e6ebed;
+  --color-border-default: #dfe3e6;
+  --color-border-strong: #cbd1d5;
+  --color-border-focus: #3390ec;
+  --color-accent: #3390ec;
+  --color-accent-strong: #168acd;
+  --color-accent-soft: #e5f2fc;
+  --color-status-success: #278156;
+  --color-status-warning: #9b680e;
+  --color-status-danger: #b23b31;
+  --color-status-info: #2679bd;
+  --color-text-link: #1976bd;
+  --color-text-code: #263238;
+  --color-bg-code: rgba(25, 37, 43, 0.08);
+  --color-message-incoming: #ffffff;
+  --color-message-outgoing: #e7ffdb;
+  --color-message-service: rgba(92, 117, 112, 0.72);
+  --color-qr-background: #ffffff;
+  --color-qr-foreground: #111111;
+  --color-on-media: #ffffff;
+  --color-overlay: rgba(20, 26, 30, 0.48);
+  --color-shadow: rgba(24, 34, 40, 0.2);
+  --color-scrollbar-thumb: #c8cdd0;
+}
+
+[data-theme="notgram-dark"],
+.theme-dark {
+  color-scheme: dark;
+  --color-bg-canvas: #0e1621;
+  --color-bg-surface: #17212b;
+  --color-bg-surface-hover: #202e3b;
+  --color-bg-elevated: #1d2a37;
+  --color-bg-control: #202c38;
+  --color-bg-control-hover: #1d2a36;
+  --color-bg-selected: #20394f;
+  --color-text-primary: #edf2f7;
+  --color-text-secondary: #a6b4c2;
+  --color-text-tertiary: #7f91a2;
+  --color-text-disabled: #526271;
+  --color-text-on-accent: #ffffff;
+  --color-border-subtle: #263747;
+  --color-border-default: #2b3a49;
+  --color-border-strong: #405161;
+  --color-border-focus: #6ab8f2;
+  --color-accent: #5ca7e3;
+  --color-accent-strong: #6ab8f2;
+  --color-accent-soft: #20394f;
+  --color-status-success: #74c69d;
+  --color-status-warning: #e3c478;
+  --color-status-danger: #ffaaa3;
+  --color-status-info: #7dc4f4;
+  --color-text-link: #7dc4f4;
+  --color-text-code: #e7edf2;
+  --color-bg-code: rgba(0, 0, 0, 0.24);
+  --color-message-incoming: #182533;
+  --color-message-outgoing: #2b5278;
+  --color-message-service: rgba(38, 61, 78, 0.94);
+  --color-qr-background: #ffffff;
+  --color-qr-foreground: #111111;
+  --color-on-media: #ffffff;
+  --color-overlay: rgba(12, 18, 20, 0.62);
+  --color-shadow: rgba(0, 0, 0, 0.42);
+  --color-scrollbar-thumb: #5f7482;
+}
+
+@media (forced-colors: active) {
+  :root,
+  [data-theme="notgram-light"],
+  [data-theme="notgram-dark"],
+  .theme-dark {
+    color-scheme: normal;
+    --color-bg-canvas: Canvas;
+    --color-bg-surface: Canvas;
+    --color-bg-surface-hover: Canvas;
+    --color-bg-elevated: Canvas;
+    --color-bg-control: Canvas;
+    --color-bg-control-hover: Canvas;
+    --color-bg-selected: Highlight;
+    --color-text-primary: CanvasText;
+    --color-text-secondary: CanvasText;
+    --color-text-tertiary: GrayText;
+    --color-text-disabled: GrayText;
+    --color-text-on-accent: HighlightText;
+    --color-border-subtle: CanvasText;
+    --color-border-default: CanvasText;
+    --color-border-strong: CanvasText;
+    --color-border-focus: Highlight;
+    --color-accent: Highlight;
+    --color-accent-strong: Highlight;
+    --color-accent-soft: Canvas;
+    --color-status-success: CanvasText;
+    --color-status-warning: CanvasText;
+    --color-status-danger: CanvasText;
+    --color-status-info: CanvasText;
+    --color-text-link: LinkText;
+    --color-text-code: CanvasText;
+    --color-bg-code: Canvas;
+    --color-message-incoming: Canvas;
+    --color-message-outgoing: Canvas;
+    --color-message-service: Canvas;
+    --color-qr-background: Canvas;
+    --color-qr-foreground: CanvasText;
+    --color-on-media: CanvasText;
+    --color-overlay: Canvas;
+    --color-shadow: transparent;
+    --color-scrollbar-thumb: CanvasText;
+  }
+}

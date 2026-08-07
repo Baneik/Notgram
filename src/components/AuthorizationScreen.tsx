@@ -61,7 +61,14 @@ export function AuthorizationScreen({ state, pending, error, connectionStatus, o
     return (
       <AuthLayout connectionStatus={connectionStatus} onOpenSettings={onOpenSettings}>
         <div className="auth-qr-code" aria-label="Telegram 登录二维码">
-          <QRCodeSVG value={state.link} size={260} level="M" marginSize={4} bgColor="#ffffff" fgColor="#111111" />
+          <QRCodeSVG
+            value={state.link}
+            size={260}
+            level="M"
+            marginSize={4}
+            bgColor="var(--color-qr-background)"
+            fgColor="var(--color-qr-foreground)"
+          />
         </div>
         <h1>扫描二维码登录</h1>
         <ol className="auth-steps">

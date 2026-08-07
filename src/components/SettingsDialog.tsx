@@ -222,7 +222,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const messageCollapseThresholdLines = usePreferencesStore((state) => state.messageCollapseThresholdLines);
   const messageCollapsedLines = usePreferencesStore((state) => state.messageCollapsedLines);
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
-  const colorTheme = usePreferencesStore((state) => state.colorTheme);
+  const themeId = usePreferencesStore((state) => state.themeId);
   const preferences: AppPreferences = {
     notificationsEnabled,
     notificationSound,
@@ -247,7 +247,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     messageCollapseThresholdLines,
     messageCollapsedLines,
     unreadBadgePosition,
-    colorTheme,
+    themeId,
   };
   const setPreference = usePreferencesStore((state) => state.setPreference);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
@@ -523,16 +523,16 @@ function PreferenceSettings({
               <div className="theme-segmented-control" aria-label="界面样式">
                 <button
                   type="button"
-                  aria-pressed={preferences.colorTheme === "light"}
-                  onClick={() => onChange("colorTheme", "light")}
+                  aria-pressed={preferences.themeId === "notgram-light"}
+                  onClick={() => onChange("themeId", "notgram-light")}
                 >
                   <Sun size={15} />
                   浅色
                 </button>
                 <button
                   type="button"
-                  aria-pressed={preferences.colorTheme === "dark"}
-                  onClick={() => onChange("colorTheme", "dark")}
+                  aria-pressed={preferences.themeId === "notgram-dark"}
+                  onClick={() => onChange("themeId", "notgram-dark")}
                 >
                   <Moon size={15} />
                   深色
@@ -580,13 +580,13 @@ function PreferenceSettings({
             className="storage-reset display-reset"
             type="button"
             disabled={
-              preferences.colorTheme === "light" &&
+              preferences.themeId === "notgram-light" &&
               preferences.chatFontSize === 14 &&
               preferences.interfaceScale === 100 &&
               preferences.unreadBadgePosition === "right"
             }
             onClick={() => {
-              onChange("colorTheme", "light");
+              onChange("themeId", "notgram-light");
               onChange("chatFontSize", 14);
               onChange("interfaceScale", 100);
               onChange("unreadBadgePosition", "right");

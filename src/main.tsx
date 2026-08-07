@@ -10,6 +10,7 @@ import { ContextMenuWindow } from "./components/ContextMenuWindow";
 import { WindowChrome } from "./components/WindowChrome";
 import { installPerformanceMonitoring } from "./utils/performanceMonitor";
 import { installWebviewGuards } from "./utils/webviewGuards";
+import "./styles/themes.css";
 import "./styles/global.css";
 
 installWebviewGuards();

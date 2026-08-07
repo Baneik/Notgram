@@ -24,6 +24,7 @@ import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, Message } from "../telegram/types";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { formatMessageTime } from "../utils/formatters";
+import { currentColorTheme } from "../theme/theme";
 import { Avatar } from "./Avatar";
 import { messageSummary } from "./conversationMessages";
 
@@ -90,7 +91,7 @@ export function MessageActionMenu({
   ] : [];
   const nativeMenu = useNativeContextMenu({
     label: "消息操作",
-    colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
+    colorTheme: currentColorTheme(),
     items: nativeItems,
   }, { x: position.left, y: position.top }, (actionId) => {
     if (actionId === "reply") onReply();

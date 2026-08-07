@@ -35,6 +35,7 @@ import {
   type VideoWindowState,
 } from "../media/videoWindowBridge";
 import { logPerformance } from "../utils/performanceMonitor";
+import { currentColorTheme } from "../theme/theme";
 import { MediaProgressRing } from "./MediaProgressRing";
 
 interface VideoPlayerProps {
@@ -446,7 +447,7 @@ export function VideoPlayer({
       downloadable: canDownload && Boolean(onDownload),
       streaming: streamingRef.current,
       aspectRatio: naturalWidth / naturalHeight,
-      colorTheme: document.documentElement.classList.contains("theme-dark") ? "dark" : "light",
+      colorTheme: currentColorTheme(),
     };
     let resolveInitialized: (() => void) | undefined;
     const initialized = new Promise<void>((resolve) => {
