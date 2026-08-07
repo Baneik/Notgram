@@ -91,6 +91,22 @@ const waitForTarget = async (endpoint) => {
   throw new Error(`No WebView2 page target appeared at ${endpoint}`);
 };
 
+const waitForSettingsTarget = async (endpoint) => {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const response = await fetch(`${endpoint}/json/list`);
+    const targets = await response.json();
+    const target = targets.find((candidate) =>
+      candidate.type === "page" &&
+      candidate.webSocketDebuggerUrl &&
+      new URL(candidate.url).searchParams.get("settingsWindow") === "1",
+    );
+    if (target) return target;
+    await delay(100);
+  }
+  throw new Error("No standalone settings WebView appeared");
+};
+
 const main = async () => {
   const options = parseArguments();
   const outputPath = resolve(options.output);
@@ -555,14 +571,11 @@ const main = async () => {
         Boolean(list.querySelector("[data-message-id]"));
     })()`, "stable chat-product message list");
     await delay(120);
-    await evaluate(`(() => {
+    await click('[data-chat-id="chat-product"]');
+    await waitFor(`(() => {
       const list = document.querySelector(".message-list");
-      list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
-      list.dispatchEvent(new Event("scroll", { bubbles: true }));
-      return true;
-    })()`);
-    await frame();
-    await frame();
+      return list && Math.max(0, list.scrollHeight - list.clientHeight - list.scrollTop) <= 0.5;
+    })()`, "the selected conversation to converge to its latest message");
     const bottomBoundaryStart = await evaluate(`(() => {
       const list = document.querySelector(".message-list");
       return {
@@ -624,12 +637,70 @@ const main = async () => {
     }
 
     if (!options.messagesOnly) {
-
       await click('button[aria-label="设置"]');
-      await waitFor("document.querySelector('[role=dialog][aria-labelledby=settings-title]')", "settings dialog");
-      await click(".settings-category", "性能监控");
-      await waitFor("document.querySelector('.performance-monitor')", "performance monitor");
-      await frame();
+      const settingsTarget = await waitForSettingsTarget(options.endpoint);
+      const settingsCdp = await CdpClient.connect(settingsTarget.webSocketDebuggerUrl);
+      const settingsEvaluate = async (expression) => {
+        const result = await settingsCdp.call("Runtime.evaluate", {
+          expression,
+          awaitPromise: true,
+          returnByValue: true,
+          userGesture: true,
+        });
+        if (result.exceptionDetails) {
+          throw new Error(result.exceptionDetails.exception?.description ?? "Settings evaluation failed");
+        }
+        return result.result.value;
+      };
+      const waitForSettings = async (expression, label) => {
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          if (await settingsEvaluate(`Boolean(${expression})`)) return;
+          await delay(100);
+        }
+        throw new Error(`Timed out waiting for ${label}`);
+      };
+      const settingsElementPoint = async (selector, text) => settingsEvaluate(`(() => {
+        const candidates = [...document.querySelectorAll(${JSON.stringify(selector)})];
+        const element = ${text === undefined
+          ? "candidates[0]"
+          : `candidates.find((candidate) => candidate.textContent?.includes(${JSON.stringify(text)}))`};
+        if (!(element instanceof HTMLElement)) return undefined;
+        element.scrollIntoView({ block: "nearest", inline: "nearest" });
+        const bounds = element.getBoundingClientRect();
+        if (bounds.width <= 0 || bounds.height <= 0) return undefined;
+        return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
+      })()`);
+      const settingsClick = async (selector, text) => {
+        const point = await settingsElementPoint(selector, text);
+        if (!point) throw new Error(`Unable to click settings ${selector}`);
+        await settingsCdp.call("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
+        await settingsCdp.call("Input.dispatchMouseEvent", {
+          type: "mousePressed", button: "left", clickCount: 1, ...point,
+        });
+        await settingsCdp.call("Input.dispatchMouseEvent", {
+          type: "mouseReleased", button: "left", clickCount: 1, ...point,
+        });
+      };
+      const settingsWheel = async (selector, deltaY) => {
+        const point = await settingsElementPoint(selector);
+        if (!point) return;
+        await settingsCdp.call("Input.dispatchMouseEvent", {
+          type: "mouseWheel", deltaX: 0, deltaY, ...point,
+        });
+      };
+      const settingsFrame = () => settingsEvaluate(
+        "new Promise((resolve) => requestAnimationFrame(() => resolve(true)))",
+      );
+      await settingsCdp.call("Runtime.enable");
+      await settingsCdp.call("Page.bringToFront");
+      await waitForSettings(
+        "document.querySelector('[role=dialog][aria-labelledby=settings-title]')",
+        "standalone settings dialog",
+      );
+      await settingsClick(".settings-category", "性能监控");
+      await waitForSettings("document.querySelector('.performance-monitor')", "performance monitor");
+      await settingsFrame();
 
       const openPhase = {
         name: "timeline-pressure-monitor-open",
@@ -638,18 +709,22 @@ const main = async () => {
       };
       const filterNames = ["全部", "交互", "渲染", "数据", "启动"];
       for (let round = 0; round < options.rounds * 2; round += 1) {
-        await click(".performance-filters button", filterNames[round % filterNames.length]);
-        if (round % 3 === 0) await wheel(".performance-timeline", round % 2 === 0 ? 420 : -420);
-        if (round % 7 === 0) {
-          const hasEntry = await evaluate("Boolean(document.querySelector('.performance-entry-main'))");
-          if (hasEntry) await click(".performance-entry-main");
+        await settingsClick(".performance-filters button", filterNames[round % filterNames.length]);
+        if (round % 3 === 0) {
+          await settingsWheel(".performance-timeline", round % 2 === 0 ? 420 : -420);
         }
-        if (round % 12 === 0) await frame();
+        if (round % 7 === 0) {
+          const hasEntry = await settingsEvaluate(
+            "Boolean(document.querySelector('.performance-entry-main'))",
+          );
+          if (hasEntry) await settingsClick(".performance-entry-main");
+        }
+        if (round % 12 === 0) await settingsFrame();
       }
       await delay(1_000);
       openPhase.finishedAt = await webviewTimestamp();
       openPhase.metricsAfter = await metrics();
-      openPhase.dom = await evaluate(`({
+      openPhase.dom = await settingsEvaluate(`({
         renderedEntries: document.querySelectorAll(".performance-entry").length,
         totalRecordLabel: [...document.querySelectorAll(".performance-summary strong")][0]?.textContent,
         issueLabel: [...document.querySelectorAll(".performance-summary strong")][1]?.textContent,
@@ -657,6 +732,7 @@ const main = async () => {
         slowestLabel: [...document.querySelectorAll(".performance-summary strong")][3]?.textContent,
       })`);
       phases.push(openPhase);
+      settingsCdp.close();
     }
 
     const messageMonitor = await evaluate(`(() => {
