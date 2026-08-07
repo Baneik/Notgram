@@ -920,7 +920,6 @@ export function App() {
                 return;
               }
               latestConversationIntentChatIdRef.current = undefined;
-              beginConversationSnapshot(chatId);
               const generation = chatOpenGenerationRef.current + 1;
               chatOpenGenerationRef.current = generation;
               const targetChat = state.chats.get(chatId);
@@ -934,6 +933,9 @@ export function App() {
                 ),
               );
               const restoreLocally = hasConversationScrollMemory(activeAccountId, chatId);
+              const preserveCachedView = recentChatIds.includes(chatId) && restoreLocally;
+              if (preserveCachedView) discardConversationSnapshot();
+              else beginConversationSnapshot(chatId);
               const targetMessages = state.messages.get(chatId) ?? [];
               const performanceTraceId = beginConversationSwitch({
                 cached: targetMessages.length > 0,
@@ -948,12 +950,14 @@ export function App() {
                 if (latestConversationIntentChatIdRef.current !== chatId) {
                   setLatestScrollRequest(undefined);
                 }
-                setEntryScrollRequest({
-                  chatId,
-                  serverMessageId,
-                  requestId: entryScrollRequestIdRef.current,
-                  performanceTraceId,
-                });
+                setEntryScrollRequest(preserveCachedView
+                  ? undefined
+                  : {
+                      chatId,
+                      serverMessageId,
+                      requestId: entryScrollRequestIdRef.current,
+                      performanceTraceId,
+                    });
                 void state.selectChat(chatId);
               });
               requestAnimationFrame(() => {
