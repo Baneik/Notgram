@@ -80,6 +80,8 @@ import {
 } from "../utils/performanceMonitor";
 import { messageEntranceFor } from "../utils/messageEntrance";
 
+const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
+
 const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
   <div {...props} className="message-list-content" ref={ref} />
 ));
@@ -227,9 +229,9 @@ export function Conversation({
   onBlockSender,
 }: ConversationProps) {
   const currentUserId = useTelegramStore((state) => state.currentUserId);
-  const unreadAttentionMessageIds = useTelegramStore(
-    (state) => state.unreadAttentionMessageIds,
-  );
+  const attentionMessageIds = useTelegramStore((state) => chat
+    ? state.unreadAttentionMessageIds.get(chat.id) ?? EMPTY_ATTENTION_MESSAGE_IDS
+    : EMPTY_ATTENTION_MESSAGE_IDS);
   const dismissMessageAttention = useTelegramStore(
     (state) => state.dismissMessageAttention,
   );
@@ -548,10 +550,6 @@ export function Conversation({
     messageCount: messages.length,
     onLoadOlder,
   });
-  const attentionMessageIds = chat
-    ? unreadAttentionMessageIds.get(chat.id) ?? []
-    : [];
-
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
@@ -1159,11 +1157,12 @@ export function Conversation({
                     ? messageGroup.map((message) => ({ kind: "message" as const, message }))
                     : groupModel.segments
                   ).map((segment) => {
-                    const renderBubble = (message: Message, albumItem = false) => (
-                      <RichMessageBubble
+                    const renderBubble = (message: Message, albumItem = false) => {
+                      const entrance = messageEntranceFor(message);
+                      return <RichMessageBubble
                         key={message.renderKey ?? message.id}
                         message={message}
-                        entrance={messageEntranceFor(message)}
+                        entrance={entrance}
                         senderName={senderName}
                         senderLabel={message.senderTag || memberLabels.get(message.senderId)}
                         senderProfileAvailable={!message.outgoing && message.senderId !== "unknown"}
@@ -1197,7 +1196,7 @@ export function Conversation({
                         onPollAnswer={onSetPollAnswer}
                         onBotCallback={onBotCallback}
                         onExpandLongText={revealMessageStart}
-                        onMount={pinFollowingMessageMount}
+                        onMount={entrance ? pinFollowingMessageMount : undefined}
                         nextAudioPlaybackId={nextAudioPlaybackIdByMessage.get(message.id)}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}
@@ -1206,8 +1205,8 @@ export function Conversation({
                         autoplayAnimations={autoplayAnimations}
                         autoDownloadPolicy={autoDownloadPolicy}
                         developerMode={developerMode}
-                      />
-                    );
+                      />;
+                    };
                     if (segment.kind === "message") return renderBubble(segment.message);
 
                     const captionMessages = segment.messages.filter((message) =>

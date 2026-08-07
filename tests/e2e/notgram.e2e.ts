@@ -1262,6 +1262,65 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   expect(await messageCounts()).toEqual(beforeCounts);
 });
 
+test("warm conversation switching coalesces message-list geometry checks", async ({ page }) => {
+  await page.goto("/");
+  const product = page.locator('[data-chat-id="chat-product"]');
+  const mia = page.locator('[data-chat-id="chat-mia"]');
+
+  await mia.click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await product.click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await mia.click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const result = await page.evaluate(async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight");
+    if (!descriptor?.get) throw new Error("Element.scrollHeight getter is unavailable");
+    let scrollHeightReads = 0;
+    let readsThisFrame = 0;
+    let maxReadsPerFrame = 0;
+    Object.defineProperty(Element.prototype, "scrollHeight", {
+      ...descriptor,
+      get() {
+        if (this instanceof HTMLElement && this.classList.contains("message-list")) {
+          scrollHeightReads += 1;
+          readsThisFrame += 1;
+        }
+        return descriptor.get!.call(this);
+      },
+    });
+
+    try {
+      document.querySelector<HTMLElement>('[data-chat-id="chat-product"]')?.click();
+      let stableFrames = 0;
+      for (let frame = 0; frame < 120; frame += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        maxReadsPerFrame = Math.max(maxReadsPerFrame, readsThisFrame);
+        readsThisFrame = 0;
+        const settled = document.querySelector(".conversation-title strong")?.textContent === "产品讨论" &&
+          document.querySelector(".message-list")?.getAttribute("aria-busy") === "false" &&
+          !document.querySelector("[data-conversation-switch-snapshot]");
+        stableFrames = settled ? stableFrames + 1 : 0;
+        if (stableFrames >= 2) break;
+      }
+      return {
+        scrollHeightReads,
+        maxReadsPerFrame,
+        mountedMessages: document.querySelectorAll(".message-list [data-message-id]").length,
+        settled: stableFrames >= 2,
+      };
+    } finally {
+      Object.defineProperty(Element.prototype, "scrollHeight", descriptor);
+    }
+  });
+
+  expect(result.settled, JSON.stringify(result)).toBe(true);
+  expect(result.mountedMessages).toBeGreaterThan(3);
+  expect(result.scrollHeightReads).toBeGreaterThan(0);
+  expect(result.maxReadsPerFrame, JSON.stringify(result)).toBeLessThanOrEqual(12);
+});
+
 test("rapid alternating conversation clicks commit every latest intent without a cooldown", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');
