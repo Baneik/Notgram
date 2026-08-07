@@ -98,6 +98,7 @@ interface MessageBubbleProps {
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
   onExpandLongText: (messageId: string) => void;
+  onMount?: () => void;
   nextAudioPlaybackId?: string;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
@@ -148,6 +149,7 @@ function MessageBubbleComponent({
   onPollAnswer,
   onBotCallback,
   onExpandLongText,
+  onMount,
   nextAudioPlaybackId,
   onOpenReply,
   onOpenSenderProfile,
@@ -181,6 +183,7 @@ function MessageBubbleComponent({
   const [collapsedTextHeight, setCollapsedTextHeight] = useState(0);
   const [textExpanded, setTextExpanded] = useState(false);
   const content = message.content;
+  const isSticker = content.kind === "media" && content.mediaType === "sticker";
   const textCollapsible = content.kind === "text" && textLineCount > collapseThresholdLines;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
@@ -382,13 +385,15 @@ function MessageBubbleComponent({
   const setMessageRowRef = useCallback((element: HTMLElement | null) => {
     rowRef.current = element;
     lazyMediaRef.current = element;
-    if (!element || !entrance) return;
+    if (!element) return;
+    onMount?.();
+    if (!entrance) return;
     const claimedEntrance = consumeMessageEntrance(message);
     if (!claimedEntrance) return;
     entranceKindRef.current = claimedEntrance;
     void element.offsetWidth;
     element.classList.add(`is-entering-${claimedEntrance}`);
-  }, [entrance, lazyMediaRef, message.chatId, message.id]);
+  }, [entrance, lazyMediaRef, message.chatId, message.id, onMount]);
 
   const selectionDisabled = selectionPending ||
     message.permissions?.canForward === false ||
@@ -464,7 +469,7 @@ function MessageBubbleComponent({
         </button>
       )}
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${visualSizingText ? "is-text-sized-visual" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${visualSizingText ? "is-text-sized-visual" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""}`}
         style={visualShellStyle}
         data-visual-sizing-text={visualSizingText}
         tabIndex={!selectionMode && !isService ? 0 : undefined}

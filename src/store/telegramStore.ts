@@ -9,6 +9,7 @@ import type {
   ChatManagement,
   ChatDraft,
   ChatProfile,
+  Message,
   QueuedOutgoingMessage,
   TelegramEvent,
   TelegramAccountState,
@@ -111,6 +112,40 @@ export const createTelegramStore = (
     let contactsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const liveAttentionCandidates = new Set<string>();
+    const messageEventKey = (message: Message) => `${message.chatId}:${message.id}`;
+    const queueLiveMessageAttention = (message: Message, live: boolean) => {
+      const key = messageEventKey(message);
+      if (message.outgoing) {
+        liveAttentionCandidates.delete(key);
+        return;
+      }
+      if (live) {
+        liveAttentionCandidates.add(key);
+        if (liveAttentionCandidates.size > 512) {
+          liveAttentionCandidates.delete(liveAttentionCandidates.values().next().value!);
+        }
+      }
+      if (!liveAttentionCandidates.has(key)) return;
+
+      const reply = message.replyTo?.kind === "message" ? message.replyTo : undefined;
+      const replyChatId = reply?.chatId ?? message.chatId;
+      const repliedMessage = reply?.messageId
+        ? get().messages.get(replyChatId)?.find((candidate) => candidate.id === reply.messageId)
+        : undefined;
+      const needsAttention = message.containsUnreadMention === true ||
+        reply?.outgoing === true || repliedMessage?.outgoing === true;
+      const replyResolved = !reply || reply.outgoing !== undefined || repliedMessage !== undefined;
+      if (!needsAttention && !replyResolved) return;
+
+      liveAttentionCandidates.delete(key);
+      if (!needsAttention) return;
+      const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
+      const current = unreadAttentionMessageIds.get(message.chatId) ?? [];
+      if (current.includes(message.id)) return;
+      unreadAttentionMessageIds.set(message.chatId, [...current, message.id]);
+      set({ unreadAttentionMessageIds });
+    };
     const markMessageRemoving = (chatId: string, messageId: string) => {
       const key = `${chatId}:${messageId}`;
       const previous = removalTimers.get(key);
@@ -233,6 +268,7 @@ export const createTelegramStore = (
       cachedMessageIds.clear();
       draftSync.clear();
       clearTypingUsers();
+      liveAttentionCandidates.clear();
       for (const timer of readTimers.values()) globalThis.clearTimeout(timer);
       readTimers.clear();
       readRequestChains.clear();
@@ -254,6 +290,7 @@ export const createTelegramStore = (
         chatLists: new Map(),
         messages: new Map(),
         removingMessages: new Map(),
+        unreadAttentionMessageIds: new Map(),
         drafts: new Map(),
         typingUserIds: new Map(),
         outbox: [],
@@ -710,15 +747,22 @@ export const createTelegramStore = (
       }
 
       if (event.type === "message.remove") {
+        const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
+        const unreadAttention = (unreadAttentionMessageIds.get(event.chatId) ?? [])
+          .filter((messageId) => messageId !== event.messageId);
+        if (unreadAttention.length > 0) unreadAttentionMessageIds.set(event.chatId, unreadAttention);
+        else unreadAttentionMessageIds.delete(event.chatId);
+        liveAttentionCandidates.delete(`${event.chatId}:${event.messageId}`);
         if (event.immediate) {
           const messages = new Map(get().messages);
           messages.set(event.chatId, (messages.get(event.chatId) ?? []).filter((message) => message.id !== event.messageId));
           const removingMessages = new Map(get().removingMessages);
           removingMessages.set(event.chatId, (removingMessages.get(event.chatId) ?? []).filter((message) => message.id !== event.messageId));
           if (removingMessages.get(event.chatId)?.length === 0) removingMessages.delete(event.chatId);
-          set({ messages, removingMessages });
+          set({ messages, removingMessages, unreadAttentionMessageIds });
           return;
         }
+        set({ unreadAttentionMessageIds });
         markMessageRemoving(event.chatId, event.messageId);
         scheduleCacheWrite();
         return;
@@ -803,6 +847,7 @@ export const createTelegramStore = (
 
       const messages = new Map(get().messages);
       const existingMessages = messages.get(event.message.chatId) ?? [];
+      queueLiveMessageAttention(event.message, event.animateEntrance === true);
       if (
         event.animateEntrance &&
         !existingMessages.some((message) => message.id === event.message.id)
@@ -970,6 +1015,7 @@ export const createTelegramStore = (
       chatLists: new Map(),
       messages: new Map(),
       removingMessages: new Map(),
+      unreadAttentionMessageIds: new Map(),
       drafts: new Map(),
       typingUserIds: new Map(),
       outbox: [],
@@ -1518,6 +1564,15 @@ export const createTelegramStore = (
       markActiveChatRead: async () => {
         const chatId = get().activeChatId;
         if (chatId) await markChatRead(chatId);
+      },
+
+      dismissMessageAttention: (chatId, messageId) => {
+        const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
+        const remaining = (unreadAttentionMessageIds.get(chatId) ?? [])
+          .filter((candidate) => candidate !== messageId);
+        if (remaining.length > 0) unreadAttentionMessageIds.set(chatId, remaining);
+        else unreadAttentionMessageIds.delete(chatId);
+        set({ unreadAttentionMessageIds });
       },
 
       loadMessageProperties: async (chatId, messageId) => {

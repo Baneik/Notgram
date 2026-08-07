@@ -427,7 +427,10 @@ export const useConversationScroll = ({
     );
   }, [currentScrollKey, writeMemory]);
 
-  const jumpToLatest = useCallback((behavior: "auto" | "smooth" = "smooth") => {
+  const jumpToLatest = useCallback((
+    behavior: "auto" | "smooth" = "smooth",
+    converge = false,
+  ) => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
     userIntentUntilRef.current = 0;
@@ -448,9 +451,34 @@ export const useConversationScroll = ({
       }, SMOOTH_SCROLL_DURATION_MS);
     } else {
       smoothScrollUntilRef.current = 0;
+      if (converge) {
+        virtuosoRef.current?.scrollToIndex({
+          index: "LAST",
+          align: "end",
+          behavior: "auto",
+        });
+      }
       pinToBottom();
+      if (converge) {
+        scheduleBottomPin();
+        settleBottomPosition(initialLocationIdentity, virtuosoKey);
+      }
     }
-  }, [currentScrollKey, pinToBottom, scheduleBottomPin, writeMemory]);
+  }, [
+    currentScrollKey,
+    initialLocationIdentity,
+    pinToBottom,
+    scheduleBottomPin,
+    settleBottomPosition,
+    virtuosoKey,
+    writeMemory,
+  ]);
+
+  const pinFollowingMessageMount = useCallback(() => {
+    if (!currentScrollKey || searchActive) return;
+    if (conversationScrollMemory.get(currentScrollKey)?.followLatest !== true) return;
+    pinToBottom();
+  }, [currentScrollKey, pinToBottom, searchActive]);
 
   const restoreAnchor = useCallback((
     element: HTMLElement,
@@ -665,6 +693,11 @@ export const useConversationScroll = ({
     });
   }, [currentScrollKey, restoreAnchor, stopFollowingLatest, writeMemory]);
 
+  const revealAttentionMessage = useCallback(
+    (messageId: string) => revealTarget(messageId, "auto", true),
+    [revealTarget],
+  );
+
   useLayoutEffect(() => {
     if (!currentScrollKey || !messageListElement) return;
     const current = conversationScrollMemory.get(currentScrollKey);
@@ -798,7 +831,7 @@ export const useConversationScroll = ({
       !messageListElement
     ) return;
     handledLatestRequestRef.current = matchingLatestRequest.requestId;
-    jumpToLatest("auto");
+    jumpToLatest("auto", true);
   }, [jumpToLatest, matchingLatestRequest, messageListElement]);
 
   useLayoutEffect(() => {
@@ -1057,6 +1090,8 @@ export const useConversationScroll = ({
       !followingState.followLatest
     ),
     jumpToLatest,
+    pinFollowingMessageMount,
+    revealAttentionMessage,
     revealMessageStart,
     followOutput,
     onTotalListHeightChanged,

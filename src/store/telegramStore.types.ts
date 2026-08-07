@@ -96,6 +96,7 @@ export interface TelegramState {
   chatLists: Map<string, ChatListState>;
   messages: Map<string, Message[]>;
   removingMessages: Map<string, Message[]>;
+  unreadAttentionMessageIds: Map<string, string[]>;
   drafts: Map<string, ChatDraft>;
   typingUserIds: Map<string, string[]>;
   outbox: QueuedOutgoingMessage[];
@@ -151,6 +152,7 @@ export interface TelegramState {
   loadMoreHistory: (chatId: string) => Promise<void>;
   loadMessage: (chatId: string, messageId: string) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
+  dismissMessageAttention: (chatId: string, messageId: string) => void;
   loadMessageProperties: (
     chatId: string,
     messageId: string,

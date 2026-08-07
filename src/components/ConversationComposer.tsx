@@ -100,6 +100,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [muteVideos, setMuteVideos] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [botSuggestions, setBotSuggestions] = useState<BotCommandSuggestion[]>([]);
+  const [activeBotSuggestionIndex, setActiveBotSuggestionIndex] = useState(0);
   const [inlineResults, setInlineResults] = useState<InlineQueryResultPage>();
   const [inlineLoading, setInlineLoading] = useState(false);
   const selectedBotRef = useRef<BotCommandSuggestion | undefined>(undefined);
@@ -135,10 +136,14 @@ export const ConversationComposer = memo(function ConversationComposer({
       const username = slash[2] || defaultBotUsername;
       selectedBotRef.current = undefined;
       setBotSuggestions([]);
+      setActiveBotSuggestionIndex(0);
       botQueryTimerRef.current = globalThis.setTimeout(() => {
         void onGetBotCommands(slash[1], username)
           .then((suggestions) => {
-            if (botQueryGenerationRef.current === generation) setBotSuggestions(suggestions);
+            if (botQueryGenerationRef.current === generation) {
+              setBotSuggestions(suggestions);
+              setActiveBotSuggestionIndex(0);
+            }
           })
           .catch(() => {
             if (botQueryGenerationRef.current === generation) setBotSuggestions([]);
@@ -147,11 +152,13 @@ export const ConversationComposer = memo(function ConversationComposer({
       setInlineResults(undefined);
     } else if (inline) {
       setBotSuggestions([]);
+      setActiveBotSuggestionIndex(0);
       selectedBotRef.current = undefined;
       setInlineLoading(true);
       botQueryTimerRef.current = globalThis.setTimeout(() => { void onGetInlineResults(inline[1], inline[2]).then((page) => { setInlineResults(page); setInlineLoading(false); }); }, 180);
     } else {
       setBotSuggestions([]);
+      setActiveBotSuggestionIndex(0);
       setInlineResults(undefined);
       setInlineLoading(false);
     }
@@ -232,6 +239,19 @@ export const ConversationComposer = memo(function ConversationComposer({
     localDraftDirtyRef.current = true;
     draftTimerRef.current = globalThis.setTimeout(flushDraft, LOCAL_DRAFT_DELAY_MS);
   }, [flushDraft]);
+
+  const applyBotSuggestion = useCallback((suggestion: BotCommandSuggestion) => {
+    selectedBotRef.current = suggestion;
+    const includeUsername = Boolean(
+      suggestion.botUsername &&
+      suggestion.botUsername.toLocaleLowerCase() !== defaultBotUsername?.toLocaleLowerCase()
+    );
+    const next = `/${suggestion.command}${includeUsername ? `@${suggestion.botUsername}` : ""} `;
+    draftRef.current = next;
+    setDraft(next);
+    scheduleDraft(next, replyingTo?.id ?? chatDraft?.replyToMessageId);
+    focusComposer();
+  }, [chatDraft?.replyToMessageId, defaultBotUsername, focusComposer, replyingTo?.id, scheduleDraft]);
 
   const stopTyping = useCallback(() => {
     if (typingRefreshRef.current) globalThis.clearInterval(typingRefreshRef.current);
@@ -454,9 +474,10 @@ export const ConversationComposer = memo(function ConversationComposer({
 
     const startCommand = submitted.match(/^\/start(?:@([A-Za-z0-9_]{5,32}))?(?:\s+(.+))?$/);
     const startBot = selectedBotRef.current;
+    const requestedBotUsername = startCommand?.[1] ?? defaultBotUsername;
     const canUseBotStartApi = startCommand && startBot && startBot.command === "start" &&
-      Boolean(defaultBotUsername) &&
-      startBot.botUsername.toLocaleLowerCase() === defaultBotUsername?.toLocaleLowerCase();
+      Boolean(requestedBotUsername) &&
+      startBot.botUsername.toLocaleLowerCase() === requestedBotUsername?.toLocaleLowerCase();
     if (startCommand && startBot && canUseBotStartApi) {
       if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
       draftTimerRef.current = undefined;
@@ -677,7 +698,23 @@ export const ConversationComposer = memo(function ConversationComposer({
       )}
       {botSuggestions.length > 0 && (
         <section className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
-          {botSuggestions.map((suggestion) => <button key={`${suggestion.botUserId}-${suggestion.command}`} type="button" role="option" onClick={() => { selectedBotRef.current = suggestion; const includeUsername = Boolean(suggestion.botUsername && suggestion.botUsername.toLocaleLowerCase() !== defaultBotUsername?.toLocaleLowerCase()); const next = `/${suggestion.command}${includeUsername ? `@${suggestion.botUsername}` : ""} `; draftRef.current = next; setDraft(next); scheduleDraft(next, replyingTo?.id ?? chatDraft?.replyToMessageId); focusComposer(); }}><strong>/{suggestion.command}</strong>{suggestion.botUsername && <span>@{suggestion.botUsername}</span>}<small>{suggestion.description}</small></button>)}
+          {botSuggestions.map((suggestion, index) => (
+            <button
+              className={index === activeBotSuggestionIndex ? "is-active" : ""}
+              key={`${suggestion.botUserId}-${suggestion.command}`}
+              type="button"
+              role="option"
+              aria-selected={index === activeBotSuggestionIndex}
+              onPointerEnter={() => setActiveBotSuggestionIndex(index)}
+              onClick={() => applyBotSuggestion(suggestion)}
+            >
+              <span className="bot-suggestion-command">
+                <strong>/{suggestion.command}</strong>
+                {suggestion.botUsername && <small>@{suggestion.botUsername}</small>}
+              </span>
+              <span className="bot-suggestion-description">{suggestion.description}</span>
+            </button>
+          ))}
         </section>
       )}
       {(inlineLoading || inlineResults) && (
@@ -733,6 +770,26 @@ export const ConversationComposer = memo(function ConversationComposer({
             stopTyping();
           }}
           onKeyDown={(event) => {
+            if (!event.nativeEvent.isComposing && !composingRef.current && botSuggestions.length > 0) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const direction = event.key === "ArrowDown" ? 1 : -1;
+                setActiveBotSuggestionIndex((current) =>
+                  (current + direction + botSuggestions.length) % botSuggestions.length
+                );
+                return;
+              }
+              if (
+                (event.key === "Enter" || event.key === "Tab") &&
+                !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+              ) {
+                event.preventDefault();
+                applyBotSuggestion(
+                  botSuggestions[Math.min(activeBotSuggestionIndex, botSuggestions.length - 1)],
+                );
+                return;
+              }
+            }
             const submitWithKeyboard = event.key === "Enter" && (
               (sendOnEnter && !event.shiftKey) ||
               (!sendOnEnter && (event.ctrlKey || event.metaKey))

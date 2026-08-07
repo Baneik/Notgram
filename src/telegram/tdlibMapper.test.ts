@@ -1009,6 +1009,7 @@ describe("TDLib mapper", () => {
       chat_id: 99,
       sender_id: { "@type": "messageSenderUser", user_id: 7 },
       is_outgoing: false,
+      contains_unread_mention: true,
       date: 1_700_000_000,
       edit_date: 1_700_000_100,
       reply_to: {
@@ -1020,6 +1021,7 @@ describe("TDLib mapper", () => {
         },
         origin: { "@type": "messageOriginHiddenUser", sender_name: "Hidden Sender" },
         origin_send_date: 1_699_999_000,
+        is_outgoing: true,
         content: {
           "@type": "messageText",
           text: { "@type": "formattedText", text: "source preview", entities: [] },
@@ -1075,6 +1077,7 @@ describe("TDLib mapper", () => {
 
     expect(message).toMatchObject({
       editedAt: "2023-11-14T22:15:00.000Z",
+      containsUnreadMention: true,
       replyTo: {
         kind: "message",
         chatId: "88",
@@ -1082,6 +1085,7 @@ describe("TDLib mapper", () => {
         quote: "quoted text",
         origin: { kind: "hiddenUser", senderName: "Hidden Sender" },
         content: { kind: "text", text: "source preview" },
+        outgoing: true,
       },
       forwardInfo: {
         origin: {

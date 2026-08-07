@@ -1,5 +1,6 @@
 import {
   ArrowDown,
+  AtSign,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
@@ -226,6 +227,12 @@ export function Conversation({
   onBlockSender,
 }: ConversationProps) {
   const currentUserId = useTelegramStore((state) => state.currentUserId);
+  const unreadAttentionMessageIds = useTelegramStore(
+    (state) => state.unreadAttentionMessageIds,
+  );
+  const dismissMessageAttention = useTelegramStore(
+    (state) => state.dismissMessageAttention,
+  );
   const [actionMenu, setActionMenu] = useState<{
     messageId: string;
     left: number;
@@ -517,6 +524,8 @@ export function Conversation({
     newMessageNotice,
     awayFromLatest,
     jumpToLatest,
+    pinFollowingMessageMount,
+    revealAttentionMessage,
     revealMessageStart,
     followOutput,
     onTotalListHeightChanged,
@@ -539,6 +548,9 @@ export function Conversation({
     messageCount: messages.length,
     onLoadOlder,
   });
+  const attentionMessageIds = chat
+    ? unreadAttentionMessageIds.get(chat.id) ?? []
+    : [];
 
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
@@ -1185,6 +1197,7 @@ export function Conversation({
                         onPollAnswer={onSetPollAnswer}
                         onBotCallback={onBotCallback}
                         onExpandLongText={revealMessageStart}
+                        onMount={pinFollowingMessageMount}
                         nextAudioPlaybackId={nextAudioPlaybackIdByMessage.get(message.id)}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}
@@ -1260,15 +1273,35 @@ export function Conversation({
             );
           }}
         />
+        {!messageSearch && currentScrollKey && attentionMessageIds.length > 0 && (
+          <button
+            className="conversation-jump-button jump-to-attention"
+            type="button"
+            aria-label={`跳到提及或引用，${attentionMessageIds.length} 条待查看`}
+            title="跳到提及或引用"
+            onClick={() => {
+              const messageId = attentionMessageIds.at(-1);
+              if (
+                chat && messageId &&
+                revealAttentionMessage(messageId)
+              ) {
+                dismissMessageAttention(chat.id, messageId);
+              }
+            }}
+          >
+            <AtSign size={19} strokeWidth={2.1} />
+            <span>{attentionMessageIds.length > 99 ? "99+" : attentionMessageIds.length}</span>
+          </button>
+        )}
         {!messageSearch && currentScrollKey && awayFromLatest && (
             <button
-              className="jump-to-latest"
+              className="conversation-jump-button jump-to-latest"
               type="button"
               aria-label={newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0
                 ? `跳到最新消息，${newMessageNotice.count} 条新消息`
                 : "跳到最新消息"}
               title="跳到最新消息"
-              onClick={() => jumpToLatest("auto")}
+              onClick={() => jumpToLatest("auto", true)}
             >
               <ArrowDown size={19} strokeWidth={2.1} />
               {newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0 && (

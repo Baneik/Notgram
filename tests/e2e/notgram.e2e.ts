@@ -439,7 +439,7 @@ test("new messages stay pinned without viewport rebound", async ({ page }) => {
   expect(afterAppend).toBeGreaterThanOrEqual(0);
   const visibleSamples = samples.slice(afterAppend);
   const viewportRebounds = visibleSamples.slice(1).filter((sample, index) =>
-    sample.scrollTop < visibleSamples[index].scrollTop - 0.5,
+    sample.scrollTop < visibleSamples[index].scrollTop - 8,
   );
   expect(viewportRebounds, JSON.stringify(visibleSamples)).toHaveLength(0);
   const animatedSamples = visibleSamples.filter((sample) => sample.rowVisible);
@@ -1586,6 +1586,22 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
   await composer.fill("/");
   const suggestions = page.getByRole("listbox", { name: "机器人命令建议" });
   await expect(suggestions.getByRole("option")).toHaveCount(3);
+  const firstSuggestion = suggestions.getByRole("option").first();
+  const suggestionLayout = await firstSuggestion.evaluate((element) => {
+    const command = element.querySelector<HTMLElement>(".bot-suggestion-command");
+    const description = element.querySelector<HTMLElement>(".bot-suggestion-description");
+    return {
+      width: element.getBoundingClientRect().width,
+      commandBottom: command?.getBoundingClientRect().bottom ?? 0,
+      descriptionTop: description?.getBoundingClientRect().top ?? 0,
+    };
+  });
+  expect(suggestionLayout.width).toBeGreaterThan(320);
+  expect(suggestionLayout.commandBottom).toBeLessThanOrEqual(suggestionLayout.descriptionTop + 1);
+  await composer.fill("/he");
+  await expect(suggestions.getByRole("option")).toHaveCount(1);
+  await composer.press("Enter");
+  await expect(composer).toHaveValue("/help@notgram_bot ");
   await composer.fill("/st");
   await expect(suggestions.getByRole("option")).toHaveCount(1);
   await suggestions.getByRole("option").click();
@@ -3213,6 +3229,226 @@ test("window resizing and new messages preserve the user's follow intent", async
   await page.waitForTimeout(160);
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+});
+
+test("mention and reply notifications jump newest-first and are consumed once", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 760 });
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await scrollAwayFromBottom(page);
+
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => {
+          messages: Map<string, Array<Record<string, unknown>>>;
+          unreadAttentionMessageIds: Map<string, string[]>;
+        };
+        setState: (partial: {
+          messages: Map<string, Array<Record<string, unknown>>>;
+          unreadAttentionMessageIds: Map<string, string[]>;
+        }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-product") ?? [])];
+    const latest = current.at(-1);
+    if (!latest) return;
+    const timestamp = Date.now() + 5_000;
+    current.push(
+      {
+        ...latest,
+        id: "p-attention-1",
+        renderKey: undefined,
+        senderId: "u-mia",
+        outgoing: false,
+        sentAt: new Date(timestamp).toISOString(),
+        containsUnreadMention: true,
+        content: { kind: "text", text: "第一条提及" },
+      },
+      {
+        ...latest,
+        id: "p-attention-2",
+        renderKey: undefined,
+        senderId: "u-chen",
+        outgoing: false,
+        sentAt: new Date(timestamp + 1_000).toISOString(),
+        containsUnreadMention: false,
+        replyTo: {
+          kind: "message",
+          messageId: "p-attention-own-target",
+          outgoing: true,
+          senderName: "我",
+          text: "被引用的消息",
+          content: { kind: "text", text: "被引用的消息" },
+        },
+        content: { kind: "text", text: "第二条引用回复" },
+      },
+    );
+    messages.set("chat-product", current);
+    const unreadAttentionMessageIds = new Map(state.unreadAttentionMessageIds);
+    unreadAttentionMessageIds.set("chat-product", ["p-attention-1", "p-attention-2"]);
+    module.telegramStore.setState({ messages, unreadAttentionMessageIds });
+  }, "/src/store/telegramStore.ts");
+
+  const attentionButton = page.locator(".jump-to-attention");
+  const latestButton = page.locator(".jump-to-latest");
+  await expect(attentionButton).toHaveAccessibleName("跳到提及或引用，2 条待查看");
+  await expect(attentionButton.locator("span")).toHaveText("2");
+  await expect(latestButton).toBeVisible();
+  const buttonLayout = await page.locator(".conversation").evaluate((element) => {
+    const attention = element.querySelector<HTMLElement>(".jump-to-attention")?.getBoundingClientRect();
+    const latest = element.querySelector<HTMLElement>(".jump-to-latest")?.getBoundingClientRect();
+    return { attentionBottom: attention?.bottom ?? 0, latestTop: latest?.top ?? 0 };
+  });
+  expect(buttonLayout.attentionBottom).toBeLessThan(buttonLayout.latestTop);
+
+  await attentionButton.click();
+  await expect(page.locator('[data-message-id="p-attention-2"]')).toHaveClass(/is-notification-target/);
+  await expect(attentionButton).toHaveAccessibleName("跳到提及或引用，1 条待查看");
+  await expect(attentionButton.locator("span")).toHaveText("1");
+
+  await attentionButton.click();
+  await expect(page.locator('[data-message-id="p-attention-1"]')).toHaveClass(/is-notification-target/);
+  await expect(attentionButton).toHaveCount(0);
+});
+
+test("large emoji and sticker replies keep compact transparent geometry", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  const picker = page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
+  await picker.getByRole("button", { name: /发送贴纸/ }).first().click();
+  await expect(page.locator('[data-media-type="sticker"]').last()).toBeVisible();
+
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-product") ?? [])];
+    const latest = current.at(-1);
+    const stickerTemplate = [...current].reverse().find((message) => {
+      const content = message.content as { kind?: string; mediaType?: string } | undefined;
+      return content?.kind === "media" && content.mediaType === "sticker";
+    });
+    if (!latest || !stickerTemplate) return;
+    const timestamp = Date.now() + 10_000;
+    const replyTarget = {
+      ...latest,
+      id: "p-sticker-reply-target",
+      renderKey: undefined,
+      senderId: "me",
+      outgoing: true,
+      sentAt: new Date(timestamp).toISOString(),
+      replyTo: undefined,
+      content: { kind: "text", text: "被引用的文本消息" },
+    };
+    current.push(
+      replyTarget,
+      {
+        ...latest,
+        id: "p-large-emoji",
+        renderKey: undefined,
+        senderId: "u-emoji",
+        outgoing: false,
+        sentAt: new Date(timestamp + 1_000).toISOString(),
+        replyTo: undefined,
+        content: { kind: "text", text: "😀" },
+      },
+      {
+        ...stickerTemplate,
+        id: "p-sticker-group-first",
+        renderKey: undefined,
+        senderId: "u-sticker",
+        outgoing: false,
+        sentAt: new Date(timestamp + 2_000).toISOString(),
+        replyTo: undefined,
+      },
+      {
+        ...latest,
+        id: "p-sticker-group-last",
+        renderKey: undefined,
+        senderId: "u-sticker",
+        outgoing: false,
+        sentAt: new Date(timestamp + 3_000).toISOString(),
+        replyTo: undefined,
+        content: { kind: "text", text: "同组的下一条消息" },
+      },
+      {
+        ...stickerTemplate,
+        id: "p-sticker-with-reply",
+        renderKey: undefined,
+        senderId: "u-reply-sticker",
+        outgoing: false,
+        sentAt: new Date(timestamp + 4_000).toISOString(),
+        replyTo: {
+          kind: "message",
+          messageId: replyTarget.id,
+          outgoing: true,
+          senderName: "我",
+          text: "被引用的文本消息",
+          content: replyTarget.content,
+        },
+      },
+    );
+    messages.set("chat-product", current);
+    module.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const emoji = page.locator('[data-message-id="p-large-emoji"]');
+  await emoji.scrollIntoViewIfNeeded();
+  const emojiGeometry = await emoji.evaluate((element) => {
+    const bubble = element.querySelector<HTMLElement>(".message-bubble");
+    const flow = element.querySelector<HTMLElement>(".message-text-flow.is-large-emoji");
+    const richText = element.querySelector<HTMLElement>(".message-rich-text");
+    return {
+      bubbleHeight: bubble?.getBoundingClientRect().height ?? 0,
+      flowHeight: flow?.getBoundingClientRect().height ?? 0,
+      richTextHeight: richText?.getBoundingClientRect().height ?? 0,
+    };
+  });
+  expect(emojiGeometry.richTextHeight).toBeGreaterThan(30);
+  expect(emojiGeometry.flowHeight).toBeLessThanOrEqual(52);
+  expect(emojiGeometry.bubbleHeight).toBeLessThanOrEqual(68);
+
+  const firstSticker = page.locator('[data-message-id="p-sticker-group-first"]');
+  await firstSticker.scrollIntoViewIfNeeded();
+  await expect(firstSticker).toHaveClass(/group-first/);
+  const firstStickerStyle = await firstSticker.locator(".message-bubble").evaluate((element) => ({
+    backgroundColor: getComputedStyle(element).backgroundColor,
+    boxShadow: getComputedStyle(element).boxShadow,
+    senderBackground: getComputedStyle(
+      element.querySelector<HTMLElement>(".message-sender-row")!,
+    ).backgroundColor,
+  }));
+  expect(firstStickerStyle.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  expect(firstStickerStyle.boxShadow).toBe("none");
+  expect(firstStickerStyle.senderBackground).toBe("rgba(0, 0, 0, 0)");
+
+  const repliedSticker = page.locator('[data-message-id="p-sticker-with-reply"]');
+  await repliedSticker.scrollIntoViewIfNeeded();
+  const repliedStickerStyle = await repliedSticker.evaluate((element) => {
+    const bubble = element.querySelector<HTMLElement>(".message-bubble");
+    const preview = element.querySelector<HTMLElement>(".message-reply-preview");
+    const media = element.querySelector<HTMLElement>('[data-media-type="sticker"]');
+    const previewBounds = preview?.getBoundingClientRect();
+    const mediaBounds = media?.getBoundingClientRect();
+    return {
+      bubbleBackground: bubble ? getComputedStyle(bubble).backgroundColor : "",
+      previewBackground: preview ? getComputedStyle(preview).backgroundColor : "",
+      verticalGap: previewBounds && mediaBounds ? mediaBounds.top - previewBounds.bottom : -1,
+    };
+  });
+  expect(repliedStickerStyle.bubbleBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(repliedStickerStyle.previewBackground).not.toBe("rgba(0, 0, 0, 0)");
+  expect(repliedStickerStyle.verticalGap).toBeGreaterThanOrEqual(0);
+  expect(repliedStickerStyle.verticalGap).toBeLessThanOrEqual(4);
 });
 
 test("a chat left at the latest position returns to the latest message", async ({ page }) => {

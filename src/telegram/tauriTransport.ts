@@ -1208,7 +1208,17 @@ export class TauriTelegramTransport implements TelegramTransport {
       const chat = this.rawChats.get(chatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
       const type = asTdObject(chat.type);
       const userId = tdId(type?.user_id);
-      if (type?.["@type"] === "chatTypePrivate" && userId) return { userId, username };
+      if (type?.["@type"] !== "chatTypePrivate" || !userId) continue;
+      const user = await this.loadUser(userId).catch(() => undefined);
+      const rawUsernames = asTdObject(this.rawUsers.get(userId)?.usernames);
+      const usernames = [
+        rawUsernames?.editable_username,
+        ...(Array.isArray(rawUsernames?.active_usernames) ? rawUsernames.active_usernames : []),
+      ].filter((value): value is string => typeof value === "string" && Boolean(value));
+      const exactUsername = usernames.find(
+        (candidate) => candidate.toLocaleLowerCase() === username.toLocaleLowerCase(),
+      );
+      if (user?.isBot && exactUsername) return { userId, username: exactUsername };
     }
     throw new Error("找不到这个机器人");
   }
@@ -1299,8 +1309,11 @@ export class TauriTelegramTransport implements TelegramTransport {
         // Commands remain useful even if a deleted/inaccessible bot profile can't be loaded.
       }
       return asTdObjects(group.commands).flatMap((raw) => {
-        const command = typeof raw.command === "string" ? raw.command : "";
-        const description = typeof raw.description === "string" ? raw.description : "";
+        const commandMatch = typeof raw.command === "string"
+          ? raw.command.trim().match(/^\/?([A-Za-z0-9_]{1,32})(?:@[A-Za-z0-9_]{5,32})?$/)
+          : null;
+        const command = commandMatch?.[1]?.toLocaleLowerCase() ?? "";
+        const description = typeof raw.description === "string" ? raw.description.trim() : "";
         return command && (!normalized || command.toLocaleLowerCase().startsWith(normalized))
           ? [{ botUserId, botUsername: username, command, description }]
           : [];
@@ -3234,6 +3247,7 @@ export class TauriTelegramTransport implements TelegramTransport {
             message_id: replied.id,
             origin_send_date: replied.date,
             content: replied.content,
+            is_outgoing: replied.is_outgoing === true,
           },
         });
       })

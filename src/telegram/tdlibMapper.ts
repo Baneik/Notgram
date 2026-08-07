@@ -1362,6 +1362,7 @@ const mapTdReplyTarget = (value: unknown): MessageReplyTarget | undefined => {
     origin: mapTdMessageOrigin(reply.origin),
     sentAt: optionalUnixDate(reply.origin_send_date),
     content: content ? mapTdMessageContent(content) : undefined,
+    ...(typeof reply.is_outgoing === "boolean" ? { outgoing: reply.is_outgoing } : {}),
   };
 };
 
@@ -1546,6 +1547,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     ...(typeof raw.is_pinned === "boolean" ? { isPinned: raw.is_pinned } : {}),
     replyMarkup: mapTdReplyMarkup(raw.reply_markup),
     isPending: raw.is_pending === true,
+    containsUnreadMention: raw.contains_unread_mention === true,
     content,
   };
 };

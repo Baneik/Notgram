@@ -689,6 +689,7 @@ export type MessageReplyTarget =
       origin?: MessageOrigin;
       sentAt?: string;
       content?: MessageContent;
+      outgoing?: boolean;
     }
   | { kind: "story"; chatId: string; storyId: number };
 
@@ -755,6 +756,7 @@ export interface Message {
   permissions?: MessagePermissions;
   isRemoving?: boolean;
   isPending?: boolean;
+  containsUnreadMention?: boolean;
   replyMarkup?: MessageInlineKeyboard;
   content: MessageContent;
 }

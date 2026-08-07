@@ -16,6 +16,7 @@ import type {
   SetChatDraftInput,
   TelegramAccount,
   TelegramAccountState,
+  TelegramEvent,
 } from "../telegram/types";
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 
@@ -2315,5 +2316,91 @@ describe("chat filtering", () => {
     expect(store.getState().folders.some((folder) => folder.id === "folder:99")).toBe(false);
     expect(store.getState().operationError).toBe("Telegram 未确认新文件夹");
     expect(store.getState().folderManagementPending).toBe(false);
+  });
+
+  it("queues only live mentions and replies to the current user", async () => {
+    class LiveEventTransport extends MockTelegramTransport {
+      private events?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.events = listener;
+        return super.connect(listener);
+      }
+
+      dispatch(event: TelegramEvent) {
+        this.events?.(event);
+      }
+    }
+
+    const transport = new LiveEventTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const template = store.getState().messages.get("chat-product")?.at(-1)!;
+    const ownMessage: Message = {
+      ...template,
+      id: "attention-own",
+      senderId: store.getState().currentUserId!,
+      outgoing: true,
+      sentAt: "2026-08-07T10:00:00.000Z",
+      content: { kind: "text", text: "需要回复的消息" },
+    };
+    transport.dispatch({ type: "message.upsert", message: ownMessage, animateEntrance: true });
+
+    transport.dispatch({
+      type: "messages.upserted",
+      messages: [{
+        ...template,
+        id: "attention-history",
+        outgoing: false,
+        containsUnreadMention: true,
+        sentAt: "2026-08-07T10:01:00.000Z",
+      }],
+    });
+    expect(store.getState().unreadAttentionMessageIds.size).toBe(0);
+
+    const mention: Message = {
+      ...template,
+      id: "attention-mention",
+      outgoing: false,
+      containsUnreadMention: true,
+      sentAt: "2026-08-07T10:02:00.000Z",
+      content: { kind: "text", text: "@你 请查看" },
+    };
+    transport.dispatch({ type: "message.upsert", message: mention, animateEntrance: true });
+
+    const unresolvedReply: Message = {
+      ...template,
+      id: "attention-reply",
+      outgoing: false,
+      containsUnreadMention: false,
+      sentAt: "2026-08-07T10:03:00.000Z",
+      replyTo: { kind: "message", messageId: "attention-own" },
+      content: { kind: "text", text: "这是回复" },
+    };
+    transport.dispatch({ type: "message.upsert", message: unresolvedReply, animateEntrance: true });
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toEqual(["attention-mention", "attention-reply"]);
+
+    const pendingHydration: Message = {
+      ...unresolvedReply,
+      id: "attention-hydrated-reply",
+      replyTo: { kind: "message", messageId: "missing-own" },
+    };
+    transport.dispatch({ type: "message.upsert", message: pendingHydration, animateEntrance: true });
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toEqual(["attention-mention", "attention-reply"]);
+
+    const hydratedReply: Message = {
+      ...pendingHydration,
+      replyTo: { kind: "message", messageId: "missing-own", outgoing: true },
+    };
+    transport.dispatch({ type: "message.upsert", message: hydratedReply });
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toEqual(["attention-mention", "attention-reply", "attention-hydrated-reply"]);
+
+    store.getState().dismissMessageAttention("chat-product", "attention-hydrated-reply");
+    store.getState().dismissMessageAttention("chat-product", "attention-reply");
+    store.getState().dismissMessageAttention("chat-product", "attention-mention");
+    expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false);
   });
 });
