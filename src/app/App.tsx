@@ -50,6 +50,10 @@ import {
   captureConversationSwitchSnapshot,
   removeConversationSwitchSnapshot,
 } from "../utils/conversationSwitchSnapshot";
+import {
+  conversationViewCacheIds,
+  MAX_RECENT_CONVERSATION_VIEWS,
+} from "../utils/conversationViewCache";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -197,6 +201,36 @@ export function App() {
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const [recentConversationState, setRecentConversationState] = useState<{
+    accountId: string;
+    chatIds: string[];
+  }>({ accountId: activeAccountId, chatIds: [] });
+  const previousActiveChatIdRef = useRef(activeChatId);
+  useEffect(() => {
+    const previousChatId = previousActiveChatIdRef.current;
+    previousActiveChatIdRef.current = activeChatId;
+    setRecentConversationState((current) => {
+      if (current.accountId !== activeAccountId) {
+        return {
+          accountId: activeAccountId,
+          chatIds: activeChatId ? [activeChatId] : [],
+        };
+      }
+      if (!activeChatId) return current;
+      const nextChatIds = [
+        activeChatId,
+        ...(previousChatId && previousChatId !== activeChatId ? [previousChatId] : []),
+        ...current.chatIds,
+      ].filter((chatId, index, chatIds) => chatIds.indexOf(chatId) === index)
+        .slice(0, MAX_RECENT_CONVERSATION_VIEWS);
+      if (nextChatIds.every((chatId, index) => chatId === current.chatIds[index]) &&
+        nextChatIds.length === current.chatIds.length) return current;
+      return {
+        accountId: activeAccountId,
+        chatIds: nextChatIds,
+      };
+    });
+  }, [activeAccountId, activeChatId]);
   useEffect(() => {
     if (phase !== "ready" || cacheRetentionDays <= 0) return;
     const key = `notgram:cache-cleanup:${activeAccountId}`;
@@ -227,12 +261,6 @@ export function App() {
   const getManagementJoinRequests = useCallback((inviteLink?: string) => managementChatId ? getChatJoinRequests({ chatId: managementChatId, inviteLink, limit: 50 }) : Promise.resolve(undefined), [getChatJoinRequests, managementChatId]);
   const processManagementJoinRequest = useCallback((userId: string, approve: boolean) => managementChatId ? processChatJoinRequest(managementChatId, userId, approve) : Promise.resolve(false), [managementChatId, processChatJoinRequest]);
   const processManagementJoinRequests = useCallback((inviteLink: string | undefined, approve: boolean) => managementChatId ? processChatJoinRequests(managementChatId, inviteLink, approve) : Promise.resolve(false), [managementChatId, processChatJoinRequests]);
-  const getComposerBotCommands = useCallback((query = "", botUsername?: string) => activeChatId
-    ? getBotCommandSuggestions(activeChatId, query, botUsername)
-    : Promise.resolve([]), [activeChatId, getBotCommandSuggestions]);
-  const getComposerInlineResults = useCallback((botUsername: string, query: string, offset = "") => activeChatId ? getInlineQueryResults(activeChatId, botUsername, query, offset) : Promise.resolve(undefined), [activeChatId, getInlineQueryResults]);
-  const sendComposerInlineResult = useCallback((botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => activeChatId ? sendInlineQueryResultMessage(activeChatId, botUserId, queryId, resultId, replyToMessageId) : Promise.resolve(false), [activeChatId, sendInlineQueryResultMessage]);
-  const sendComposerBotStart = useCallback((botUserId: string, parameter = "") => activeChatId ? sendBotStartMessage(activeChatId, botUserId, parameter) : Promise.resolve(false), [activeChatId, sendBotStartMessage]);
   const toggleProfileBlock = useCallback((senderId: string, kind: "user" | "chat", blocked: boolean) => setMessageSenderBlocked(senderId, kind, blocked), [setMessageSenderBlocked]);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
     chatId: string;
@@ -607,9 +635,39 @@ export function App() {
     ),
     [chats],
   );
-  const activeOutbox = activeChatId
-    ? outbox.filter((item) => item.chatId === activeChatId)
+  const outboxCountsByChat = useMemo(() => {
+    const counts = new Map<string, {
+      queuedMessages: number;
+      failedMessages: number;
+      queuedAttachments: number;
+      failedAttachments: number;
+    }>();
+    for (const item of outbox) {
+      const current = counts.get(item.chatId) ?? {
+        queuedMessages: 0,
+        failedMessages: 0,
+        queuedAttachments: 0,
+        failedAttachments: 0,
+      };
+      const attachments = item.attachments?.length ?? 0;
+      if (item.status === "queued") {
+        current.queuedAttachments += attachments;
+        if (attachments === 0) current.queuedMessages += 1;
+      } else {
+        current.failedAttachments += attachments;
+        if (attachments === 0) current.failedMessages += 1;
+      }
+      counts.set(item.chatId, current);
+    }
+    return counts;
+  }, [outbox]);
+  const recentChatIds = recentConversationState.accountId === activeAccountId
+    ? recentConversationState.chatIds
     : [];
+  const cachedConversationIds = useMemo(
+    () => conversationViewCacheIds(chats.values(), recentChatIds, activeChatId),
+    [activeChatId, chats, recentChatIds],
+  );
 
   const openLatestConversation = (chatId: string) => {
     chatOpenGenerationRef.current += 1;
@@ -671,18 +729,141 @@ export function App() {
     );
   }
 
-  const activeChat = activeChatId ? chats.get(activeChatId) : undefined;
-  const activeMessages = activeChatId ? messages.get(activeChatId) ?? [] : [];
-  const activeRemovingMessages = activeChatId ? removingMessages.get(activeChatId) ?? [] : [];
-  const activeDisplayMessages = activeRemovingMessages.length > 0
-    ? [...activeMessages, ...activeRemovingMessages].sort((left, right) =>
-        Date.parse(left.sentAt) - Date.parse(right.sentAt),
-      )
-    : activeMessages;
-  const activeHistory = activeChatId
-    ? histories.get(activeChatId) ?? { loading: false, hasMore: true, initialized: false }
-    : { loading: false, hasMore: false, initialized: false };
   const activeChatList = chatLists.get(chatFilter) ?? { loading: false, hasMore: true };
+
+  const renderConversation = (chatId: string) => {
+    const chat = chats.get(chatId);
+    if (!chat) return null;
+    const isActive = activeChatId === chatId;
+    const chatMessages = messages.get(chatId) ?? [];
+    const chatRemovingMessages = removingMessages.get(chatId) ?? [];
+    const displayMessages = chatRemovingMessages.length > 0
+      ? [...chatMessages, ...chatRemovingMessages].sort((left, right) =>
+          Date.parse(left.sentAt) - Date.parse(right.sentAt),
+        )
+      : chatMessages;
+    const history = histories.get(chatId) ?? { loading: false, hasMore: true, initialized: false };
+    const outboxCounts = outboxCountsByChat.get(chatId) ?? {
+      queuedMessages: 0,
+      failedMessages: 0,
+      queuedAttachments: 0,
+      failedAttachments: 0,
+    };
+    const chatListId = chat.folderIds.includes(chatFilter)
+      ? chatFilter
+      : chat.folderIds.includes("archive") ? "archive" : "main";
+    const performanceTraceId = isActive
+      ? messageScrollRequest?.chatId === chatId
+        ? messageScrollRequest.performanceTraceId
+        : latestScrollRequest?.chatId === chatId
+          ? latestScrollRequest.performanceTraceId
+          : entryScrollRequest?.chatId === chatId
+            ? entryScrollRequest.performanceTraceId
+            : undefined
+      : undefined;
+
+    return (
+      <div
+        key={chatId}
+        className={`conversation-cache-item ${isActive ? "is-active" : "is-cached"}`}
+        data-chat-id={chatId}
+        inert={!isActive}
+        aria-hidden={!isActive || undefined}
+      >
+        <Profiler
+          id="conversation"
+          onRender={(_id, phase, actualDuration, baseDuration, startTime) => {
+            if (!isActive) return;
+            queueMicrotask(() => {
+              const tracing = isConversationSwitchActive(performanceTraceId);
+              markConversationSwitch(performanceTraceId, "reactCommitted", {
+                durationMs: actualDuration,
+              });
+              if (actualDuration >= 4) {
+                logPerformance("ui_react_commit", {
+                  startTimeMs: startTime,
+                  durationMs: actualDuration,
+                  baseDurationMs: baseDuration,
+                  phaseKind: phase === "mount" ? 1 : 2,
+                  componentKind: 1,
+                  traceId: tracing ? performanceTraceId : undefined,
+                  duringConversationSwitch: tracing,
+                });
+              }
+            });
+          }}
+        >
+          <Conversation
+            chat={chat}
+            isActive={isActive}
+            scrollScope={activeAccountId}
+            entryScrollRequest={entryScrollRequest?.chatId === chatId ? entryScrollRequest : undefined}
+            latestScrollRequest={latestScrollRequest?.chatId === chatId ? latestScrollRequest : undefined}
+            messageScrollRequest={messageScrollRequest?.chatId === chatId ? messageScrollRequest : undefined}
+            messages={displayMessages}
+            forwardTargets={forwardTargets}
+            users={users}
+            historyLoading={history.loading}
+            historyInitialized={history.initialized === true}
+            hasOlderMessages={history.hasMore}
+            connectionStatus={connectionStatus}
+            queuedMessageCount={outboxCounts.queuedMessages}
+            failedQueuedMessageCount={outboxCounts.failedMessages}
+            queuedAttachmentCount={outboxCounts.queuedAttachments}
+            failedAttachmentCount={outboxCounts.failedAttachments}
+            typingUserIds={typingUserIds.get(chatId) ?? []}
+            chatListId={chatListId}
+            chatManagementPending={chatManagementPending.has(chatId)}
+            onSendMessage={sendMessage}
+            onEditMessage={editMessage}
+            onDeleteMessage={deleteMessage}
+            onDraftChange={updateChatDraft}
+            onTypingChange={setChatTyping}
+            onForwardMessages={forwardMessages}
+            onLoadMessageProperties={loadMessageProperties}
+            onLoadRawMessage={loadRawMessage}
+            onSetMessageReaction={setMessageReaction}
+            onSetPollAnswer={setPollAnswer}
+            onBotCallback={getCallbackQueryAnswer}
+            onLoadPinnedMessages={loadPinnedMessages}
+            onPinMessage={pinMessage}
+            onUnpinMessage={unpinMessage}
+            onSetChatMessageAutoDeleteTime={setChatMessageAutoDeleteTime}
+            onSearchMessages={searchChatMessages}
+            onDownloadFile={downloadFile}
+            onCancelFileDownload={cancelFileDownload}
+            onOpenFile={openFile}
+            onSaveFileAs={saveFileAs}
+            onOpenDownloadDirectory={openDownloadDirectory}
+            onStreamFile={streamFile}
+            onSuspendFileStream={suspendFileStream}
+            onRetryMessage={retryMessage}
+            onSendFiles={sendFiles}
+            onCancelFileUpload={cancelFileUpload}
+            onLoadOlder={isActive ? () => loadMoreHistory(chatId) : () => Promise.resolve()}
+            onOpenProfile={() => { void loadChatProfile(chatId); }}
+            onPositioned={finishConversationSnapshot}
+            onOpenMessage={(targetChatId, messageId) => { void openGlobalSearchMessage(targetChatId, messageId); }}
+            onOpenSenderProfile={(senderId) => {
+              if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
+              else void loadUserProfile(senderId);
+            }}
+            onSetChatPinned={(pinned) => setChatPinned(chatListId, chatId, pinned)}
+            onSetChatMuted={(muted) => setChatMuted(chatId, muted)}
+            onSetChatArchived={(archived) => setChatArchived(chatId, archived)}
+            onGetBotCommands={(query = "", botUsername) => getBotCommandSuggestions(chatId, query, botUsername)}
+            onGetInlineResults={(botUsername, query, offset = "") => getInlineQueryResults(chatId, botUsername, query, offset)}
+            onSendInlineResult={(botUserId, queryId, resultId, replyToMessageId) => sendInlineQueryResultMessage(chatId, botUserId, queryId, resultId, replyToMessageId)}
+            onSendBotStart={(botUserId, parameter = "") => sendBotStartMessage(chatId, botUserId, parameter)}
+            onGetReportOptions={getChatReportOptions}
+            onReportChat={reportChat}
+            onBlockSender={setMessageSenderBlocked}
+            onBack={() => setMobileChatOpen(false)}
+          />
+        </Profiler>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -815,122 +996,11 @@ export function App() {
           onWidthPreview={previewSidebarWidth}
           onWidthChange={setSidebarWidth}
         />
-          <Profiler
-            id="conversation"
-            onRender={(_id, phase, actualDuration, baseDuration, startTime) => {
-              const performanceTraceId = messageScrollRequest?.chatId === activeChatId
-                ? messageScrollRequest?.performanceTraceId
-                : latestScrollRequest?.chatId === activeChatId
-                  ? latestScrollRequest?.performanceTraceId
-                  : entryScrollRequest?.chatId === activeChatId
-                    ? entryScrollRequest?.performanceTraceId
-                    : undefined;
-              queueMicrotask(() => {
-                const tracing = isConversationSwitchActive(performanceTraceId);
-                markConversationSwitch(performanceTraceId, "reactCommitted", {
-                  durationMs: actualDuration,
-                });
-                if (actualDuration >= 4) {
-                  logPerformance("ui_react_commit", {
-                    startTimeMs: startTime,
-                    durationMs: actualDuration,
-                    baseDurationMs: baseDuration,
-                    phaseKind: phase === "mount" ? 1 : 2,
-                    componentKind: 1,
-                    traceId: tracing ? performanceTraceId : undefined,
-                    duringConversationSwitch: tracing,
-                  });
-                }
-              });
-            }}
-          >
-            <Conversation
-          chat={activeChat}
-          scrollScope={activeAccountId}
-          entryScrollRequest={entryScrollRequest}
-          latestScrollRequest={latestScrollRequest}
-          messageScrollRequest={messageScrollRequest}
-            messages={activeDisplayMessages}
-          forwardTargets={forwardTargets}
-          users={users}
-          historyLoading={activeHistory.loading}
-          historyInitialized={activeHistory.initialized === true}
-          hasOlderMessages={activeHistory.hasMore}
-          connectionStatus={connectionStatus}
-          queuedMessageCount={activeOutbox.filter((item) => item.status === "queued" && !item.attachments?.length).length}
-          failedQueuedMessageCount={activeOutbox.filter((item) => item.status === "failed" && !item.attachments?.length).length}
-          queuedAttachmentCount={activeOutbox
-            .filter((item) => item.status === "queued")
-            .reduce((count, item) => count + (item.attachments?.length ?? 0), 0)}
-          failedAttachmentCount={activeOutbox
-            .filter((item) => item.status === "failed")
-            .reduce((count, item) => count + (item.attachments?.length ?? 0), 0)}
-          typingUserIds={activeChatId ? typingUserIds.get(activeChatId) ?? [] : []}
-          chatListId={activeChat?.folderIds.includes(chatFilter)
-            ? chatFilter
-            : activeChat?.folderIds.includes("archive") ? "archive" : "main"}
-          chatManagementPending={activeChatId
-            ? chatManagementPending.has(activeChatId)
-            : false}
-          onSendMessage={sendMessage}
-          onEditMessage={editMessage}
-          onDeleteMessage={deleteMessage}
-          onDraftChange={updateChatDraft}
-          onTypingChange={setChatTyping}
-          onForwardMessages={forwardMessages}
-          onLoadMessageProperties={loadMessageProperties}
-          onLoadRawMessage={loadRawMessage}
-          onSetMessageReaction={setMessageReaction}
-          onSetPollAnswer={setPollAnswer}
-          onBotCallback={getCallbackQueryAnswer}
-          onLoadPinnedMessages={loadPinnedMessages}
-          onPinMessage={pinMessage}
-          onUnpinMessage={unpinMessage}
-          onSetChatMessageAutoDeleteTime={setChatMessageAutoDeleteTime}
-          onSearchMessages={searchChatMessages}
-          onDownloadFile={downloadFile}
-          onCancelFileDownload={cancelFileDownload}
-          onOpenFile={openFile}
-          onSaveFileAs={saveFileAs}
-          onOpenDownloadDirectory={openDownloadDirectory}
-          onStreamFile={streamFile}
-          onSuspendFileStream={suspendFileStream}
-          onRetryMessage={retryMessage}
-          onSendFiles={sendFiles}
-          onCancelFileUpload={cancelFileUpload}
-          onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
-          onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
-          onPositioned={finishConversationSnapshot}
-          onOpenMessage={(chatId, messageId) => { void openGlobalSearchMessage(chatId, messageId); }}
-          onOpenSenderProfile={(senderId) => {
-            if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
-            else void loadUserProfile(senderId);
-          }}
-          onSetChatPinned={(pinned) => activeChatId
-            ? setChatPinned(
-                activeChat?.folderIds.includes(chatFilter)
-                  ? chatFilter
-                  : activeChat?.folderIds.includes("archive") ? "archive" : "main",
-                activeChatId,
-                pinned,
-              )
-            : Promise.resolve(false)}
-          onSetChatMuted={(muted) => activeChatId
-            ? setChatMuted(activeChatId, muted)
-            : Promise.resolve(false)}
-          onSetChatArchived={(archived) => activeChatId
-            ? setChatArchived(activeChatId, archived)
-            : Promise.resolve(false)}
-          onGetBotCommands={getComposerBotCommands}
-          onGetInlineResults={getComposerInlineResults}
-          onSendInlineResult={sendComposerInlineResult}
-          onSendBotStart={sendComposerBotStart}
-          onGetReportOptions={getChatReportOptions}
-          onReportChat={reportChat}
-          onBlockSender={setMessageSenderBlocked}
-          onBack={() => setMobileChatOpen(false)}
-            />
-          </Profiler>
+        <div className="conversation-cache-stage">
+          {cachedConversationIds.length > 0
+            ? cachedConversationIds.map(renderConversation)
+            : <section className="conversation empty-conversation"><div className="conversation-empty-mark">N</div><h2>选择一个对话</h2></section>}
+        </div>
       </main>
       {error && (
         <div className="runtime-error" role="alert">

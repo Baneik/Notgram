@@ -13,6 +13,7 @@ import {
 import {
   Fragment,
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -94,8 +95,9 @@ const messageListComponents: Components<VirtualMessageBlock> = {
   List: VirtualMessageListContent,
 };
 
-interface ConversationProps {
+export interface ConversationProps {
   chat?: Chat;
+  isActive: boolean;
   scrollScope: string;
   entryScrollRequest?: EntryConversationScrollRequest;
   latestScrollRequest?: LatestConversationScrollRequest;
@@ -165,8 +167,31 @@ interface ConversationProps {
   onBlockSender: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
 }
 
-export function Conversation({
+const conversationPropsEqual = (previous: ConversationProps, next: ConversationProps) =>
+  previous.chat === next.chat &&
+  previous.isActive === next.isActive &&
+  previous.scrollScope === next.scrollScope &&
+  previous.entryScrollRequest === next.entryScrollRequest &&
+  previous.latestScrollRequest === next.latestScrollRequest &&
+  previous.messageScrollRequest === next.messageScrollRequest &&
+  previous.messages === next.messages &&
+  previous.forwardTargets === next.forwardTargets &&
+  previous.users === next.users &&
+  previous.historyLoading === next.historyLoading &&
+  previous.historyInitialized === next.historyInitialized &&
+  previous.hasOlderMessages === next.hasOlderMessages &&
+  previous.connectionStatus === next.connectionStatus &&
+  previous.queuedMessageCount === next.queuedMessageCount &&
+  previous.failedQueuedMessageCount === next.failedQueuedMessageCount &&
+  previous.queuedAttachmentCount === next.queuedAttachmentCount &&
+  previous.failedAttachmentCount === next.failedAttachmentCount &&
+  previous.typingUserIds === next.typingUserIds &&
+  previous.chatListId === next.chatListId &&
+  previous.chatManagementPending === next.chatManagementPending;
+
+export const Conversation = memo(function Conversation({
   chat,
+  isActive,
   scrollScope,
   entryScrollRequest,
   latestScrollRequest,
@@ -283,9 +308,9 @@ export function Conversation({
     autoDownloadVideos,
   ]);
   useEffect(() => {
-    if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return;
+    if (!isActive || !chat || (chat.kind !== "group" && chat.kind !== "channel")) return;
     void loadChatManagement(chat.id);
-  }, [chat?.id, chat?.kind, loadChatManagement]);
+  }, [chat?.id, chat?.kind, isActive, loadChatManagement]);
   const memberLabels = useMemo(() => new Map(
     groupManagement?.chatId === chat?.id
       ? [
@@ -356,7 +381,7 @@ export function Conversation({
   useEffect(() => {
     const openSearchWithKeyboard = (event: KeyboardEvent) => {
       if (
-        !chat || event.altKey || event.shiftKey ||
+        !isActive || !chat || event.altKey || event.shiftKey ||
         !(event.ctrlKey || event.metaKey) ||
         event.key.toLocaleLowerCase() !== "f"
       ) return;
@@ -366,7 +391,7 @@ export function Conversation({
     };
     globalThis.addEventListener("keydown", openSearchWithKeyboard);
     return () => globalThis.removeEventListener("keydown", openSearchWithKeyboard);
-  }, [chat, openMessageSearch]);
+  }, [chat, isActive, openMessageSearch]);
 
   useEffect(() => {
     if (!messageSearch.trim() || matchingMessages.length === 0) {
@@ -418,10 +443,11 @@ export function Conversation({
   }, [cacheFile, colorTheme, onDownloadFile, viewerPhotos]);
 
   useEffect(() => {
-    syncMediaViewerWindow(viewerPhotos, colorTheme);
-  }, [colorTheme, viewerPhotos]);
+    if (isActive) syncMediaViewerWindow(viewerPhotos, colorTheme);
+  }, [colorTheme, isActive, viewerPhotos]);
 
   useLayoutEffect(() => {
+    if (!isActive) return;
     const tracing = isConversationSwitchActive(performanceTraceId);
     markConversationSwitch(performanceTraceId, "messageProjected", {
       durationMs: messageProjection.durationMs,
@@ -438,6 +464,7 @@ export function Conversation({
     }
   }, [
     messageProjection,
+    isActive,
     performanceTraceId,
     visibleMessageBlocks.length,
     visibleMessages.length,
@@ -581,7 +608,7 @@ export function Conversation({
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
-    if (!chat) return;
+    if (!isActive || !chat) return;
     let focusTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
     const isEditable = (target: Element | null) => target instanceof HTMLTextAreaElement ||
       (target instanceof HTMLInputElement && !["checkbox", "radio", "range", "file"].includes(target.type)) ||
@@ -620,9 +647,13 @@ export function Conversation({
       window.removeEventListener("focus", onWindowFocus);
       if (focusTimer !== undefined) globalThis.clearTimeout(focusTimer);
     };
-  }, [chat?.id]);
+  }, [chat?.id, isActive]);
 
   useEffect(() => {
+    if (!isActive) {
+      selectionMessageRef.current = null;
+      return;
+    }
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const row = target?.closest<HTMLElement>(".message-row");
@@ -647,10 +678,11 @@ export function Conversation({
       document.removeEventListener("selectionchange", onSelectionChange);
       selectionMessageRef.current = null;
     };
-  }, []);
+  }, [isActive]);
 
   useLayoutEffect(() => {
     if (
+      !isActive ||
       !chat ||
       positioning ||
       historyLoading ||
@@ -663,14 +695,15 @@ export function Conversation({
       active !== composerInputRef.current &&
       (!activeChatRow || window.matchMedia("(forced-colors: active)").matches)) return;
     composerInputRef.current?.focus({ preventScroll: true });
-  }, [chat?.id, historyLoading, positioning, searchOpen, selectionMode]);
+  }, [chat?.id, historyLoading, isActive, positioning, searchOpen, selectionMode]);
 
   useLayoutEffect(() => {
-    if (!chat || positioning || (historyLoading && visibleMessages.length === 0)) return;
+    if (!isActive || !chat || positioning || (historyLoading && visibleMessages.length === 0)) return;
     onPositioned?.(chat.id);
   }, [
     chat?.id,
     historyLoading,
+    isActive,
     onPositioned,
     positioning,
     visibleMessages.length,
@@ -718,7 +751,7 @@ export function Conversation({
   }, [actionMenu, deleteTarget, editingMessage, messagesById, replyingTo]);
 
   useEffect(() => {
-    if (!actionMenu) return;
+    if (!isActive || !actionMenu) return;
     const dismissWithKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeActionMenu(true);
     };
@@ -726,11 +759,11 @@ export function Conversation({
     return () => {
       document.removeEventListener("keydown", dismissWithKeyboard);
     };
-  }, [actionMenu, closeActionMenu]);
+  }, [actionMenu, closeActionMenu, isActive]);
 
   if (!chat) {
     return (
-      <section className="conversation empty-conversation">
+      <section className={`conversation empty-conversation ${isActive ? "is-active" : "is-cached"}`}>
         <div className="conversation-empty-mark">N</div>
         <h2>选择一个对话</h2>
       </section>
@@ -916,7 +949,7 @@ export function Conversation({
 
   return (
     <section
-      className={`conversation ${searchOpen ? "has-message-search" : ""} ${selectionMode ? "is-selecting-messages" : ""}`}
+      className={`conversation ${isActive ? "is-active" : "is-cached"} ${searchOpen ? "has-message-search" : ""} ${selectionMode ? "is-selecting-messages" : ""}`}
       onPointerUp={(event) => {
         if (event.button !== 0 || selectionMode) return;
         const target = event.target;
@@ -1464,4 +1497,4 @@ export function Conversation({
 
     </section>
   );
-}
+}, conversationPropsEqual);

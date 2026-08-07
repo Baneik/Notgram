@@ -306,6 +306,19 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   grid-column: 3; min-width: 0; height: 100%; min-height: 0; display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto; background: var(--chat-canvas);
 }
+.conversation-cache-stage {
+  position: relative; grid-column: 3; min-width: 0; height: 100%; min-height: 0; overflow: hidden;
+}
+.conversation-cache-item {
+  position: absolute; inset: 0; min-width: 0; min-height: 0;
+  visibility: hidden; pointer-events: none; z-index: 0;
+}
+.conversation-cache-item.is-active {
+  visibility: visible; pointer-events: auto; z-index: 1;
+}
+.conversation-cache-item > .conversation {
+  width: 100%; height: 100%; grid-column: auto;
+}
 .conversation.has-message-search { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation-header {
   height: 60px; padding: 0 12px 0 16px; display: flex; align-items: center; gap: 11px;
@@ -1949,7 +1962,9 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
   .emoji-picker { left: 6px; right: 6px; width: auto; height: min(560px, calc(100vh - 150px)); }
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
-  .chat-sidebar, .conversation { grid-column: 1; grid-row: 1; }
+  .chat-sidebar { grid-column: 1; grid-row: 1; }
+  .conversation-cache-stage { display: none; grid-column: 1; grid-row: 1; }
+  .mobile-chat-open .conversation-cache-stage { display: block; }
   .contacts-view { grid-column: 1; grid-row: 1; }
   .global-search-controls { padding: 12px 14px; }
   .global-search-results { padding: 5px 14px 20px; }
@@ -1958,7 +1973,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .contacts-results { padding: 8px 14px 20px; }
   .chat-sidebar { min-width: 0; }
   .sidebar-resizer { display: none; }
-  .conversation { display: none; }
+  .conversation-cache-item > .conversation { display: grid; }
   .mobile-chat-open .chat-sidebar, .mobile-chat-open .navigation-rail { display: none; }
   .mobile-chat-open { grid-template-rows: minmax(0, 1fr); }
   .mobile-chat-open .conversation { display: grid; }
