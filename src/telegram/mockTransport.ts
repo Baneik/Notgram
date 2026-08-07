@@ -32,6 +32,7 @@ import type {
   ChatPermissions,
   ManagedChatMember,
   ChatProfile,
+  ChatProfileMembersPage,
   ConnectionStatus,
   CreateChatInput,
   DeleteMessageInput,
@@ -690,6 +691,19 @@ export class MockTelegramTransport implements TelegramTransport {
       memberCount: settings ? members.length : chat.kind === "channel" ? 1_248 : members.length,
       members,
       canViewMembers: chat.kind !== "channel" || Boolean(settings),
+      memberOffset: members.length,
+      memberHasMore: false,
+    };
+  }
+
+  async getChatProfileMembers(chatId: string, offset: number, limit = 50): Promise<ChatProfileMembersPage> {
+    const profile = await this.getChatProfile(chatId);
+    const start = Math.max(0, offset);
+    const members = profile.members.slice(start, start + Math.max(1, limit));
+    return {
+      members,
+      offset: start + members.length,
+      hasMore: start + members.length < profile.members.length,
     };
   }
 

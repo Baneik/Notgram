@@ -167,7 +167,7 @@ export interface TelegramState {
   updateCurrentUserProfile: (input: UpdateCurrentUserProfileInput) => Promise<boolean>;
   changeCurrentUserAvatar: (file?: File) => Promise<boolean>;
   loadChatProfile: (chatId: string) => Promise<void>;
-  refreshChatProfile: (chatId: string) => Promise<void>;
+  loadMoreChatProfileMembers: (chatId: string) => Promise<boolean>;
   loadUserProfile: (userId: string) => Promise<void>;
   clearProfile: () => void;
   loadContacts: () => Promise<void>;

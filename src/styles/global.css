@@ -1886,6 +1886,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .profile-member-row small { color: var(--muted); font-size: 10px; }
 .profile-member-row > button:not(.profile-member-identity) { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; color: var(--accent); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .profile-member-row > button:not(.profile-member-identity):hover { background: var(--accent-soft); }
+.profile-member-more { width: 100%; margin-top: 10px; justify-content: center; }
 .profile-member-identity { min-width: 0; min-height: 47px; padding: 5px 7px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 9px; color: inherit; text-align: left; background: transparent; border: 0; border-radius: 7px; cursor: pointer; }
 .profile-member-identity > span { min-width: 0; display: grid; gap: 2px; }
 .profile-member-identity:hover { background: var(--surface-hover); }

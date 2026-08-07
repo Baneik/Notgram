@@ -108,7 +108,7 @@ export function App() {
   const selectChat = useTelegramStore((state) => state.selectChat);
   const loadMessage = useTelegramStore((state) => state.loadMessage);
   const loadChatProfile = useTelegramStore((state) => state.loadChatProfile);
-  const refreshChatProfile = useTelegramStore((state) => state.refreshChatProfile);
+  const loadMoreChatProfileMembers = useTelegramStore((state) => state.loadMoreChatProfileMembers);
   const loadUserProfile = useTelegramStore((state) => state.loadUserProfile);
   const loadCurrentUserProfile = useTelegramStore((state) => state.loadCurrentUserProfile);
   const clearProfile = useTelegramStore((state) => state.clearProfile);
@@ -436,11 +436,6 @@ export function App() {
   useEffect(() => {
     void initialize();
   }, [initialize]);
-
-  useEffect(() => {
-    if (authorization.kind !== "ready" || !activeChatId) return;
-    void refreshChatProfile(activeChatId);
-  }, [activeChatId, authorization.kind, refreshChatProfile]);
 
   useEffect(() => {
     const routeMediaSpacebar = (event: globalThis.KeyboardEvent) => {
@@ -1017,6 +1012,7 @@ export function App() {
           reportChatId={activeChatId}
           onDeleteChat={profile.target?.kind === "chat" && activeChatId === profile.target.chatId && profile.value?.kind === "group" ? () => leaveGroup(activeChatId) : undefined}
           onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
+          onLoadMoreMembers={(chatId) => loadMoreChatProfileMembers(chatId)}
           onLoadSharedMedia={loadSharedMedia}
           onDownloadFile={downloadFile}
           onDeleteMessages={deleteMessagesFromChat}

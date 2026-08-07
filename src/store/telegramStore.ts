@@ -1785,9 +1785,9 @@ export const createTelegramStore = (
         const cached = profileCache.get(cacheKey);
         if (cached) {
           set({ profile: { target, value: cached.value, loading: false } });
-          return;
+        } else {
+          set({ profile: { target, loading: true } });
         }
-        set({ profile: { target, loading: true } });
         try {
           const value = await refreshProfileCache(
             cacheKey,
@@ -1800,6 +1800,7 @@ export const createTelegramStore = (
           set({
             profile: {
               target,
+              value: cached?.value,
               loading: false,
               error: errorMessage(error, "无法读取聊天资料"),
             },
@@ -1807,19 +1808,68 @@ export const createTelegramStore = (
         }
       },
 
-      refreshChatProfile: async (chatId) => {
-        const cacheKey = `chat:${chatId}`;
+      loadMoreChatProfileMembers: async (chatId) => {
+        const current = get().profile;
+        if (
+          current.target?.kind !== "chat" ||
+          current.target.chatId !== chatId ||
+          !current.value ||
+          !current.value.canViewMembers ||
+          !current.value.memberHasMore ||
+          current.membersLoading
+        ) {
+          return false;
+        }
+        const generation = profileGeneration;
+        const offset = current.value.memberOffset ?? 0;
+        set({ profile: { ...current, membersLoading: true, membersError: undefined } });
         try {
-          const value = await refreshProfileCache(
-            cacheKey,
-            () => transport.getChatProfile(chatId),
-          );
-          const current = get().profile;
-          if (current.target?.kind === "chat" && current.target.chatId === chatId) {
-            set({ profile: { ...current, value, loading: false, error: undefined } });
+          const page = await transport.getChatProfileMembers(chatId, offset);
+          if (generation !== profileGeneration) return false;
+          const latest = get().profile;
+          if (
+            latest.target?.kind !== "chat" ||
+            latest.target.chatId !== chatId ||
+            !latest.value
+          ) {
+            return false;
           }
-        } catch {
-          // Conversation entry refresh is best-effort and never blocks the UI.
+          const members = new Map(latest.value.members.map((member) => [member.user.id, member]));
+          for (const member of page.members) {
+            if (!members.has(member.user.id)) members.set(member.user.id, member);
+          }
+          const value: ChatProfile = {
+            ...latest.value,
+            members: [...members.values()],
+            memberOffset: page.offset,
+            memberHasMore: page.hasMore &&
+              (latest.value.memberCount === undefined || page.offset < latest.value.memberCount),
+          };
+          profileCache.set(`chat:${chatId}`, { value, cachedAt: Date.now() });
+          scheduleCacheWrite();
+          set({
+            profile: {
+              ...latest,
+              value,
+              membersLoading: false,
+              membersError: undefined,
+            },
+          });
+          return true;
+        } catch (error) {
+          if (generation === profileGeneration) {
+            const latest = get().profile;
+            if (latest.target?.kind === "chat" && latest.target.chatId === chatId) {
+              set({
+                profile: {
+                  ...latest,
+                  membersLoading: false,
+                  membersError: errorMessage(error, "鏃犳硶鍔犺浇鏇村鎴愬憳"),
+                },
+              });
+            }
+          }
+          return false;
         }
       },
 
@@ -1834,9 +1884,9 @@ export const createTelegramStore = (
         const cached = profileCache.get(cacheKey);
         if (cached) {
           set({ profile: { target, value: cached.value, loading: false } });
-          return;
+        } else {
+          set({ profile: { target, loading: true } });
         }
-        set({ profile: { target, loading: true } });
         try {
           const value = await refreshProfileCache(
             cacheKey,
@@ -1849,6 +1899,7 @@ export const createTelegramStore = (
           set({
             profile: {
               target,
+              value: cached?.value,
               loading: false,
               error: errorMessage(error, "无法读取用户资料"),
             },

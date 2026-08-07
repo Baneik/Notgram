@@ -9,6 +9,8 @@ export interface ProfileState {
   target?: ProfileTarget;
   value?: ChatProfile;
   loading: boolean;
+  membersLoading?: boolean;
+  membersError?: string;
   updating?: boolean;
   error?: string;
   updateError?: string;

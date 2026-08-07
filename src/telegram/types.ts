@@ -339,6 +339,12 @@ export interface ProfileMember {
   role: ProfileMemberRole;
 }
 
+export interface ChatProfileMembersPage {
+  members: ProfileMember[];
+  offset: number;
+  hasMore: boolean;
+}
+
 export interface ChatProfile {
   id: string;
   kind: ProfileKind;
@@ -357,6 +363,8 @@ export interface ChatProfile {
   memberCount?: number;
   members: ProfileMember[];
   canViewMembers: boolean;
+  memberOffset?: number;
+  memberHasMore?: boolean;
   groupInCommonCount?: number;
 }
 

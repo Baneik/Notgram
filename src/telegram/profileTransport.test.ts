@@ -266,4 +266,84 @@ describe("profile transport", () => {
     expect(requests.some((request) => request["@type"] === "getSupergroupMembers"))
       .toBe(false);
   });
+
+  it("loads supergroup administrators and recent members in pages", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as {
+      request: (request: TdObject) => Promise<TdObject>;
+    };
+    const requests: TdObject[] = [];
+    const member = (userId: number, status: string): TdObject => ({
+      "@type": "chatMember",
+      member_id: { "@type": "messageSenderUser", user_id: userId },
+      status: { "@type": status },
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getChat") {
+        return {
+          "@type": "chat",
+          id: 91,
+          title: "Large Group",
+          type: { "@type": "chatTypeSupergroup", supergroup_id: 901, is_channel: false },
+          positions: [],
+          unread_count: 0,
+          notification_settings: { mute_for: 0 },
+        };
+      }
+      if (request["@type"] === "getSupergroupFullInfo") {
+        return {
+          "@type": "supergroupFullInfo",
+          description: "Paged members",
+          member_count: 100_000,
+          can_get_members: true,
+        };
+      }
+      if (request["@type"] === "getSupergroupMembers") {
+        const filter = (request.filter as TdObject | null)?.["@type"];
+        if (filter === "supergroupMembersFilterAdministrators") {
+          return { "@type": "chatMembers", members: [member(101, "chatMemberStatusCreator"), member(102, "chatMemberStatusAdministrator")] };
+        }
+        if (request.offset === 0) {
+          return {
+            "@type": "chatMembers",
+            members: [
+              member(102, "chatMemberStatusAdministrator"),
+              ...Array.from({ length: 49 }, (_, index) => member(103 + index, "chatMemberStatusMember")),
+            ],
+          };
+        }
+        return { "@type": "chatMembers", members: [member(104, "chatMemberStatusMember")] };
+      }
+      if (request["@type"] === "getUser") {
+        return rawUser(Number(request.user_id), `User ${request.user_id}`);
+      }
+      return { "@type": "ok" };
+    };
+
+    const profile = await transport.getChatProfile("91");
+    expect(profile.members.slice(0, 3).map(({ user, role }) => [user.id, role])).toEqual([
+      ["101", "owner"],
+      ["102", "administrator"],
+      ["103", "member"],
+    ]);
+    expect(profile.memberOffset).toBe(50);
+    expect(profile.memberHasMore).toBe(true);
+    expect(requests).toContainEqual(expect.objectContaining({
+      "@type": "getSupergroupMembers",
+      filter: { "@type": "supergroupMembersFilterAdministrators" },
+      limit: 200,
+    }));
+    expect(requests).toContainEqual(expect.objectContaining({
+      "@type": "getSupergroupMembers",
+      filter: { "@type": "supergroupMembersFilterRecent" },
+      offset: 0,
+      limit: 50,
+    }));
+
+    const page = await transport.getChatProfileMembers("91", profile.memberOffset ?? 0);
+    expect(page.members.map(({ user }) => user.id)).toEqual(["104"]);
+    expect(page.offset).toBe(51);
+    expect(page.hasMore).toBe(false);
+  });
 });

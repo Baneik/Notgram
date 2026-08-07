@@ -84,6 +84,7 @@ import type {
   ChatAdminRights,
   ChatFolder,
   ChatProfile,
+  ChatProfileMembersPage,
   ChatHistoryPage,
   ChatListPage,
   DeleteMessageInput,
@@ -146,6 +147,8 @@ const DATA_CENTER_LOCATIONS: Record<number, string> = {
 
 const PROXY_RECOVERY_DELAYS_MS = [8_000, 15_000, 30_000, 60_000] as const;
 const PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS = 3;
+const PROFILE_MEMBER_PAGE_SIZE = 50;
+const PROFILE_ADMIN_PAGE_SIZE = 200;
 
 const profileField = (value: string, maximum: number, label: string, required = false) => {
   const normalized = value.trim();
@@ -839,6 +842,8 @@ export class TauriTelegramTransport implements TelegramTransport {
         memberCount: members.length,
         members,
         canViewMembers: true,
+        memberOffset: members.length,
+        memberHasMore: false,
       };
     }
     if (type?.["@type"] === "chatTypeSupergroup") {
@@ -848,16 +853,29 @@ export class TauriTelegramTransport implements TelegramTransport {
         supergroup_id: numericId(supergroupId),
       });
       const canViewMembers = full.can_get_members === true;
-      const memberResult = canViewMembers
-        ? await this.request({
-            "@type": "getSupergroupMembers",
-            supergroup_id: numericId(supergroupId),
-            filter: null,
-            offset: 0,
-            limit: 50,
-          })
-        : undefined;
-      const members = await this.loadProfileMembers(asTdObjects(memberResult?.members));
+      const [administratorResult, memberResult] = canViewMembers
+        ? await Promise.all([
+            this.request({
+              "@type": "getSupergroupMembers",
+              supergroup_id: numericId(supergroupId),
+              filter: { "@type": "supergroupMembersFilterAdministrators" },
+              offset: 0,
+              limit: PROFILE_ADMIN_PAGE_SIZE,
+            }).catch(() => undefined),
+            this.request({
+              "@type": "getSupergroupMembers",
+              supergroup_id: numericId(supergroupId),
+              filter: { "@type": "supergroupMembersFilterRecent" },
+              offset: 0,
+              limit: PROFILE_MEMBER_PAGE_SIZE,
+            }).catch(() => undefined),
+          ])
+        : [undefined, undefined];
+      const recentValues = asTdObjects(memberResult?.members);
+      const members = await this.loadProfileMembers([
+        ...asTdObjects(administratorResult?.members),
+        ...recentValues,
+      ]);
       const memberCount = tdNumber(full.member_count);
       const isChannel = type.is_channel === true;
       return {
@@ -875,9 +893,39 @@ export class TauriTelegramTransport implements TelegramTransport {
         memberCount,
         members,
         canViewMembers,
+        memberOffset: recentValues.length,
+        memberHasMore: recentValues.length === PROFILE_MEMBER_PAGE_SIZE &&
+          (memberCount === undefined || recentValues.length < memberCount),
       };
     }
     throw new Error("暂不支持此聊天资料类型");
+  }
+
+  async getChatProfileMembers(chatId: string, offset: number, limit = PROFILE_MEMBER_PAGE_SIZE): Promise<ChatProfileMembersPage> {
+    const rawChat = this.rawChats.get(chatId) ?? await this.request({
+      "@type": "getChat",
+      chat_id: numericId(chatId),
+    });
+    this.upsertChat(rawChat);
+    const type = asTdObject(rawChat.type);
+    if (type?.["@type"] !== "chatTypeSupergroup") {
+      return { members: [], offset: Math.max(0, offset), hasMore: false };
+    }
+    const pageOffset = Math.max(0, offset);
+    const pageLimit = Math.min(Math.max(1, limit), 200);
+    const result = await this.request({
+      "@type": "getSupergroupMembers",
+      supergroup_id: numericId(tdId(type.supergroup_id)),
+      filter: { "@type": "supergroupMembersFilterRecent" },
+      offset: pageOffset,
+      limit: pageLimit,
+    });
+    const values = asTdObjects(result.members);
+    return {
+      members: await this.loadProfileMembers(values),
+      offset: pageOffset + values.length,
+      hasMore: values.length === pageLimit,
+    };
   }
 
   async getUserProfile(userId: string): Promise<ChatProfile> {
@@ -2713,12 +2761,15 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private async loadProfileMembers(values: TdObject[]) {
+    const seen = new Set<string>();
     const details = values.flatMap((member) => {
       const sender = asTdObject(member.member_id);
       const userId = sender?.["@type"] === "messageSenderUser"
         ? tdId(sender.user_id)
         : "";
-      return userId ? [{ userId, role: profileMemberRole(member.status) }] : [];
+      if (!userId || seen.has(userId)) return [];
+      seen.add(userId);
+      return [{ userId, role: profileMemberRole(member.status) }];
     });
     const users = await Promise.all(details.map(({ userId }) => this.loadUser(userId)));
     return details.flatMap((detail, index) => {

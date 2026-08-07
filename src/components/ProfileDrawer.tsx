@@ -37,6 +37,7 @@ interface ProfileDrawerProps {
   reportChatId?: string;
   onDeleteChat?: () => Promise<boolean>;
   onOpenUserProfile: (userId: string) => void;
+  onLoadMoreMembers: (chatId: string) => Promise<boolean>;
   onLoadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onDeleteMessages: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
@@ -62,6 +63,7 @@ export function ProfileDrawer({
   reportChatId,
   onDeleteChat,
   onOpenUserProfile,
+  onLoadMoreMembers,
   onLoadSharedMedia,
   onDownloadFile,
   onDeleteMessages,
@@ -182,6 +184,7 @@ export function ProfileDrawer({
                     {profile.memberCount !== undefined && <span>{profile.memberCount}</span>}
                   </div>
                   {profile.canViewMembers ? (
+                    <>
                     <div className="profile-member-list">
                       {profile.members.map((member) => (
                         <div className="profile-member-row" key={member.user.id}>
@@ -206,6 +209,19 @@ export function ProfileDrawer({
                         </div>
                       ))}
                     </div>
+                    {profile.memberHasMore && profile.chatId && (
+                      <button
+                        className="dialog-secondary profile-member-more"
+                        type="button"
+                        disabled={state.membersLoading}
+                        onClick={() => void onLoadMoreMembers(profile.chatId!)}
+                      >
+                        {state.membersLoading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
+                        <span>{state.membersLoading ? "正在加载成员" : "加载更多成员"}</span>
+                      </button>
+                    )}
+                    {state.membersError && <p className="profile-state is-error" role="alert">{state.membersError}</p>}
+                    </>
                   ) : (
                     <p>此频道不公开成员列表</p>
                   )}

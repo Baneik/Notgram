@@ -1741,7 +1741,7 @@ describe("profiles and contacts state", () => {
     });
   });
 
-  it("reuses a recently loaded chat profile after the drawer closes", async () => {
+  it("shows a cached chat profile and revalidates it after the drawer reopens", async () => {
     class CountingProfileTransport extends MockTelegramTransport {
       chatProfileCalls = 0;
 
@@ -1758,7 +1758,7 @@ describe("profiles and contacts state", () => {
     store.getState().clearProfile();
     await store.getState().loadChatProfile("chat-product");
 
-    expect(transport.chatProfileCalls).toBe(1);
+    expect(transport.chatProfileCalls).toBe(2);
     expect(store.getState().profile).toMatchObject({
       target: { kind: "chat", chatId: "chat-product" },
       value: { title: "产品讨论" },
@@ -1766,7 +1766,7 @@ describe("profiles and contacts state", () => {
     });
   });
 
-  it("persists profiles and refreshes the active chat without opening the drawer", async () => {
+  it("persists profiles and revalidates them when the drawer opens", async () => {
     class CountingProfileTransport extends MockTelegramTransport {
       chatProfileCalls = 0;
 
@@ -1779,10 +1779,10 @@ describe("profiles and contacts state", () => {
     const transport = new CountingProfileTransport();
     const store = createTelegramStore(transport);
     await store.getState().initialize();
-    await store.getState().refreshChatProfile("chat-product");
+    await store.getState().loadChatProfile("chat-product");
 
     expect(transport.chatProfileCalls).toBe(1);
-    expect(store.getState().profile.target).toBeUndefined();
+    expect(store.getState().profile.target).toMatchObject({ kind: "chat", chatId: "chat-product" });
     await expect(store.getState().rebuildCachedSnapshot()).resolves.toBe(true);
     const persisted = await transport.loadCachedSnapshot();
     expect(persisted?.profiles).toEqual([
@@ -1794,7 +1794,7 @@ describe("profiles and contacts state", () => {
     await restartedStore.getState().initialize();
     await restartedStore.getState().loadChatProfile("chat-product");
 
-    expect(restartedTransport.chatProfileCalls).toBe(0);
+    expect(restartedTransport.chatProfileCalls).toBe(1);
     expect(restartedStore.getState().profile.value).toMatchObject({ title: "产品讨论" });
   });
 
