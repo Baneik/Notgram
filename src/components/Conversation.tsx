@@ -299,6 +299,7 @@ export function Conversation({
       : [],
   ), [chat?.id, groupManagement]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const conversationRef = useRef<HTMLElement>(null);
   const selectionMessageRef = useRef<HTMLElement | null>(null);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -514,6 +515,7 @@ export function Conversation({
   } = forwarding;
   const {
     messageListRef,
+    messageListElement,
     setMessageListRef,
     virtuosoRef,
     currentScrollKey,
@@ -551,6 +553,56 @@ export function Conversation({
     messageCount: messages.length,
     onLoadOlder,
   });
+
+  useEffect(() => {
+    const conversation = conversationRef.current;
+    if (!chat || !messageListElement || !conversation || attentionMessageIds.length === 0) return;
+    const attentionIds = new Set(attentionMessageIds);
+    const visibleIds = new Set<string>();
+    const observedRows = new Set<Element>();
+    const consumeVisibleAttention = () => {
+      if (
+        !document.hasFocus() ||
+        document.visibilityState !== "visible" ||
+        !conversation.contains(document.activeElement)
+      ) return;
+      for (const messageId of visibleIds) {
+        if (attentionIds.has(messageId)) dismissMessageAttention(chat.id, messageId);
+      }
+    };
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const messageId = (entry.target as HTMLElement).dataset.messageId;
+        if (!messageId) continue;
+        if (entry.isIntersecting && entry.intersectionRatio > 0) visibleIds.add(messageId);
+        else visibleIds.delete(messageId);
+      }
+      consumeVisibleAttention();
+    }, { root: messageListElement, threshold: 0.01 });
+    const observeMountedAttentionRows = () => {
+      for (const messageId of attentionIds) {
+        const row = messageListElement.querySelector<HTMLElement>(
+          `[data-message-id="${CSS.escape(messageId)}"]`,
+        );
+        if (!row || observedRows.has(row)) continue;
+        observedRows.add(row);
+        observer.observe(row);
+      }
+    };
+    observeMountedAttentionRows();
+    const mutationObserver = new MutationObserver(observeMountedAttentionRows);
+    mutationObserver.observe(messageListElement, { childList: true, subtree: true });
+    document.addEventListener("focusin", consumeVisibleAttention);
+    globalThis.addEventListener("focus", consumeVisibleAttention);
+    document.addEventListener("visibilitychange", consumeVisibleAttention);
+    return () => {
+      observer.disconnect();
+      mutationObserver.disconnect();
+      document.removeEventListener("focusin", consumeVisibleAttention);
+      globalThis.removeEventListener("focus", consumeVisibleAttention);
+      document.removeEventListener("visibilitychange", consumeVisibleAttention);
+    };
+  }, [attentionMessageIds, chat, dismissMessageAttention, messageListElement]);
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
@@ -917,6 +969,7 @@ export function Conversation({
 
   return (
     <section
+      ref={conversationRef}
       className={`conversation ${searchOpen ? "has-message-search" : ""} ${selectionMode ? "is-selecting-messages" : ""}`}
       onPointerUp={(event) => {
         if (event.button !== 0 || selectionMode) return;
@@ -1277,7 +1330,7 @@ export function Conversation({
         />
         {!messageSearch && currentScrollKey && attentionMessageIds.length > 0 && (
           <button
-            className="conversation-jump-button jump-to-attention"
+            className={`conversation-jump-button jump-to-attention ${awayFromLatest ? "is-stacked" : ""}`}
             type="button"
             aria-label={`跳到提及或引用，${attentionMessageIds.length} 条待查看`}
             title="跳到提及或引用"

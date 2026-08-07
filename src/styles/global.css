@@ -436,8 +436,9 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   position: absolute; right: 18px; bottom: 16px; z-index: 20; width: 46px; height: 46px; padding: 0;
   display: grid; place-items: center; color: var(--muted); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default);
   border-radius: 50%; box-shadow: 0 3px 14px var(--color-shadow); cursor: pointer;
+  transition: bottom 180ms ease, color 140ms ease, background-color 140ms ease;
 }
-.jump-to-attention { bottom: 70px; }
+.jump-to-attention.is-stacked { bottom: 70px; }
 .conversation-jump-button:hover, .conversation-jump-button:focus-visible { color: var(--accent); background: var(--accent-soft); }
 .conversation-jump-button span {
   position: absolute; top: -5px; right: -5px; min-width: 20px; height: 20px; padding: 0 5px;
@@ -478,10 +479,12 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .reduce-motion .message-row.is-entering-incoming,
 .reduce-motion .message-row.is-entering-outgoing,
 .reduce-motion .message-row.is-removing { animation: none; }
+.reduce-motion .conversation-jump-button { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .message-row.is-entering-incoming,
   .message-row.is-entering-outgoing,
   .message-row.is-removing { animation: none; }
+  .conversation-jump-button { transition: none; }
 }
 .message-group:last-child .message-row:last-child { margin-bottom: 0; }
 .message-row.is-outgoing { justify-content: flex-end; }
@@ -1965,7 +1968,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .mobile-back { display: inline-grid; }
   .message-list { padding-top: 14px; }
   .conversation-jump-button { right: 12px; bottom: 12px; }
-  .jump-to-attention { bottom: 66px; }
+  .jump-to-attention.is-stacked { bottom: 66px; }
   .message-group { gap: 6px; }
   .message-bubble-shell { max-width: 88%; }
   .video-controls { gap: 2px; }

@@ -1153,6 +1153,7 @@ export const useConversationScroll = ({
 
   return {
     messageListRef,
+    messageListElement,
     setMessageListRef,
     virtuosoRef,
     currentScrollKey,

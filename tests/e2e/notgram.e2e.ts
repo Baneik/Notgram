@@ -3470,12 +3470,83 @@ test("mention and reply notifications jump newest-first and are consumed once", 
 
   await attentionButton.click();
   await expect(page.locator('[data-message-id="p-attention-2"]')).toHaveClass(/is-notification-target/);
-  await expect(attentionButton).toHaveAccessibleName("跳到提及或引用，1 条待查看");
-  await expect(attentionButton.locator("span")).toHaveText("1");
-
-  await attentionButton.click();
-  await expect(page.locator('[data-message-id="p-attention-1"]')).toHaveClass(/is-notification-target/);
   await expect(attentionButton).toHaveCount(0);
+});
+
+test("visible attention is consumed only while focus is inside the conversation", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const latestId = await page.locator(".message-list [data-message-id]").last()
+    .getAttribute("data-message-id");
+  expect(latestId).toBeTruthy();
+  await page.locator('[data-chat-id="chat-product"]').focus();
+  await page.evaluate(async ({ modulePath, messageId }) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { unreadAttentionMessageIds: Map<string, string[]> };
+        setState: (partial: { unreadAttentionMessageIds: Map<string, string[]> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const unreadAttentionMessageIds = new Map(state.unreadAttentionMessageIds);
+    unreadAttentionMessageIds.set("chat-product", [messageId]);
+    module.telegramStore.setState({ unreadAttentionMessageIds });
+  }, { modulePath: "/src/store/telegramStore.ts", messageId: latestId! });
+
+  await expect(page.locator(".jump-to-attention")).toBeVisible();
+  await page.getByRole("textbox", { name: "消息内容" }).focus();
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { unreadAttentionMessageIds: Map<string, string[]> };
+      };
+    };
+    return module.telegramStore.getState().unreadAttentionMessageIds
+      .get("chat-product")?.length ?? 0;
+  }, "/src/store/telegramStore.ts")).toBe(0);
+  await expect(page.locator(".jump-to-attention")).toHaveCount(0);
+});
+
+test("attention button occupies the lower slot and animates when latest appears", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.locator('[data-chat-id="chat-product"]').focus();
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => {
+          messages: Map<string, Array<{ id: string }>>;
+          unreadAttentionMessageIds: Map<string, string[]>;
+        };
+        setState: (partial: { unreadAttentionMessageIds: Map<string, string[]> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const firstId = state.messages.get("chat-product")?.[0]?.id;
+    if (!firstId) return;
+    const unreadAttentionMessageIds = new Map(state.unreadAttentionMessageIds);
+    unreadAttentionMessageIds.set("chat-product", [firstId]);
+    module.telegramStore.setState({ unreadAttentionMessageIds });
+  }, "/src/store/telegramStore.ts");
+
+  const attentionButton = page.locator(".jump-to-attention");
+  await expect(attentionButton).toBeVisible();
+  await expect(attentionButton).not.toHaveClass(/is-stacked/);
+  await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+  await expect.poll(() => page.locator(".message-list-shell").evaluate((shell) => {
+    const attention = shell.querySelector<HTMLElement>(".jump-to-attention")!;
+    return shell.getBoundingClientRect().bottom - attention.getBoundingClientRect().bottom;
+  })).toBeLessThanOrEqual(20);
+
+  await scrollAwayFromBottom(page);
+  await expect(page.locator(".jump-to-latest")).toBeVisible();
+  await expect(attentionButton).toHaveClass(/is-stacked/);
+  await expect.poll(() => page.locator(".conversation").evaluate((conversation) => {
+    const attention = conversation.querySelector<HTMLElement>(".jump-to-attention")!;
+    const latest = conversation.querySelector<HTMLElement>(".jump-to-latest")!;
+    return latest.getBoundingClientRect().top - attention.getBoundingClientRect().bottom;
+  })).toBeGreaterThan(0);
+  await expect(attentionButton).not.toHaveCSS("transition-duration", "0s");
 });
 
 test("large emoji and sticker replies keep compact transparent geometry", async ({ page }) => {
