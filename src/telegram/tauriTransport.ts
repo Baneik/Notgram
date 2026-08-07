@@ -1012,6 +1012,21 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
     const isBasic = type["@type"] === "chatTypeBasicGroup";
     const offset = Math.max(0, memberOffset);
+    let administratorLabels: Record<string, string> = {};
+    try {
+      const result = await this.request({
+        "@type": "getChatAdministrators",
+        chat_id: numericId(chatId),
+      });
+      administratorLabels = Object.fromEntries(asTdObjects(result.administrators).flatMap((raw) => {
+        const userId = tdId(raw.user_id);
+        if (!userId) return [];
+        const customTitle = typeof raw.custom_title === "string" ? raw.custom_title.trim() : "";
+        return [[userId, customTitle || (raw.is_owner === true ? "群主" : "管理员")]];
+      }));
+    } catch {
+      // Member data remains usable on chats where the administrator list is unavailable.
+    }
     let full: TdObject;
     let values: TdObject[];
     let supergroupId: string | undefined;
@@ -1039,6 +1054,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     return {
       chatId,
       members,
+      administratorLabels,
       permissions,
       slowModeDelay,
       canManageMembers,
@@ -1200,6 +1216,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     botUsername?: string,
   ): Promise<BotCommandSuggestion[]> {
     let commandGroups: TdObject[] = [];
+    let canDiscoverGroupBots = false;
     if (botUsername) {
       const bot = await this.resolveBotUser(botUsername);
       const full = await this.request({ "@type": "getUserFullInfo", user_id: numericId(bot.userId) });
@@ -1218,12 +1235,14 @@ export class TauriTelegramTransport implements TelegramTransport {
           commandGroups = [{ bot_user_id: userId, commands: asTdObject(full.bot_info)?.commands }];
         }
       } else if (type?.["@type"] === "chatTypeBasicGroup") {
+        canDiscoverGroupBots = true;
         const groupId = tdId(type.basic_group_id);
         if (groupId) {
           const full = await this.request({ "@type": "getBasicGroupFullInfo", basic_group_id: numericId(groupId) });
           commandGroups = asTdObjects(full.bot_commands);
         }
       } else if (type?.["@type"] === "chatTypeSupergroup") {
+        canDiscoverGroupBots = true;
         const groupId = tdId(type.supergroup_id);
         if (groupId) {
           const full = await this.request({ "@type": "getSupergroupFullInfo", supergroup_id: numericId(groupId) });
@@ -1231,12 +1250,47 @@ export class TauriTelegramTransport implements TelegramTransport {
         }
       }
     }
+    if (
+      canDiscoverGroupBots &&
+      !commandGroups.some((group) => asTdObjects(group.commands).length > 0)
+    ) {
+      const members = await this.request({
+        "@type": "searchChatMembers",
+        chat_id: numericId(chatId),
+        query: "",
+        limit: 200,
+        filter: { "@type": "chatMembersFilterBots" },
+      });
+      const botUserIds = [...new Set(asTdObjects(members.members).flatMap((member) => {
+        const sender = asTdObject(member.member_id);
+        const userId = sender?.["@type"] === "messageSenderUser" ? tdId(sender.user_id) : "";
+        return userId ? [userId] : [];
+      }))];
+      const discovered = await Promise.all(botUserIds.map(async (
+        botUserId,
+      ): Promise<TdObject | undefined> => {
+        try {
+          const full = await this.request({
+            "@type": "getUserFullInfo",
+            user_id: numericId(botUserId),
+          });
+          return { bot_user_id: botUserId, commands: asTdObject(full.bot_info)?.commands };
+        } catch {
+          return undefined;
+        }
+      }));
+      commandGroups = discovered.filter((group): group is TdObject => Boolean(group));
+    }
     const normalized = query.replace(/^\//, "").toLocaleLowerCase();
     const suggestions = await Promise.all(commandGroups.map(async (group) => {
       const botUserId = tdId(group.bot_user_id);
       if (!botUserId) return [];
-      const bot = await this.loadUser(botUserId);
-      const username = bot?.username ?? "";
+      let username = "";
+      try {
+        username = (await this.loadUser(botUserId))?.username ?? "";
+      } catch {
+        // Commands remain useful even if a deleted/inaccessible bot profile can't be loaded.
+      }
       return asTdObjects(group.commands).flatMap((raw) => {
         const command = typeof raw.command === "string" ? raw.command : "";
         const description = typeof raw.description === "string" ? raw.description : "";
@@ -1245,7 +1299,10 @@ export class TauriTelegramTransport implements TelegramTransport {
           : [];
       });
     }));
-    return suggestions.flat();
+    return [...new Map(suggestions.flat().map((suggestion) => [
+      `${suggestion.botUserId}:${suggestion.command.toLocaleLowerCase()}`,
+      suggestion,
+    ])).values()];
   }
 
   async getCallbackQueryAnswer(

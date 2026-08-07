@@ -45,20 +45,30 @@ const wrapEntity = (
   }
 };
 
-const renderEntities = (text: string, entities: MessageTextEntity[]) => {
-  const valid = entities.filter((entity) =>
-    entity.offset >= 0 && entity.length > 0 && entity.offset + entity.length <= text.length,
+const renderInlineRange = (
+  text: string,
+  entities: MessageTextEntity[],
+  startOffset: number,
+  endOffset: number,
+  keyPrefix: string,
+) => {
+  const overlapping = entities.filter((entity) =>
+    entity.offset < endOffset && entity.offset + entity.length > startOffset,
   );
   const boundaries = [...new Set([
-    0,
-    text.length,
-    ...valid.flatMap((entity) => [entity.offset, entity.offset + entity.length]),
+    startOffset,
+    endOffset,
+    ...overlapping.flatMap((entity) => [
+      Math.max(startOffset, entity.offset),
+      Math.min(endOffset, entity.offset + entity.length),
+    ]),
   ])].sort((left, right) => left - right);
 
   return boundaries.slice(0, -1).map((start, index) => {
     const end = boundaries[index + 1];
+    if (end <= start) return null;
     const value = text.slice(start, end);
-    const active = valid
+    const active = overlapping
       .filter((entity) => entity.offset <= start && entity.offset + entity.length >= end)
       .sort((left, right) => left.offset - right.offset || right.length - left.length);
     const node = active.reduceRight<ReactNode>(
@@ -66,12 +76,46 @@ const renderEntities = (text: string, entities: MessageTextEntity[]) => {
         entity,
         text.slice(entity.offset, entity.offset + entity.length),
         children,
-        `${start}:${end}:${entityIndex}`,
+        `${keyPrefix}:${start}:${end}:${entityIndex}`,
       ),
       value,
     );
-    return <Fragment key={`${start}:${end}`}>{node}</Fragment>;
+    return <Fragment key={`${keyPrefix}:${start}:${end}`}>{node}</Fragment>;
   });
+};
+
+const renderEntities = (text: string, entities: MessageTextEntity[]) => {
+  const valid = entities.filter((entity) =>
+    entity.offset >= 0 && entity.length > 0 && entity.offset + entity.length <= text.length,
+  );
+  const blockquotes = valid
+    .filter((entity) => entity.kind === "blockquote")
+    .sort((left, right) => left.offset - right.offset || right.length - left.length);
+  const inlineEntities = valid.filter((entity) => entity.kind !== "blockquote");
+  if (blockquotes.length === 0) {
+    return renderInlineRange(text, inlineEntities, 0, text.length, "inline");
+  }
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  for (const quote of blockquotes) {
+    const quoteStart = Math.max(cursor, quote.offset);
+    const quoteEnd = quote.offset + quote.length;
+    if (quoteEnd <= cursor) continue;
+    if (quoteStart > cursor) {
+      nodes.push(...renderInlineRange(text, inlineEntities, cursor, quoteStart, `plain:${cursor}`));
+    }
+    nodes.push(
+      <span className="rich-blockquote" key={`quote:${quote.offset}:${quote.length}`}>
+        {renderInlineRange(text, inlineEntities, quoteStart, quoteEnd, `quote:${quote.offset}`)}
+      </span>,
+    );
+    cursor = quoteEnd;
+  }
+  if (cursor < text.length) {
+    nodes.push(...renderInlineRange(text, inlineEntities, cursor, text.length, `plain:${cursor}`));
+  }
+  return nodes;
 };
 
 export function MessageRichText({ text, entities, className = "" }: MessageRichTextProps) {

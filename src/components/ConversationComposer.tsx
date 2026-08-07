@@ -104,6 +104,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [inlineLoading, setInlineLoading] = useState(false);
   const selectedBotRef = useRef<BotCommandSuggestion | undefined>(undefined);
   const botQueryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const botQueryGenerationRef = useRef(0);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,17 +127,27 @@ export const ConversationComposer = memo(function ConversationComposer({
   pendingAttachmentsRef.current = pendingAttachments;
 
   useEffect(() => {
+    const generation = ++botQueryGenerationRef.current;
     if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current);
     const slash = !editingMessage ? draft.match(/^\/([A-Za-z0-9_]*)(?:@([A-Za-z0-9_]{5,32}))?$/) : null;
     const inline = !editingMessage ? draft.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/) : null;
     if (slash) {
       const username = slash[2] || defaultBotUsername;
+      selectedBotRef.current = undefined;
+      setBotSuggestions([]);
       botQueryTimerRef.current = globalThis.setTimeout(() => {
-        void onGetBotCommands(slash[1], username).then(setBotSuggestions).catch(() => setBotSuggestions([]));
+        void onGetBotCommands(slash[1], username)
+          .then((suggestions) => {
+            if (botQueryGenerationRef.current === generation) setBotSuggestions(suggestions);
+          })
+          .catch(() => {
+            if (botQueryGenerationRef.current === generation) setBotSuggestions([]);
+          });
       }, 80);
       setInlineResults(undefined);
     } else if (inline) {
       setBotSuggestions([]);
+      selectedBotRef.current = undefined;
       setInlineLoading(true);
       botQueryTimerRef.current = globalThis.setTimeout(() => { void onGetInlineResults(inline[1], inline[2]).then((page) => { setInlineResults(page); setInlineLoading(false); }); }, 180);
     } else {
@@ -144,7 +155,9 @@ export const ConversationComposer = memo(function ConversationComposer({
       setInlineResults(undefined);
       setInlineLoading(false);
     }
-    return () => { if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current); };
+    return () => {
+      if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current);
+    };
   }, [defaultBotUsername, draft, editingMessage, onGetBotCommands, onGetInlineResults]);
 
   useComposerAutoResize(inputRef, draft, !composing, chatId);

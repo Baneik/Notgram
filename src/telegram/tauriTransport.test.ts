@@ -110,6 +110,111 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.map((request) => request["@type"])).toEqual(["searchPublicChats", "getChat", "getUserFullInfo", "getUser", "searchPublicChats", "getChat", "getInlineQueryResults", "getCallbackQueryAnswer", "sendInlineQueryResultMessage", "sendBotStartMessage"]);
   });
 
+  it("discovers group bots when scoped command metadata is empty", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as {
+      request: (request: TdObject) => Promise<TdObject>;
+      rawChats: Map<string, TdObject>;
+    };
+    const requests: TdObject[] = [];
+    internal.rawChats.set("72", {
+      "@type": "chat",
+      id: 72,
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getSupergroupFullInfo") {
+        return { "@type": "supergroupFullInfo", bot_commands: [] };
+      }
+      if (request["@type"] === "searchChatMembers") {
+        return {
+          "@type": "chatMembers",
+          members: [
+            { member_id: { "@type": "messageSenderUser", user_id: 901 } },
+            { member_id: { "@type": "messageSenderUser", user_id: 902 } },
+          ],
+        };
+      }
+      if (request["@type"] === "getUserFullInfo") {
+        const command = request.user_id === 901 ? "help" : "settings";
+        return {
+          "@type": "userFullInfo",
+          bot_info: {
+            "@type": "botInfo",
+            commands: [{ "@type": "botCommand", command, description: `${command} description` }],
+          },
+        };
+      }
+      if (request["@type"] === "getUser") {
+        return {
+          "@type": "user",
+          id: request.user_id,
+          first_name: `Bot ${request.user_id}`,
+          usernames: { active_usernames: [`bot_${request.user_id}`] },
+          status: { "@type": "userStatusOffline" },
+          type: { "@type": "userTypeBot" },
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.getBotCommandSuggestions("72", "he")).resolves.toEqual([
+      {
+        botUserId: "901",
+        botUsername: "bot_901",
+        command: "help",
+        description: "help description",
+      },
+    ]);
+    expect(requests).toContainEqual({
+      "@type": "searchChatMembers",
+      chat_id: 72,
+      query: "",
+      limit: 200,
+      filter: { "@type": "chatMembersFilterBots" },
+    });
+  });
+
+  it("loads complete administrator labels independently of the member page", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as {
+      request: (request: TdObject) => Promise<TdObject>;
+      rawChats: Map<string, TdObject>;
+    };
+    internal.rawChats.set("72", {
+      "@type": "chat",
+      id: 72,
+      permissions: {},
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+    internal.request = async (request) => {
+      if (request["@type"] === "getChatAdministrators") {
+        return {
+          "@type": "chatAdministrators",
+          administrators: [
+            { user_id: 901, custom_title: "值班", is_owner: false },
+            { user_id: 902, custom_title: "", is_owner: true },
+          ],
+        };
+      }
+      if (request["@type"] === "getSupergroupFullInfo") {
+        return {
+          "@type": "supergroupFullInfo",
+          status: { "@type": "chatMemberStatusMember" },
+          member_count: 200,
+        };
+      }
+      if (request["@type"] === "getSupergroupMembers") {
+        return { "@type": "chatMembers", members: [] };
+      }
+      return { "@type": "ok" };
+    };
+
+    const management = await transport.getChatManagement("72", 50);
+    expect(management.administratorLabels).toEqual({ "901": "值班", "902": "群主" });
+  });
+
   it("maps the complete member, permission, slow mode, and ownership requests", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawChats: Map<string, TdObject> };

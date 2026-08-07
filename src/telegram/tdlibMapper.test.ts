@@ -112,6 +112,7 @@ describe("TDLib mapper", () => {
       chat_id: 99,
       sender_id: { "@type": "messageSenderUser", user_id: 7 },
       is_outgoing: false,
+      sender_tag: "值班",
       date: 1_700_000_000,
       content: {
         "@type": "messageText",
@@ -129,9 +130,16 @@ describe("TDLib mapper", () => {
       id: "1001",
       chatId: "99",
       senderId: "7",
+      senderTag: "值班",
       outgoing: false,
       content: { kind: "text", text: "hello" },
     });
+    expect(mapTdUser({
+      id: 8,
+      first_name: "Helper",
+      type: { "@type": "userTypeBot" },
+      status: { "@type": "userStatusOffline" },
+    })).toMatchObject({ id: "8", isBot: true });
   });
 
   it("keeps image documents as downloadable files", () => {

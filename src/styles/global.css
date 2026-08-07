@@ -596,10 +596,11 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .message-action-menu .message-action-reactions button.is-chosen { background: #e8f4fd; }
 .message-action-status { min-height: 42px; padding: 0 9px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.message-sender { display: block; margin-bottom: 3px; padding: 0; color: var(--accent-strong); text-align: left; background: transparent; border: 0; font-size: 12px; font-weight: 700; }
+.message-sender-row { min-width: 0; margin-bottom: 3px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; }
+.message-sender { min-width: 0; padding: 0; overflow: hidden; color: var(--accent-strong); text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; font-size: 12px; font-weight: 700; }
 button.message-sender { cursor: pointer; }
-button.message-sender, span.message-sender { display: inline-flex; align-items: center; gap: 5px; }
-.message-sender small { padding: 1px 4px; color: #7545b3; background: rgba(139, 92, 199, .1); border-radius: 3px; font-size: 9px; font-weight: 650; }
+button.message-sender, span.message-sender { display: block; }
+.message-sender-label { max-width: min(180px, 42vw); padding: 1px 4px; overflow: hidden; color: #7545b3; text-overflow: ellipsis; white-space: nowrap; background: rgba(139, 92, 199, .1); border-radius: 3px; font-size: 9px; font-weight: 650; }
 button.message-sender:hover { text-decoration: underline; }
 .message-sender-avatar { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .message-forward-label {
@@ -650,6 +651,9 @@ button.message-sender:hover { text-decoration: underline; }
 }
 .message-text-flow.is-meta-wrapped > .message-rich-text + .message-meta {
   margin-top: 2px; align-items: flex-start; transform: none;
+}
+.message-bubble.is-textual.has-wrapped-meta {
+  padding-bottom: max(0px, calc(var(--message-bubble-padding-y) - 6px));
 }
 .message-bubble.is-textual, .message-bubble.is-textual .message-rich-text { cursor: text; }
 .message-bubble.is-textual a, .message-bubble.is-textual button, .message-bubble.is-textual summary { cursor: pointer; }
@@ -822,9 +826,10 @@ button.message-sender:hover { text-decoration: underline; }
 .is-outgoing .message-bubble.is-photo.media-bubble-photo,
 .is-outgoing .message-bubble.is-photo.media-bubble-video,
 .is-outgoing .message-bubble.is-photo.media-bubble-animation { background: var(--outgoing); }
-.message-bubble.is-photo .message-sender {
+.message-bubble.is-photo .message-sender-row {
   margin: 0; padding: 6px 9px 5px; background: #ffffff; border-bottom: 1px solid #e6ebed;
 }
+.message-bubble.is-photo .message-sender { background: transparent; }
 .message-bubble.is-photo .message-forward-label { margin: 0; padding: 6px 9px 5px; background: #ffffff; }
 .is-outgoing .message-bubble.is-photo .message-forward-label { background: var(--outgoing); }
 .message-bubble.is-photo .message-reply-preview { margin: 6px 8px; }
@@ -2169,7 +2174,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .theme-dark .message-bubble.is-photo.media-bubble-animation,
   .theme-dark .message-row.group-first .message-bubble.is-photo,
   .theme-dark .message-row.group-single .message-bubble.is-photo,
-  .theme-dark .message-bubble.is-photo .message-sender,
+  .theme-dark .message-bubble.is-photo .message-sender-row,
   .theme-dark .message-bubble.is-photo .message-forward-label,
   .theme-dark .message-bubble.is-photo .photo-caption { background: #182533; }
   .theme-dark .media-album.is-outgoing,
@@ -2179,12 +2184,12 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .theme-dark .is-outgoing .message-bubble.is-photo.media-bubble-animation,
   .theme-dark .is-outgoing.group-first .message-bubble.is-photo,
   .theme-dark .is-outgoing.group-single .message-bubble.is-photo,
-  .theme-dark .is-outgoing .message-bubble.is-photo .message-sender,
+  .theme-dark .is-outgoing .message-bubble.is-photo .message-sender-row,
   .theme-dark .is-outgoing .message-bubble.is-photo .message-forward-label,
   .theme-dark .is-outgoing .message-bubble.is-photo .photo-caption { background: var(--outgoing); }
   .theme-dark .message-bubble,
   .theme-dark .media-album { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.32); }
-  .theme-dark .message-bubble.is-photo .message-sender { border-bottom-color: rgba(255, 255, 255, 0.08); }
+  .theme-dark .message-bubble.is-photo .message-sender-row { border-bottom-color: rgba(255, 255, 255, 0.08); }
   .theme-dark .photo-preview { background: #111c26; }
   .theme-dark .message-reply-preview { background: transparent; }
   .theme-dark .message-reply-preview { border-left-color: #d9ad45; }

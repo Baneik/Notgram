@@ -245,9 +245,7 @@ export function Conversation({
   const [autoDeleteDialogOpen, setAutoDeleteDialogOpen] = useState(false);
   const [autoDeletePending, setAutoDeletePending] = useState(false);
   const groupManagement = useTelegramStore((state) => state.groupManagement);
-  const groupManagementLoading = useTelegramStore((state) => state.groupManagementLoading);
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
-  const memberLabelLoadAttemptsRef = useRef(new Set<string>());
   const draftReplyToMessageId = useTelegramStore((state) =>
     chat ? state.drafts.get(chat.id)?.replyToMessageId : undefined,
   );
@@ -275,21 +273,18 @@ export function Conversation({
   ]);
   useEffect(() => {
     if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return;
-    if (
-      groupManagement?.chatId === chat.id ||
-      groupManagementLoading ||
-      memberLabelLoadAttemptsRef.current.has(chat.id)
-    ) return;
-    memberLabelLoadAttemptsRef.current.add(chat.id);
     void loadChatManagement(chat.id);
-  }, [chat?.id, chat?.kind, groupManagement?.chatId, groupManagementLoading, loadChatManagement]);
+  }, [chat?.id, chat?.kind, loadChatManagement]);
   const memberLabels = useMemo(() => new Map(
     groupManagement?.chatId === chat?.id
-      ? (groupManagement?.members ?? []).flatMap((member) => {
-          const label = member.customTitle ||
-            (member.status === "owner" ? "群主" : member.status === "administrator" ? "管理员" : undefined);
-          return label ? [[member.user.id, label] as const] : [];
-        })
+      ? [
+          ...Object.entries(groupManagement?.administratorLabels ?? {}),
+          ...(groupManagement?.members ?? []).flatMap((member) => {
+            const label = member.customTitle ||
+              (member.status === "owner" ? "群主" : member.status === "administrator" ? "管理员" : undefined);
+            return label ? [[member.user.id, label] as const] : [];
+          }),
+        ]
       : [],
   ), [chat?.id, groupManagement]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
@@ -560,7 +555,7 @@ export function Conversation({
     text: string,
     replyToMessageId?: string,
   ) => {
-    jumpToLatest();
+    jumpToLatest("auto");
     return onSendMessage(text, replyToMessageId);
   }, [jumpToLatest, onSendMessage]);
 
@@ -568,7 +563,7 @@ export function Conversation({
     attachments: import("../telegram/types").OutgoingAttachment[],
     caption?: string,
   ) => {
-    jumpToLatest();
+    jumpToLatest("auto");
     return onSendFiles(attachments, caption);
   }, [jumpToLatest, onSendFiles]);
 
@@ -1142,6 +1137,7 @@ export function Conversation({
           defaultItemHeight={52}
           followOutput={followOutput}
           rangeChanged={onInitialRangeChanged}
+          atBottomThreshold={13}
           atBottomStateChange={onInitialAtBottomStateChange}
           initialTopMostItemIndex={restoreStateFrom ? undefined : initialTopMostItemIndex}
           restoreStateFrom={restoreStateFrom}
@@ -1204,7 +1200,7 @@ export function Conversation({
                         message={message}
                         entrance={messageEntranceFor(message)}
                         senderName={senderName}
-                        senderLabel={memberLabels.get(message.senderId)}
+                        senderLabel={message.senderTag || memberLabels.get(message.senderId)}
                         senderProfileAvailable={!message.outgoing && message.senderId !== "unknown"}
                         groupPosition={positions.get(message.id) ?? "single"}
                         replyPreview={replyPreviewFor(
@@ -1297,7 +1293,7 @@ export function Conversation({
                 ? `跳到最新消息，${newMessageNotice.count} 条新消息`
                 : "跳到最新消息"}
               title="跳到最新消息"
-              onClick={jumpToLatest}
+              onClick={() => jumpToLatest("smooth")}
             >
               <ArrowDown size={19} strokeWidth={2.1} />
               {newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0 && (
@@ -1378,7 +1374,9 @@ export function Conversation({
         editingMessage={editingMessage}
         replyingTo={replyingTo}
         contextTitle={composerContextTitle}
-        defaultBotUsername={chat.kind === "direct" && chat.peerId ? users.get(chat.peerId)?.username : undefined}
+        defaultBotUsername={chat.kind === "direct" && chat.peerId && users.get(chat.peerId)?.isBot
+          ? users.get(chat.peerId)?.username
+          : undefined}
         inputRef={composerInputRef}
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}

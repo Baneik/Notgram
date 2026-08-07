@@ -14,16 +14,24 @@ interface ReportDialogProps {
   onClose: () => void;
 }
 
-const reportReasonLabel = (title: string) => {
+export const reportReasonLabel = (title: string) => {
   const normalized = title.trim().toLowerCase();
   if (/spam|scam|垃圾|诈骗/.test(normalized)) return "垃圾信息或诈骗";
-  if (/violence|暴力/.test(normalized)) return "暴力内容";
-  if (/porn|sexual|色情/.test(normalized)) return "色情内容";
-  if (/child|儿童/.test(normalized)) return "儿童伤害";
-  if (/copyright|版权/.test(normalized)) return "侵犯版权";
-  if (/personal|个人信息/.test(normalized)) return "泄露个人信息";
-  if (/other|其他/.test(normalized)) return "其他原因";
-  return title;
+  if (/violence|danger|physical harm|暴力|危险/.test(normalized)) return "暴力或危险内容";
+  if (/porn|sexual|adult content|色情|成人内容/.test(normalized)) return "色情或成人内容";
+  if (/child|minor|儿童|未成年/.test(normalized)) return "儿童伤害";
+  if (/copyright|intellectual property|trademark|counterfeit|版权|商标|假冒商品/.test(normalized)) return "侵犯知识产权";
+  if (/unrelated location|location-based|wrong location|位置无关|地点无关/.test(normalized)) return "与标注地点无关";
+  if (/\bfake\b|impersonat|pretending to be|虚假账号|冒充/.test(normalized)) return "虚假账号或冒充他人";
+  if (/illegal drugs|narcotic|drug sale|毒品|违禁药物/.test(normalized)) return "毒品或违禁药物";
+  if (/personal details|private (?:data|information)|dox|个人信息|隐私信息/.test(normalized)) return "泄露个人信息";
+  if (/hate speech|仇恨言论/.test(normalized)) return "仇恨言论";
+  if (/terror|极端主义|恐怖主义/.test(normalized)) return "恐怖主义或极端主义";
+  if (/harass|bully|骚扰|霸凌/.test(normalized)) return "骚扰或霸凌";
+  if (/self[- ]?harm|suicide|自残|自杀/.test(normalized)) return "自残或自杀内容";
+  if (/other|custom|something else|don't like|其他|不喜欢/.test(normalized)) return "其他原因";
+  if (/[\u3400-\u9fff]/u.test(title)) return title;
+  return "其他原因";
 };
 
 export function ReportDialog({ chatId, messageIds, title, onGetOptions, onSubmit, onDeleteChat, onClose }: ReportDialogProps) {

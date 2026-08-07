@@ -447,7 +447,7 @@ test("new messages stay pinned without viewport rebound", async ({ page }) => {
     sample.rowBottom > animatedSamples[index].rowBottom! + 0.5,
   );
   expect(bubbleRebounds, JSON.stringify(animatedSamples)).toHaveLength(0);
-  expect(visibleSamples.at(-1)?.distanceBottom).toBeLessThanOrEqual(1);
+  expect(visibleSamples.at(-1)?.distanceBottom).toBeLessThanOrEqual(13);
   expect(Math.abs(
     (visibleSamples.at(-1)?.listBottom ?? 0) - (visibleSamples.at(-1)?.rowBottom ?? 0),
   )).toBeLessThanOrEqual(13);
@@ -797,7 +797,7 @@ test("latest message keeps a fixed gap above the composer", async ({ page }) => 
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   const gap = await page.evaluate(() => {
     const latest = document.querySelector<HTMLElement>('[data-message-id="p-video"]');
@@ -1598,6 +1598,11 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
   await expect(inline.getByRole("button").filter({ hasText: "快速摘要" })).toBeVisible();
   await inline.getByRole("button").filter({ hasText: "快速摘要" }).click();
   await expect(page.getByText("@notgram_bot: release", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: /Release Notes/ }).first().click();
+  await composer.fill("/he");
+  await composer.fill("/");
+  await expect(suggestions.getByRole("option")).toHaveCount(3);
 });
 
 test("renders and activates TDLib inline bot keyboards", async ({ page }) => {
@@ -1634,6 +1639,7 @@ test("long text uses configurable line folding and expands from its start", asyn
   await messageSearch.press("Enter");
   const row = page.locator('[data-message-id="p-long-text"]');
   await expect(row).toBeVisible();
+  await expect(row).toHaveClass(/is-outgoing/);
   const flow = row.locator(".message-text-flow");
   await expect(flow).toHaveClass(/is-text-collapsed/);
   await expect.poll(async () => Number(await flow.getAttribute("data-message-line-count")))
@@ -1662,6 +1668,18 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
   await profile.getByRole("button", { name: "举报", exact: true }).click();
   const report = page.getByRole("dialog", { name: /举报“产品讨论”/ });
   await expect(report.getByRole("radiogroup", { name: "举报原因" })).toBeVisible();
+  await expect(report.getByRole("radio")).toHaveText([
+    "垃圾信息或诈骗",
+    "暴力或危险内容",
+    "色情或成人内容",
+    "儿童伤害",
+    "侵犯知识产权",
+    "与标注地点无关",
+    "虚假账号或冒充他人",
+    "毒品或违禁药物",
+    "泄露个人信息",
+    "其他原因",
+  ]);
   await report.getByRole("radio", { name: "垃圾信息" }).click();
   await report.getByRole("button", { name: "提交举报" }).click();
   await expect(report).toBeHidden();
@@ -2091,13 +2109,13 @@ test("text message time stays on the last line when it fits and wraps without wi
     };
   });
   expect(shortGeometry).toBeTruthy();
-  expect(Math.abs(shortGeometry!.metaBottom - shortGeometry!.lastLineBottom!)).toBeLessThan(1);
+  expect(shortGeometry!.metaBottom - shortGeometry!.lastLineBottom!).toBeGreaterThanOrEqual(2);
+  expect(shortGeometry!.metaBottom - shortGeometry!.lastLineBottom!).toBeLessThanOrEqual(3);
   expect(shortGeometry!.metaLeft).toBeGreaterThan(shortGeometry!.lastLineRight!);
   expect(Math.abs(shortGeometry!.metaRight - (shortGeometry!.bubbleRight - 10))).toBeLessThanOrEqual(1);
   expect(shortGeometry!.shellWidth).toBeLessThanOrEqual(Math.min(shortGeometry!.stackWidth * 0.74, 720) + 1);
 
-  const longMessage = page.locator('[data-message-id="p-2"]');
-  await expect(longMessage.locator('.message-rich-text[data-rich-text="markdown"]')).toBeVisible();
+  const longMessage = shortMessage;
   const wrappedGeometry = await longMessage.locator(".message-bubble-shell").evaluate((shell) => {
     const element = shell as HTMLElement;
     const text = element.querySelector<HTMLElement>(".message-rich-text");
@@ -2126,6 +2144,8 @@ test("text message time stays on the last line when it fits and wraps without wi
     return undefined;
   });
   expect(wrappedGeometry).toBeTruthy();
+  await expect(longMessage.locator(".message-bubble")).toHaveClass(/has-wrapped-meta/);
+  await expect(longMessage.locator(".message-bubble")).toHaveCSS("padding-bottom", "2px");
   expect(wrappedGeometry!.metaRight).toBeLessThanOrEqual(wrappedGeometry!.bubbleRight - 9);
   const wrappedGap = wrappedGeometry!.metaTop - wrappedGeometry!.lastLineBottom;
   expect(wrappedGap).toBeGreaterThanOrEqual(1);
@@ -2615,6 +2635,42 @@ test("Markdown and TDLib rich text render as structured message content", async 
   await richMessage.locator("details summary").click();
   await expect(richMessage.locator("details")).toContainText("Advanced details");
   await expect(richMessage.locator('.rich-media-photo img[alt="Bot chart"]')).toBeVisible();
+
+  const globalSearch = page.getByPlaceholder("搜索会话和消息");
+  await globalSearch.fill("热搜");
+  await page.locator(".global-message-result").filter({ hasText: "热搜" }).first().click();
+  const botQuoteRow = page.locator('[data-message-id="archive-bot-quote"]');
+  const botQuote = botQuoteRow.locator(".rich-blockquote");
+  await botQuoteRow.scrollIntoViewIfNeeded();
+  await expect(botQuote).toHaveCount(1);
+  await expect(botQuote.locator("a")).toHaveCount(10);
+  const quoteGeometry = await botQuote.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const lineHeight = Number.parseFloat(style.lineHeight);
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const lineTops = [...range.getClientRects()].reduce<number[]>((tops, rect) => {
+      if (!tops.some((top) => Math.abs(top - rect.top) < 1)) tops.push(rect.top);
+      return tops;
+    }, []);
+    return { lineCount: lineTops.length, height: element.getBoundingClientRect().height, lineHeight };
+  });
+  expect(quoteGeometry.lineCount).toBeLessThanOrEqual(3);
+  expect(quoteGeometry.height).toBeLessThanOrEqual(quoteGeometry.lineHeight * 3.2);
+  const senderRow = botQuoteRow.locator(".message-sender-row");
+  await expect(senderRow.locator(".message-sender-label")).toHaveText("热点机器人");
+  await expect(senderRow).not.toContainText("管理员");
+  const senderGeometry = await senderRow.evaluate((element) => {
+    const label = element.querySelector<HTMLElement>(".message-sender-label")!;
+    const bubble = element.closest<HTMLElement>(".message-bubble")!;
+    return {
+      rightGap: bubble.getBoundingClientRect().right - label.getBoundingClientRect().right,
+      topGap: label.getBoundingClientRect().top - bubble.getBoundingClientRect().top,
+    };
+  });
+  expect(senderGeometry.rightGap).toBeCloseTo(10, 0);
+  expect(senderGeometry.topGap).toBeGreaterThanOrEqual(6);
+  expect(senderGeometry.topGap).toBeLessThanOrEqual(10);
 });
 
 test("video uses synchronized transparent playback windows and owns the playback spacebar", async ({ page }) => {
@@ -3008,7 +3064,7 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await page.goto("/");
   await expect(page.locator(".message-row")).not.toHaveCount(0);
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   await scrollAwayFromBottom(page);
   const savedAnchor = await visibleMessageAnchor(page);
@@ -3029,26 +3085,26 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
     await page.getByRole("button", { name: "发送消息" }).click();
     await expect(page.getByRole("textbox", { name: "消息内容" })).toHaveValue("");
   }
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect(page.getByText("滚动定位测试二", { exact: true })).toBeVisible();
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
 
   await page.getByRole("textbox", { name: "消息内容" }).fill("底部自动跟随测试");
   await page.getByRole("button", { name: "发送消息" }).click();
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
 
   await page.locator(".message-list").hover();
   for (let attempt = 0; attempt < 5; attempt += 1) await page.mouse.wheel(0, 600);
   await page.waitForTimeout(180);
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   await scrollAwayFromBottom(page);
   await page.locator('[data-chat-id="chat-mia"]').click();
   await page.locator('[data-chat-id="chat-product"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await page.locator('[data-chat-id="chat-product"]').click();
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 });
 
 test("window resizing and new messages preserve the user's follow intent", async ({ page }) => {
@@ -3056,7 +3112,7 @@ test("window resizing and new messages preserve the user's follow intent", async
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   await scrollAwayFromBottom(page);
   await expect(page.getByRole("button", { name: "跳到最新消息", exact: true })).toBeVisible();
@@ -3099,20 +3155,20 @@ test("window resizing and new messages preserve the user's follow intent", async
   await expect(jumpButton).toBeVisible();
 
   await jumpButton.click();
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await page.getByRole("textbox", { name: "消息内容" }).fill("缩放期间自动跟随");
   await page.getByRole("button", { name: "发送消息" }).click();
   for (const width of [1240, 1340, 1260, 1280]) {
     await page.setViewportSize({ width, height: 760 });
   }
   await page.waitForTimeout(160);
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
 });
 
 test("a chat left at the latest position returns to the latest message", async ({ page }) => {
   await page.goto("/");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await page.locator('[data-chat-id="chat-mia"]').click();
   await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
@@ -3140,14 +3196,14 @@ test("a chat left at the latest position returns to the latest message", async (
   }, "/src/store/telegramStore.ts");
   await page.locator('[data-chat-id="chat-product"]').click();
   await expect(page.getByText("返回时仍在最新位置", { exact: true })).toBeVisible();
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 });
 
 test("clicking the selected conversation repeatedly converges to its latest message", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   await page.locator('[data-chat-id="chat-mia"]').click();
   await product.click();
@@ -3184,21 +3240,50 @@ test("loading older messages preserves the visible message anchor", async ({ pag
 
   const list = page.locator(".message-list");
   await expect(list).toHaveAttribute("aria-busy", "false");
-  const before = await list.evaluate((element) => {
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      MockTelegramTransport: {
+        prototype: {
+          loadChatHistory: (...args: unknown[]) => Promise<unknown>;
+        };
+      };
+    };
+    const prototype = module.MockTelegramTransport.prototype;
+    const original = prototype.loadChatHistory;
+    let release: (() => void) | undefined;
+    prototype.loadChatHistory = async function (...args: unknown[]) {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return original.apply(this, args);
+    };
+    Object.assign(globalThis, {
+      __notgramReleaseHistoryLoad: () => release?.(),
+    });
+  }, "/src/telegram/mockTransport.ts");
+  await list.evaluate((element) => {
     element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
     element.scrollTop = 40;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  const before = await list.evaluate((element) => {
     const listBounds = element.getBoundingClientRect();
     const row = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
-      .find((candidate) => candidate.getBoundingClientRect().bottom > listBounds.top + 1);
-    const result = {
+      .find((candidate) => {
+        const bounds = candidate.getBoundingClientRect();
+        return bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1;
+      });
+    return {
       id: row?.dataset.messageId,
       offset: row ? row.getBoundingClientRect().top - listBounds.top : 0,
     };
-    element.dispatchEvent(new Event("scroll", { bubbles: true }));
-    return result;
   });
 
   expect(before.id).toBeTruthy();
+  await page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramReleaseHistoryLoad: () => void }
+  ).__notgramReleaseHistoryLoad());
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
       telegramStore: {

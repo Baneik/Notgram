@@ -21,6 +21,7 @@ import {
 } from "../utils/performanceMonitor";
 
 const BOTTOM_PROXIMITY_PX = 40;
+const INITIAL_BOTTOM_DISTANCE_TOLERANCE_PX = 13;
 const SMOOTH_SCROLL_MAX_DISTANCE_PX = 1_400;
 const SMOOTH_SCROLL_TELEPORT_VIEWPORTS = 0.85;
 
@@ -99,7 +100,7 @@ const visibleAnchor = (element: HTMLElement) => {
   const rows = element.querySelectorAll<HTMLElement>("[data-message-id]");
   for (const row of rows) {
     const bounds = row.getBoundingClientRect();
-    if (bounds.bottom > listBounds.top + 1) {
+    if (bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1) {
       return {
         messageId: row.dataset.messageId,
         offset: bounds.top - listBounds.top,
@@ -216,6 +217,7 @@ export const useConversationScroll = ({
   const handledMessageRequestRef = useRef(0);
   const highlightTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const historyLoadPendingRef = useRef<string | undefined>(undefined);
+  const historyLoadFrameRef = useRef<number | undefined>(undefined);
   const historyRestoreFrameRef = useRef<number | undefined>(undefined);
   const heightCorrectionTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(
     undefined,
@@ -244,6 +246,11 @@ export const useConversationScroll = ({
   const messageRevealFrameRef = useRef<number | undefined>(undefined);
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const smoothScrollUntilRef = useRef(0);
+  const appendedFollowFloorRef = useRef<{
+    key: string;
+    scrollTop: number;
+    until: number;
+  } | undefined>(undefined);
   const [newMessageNotice, setNewMessageNotice] = useState<{
     key: string;
     count: number;
@@ -423,6 +430,14 @@ export const useConversationScroll = ({
     });
   };
 
+  const scheduleOlderLoad = () => {
+    if (historyLoadFrameRef.current !== undefined) return;
+    historyLoadFrameRef.current = requestAnimationFrame(() => {
+      historyLoadFrameRef.current = undefined;
+      loadOlder();
+    });
+  };
+
   const scrollToLatestPosition = useCallback((behavior: "auto" | "smooth" = "auto") => {
     const element = messageListRef.current;
     if (!element) return;
@@ -444,6 +459,23 @@ export const useConversationScroll = ({
     if (latestMessageMounted) {
       const target = Math.max(0, element.scrollHeight - element.clientHeight);
       const distance = Math.abs(target - element.scrollTop);
+      const latest = latestMessageId
+        ? element.querySelector<HTMLElement>(
+          `[data-message-id="${CSS.escape(latestMessageId)}"]`,
+        )
+        : undefined;
+      const visualBottomGap = latest
+        ? element.getBoundingClientRect().bottom - latest.getBoundingClientRect().bottom
+        : 0;
+      if (visualBottomGap >= -1 && visualBottomGap <= 13) return;
+      if (distance <= 1 && (visualBottomGap < -1 || visualBottomGap > 13)) {
+        virtuosoRef.current?.scrollToIndex({
+          index: "LAST",
+          align: "end",
+          behavior,
+        });
+        return;
+      }
       if (behavior === "smooth" && distance > SMOOTH_SCROLL_MAX_DISTANCE_PX) {
         element.scrollTop = Math.max(
           0,
@@ -508,6 +540,7 @@ export const useConversationScroll = ({
 
   const stopFollowingLatest = useCallback(() => {
     cancelHistoryRestore();
+    appendedFollowFloorRef.current = undefined;
     initialPositionCancelledIdentityRef.current = initialLocationIdentity;
     if (latestJumpFrameRef.current !== undefined) {
       cancelAnimationFrame(latestJumpFrameRef.current);
@@ -585,7 +618,7 @@ export const useConversationScroll = ({
     }, 80);
   }, [currentScrollKey, scrollToLatestPosition, search]);
 
-  const jumpToLatest = useCallback(() => {
+  const jumpToLatest = useCallback((behavior: "auto" | "smooth" = "smooth") => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
     initialPositionCancelledIdentityRef.current = undefined;
@@ -610,16 +643,21 @@ export const useConversationScroll = ({
     }
     if (latestJumpFrameRef.current !== undefined) cancelAnimationFrame(latestJumpFrameRef.current);
     if (smoothScrollTimerRef.current !== undefined) globalThis.clearTimeout(smoothScrollTimerRef.current);
-    latestJumpFrameRef.current = requestAnimationFrame(() => {
-      latestJumpFrameRef.current = undefined;
-      scrollToLatestPosition("smooth");
-    });
-    smoothScrollTimerRef.current = globalThis.setTimeout(() => {
-      smoothScrollTimerRef.current = undefined;
-      if (conversationScrollMemory.get(currentScrollKey)?.followLatest) {
-        scrollToLatestPosition("auto");
-      }
-    }, 520);
+    if (behavior === "smooth") {
+      latestJumpFrameRef.current = requestAnimationFrame(() => {
+        latestJumpFrameRef.current = undefined;
+        scrollToLatestPosition("smooth");
+      });
+      smoothScrollTimerRef.current = globalThis.setTimeout(() => {
+        smoothScrollTimerRef.current = undefined;
+        if (conversationScrollMemory.get(currentScrollKey)?.followLatest) {
+          scrollToLatestPosition("auto");
+        }
+      }, 520);
+    } else {
+      smoothScrollUntilRef.current = 0;
+      scrollToLatestPosition("auto");
+    }
     scheduleExactBottomCorrection();
     initialPositionVerifierRef.current();
     updateNewMessageNotice(currentScrollKey, 0);
@@ -842,6 +880,11 @@ export const useConversationScroll = ({
         if (stored.followLatest) {
           pendingNewCount = 0;
           followLatest = true;
+          appendedFollowFloorRef.current = {
+            key: currentScrollKey,
+            scrollTop: element.scrollTop,
+            until: performance.now() + 800,
+          };
           // Position the appended row in the same layout commit. Waiting for the
           // quiet-period correction leaves the new row below the viewport long
           // enough to look like a bounce when it is finally revealed.
@@ -949,7 +992,15 @@ export const useConversationScroll = ({
             `[data-message-id="${CSS.escape(latestMessageId)}"]`,
           )
         : undefined;
-      if (!latest || distanceFromBottom(element) > BOTTOM_PROXIMITY_PX) {
+      const visualBottomGap = latest
+        ? element.getBoundingClientRect().bottom - latest.getBoundingClientRect().bottom
+        : Number.POSITIVE_INFINITY;
+      if (
+        !latest ||
+        distanceFromBottom(element) > INITIAL_BOTTOM_DISTANCE_TOLERANCE_PX ||
+        visualBottomGap < -1 ||
+        visualBottomGap > 13
+      ) {
         if (performance.now() < smoothScrollUntilRef.current) {
           initialPositionFrameRef.current = requestAnimationFrame(() => verifyInitialPosition());
           return;
@@ -960,7 +1011,7 @@ export const useConversationScroll = ({
         initialPositionFrameRef.current = requestAnimationFrame(() => verifyInitialPosition());
         return;
       }
-      signature = `${Math.round(element.scrollHeight)}:${Math.round(element.scrollTop)}:${Math.round(element.clientHeight)}`;
+      signature = `${Math.round(element.scrollHeight)}:${Math.round(element.scrollTop)}:${Math.round(element.clientHeight)}:${Math.round(visualBottomGap)}`;
     } else {
       const target = initial.targetMessageId
         ? element.querySelector<HTMLElement>(
@@ -1034,6 +1085,17 @@ export const useConversationScroll = ({
       return;
     }
 
+    if (initial.mode === "bottom" && currentScrollKey) {
+      conversationScrollMemory.set(currentScrollKey, {
+        scrollTop: element.scrollTop,
+        followLatest: true,
+        lastKnownMessageId: lastVisibleMessageIdRef.current,
+        pendingNewCount: 0,
+      });
+      updateNewMessageNotice(currentScrollKey, 0);
+      updateLatestPosition(currentScrollKey, true);
+      scheduleExactBottomCorrection();
+    }
     setPositionedScrollIdentity(initialLocationIdentity);
     if (positionCorrectionIdentityRef.current === initialLocationIdentity) {
       positionCorrectionIdentityRef.current = undefined;
@@ -1043,6 +1105,7 @@ export const useConversationScroll = ({
     historyLoading,
     initialLocationIdentity,
     positionedScrollIdentity,
+    scheduleExactBottomCorrection,
     scrollToLatestPosition,
     virtualItemCount,
   ]);
@@ -1105,6 +1168,19 @@ export const useConversationScroll = ({
     };
   }, [currentScrollKey, initialLocationIdentity, messageListElement]);
 
+  useEffect(() => {
+    if (!currentScrollKey || positionedScrollIdentity === initialLocationIdentity) return;
+    let watchdogFrame: number;
+    const ensureVerificationScheduled = () => {
+      if (initialPositionFrameRef.current === undefined) {
+        initialPositionVerifierRef.current();
+      }
+      watchdogFrame = requestAnimationFrame(ensureVerificationScheduled);
+    };
+    watchdogFrame = requestAnimationFrame(ensureVerificationScheduled);
+    return () => cancelAnimationFrame(watchdogFrame);
+  }, [currentScrollKey, initialLocationIdentity, positionedScrollIdentity]);
+
   const onInitialAtBottomStateChange = useCallback((atBottom: boolean) => {
     if (currentScrollKey) updateLatestPosition(currentScrollKey, atBottom);
     if (atBottom) scheduleInitialPositionVerification();
@@ -1117,7 +1193,7 @@ export const useConversationScroll = ({
       latestRequest.requestId <= handledLatestRequestRef.current
     ) return;
     handledLatestRequestRef.current = latestRequest.requestId;
-    jumpToLatest();
+    jumpToLatest("smooth");
   }, [chatId, jumpToLatest, latestRequest]);
 
   useLayoutEffect(() => {
@@ -1307,6 +1383,10 @@ export const useConversationScroll = ({
       globalThis.clearTimeout(smoothScrollTimerRef.current);
       smoothScrollTimerRef.current = undefined;
     }
+    if (historyLoadFrameRef.current !== undefined) {
+      cancelAnimationFrame(historyLoadFrameRef.current);
+      historyLoadFrameRef.current = undefined;
+    }
     cancelHistoryRestore();
   }, [cancelHistoryRestore]);
 
@@ -1389,6 +1469,25 @@ export const useConversationScroll = ({
   };
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
+    const userInitiated = scrollPointerActiveRef.current ||
+      performance.now() <= userScrollIntentUntilRef.current;
+    const appendedFloor = appendedFollowFloorRef.current;
+    if (
+      !userInitiated &&
+      currentScrollKey &&
+      appendedFloor?.key === currentScrollKey &&
+      performance.now() <= appendedFloor.until
+    ) {
+      const maximumScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+      if (
+        element.scrollTop + 0.5 < appendedFloor.scrollTop &&
+        maximumScrollTop >= appendedFloor.scrollTop
+      ) {
+        element.scrollTop = appendedFloor.scrollTop;
+        return;
+      }
+      appendedFloor.scrollTop = Math.max(appendedFloor.scrollTop, element.scrollTop);
+    }
     if (
       !search &&
       currentScrollKey &&
@@ -1396,8 +1495,6 @@ export const useConversationScroll = ({
       positionCorrectionIdentityRef.current !== initialLocationIdentity
     ) {
       const stored = conversationScrollMemory.get(currentScrollKey);
-      const userInitiated = scrollPointerActiveRef.current ||
-        performance.now() <= userScrollIntentUntilRef.current;
       const bottomDistance = distanceFromBottom(element);
       const downwardBottomIntent = userInitiated && lastWheelDeltaRef.current > 0 &&
         stored?.followLatest === true && bottomDistance <= BOTTOM_PROXIMITY_PX + 8;
@@ -1424,7 +1521,7 @@ export const useConversationScroll = ({
       hasOlderMessages &&
       !historyLoading
     ) {
-      loadOlder();
+      scheduleOlderLoad();
     }
   };
 

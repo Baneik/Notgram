@@ -54,6 +54,7 @@ import type { CallbackQueryAnswer } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
+const INLINE_META_LOWERING_PX = 2.5;
 
 export interface ReplyPreview {
   author: string;
@@ -295,7 +296,7 @@ function MessageBubbleComponent({
       setMetaWrapped((current) => current === wrapped ? current : wrapped);
       const inlineOffset = wrapped
         ? 0
-        : lastLine.bottom - (metaBounds.bottom - translatedY);
+        : lastLine.bottom - (metaBounds.bottom - translatedY) + INLINE_META_LOWERING_PX;
       setMetaInlineOffset((current) => Math.abs(current - inlineOffset) < 0.25
         ? current
         : inlineOffset);
@@ -511,7 +512,7 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget);
         }}
       >
-        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""}`}>
+        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             <span className="message-forward-label">
               <Forward size={12} strokeWidth={2} />
@@ -519,15 +520,18 @@ function MessageBubbleComponent({
             </span>
           )}
           {!isService && showSender && (
-            senderProfileAvailable ? (
-              <button
-                className="message-sender"
-                type="button"
-                onClick={() => onOpenSenderProfile(message.senderId)}
-              >
-                <span>{senderName}</span>{senderLabel && <small>{senderLabel}</small>}
-              </button>
-            ) : <span className="message-sender"><span>{senderName}</span>{senderLabel && <small>{senderLabel}</small>}</span>
+            <div className="message-sender-row">
+              {senderProfileAvailable ? (
+                <button
+                  className="message-sender"
+                  type="button"
+                  onClick={() => onOpenSenderProfile(message.senderId)}
+                >
+                  <span>{senderName}</span>
+                </button>
+              ) : <span className="message-sender"><span>{senderName}</span></span>}
+              {senderLabel && <small className="message-sender-label">{senderLabel}</small>}
+            </div>
           )}
           {!albumItem && !isService && replyPreview && (
             <button

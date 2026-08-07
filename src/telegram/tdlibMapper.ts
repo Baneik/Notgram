@@ -1516,6 +1516,9 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     chatId,
     mediaAlbumId: mediaAlbumId && mediaAlbumId !== "0" ? mediaAlbumId : undefined,
     senderId,
+    senderTag: typeof raw.sender_tag === "string" && raw.sender_tag.trim()
+      ? raw.sender_tag.trim()
+      : undefined,
     outgoing: raw.is_outgoing === true,
     sentAt: unixDate(raw.date),
     delivery: failed ? "failed" : sendingState ? "sending" : "sent",
@@ -1684,6 +1687,7 @@ export const mapTdUser = (raw: TdObject): User | undefined => {
   const activeUsername = Array.isArray(usernames?.active_usernames)
     ? usernames.active_usernames.find((value): value is string => typeof value === "string")
     : undefined;
+  const type = asTdObject(raw.type);
 
   return {
     id,
@@ -1694,6 +1698,7 @@ export const mapTdUser = (raw: TdObject): User | undefined => {
     phoneNumber: typeof raw.phone_number === "string" && raw.phone_number
       ? raw.phone_number
       : undefined,
+    ...(type?.["@type"] === "userTypeBot" ? { isBot: true } : {}),
     avatar: {
       label: initials(displayName),
       color: colorFor(id),

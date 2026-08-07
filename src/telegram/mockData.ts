@@ -24,6 +24,12 @@ const wideMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURICompone
   </svg>
 `)}`;
 
+const botQuoteHeader = "📢Itsu Ovelu | イツ オベル 82";
+const botQuoteTopics = ["热搜：", "贺子涵", "秦嘉倪", "高三爱情故事", "九门", "24分钟", "蜘蛛侠", "萌小栖", "积石山", "mina"];
+const botQuoteBody = botQuoteTopics.join(" ");
+const botQuoteText = `${botQuoteHeader}\n${botQuoteBody}`;
+const botQuoteOffset = botQuoteHeader.length + 1;
+
 const users: User[] = [
   {
     id: "self",
@@ -701,8 +707,8 @@ const messages: Message[] = [
   {
     id: "p-long-text",
     chatId: "chat-saved",
-    senderId: "u-jules",
-    outgoing: false,
+    senderId: "self",
+    outgoing: true,
     sentAt: "2026-08-01T08:14:00+08:00",
     delivery: "read",
     content: {
@@ -730,6 +736,28 @@ const messages: Message[] = [
       kind: "file",
       fileName: "TDLib integration notes.md",
       sizeLabel: "18 KB",
+    },
+  },
+  {
+    id: "archive-bot-quote",
+    chatId: "chat-archive",
+    senderId: "u-mia",
+    senderTag: "热点机器人",
+    outgoing: false,
+    sentAt: "2026-07-23T14:20:00+08:00",
+    delivery: "read",
+    content: {
+      kind: "text",
+      text: botQuoteText,
+      entities: [
+        { offset: botQuoteOffset, length: botQuoteBody.length, kind: "blockquote" },
+        ...botQuoteTopics.map((topic, index) => ({
+          offset: botQuoteText.indexOf(topic, botQuoteOffset),
+          length: topic.length,
+          kind: "textUrl" as const,
+          href: `https://t.me/jisou1Bot?start=topic_${index}`,
+        })),
+      ],
     },
   },
   ...olderChenMessages,

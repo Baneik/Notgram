@@ -44,6 +44,7 @@ export interface User {
   lastName?: string;
   username?: string;
   phoneNumber?: string;
+  isBot?: boolean;
   avatar: Avatar;
   presence: "online" | "offline" | "typing";
   lastSeenLabel?: string;
@@ -104,6 +105,7 @@ export interface ManagedChatMember extends ProfileMember {
 export interface ChatManagement {
   chatId: string;
   members: ManagedChatMember[];
+  administratorLabels?: Record<string, string>;
   permissions: ChatPermissions;
   slowModeDelay: number;
   canManageMembers: boolean;
@@ -734,6 +736,7 @@ export interface Message {
   chatId: string;
   mediaAlbumId?: string;
   senderId: string;
+  senderTag?: string;
   outgoing: boolean;
   sentAt: string;
   delivery: DeliveryState;

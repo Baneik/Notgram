@@ -838,6 +838,11 @@ export class MockTelegramTransport implements TelegramTransport {
     const limit = 50;
     return clone({
       ...value,
+      administratorLabels: Object.fromEntries(value.members.flatMap((member) => {
+        const label = member.customTitle ||
+          (member.status === "owner" ? "群主" : member.status === "administrator" ? "管理员" : "");
+        return label ? [[member.user.id, label]] : [];
+      })),
       members: value.members.slice(offset, offset + limit),
       memberOffset: offset,
       memberHasMore: offset + limit < value.members.length,
@@ -1094,10 +1099,16 @@ export class MockTelegramTransport implements TelegramTransport {
   async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportOptions> {
     void chatId; void messageIds;
     return { title: "选择举报原因", options: [
-      { id: "spam", title: "垃圾信息" },
-      { id: "violence", title: "暴力或危险内容" },
-      { id: "pornography", title: "色情内容" },
-      { id: "other", title: "其他", requiresText: true },
+      { id: "spam", title: "Spam and Scams" },
+      { id: "violence", title: "Violence" },
+      { id: "pornography", title: "Pornography" },
+      { id: "child_abuse", title: "Child Abuse" },
+      { id: "copyright", title: "Copyright" },
+      { id: "unrelated_location", title: "Unrelated Location" },
+      { id: "fake", title: "Fake Account" },
+      { id: "illegal_drugs", title: "Illegal Drugs" },
+      { id: "personal_details", title: "Personal Details" },
+      { id: "other", title: "Other", requiresText: true },
     ] };
   }
 
