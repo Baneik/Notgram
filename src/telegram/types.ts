@@ -693,6 +693,7 @@ export type MessageReplyTarget =
       kind: "message";
       chatId?: string;
       messageId?: string;
+      senderId?: string;
       quote?: string;
       origin?: MessageOrigin;
       sentAt?: string;

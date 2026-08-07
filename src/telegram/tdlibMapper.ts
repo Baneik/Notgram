@@ -1358,6 +1358,7 @@ const mapTdReplyTarget = (value: unknown): MessageReplyTarget | undefined => {
     kind: "message",
     chatId: chatId && chatId !== "0" ? chatId : undefined,
     messageId: messageId && messageId !== "0" ? messageId : undefined,
+    senderId: messageSenderId(reply.sender_id) || undefined,
     quote: quote || undefined,
     origin: mapTdMessageOrigin(reply.origin),
     sentAt: optionalUnixDate(reply.origin_send_date),

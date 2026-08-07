@@ -1016,6 +1016,7 @@ describe("TDLib mapper", () => {
         "@type": "messageReplyToMessage",
         chat_id: 88,
         message_id: 900,
+        sender_id: { "@type": "messageSenderUser", user_id: 42 },
         quote: {
           text: { "@type": "formattedText", text: "quoted text", entities: [] },
         },
@@ -1082,6 +1083,7 @@ describe("TDLib mapper", () => {
         kind: "message",
         chatId: "88",
         messageId: "900",
+        senderId: "42",
         quote: "quoted text",
         origin: { kind: "hiddenUser", senderName: "Hidden Sender" },
         content: { kind: "text", text: "source preview" },

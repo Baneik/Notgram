@@ -49,6 +49,43 @@ describe("channel post targets", () => {
 });
 
 describe("reply preview authors", () => {
+  it("uses the hydrated sender identity when the replied message is outside the local cache", () => {
+    const remoteAuthor: User = {
+      id: "u-remote",
+      displayName: "Remote Author",
+      avatar: { label: "RA", color: "#667788" },
+      presence: "offline",
+    };
+    const chat = {
+      id: "chat-product",
+      kind: "group",
+      title: "Product",
+    } as Chat;
+    const reply = linkedChannelPost({
+      id: "reply",
+      chatId: chat.id,
+      senderId: "u-jules",
+      replyTo: {
+        kind: "message",
+        messageId: "outside-cache",
+        senderId: remoteAuthor.id,
+        content: { kind: "text", text: "Hydrated preview" },
+      },
+      forwardInfo: undefined,
+    });
+
+    expect(replyPreviewFor(
+      reply,
+      new Map(),
+      new Map([[remoteAuthor.id, remoteAuthor]]),
+      chat,
+    )).toMatchObject({
+      author: "Remote Author",
+      text: "Hydrated preview",
+      messageId: "outside-cache",
+    });
+  });
+
   it("uses the current user's real name when another person quotes their message", () => {
     const currentUser: User = {
       id: "self",

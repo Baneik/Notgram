@@ -470,6 +470,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private richMessageHydrationTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
   private richMessageHydrationFailures = new Map<string, number>();
   private pendingSenderChatLoads = new Set<string>();
+  private pendingSenderUserLoads = new Set<string>();
   private pendingBotDrafts = new Map<string, string>();
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
@@ -3142,6 +3143,18 @@ export class TauriTelegramTransport implements TelegramTransport {
       .finally(() => this.pendingSenderChatLoads.delete(chatId));
   }
 
+  private ensureMessageSenderUser(raw: TdObject) {
+    const sender = asTdObject(raw.sender_id);
+    if (sender?.["@type"] !== "messageSenderUser") return;
+    const userId = tdId(sender.user_id);
+    if (!userId || this.rawUsers.has(userId) || this.pendingSenderUserLoads.has(userId)) return;
+    this.pendingSenderUserLoads.add(userId);
+    void this.request({ "@type": "getUser", user_id: numericId(userId) })
+      .then((user) => this.upsertUser(user))
+      .catch(() => undefined)
+      .finally(() => this.pendingSenderUserLoads.delete(userId));
+  }
+
   private ensureFullRichMessage(raw: TdObject) {
     const content = asTdObject(raw.content);
     const richMessage = asTdObject(content?.message);
@@ -3279,6 +3292,8 @@ export class TauriTelegramTransport implements TelegramTransport {
           this.unavailableReplyHydrations.add(key);
           return;
         }
+        this.ensureMessageSenderChat(replied);
+        this.ensureMessageSenderUser(replied);
 
         const latest = this.rawMessages.get(chatId)?.get(messageId);
         const latestReply = asTdObject(latest?.reply_to);
@@ -3296,6 +3311,7 @@ export class TauriTelegramTransport implements TelegramTransport {
             ...latestReply,
             chat_id: replied.chat_id,
             message_id: replied.id,
+            sender_id: replied.sender_id,
             origin_send_date: replied.date,
             content: replied.content,
             is_outgoing: replied.is_outgoing === true,
@@ -3468,6 +3484,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.richMessageHydrationTimers.clear();
     this.richMessageHydrationFailures.clear();
     this.pendingSenderChatLoads.clear();
+    this.pendingSenderUserLoads.clear();
     this.chatListLoads.clear();
     this.chatListCounts.clear();
     this.chatListIds.clear();

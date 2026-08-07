@@ -1365,7 +1365,16 @@ describe("TauriTelegramTransport message operations", () => {
     internal.listener = (event) => events.push(event);
     internal.request = async (request) => {
       requests.push(request);
-      return rawMessage(11);
+      if (request["@type"] === "getRepliedMessage") return rawMessage(11);
+      if (request["@type"] === "getUser") {
+        return {
+          "@type": "user",
+          id: 11,
+          first_name: "Remote",
+          last_name: "Author",
+        };
+      }
+      throw new Error(`Unexpected request: ${String(request["@type"])}`);
     };
 
     internal.emitMessage(reply);
@@ -1373,23 +1382,35 @@ describe("TauriTelegramTransport message operations", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
+    await Promise.resolve();
 
-    expect(requests).toEqual([{
-      "@type": "getRepliedMessage",
-      chat_id: 7,
-      message_id: 12,
-    }]);
-    expect(events.at(-1)).toMatchObject({
+    expect(requests).toEqual([
+      {
+        "@type": "getRepliedMessage",
+        chat_id: 7,
+        message_id: 12,
+      },
+      {
+        "@type": "getUser",
+        user_id: 11,
+      },
+    ]);
+    expect(events.filter((event) => event.type === "message.upsert").at(-1)).toMatchObject({
       type: "message.upsert",
       message: {
         id: "12",
         replyTo: {
           kind: "message",
           messageId: "11",
+          senderId: "11",
           content: { kind: "text", text: "message 11" },
         },
       },
     });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "user.upsert",
+      user: expect.objectContaining({ id: "11", displayName: "Remote Author" }),
+    }));
   });
 
   it("hydrates partial rich messages without duplicating requests", async () => {

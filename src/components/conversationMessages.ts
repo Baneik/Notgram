@@ -83,7 +83,14 @@ export const replyPreviewFor = (
     };
   }
   const origin = message.replyTo.origin;
-  const author = origin?.kind === "user"
+  const repliedSenderChatId = message.replyTo.senderId
+    ? senderChatId(message.replyTo.senderId)
+    : undefined;
+  const hydratedAuthor = message.replyTo.senderId
+    ? users.get(message.replyTo.senderId)?.displayName ??
+      (repliedSenderChatId ? chats?.get(repliedSenderChatId)?.title : undefined)
+    : undefined;
+  const originAuthor = origin?.kind === "user"
     ? users.get(origin.userId)?.displayName
     : origin?.kind === "hiddenUser"
       ? origin.senderName
@@ -91,12 +98,14 @@ export const replyPreviewFor = (
         ? chats?.get(origin.chatId)?.title ?? origin.authorSignature
         : undefined;
   return {
-    author: author || "回复消息",
+    author: hydratedAuthor || originAuthor || (message.replyTo.outgoing ? "你" : "回复消息"),
     text: message.replyTo.quote ||
       (message.replyTo.content ? messageSummary(message.replyTo.content) : "原消息不可用"),
     chatId: message.replyTo.chatId ?? message.chatId,
     messageId: message.replyTo.messageId,
-    isCurrentUser: origin?.kind === "user" && origin.userId === currentUserId,
+    isCurrentUser: message.replyTo.senderId === currentUserId ||
+      (origin?.kind === "user" && origin.userId === currentUserId) ||
+      message.replyTo.outgoing === true,
   };
 };
 
