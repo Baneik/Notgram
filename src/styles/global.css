@@ -399,6 +399,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .message-search-count { min-width: 48px; color: var(--muted); text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
+.message-list-shell[data-conversation-rows="empty"]::after {
+  content: ""; position: absolute; inset: 0; z-index: 29;
+  background: var(--chat-canvas); pointer-events: none;
+}
 .message-positioning-placeholder {
   position: absolute; inset: 0; z-index: 30; display: grid; place-content: center;
   justify-items: center; gap: 8px; color: var(--muted); background: var(--chat-canvas);
@@ -409,7 +413,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   --message-scrollbar-thumb: #869892;
   --message-list-inline-padding: 10px;
   height: 100%; min-height: 0; padding: 20px var(--message-list-inline-padding) 0;
-  overflow-x: hidden; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: contain;
+  overflow-x: hidden; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: none;
   scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: transparent transparent;
 }
 .message-list::-webkit-scrollbar { width: 8px; height: 0; }
@@ -454,10 +458,9 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-group-avatar .message-sender-avatar { position: sticky; bottom: 4px; align-self: flex-end; }
 .message-group-avatar .avatar { position: relative; }
 .message-row { width: 100%; display: flex; align-items: flex-end; justify-content: flex-start; margin: var(--message-row-spacing) 0; user-select: none; -webkit-user-select: none; }
-.message-row.is-awaiting-entrance { visibility: hidden; }
 .message-row.is-entering-incoming { animation: message-enter-incoming 220ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
 .message-row.is-entering-outgoing { animation: message-enter-outgoing 200ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
-.message-row.is-removing { animation: message-delete-out 360ms ease both; pointer-events: none; }
+.message-row.is-removing { animation: message-delete-out 180ms ease both; pointer-events: none; }
 @keyframes message-enter-incoming {
   from { opacity: 0.18; transform: translate3d(-10px, 6px, 0) scale(0.985); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
@@ -468,7 +471,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 @keyframes message-delete-out {
   from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-  to { opacity: 0; transform: translate3d(0, 4px, 0) scale(.96); max-height: 0; margin-block: 0; }
+  to { opacity: 0; transform: translate3d(0, 3px, 0) scale(.98); }
 }
 .reduce-motion .message-row.is-entering-incoming,
 .reduce-motion .message-row.is-entering-outgoing,

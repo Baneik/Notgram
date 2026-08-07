@@ -29,6 +29,7 @@ import {
 import {
   messageMapFrom,
   pendingCachedIdsAfterConfirmation,
+  replaceMessage,
   upsertMessage,
   upsertMessages,
   withEmojiReaction,
@@ -44,7 +45,7 @@ import {
   getActiveConversationTraceId,
   logPerformance,
 } from "../utils/performanceMonitor";
-import { markMessageEntrance } from "../utils/messageEntrance";
+import { markMessageEntrance, transferMessageEntrance } from "../utils/messageEntrance";
 import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
 import { emptyProfileState } from "./profileState";
@@ -130,7 +131,7 @@ export const createTelegramStore = (
         sharedMediaIndex.remove(chatId, [messageId]);
         set({ removingMessages: nextRemoving });
         scheduleCacheWrite();
-      }, 360));
+      }, 180));
     };
 
     const setTypingUser = (chatId: string, senderId: string, typing: boolean) => {
@@ -714,6 +715,30 @@ export const createTelegramStore = (
         return;
       }
 
+      if (event.type === "message.replace") {
+        const chatId = event.message.chatId;
+        transferMessageEntrance(chatId, event.oldMessageId, event.message);
+        const oldKey = `${chatId}:${event.oldMessageId}`;
+        const removalTimer = removalTimers.get(oldKey);
+        if (removalTimer) globalThis.clearTimeout(removalTimer);
+        removalTimers.delete(oldKey);
+
+        const messages = new Map(get().messages);
+        messages.set(
+          chatId,
+          replaceMessage(messages.get(chatId) ?? [], event.oldMessageId, event.message),
+        );
+        const removingMessages = new Map(get().removingMessages);
+        const ghosts = (removingMessages.get(chatId) ?? []).filter(
+          (message) => message.id !== event.oldMessageId && message.id !== event.message.id,
+        );
+        if (ghosts.length > 0) removingMessages.set(chatId, ghosts);
+        else removingMessages.delete(chatId);
+        set({ messages, removingMessages });
+        scheduleCacheWrite();
+        return;
+      }
+
       if (event.type === "messages.upserted") {
         if (event.messages.length === 0) return;
         const mergeStartedAt = performance.now();
@@ -788,6 +813,16 @@ export const createTelegramStore = (
       }
       scheduleCacheWrite();
     };
+
+    if (import.meta.env.VITE_WEBVIEW_STRESS === "1") {
+      (
+        globalThis as typeof globalThis & {
+          __notgramWebviewStressDispatch?: (event: TelegramEvent) => void;
+        }
+      ).__notgramWebviewStressDispatch = (event) => {
+        globalThis.queueMicrotask(() => applyEvent(event));
+      };
+    }
 
     const selectAccountAndReload = async (accountId: string) => {
       const current = get();

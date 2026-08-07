@@ -730,6 +730,56 @@ describe("telegram store", () => {
     expect(state.chats.get("chat-product")?.preview).toBe("一条新的测试消息");
   });
 
+  it("keeps one visible outgoing message while TDLib confirms its permanent id", async () => {
+    class SendingConfirmationTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      confirm() {
+        const temporary: Message = {
+          id: "-700",
+          chatId: "chat-product",
+          senderId: "self",
+          outgoing: true,
+          sentAt: "2026-08-07T08:40:00+08:00",
+          delivery: "sending",
+          content: { kind: "text", text: "atomic confirmation" },
+        };
+        this.eventListener?.({
+          type: "message.upsert",
+          message: temporary,
+          animateEntrance: true,
+        });
+        this.eventListener?.({
+          type: "message.replace",
+          oldMessageId: temporary.id,
+          message: { ...temporary, id: "700", delivery: "sent" },
+        });
+      }
+    }
+
+    const transport = new SendingConfirmationTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    transport.confirm();
+
+    const matching = store.getState().messages.get("chat-product")?.filter(
+      (message) => message.content.kind === "text" &&
+        message.content.text === "atomic confirmation",
+    );
+    expect(matching).toHaveLength(1);
+    expect(matching?.[0]).toMatchObject({
+      id: "700",
+      renderKey: "-700",
+      delivery: "sent",
+    });
+    expect(store.getState().removingMessages.get("chat-product") ?? []).toEqual([]);
+  });
+
   it("completes reply, edit, and delete operations through transport events", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();

@@ -340,17 +340,16 @@ test("live messages animate without replaying history rows", async ({ page }) =>
 
   const entranceReport = page.evaluate(() => new Promise<{
     className: string;
-    hiddenBeforeEntrance: boolean;
+    awaitingEntranceObserved: boolean;
     rowBottom: number;
     listBottom: number;
     composerTop: number;
   }>((resolve) => {
-    let hiddenBeforeEntrance = false;
+    let awaitingEntranceObserved = false;
     const observer = new MutationObserver(() => {
-      const pending = document.querySelector<HTMLElement>(
-        ".message-row.is-awaiting-entrance",
-      );
-      if (pending) hiddenBeforeEntrance = getComputedStyle(pending).visibility === "hidden";
+      if (document.querySelector(".message-row.is-awaiting-entrance")) {
+        awaitingEntranceObserved = true;
+      }
       const entering = document.querySelector<HTMLElement>(".message-row.is-entering-outgoing");
       if (!entering) return;
       const list = entering.closest<HTMLElement>(".message-list");
@@ -358,7 +357,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
       observer.disconnect();
       resolve({
         className: entering.className,
-        hiddenBeforeEntrance,
+        awaitingEntranceObserved,
         rowBottom: entering.getBoundingClientRect().bottom,
         listBottom: list?.getBoundingClientRect().bottom ?? Number.NEGATIVE_INFINITY,
         composerTop: composer?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
@@ -369,7 +368,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
       observer.disconnect();
       resolve({
         className: "",
-        hiddenBeforeEntrance,
+        awaitingEntranceObserved,
         rowBottom: Number.POSITIVE_INFINITY,
         listBottom: Number.NEGATIVE_INFINITY,
         composerTop: Number.NEGATIVE_INFINITY,
@@ -381,7 +380,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
 
   const report = await entranceReport;
   expect(report.className).toContain("is-entering-outgoing");
-  expect(report.hiddenBeforeEntrance).toBe(true);
+  expect(report.awaitingEntranceObserved).toBe(false);
   expect(report.rowBottom).toBeLessThanOrEqual(report.listBottom + 1);
   expect(report.listBottom).toBeLessThanOrEqual(report.composerTop + 1);
   await expect(page.getByText("动画消息测试", { exact: true })).toBeVisible();

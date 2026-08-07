@@ -289,7 +289,6 @@ export function Conversation({
   ), [chat?.id, groupManagement]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const selectionMessageRef = useRef<HTMLElement | null>(null);
-  const positionedNotificationFrameRef = useRef<number | undefined>(undefined);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
@@ -544,6 +543,8 @@ export function Conversation({
     : undefined;
   const preservePositioningFrame = Boolean(
     visibleMessages.length > 0 &&
+    messageListRef.current?.dataset.conversationVirtuosoKey === virtuosoKey &&
+    Boolean(messageListRef.current?.querySelector("[data-message-id]")) &&
     (
       entryScrollRequest?.chatId === chat?.id ||
       latestScrollRequest?.chatId === chat?.id ||
@@ -654,63 +655,13 @@ export function Conversation({
 
   useLayoutEffect(() => {
     if (!chat || positioning || (historyLoading && visibleMessages.length === 0)) return;
-    const snapshot = document.querySelector("[data-conversation-switch-snapshot]");
-    const latestMessageId = visibleMessages.at(-1)?.id;
-    const list = messageListRef.current;
-    const latest = latestMessageId
-      ? list?.querySelector<HTMLElement>(
-        `[data-message-id="${CSS.escape(latestMessageId)}"]`,
-      )
-      : undefined;
-    const hasDynamicMedia = Boolean(
-      latest?.querySelector("img, video, canvas, .photo-preview, .video-player, .tgs-sticker"),
-    );
-    if (!snapshot || !initialAlignToBottom || !latestMessageId || !hasDynamicMedia) {
-      onPositioned?.(chat.id);
-      return;
-    }
-
-    let stableFrames = 0;
-    let remainingFrames = 60;
-    const notifyWhenLatestIsVisuallyStable = () => {
-      positionedNotificationFrameRef.current = undefined;
-      const currentList = messageListRef.current;
-      const currentLatest = currentList?.querySelector<HTMLElement>(
-        `[data-message-id="${CSS.escape(latestMessageId)}"]`,
-      );
-      if (currentList && currentLatest) {
-        const gap = currentList.getBoundingClientRect().bottom -
-          currentLatest.getBoundingClientRect().bottom;
-        stableFrames = gap >= -1 && gap <= 3 ? stableFrames + 1 : 0;
-      } else {
-        stableFrames = 0;
-      }
-      remainingFrames -= 1;
-      if (stableFrames >= 2 || remainingFrames <= 0) {
-        onPositioned?.(chat.id);
-        return;
-      }
-      positionedNotificationFrameRef.current = requestAnimationFrame(
-        notifyWhenLatestIsVisuallyStable,
-      );
-    };
-    positionedNotificationFrameRef.current = requestAnimationFrame(
-      notifyWhenLatestIsVisuallyStable,
-    );
-    return () => {
-      if (positionedNotificationFrameRef.current !== undefined) {
-        cancelAnimationFrame(positionedNotificationFrameRef.current);
-        positionedNotificationFrameRef.current = undefined;
-      }
-    };
+    onPositioned?.(chat.id);
   }, [
     chat?.id,
     historyLoading,
-    initialAlignToBottom,
-    messageListRef,
     onPositioned,
     positioning,
-    visibleMessages,
+    visibleMessages.length,
   ]);
 
   const closeActionMenu = useCallback((restoreFocus = true) => {
@@ -1137,11 +1088,10 @@ export function Conversation({
           defaultItemHeight={52}
           followOutput={followOutput}
           rangeChanged={onInitialRangeChanged}
-          atBottomThreshold={13}
+          atBottomThreshold={0}
           atBottomStateChange={onInitialAtBottomStateChange}
           initialTopMostItemIndex={restoreStateFrom ? undefined : initialTopMostItemIndex}
           restoreStateFrom={restoreStateFrom}
-          skipAnimationFrameInResizeObserver
           totalListHeightChanged={onTotalListHeightChanged}
           increaseViewportBy={{ top: 900, bottom: 280 }}
           minOverscanItemCount={{ top: 2, bottom: 2 }}
@@ -1196,7 +1146,7 @@ export function Conversation({
                   ).map((segment) => {
                     const renderBubble = (message: Message, albumItem = false) => (
                       <RichMessageBubble
-                        key={message.id}
+                        key={message.renderKey ?? message.id}
                         message={message}
                         entrance={messageEntranceFor(message)}
                         senderName={senderName}
@@ -1250,7 +1200,7 @@ export function Conversation({
                       <div
                         className={`media-album ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
                         data-media-album-id={segment.albumId}
-                        key={`album:${segment.albumId}:${segment.messages[0]?.id}`}
+                        key={`album:${segment.albumId}:${segment.messages[0]?.renderKey ?? segment.messages[0]?.id}`}
                         role="group"
                         aria-label={`${segment.messages.length} 项媒体相册`}
                       >

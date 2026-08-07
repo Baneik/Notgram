@@ -733,6 +733,7 @@ export interface MessagePermissions {
 
 export interface Message {
   id: string;
+  renderKey?: string;
   chatId: string;
   mediaAlbumId?: string;
   senderId: string;
@@ -813,6 +814,7 @@ export type TelegramEvent =
   | { type: "connection.changed"; status: ConnectionStatus }
   | { type: "currentUser.changed"; userId: string }
   | { type: "message.upsert"; message: Message; animateEntrance?: boolean }
+  | { type: "message.replace"; oldMessageId: string; message: Message }
   | { type: "messages.upserted"; messages: Message[] }
   | { type: "message.remove"; chatId: string; messageId: string }
   | { type: "folders.replaced"; folders: ChatFolder[] }

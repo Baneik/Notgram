@@ -2875,11 +2875,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private indexMessageFiles(chatId: string, messageId: string, raw: TdObject) {
     const reference = `${chatId}:${messageId}`;
-    for (const fileId of this.rawMessageFileIds.get(reference) ?? []) {
-      const references = this.fileMessageReferences.get(fileId);
-      references?.delete(reference);
-      if (references?.size === 0) this.fileMessageReferences.delete(fileId);
-    }
+    this.unindexMessageFiles(chatId, messageId);
     const fileIds = new Set<number>();
     collectFileIds(raw, fileIds);
     this.rawMessageFileIds.set(reference, fileIds);
@@ -2888,6 +2884,16 @@ export class TauriTelegramTransport implements TelegramTransport {
       references.add(reference);
       this.fileMessageReferences.set(fileId, references);
     }
+  }
+
+  private unindexMessageFiles(chatId: string, messageId: string) {
+    const reference = `${chatId}:${messageId}`;
+    for (const fileId of this.rawMessageFileIds.get(reference) ?? []) {
+      const references = this.fileMessageReferences.get(fileId);
+      references?.delete(reference);
+      if (references?.size === 0) this.fileMessageReferences.delete(fileId);
+    }
+    this.rawMessageFileIds.delete(reference);
   }
 
   private updateFile(file?: TdObject) {
@@ -3181,13 +3187,26 @@ export class TauriTelegramTransport implements TelegramTransport {
   private replaceSentMessage(update: TdObject) {
     const raw = asTdObject(update.message);
     if (!raw) return;
+    const message = this.mapMessage(raw);
+    if (!message) return;
     const chatId = tdId(raw.chat_id);
     const oldId = tdId(update.old_message_id);
     if (chatId && oldId) {
       this.rawMessages.get(chatId)?.delete(oldId);
-      this.listener?.({ type: "message.remove", chatId, messageId: oldId });
+      this.unindexMessageFiles(chatId, oldId);
     }
-    this.emitMessage(raw);
+    const chatMessages = this.rawMessages.get(message.chatId) ?? new Map<string, TdObject>();
+    chatMessages.set(message.id, raw);
+    this.rawMessages.set(message.chatId, chatMessages);
+    this.indexMessageFiles(message.chatId, message.id, raw);
+    if (oldId) {
+      this.listener?.({ type: "message.replace", oldMessageId: oldId, message });
+    } else {
+      this.listener?.({ type: "message.upsert", message });
+    }
+    this.ensureMessageSenderChat(raw);
+    this.ensureReplyContent(raw);
+    this.ensureFullRichMessage(raw);
   }
 
   private updateMessageContent(update: TdObject) {
@@ -3244,6 +3263,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     for (const messageId of ids) {
       this.clearRichMessageHydration(`${chatId}:${messageId}`);
       this.rawMessages.get(chatId)?.delete(messageId);
+      this.unindexMessageFiles(chatId, messageId);
       this.listener?.({ type: "message.remove", chatId, messageId });
     }
   }

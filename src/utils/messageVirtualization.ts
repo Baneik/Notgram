@@ -62,7 +62,7 @@ export const virtualizeMessageGroups = (
       const chunkMessages = segments.flatMap(segmentMessages);
       const firstMessage = chunkMessages[0]!;
       return {
-        id: firstMessage.id,
+        id: firstMessage.renderKey ?? firstMessage.id,
         firstMessage,
         messages: chunkMessages,
         segments,

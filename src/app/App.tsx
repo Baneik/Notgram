@@ -53,7 +53,8 @@ import {
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
-const CONVERSATION_SNAPSHOT_MAX_MS = 240;
+const CONVERSATION_SNAPSHOT_MAX_MS = 600;
+const CONVERSATION_SNAPSHOT_SETTLE_MS = 80;
 
 type PendingConfirmation =
   | { kind: "leaveGroup"; chatId: string; title: string }
@@ -294,7 +295,17 @@ export function App() {
       conversationSnapshotTargetRef.current !== chatId ||
       telegramStore.getState().activeChatId !== chatId
     ) return;
-    discardConversationSnapshot();
+    if (conversationSnapshotTimerRef.current !== undefined) {
+      globalThis.clearTimeout(conversationSnapshotTimerRef.current);
+    }
+    conversationSnapshotTimerRef.current = globalThis.setTimeout(() => {
+      if (
+        conversationSnapshotTargetRef.current === chatId &&
+        telegramStore.getState().activeChatId === chatId
+      ) {
+        discardConversationSnapshot();
+      }
+    }, CONVERSATION_SNAPSHOT_SETTLE_MS);
   }, [discardConversationSnapshot]);
   useEffect(() => {
     globalThis.addEventListener("resize", discardConversationSnapshot, { passive: true });

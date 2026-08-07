@@ -10,6 +10,7 @@ import { cachedSnapshotFrom, migrateCachedSnapshot } from "./telegramStore.cache
 import { DraftSyncController } from "./telegramStore.drafts";
 import {
   pendingCachedIdsAfterConfirmation,
+  replaceMessage,
   upsertMessage,
   upsertMessages,
   withEmojiReaction,
@@ -69,6 +70,29 @@ describe("telegram store message state", () => {
     expect(result.map(({ id }) => id)).toEqual(["10", "11", "12", "13"]);
   });
 
+  it("atomically replaces a temporary outgoing id while preserving its render identity", () => {
+    const temporary = {
+      ...message("-100", "2026-08-02T08:00:00Z"),
+      delivery: "sending" as const,
+    };
+    const confirmed = {
+      ...message("900", "2026-08-02T08:00:00Z"),
+      content: { kind: "text" as const, text: "confirmed" },
+    };
+    const replaced = replaceMessage([
+      message("800", "2026-08-02T07:59:00Z"),
+      temporary,
+    ], temporary.id, confirmed);
+
+    expect(replaced.map(({ id }) => id)).toEqual(["800", "900"]);
+    expect(replaced.filter(({ content }) =>
+      content.kind === "text" && content.text === "confirmed",
+    )).toHaveLength(1);
+    expect(replaced[1]).toMatchObject({ id: "900", renderKey: "-100", delivery: "sent" });
+    expect(upsertMessage(replaced, { ...confirmed, delivery: "read" }))
+      .toContainEqual(expect.objectContaining({ id: "900", renderKey: "-100", delivery: "read" }));
+  });
+
   it("upserts in chronological order and applies reversible emoji reactions", () => {
     const ordered = upsertMessage([message("2")], message("1"));
     expect(ordered.map(({ id }) => id)).toEqual(["1", "2"]);
@@ -114,6 +138,7 @@ describe("telegram store cache and accounts", () => {
   it("strips transient permissions and oversized inline previews from snapshots", () => {
     const media: Message = {
       ...message("20"),
+      renderKey: "temporary-20",
       permissions: {
         canReply: true,
         canEdit: true,
@@ -142,6 +167,7 @@ describe("telegram store cache and accounts", () => {
     } as TelegramState);
 
     expect(snapshot.messages[0]).not.toHaveProperty("permissions");
+    expect(snapshot.messages[0]).not.toHaveProperty("renderKey");
     expect(
       snapshot.messages[0].content.kind === "media"
         ? snapshot.messages[0].content.previewDataUrl

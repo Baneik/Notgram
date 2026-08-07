@@ -103,6 +103,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
 
 const cacheableMessage = (message: Message): Message => {
   const result = { ...message };
+  delete result.renderKey;
   delete result.permissions;
   delete result.isRemoving;
   if (

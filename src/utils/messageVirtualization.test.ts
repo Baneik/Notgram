@@ -72,4 +72,17 @@ describe("message virtualization", () => {
     expect(indexes.get("4")).toBe(1);
     expect(indexes.get("7")).toBe(2);
   });
+
+  it("keeps a virtual block stable when TDLib replaces a temporary message id", () => {
+    const temporary = virtualizeMessageGroups([
+      message("-10", { renderKey: "send-1", outgoing: true }),
+    ]);
+    const confirmed = virtualizeMessageGroups([
+      message("100", { renderKey: "send-1", outgoing: true, delivery: "sent" }),
+    ]);
+
+    expect(temporary[0]?.id).toBe("send-1");
+    expect(confirmed[0]?.id).toBe("send-1");
+    expect(confirmed[0]?.messages[0]?.id).toBe("100");
+  });
 });

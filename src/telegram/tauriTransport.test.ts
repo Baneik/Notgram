@@ -1035,6 +1035,31 @@ describe("TauriTelegramTransport message operations", () => {
     ]);
   });
 
+  it("replaces a temporary outgoing id with one atomic event", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.emitMessage({
+      ...rawMessage(-21),
+      is_outgoing: true,
+      sending_state: { "@type": "messageSendingStatePending" },
+    });
+    events.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updateMessageSendSucceeded",
+      old_message_id: -21,
+      message: { ...rawMessage(210), is_outgoing: true, sending_state: null },
+    });
+
+    expect(events).toEqual([{
+      type: "message.replace",
+      oldMessageId: "-21",
+      message: expect.objectContaining({ id: "210", delivery: "sent", outgoing: true }),
+    }]);
+  });
+
   it("applies late poll updates to every known message with the same poll", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

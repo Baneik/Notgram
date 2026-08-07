@@ -29,12 +29,35 @@ const compareMessages = (left: Message, right: Message) => {
 export const upsertMessages = (messages: Message[], incoming: Message[]) => {
   if (incoming.length === 0) return messages;
   const byId = new Map(messages.map((message) => [message.id, message]));
-  for (const message of incoming) byId.set(message.id, message);
+  for (const message of incoming) {
+    const existing = byId.get(message.id);
+    byId.set(
+      message.id,
+      existing?.renderKey && !message.renderKey
+        ? { ...message, renderKey: existing.renderKey }
+        : message,
+    );
+  }
   return [...byId.values()].sort(compareMessages);
 };
 
 export const upsertMessage = (messages: Message[], next: Message) =>
   upsertMessages(messages, [next]);
+
+export const replaceMessage = (
+  messages: Message[],
+  oldMessageId: string,
+  next: Message,
+) => {
+  const previous = messages.find((message) => message.id === oldMessageId);
+  const replacement = previous
+    ? { ...next, renderKey: previous.renderKey ?? previous.id }
+    : next;
+  return upsertMessage(
+    messages.filter((message) => message.id !== oldMessageId && message.id !== next.id),
+    replacement,
+  );
+};
 
 export const withEmojiReaction = (
   message: Message,
