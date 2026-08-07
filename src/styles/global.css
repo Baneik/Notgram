@@ -460,7 +460,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-group-avatar { width: 36px; display: flex; align-items: flex-end; flex: 0 0 36px; }
 .message-group-avatar .message-sender-avatar { position: sticky; bottom: 4px; align-self: flex-end; }
 .message-group-avatar .avatar { position: relative; }
-.message-row { width: 100%; display: flex; align-items: flex-end; justify-content: flex-start; margin: var(--message-row-spacing) 0; user-select: none; -webkit-user-select: none; }
+.message-row { position: relative; isolation: isolate; width: 100%; display: flex; align-items: flex-end; justify-content: flex-start; margin: var(--message-row-spacing) 0; user-select: none; -webkit-user-select: none; }
 .message-row.is-entering-incoming { animation: message-enter-incoming 220ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
 .message-row.is-entering-outgoing { animation: message-enter-outgoing 200ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
 .message-row.is-removing { animation: message-delete-out 180ms ease both; pointer-events: none; }
@@ -495,8 +495,19 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-selection-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
 .message-selection-toggle:disabled { cursor: default; opacity: 0.5; }
 .message-row.is-selected .message-bubble { outline: 2px solid color-mix(in srgb, var(--color-border-focus) 55%, transparent); outline-offset: 1px; }
-.message-row.is-notification-target { background: color-mix(in srgb, var(--color-status-warning) 16%, transparent); border-radius: 8px; transition: background 180ms ease; }
-.message-row.is-notification-target .message-bubble { outline: 0; box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-status-warning) 48%, transparent); }
+.message-row.is-notification-target::before {
+  content: ""; position: absolute; z-index: -1; inset: -1px 0; pointer-events: none;
+  background: transparent; animation: message-target-flash 800ms ease-in-out 2;
+}
+.message-row.is-incoming.is-notification-target::before { left: -44px; }
+@keyframes message-target-flash {
+  0%, 100% { background: transparent; }
+  25%, 60% { background: color-mix(in srgb, var(--color-status-warning) 18%, transparent); }
+}
+.reduce-motion .message-row.is-notification-target::before { animation: none; background: color-mix(in srgb, var(--color-status-warning) 18%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .message-row.is-notification-target::before { animation: none; background: color-mix(in srgb, var(--color-status-warning) 18%, transparent); }
+}
 .message-bubble-shell { position: relative; min-width: 0; max-width: min(74%, 720px); flex: 0 1 auto; }
 .message-bubble-shell.has-inline-keyboard { width: 440px; }
 .message-bubble-shell.is-visual-shell { width: var(--visual-media-width, 390px); }
@@ -605,11 +616,11 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .message-action-menu .message-action-reactions button.is-chosen { background: var(--color-accent-soft); }
 .message-action-status { min-height: 42px; padding: 0 9px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.message-sender-row { min-width: 0; margin-bottom: 3px; display: flex; align-items: flex-start; justify-content: flex-start; gap: 8px; }
+.message-sender-row { width: 100%; min-width: 0; margin-bottom: 3px; display: flex; align-items: flex-start; justify-content: flex-start; gap: 8px; }
 .message-sender { width: fit-content; min-width: 0; max-width: 100%; padding: 0; overflow: hidden; flex: 0 1 auto; color: var(--color-text-link); text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; font-size: 12px; font-weight: 700; }
 button.message-sender { cursor: pointer; }
 button.message-sender, span.message-sender { display: block; }
-.message-sender-label { max-width: min(180px, 42vw); padding: 1px 4px; overflow: hidden; color: var(--color-text-link); text-overflow: ellipsis; white-space: nowrap; background: var(--color-accent-soft); border-radius: 3px; font-size: 9px; font-weight: 650; }
+.message-sender-label { max-width: min(200px, 42vw); margin-inline-start: auto; padding: 2px 6px; overflow: hidden; flex: 0 0 auto; color: var(--color-text-link); text-overflow: ellipsis; white-space: nowrap; background: var(--color-accent-soft); border-radius: 4px; font-size: 11px; line-height: 1.25; font-weight: 650; }
 button.message-sender:hover { text-decoration: none; }
 .message-sender-avatar { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .message-forward-label {

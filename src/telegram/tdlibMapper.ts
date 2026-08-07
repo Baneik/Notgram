@@ -288,6 +288,34 @@ const mediaContent = (
   };
 };
 
+const DISPLAYABLE_IMAGE_DOCUMENT_MIME_TYPES = new Set([
+  "image/avif",
+  "image/bmp",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+const DISPLAYABLE_IMAGE_DOCUMENT_EXTENSIONS = new Set([
+  "avif",
+  "bmp",
+  "gif",
+  "jfif",
+  "jpeg",
+  "jpg",
+  "png",
+  "webp",
+]);
+
+const isDisplayableImageDocument = (fileName: string, mimeType?: string) => {
+  const normalizedMimeType = mimeType?.trim().toLowerCase();
+  const extension = fileName.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  if (normalizedMimeType === "image/svg+xml" || extension === "svg") return false;
+  return (normalizedMimeType ? DISPLAYABLE_IMAGE_DOCUMENT_MIME_TYPES.has(normalizedMimeType) : false) ||
+    (extension ? DISPLAYABLE_IMAGE_DOCUMENT_EXTENSIONS.has(extension) : false);
+};
+
 const minithumbnailDataUrl = (value: unknown) => {
   const minithumbnail = asTdObject(value);
   return typeof minithumbnail?.data === "string" && minithumbnail.data
@@ -894,12 +922,19 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         typeof document?.file_name === "string" && document.file_name
           ? document.file_name
           : caption || "文档";
-      return fileContent(fileName, document?.document, {
+      const mimeType = typeof document?.mime_type === "string" ? document.mime_type : undefined;
+      const options = {
         ...formattedCaption(content.caption),
-        mimeType: typeof document?.mime_type === "string" ? document.mime_type : undefined,
-        thumbnailPath: thumbnailPath(document?.thumbnail),
+        mimeType,
+        ...thumbnailDetails(document?.thumbnail),
         includePendingUpload,
-      });
+      };
+      return isDisplayableImageDocument(fileName, mimeType)
+        ? mediaContent("photo", fileName, document?.document, {
+            ...options,
+            previewDataUrl: minithumbnailDataUrl(document?.minithumbnail),
+          })
+        : fileContent(fileName, document?.document, options);
     }
     case "messagePhoto": {
       const photo = asTdObject(content.photo);

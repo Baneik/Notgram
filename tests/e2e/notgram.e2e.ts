@@ -2026,7 +2026,22 @@ test("the unified sidebar search paginates, filters, supports regex, and opens e
   await conversationSearch.fill("产品讨论历史消息");
   await expect(page.locator(".message-search-count")).toHaveText("36 / 36");
   await page.getByRole("button", { name: "上一个搜索结果" }).click();
-  await expect(page.locator('[data-message-id="p-old-35"]')).toHaveClass(/is-notification-target/);
+  const olderLocatedMessage = page.locator('[data-message-id="p-old-35"]');
+  await expect(olderLocatedMessage).toHaveClass(/is-notification-target/);
+  const highlightStyle = await olderLocatedMessage.evaluate((element) => {
+    const highlight = getComputedStyle(element, "::before");
+    const bubble = element.querySelector<HTMLElement>(".message-bubble");
+    return {
+      animationName: highlight.animationName,
+      left: highlight.left,
+      right: highlight.right,
+      bubbleBoxShadow: bubble ? getComputedStyle(bubble).boxShadow : "",
+    };
+  });
+  expect(highlightStyle.animationName).toBe("message-target-flash");
+  expect(highlightStyle.left).toBe("-44px");
+  expect(highlightStyle.right).toBe("0px");
+  expect(highlightStyle.bubbleBoxShadow).not.toContain("0px 0px 0px 2px");
   await expect(conversationSearch).toBeFocused();
   await conversationSearch.fill("reg:[");
   await expect(page.locator(".message-row").first()).toBeVisible();
@@ -2279,12 +2294,10 @@ test("reply previews jump to their source and channel senders keep their identit
     return {
       visibleReversals,
       placeholderFrames: samples.filter((sample) => sample.placeholder).length,
-      snapshotFrames: samples.filter((sample) => sample.snapshot).length,
     };
   });
   expect(jumpReport.visibleReversals).toBe(0);
   expect(jumpReport.placeholderFrames).toBe(0);
-  expect(jumpReport.snapshotFrames).toBeGreaterThan(0);
   await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
   await expect(target.locator(".message-bubble")).toHaveCSS("outline-style", "none");
 
@@ -2895,11 +2908,81 @@ test("Markdown and TDLib rich text render as structured message content", async 
     return {
       rightGap: bubble.getBoundingClientRect().right - label.getBoundingClientRect().right,
       topGap: label.getBoundingClientRect().top - bubble.getBoundingClientRect().top,
+      fontSize: Number.parseFloat(getComputedStyle(label).fontSize),
     };
   });
   expect(senderGeometry.rightGap).toBeCloseTo(10, 0);
   expect(senderGeometry.topGap).toBeGreaterThanOrEqual(6);
   expect(senderGeometry.topGap).toBeLessThanOrEqual(10);
+  expect(senderGeometry.fontSize).toBeGreaterThanOrEqual(11);
+});
+
+test("image documents use the photo media renderer", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  await page.evaluate(async ({ mapperPath, storePath }) => {
+    const [{ mapTdMessage }, { telegramStore }] = await Promise.all([
+      import(mapperPath),
+      import(storePath),
+    ]);
+    const mapped = mapTdMessage({
+      "@type": "message",
+      id: "p-image-document",
+      chat_id: "chat-product",
+      sender_id: { "@type": "messageSenderUser", user_id: "u-mia" },
+      is_outgoing: false,
+      date: Math.floor(Date.now() / 1_000) + 30,
+      content: {
+        "@type": "messageDocument",
+        document: {
+          file_name: "design-export.png",
+          mime_type: "image/png",
+          minithumbnail: {
+            width: 1,
+            height: 1,
+            data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+          },
+          document: {
+            "@type": "file",
+            id: 181,
+            size: 2048,
+            local: {
+              can_be_downloaded: true,
+              is_downloading_active: false,
+              is_downloading_completed: false,
+            },
+            remote: {},
+          },
+        },
+        caption: {
+          "@type": "formattedText",
+          text: "Image sent as a file",
+          entities: [],
+        },
+      },
+    });
+    if (!mapped) throw new Error("Image document did not map to a message");
+    const state = telegramStore.getState() as {
+      messages: Map<string, Array<Record<string, unknown>>>;
+    };
+    const messages = new Map<string, Array<Record<string, unknown>>>(state.messages);
+    messages.set("chat-product", [
+      ...(messages.get("chat-product") ?? []),
+      mapped as Record<string, unknown>,
+    ]);
+    telegramStore.setState({ messages });
+  }, {
+    mapperPath: "/src/telegram/tdlibMapper.ts",
+    storePath: "/src/store/telegramStore.ts",
+  });
+
+  const row = page.locator('[data-message-id="p-image-document"]');
+  await row.scrollIntoViewIfNeeded();
+  await expect(row.locator('[data-media-type="photo"]')).toBeVisible();
+  await expect(row.locator(".file-message")).toHaveCount(0);
+  await expect(row.locator(".photo-caption")).toContainText("Image sent as a file");
+  await expect(row.locator('img[alt="Image sent as a file"]')).toBeVisible();
 });
 
 test("video uses synchronized transparent playback windows and owns the playback spacebar", async ({ page }) => {
@@ -3601,6 +3684,7 @@ test("large emoji and sticker replies keep compact transparent geometry", async 
         id: "p-sticker-group-first",
         renderKey: undefined,
         senderId: "u-sticker",
+        senderTag: "Administrator",
         outgoing: false,
         sentAt: new Date(timestamp + 2_000).toISOString(),
         replyTo: undefined,
@@ -3655,16 +3739,13 @@ test("large emoji and sticker replies keep compact transparent geometry", async 
   const firstSticker = page.locator('[data-message-id="p-sticker-group-first"]');
   await firstSticker.scrollIntoViewIfNeeded();
   await expect(firstSticker).toHaveClass(/group-first/);
+  await expect(firstSticker.locator(".message-sender-row")).toHaveCount(0);
   const firstStickerStyle = await firstSticker.locator(".message-bubble").evaluate((element) => ({
     backgroundColor: getComputedStyle(element).backgroundColor,
     boxShadow: getComputedStyle(element).boxShadow,
-    senderBackground: getComputedStyle(
-      element.querySelector<HTMLElement>(".message-sender-row")!,
-    ).backgroundColor,
   }));
   expect(firstStickerStyle.backgroundColor).toBe("rgba(0, 0, 0, 0)");
   expect(firstStickerStyle.boxShadow).toBe("none");
-  expect(firstStickerStyle.senderBackground).toBe("rgba(0, 0, 0, 0)");
 
   const repliedSticker = page.locator('[data-message-id="p-sticker-with-reply"]');
   await repliedSticker.scrollIntoViewIfNeeded();

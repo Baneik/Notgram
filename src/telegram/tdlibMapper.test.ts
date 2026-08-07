@@ -142,7 +142,7 @@ describe("TDLib mapper", () => {
     })).toMatchObject({ id: "8", isBot: true });
   });
 
-  it("keeps image documents as downloadable files", () => {
+  it("renders safe image documents as photo media without losing file metadata", () => {
     const message = mapTdMessage({
       id: 1002,
       chat_id: 99,
@@ -154,7 +154,53 @@ describe("TDLib mapper", () => {
         document: {
           file_name: "diagram.png",
           mime_type: "image/png",
-          document: { size: 2048, expected_size: 2048 },
+          minithumbnail: {
+            width: 1,
+            height: 1,
+            data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+          },
+          document: {
+            id: 81,
+            size: 2048,
+            expected_size: 2048,
+            local: {
+              can_be_downloaded: true,
+              is_downloading_active: false,
+              is_downloading_completed: false,
+            },
+          },
+        },
+        caption: { "@type": "formattedText", text: "diagram caption", entities: [] },
+      },
+    });
+
+    expect(message?.content).toMatchObject({
+      kind: "media",
+      mediaType: "photo",
+      fileName: "diagram.png",
+      mimeType: "image/png",
+      sizeLabel: "2 KB",
+      size: 2048,
+      fileId: 81,
+      caption: "diagram caption",
+      canDownload: true,
+      isDownloaded: false,
+      previewDataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
+    });
+  });
+
+  it("keeps vector image documents as files", () => {
+    const message = mapTdMessage({
+      id: 1002,
+      chat_id: 99,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      date: 1_700_000_000,
+      content: {
+        "@type": "messageDocument",
+        document: {
+          file_name: "diagram.svg",
+          mime_type: "image/svg+xml",
+          document: { id: 82, size: 1024 },
         },
         caption: { "@type": "formattedText", text: "", entities: [] },
       },
@@ -162,10 +208,9 @@ describe("TDLib mapper", () => {
 
     expect(message?.content).toMatchObject({
       kind: "file",
-      fileName: "diagram.png",
-      mimeType: "image/png",
-      sizeLabel: "2 KB",
-      size: 2048,
+      fileName: "diagram.svg",
+      mimeType: "image/svg+xml",
+      fileId: 82,
     });
   });
 

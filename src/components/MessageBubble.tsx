@@ -192,7 +192,7 @@ function MessageBubbleComponent({
   const visualSizingText = hasCaption && !message.outgoing && content.kind === "media"
     ? content.caption
     : undefined;
-  const showSender = !albumItem && !message.outgoing && isGroupFirst(groupPosition);
+  const showSender = !albumItem && !message.outgoing && !isSticker && isGroupFirst(groupPosition);
   const channelPostTarget = !albumItem ? channelPostTargetFor(message) : undefined;
   const fullMediaSource = content.kind === "media" ? localSource(content.localPath) : undefined;
   const previewSource = content.kind === "media"

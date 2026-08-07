@@ -182,6 +182,8 @@ export const useConversationScroll = ({
   const handledLatestRequestRef = useRef(0);
   const handledMessageRequestRef = useRef(0);
   const highlightTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const revealTargetTokenRef = useRef<symbol | undefined>(undefined);
+  const navigationRequestIdentityRef = useRef("");
   const initialLocationRef = useRef<InitialLocation | undefined>(undefined);
   const positionedIdentityRef = useRef<string | undefined>(undefined);
 
@@ -206,6 +208,14 @@ export const useConversationScroll = ({
   const matchingEntryRequest = entryRequest?.chatId === chatId ? entryRequest : undefined;
   const matchingLatestRequest = latestRequest?.chatId === chatId ? latestRequest : undefined;
   const matchingMessageRequest = messageRequest?.chatId === chatId ? messageRequest : undefined;
+  const navigationRequestIdentity = [
+    matchingEntryRequest?.requestId ?? 0,
+    matchingLatestRequest?.requestId ?? 0,
+    matchingMessageRequest?.requestId ?? 0,
+  ].join(":");
+  if (matchingEntryRequest || matchingLatestRequest || matchingMessageRequest) {
+    navigationRequestIdentityRef.current = navigationRequestIdentity;
+  }
   const pendingEntryRequest = matchingEntryRequest &&
     matchingEntryRequest.requestId > handledEntryRequestRef.current
     ? matchingEntryRequest
@@ -450,6 +460,7 @@ export const useConversationScroll = ({
       cancelAnimationFrame(positioningAnchorFrameRef.current);
       positioningAnchorFrameRef.current = undefined;
     }
+    revealTargetTokenRef.current = undefined;
     userIntentUntilRef.current = 0;
     pointerActiveRef.current = false;
     writeMemory(currentScrollKey, element, true, 0, false);
@@ -684,26 +695,28 @@ export const useConversationScroll = ({
     const element = messageListRef.current;
     const itemIndex = messageItemIndexesRef.current.get(messageId);
     if (!element || !currentScrollKey || itemIndex === undefined) return false;
+    const expectedNavigationIdentity = navigationRequestIdentityRef.current;
+    const revealToken = Symbol(messageId);
+    revealTargetTokenRef.current = revealToken;
+    userIntentUntilRef.current = 0;
+    pointerActiveRef.current = false;
     stopFollowingLatest();
     const mounted = element.querySelector<HTMLElement>(
       `[data-message-id="${CSS.escape(messageId)}"]`,
     );
-    if (mounted) {
-      mounted.scrollIntoView({ block: "center", behavior });
-    } else {
-      virtuosoRef.current?.scrollToIndex({
-        index: itemIndex,
-        align: "center",
-        behavior: "auto",
-      });
-    }
-    requestAnimationFrame(() => {
-      const target = element.querySelector<HTMLElement>(
-        `[data-message-id="${CSS.escape(messageId)}"]`,
-      );
-      if (target && !mounted && behavior === "smooth") {
-        target.scrollIntoView({ block: "center", behavior: "smooth" });
+    const centerMountedTarget = (target: HTMLElement) => {
+      if (!target.closest(".media-album")) {
+        target.scrollIntoView({ block: "center", behavior });
+        return;
       }
+      const listBounds = element.getBoundingClientRect();
+      const targetBounds = target.getBoundingClientRect();
+      const offset = (targetBounds.top + targetBounds.bottom) / 2 -
+        (listBounds.top + listBounds.bottom) / 2;
+      if (behavior === "smooth") element.scrollBy({ top: offset, behavior });
+      else element.scrollTop += offset;
+    };
+    const persistTargetPosition = () => {
       const current = conversationScrollMemory.get(currentScrollKey);
       writeMemory(
         currentScrollKey,
@@ -712,7 +725,84 @@ export const useConversationScroll = ({
         current?.pendingNewCount ?? 0,
         true,
       );
-      completePositioning();
+    };
+    const settleMountedTarget = () => {
+      let remainingFrames = 18;
+      const finish = () => {
+        const invalid =
+          messageListRef.current !== element ||
+          navigationRequestIdentityRef.current !== expectedNavigationIdentity ||
+          revealTargetTokenRef.current !== revealToken ||
+          pointerActiveRef.current ||
+          performance.now() <= userIntentUntilRef.current;
+        if (invalid) {
+          if (revealTargetTokenRef.current === revealToken) {
+            revealTargetTokenRef.current = undefined;
+          }
+          return;
+        }
+        const target = element.querySelector<HTMLElement>(
+          `[data-message-id="${CSS.escape(messageId)}"]`,
+        );
+        if (target) {
+          const listBounds = element.getBoundingClientRect();
+          const targetBounds = target.getBoundingClientRect();
+          const offset = (targetBounds.top + targetBounds.bottom) / 2 -
+            (listBounds.top + listBounds.bottom) / 2;
+          if (Math.abs(offset) > 0.5) element.scrollTop += offset;
+        }
+        revealTargetTokenRef.current = undefined;
+        persistTargetPosition();
+        completePositioning();
+      };
+      const settle = () => {
+        const invalid =
+          messageListRef.current !== element ||
+          navigationRequestIdentityRef.current !== expectedNavigationIdentity ||
+          revealTargetTokenRef.current !== revealToken ||
+          pointerActiveRef.current ||
+          performance.now() <= userIntentUntilRef.current;
+        if (invalid) {
+          if (revealTargetTokenRef.current === revealToken) {
+            revealTargetTokenRef.current = undefined;
+          }
+          return;
+        }
+        virtuosoRef.current?.scrollToIndex({
+          index: itemIndex,
+          align: "center",
+          behavior: "auto",
+        });
+        remainingFrames -= 1;
+        if (remainingFrames > 0) {
+          requestAnimationFrame(settle);
+        } else requestAnimationFrame(finish);
+      };
+      requestAnimationFrame(settle);
+    };
+    let settleScheduled = false;
+    const scheduleTargetSettlement = () => {
+      if (settleScheduled) return;
+      settleScheduled = true;
+      settleMountedTarget();
+    };
+    if (mounted) {
+      centerMountedTarget(mounted);
+      if (mounted.closest(".media-album")) scheduleTargetSettlement();
+    } else {
+      virtuosoRef.current?.scrollToIndex({
+        index: itemIndex,
+        align: "center",
+        behavior: "auto",
+      });
+      scheduleTargetSettlement();
+    }
+    requestAnimationFrame(() => {
+      if (!settleScheduled && revealTargetTokenRef.current === revealToken) {
+        revealTargetTokenRef.current = undefined;
+        persistTargetPosition();
+        completePositioning();
+      }
     });
     if (highlight) {
       setHighlightedMessage({ key: currentScrollKey, messageId });
@@ -726,7 +816,13 @@ export const useConversationScroll = ({
       }, 1_600);
     }
     return true;
-  }, [completePositioning, currentScrollKey, stopFollowingLatest, writeMemory]);
+  }, [
+    completePositioning,
+    currentScrollKey,
+    navigationRequestIdentity,
+    stopFollowingLatest,
+    writeMemory,
+  ]);
 
   const revealMessageStart = useCallback((messageId: string) => {
     const element = messageListRef.current;
@@ -1011,6 +1107,7 @@ export const useConversationScroll = ({
     if (
       !memory.anchorMessageId ||
       memory.anchorOffset === undefined ||
+      revealTargetTokenRef.current !== undefined ||
       pointerActiveRef.current ||
       performance.now() <= userIntentUntilRef.current ||
       anchorFrameRef.current !== undefined
@@ -1081,12 +1178,16 @@ export const useConversationScroll = ({
       return;
     }
     if (event.deltaY !== 0) {
+      revealTargetTokenRef.current = undefined;
+      completePositioning();
       userIntentUntilRef.current = performance.now() + 320;
       if (event.deltaY < 0) stopFollowingLatest();
     }
   };
 
   const onPointerDown = () => {
+    revealTargetTokenRef.current = undefined;
+    completePositioning();
     pointerActiveRef.current = true;
     userIntentUntilRef.current = performance.now() + 320;
   };
