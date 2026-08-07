@@ -287,7 +287,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       channel.close();
       channelRef.current = undefined;
-      document.documentElement.classList.remove("video-window-page", "theme-dark");
+      document.documentElement.classList.remove("video-window-page");
       document.documentElement.removeAttribute("data-theme");
       document.body.classList.remove("video-window-page");
     };

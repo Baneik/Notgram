@@ -282,14 +282,15 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   await expect(lightTheme).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(223, 231, 228)");
   await darkTheme.click();
-  await expect(page.locator("html")).toHaveClass(/theme-dark/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "notgram-dark");
+  await expect(page.locator("html")).not.toHaveClass(/theme-dark/);
   await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".settings-dialog")).toHaveCSS("background-color", "rgb(29, 42, 55)");
-  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(14, 22, 33)");
+  await expect(page.locator(".settings-dialog")).toHaveCSS("background-color", "rgb(38, 43, 49)");
+  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(24, 27, 31)");
   await expect(page.locator(".message-row.is-incoming:has(.message-rich-text) .message-bubble").first())
-    .toHaveCSS("background-color", "rgb(24, 37, 51)");
+    .toHaveCSS("background-color", "rgb(37, 42, 48)");
   await expect(page.locator(".message-row.is-outgoing:has(.message-rich-text) .message-bubble").first())
-    .toHaveCSS("background-color", "rgb(43, 82, 120)");
+    .toHaveCSS("background-color", "rgb(51, 69, 83)");
   await page.getByRole("button", { name: /高级设置/ }).click();
   await page.getByRole("button", { name: "重建界面缓存" }).click();
   await expect(page.locator(".settings-dialog .cache-health"))
@@ -303,8 +304,9 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   await expect(page.getByText("浏览器预览不生成诊断包")).toBeVisible();
   expect(await horizontalOverflow(page)).toBe(false);
   await page.reload();
-  await expect(page.locator("html")).toHaveClass(/theme-dark/);
-  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(14, 22, 33)");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "notgram-dark");
+  await expect(page.locator("html")).not.toHaveClass(/theme-dark/);
+  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(24, 27, 31)");
 });
 
 test("composer keeps focus, typing status is visible, and previews name the sender", async ({ page }) => {
@@ -1962,6 +1964,7 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
       "--color-status-danger",
       "--color-message-incoming",
       "--color-message-outgoing",
+      "--color-bg-media",
       "--color-overlay",
       "--color-shadow",
     ];
@@ -1984,17 +1987,17 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
   const profile = page.getByRole("dialog", { name: "资料" });
   await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
   await expect(profile).toBeVisible();
-  await expect(profile).toHaveCSS("background-color", "rgb(29, 42, 55)");
-  await expect(profile).toHaveCSS("border-color", "rgb(64, 81, 97)");
+  await expect(profile).toHaveCSS("background-color", "rgb(38, 43, 49)");
+  await expect(profile).toHaveCSS("border-color", "rgb(70, 80, 90)");
   await assertDarkHover(profile.locator(".profile-member-identity").first());
 
   await profile.getByRole("button", { name: "管理", exact: true }).click();
   const management = page.getByRole("dialog", { name: /管理“产品讨论”/ });
   await management.getByRole("button", { name: "邀请", exact: true }).click();
   const inviteName = management.getByLabel("邀请链接名称");
-  await expect(inviteName).toHaveCSS("background-color", "rgb(32, 44, 56)");
-  await expect(inviteName).toHaveCSS("border-color", "rgb(64, 81, 97)");
-  await expect(inviteName).toHaveCSS("color", "rgb(237, 242, 247)");
+  await expect(inviteName).toHaveCSS("background-color", "rgb(41, 46, 52)");
+  await expect(inviteName).toHaveCSS("border-color", "rgb(70, 80, 90)");
+  await expect(inviteName).toHaveCSS("color", "rgb(208, 212, 217)");
   await management.getByRole("button", { name: "关闭管理面板" }).click();
   if (await profile.isVisible()) {
     await profile.getByRole("button", { name: "关闭资料" }).click();
@@ -2009,14 +2012,14 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
   await page.getByRole("button", { name: "表情" }).click();
   const emojiPicker = page.locator(".emoji-picker");
   await expect(emojiPicker).toBeVisible();
-  await expect(emojiPicker).toHaveCSS("background-color", "rgb(29, 42, 55)");
+  await expect(emojiPicker).toHaveCSS("background-color", "rgb(38, 43, 49)");
   await assertDarkHover(emojiPicker.locator(".emoji-picker-tabs > button").first());
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "设置" });
-  await expect(settings).toHaveCSS("background-color", "rgb(29, 42, 55)");
-  await expect(settings.locator(".settings-categories")).toHaveCSS("background-color", "rgb(32, 46, 59)");
+  await expect(settings).toHaveCSS("background-color", "rgb(38, 43, 49)");
+  await expect(settings.locator(".settings-categories")).toHaveCSS("background-color", "rgb(41, 47, 53)");
 });
 
 test("reply previews jump to their source and channel senders keep their identity", async ({ page }) => {
@@ -2396,7 +2399,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
   await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS(
     "background-color",
-    "rgba(12, 18, 20, 0.62)",
+    "rgba(20, 26, 30, 0.48)",
   );
   await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgba(0, 0, 0, 0)");
@@ -2544,8 +2547,8 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
   const regularBadge = regularRow.locator(".unread-count");
 
   await expect(mutedBadge).toHaveClass(/is-muted/);
-  await expect(mutedBadge).toHaveCSS("background-color", "rgb(146, 154, 158)");
-  await expect(regularBadge).not.toHaveCSS("background-color", "rgb(146, 154, 158)");
+  await expect(mutedBadge).toHaveCSS("background-color", "rgb(174, 184, 189)");
+  await expect(regularBadge).not.toHaveCSS("background-color", "rgb(174, 184, 189)");
   await expect(page.locator(".chat-row .lucide-volume-x")).toHaveCount(0);
 });
 
@@ -2833,7 +2836,7 @@ test("video uses synchronized transparent playback windows and owns the playback
   await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgba(0, 0, 0, 0)");
   await expect.poll(() => popupPlayer.evaluate((element) => getComputedStyle(element).backgroundColor))
-    .toBe("rgba(12, 18, 20, 0.62)");
+    .toBe("rgba(20, 26, 30, 0.48)");
 
   await popup.waitForTimeout(1_100);
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
@@ -3459,7 +3462,7 @@ test("messages support pin lists, notification scope, and auto-delete settings",
 test("native context menu rows fill a consistently rounded popup frame", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {
-    document.documentElement.classList.add("theme-dark");
+    document.documentElement.dataset.theme = "notgram-dark";
     const createPanel = (className: string, label: string) => {
       const panel = document.createElement("div");
       panel.className = `${className} context-menu-panel`;

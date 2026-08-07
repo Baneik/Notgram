@@ -64,14 +64,23 @@ if (unknownTokens.length) {
   throw new Error(`Component CSS uses undeclared theme tokens: ${unknownTokens.join(", ")}`);
 }
 
-const componentContractSource = componentSource.split("@media (forced-colors: none)")[0];
-const rawLightSurfaces = componentContractSource
+const rawComponentColors = componentSource
   .split(/\r?\n/)
   .map((line, index) => ({ line: index + 1, text: line.trim() }))
-  .filter(({ text }) => /background(?:-color)?\s*:\s*#[ef][0-9a-f]{5}\b/i.test(text));
-if (rawLightSurfaces.length) {
-  const locations = rawLightSurfaces.map(({ line, text }) => `${line}: ${text}`).join("\n");
-  throw new Error(`Component CSS contains hard-coded light surfaces; use a semantic token instead.\n${locations}`);
+  .filter(({ text }) => /#[0-9a-f]{3,8}\b|rgba?\(/i.test(text));
+if (rawComponentColors.length) {
+  const locations = rawComponentColors.map(({ line, text }) => `${line}: ${text}`).join("\n");
+  throw new Error(`Component CSS contains hard-coded colors; use a semantic token instead.\n${locations}`);
+}
+
+for (const [path, source] of [
+  ["src/theme/theme.ts", themeSource],
+  ["src/styles/themes.css", paletteSource],
+  ["src/styles/global.css", componentSource],
+]) {
+  if (source.includes("theme-dark")) {
+    throw new Error(`${path} reintroduces the retired .theme-dark rendering path.`);
+  }
 }
 
 console.log(`Theme contract is valid (${contractTokens.length} semantic color tokens).`);

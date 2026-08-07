@@ -46,6 +46,7 @@ export const THEME_COLOR_TOKENS = [
   "--color-message-service",
   "--color-qr-background",
   "--color-qr-foreground",
+  "--color-bg-media",
   "--color-on-media",
   "--color-overlay",
   "--color-shadow",
@@ -74,10 +75,7 @@ export const resolveThemeId = (value: unknown, legacyColorTheme?: unknown): Them
 export const currentThemeId = (): ThemeId => {
   if (typeof document === "undefined") return "notgram-light";
   const themeId = document.documentElement.dataset.theme;
-  if (isThemeId(themeId)) return themeId;
-  return document.documentElement.classList.contains("theme-dark")
-    ? "notgram-dark"
-    : "notgram-light";
+  return isThemeId(themeId) ? themeId : "notgram-light";
 };
 
 export const currentColorTheme = (): ColorScheme => colorThemeForThemeId(currentThemeId());
@@ -86,7 +84,5 @@ export const applyThemeToDocument = (themeId: ThemeId) => {
   if (typeof document === "undefined") return;
   const colorScheme = colorThemeForThemeId(themeId);
   document.documentElement.dataset.theme = themeId;
-  // The class only carries legacy overrides for the original dark theme.
-  document.documentElement.classList.toggle("theme-dark", themeId === "notgram-dark");
   document.documentElement.style.colorScheme = colorScheme;
 };

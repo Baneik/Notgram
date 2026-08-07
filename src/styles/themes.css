@@ -36,57 +36,57 @@
   --color-message-service: rgba(92, 117, 112, 0.72);
   --color-qr-background: #ffffff;
   --color-qr-foreground: #111111;
+  --color-bg-media: #111719;
   --color-on-media: #ffffff;
   --color-overlay: rgba(20, 26, 30, 0.48);
   --color-shadow: rgba(24, 34, 40, 0.2);
   --color-scrollbar-thumb: #c8cdd0;
 }
 
-[data-theme="notgram-dark"],
-.theme-dark {
+[data-theme="notgram-dark"] {
   color-scheme: dark;
-  --color-bg-canvas: #0e1621;
-  --color-bg-surface: #17212b;
-  --color-bg-surface-hover: #202e3b;
-  --color-bg-elevated: #1d2a37;
-  --color-bg-control: #202c38;
-  --color-bg-control-hover: #1d2a36;
-  --color-bg-selected: #20394f;
-  --color-text-primary: #edf2f7;
-  --color-text-secondary: #a6b4c2;
-  --color-text-tertiary: #7f91a2;
-  --color-text-disabled: #526271;
-  --color-text-on-accent: #ffffff;
-  --color-border-subtle: #263747;
-  --color-border-default: #2b3a49;
-  --color-border-strong: #405161;
-  --color-border-focus: #6ab8f2;
-  --color-accent: #5ca7e3;
-  --color-accent-strong: #6ab8f2;
-  --color-accent-soft: #20394f;
-  --color-status-success: #74c69d;
-  --color-status-warning: #e3c478;
-  --color-status-danger: #ffaaa3;
-  --color-status-info: #7dc4f4;
-  --color-text-link: #7dc4f4;
-  --color-text-code: #e7edf2;
-  --color-bg-code: rgba(0, 0, 0, 0.24);
-  --color-message-incoming: #182533;
-  --color-message-outgoing: #2b5278;
-  --color-message-service: rgba(38, 61, 78, 0.94);
+  --color-bg-canvas: #181b1f;
+  --color-bg-surface: #20252a;
+  --color-bg-surface-hover: #292f35;
+  --color-bg-elevated: #262b31;
+  --color-bg-control: #292e34;
+  --color-bg-control-hover: #30363d;
+  --color-bg-selected: #2d3b46;
+  --color-text-primary: #d0d4d9;
+  --color-text-secondary: #a0a7af;
+  --color-text-tertiary: #89919a;
+  --color-text-disabled: #656d75;
+  --color-text-on-accent: #f7f9fb;
+  --color-border-subtle: #2a3036;
+  --color-border-default: #343b42;
+  --color-border-strong: #46505a;
+  --color-border-focus: #6f9bbd;
+  --color-accent: #4e7796;
+  --color-accent-strong: #426984;
+  --color-accent-soft: #2b3944;
+  --color-status-success: #7faf91;
+  --color-status-warning: #c1a667;
+  --color-status-danger: #d48781;
+  --color-status-info: #78a7c8;
+  --color-text-link: #78a7c8;
+  --color-text-code: #cfd4d9;
+  --color-bg-code: rgba(0, 0, 0, 0.18);
+  --color-message-incoming: #252a30;
+  --color-message-outgoing: #334553;
+  --color-message-service: rgba(57, 67, 74, 0.92);
   --color-qr-background: #ffffff;
   --color-qr-foreground: #111111;
+  --color-bg-media: #111719;
   --color-on-media: #ffffff;
-  --color-overlay: rgba(12, 18, 20, 0.62);
-  --color-shadow: rgba(0, 0, 0, 0.42);
-  --color-scrollbar-thumb: #5f7482;
+  --color-overlay: rgba(11, 13, 15, 0.54);
+  --color-shadow: rgba(0, 0, 0, 0.28);
+  --color-scrollbar-thumb: #59636d;
 }
 
 @media (forced-colors: active) {
   :root,
   [data-theme="notgram-light"],
-  [data-theme="notgram-dark"],
-  .theme-dark {
+  [data-theme="notgram-dark"] {
     color-scheme: normal;
     --color-bg-canvas: Canvas;
     --color-bg-surface: Canvas;
@@ -119,6 +119,7 @@
     --color-message-service: Canvas;
     --color-qr-background: Canvas;
     --color-qr-foreground: CanvasText;
+    --color-bg-media: Canvas;
     --color-on-media: CanvasText;
     --color-overlay: Canvas;
     --color-shadow: transparent;

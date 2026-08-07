@@ -81,7 +81,7 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
       globalThis.removeEventListener("beforeunload", handleBeforeUnload);
       channel.close();
       channelRef.current = undefined;
-      document.documentElement.classList.remove("media-viewer-window-page", "theme-dark");
+      document.documentElement.classList.remove("media-viewer-window-page");
       document.documentElement.removeAttribute("data-theme");
       document.body.classList.remove("media-viewer-window-page");
     };

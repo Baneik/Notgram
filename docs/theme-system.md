@@ -5,10 +5,10 @@ Notgram separates a theme identity from the native `light` or `dark` color schem
 ## Contract
 
 - `src/theme/theme.ts` owns theme identifiers, metadata, migration helpers, and the required semantic token list.
-- `src/styles/themes.css` is the source for every new theme palette. Every theme must define every token in `THEME_COLOR_TOKENS`; the original dark theme still has temporary legacy overrides scheduled for Phase 2.
+- `src/styles/themes.css` is the only source for theme palettes. Every theme must define every token in `THEME_COLOR_TOKENS`.
 - Component styles consume semantic roles such as `--color-bg-control` and `--color-border-strong`. They must not choose a light or dark palette value directly.
-- Media canvases and high-contrast content may use dedicated semantic roles such as `--color-on-media` and the QR foreground/background pair.
-- The legacy `.theme-dark` selector remains temporarily as a compatibility alias for native child-window messages and older component overrides.
+- Media canvases and high-contrast content use dedicated roles such as `--color-bg-media`, `--color-on-media`, and the QR foreground/background pair.
+- Rendering is selected only by `data-theme="<ThemeId>"`. Theme-specific classes and component-level palette overrides are not supported.
 
 ## Adding a theme
 
@@ -17,7 +17,7 @@ Notgram separates a theme identity from the native `light` or `dark` color schem
 3. Expose the identifier in the settings UI. Do not add another boolean or a component-level theme class.
 4. Run `npm run theme:check`, unit tests, and the Playwright theme regression.
 
-`scripts/verify-theme-contract.mjs` fails when a theme omits a token, a component uses an unknown token, or component CSS reintroduces a hard-coded light surface.
+`scripts/verify-theme-contract.mjs` fails when a theme omits a token, a component uses an unknown token, component CSS contains a raw color literal, or the retired `.theme-dark` path is reintroduced.
 
 ## Delivery plan
 
@@ -27,13 +27,13 @@ Notgram separates a theme identity from the native `light` or `dark` color schem
 - Apply `data-theme`, native `color-scheme`, and child-window theme metadata from one registry.
 - Move structural surfaces, controls, borders, messages, overlays, and status colors to semantic tokens.
 - Cover settings, profiles, management forms, invite links, privacy/report controls, shared media, dialogs, composer UI, and search.
-- Enforce token completeness and reject new hard-coded light surfaces in the project check.
+- Enforce token completeness in the project check.
 
-### Phase 2: retire legacy overrides
+### Phase 2: retire legacy overrides (implemented)
 
-- Move the remaining original `.theme-dark` component overrides into semantic roles or theme-local component aliases.
-- Remove `.theme-dark` after native child-window protocols carry `ThemeId` directly.
-- Expand the static rule from structural light surfaces to all theme-dependent color declarations. Media pixels and protocol-required QR contrast remain explicit exceptions.
+- Move the remaining original component overrides into semantic roles.
+- Remove `.theme-dark` from document state, child-window cleanup, and stylesheets.
+- Reject all raw component color declarations; media and QR contrast are represented by dedicated semantic tokens.
 
 ### Phase 3: theme qualification
 
