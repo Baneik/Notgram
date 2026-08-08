@@ -53,6 +53,7 @@ import { createSearchController } from "./telegramStore.search";
 import { createProfileController } from "./telegramStore.profile";
 import { createOutboxController } from "./telegramStore.outboxController";
 import { createForumController } from "./telegramStore.forum";
+import { createSessionController } from "./telegramStore.session";
 import { SharedMediaIndex } from "./sharedMediaIndex";
 import {
   attachmentOutbox,
@@ -1040,6 +1041,11 @@ export const createTelegramStore = (
       topicKey,
       onError: errorMessage,
     });
+    const sessionController = createSessionController({
+      transport,
+      set,
+      onError: errorMessage,
+    });
 
     return {
       phase: "idle",
@@ -1928,26 +1934,11 @@ export const createTelegramStore = (
         catch (error) { set({ operationError: errorMessage(error, "无法提交举报") }); return false; }
       },
 
-      getActiveSessions: async () => {
-        try { return await transport.getActiveSessions(); }
-        catch (error) { set({ operationError: errorMessage(error, "无法读取设备会话") }); return []; }
-      },
-      terminateSession: async (sessionId) => {
-        try { await transport.terminateSession(sessionId); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法终止设备会话") }); return false; }
-      },
-      terminateAllOtherSessions: async () => {
-        try { await transport.terminateAllOtherSessions(); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法终止其他设备") }); return false; }
-      },
-      getPrivacySettingRules: async (setting) => {
-        try { return await transport.getPrivacySettingRules(setting); }
-        catch (error) { set({ operationError: errorMessage(error, "无法读取隐私设置") }); return []; }
-      },
-      setPrivacySettingRules: async (setting, rules) => {
-        try { await transport.setPrivacySettingRules(setting, rules); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法保存隐私设置") }); return false; }
-      },
+      getActiveSessions: sessionController.getActiveSessions,
+      terminateSession: sessionController.terminateSession,
+      terminateAllOtherSessions: sessionController.terminateAllOtherSessions,
+      getPrivacySettingRules: sessionController.getPrivacySettingRules,
+      setPrivacySettingRules: sessionController.setPrivacySettingRules,
 
       setMessageReaction: async (messageId, emoji, chosen) => {
         const chatId = get().activeChatId;
