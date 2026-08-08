@@ -52,6 +52,7 @@ import { emptyProfileState } from "./profileState";
 import { createSearchController } from "./telegramStore.search";
 import { createProfileController } from "./telegramStore.profile";
 import { createOutboxController } from "./telegramStore.outboxController";
+import { createForumController } from "./telegramStore.forum";
 import { SharedMediaIndex } from "./sharedMediaIndex";
 import {
   attachmentOutbox,
@@ -1032,6 +1033,13 @@ export const createTelegramStore = (
       topicKey,
       onError: errorMessage,
     });
+    const forumController = createForumController({
+      transport,
+      get,
+      set,
+      topicKey,
+      onError: errorMessage,
+    });
 
     return {
       phase: "idle",
@@ -1408,78 +1416,11 @@ export const createTelegramStore = (
         }
       },
 
-      loadForumTopics: async (chatId, query = "") => {
-        if (!get().chats.get(chatId)?.isForum) return undefined;
-        if (get().forumTopicsLoading.has(chatId)) return undefined;
-        const loading = new Set(get().forumTopicsLoading);
-        loading.add(chatId);
-        set({ forumTopicsLoading: loading });
-        try {
-          const page = await transport.getForumTopics({ chatId, query, limit: 100 });
-          const forumTopics = new Map(get().forumTopics);
-          forumTopics.set(chatId, page.topics);
-          const drafts = new Map(get().drafts);
-          for (const topic of page.topics) {
-            const key = topicKey(chatId, topic.id);
-            if (drafts.get(key)?.pending) continue;
-            if (topic.draft) drafts.set(key, { ...topic.draft, pending: false });
-            else drafts.delete(key);
-          }
-          set({ forumTopics, drafts, operationError: undefined });
-          return page;
-        } catch (error) {
-          set({ operationError: errorMessage(error, "无法加载话题列表") });
-          return undefined;
-        } finally {
-          const latest = new Set(get().forumTopicsLoading);
-          latest.delete(chatId);
-          set({ forumTopicsLoading: latest });
-        }
-      },
-
-      createForumTopic: async (chatId, name) => {
-        try {
-          const topic = await transport.createForumTopic({ chatId, name });
-          await get().loadForumTopics(chatId);
-          return topic;
-        } catch (error) {
-          set({ operationError: errorMessage(error, "无法创建话题") });
-          return undefined;
-        }
-      },
-
-      editForumTopic: async (chatId, topicId, name) => {
-        try {
-          await transport.editForumTopic(chatId, topicId, name);
-          await get().loadForumTopics(chatId);
-          return true;
-        } catch (error) {
-          set({ operationError: errorMessage(error, "无法编辑话题") });
-          return false;
-        }
-      },
-
-      setForumTopicClosed: async (chatId, topicId, closed) => {
-        try {
-          await transport.setForumTopicClosed(chatId, topicId, closed);
-          await get().loadForumTopics(chatId);
-          return true;
-        } catch (error) {
-          set({ operationError: errorMessage(error, "无法更新话题状态") });
-          return false;
-        }
-      },
-
-      setForumTopicPinned: async (chatId, topicId, pinned) => {
-        try {
-          await transport.setForumTopicPinned(chatId, topicId, pinned);
-          await get().loadForumTopics(chatId);
-          return true;
-        } catch (error) {
-          set({ operationError: errorMessage(error, "无法更新话题置顶") });
-          return false;
-        }
-      },
+      loadForumTopics: forumController.loadForumTopics,
+      createForumTopic: forumController.createForumTopic,
+      editForumTopic: forumController.editForumTopic,
+      setForumTopicClosed: forumController.setForumTopicClosed,
+      setForumTopicPinned: forumController.setForumTopicPinned,
 
       resolveTelegramLink: async (url) => {
         try {
