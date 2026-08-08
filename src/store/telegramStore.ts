@@ -51,6 +51,7 @@ import { emptyGlobalSearch } from "./globalSearchState";
 import { emptyProfileState } from "./profileState";
 import { createSearchController } from "./telegramStore.search";
 import { createProfileController } from "./telegramStore.profile";
+import { createOutboxController } from "./telegramStore.outboxController";
 import { SharedMediaIndex } from "./sharedMediaIndex";
 import {
   attachmentOutbox,
@@ -102,7 +103,6 @@ export const createTelegramStore = (
     let accountRegistration = Promise.resolve();
     const readTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const readRequestChains = new Map<string, Promise<void>>();
-    let outboxFlush: Promise<void> | undefined;
     const groupManagementLoads = new Map<string, Promise<ChatManagement | undefined>>();
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -347,81 +347,6 @@ export const createTelegramStore = (
         );
         set({ cacheHealth: "healthy" });
       }
-    };
-
-    const setOutbox = (outbox: QueuedOutgoingMessage[]) => {
-      const state = get();
-      set({
-        outbox,
-        messages: messagesWithOutbox(
-          state.messages,
-          outbox,
-          state.currentUserId ?? "self",
-        ),
-      });
-    };
-
-    const persistOutboxState = async () => {
-      try {
-        await flushCachedSnapshot();
-        return true;
-      } catch {
-        await transport.clearCachedSnapshot().catch(() => undefined);
-        set({ cacheHealth: "invalid" });
-        return false;
-      }
-    };
-
-    const flushOutbox = () => {
-      if (outboxFlush) return outboxFlush;
-      const operation = (async () => {
-        while (
-          get().authorization.kind === "ready" &&
-          get().connectionStatus === "online"
-        ) {
-          const item = get().outbox.find((candidate) => candidate.status === "queued");
-          if (!item) return;
-          try {
-            if (item.attachments?.length) {
-              const stored = await attachmentOutbox.get(item.id);
-              if (!stored) throw new Error("离线附件已过期或文件内容已变更，请重新选择");
-              const sent = await transport.sendFiles({
-                chatId: item.chatId,
-                topicId: item.topicId,
-                attachments: stored.attachments,
-                caption: item.caption,
-              });
-              if (!sent) throw new Error("附件上传未完成");
-            } else {
-              await transport.sendMessage({
-                chatId: item.chatId,
-                topicId: item.topicId,
-                text: item.text,
-                replyToMessageId: item.replyToMessageId,
-                clearDraft: !get().drafts.has(topicKey(item.chatId, item.topicId)),
-              });
-            }
-          } catch (error) {
-            setOutbox(get().outbox.map((candidate) =>
-              candidate.id === item.id
-                ? { ...candidate, status: "failed", error: errorMessage(error, "离线发送失败") }
-                : candidate,
-            ));
-            set({ operationError: errorMessage(error, item.attachments?.length ? "离线附件恢复发送失败" : "离线消息恢复发送失败") });
-            await persistOutboxState();
-            return;
-          }
-
-          setOutbox(get().outbox.filter((candidate) => candidate.id !== item.id));
-          if (item.attachments?.length) await attachmentOutbox.remove(item.id);
-          if (!await persistOutboxState()) return;
-        }
-      })();
-      const tracked = operation.finally(() => {
-        if (outboxFlush === tracked) outboxFlush = undefined;
-      });
-      outboxFlush = tracked;
-      return tracked;
     };
 
     const hydrateCachedSnapshot = (persistedSnapshot?: CachedTelegramSnapshot) => {
@@ -1097,6 +1022,14 @@ export const createTelegramStore = (
       set,
       scheduleCacheWrite,
       registerCurrentAccount,
+      onError: errorMessage,
+    });
+    const { setOutbox, persistOutboxState, flushOutbox } = createOutboxController({
+      transport,
+      get,
+      set,
+      flushCachedSnapshot,
+      topicKey,
       onError: errorMessage,
     });
 
