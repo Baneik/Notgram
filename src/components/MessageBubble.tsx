@@ -103,6 +103,7 @@ interface MessageBubbleProps {
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
   onExpandLongText: (messageId: string) => void;
   onMount?: () => void;
+  deferUntilPinned?: boolean;
   nextAudioPlaybackId?: string;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
@@ -154,6 +155,7 @@ function MessageBubbleComponent({
   onBotCallback,
   onExpandLongText,
   onMount,
+  deferUntilPinned = false,
   nextAudioPlaybackId,
   onOpenReply,
   onOpenSenderProfile,
@@ -407,12 +409,15 @@ function MessageBubbleComponent({
     lazyMediaRef.current = element;
     if (!element) return;
     onMount?.();
-    if (!entrance) return;
+    const preparedEntrance = entrance ?? (deferUntilPinned
+      ? message.outgoing ? "outgoing" : "incoming"
+      : undefined);
+    if (!preparedEntrance) return;
     const list = element.closest<HTMLElement>(".message-list");
     if (!list) return;
     // Virtuoso can mount a new block one frame before the bottom pin. Preserve
     // the keyframe's initial pose, but do not spend the animation offscreen.
-    const preparingClass = `is-preparing-entrance-${entrance}`;
+    const preparingClass = `is-preparing-entrance-${preparedEntrance}`;
     element.classList.add(preparingClass);
     const visibilityDeadline = performance.now() + MESSAGE_ENTRANCE_LIFETIME_MS;
     const startEntranceWhenVisible = () => {
@@ -426,9 +431,13 @@ function MessageBubbleComponent({
       const claimedEntrance = consumeMessageEntrance(message);
       element.classList.remove(preparingClass);
       if (claimedEntrance) {
-        entranceKindRef.current = claimedEntrance;
-        void element.offsetWidth;
-        element.classList.add(`is-entering-${claimedEntrance}`);
+        const reduceMotion = document.documentElement.classList.contains("reduce-motion") ||
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (!reduceMotion) {
+          entranceKindRef.current = claimedEntrance;
+          void element.offsetWidth;
+          element.classList.add(`is-entering-${claimedEntrance}`);
+        }
       }
       return true;
     };
@@ -443,7 +452,15 @@ function MessageBubbleComponent({
       entranceFrameRef.current = requestAnimationFrame(waitForPinnedVisibility);
     };
     entranceFrameRef.current = requestAnimationFrame(waitForPinnedVisibility);
-  }, [entrance, lazyMediaRef, message.chatId, message.id, onMount]);
+  }, [
+    deferUntilPinned,
+    entrance,
+    lazyMediaRef,
+    message.chatId,
+    message.id,
+    message.outgoing,
+    onMount,
+  ]);
 
   const selectionDisabled = selectionPending ||
     message.permissions?.canForward === false ||

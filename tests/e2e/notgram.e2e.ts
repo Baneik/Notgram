@@ -62,9 +62,11 @@ const scrollAwayFromBottom = async (page: Page) => {
     const metrics = await messageListMetrics(page);
     return metrics.scrollHeight - metrics.clientHeight;
   }).toBeGreaterThan(200);
-  await page.locator(".message-list").evaluate((element) => {
+  const messageList = page.locator(".message-list");
+  await messageList.hover();
+  await page.mouse.wheel(0, -1);
+  await messageList.evaluate((element) => {
     const maximum = element.scrollHeight - element.clientHeight;
-    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -500 }));
     element.scrollTop = Math.max(100, Math.floor(maximum * 0.45));
     element.dispatchEvent(new Event("scroll"));
   });
@@ -553,6 +555,12 @@ test("new messages stay pinned without viewport rebound", async ({ page }) => {
   );
   expect(viewportRebounds, JSON.stringify(visibleSamples)).toHaveLength(0);
   const animatedSamples = visibleSamples.filter((sample) => sample.rowVisible);
+  expect(
+    animatedSamples.every((sample) =>
+      sample.rowBottom !== undefined && sample.rowBottom <= sample.listBottom + 1
+    ),
+    JSON.stringify(visibleSamples),
+  ).toBe(true);
   const bubbleRebounds = animatedSamples.slice(1).filter((sample, index) =>
     sample.rowBottom !== undefined && animatedSamples[index].rowBottom !== undefined &&
     sample.rowBottom > animatedSamples[index].rowBottom! + 0.5,
@@ -619,12 +627,14 @@ test("incoming animated messages remain visible while following latest", async (
     distanceBottom: number;
     rowBottom: number;
     listBottom: number;
+    rowVisible: boolean;
   }>>((resolve) => {
     const samples: Array<{
       animationName: string;
       distanceBottom: number;
       rowBottom: number;
       listBottom: number;
+      rowVisible: boolean;
     }> = [];
     let frames = 0;
     const sample = () => {
@@ -640,6 +650,7 @@ test("incoming animated messages remain visible while following latest", async (
         distanceBottom: list.scrollHeight - list.clientHeight - list.scrollTop,
         rowBottom: row.getBoundingClientRect().bottom,
         listBottom: list.getBoundingClientRect().bottom,
+        rowVisible: style.visibility !== "hidden",
       });
       frames += 1;
       if (frames < 24) requestAnimationFrame(sample);
@@ -655,6 +666,11 @@ test("incoming animated messages remain visible while following latest", async (
     (sample) => sample.animationName === "message-enter-incoming",
   );
   expect(animatedSamples.length, JSON.stringify(samples)).toBeGreaterThan(0);
+  expect(
+    samples.filter((sample) => sample.rowVisible)
+      .every((sample) => sample.rowBottom <= sample.listBottom + 1),
+    JSON.stringify(samples),
+  ).toBe(true);
   expect(
     animatedSamples.every((sample) => sample.rowBottom <= sample.listBottom + 1),
     JSON.stringify(samples),
@@ -682,8 +698,9 @@ test("expired entrance metadata does not delay appended-message anchoring", asyn
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
     .toBeLessThanOrEqual(1);
 
-  const firstVisibleFrame = page.evaluate(() => new Promise<{
+  const firstMountedFrame = page.evaluate(() => new Promise<{
     className: string;
+    visibility: string;
     rowBottom: number;
     listBottom: number;
   }>((resolve) => {
@@ -694,6 +711,7 @@ test("expired entrance metadata does not delay appended-message anchoring", asyn
       observer.disconnect();
       resolve({
         className: row.className,
+        visibility: getComputedStyle(row).visibility,
         rowBottom: row.getBoundingClientRect().bottom,
         listBottom: list.getBoundingClientRect().bottom,
       });
@@ -737,11 +755,15 @@ test("expired entrance metadata does not delay appended-message anchoring", asyn
     entrancePath: "/src/utils/messageEntrance.ts",
   });
 
-  const report = await firstVisibleFrame;
+  const report = await firstMountedFrame;
   expect(report.className).not.toContain("is-entering-");
-  expect(report.rowBottom).toBeLessThanOrEqual(report.listBottom + 1);
+  expect(
+    report.visibility === "hidden" || report.rowBottom <= report.listBottom + 1,
+    JSON.stringify(report),
+  ).toBe(true);
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
     .toBeLessThanOrEqual(1);
+  await expect(page.locator('[data-message-id="p-expired-entrance"]')).toBeVisible();
 });
 
 test("downward wheel input at the exact bottom never rebounds", async ({ page }) => {
@@ -3680,6 +3702,65 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await page.locator('[data-chat-id="chat-product"]').click();
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
+});
+
+test("local reading anchor wins over an older unread cursor after switching conversations", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await scrollAwayFromBottom(page);
+  const savedAnchor = await visibleMessageAnchor(page);
+  expect(savedAnchor.id).toBeTruthy();
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => {
+          chats: Map<string, Record<string, unknown>>;
+          messages: Map<string, Array<Record<string, unknown>>>;
+        };
+        setState: (partial: {
+          chats: Map<string, Record<string, unknown>>;
+          messages: Map<string, Array<Record<string, unknown>>>;
+        }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const chats = new Map(state.chats);
+    const messages = new Map(state.messages);
+    const product = chats.get("chat-product");
+    const current = [...(messages.get("chat-product") ?? [])];
+    const latest = current.at(-1);
+    if (!product || !latest) return;
+    chats.set("chat-product", {
+      ...product,
+      unreadCount: 3,
+      lastReadInboxMessageId: current[1]?.id ?? current[0]?.id,
+    });
+    current.push({
+      ...latest,
+      id: "p-anchor-regression-live",
+      renderKey: undefined,
+      senderId: "u-mia",
+      outgoing: false,
+      delivery: "read",
+      sentAt: new Date(Date.now() + 3_000).toISOString(),
+      content: { kind: "text", text: "切换期间到达、但不应改变阅读锚点的新消息" },
+    });
+    messages.set("chat-product", current);
+    module.telegramStore.setState({ chats, messages });
+  }, "/src/store/telegramStore.ts");
+
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await visibleMessageAnchor(page)).id).toBe(savedAnchor.id);
+  await expect.poll(async () => Math.abs(
+    (await visibleMessageAnchor(page)).offset - savedAnchor.offset,
+  )).toBeLessThanOrEqual(2);
+  await expect(page.getByRole("button", { name: /跳到最新消息/ })).toBeVisible();
 });
 
 test("window resizing and new messages preserve the user's follow intent", async ({ page }) => {

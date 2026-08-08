@@ -520,17 +520,17 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-group-avatar .message-sender-avatar { position: sticky; bottom: 4px; align-self: flex-end; }
 .message-group-avatar .avatar { position: relative; }
 .message-row { position: relative; isolation: isolate; width: 100%; display: flex; align-items: flex-end; justify-content: flex-start; margin: var(--message-row-spacing) 0; user-select: none; -webkit-user-select: none; }
-.message-row.is-preparing-entrance-incoming { opacity: 0.18; transform: translate3d(-10px, 6px, 0) scale(0.985); }
-.message-row.is-preparing-entrance-outgoing { opacity: 0.18; transform: translate3d(10px, 6px, 0) scale(0.985); }
+.message-row.is-preparing-entrance-incoming { visibility: hidden; opacity: 0; transform: translate3d(-10px, 0, 0) scale(0.985); }
+.message-row.is-preparing-entrance-outgoing { visibility: hidden; opacity: 0; transform: translate3d(10px, 0, 0) scale(0.985); }
 .message-row.is-entering-incoming { animation: message-enter-incoming 220ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
 .message-row.is-entering-outgoing { animation: message-enter-outgoing 200ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
 .message-row.is-removing { animation: message-delete-out 180ms ease both; pointer-events: none; }
 @keyframes message-enter-incoming {
-  from { opacity: 0.18; transform: translate3d(-10px, 6px, 0) scale(0.985); }
+  from { opacity: 0.18; transform: translate3d(-10px, 0, 0) scale(0.985); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 @keyframes message-enter-outgoing {
-  from { opacity: 0.18; transform: translate3d(10px, 6px, 0) scale(0.985); }
+  from { opacity: 0.18; transform: translate3d(10px, 0, 0) scale(0.985); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 @keyframes message-delete-out {
@@ -543,7 +543,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .reduce-motion .message-row.is-preparing-entrance-outgoing,
 .reduce-motion .message-row.is-removing { animation: none; }
 .reduce-motion .message-row.is-preparing-entrance-incoming,
-.reduce-motion .message-row.is-preparing-entrance-outgoing { opacity: 1; transform: none; }
+.reduce-motion .message-row.is-preparing-entrance-outgoing { opacity: 0; transform: none; }
 .reduce-motion .conversation-jump-button { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .message-row.is-entering-incoming,
@@ -552,7 +552,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .message-row.is-preparing-entrance-outgoing,
   .message-row.is-removing { animation: none; }
   .message-row.is-preparing-entrance-incoming,
-  .message-row.is-preparing-entrance-outgoing { opacity: 1; transform: none; }
+  .message-row.is-preparing-entrance-outgoing { opacity: 0; transform: none; }
   .conversation-jump-button { transition: none; }
 }
 .message-group:last-child .message-row:last-child { margin-bottom: 0; }

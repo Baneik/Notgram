@@ -1288,6 +1288,7 @@ export function Conversation({
                         onMount={message.id === appendMountMessageId
                           ? pinFollowingMessageMount
                           : undefined}
+                        deferUntilPinned={message.id === appendMountMessageId}
                         nextAudioPlaybackId={nextAudioPlaybackIdByMessage.get(message.id)}
                         onOpenReply={onOpenMessage}
                         onOpenSenderProfile={onOpenSenderProfile}

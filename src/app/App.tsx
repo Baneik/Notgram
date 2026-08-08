@@ -680,8 +680,20 @@ export function App() {
     const state = telegramStore.getState();
     const chatId = state.activeChatId;
     if (!chatId || !state.chats.get(chatId)?.isForum || state.activeTopicId === topicId) return;
+    const generation = chatOpenGenerationRef.current + 1;
+    chatOpenGenerationRef.current = generation;
+    latestConversationIntentChatIdRef.current = undefined;
     const targetMessages = (state.messages.get(chatId) ?? [])
       .filter((message) => message.topicId === topicId);
+    const targetTopic = state.forumTopics.get(chatId)?.find((topic) => topic.id === topicId);
+    const targetScrollScope = `${activeAccountId}:topic:${topicId}`;
+    const restoreLocally = hasConversationScrollMemory(targetScrollScope, chatId);
+    const serverMessageId = !restoreLocally && (targetTopic?.unreadCount ?? 0) > 0
+      ? targetTopic?.lastReadInboxMessageId
+      : undefined;
+    const serverMessageLoaded = Boolean(
+      serverMessageId && targetMessages.some((message) => message.id === serverMessageId),
+    );
     const performanceTraceId = beginConversationSwitch({
       cached: targetMessages.length > 0,
       messageCount: targetMessages.length,
@@ -689,13 +701,14 @@ export function App() {
       navigationKind: 4,
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
-    latestScrollRequestIdRef.current += 1;
+    entryScrollRequestIdRef.current += 1;
     flushSync(() => {
-      setEntryScrollRequest(undefined);
+      setLatestScrollRequest(undefined);
       setMessageScrollRequest(undefined);
-      setLatestScrollRequest({
+      setEntryScrollRequest({
         chatId,
-        requestId: latestScrollRequestIdRef.current,
+        serverMessageId,
+        requestId: entryScrollRequestIdRef.current,
         performanceTraceId,
       });
       void state.selectForumTopic(topicId);
@@ -704,6 +717,20 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
+    if (serverMessageId && !serverMessageLoaded) {
+      void (async () => {
+        const loaded = await telegramStore.getState().loadMessage(chatId, serverMessageId);
+        if (loaded || chatOpenGenerationRef.current !== generation) return;
+        entryScrollRequestIdRef.current += 1;
+        flushSync(() => {
+          setEntryScrollRequest({
+            chatId,
+            requestId: entryScrollRequestIdRef.current,
+            performanceTraceId,
+          });
+        });
+      })();
+    }
   };
 
   if (!chatListReady && (authorization.kind === "preparing" || authorization.kind === "ready")) {
@@ -819,19 +846,28 @@ export function App() {
                 ? state.lastForumTopicIds.get(chatId) ??
                   state.forumTopics.get(chatId)?.find((topic) => !topic.isHidden)?.id
                 : undefined;
+              const restoredTopic = restoredTopicId
+                ? state.forumTopics.get(chatId)?.find((topic) => topic.id === restoredTopicId)
+                : undefined;
               const forumTopicReady = !targetChat?.isForum || Boolean(
                 restoredTopicId && state.forumTopics.get(chatId)?.some(
                   (topic) => topic.id === restoredTopicId,
                 ),
               );
               if (forumTopicReady) beginConversationSnapshot(chatId);
-              const serverMessageId = targetChat && targetChat.unreadCount > 0
-                ? targetChat.lastReadInboxMessageId
-                : undefined;
+              const serverMessageId = restoredTopicId
+                ? (restoredTopic?.unreadCount ?? 0) > 0
+                  ? restoredTopic?.lastReadInboxMessageId
+                  : undefined
+                : targetChat && targetChat.unreadCount > 0
+                  ? targetChat.lastReadInboxMessageId
+                  : undefined;
               const serverMessageLoaded = Boolean(
                 serverMessageId &&
                 (state.messages.get(chatId) ?? []).some(
-                  (message) => message.id === serverMessageId,
+                  (message) => message.id === serverMessageId && (
+                    !restoredTopicId || message.topicId === restoredTopicId
+                  ),
                 ),
               );
               const targetScrollScope = restoredTopicId
@@ -856,7 +892,7 @@ export function App() {
                 setMessageScrollRequest(undefined);
                 setEntryScrollRequest({
                   chatId,
-                  serverMessageId,
+                  serverMessageId: restoreLocally ? undefined : serverMessageId,
                   requestId: entryScrollRequestIdRef.current,
                   performanceTraceId,
                 });
