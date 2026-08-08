@@ -100,7 +100,6 @@ interface ConversationProps {
   chat?: Chat;
   topic?: ForumTopic;
   topics: ForumTopic[];
-  onBackToTopics?: () => void;
   onSelectTopic: (topicId: string) => void;
   scrollScope: string;
   entryScrollRequest?: EntryConversationScrollRequest;
@@ -178,7 +177,6 @@ export function Conversation({
   chat,
   topic,
   topics,
-  onBackToTopics,
   onSelectTopic,
   scrollScope,
   entryScrollRequest,
@@ -1020,15 +1018,17 @@ export function Conversation({
           </>
         ) : (
           <>
-            <button
-              className={`mobile-back icon-button ${topic ? "forum-topic-back" : ""}`}
-              type="button"
-              aria-label={topic ? "返回话题列表" : "返回会话列表"}
-              title={topic ? "返回话题列表" : "返回会话列表"}
-              onClick={topic && onBackToTopics ? onBackToTopics : onBack}
-            >
-              <ChevronLeft size={21} strokeWidth={2} />
-            </button>
+            {!topic && (
+              <button
+                className="mobile-back icon-button"
+                type="button"
+                aria-label="返回会话列表"
+                title="返回会话列表"
+                onClick={onBack}
+              >
+                <ChevronLeft size={21} strokeWidth={2} />
+              </button>
+            )}
             <button
               className="conversation-profile-trigger"
               type="button"
@@ -1038,7 +1038,7 @@ export function Conversation({
             >
               <Avatar avatar={chat.avatar} size="medium" />
               <span className="conversation-title">
-                <strong>{topic ? topic.name : chat.title}</strong>
+                <strong>{chat.title}</strong>
                 {topic?.isClosed ? (
                   <span className="conversation-typing-status">话题已关闭</span>
                 ) : typingStatus && (

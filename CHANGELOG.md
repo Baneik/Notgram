@@ -34,6 +34,8 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Keep the forum group name in topic conversation headers and remove the redundant
+  back-to-topic-list control.
 - Cache bounded forum-topic metadata with per-group selection state so forum entry
   paints immediately while topic metadata and history refresh in the background.
 - Preserve TDLib voice-note duration before media loading and disable unavailable

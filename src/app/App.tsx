@@ -913,7 +913,6 @@ export function App() {
           chat={activeChat}
           topic={activeTopic}
           topics={activeTopics}
-          onBackToTopics={() => { void selectForumTopic(undefined); }}
           onSelectTopic={(topicId) => { void selectForumTopic(topicId); }}
           scrollScope={activeTopicId ? `${activeAccountId}:topic:${activeTopicId}` : activeAccountId}
           entryScrollRequest={entryScrollRequest}

@@ -86,7 +86,9 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await page.goto("/");
   await page.locator('[data-chat-id="chat-forum"]').click();
 
-  await expect(page.locator(".conversation-title strong")).toHaveText("常规");
+  await expect(page.getByRole("region", { name: "常规 话题 对话" })).toBeVisible();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");
+  await expect(page.getByRole("button", { name: "返回话题列表" })).toHaveCount(0);
   await expect(page.locator('[data-message-id="forum-general-1"]')).toBeVisible();
   const strip = page.getByRole("navigation", { name: "话题切换" });
   await expect(strip).toBeVisible();
@@ -96,23 +98,16 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-count')).toHaveText("3");
 
   await strip.locator('[data-topic-id="12"]').click();
-  await expect(page.locator(".conversation-title strong")).toHaveText("构建与发布");
+  await expect(page.getByRole("region", { name: "构建与发布 话题 对话" })).toBeVisible();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");
   await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
 
   await page.locator('[data-chat-id="chat-mia"]').click();
   await page.locator('[data-chat-id="chat-forum"]').click();
-  await expect(page.locator(".conversation-title strong")).toHaveText("构建与发布");
+  await expect(page.getByRole("region", { name: "构建与发布 话题 对话" })).toBeVisible();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");
+  await expect(page.getByRole("button", { name: "返回话题列表" })).toHaveCount(0);
   await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
-
-  await page.getByRole("button", { name: "返回话题列表" }).click();
-  const topics = page.locator(".forum-topics-view");
-  await expect(topics).toBeVisible();
-  await expect(topics.getByText("构建与发布", { exact: true })).toBeVisible();
-  await expect(topics.getByText("设计反馈", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "创建话题" }).click();
-  await page.getByPlaceholder("话题名称").fill("自动化验收");
-  await page.getByRole("button", { name: "确认创建" }).click();
-  await expect(page.locator(".conversation-title strong")).toHaveText("自动化验收");
 });
 
 test("non-forum group conversations keep messages that belong to a message thread", async ({ page }) => {

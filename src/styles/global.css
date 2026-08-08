@@ -332,7 +332,6 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .forum-topic-form input:focus { border-color: var(--accent); }
 .forum-topic-edit { width: 100%; border-bottom: 0; }
 .forum-topics-state { min-height: 180px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
-.mobile-back.forum-topic-back { display: inline-grid; }
 .conversation.has-message-search { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation.has-forum-topic-strip { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation.has-forum-topic-strip.has-message-search { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
