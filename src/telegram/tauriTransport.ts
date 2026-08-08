@@ -5,7 +5,6 @@ import {
   asTdObjects,
   mapTdChat,
   mapTdChatDraft,
-  mapTdForumTopic,
   mapTdChatFolders,
   mapTdMessage,
   mapTdMessageProperties,
@@ -51,6 +50,7 @@ import {
 import { routeTdUpdate, type TdUpdateHandlers } from "./tdUpdateRouter";
 import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
 import { TauriSearchService } from "./tauriSearchService";
+import { TauriForumTopicService } from "./tauriForumTopicService";
 import {
   getActiveConversationTraceId,
   logPerformance,
@@ -445,6 +445,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     emitMessage: (raw) => this.emitMessage(raw),
     emitMessages: (rawMessages) => this.emitMessages(rawMessages),
   });
+  private forumTopicService = new TauriForumTopicService({
+    request: (request) => this.request(request),
+    emitMessages: (rawMessages) => this.emitMessages(rawMessages),
+    emitForumTopicsChanged: (chatId) => this.emitForumTopicsChanged(chatId),
+  });
   private rawSupergroups = new Map<string, TdObject>();
   private rawUsers = new Map<string, TdObject>();
   private rawMessages = new Map<string, Map<string, TdObject>>();
@@ -453,9 +458,6 @@ export class TauriTelegramTransport implements TelegramTransport {
   private exhaustedHistories = new Set<string>();
   private historyCursors = new Map<string, number>();
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
-  private exhaustedForumTopicHistories = new Set<string>();
-  private forumTopicHistoryCursors = new Map<string, number>();
-  private forumTopicHistoryLoads = new Map<string, Promise<ChatHistoryPage>>();
   private pendingReplyHydrations = new Map<string, symbol>();
   private unavailableReplyHydrations = new Set<string>();
   private pendingRichMessageHydrations = new Set<string>();
@@ -1667,116 +1669,27 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage> {
-    const limit = Math.max(1, Math.min(input.limit ?? 50, 100));
-    const result = await this.request({
-      "@type": "getForumTopics",
-      chat_id: numericId(input.chatId),
-      query: (input.query ?? "").trim(),
-      offset_date: Math.max(0, input.offsetDate ?? 0),
-      offset_message_id: input.offsetMessageId ? numericId(input.offsetMessageId) : 0,
-      offset_forum_topic_id: input.offsetTopicId ? numericId(input.offsetTopicId) : 0,
-      limit,
-    });
-    const rawTopics = asTdObjects(result.topics);
-    const topics = rawTopics
-      .map(mapTdForumTopic)
-      .filter((topic): topic is ForumTopic => Boolean(topic && topic.chatId === input.chatId));
-    const lastMessages = rawTopics.flatMap((topic) => {
-      const last = asTdObject(topic.last_message);
-      return last ? [last] : [];
-    });
-    this.emitMessages(lastMessages);
-    const nextOffsetDate = tdNumber(result.next_offset_date);
-    const nextOffsetMessageId = tdId(result.next_offset_message_id) || undefined;
-    const nextOffsetTopicId = tdId(result.next_offset_forum_topic_id) || undefined;
-    return {
-      topics,
-      totalCount: tdNumber(result.total_count),
-      nextOffsetDate,
-      nextOffsetMessageId,
-      nextOffsetTopicId,
-      hasMore: topics.length > 0 && Boolean(nextOffsetDate || nextOffsetMessageId || nextOffsetTopicId),
-    };
+    return this.forumTopicService.getForumTopics(input);
   }
 
   async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
-    const key = `${chatId}:${topicId}`;
-    if (this.exhaustedForumTopicHistories.has(key)) {
-      return { loadedCount: 0, hasMore: false, messageIds: [] };
-    }
-    const existing = this.forumTopicHistoryLoads.get(key);
-    if (existing) return existing;
-    const load = (async () => {
-      const cursor = this.forumTopicHistoryCursors.get(key) ?? 0;
-      const result = await this.request({
-        "@type": "getForumTopicHistory",
-        chat_id: numericId(chatId),
-        forum_topic_id: numericId(topicId),
-        from_message_id: cursor,
-        offset: 0,
-        limit: Math.max(1, Math.min(limit, 100)),
-      });
-      const rawMessages = asTdObjects(result.messages);
-      const messageIds = rawMessages.map((message) => tdId(message.id)).filter(Boolean);
-      const nextCursor = messageIds.at(-1);
-      if (nextCursor && nextCursor !== String(cursor)) this.forumTopicHistoryCursors.set(key, Number(nextCursor));
-      else this.exhaustedForumTopicHistories.add(key);
-      this.emitMessages(rawMessages);
-      return {
-        loadedCount: messageIds.length,
-        hasMore: !this.exhaustedForumTopicHistories.has(key),
-        messageIds,
-      };
-    })().finally(() => this.forumTopicHistoryLoads.delete(key));
-    this.forumTopicHistoryLoads.set(key, load);
-    return load;
+    return this.forumTopicService.loadForumTopicHistory(chatId, topicId, limit);
   }
 
   async createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic> {
-    const name = input.name.trim();
-    if (!name || [...name].length > 128) throw new Error("话题名称需包含 1 至 128 个字符");
-    const iconColor = input.iconColor ?? 0x6fb9f0;
-    const info = await this.request({
-      "@type": "createForumTopic",
-      chat_id: numericId(input.chatId),
-      name,
-      is_name_implicit: false,
-      icon: { "@type": "forumTopicIcon", color: iconColor, custom_emoji_id: 0 },
-    });
-    try {
-      const topic = mapTdForumTopic(await this.request({
-        "@type": "getForumTopic",
-        chat_id: numericId(input.chatId),
-        forum_topic_id: numericId(tdId(info.forum_topic_id)),
-      }));
-      if (topic) {
-        this.emitForumTopicsChanged(input.chatId);
-        return topic;
-      }
-    } catch {
-      // Fall back to the information returned by createForumTopic below.
-    }
-    const topic = mapTdForumTopic({ info, is_pinned: false, unread_count: 0, order: "0", notification_settings: null, draft_message: null });
-    if (!topic) throw new Error("TDLib 未返回新话题");
-    this.emitForumTopicsChanged(input.chatId);
-    return topic;
+    return this.forumTopicService.createForumTopic(input);
   }
 
   async editForumTopic(chatId: string, topicId: string, name: string) {
-    const normalized = name.trim();
-    if (!normalized || [...normalized].length > 128) throw new Error("话题名称需包含 1 至 128 个字符");
-    await this.request({ "@type": "editForumTopic", chat_id: numericId(chatId), forum_topic_id: numericId(topicId), name: normalized, edit_icon_custom_emoji: false, icon_custom_emoji_id: 0 });
-    this.emitForumTopicsChanged(chatId);
+    return this.forumTopicService.editForumTopic(chatId, topicId, name);
   }
 
   async setForumTopicClosed(chatId: string, topicId: string, closed: boolean) {
-    await this.request({ "@type": "toggleForumTopicIsClosed", chat_id: numericId(chatId), forum_topic_id: numericId(topicId), is_closed: closed });
-    this.emitForumTopicsChanged(chatId);
+    return this.forumTopicService.setForumTopicClosed(chatId, topicId, closed);
   }
 
   async setForumTopicPinned(chatId: string, topicId: string, pinned: boolean) {
-    await this.request({ "@type": "toggleForumTopicIsPinned", chat_id: numericId(chatId), forum_topic_id: numericId(topicId), is_pinned: pinned });
-    this.emitForumTopicsChanged(chatId);
+    return this.forumTopicService.setForumTopicPinned(chatId, topicId, pinned);
   }
 
   async getMessageContext(chatId: string, messageId: string, limit = 31) {
@@ -3481,9 +3394,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.exhaustedHistories.clear();
     this.historyCursors.clear();
     this.historyLoads.clear();
-    this.exhaustedForumTopicHistories.clear();
-    this.forumTopicHistoryCursors.clear();
-    this.forumTopicHistoryLoads.clear();
+    this.forumTopicService.reset();
     this.pendingReplyHydrations.clear();
     this.unavailableReplyHydrations.clear();
     this.pendingRichMessageHydrations.clear();
