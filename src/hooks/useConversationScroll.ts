@@ -8,8 +8,22 @@ import {
   type UIEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import type { IndexLocationWithAlign, StateSnapshot, VirtuosoHandle } from "react-virtuoso";
+import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
+import {
+  appendedMessageCount,
+  conversationLayouts,
+  conversationScrollMemory,
+  conversationVirtuosoSnapshots,
+  distanceFromBottom,
+  scrollMemoryKey,
+  visibleAnchor,
+  type ConversationLayoutSnapshot,
+  type ConversationScrollMemory,
+  type InitialLocation,
+  type PendingHistoryRestore,
+} from "./conversationScrollState";
+export { hasConversationScrollMemory } from "./conversationScrollState";
 import {
   logPerformance,
   markConversationSwitch,
@@ -20,39 +34,6 @@ const BOTTOM_PROXIMITY_PX = 32;
 const BOTTOM_EPSILON_PX = 1;
 const HISTORY_TRIGGER_PX = 64;
 const SMOOTH_SCROLL_DURATION_MS = 480;
-
-interface ConversationScrollMemory {
-  scrollTop: number;
-  followLatest: boolean;
-  lastKnownMessageId?: string;
-  pendingNewCount: number;
-  anchorMessageId?: string;
-  anchorOffset?: number;
-}
-
-interface ConversationLayoutSnapshot {
-  key?: string;
-  firstId?: string;
-  lastId?: string;
-  searchActive: boolean;
-}
-
-interface PendingHistoryRestore {
-  key: string;
-  previousFirstId?: string;
-  anchorMessageId: string;
-  anchorOffset: number;
-  startedAt: number;
-  beforeCount: number;
-}
-
-interface InitialLocation {
-  identity: string;
-  location: IndexLocationWithAlign | number;
-  mode: "empty" | "bottom" | "anchor" | "search" | "pending";
-  targetMessageId?: string;
-  targetOffset?: number;
-}
 
 export interface LatestConversationScrollRequest {
   chatId: string;
@@ -90,48 +71,6 @@ interface ConversationScrollOptions {
   messageCount: number;
   onLoadOlder: () => Promise<void>;
 }
-
-const conversationScrollMemory = new Map<string, ConversationScrollMemory>();
-const conversationVirtuosoSnapshots = new Map<string, {
-  state: StateSnapshot;
-  firstMessageId?: string;
-  lastMessageId?: string;
-  virtualItemCount: number;
-}>();
-const conversationLayouts = new Map<string, {
-  firstMessageId?: string;
-  lastMessageId?: string;
-  virtualItemCount: number;
-}>();
-
-const scrollMemoryKey = (scope: string, chatId?: string) =>
-  chatId ? `${scope}:${chatId}` : undefined;
-
-export const hasConversationScrollMemory = (scope: string, chatId: string) =>
-  conversationScrollMemory.has(scrollMemoryKey(scope, chatId)!);
-
-const distanceFromBottom = (element: HTMLElement) =>
-  Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
-
-const visibleAnchor = (element: HTMLElement) => {
-  const listBounds = element.getBoundingClientRect();
-  for (const row of element.querySelectorAll<HTMLElement>("[data-message-id]")) {
-    const bounds = row.getBoundingClientRect();
-    if (bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1) {
-      return {
-        messageId: row.dataset.messageId,
-        offset: bounds.top - listBounds.top,
-      };
-    }
-  }
-  return undefined;
-};
-
-const appendedMessageCount = (messages: Message[], previousLastId?: string) => {
-  if (!previousLastId) return 0;
-  const previousIndex = messages.findIndex((message) => message.id === previousLastId);
-  return previousIndex < 0 ? 0 : Math.max(0, messages.length - previousIndex - 1);
-};
 
 export const useConversationScroll = ({
   scope,
