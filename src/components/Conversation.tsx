@@ -72,6 +72,7 @@ import {
 } from "../utils/messageVirtualization";
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
+import { ForumTopicStrip } from "./ForumTopicStrip";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import {
@@ -98,7 +99,9 @@ const messageListComponents: Components<VirtualMessageBlock> = {
 interface ConversationProps {
   chat?: Chat;
   topic?: ForumTopic;
+  topics: ForumTopic[];
   onBackToTopics?: () => void;
+  onSelectTopic: (topicId: string) => void;
   scrollScope: string;
   entryScrollRequest?: EntryConversationScrollRequest;
   latestScrollRequest?: LatestConversationScrollRequest;
@@ -174,7 +177,9 @@ interface ConversationProps {
 export function Conversation({
   chat,
   topic,
+  topics,
   onBackToTopics,
+  onSelectTopic,
   scrollScope,
   entryScrollRequest,
   latestScrollRequest,
@@ -238,6 +243,9 @@ export function Conversation({
   onReportChat,
   onBlockSender,
 }: ConversationProps) {
+  const conversationIdentity = chat
+    ? topic ? `${chat.id}:topic:${topic.id}` : chat.id
+    : undefined;
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const attentionMessageIds = useTelegramStore((state) => chat
     ? state.unreadAttentionMessageIds.get(chat.id) ?? EMPTY_ATTENTION_MESSAGE_IDS
@@ -338,7 +346,7 @@ export function Conversation({
     close: closeMessageSearch,
     show: showMessageSearch,
     toggle: toggleMessageSearch,
-  } = useConversationSearch(chat?.id, displayMessages, onSearchMessages);
+  } = useConversationSearch(conversationIdentity, displayMessages, onSearchMessages);
   const messageSearchInputRef = useRef<HTMLInputElement>(null);
   const [activeSearchResultId, setActiveSearchResultId] = useState<string>();
 
@@ -507,6 +515,7 @@ export function Conversation({
   );
   const forwarding = useMessageForwarding({
     chatId: chat?.id,
+    conversationIdentity,
     messages,
     messagesById,
     targets: forwardTargets,
@@ -726,7 +735,7 @@ export function Conversation({
       active !== composerInputRef.current &&
       (!activeChatRow || window.matchMedia("(forced-colors: active)").matches)) return;
     composerInputRef.current?.focus({ preventScroll: true });
-  }, [chat?.id, historyLoading, positioning, searchOpen, selectionMode]);
+  }, [conversationIdentity, historyLoading, positioning, searchOpen, selectionMode]);
 
   useLayoutEffect(() => {
     if (!chat || positioning || (historyLoading && visibleMessages.length === 0)) return;
@@ -754,7 +763,7 @@ export function Conversation({
     setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setDeletePending(false);
-  }, [chat?.id]);
+  }, [conversationIdentity]);
 
   useEffect(() => {
     if (editingMessage) return;
@@ -767,7 +776,7 @@ export function Conversation({
     if (target) {
       setReplyingTo((current) => current?.id === target.id ? current : target);
     }
-  }, [chat?.id, draftReplyToMessageId, editingMessage, messagesById]);
+  }, [conversationIdentity, draftReplyToMessageId, editingMessage, messagesById]);
 
   useEffect(() => {
     if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
@@ -980,7 +989,7 @@ export function Conversation({
   return (
     <section
       ref={conversationRef}
-      className={`conversation ${searchOpen ? "has-message-search" : ""} ${selectionMode ? "is-selecting-messages" : ""}`}
+      className={`conversation ${searchOpen ? "has-message-search" : ""} ${topic && !selectionMode ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""}`}
       onPointerUp={(event) => {
         if (event.button !== 0 || selectionMode) return;
         const target = event.target;
@@ -1082,6 +1091,14 @@ export function Conversation({
           </>
         )}
       </header>
+
+      {topic && !selectionMode && (
+        <ForumTopicStrip
+          topics={topics}
+          activeTopicId={topic.id}
+          onSelectTopic={onSelectTopic}
+        />
+      )}
 
       {searchOpen && (
         <div

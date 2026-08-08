@@ -8,6 +8,7 @@ import type {
 
 interface MessageForwardingOptions {
   chatId?: string;
+  conversationIdentity?: string;
   messages: Message[];
   messagesById: Map<string, Message>;
   targets: Chat[];
@@ -25,6 +26,7 @@ interface MessageForwardingOptions {
 
 export const useMessageForwarding = ({
   chatId,
+  conversationIdentity,
   messages,
   messagesById,
   targets,
@@ -53,7 +55,7 @@ export const useMessageForwarding = ({
     setQuery("");
     setPending(false);
     setPendingTargetId(undefined);
-  }, [chatId]);
+  }, [conversationIdentity ?? chatId]);
 
   useEffect(() => {
     setSelectedIds((current) => {

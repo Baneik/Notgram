@@ -56,6 +56,7 @@
 forumTopics: Map<chatId, ForumTopic[]>
 topicHistories: Map<chatId:topic:topicId, HistoryState>
 drafts: Map<chatId | chatId:topic:topicId, ChatDraft>
+lastForumTopicIds: Map<chatId, topicId>
 activeChatId + activeTopicId
 messages: Map<chatId, Message[]>  // UI 按 topicId 过滤
 ```
@@ -67,6 +68,7 @@ messages: Map<chatId, Message[]>  // UI 按 topicId 过滤
 3. 论坛列表页不调用整群 `markChatRead`；进入话题后只用该话题最后一条入站消息执行 `viewMessages(force_read=true)`。
 4. `forumTopic.draft_message` 和实时 `chat.draftChanged` 都按话题 key 写入，服务端空草稿会删除对应 key。
 5. 旧消息缓存仍按 chat 存储，恢复后依靠 `Message.topicId` 过滤，避免破坏现有缓存迁移。
+6. 每个论坛群组最后打开的话题和已加载的话题元数据写入加密快照；重新进入时先恢复缓存会话，再在后台刷新服务端列表和历史。
 
 ### 3.4 请求示例
 
@@ -86,7 +88,8 @@ messages: Map<chatId, Message[]>  // UI 按 topicId 过滤
 
 ### 4.1 话题列表页
 
-- 论坛群组被选中后，右侧主体显示“话题”页，不直接进入某个话题。
+- 首次进入且尚无缓存时自动打开服务端排序最前的话题；再次进入直接恢复该群组上次离开的话题，不要求重复经过列表页。
+- 话题列表保留为创建和管理入口，通过会话头部的返回按钮显式打开。
 - 顶部沿用现有会话头部：群组头像、名称、移动端返回；有权限时右侧显示创建按钮。
 - 每行展示颜色图标、名称、最后消息摘要、置顶/关闭图标和未读徽标；整行进入话题，更多菜单提供重命名、置顶和关闭。
 - 创建使用行内表单，成功后自动进入新话题；名称限制 1-128 个字符，错误沿用全局操作提示。
@@ -94,6 +97,7 @@ messages: Map<chatId, Message[]>  // UI 按 topicId 过滤
 ### 4.2 话题会话页
 
 - 复用现有 `Conversation`、虚拟消息列表、Composer、消息操作和媒体预览，减少两套会话行为分叉。
+- 会话头部下方提供横向话题切换栏；每项只展示颜色头像、名称和未读消息计数器，当前项自动滚动到可见区域。
 - 头部标题切换为话题名称，关闭话题显示状态；桌面和移动端均提供返回话题列表按钮。
 - 草稿、回复目标、输入状态、搜索、发送和附件上传通过当前 `activeTopicId` 自动隔离。
 - 转发到论坛群组时进入二级话题选择，关闭的话题不可选，避免把消息误发到普通群组上下文。
@@ -101,6 +105,7 @@ messages: Map<chatId, Message[]>  // UI 按 topicId 过滤
 ### 4.3 响应式与无障碍
 
 - 桌面端话题列表占用会话主体列，移动端作为全屏一级视图；不改变现有侧栏和底部导航。
+- 横向话题栏独立滚动且隐藏滚动条，窄屏不挤压消息区，也不造成页面级横向溢出。
 - 行操作均使用 Lucide 图标、`aria-label` 和 `title`；编辑/创建表单支持键盘提交和取消。
 - 话题列表、消息列表和 Composer 保持独立滚动容器；验收覆盖 1440px 和 390px，检查横向溢出、按钮可达性和运行时错误。
 

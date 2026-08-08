@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "minimumCompatibleVersion": "0.5.0-rc.1",
-  "cacheSchemaVersion": 2,
+  "cacheSchemaVersion": 3,
   "channels": {
     "stable": {
       "acceptPrerelease": false,

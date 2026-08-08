@@ -785,7 +785,7 @@ export interface TelegramSnapshot {
 }
 
 export interface CachedTelegramSnapshot {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   savedAt: string;
   currentUserId: string;
   users: User[];
@@ -797,6 +797,8 @@ export interface CachedTelegramSnapshot {
   activeChatId?: string;
   chatFilter?: string;
   profiles?: ChatProfile[];
+  forumTopics?: Array<{ chatId: string; topics: ForumTopic[] }>;
+  lastForumTopicIds?: Array<{ chatId: string; topicId: string }>;
 }
 
 export interface QueuedOutgoingMessage {

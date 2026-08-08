@@ -106,6 +106,7 @@ export interface TelegramState {
   forumTopics: Map<string, ForumTopic[]>;
   forumTopicsLoading: Set<string>;
   topicHistories: Map<string, HistoryState>;
+  lastForumTopicIds: Map<string, string>;
   activeChatId?: string;
   activeTopicId?: string;
   searchQuery: string;

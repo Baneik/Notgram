@@ -128,7 +128,7 @@ describe("telegram store cache and accounts", () => {
 
     expect(migrateCachedSnapshot(legacy)).toMatchObject({
       health: "migrated",
-      snapshot: { version: 2, currentUserId: mockSnapshot.currentUserId },
+      snapshot: { version: 3, currentUserId: mockSnapshot.currentUserId },
     });
     expect(migrateCachedSnapshot({ ...legacy, version: 99 })).toEqual({ health: "invalid" });
     expect(migrateCachedSnapshot({ ...legacy, chats: [{ title: "missing id" }] }))

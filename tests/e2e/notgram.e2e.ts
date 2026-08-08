@@ -82,20 +82,33 @@ const revealVirtualMessage = async (page: Page, messageId: string) => {
   return row;
 };
 
-test("forum groups expose topic navigation and management", async ({ page }) => {
+test("forum groups reopen the last topic and expose compact horizontal navigation", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-chat-id="chat-forum"]').click();
 
-  const topics = page.locator(".forum-topics-view");
-  await expect(topics).toBeVisible();
-  await expect(topics.getByText("构建与发布", { exact: true })).toBeVisible();
-  await expect(topics.getByText("设计反馈", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation-title strong")).toHaveText("常规");
+  await expect(page.locator('[data-message-id="forum-general-1"]')).toBeVisible();
+  const strip = page.getByRole("navigation", { name: "话题切换" });
+  await expect(strip).toBeVisible();
+  await expect(strip.getByRole("tab")).toHaveCount(3);
+  await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-avatar')).toBeVisible();
+  await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-name')).toHaveText("构建与发布");
+  await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-count')).toHaveText("3");
 
-  await topics.locator(".forum-topic-main").filter({ hasText: "构建与发布" }).click();
+  await strip.locator('[data-topic-id="12"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("构建与发布");
+  await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('[data-chat-id="chat-forum"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("构建与发布");
   await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
 
   await page.getByRole("button", { name: "返回话题列表" }).click();
+  const topics = page.locator(".forum-topics-view");
+  await expect(topics).toBeVisible();
+  await expect(topics.getByText("构建与发布", { exact: true })).toBeVisible();
+  await expect(topics.getByText("设计反馈", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "创建话题" }).click();
   await page.getByPlaceholder("话题名称").fill("自动化验收");
   await page.getByRole("button", { name: "确认创建" }).click();

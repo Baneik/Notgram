@@ -288,6 +288,7 @@ export const createTelegramStore = (
         forumTopics: new Map(),
         forumTopicsLoading: new Set(),
         topicHistories: new Map(),
+        lastForumTopicIds: new Map(),
         activeChatId: undefined,
         activeTopicId: undefined,
         globalSearch: emptyGlobalSearch(),
@@ -365,6 +366,12 @@ export const createTelegramStore = (
       profileController.hydrateCachedProfiles(snapshot.profiles ?? []);
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
+      const forumTopics = new Map(
+        (snapshot.forumTopics ?? []).map((entry) => [entry.chatId, entry.topics]),
+      );
+      const lastForumTopicIds = new Map(
+        (snapshot.lastForumTopicIds ?? []).map((entry) => [entry.chatId, entry.topicId]),
+      );
       let messages = messageMapFrom(snapshot.messages);
       const drafts = new Map((snapshot.drafts ?? []).map((draft) => [topicKey(draft.chatId, draft.topicId), draft]));
       const outbox = snapshot.outbox ?? [];
@@ -376,6 +383,10 @@ export const createTelegramStore = (
       }
       for (const [id, chat] of current.chats) chats.set(id, chat);
       for (const [id, user] of current.users) users.set(id, user);
+      for (const [chatId, topics] of current.forumTopics) forumTopics.set(chatId, topics);
+      for (const [chatId, topicId] of current.lastForumTopicIds) {
+        lastForumTopicIds.set(chatId, topicId);
+      }
       for (const [chatId, draft] of current.drafts) {
         if (draft.pending || !drafts.has(chatId)) drafts.set(chatId, draft);
       }
@@ -399,6 +410,10 @@ export const createTelegramStore = (
       const cachedActiveChatId = snapshot.activeChatId && chats.has(snapshot.activeChatId)
         ? snapshot.activeChatId
         : undefined;
+      const nextActiveChatId = current.activeChatId ?? cachedActiveChatId;
+      const cachedActiveTopicId = nextActiveChatId && chats.get(nextActiveChatId)?.isForum
+        ? lastForumTopicIds.get(nextActiveChatId)
+        : undefined;
       set({
         currentUserId: current.currentUserId ?? snapshot.currentUserId,
         users,
@@ -408,7 +423,10 @@ export const createTelegramStore = (
         messages,
         drafts,
         outbox,
-        activeChatId: current.activeChatId ?? cachedActiveChatId,
+        forumTopics,
+        lastForumTopicIds,
+        activeChatId: nextActiveChatId,
+        activeTopicId: current.activeTopicId ?? cachedActiveTopicId,
         chatFilter: current.chatFilter !== "main" ? current.chatFilter : chatFilter,
         cacheHealth: migration.health,
       });
@@ -652,11 +670,8 @@ export const createTelegramStore = (
           if (activeChatId) {
             const activeTopicId = get().activeTopicId;
             if (get().chats.get(activeChatId)?.isForum) {
-              void get().loadForumTopics(activeChatId);
-              if (activeTopicId) {
-                void loadForumTopicHistory(activeChatId, activeTopicId, "ensure")
-                  .then(() => markForumTopicRead(activeChatId, activeTopicId));
-              }
+              if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
+              void refreshForumConversation(activeChatId);
             } else {
               void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
             }
@@ -736,11 +751,11 @@ export const createTelegramStore = (
         });
         scheduleCacheWrite();
         if (activeChatModeChanged && activeChatId && activeChat) {
-          if (activeChat.isForum) void get().loadForumTopics(activeChatId);
+          if (activeChat.isForum) void refreshForumConversation(activeChatId);
           else void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
         }
         if (firstChat) {
-          if (chats.get(firstChat)?.isForum) void get().loadForumTopics(firstChat);
+          if (chats.get(firstChat)?.isForum) void refreshForumConversation(firstChat);
           else void loadHistory(firstChat, "ensure").then(() => markChatRead(firstChat));
         }
         return;
@@ -1041,6 +1056,27 @@ export const createTelegramStore = (
       topicKey,
       onError: errorMessage,
     });
+    const restorableForumTopicId = (chatId: string, topics = get().forumTopics.get(chatId) ?? []) => {
+      const remembered = get().lastForumTopicIds.get(chatId);
+      if (remembered && (topics.length === 0 || topics.some((topic) => topic.id === remembered))) {
+        return remembered;
+      }
+      return topics.find((topic) => !topic.isHidden)?.id ?? topics[0]?.id;
+    };
+    const loadActiveForumTopic = (chatId: string, topicId: string) => {
+      if (get().authorization.kind !== "ready") return;
+      void loadForumTopicHistory(chatId, topicId, "ensure")
+        .then(() => markForumTopicRead(chatId, topicId));
+    };
+    const refreshForumConversation = async (chatId: string) => {
+      const page = await forumController.loadForumTopics(chatId);
+      if (!page || get().activeChatId !== chatId || !get().chats.get(chatId)?.isForum) return;
+      const currentTopicId = get().activeTopicId;
+      if (currentTopicId && page.topics.some((topic) => topic.id === currentTopicId)) return;
+      const nextTopicId = restorableForumTopicId(chatId, page.topics);
+      if (nextTopicId) await get().selectForumTopic(nextTopicId);
+      else set({ activeTopicId: undefined });
+    };
     const sessionController = createSessionController({
       transport,
       set,
@@ -1077,6 +1113,7 @@ export const createTelegramStore = (
       forumTopics: new Map(),
       forumTopicsLoading: new Set(),
       topicHistories: new Map(),
+      lastForumTopicIds: new Map(),
       activeTopicId: undefined,
       searchQuery: "",
       chatFilter: "main",
@@ -1177,8 +1214,14 @@ export const createTelegramStore = (
           if (settingsOnly) return;
           const refreshChatId = get().activeChatId ?? firstChat?.id;
           if (authorization.kind === "ready" && refreshChatId) {
-            await loadHistory(refreshChatId, "ensure");
-            await markChatRead(refreshChatId);
+            if (get().chats.get(refreshChatId)?.isForum) {
+              const activeTopicId = get().activeTopicId;
+              if (activeTopicId) loadActiveForumTopic(refreshChatId, activeTopicId);
+              await refreshForumConversation(refreshChatId);
+            } else {
+              await loadHistory(refreshChatId, "ensure");
+              await markChatRead(refreshChatId);
+            }
           }
           if (authorization.kind === "ready") {
             draftSync.resumePending();
@@ -1398,11 +1441,22 @@ export const createTelegramStore = (
         if (previousChatId && previousChatId !== chatId) {
           void draftSync.flush(topicKey(previousChatId, previousTopicId));
         }
-        set({ activeChatId: chatId, activeTopicId: undefined });
+        const targetChat = get().chats.get(chatId);
+        const restoredTopicId = targetChat?.isForum
+          ? restorableForumTopicId(chatId)
+          : undefined;
+        const lastForumTopicIds = new Map(get().lastForumTopicIds);
+        if (restoredTopicId) lastForumTopicIds.set(chatId, restoredTopicId);
+        set({
+          activeChatId: chatId,
+          activeTopicId: restoredTopicId,
+          lastForumTopicIds,
+        });
         scheduleCacheWrite();
         if (get().authorization.kind !== "ready") return;
-        if (get().chats.get(chatId)?.isForum) {
-          void get().loadForumTopics(chatId);
+        if (targetChat?.isForum) {
+          if (restoredTopicId) loadActiveForumTopic(chatId, restoredTopicId);
+          void refreshForumConversation(chatId);
         } else {
           void loadHistory(chatId, "ensure");
           void markChatRead(chatId);
@@ -1414,12 +1468,11 @@ export const createTelegramStore = (
         if (!chatId || !get().chats.get(chatId)?.isForum) return;
         const previousTopicId = get().activeTopicId;
         if (previousTopicId && previousTopicId !== topicId) void draftSync.flush(topicKey(chatId, previousTopicId));
-        set({ activeTopicId: topicId });
+        const lastForumTopicIds = new Map(get().lastForumTopicIds);
+        if (topicId) lastForumTopicIds.set(chatId, topicId);
+        set({ activeTopicId: topicId, lastForumTopicIds });
         scheduleCacheWrite();
-        if (topicId && get().authorization.kind === "ready") {
-          void loadForumTopicHistory(chatId, topicId, "ensure")
-            .then(() => markForumTopicRead(chatId, topicId));
-        }
+        if (topicId) loadActiveForumTopic(chatId, topicId);
       },
 
       loadForumTopics: forumController.loadForumTopics,
@@ -1538,11 +1591,13 @@ export const createTelegramStore = (
           get().chatFilter,
           "",
         )[0];
-        set({ activeChatId: nextChat?.id });
-        scheduleCacheWrite();
-        if (nextChat) {
-          await loadHistory(nextChat.id, "ensure");
-          await markChatRead(nextChat.id);
+        const lastForumTopicIds = new Map(get().lastForumTopicIds);
+        lastForumTopicIds.delete(chatId);
+        set({ lastForumTopicIds });
+        if (nextChat) await get().selectChat(nextChat.id);
+        else {
+          set({ activeChatId: undefined, activeTopicId: undefined });
+          scheduleCacheWrite();
         }
         return true;
       },

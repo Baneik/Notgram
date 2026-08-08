@@ -2,9 +2,11 @@ import type { CachedTelegramSnapshot, ChatProfile, Message } from "../telegram/t
 import type { TelegramState } from "./telegramStore.types";
 import type { QueuedOutgoingAttachment } from "../telegram/types";
 
-export const TELEGRAM_CACHE_VERSION = 2 as const;
+export const TELEGRAM_CACHE_VERSION = 3 as const;
 const MAX_CACHED_MESSAGES_PER_CHAT = 60;
 const MAX_CACHED_MESSAGES = 5_000;
+const MAX_CACHED_FORUM_CHATS = 20;
+const MAX_CACHED_TOPICS_PER_FORUM = 100;
 
 export type CacheHealth = "empty" | "healthy" | "migrated" | "invalid" | "rebuilt";
 
@@ -40,7 +42,7 @@ const isQueuedAttachment = (value: unknown): value is QueuedOutgoingAttachment =
 
 export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration => {
   if (value === undefined || value === null) return { health: "empty" };
-  if (!isRecord(value) || (value.version !== 1 && value.version !== 2)) {
+  if (!isRecord(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3)) {
     return { health: "invalid" };
   }
   if (
@@ -83,6 +85,27 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     )) ||
     (value.activeChatId !== undefined && typeof value.activeChatId !== "string") ||
     (value.chatFilter !== undefined && typeof value.chatFilter !== "string") ||
+    (value.forumTopics !== undefined && (
+      !Array.isArray(value.forumTopics) ||
+      !value.forumTopics.every((entry) =>
+        hasStringKey(entry, "chatId") &&
+        isRecord(entry) &&
+        Array.isArray(entry.topics) &&
+        entry.topics.every((topic) =>
+          hasStringKey(topic, "id") &&
+          hasStringKey(topic, "chatId") &&
+          hasStringKey(topic, "name") &&
+          isRecord(topic) &&
+          topic.chatId === entry.chatId
+        )
+      )
+    )) ||
+    (value.lastForumTopicIds !== undefined && (
+      !Array.isArray(value.lastForumTopicIds) ||
+      !value.lastForumTopicIds.every((entry) =>
+        hasStringKey(entry, "chatId") && hasStringKey(entry, "topicId")
+      )
+    )) ||
     (value.profiles !== undefined && (
       !Array.isArray(value.profiles) ||
       !value.profiles.every((profile) => hasStringKey(profile, "id"))
@@ -97,6 +120,8 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       ...(value as unknown as CachedTelegramSnapshot),
       version: TELEGRAM_CACHE_VERSION,
       outbox: value.version === 1 ? [] : (value.outbox ?? []),
+      forumTopics: value.version === 3 ? (value.forumTopics ?? []) : [],
+      lastForumTopicIds: value.version === 3 ? (value.lastForumTopicIds ?? []) : [],
     },
   };
 };
@@ -115,6 +140,30 @@ const cacheableMessage = (message: Message): Message => {
     ...result,
     content: { ...result.content, previewDataUrl: undefined },
   };
+};
+
+const forumTopicsForCache = (state: TelegramState) => {
+  const lastForumTopicIds = state.lastForumTopicIds ?? new Map<string, string>();
+  const forumTopics = state.forumTopics ?? new Map();
+  const orderedChatIds = [
+    state.activeChatId,
+    ...lastForumTopicIds.keys(),
+    ...forumTopics.keys(),
+  ].filter((chatId, index, values): chatId is string =>
+    Boolean(chatId) && values.indexOf(chatId) === index,
+  ).slice(0, MAX_CACHED_FORUM_CHATS);
+
+  return orderedChatIds.flatMap((chatId) => {
+    const topics = forumTopics.get(chatId);
+    if (!topics?.length) return [];
+    return [{
+      chatId,
+      topics: topics.slice(0, MAX_CACHED_TOPICS_PER_FORUM).map((topic) => ({
+        ...topic,
+        lastMessage: topic.lastMessage ? cacheableMessage(topic.lastMessage) : undefined,
+      })),
+    }];
+  });
 };
 
 export const recentMessagesForCache = (state: TelegramState) => {
@@ -157,4 +206,9 @@ export const cachedSnapshotFrom = (
   activeChatId: state.activeChatId,
   chatFilter: state.chatFilter,
   profiles,
+  forumTopics: forumTopicsForCache(state),
+  lastForumTopicIds: [...(state.lastForumTopicIds ?? new Map<string, string>())].map(([chatId, topicId]) => ({
+    chatId,
+    topicId,
+  })),
 });

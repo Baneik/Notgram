@@ -91,4 +91,22 @@ describe("telegram store forum controller", () => {
     expect(harness.transport.getForumTopics).toHaveBeenCalledWith({ chatId: "forum-1", query: "", limit: 100 });
     expect(harness.getState().forumTopics.get("forum-1")).toEqual([created]);
   });
+
+  it("shares an in-flight topic request with every caller", async () => {
+    const harness = createHarness();
+    let resolvePage!: (page: ForumTopicPage) => void;
+    vi.mocked(harness.transport.getForumTopics).mockReturnValue(new Promise((resolve) => {
+      resolvePage = resolve;
+    }));
+
+    const first = harness.controller.loadForumTopics("forum-1");
+    const second = harness.controller.loadForumTopics("forum-1");
+    expect(harness.transport.getForumTopics).toHaveBeenCalledTimes(1);
+    expect(harness.getState().forumTopicsLoading.has("forum-1")).toBe(true);
+
+    const page = { topics: [topic("topic-1")], hasMore: false };
+    resolvePage(page);
+    await expect(Promise.all([first, second])).resolves.toEqual([page, page]);
+    expect(harness.getState().forumTopicsLoading.has("forum-1")).toBe(false);
+  });
 });

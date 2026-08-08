@@ -7,6 +7,8 @@ with prerelease identifiers used for release candidates.
 
 ### Added
 
+- Reopen forum groups at their last topic and switch topics from a compact horizontal
+  strip containing only the topic avatar, name, and unread counter.
 - Send selected videos, audio, animations, photos, and documents as native Telegram
   media with probed dimensions, duration, generated covers, spoiler/caption placement,
   original-file mode, compatible mixed albums, and native-path-safe validation.
@@ -32,6 +34,8 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Cache bounded forum-topic metadata with per-group selection state so forum entry
+  paints immediately while topic metadata and history refresh in the background.
 - Preserve TDLib voice-note duration before media loading and disable unavailable
   voice controls instead of presenting an inert play action.
 - Merge chat and message search into the single conversation-sidebar field, and hide

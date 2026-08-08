@@ -21,6 +21,7 @@ import type {
   TelegramEvent,
 } from "../telegram/types";
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
+import { cachedSnapshotFrom } from "./telegramStore.cache";
 
 describe("telegram store", () => {
   it.each([
@@ -401,7 +402,7 @@ describe("telegram store", () => {
       await vi.advanceTimersByTimeAsync(2_001);
 
       expect(transport.savedSnapshot).toMatchObject({
-        version: 2,
+        version: 3,
         currentUserId: "self",
         activeChatId: "chat-product",
       });
@@ -1578,6 +1579,60 @@ describe("telegram store", () => {
     expect(transport.topicReads.at(-1)).toMatchObject({ chatId: "chat-forum", topicId: "12" });
   });
 
+  it("returns to the last topic when a forum chat is opened again", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    await store.getState().selectChat("chat-forum");
+    await vi.waitFor(() => expect(store.getState().activeTopicId).toBe("1"));
+    await store.getState().selectForumTopic("12");
+    await store.getState().selectChat("chat-mia");
+
+    await store.getState().selectChat("chat-forum");
+    expect(store.getState().activeTopicId).toBe("12");
+    expect(store.getState().lastForumTopicIds.get("chat-forum")).toBe("12");
+  });
+
+  it("hydrates cached forum topics and their last selection before connecting", async () => {
+    const liveTransport = new MockTelegramTransport();
+    const liveStore = createTelegramStore(liveTransport);
+    await liveStore.getState().initialize();
+    await liveStore.getState().selectChat("chat-forum");
+    await vi.waitFor(() => expect(liveStore.getState().forumTopics.get("chat-forum")).toHaveLength(3));
+    await liveStore.getState().selectForumTopic("12");
+    const cachedSnapshot = cachedSnapshotFrom(liveStore.getState());
+
+    class DelayedForumTransport extends MockTelegramTransport {
+      private releaseConnection?: () => void;
+      private connectionGate = new Promise<void>((resolve) => {
+        this.releaseConnection = resolve;
+      });
+
+      override async connect(listener: Parameters<MockTelegramTransport["connect"]>[0]) {
+        await this.connectionGate;
+        return super.connect(listener);
+      }
+
+      release() {
+        this.releaseConnection?.();
+      }
+    }
+
+    const transport = new DelayedForumTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    const initialization = store.getState().initialize();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(store.getState().activeChatId).toBe("chat-forum");
+    expect(store.getState().activeTopicId).toBe("12");
+    expect(store.getState().forumTopics.get("chat-forum")?.find((topic) => topic.id === "12")?.name)
+      .toBe("构建与发布");
+    expect(store.getState().cacheHealth).toBe("healthy");
+
+    transport.release();
+    await initialization;
+  });
+
   it("reloads the active conversation when live metadata changes its forum mode", async () => {
     class ForumModeTransport extends MockTelegramTransport {
       eventListener?: TelegramEventListener;
@@ -2135,7 +2190,7 @@ describe("chat filtering", () => {
     await expect(store.getState().rebuildCachedSnapshot()).resolves.toBe(true);
     expect(transport.clears).toBe(1);
     expect(transport.savedSnapshot).toMatchObject({
-      version: 2,
+      version: 3,
       currentUserId: mockSnapshot.currentUserId,
     });
     expect(store.getState().cacheHealth).toBe("rebuilt");

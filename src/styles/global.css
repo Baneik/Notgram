@@ -334,6 +334,39 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .forum-topics-state { min-height: 180px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .mobile-back.forum-topic-back { display: inline-grid; }
 .conversation.has-message-search { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.conversation.has-forum-topic-strip { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.conversation.has-forum-topic-strip.has-message-search { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+.forum-topic-strip {
+  min-width: 0; height: 56px; padding: 6px 10px; overflow: hidden;
+  background: var(--color-bg-surface); border-bottom: 1px solid var(--line);
+}
+.forum-topic-tabs {
+  height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; scroll-snap-type: x proximity;
+}
+.forum-topic-tabs::-webkit-scrollbar { display: none; }
+.forum-topic-tab {
+  min-width: 0; max-width: 230px; height: 42px; padding: 4px 9px 4px 5px; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 7px; color: var(--muted); background: transparent;
+  border: 1px solid transparent; border-radius: 9px; cursor: pointer; scroll-snap-align: nearest;
+}
+.forum-topic-tab:hover, .forum-topic-tab:focus-visible { color: var(--ink); background: var(--surface-hover); }
+.forum-topic-tab.is-active {
+  color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.forum-topic-tab-avatar {
+  width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center;
+  color: var(--color-text-on-accent); border-radius: 50%;
+}
+.forum-topic-tab-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 650;
+}
+.forum-topic-tab-count {
+  min-width: 19px; height: 19px; padding: 0 5px; flex: 0 0 auto; display: grid; place-items: center;
+  color: var(--color-text-on-accent); background: var(--accent); border-radius: 10px;
+  font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
 .conversation-header {
   height: 60px; padding: 0 12px 0 16px; display: flex; align-items: center; gap: 11px;
   background: var(--color-bg-surface); border-bottom: 1px solid var(--line);

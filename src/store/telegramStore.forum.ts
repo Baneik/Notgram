@@ -35,33 +35,42 @@ export const createForumController = ({
   topicKey,
   onError,
 }: ForumControllerOptions): ForumController => {
+  const pendingLoads = new Map<string, Promise<ForumTopicPage | undefined>>();
+
   const loadForumTopics: ForumController["loadForumTopics"] = async (chatId, query = "") => {
     if (!get().chats.get(chatId)?.isForum) return undefined;
-    if (get().forumTopicsLoading.has(chatId)) return undefined;
-    const loading = new Set(get().forumTopicsLoading);
-    loading.add(chatId);
-    set({ forumTopicsLoading: loading });
-    try {
-      const page = await transport.getForumTopics({ chatId, query, limit: 100 });
-      const forumTopics = new Map(get().forumTopics);
-      forumTopics.set(chatId, page.topics);
-      const drafts = new Map(get().drafts);
-      for (const topic of page.topics) {
-        const key = topicKey(chatId, topic.id);
-        if (drafts.get(key)?.pending) continue;
-        if (topic.draft) drafts.set(key, { ...topic.draft, pending: false });
-        else drafts.delete(key);
+    const pending = pendingLoads.get(chatId);
+    if (pending) return pending;
+
+    const request = (async () => {
+      const loading = new Set(get().forumTopicsLoading);
+      loading.add(chatId);
+      set({ forumTopicsLoading: loading });
+      try {
+        const page = await transport.getForumTopics({ chatId, query, limit: 100 });
+        const forumTopics = new Map(get().forumTopics);
+        forumTopics.set(chatId, page.topics);
+        const drafts = new Map(get().drafts);
+        for (const topic of page.topics) {
+          const key = topicKey(chatId, topic.id);
+          if (drafts.get(key)?.pending) continue;
+          if (topic.draft) drafts.set(key, { ...topic.draft, pending: false });
+          else drafts.delete(key);
+        }
+        set({ forumTopics, drafts, operationError: undefined });
+        return page;
+      } catch (error) {
+        set({ operationError: onError(error, "无法加载话题列表") });
+        return undefined;
+      } finally {
+        pendingLoads.delete(chatId);
+        const latest = new Set(get().forumTopicsLoading);
+        latest.delete(chatId);
+        set({ forumTopicsLoading: latest });
       }
-      set({ forumTopics, drafts, operationError: undefined });
-      return page;
-    } catch (error) {
-      set({ operationError: onError(error, "无法加载话题列表") });
-      return undefined;
-    } finally {
-      const latest = new Set(get().forumTopicsLoading);
-      latest.delete(chatId);
-      set({ forumTopicsLoading: latest });
-    }
+    })();
+    pendingLoads.set(chatId, request);
+    return request;
   };
 
   const reloadTopics = async (chatId: string) => {
