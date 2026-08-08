@@ -4,7 +4,7 @@
 
 ## 1. 结论与范围
 
-本次接入论坛型超级群组（`chatTypeSupergroup.is_forum = true`），把会话身份从单一 `chatId` 扩展为 `chatId + topicId`。已实现的闭环包括：
+本次接入论坛型超级群组（`chatTypeSupergroup.supergroup_id -> supergroup.is_forum = true`），把会话身份从单一 `chatId` 扩展为 `chatId + topicId`。已实现的闭环包括：
 
 - 话题列表、分页游标、未读数、置顶、关闭和最后一条消息预览。
 - 打开话题、话题历史分页、文本/附件/贴纸/GIF/Inline 结果发送。
@@ -20,7 +20,7 @@
 
 | 能力 | TDLib 类型/函数 | Notgram 用法 |
 | --- | --- | --- |
-| 判断论坛群组 | `chatTypeSupergroup.is_forum` | 显示话题入口并切换主体视图 |
+| 判断论坛群组 | `chatTypeSupergroup.supergroup_id`、`supergroup.is_forum`、`updateSupergroup` | 关联聊天和超级群组元数据，显示话题入口并切换主体视图 |
 | 创建权限 | `chat.permissions.can_create_topics` | 控制“创建话题”按钮和服务端失败提示 |
 | 消息归属 | `message.topic_id:MessageTopic`、`messageTopicForum.forum_topic_id` | 映射到 `Message.topicId`，所有发送请求携带 `topic_id` |
 | 话题元数据 | `forumTopicInfo`、`forumTopic` | 名称、图标颜色、关闭/隐藏、置顶、未读、通知和草稿 |
@@ -38,6 +38,7 @@
 ### 3.1 类型与映射
 
 - `Chat.isForum`、`Chat.canCreateTopics` 描述群组能力。
+- `TauriTelegramTransport` 缓存 `updateSupergroup.supergroup`，按 `chatTypeSupergroup.supergroup_id` 关联到聊天；TDLib 保证该更新先于超级群组标识返回。
 - `Message.topicId`、`ChatDraft.topicId`、发件箱项 `topicId` 保持上下文。
 - 新增 `ForumTopic`、`ForumTopicPage`、`GetForumTopicsInput`、`CreateForumTopicInput`。
 - `mapTdMessage`、`mapTdChat`、`mapTdChatDraft`、`mapTdForumTopic` 只做 TDLib 到领域模型的转换，禁止 UI 读取原始 TDLib 对象。

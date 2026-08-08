@@ -462,6 +462,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private unlistenError?: UnlistenFn;
   private requestBroker = new TdRequestBroker();
   private rawChats = new Map<string, TdObject>();
+  private rawSupergroups = new Map<string, TdObject>();
   private rawUsers = new Map<string, TdObject>();
   private rawMessages = new Map<string, Map<string, TdObject>>();
   private rawMessageFileIds = new Map<string, Set<number>>();
@@ -493,6 +494,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     authorization: (update) => this.handleAuthorizationUpdate(update),
     connection: (update) => this.handleConnectionUpdate(update),
     upsertUser: (user) => this.upsertUser(user),
+    upsertSupergroup: (supergroup) => this.upsertSupergroup(supergroup),
     updateUserStatus: (update) => this.updateUserStatus(update),
     updateChatFolders: (update) => this.updateChatFolders(update),
     upsertChat: (chat) => this.upsertChat(chat),
@@ -813,7 +815,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       chat_id: numericId(chatId),
     });
     this.upsertChat(rawChat);
-    const chat = mapTdChat(rawChat, this.currentUserId);
+    const chat = this.mapChat(rawChat);
     if (!chat) throw new Error("TDLib 未返回聊天资料");
     const type = asTdObject(rawChat.type);
     if (type?.["@type"] === "chatTypePrivate") {
@@ -963,7 +965,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       force: false,
     });
     this.upsertChat(raw);
-    const chat = mapTdChat(raw, this.currentUserId);
+    const chat = this.mapChat(raw);
     if (!chat) throw new Error("TDLib 未返回私聊");
     return chat;
   }
@@ -1040,7 +1042,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (input.selectPhoto) await this.requestPreparedChatPhoto(chatId);
     rawChat = await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
     this.upsertChat(rawChat);
-    const chat = mapTdChat(rawChat, this.currentUserId);
+    const chat = this.mapChat(rawChat);
     if (!chat) throw new Error("TDLib 未返回已创建的聊天");
     return chat;
   }
@@ -1439,7 +1441,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       if (type === "messageSenderChat") {
         const id = tdId(raw.chat_id);
         const chat = id ? this.rawChats.get(id) ?? await this.request({ "@type": "getChat", chat_id: numericId(id) }) : undefined;
-        return chat && id ? { id, kind: "chat" as const, title: typeof chat.title === "string" ? chat.title : "已屏蔽频道", avatar: mapTdChat(chat, this.currentUserId)?.avatar ?? { label: "?", color: "#73808c" } } : undefined;
+        return chat && id ? { id, kind: "chat" as const, title: typeof chat.title === "string" ? chat.title : "已屏蔽频道", avatar: this.mapChat(chat)?.avatar ?? { label: "?", color: "#73808c" } } : undefined;
       }
       return undefined;
     }));
@@ -1607,7 +1609,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         chat_id: numericId(chatId),
       });
       this.upsertChat(raw);
-      return mapTdChat(raw, this.currentUserId);
+      return this.mapChat(raw);
     }))).filter((chat): chat is Chat => Boolean(chat));
     const totalCount = tdNumber(found.total_count);
     return {
@@ -1771,7 +1773,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   async deleteChatFolder(folderId: string) {
     const numericFolderId = chatFolderNumericId(folderId);
     const affectedChatIds = [...this.rawChats.entries()].flatMap(([chatId, raw]) =>
-      mapTdChat(raw, this.currentUserId)?.folderIds.includes(folderId) ? [chatId] : []
+      this.mapChat(raw)?.folderIds.includes(folderId) ? [chatId] : []
     );
     await this.request({
       "@type": "deleteChatFolder",
@@ -2811,7 +2813,7 @@ export class TauriTelegramTransport implements TelegramTransport {
           chat_id: numericId(id),
         });
         this.rawChats.set(id, raw);
-        return mapTdChat(raw, this.currentUserId);
+        return this.mapChat(raw);
       }));
       fetchedChats.push(...batch.filter((chat): chat is Chat => Boolean(chat)));
     }
@@ -2948,6 +2950,19 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "user.upsert", user });
   }
 
+  private upsertSupergroup(raw?: TdObject) {
+    if (!raw) return;
+    const id = tdId(raw.id);
+    if (!id) return;
+    this.rawSupergroups.set(id, raw);
+    for (const chat of this.rawChats.values()) {
+      const type = asTdObject(chat.type);
+      if (type?.["@type"] === "chatTypeSupergroup" && tdId(type.supergroup_id) === id) {
+        this.emitChat(chat);
+      }
+    }
+  }
+
   private updateUserStatus(update: TdObject) {
     const id = tdId(update.user_id);
     const current = this.rawUsers.get(id);
@@ -3023,8 +3038,20 @@ export class TauriTelegramTransport implements TelegramTransport {
     return raw;
   }
 
+  private mapChat(raw: TdObject) {
+    const type = asTdObject(raw.type);
+    const supergroupId = type?.["@type"] === "chatTypeSupergroup"
+      ? tdId(type.supergroup_id)
+      : undefined;
+    return mapTdChat(
+      raw,
+      this.currentUserId,
+      supergroupId ? this.rawSupergroups.get(supergroupId) : undefined,
+    );
+  }
+
   private emitChat(raw: TdObject) {
-    const chat = mapTdChat(raw, this.currentUserId);
+    const chat = this.mapChat(raw);
     if (chat && !this.initialChatSyncPending) {
       this.listener?.({ type: "chat.upsert", chat });
     }
@@ -3035,7 +3062,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.initialChatSyncPending = false;
     const chats: Chat[] = [];
     for (const raw of this.rawChats.values()) {
-      const chat = mapTdChat(raw, this.currentUserId);
+      const chat = this.mapChat(raw);
       if (chat) chats.push(chat);
     }
     this.listener?.({ type: "chats.upserted", chats });
@@ -3609,6 +3636,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.networkOnlineHandler = undefined;
     this.connectionStatus = undefined;
     this.rawChats.clear();
+    this.rawSupergroups.clear();
     this.rawUsers.clear();
     this.rawMessages.clear();
     this.rawMessageFileIds.clear();

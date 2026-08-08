@@ -796,19 +796,35 @@ export const createTelegramStore = (
 
       if (event.type === "chats.upserted" || event.type === "chat.upsert") {
         const incomingChats = event.type === "chats.upserted" ? event.chats : [event.chat];
-        const chats = new Map(get().chats);
+        const previousChats = get().chats;
+        const activeChatId = get().activeChatId;
+        const previousActiveChat = activeChatId ? previousChats.get(activeChatId) : undefined;
+        const chats = new Map(previousChats);
         for (const chat of incomingChats) {
           chats.set(chat.id, chat);
         }
         const firstChat = get().activeChatId
           ? undefined
           : [...chats.values()].sort(compareChats)[0]?.id;
+        const activeChat = activeChatId ? chats.get(activeChatId) : undefined;
+        const activeChatModeChanged = Boolean(
+          activeChatId &&
+          activeChat &&
+          (!previousActiveChat || previousActiveChat.isForum !== activeChat.isForum),
+        );
         set({
           chats,
           chatListReady: true,
           activeChatId: get().activeChatId ?? firstChat,
+          activeTopicId: activeChatModeChanged && !activeChat?.isForum
+            ? undefined
+            : get().activeTopicId,
         });
         scheduleCacheWrite();
+        if (activeChatModeChanged && activeChatId && activeChat) {
+          if (activeChat.isForum) void get().loadForumTopics(activeChatId);
+          else void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
+        }
         if (firstChat) {
           if (chats.get(firstChat)?.isForum) void get().loadForumTopics(firstChat);
           else void loadHistory(firstChat, "ensure").then(() => markChatRead(firstChat));

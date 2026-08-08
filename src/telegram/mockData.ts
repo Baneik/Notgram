@@ -795,6 +795,16 @@ const messages: Message[] = [
     content: { kind: "text", text: "收到，我今晚看一下。" },
   },
   {
+    id: "product-thread-1",
+    chatId: "chat-product",
+    topicId: "42",
+    senderId: "u-jules",
+    outgoing: false,
+    sentAt: "2026-08-01T09:47:00+08:00",
+    delivery: "read",
+    content: { kind: "text", text: "群组线程消息也应显示在主会话中。" },
+  },
+  {
     id: "release-post-1",
     chatId: "chat-release",
     senderId: "chat:chat-release",

@@ -102,6 +102,13 @@ test("forum groups expose topic navigation and management", async ({ page }) => 
   await expect(page.locator(".conversation-title strong")).toHaveText("自动化验收");
 });
 
+test("non-forum group conversations keep messages that belong to a message thread", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.locator('[data-message-id="product-thread-1"]')).toBeVisible();
+  await expect(page.getByText("群组线程消息也应显示在主会话中。", { exact: true })).toBeVisible();
+});
+
 test("the top bar keeps only window controls and the account entry opens settings", async ({ page }) => {
   await page.goto("/");
 

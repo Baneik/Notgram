@@ -14,9 +14,13 @@ describe("TDLib mapper", () => {
   it("maps forum chats, topic metadata, topic drafts, and message topic ids", () => {
     expect(mapTdChat({
       id: 77,
-      type: { "@type": "chatTypeSupergroup", is_channel: false, is_forum: true },
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
       title: "Forum",
       permissions: { can_create_topics: true },
+    }, undefined, {
+      "@type": "supergroup",
+      id: 91,
+      is_forum: true,
     })).toMatchObject({ id: "77", isForum: true, canCreateTopics: true });
 
     expect(mapTdForumTopic({

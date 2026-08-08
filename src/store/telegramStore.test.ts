@@ -1578,6 +1578,54 @@ describe("telegram store", () => {
     expect(transport.topicReads.at(-1)).toMatchObject({ chatId: "chat-forum", topicId: "12" });
   });
 
+  it("reloads the active conversation when live metadata changes its forum mode", async () => {
+    class ForumModeTransport extends MockTelegramTransport {
+      eventListener?: TelegramEventListener;
+      topicLoads: string[] = [];
+      historyLoads: string[] = [];
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async getForumTopics(input: Parameters<MockTelegramTransport["getForumTopics"]>[0]) {
+        this.topicLoads.push(input.chatId);
+        return super.getForumTopics(input);
+      }
+
+      override async loadChatHistory(chatId: string, limit?: number) {
+        this.historyLoads.push(chatId);
+        return super.loadChatHistory(chatId, limit);
+      }
+
+      publish(chat: Chat) {
+        this.eventListener?.({ type: "chat.upsert", chat });
+      }
+    }
+
+    const transport = new ForumModeTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-product");
+    transport.topicLoads.length = 0;
+    transport.historyLoads.length = 0;
+    const product = store.getState().chats.get("chat-product")!;
+
+    transport.publish({ ...product, isForum: true });
+    await vi.waitFor(() => expect(transport.topicLoads).toEqual(["chat-product"]));
+    expect(store.getState().chats.get("chat-product")?.isForum).toBe(true);
+
+    await store.getState().selectForumTopic("42");
+    const histories = new Map(store.getState().histories);
+    histories.delete("chat-product");
+    store.setState({ histories });
+    transport.publish({ ...product, isForum: false });
+
+    await vi.waitFor(() => expect(transport.historyLoads).toEqual(["chat-product"]));
+    expect(store.getState()).toMatchObject({ activeChatId: "chat-product", activeTopicId: undefined });
+  });
+
   it("tracks remote typing state, expires it, and sends local typing state", async () => {
     class TypingTransport extends MockTelegramTransport {
       eventListener?: TelegramEventListener;

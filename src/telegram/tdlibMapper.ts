@@ -1645,11 +1645,16 @@ export const mapTdChatFolders = (
   return folders;
 };
 
-export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefined => {
+export const mapTdChat = (
+  raw: TdObject,
+  currentUserId?: string,
+  supergroupValue?: unknown,
+): Chat | undefined => {
   const id = tdId(raw.id);
   if (!id) return undefined;
 
   const type = asTdObject(raw.type);
+  const supergroup = asTdObject(supergroupValue);
   const peerId = type?.["@type"] === "chatTypePrivate" ? tdId(type.user_id) : undefined;
   const kind =
     peerId && peerId === currentUserId
@@ -1689,7 +1694,7 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
   return {
     id,
     kind,
-    isForum: type?.is_forum === true,
+    isForum: supergroup?.is_forum === true,
     canCreateTopics: asTdObject(raw.permissions)?.can_create_topics === true,
     folderIds: [...folderIds],
     title: kind === "saved" ? "收藏夹" : title,

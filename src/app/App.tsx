@@ -693,10 +693,10 @@ export function App() {
   const activeTopics = activeChatId ? forumTopics.get(activeChatId) ?? [] : [];
   const activeTopic = activeTopicId ? activeTopics.find((topic) => topic.id === activeTopicId) : undefined;
   const activeMessages = activeChatId
-    ? (messages.get(activeChatId) ?? []).filter((message) => message.topicId === activeTopicId)
+    ? (messages.get(activeChatId) ?? []).filter((message) => !activeTopicId || message.topicId === activeTopicId)
     : [];
   const activeRemovingMessages = activeChatId
-    ? (removingMessages.get(activeChatId) ?? []).filter((message) => message.topicId === activeTopicId)
+    ? (removingMessages.get(activeChatId) ?? []).filter((message) => !activeTopicId || message.topicId === activeTopicId)
     : [];
   const activeDisplayMessages = activeRemovingMessages.length > 0
     ? [...activeMessages, ...activeRemovingMessages].sort((left, right) =>

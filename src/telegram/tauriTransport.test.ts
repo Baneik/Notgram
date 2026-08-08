@@ -21,6 +21,7 @@ type TestableTransport = {
   handleUpdate: (update: TdObject) => void;
   handleUpdateBatch: (updates: TdObject[]) => void;
   upsertChat: (chat: TdObject) => void;
+  upsertSupergroup: (supergroup: TdObject) => void;
   upsertUser: (user: TdObject) => void;
   finishInitialChatSync: () => void;
 };
@@ -528,6 +529,34 @@ describe("TauriTelegramTransport startup", () => {
         otherUpdateCount: 29,
       }),
     }));
+  });
+
+  it("uses updateSupergroup metadata to classify forum chats", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.handleUpdate({
+      "@type": "updateSupergroup",
+      supergroup: {
+        "@type": "supergroup",
+        id: 91,
+        is_forum: true,
+      },
+    });
+    internal.upsertChat({
+      "@type": "chat",
+      id: 72,
+      title: "Forum",
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+      permissions: { can_create_topics: true },
+    });
+    internal.finishInitialChatSync();
+
+    expect(events.find((event) => event.type === "chats.upserted")).toMatchObject({
+      type: "chats.upserted",
+      chats: [{ id: "72", isForum: true, canCreateTopics: true }],
+    });
   });
 
   it("loads history context on both sides of an exact message", async () => {
