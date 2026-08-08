@@ -8,7 +8,6 @@ import type {
   CachedTelegramSnapshot,
   ChatManagement,
   ChatDraft,
-  ChatProfile,
   Message,
   QueuedOutgoingMessage,
   TelegramEvent,
@@ -51,6 +50,7 @@ import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch } from "./globalSearchState";
 import { emptyProfileState } from "./profileState";
 import { createSearchController } from "./telegramStore.search";
+import { createProfileController } from "./telegramStore.profile";
 import { SharedMediaIndex } from "./sharedMediaIndex";
 import {
   attachmentOutbox,
@@ -103,12 +103,7 @@ export const createTelegramStore = (
     const readTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const readRequestChains = new Map<string, Promise<void>>();
     let outboxFlush: Promise<void> | undefined;
-    let profileGeneration = 0;
-    const profileCache = new Map<string, { value: ChatProfile; cachedAt: number }>();
-    const profileRefreshes = new Map<string, Promise<ChatProfile>>();
     const groupManagementLoads = new Map<string, Promise<ChatManagement | undefined>>();
-    let accountProfileGeneration = 0;
-    let contactsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const liveAttentionCandidates = new Set<string>();
@@ -228,7 +223,7 @@ export const createTelegramStore = (
           if (current.authorization.kind !== "ready" || !current.currentUserId) return;
           const snapshot = cachedSnapshotFrom(
             current,
-            [...profileCache.values()].map(({ value }) => value),
+            profileController.getCachedProfiles(),
           );
           cacheWrite = cacheWrite
             .catch(() => undefined)
@@ -273,11 +268,7 @@ export const createTelegramStore = (
       readTimers.clear();
       readRequestChains.clear();
       searchController.reset();
-      accountProfileGeneration += 1;
-      profileGeneration += 1;
-      profileCache.clear();
-      profileRefreshes.clear();
-      contactsGeneration += 1;
+      profileController.reset();
       set({
         currentUserId: undefined,
         users: new Map(),
@@ -352,7 +343,7 @@ export const createTelegramStore = (
       const state = get();
       if (state.authorization.kind === "ready" && state.currentUserId) {
         await transport.saveCachedSnapshot(
-          cachedSnapshotFrom(state, [...profileCache.values()].map(({ value }) => value)),
+          cachedSnapshotFrom(state, profileController.getCachedProfiles()),
         );
         set({ cacheHealth: "healthy" });
       }
@@ -444,13 +435,7 @@ export const createTelegramStore = (
         return;
       }
       const current = get();
-      profileCache.clear();
-      for (const value of snapshot.profiles ?? []) {
-        const cacheKey = value.chatId
-          ? `chat:${value.chatId}`
-          : value.userId ? `user:${value.userId}` : undefined;
-        if (cacheKey) profileCache.set(cacheKey, { value, cachedAt: Date.now() });
-      }
+      profileController.hydrateCachedProfiles(snapshot.profiles ?? []);
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
       let messages = messageMapFrom(snapshot.messages);
@@ -1106,22 +1091,14 @@ export const createTelegramStore = (
       }
     };
 
-    const refreshProfileCache = (
-      cacheKey: string,
-      loadProfile: () => Promise<ChatProfile>,
-    ) => {
-      const pending = profileRefreshes.get(cacheKey);
-      if (pending) return pending;
-      const request = loadProfile().then((value) => {
-        profileCache.set(cacheKey, { value, cachedAt: Date.now() });
-        scheduleCacheWrite();
-        return value;
-      }).finally(() => {
-        if (profileRefreshes.get(cacheKey) === request) profileRefreshes.delete(cacheKey);
-      });
-      profileRefreshes.set(cacheKey, request);
-      return request;
-    };
+    const profileController = createProfileController({
+      transport,
+      get,
+      set,
+      scheduleCacheWrite,
+      registerCurrentAccount,
+      onError: errorMessage,
+    });
 
     return {
       phase: "idle",
@@ -1415,7 +1392,7 @@ export const createTelegramStore = (
           await transport.clearCachedSnapshot();
           await transport.saveCachedSnapshot(cachedSnapshotFrom(
             get(),
-            [...profileCache.values()].map(({ value }) => value),
+            profileController.getCachedProfiles(),
           ));
           set({ cacheHealth: "rebuilt", storagePending: false });
           return true;
@@ -1833,238 +1810,19 @@ export const createTelegramStore = (
       cancelGlobalSearch: searchController.cancelGlobalSearch,
       clearGlobalSearch: searchController.clearGlobalSearch,
 
-      loadCurrentUserProfile: async () => {
-        const generation = ++accountProfileGeneration;
-        set({ accountProfile: { target: { kind: "current" }, loading: true } });
-        try {
-          const value = await transport.getCurrentUserProfile();
-          if (generation !== accountProfileGeneration) return;
-          set({ accountProfile: { target: { kind: "current" }, value, loading: false } });
-        } catch (error) {
-          if (generation !== accountProfileGeneration) return;
-          set({
-            accountProfile: {
-              target: { kind: "current" },
-              loading: false,
-              error: errorMessage(error, "无法读取账号资料"),
-            },
-          });
-        }
-      },
+      loadCurrentUserProfile: profileController.loadCurrentUserProfile,
+      updateCurrentUserProfile: profileController.updateCurrentUserProfile,
+      changeCurrentUserAvatar: profileController.changeCurrentUserAvatar,
 
-      updateCurrentUserProfile: async (input) => {
-        const current = get().accountProfile;
-        if (current.target?.kind !== "current" || current.updating) return false;
-        set({ accountProfile: { ...current, updating: true, updateError: undefined } });
-        try {
-          const value = await transport.updateCurrentUserProfile(input);
-          const latest = get().accountProfile;
-          if (latest.target?.kind !== "current") return false;
-          set({ accountProfile: { ...latest, value, loading: false, updating: false, updateError: undefined } });
-          void registerCurrentAccount();
-          return true;
-        } catch (error) {
-          const latest = get().accountProfile;
-          if (latest.target?.kind === "current") {
-            set({
-              accountProfile: {
-                ...latest,
-                updating: false,
-                updateError: errorMessage(error, "无法更新账号资料"),
-              },
-            });
-          }
-          return false;
-        }
-      },
+      loadChatProfile: profileController.loadChatProfile,
 
-      changeCurrentUserAvatar: async (file) => {
-        const current = get().accountProfile;
-        if (current.target?.kind !== "current" || current.updating) return false;
-        set({ accountProfile: { ...current, updating: true, updateError: undefined } });
-        try {
-          const value = await transport.setCurrentUserAvatar(file);
-          const latest = get().accountProfile;
-          if (latest.target?.kind !== "current") return false;
-          set({
-            accountProfile: {
-              ...latest,
-              value: value ?? latest.value,
-              loading: false,
-              updating: false,
-              updateError: undefined,
-            },
-          });
-          if (value) void registerCurrentAccount();
-          return Boolean(value);
-        } catch (error) {
-          const latest = get().accountProfile;
-          if (latest.target?.kind === "current") {
-            set({
-              accountProfile: {
-                ...latest,
-                updating: false,
-                updateError: errorMessage(error, "无法更新头像"),
-              },
-            });
-          }
-          return false;
-        }
-      },
+      loadMoreChatProfileMembers: profileController.loadMoreChatProfileMembers,
 
-      loadChatProfile: async (chatId) => {
-        const target = { kind: "chat" as const, chatId };
-        const current = get().profile;
-        if (current.loading && current.target?.kind === "chat" && current.target.chatId === chatId) {
-          return;
-        }
-        const generation = ++profileGeneration;
-        const cacheKey = `chat:${chatId}`;
-        const cached = profileCache.get(cacheKey);
-        if (cached) {
-          set({ profile: { target, value: cached.value, loading: false } });
-        } else {
-          set({ profile: { target, loading: true } });
-        }
-        try {
-          const value = await refreshProfileCache(
-            cacheKey,
-            () => transport.getChatProfile(chatId),
-          );
-          if (generation !== profileGeneration) return;
-          set({ profile: { target, value, loading: false } });
-        } catch (error) {
-          if (generation !== profileGeneration) return;
-          set({
-            profile: {
-              target,
-              value: cached?.value,
-              loading: false,
-              error: errorMessage(error, "无法读取聊天资料"),
-            },
-          });
-        }
-      },
+      loadUserProfile: profileController.loadUserProfile,
 
-      loadMoreChatProfileMembers: async (chatId) => {
-        const current = get().profile;
-        if (
-          current.target?.kind !== "chat" ||
-          current.target.chatId !== chatId ||
-          !current.value ||
-          !current.value.canViewMembers ||
-          !current.value.memberHasMore ||
-          current.membersLoading
-        ) {
-          return false;
-        }
-        const generation = profileGeneration;
-        const offset = current.value.memberOffset ?? 0;
-        set({ profile: { ...current, membersLoading: true, membersError: undefined } });
-        try {
-          const page = await transport.getChatProfileMembers(chatId, offset);
-          if (generation !== profileGeneration) return false;
-          const latest = get().profile;
-          if (
-            latest.target?.kind !== "chat" ||
-            latest.target.chatId !== chatId ||
-            !latest.value
-          ) {
-            return false;
-          }
-          const members = new Map(latest.value.members.map((member) => [member.user.id, member]));
-          for (const member of page.members) {
-            if (!members.has(member.user.id)) members.set(member.user.id, member);
-          }
-          const value: ChatProfile = {
-            ...latest.value,
-            members: [...members.values()],
-            memberOffset: page.offset,
-            memberHasMore: page.hasMore &&
-              (latest.value.memberCount === undefined || page.offset < latest.value.memberCount),
-          };
-          profileCache.set(`chat:${chatId}`, { value, cachedAt: Date.now() });
-          scheduleCacheWrite();
-          set({
-            profile: {
-              ...latest,
-              value,
-              membersLoading: false,
-              membersError: undefined,
-            },
-          });
-          return true;
-        } catch (error) {
-          if (generation === profileGeneration) {
-            const latest = get().profile;
-            if (latest.target?.kind === "chat" && latest.target.chatId === chatId) {
-              set({
-                profile: {
-                  ...latest,
-                  membersLoading: false,
-                  membersError: errorMessage(error, "鏃犳硶鍔犺浇鏇村鎴愬憳"),
-                },
-              });
-            }
-          }
-          return false;
-        }
-      },
+      clearProfile: profileController.clearProfile,
 
-      loadUserProfile: async (userId) => {
-        const target = { kind: "user" as const, userId };
-        const current = get().profile;
-        if (current.loading && current.target?.kind === "user" && current.target.userId === userId) {
-          return;
-        }
-        const generation = ++profileGeneration;
-        const cacheKey = `user:${userId}`;
-        const cached = profileCache.get(cacheKey);
-        if (cached) {
-          set({ profile: { target, value: cached.value, loading: false } });
-        } else {
-          set({ profile: { target, loading: true } });
-        }
-        try {
-          const value = await refreshProfileCache(
-            cacheKey,
-            () => transport.getUserProfile(userId),
-          );
-          if (generation !== profileGeneration) return;
-          set({ profile: { target, value, loading: false } });
-        } catch (error) {
-          if (generation !== profileGeneration) return;
-          set({
-            profile: {
-              target,
-              value: cached?.value,
-              loading: false,
-              error: errorMessage(error, "无法读取用户资料"),
-            },
-          });
-        }
-      },
-
-      clearProfile: () => {
-        profileGeneration += 1;
-        set({ profile: emptyProfileState() });
-      },
-
-      loadContacts: async () => {
-        const generation = ++contactsGeneration;
-        set({ contactsLoading: true, contactsError: undefined });
-        try {
-          const contacts = await transport.getContacts();
-          if (generation !== contactsGeneration) return;
-          set({ contacts, contactsLoading: false });
-        } catch (error) {
-          if (generation !== contactsGeneration) return;
-          set({
-            contactsLoading: false,
-            contactsError: errorMessage(error, "无法读取联系人"),
-          });
-        }
-      },
+      loadContacts: profileController.loadContacts,
 
       startPrivateChat: async (userId) => {
         set({ contactPendingUserId: userId, contactsError: undefined });
