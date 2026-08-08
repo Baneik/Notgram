@@ -545,6 +545,117 @@ test("new messages stay pinned without viewport rebound", async ({ page }) => {
   )).toBeLessThanOrEqual(13);
 });
 
+test("incoming animated messages remain visible while following latest", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await page.getByRole("button", { name: /^跳到最新消息/ }).click();
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+
+  const appendIncoming = (id: string, text: string) => page.evaluate(async ({
+    storePath,
+    entrancePath,
+    messageId,
+    messageText,
+  }) => {
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const entranceModule = await import(entrancePath) as {
+      markMessageEntrance: (message: Record<string, unknown>) => void;
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-mia") ?? [])];
+    const latest = current.at(-1);
+    if (!latest) return;
+    const appended = {
+      ...latest,
+      id: messageId,
+      renderKey: undefined,
+      outgoing: false,
+      senderId: "u-mia",
+      sentAt: new Date(Date.now() + 2_000).toISOString(),
+      content: { kind: "text", text: messageText },
+    };
+    entranceModule.markMessageEntrance(appended);
+    current.push(appended);
+    messages.set("chat-mia", current);
+    storeModule.telegramStore.setState({ messages });
+  }, {
+    storePath: "/src/store/telegramStore.ts",
+    entrancePath: "/src/utils/messageEntrance.ts",
+    messageId: id,
+    messageText: text,
+  });
+
+  const samplesPromise = page.evaluate(() => new Promise<Array<{
+    animationName: string;
+    distanceBottom: number;
+    rowBottom: number;
+    listBottom: number;
+  }>>((resolve) => {
+    const samples: Array<{
+      animationName: string;
+      distanceBottom: number;
+      rowBottom: number;
+      listBottom: number;
+    }> = [];
+    let frames = 0;
+    const sample = () => {
+      const list = document.querySelector<HTMLElement>(".message-list");
+      const row = document.querySelector<HTMLElement>('[data-message-id="m-live-incoming"]');
+      if (!list || !row) {
+        requestAnimationFrame(sample);
+        return;
+      }
+      const style = getComputedStyle(row);
+      samples.push({
+        animationName: style.animationName,
+        distanceBottom: list.scrollHeight - list.clientHeight - list.scrollTop,
+        rowBottom: row.getBoundingClientRect().bottom,
+        listBottom: list.getBoundingClientRect().bottom,
+      });
+      frames += 1;
+      if (frames < 24) requestAnimationFrame(sample);
+      else resolve(samples);
+    };
+    requestAnimationFrame(sample);
+  }));
+
+  await appendIncoming("m-live-incoming", "实时收到的新消息需要完整播放入场动画");
+
+  const samples = await samplesPromise;
+  const animatedSamples = samples.filter(
+    (sample) => sample.animationName === "message-enter-incoming",
+  );
+  expect(animatedSamples.length, JSON.stringify(samples)).toBeGreaterThan(0);
+  expect(
+    animatedSamples.every((sample) => sample.rowBottom <= sample.listBottom + 1),
+    JSON.stringify(samples),
+  ).toBe(true);
+  expect(
+    animatedSamples.every((sample) => sample.distanceBottom <= 1),
+    JSON.stringify(samples),
+  ).toBe(true);
+  expect(samples.at(-1)?.distanceBottom).toBeLessThanOrEqual(1);
+  await appendIncoming("m-live-incoming-next", "下一条实时消息仍应自动跟随");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+  await expect.poll(() => page.locator('[data-message-id="m-live-incoming-next"]')
+    .evaluate((row) => {
+      const list = row.closest<HTMLElement>(".message-list");
+      return list ? list.getBoundingClientRect().bottom - row.getBoundingClientRect().bottom : -1;
+    })).toBeGreaterThanOrEqual(-1);
+  await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+});
+
 test("expired entrance metadata does not delay appended-message anchoring", async ({ page }) => {
   await page.goto("/");
   const messageList = page.locator(".message-list");

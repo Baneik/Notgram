@@ -2,7 +2,7 @@ import type { Message } from "../telegram/types";
 
 export type MessageEntrance = "incoming" | "outgoing";
 
-const ENTRANCE_LIFETIME_MS = 1_000;
+export const MESSAGE_ENTRANCE_LIFETIME_MS = 1_000;
 const pendingEntrances = new Map<string, {
   kind: MessageEntrance;
   token: symbol;
@@ -23,7 +23,7 @@ const setMessageEntrance = (
   });
   globalThis.setTimeout(() => {
     if (pendingEntrances.get(key)?.token === token) pendingEntrances.delete(key);
-  }, ENTRANCE_LIFETIME_MS);
+  }, MESSAGE_ENTRANCE_LIFETIME_MS);
 };
 
 export const markMessageEntrance = (message: Message) => {

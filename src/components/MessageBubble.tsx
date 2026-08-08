@@ -44,7 +44,11 @@ import {
   shouldAutoDownload,
   type AutoDownloadPolicy,
 } from "../media/autoDownload";
-import { consumeMessageEntrance, type MessageEntrance } from "../utils/messageEntrance";
+import {
+  consumeMessageEntrance,
+  MESSAGE_ENTRANCE_LIFETIME_MS,
+  type MessageEntrance,
+} from "../utils/messageEntrance";
 import { isLargeEmojiText } from "../utils/largeEmoji";
 import { channelPostTargetFor } from "./conversationMessages";
 import { MediaProgressRing } from "./MediaProgressRing";
@@ -160,6 +164,7 @@ function MessageBubbleComponent({
   developerMode,
 }: MessageBubbleProps) {
   const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
+  const entranceFrameRef = useRef<number | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
   const [reactionPending, setReactionPending] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
@@ -383,16 +388,57 @@ function MessageBubbleComponent({
     MEDIA_PREFETCH_ROOT_MARGIN,
   );
   const setMessageRowRef = useCallback((element: HTMLElement | null) => {
+    const previousElement = rowRef.current;
+    if (previousElement && previousElement !== element) {
+      previousElement.classList.remove(
+        "is-preparing-entrance-incoming",
+        "is-preparing-entrance-outgoing",
+      );
+    }
+    if (entranceFrameRef.current !== undefined) {
+      cancelAnimationFrame(entranceFrameRef.current);
+      entranceFrameRef.current = undefined;
+    }
     rowRef.current = element;
     lazyMediaRef.current = element;
     if (!element) return;
     onMount?.();
     if (!entrance) return;
-    const claimedEntrance = consumeMessageEntrance(message);
-    if (!claimedEntrance) return;
-    entranceKindRef.current = claimedEntrance;
-    void element.offsetWidth;
-    element.classList.add(`is-entering-${claimedEntrance}`);
+    const list = element.closest<HTMLElement>(".message-list");
+    if (!list) return;
+    // Virtuoso can mount a new block one frame before the bottom pin. Preserve
+    // the keyframe's initial pose, but do not spend the animation offscreen.
+    const preparingClass = `is-preparing-entrance-${entrance}`;
+    element.classList.add(preparingClass);
+    const visibilityDeadline = performance.now() + MESSAGE_ENTRANCE_LIFETIME_MS;
+    const startEntranceWhenVisible = () => {
+      if (!element.isConnected || !list.isConnected) return true;
+      const rowBounds = element.getBoundingClientRect();
+      const listBounds = list.getBoundingClientRect();
+      const visibleAtPinnedEdge = rowBounds.height >= listBounds.height
+        ? rowBounds.top < listBounds.bottom && rowBounds.bottom <= listBounds.bottom + 1
+        : rowBounds.top >= listBounds.top - 1 && rowBounds.bottom <= listBounds.bottom + 1;
+      if (!visibleAtPinnedEdge) return false;
+      const claimedEntrance = consumeMessageEntrance(message);
+      element.classList.remove(preparingClass);
+      if (claimedEntrance) {
+        entranceKindRef.current = claimedEntrance;
+        void element.offsetWidth;
+        element.classList.add(`is-entering-${claimedEntrance}`);
+      }
+      return true;
+    };
+    const waitForPinnedVisibility = () => {
+      entranceFrameRef.current = undefined;
+      if (startEntranceWhenVisible()) return;
+      if (performance.now() >= visibilityDeadline) {
+        element.classList.remove(preparingClass);
+        consumeMessageEntrance(message);
+        return;
+      }
+      entranceFrameRef.current = requestAnimationFrame(waitForPinnedVisibility);
+    };
+    entranceFrameRef.current = requestAnimationFrame(waitForPinnedVisibility);
   }, [entrance, lazyMediaRef, message.chatId, message.id, onMount]);
 
   const selectionDisabled = selectionPending ||
