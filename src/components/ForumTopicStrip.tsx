@@ -21,12 +21,36 @@ const compareTopicOrder = (left: ForumTopic, right: ForumTopic) => {
   }
 };
 
+const handleTopicTabsWheel = (event: WheelEvent) => {
+  if (event.deltaY === 0 || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+
+  const tabs = event.currentTarget as HTMLDivElement | null;
+  if (!tabs) return;
+  const maximumScrollLeft = tabs.scrollWidth - tabs.clientWidth;
+  if (maximumScrollLeft <= 0) return;
+
+  const deltaScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+    ? 16
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+      ? tabs.clientWidth
+      : 1;
+  const nextScrollLeft = Math.max(
+    0,
+    Math.min(maximumScrollLeft, tabs.scrollLeft + event.deltaY * deltaScale),
+  );
+  if (nextScrollLeft === tabs.scrollLeft) return;
+
+  event.preventDefault();
+  tabs.scrollLeft = nextScrollLeft;
+};
+
 export function ForumTopicStrip({
   topics,
   activeTopicId,
   onSelectTopic,
 }: ForumTopicStripProps) {
   const activeTabRef = useRef<HTMLButtonElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const orderedTopics = useMemo(
     () => [...topics].filter((topic) => !topic.isHidden).sort(compareTopicOrder),
     [topics],
@@ -36,11 +60,23 @@ export function ForumTopicStrip({
     activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
   }, [activeTopicId]);
 
+  useLayoutEffect(() => {
+    const tabs = tabsRef.current;
+    if (!tabs) return;
+    tabs.addEventListener("wheel", handleTopicTabsWheel, { passive: false });
+    return () => tabs.removeEventListener("wheel", handleTopicTabsWheel);
+  }, [orderedTopics.length]);
+
   if (orderedTopics.length === 0) return null;
 
   return (
     <nav className="forum-topic-strip" aria-label="话题切换">
-      <div className="forum-topic-tabs" role="tablist" aria-label="话题">
+      <div
+        ref={tabsRef}
+        className="forum-topic-tabs"
+        role="tablist"
+        aria-label="话题"
+      >
         {orderedTopics.map((topic) => {
           const active = topic.id === activeTopicId;
           const unreadLabel = topic.unreadCount > 0 ? `，${topic.unreadCount} 条未读消息` : "";

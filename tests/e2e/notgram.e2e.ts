@@ -121,6 +121,25 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-name')).toHaveText("构建与发布");
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-count')).toHaveText("3");
 
+  await page.addStyleTag({ content: ".forum-topic-tabs { max-width: 180px; }" });
+  const wheelResult = await strip.locator(".forum-topic-tabs").evaluate((element) => {
+    element.scrollLeft = 0;
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 120,
+    });
+    element.dispatchEvent(event);
+    return {
+      defaultPrevented: event.defaultPrevented,
+      maximumScrollLeft: element.scrollWidth - element.clientWidth,
+      scrollLeft: element.scrollLeft,
+    };
+  });
+  expect(wheelResult.maximumScrollLeft).toBeGreaterThan(0);
+  expect(wheelResult.defaultPrevented).toBe(true);
+  expect(wheelResult.scrollLeft).toBeGreaterThan(0);
+
   await strip.locator('[data-topic-id="12"]').click();
   await expect(page.getByRole("region", { name: "构建与发布 话题 对话" })).toBeVisible();
   await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");

@@ -8,7 +8,8 @@ with prerelease identifiers used for release candidates.
 ### Added
 
 - Reopen forum groups at their last topic and switch topics from a compact horizontal
-  strip containing only the topic avatar, name, and unread counter.
+  strip containing only the topic avatar, name, and unread counter, with mouse-wheel
+  horizontal scrolling when the strip overflows.
 - Send selected videos, audio, animations, photos, and documents as native Telegram
   media with probed dimensions, duration, generated covers, spoiler/caption placement,
   original-file mode, compatible mixed albums, and native-path-safe validation.
