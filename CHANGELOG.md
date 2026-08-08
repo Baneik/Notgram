@@ -53,6 +53,9 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Give captioned media a stable readable card width without letting short captions
+  shrink wide media, keep incoming and outgoing geometry identical, and scale the
+  complete media frame proportionally in narrow conversations.
 - Prevent rapid forum history initialization from leaving the virtual message list
   stuck in its positioning state and delaying conversation performance traces.
 

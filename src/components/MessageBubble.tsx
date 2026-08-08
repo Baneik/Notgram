@@ -194,9 +194,6 @@ function MessageBubbleComponent({
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
-  const visualSizingText = hasCaption && !message.outgoing && content.kind === "media"
-    ? content.caption
-    : undefined;
   const showSender = !albumItem && !message.outgoing && !isSticker && isGroupFirst(groupPosition);
   const channelPostTarget = !albumItem ? channelPostTargetFor(message) : undefined;
   const fullMediaSource = content.kind === "media" ? localSource(content.localPath) : undefined;
@@ -222,11 +219,19 @@ function MessageBubbleComponent({
   const measuredSize = measuredMedia && (
     measuredMedia.source === activeMediaSource || failedMediaSources.has(measuredMedia.source)
   ) ? measuredMedia : undefined;
+  const declaredMediaSize = content.kind === "media" &&
+    Number.isFinite(content.width) && (content.width ?? 0) > 0 &&
+    Number.isFinite(content.height) && (content.height ?? 0) > 0
+    ? { width: content.width, height: content.height }
+    : undefined;
   const mediaLayout = content.kind === "media" && isVisual
     ? fitMediaLayout(
         content.mediaType,
-        measuredSize?.width ?? content.width,
-        measuredSize?.height ?? content.height,
+        declaredMediaSize?.width ?? measuredSize?.width,
+        declaredMediaSize?.height ?? measuredSize?.height,
+        {
+          hasReadableText: hasCaption || Boolean(replyPreview) || Boolean(forwardLabel),
+        },
       )
     : undefined;
 
@@ -316,8 +321,7 @@ function MessageBubbleComponent({
   }, [content, hasCaption, isVisual, message.delivery, message.editedAt, message.sentAt, textCollapsible]);
   const visualShellStyle = mediaLayout
     ? {
-        "--visual-media-width": `${mediaLayout.width}px`,
-        "--visual-media-height": mediaLayout.height ? `${mediaLayout.height}px` : undefined,
+        "--visual-card-width": `${mediaLayout.width}px`,
       } as CSSProperties
     : undefined;
   const rememberMediaSize = (source: string | undefined, width: number, height: number) => {
@@ -515,9 +519,8 @@ function MessageBubbleComponent({
         </button>
       )}
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${visualSizingText ? "is-text-sized-visual" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""}`}
         style={visualShellStyle}
-        data-visual-sizing-text={visualSizingText}
         tabIndex={!selectionMode && !isService ? 0 : undefined}
         onContextMenu={(event) => {
           event.preventDefault();

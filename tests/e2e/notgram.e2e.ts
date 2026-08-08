@@ -2619,7 +2619,7 @@ test("text message time stays on the last line when it fits and wraps without wi
   expect(wrappedGap).toBeLessThan(wrappedGeometry!.lineHeight * 0.4);
 });
 
-test("caption text sizes media bubbles and media is centered with letterboxing", async ({ page }) => {
+test("media cards preserve media width while giving captions a stable reading width", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Mia Chen/ }).first().click();
 
@@ -2668,26 +2668,58 @@ test("caption text sizes media bubbles and media is centered with letterboxing",
 
   const tall = await geometryFor("m-tall-caption");
   expect(tall).toBeDefined();
-  expect(tall?.shellWidth).toBeGreaterThan(320);
+  expect(tall?.shellWidth).toBeCloseTo(320, 0);
   expect(Math.abs((tall?.shellWidth ?? 0) - (tall?.previewWidth ?? 1))).toBeLessThanOrEqual(1);
-  expect(tall?.captionHeight).toBeLessThan(30);
+  expect(tall?.captionHeight).toBeLessThan(50);
   expect(tall?.horizontalLetterbox).toBeGreaterThan(50);
   expect(tall?.verticalLetterbox).toBeLessThanOrEqual(1);
   expect(tall?.objectFit).toBe("contain");
 
   const wide = await geometryFor("m-wide-caption");
   expect(wide).toBeDefined();
-  expect(wide?.shellWidth).toBeGreaterThanOrEqual(179);
-  expect(wide?.shellWidth).toBeLessThan(240);
+  expect(wide?.shellWidth).toBeCloseTo(390, 0);
   expect(Math.abs((wide?.shellWidth ?? 0) - (wide?.previewWidth ?? 1))).toBeLessThanOrEqual(1);
   expect(wide?.horizontalLetterbox).toBeLessThanOrEqual(1);
-  expect(wide?.verticalLetterbox).toBeGreaterThan(20);
+  expect(wide?.verticalLetterbox).toBeLessThanOrEqual(1);
   expect(wide?.objectFit).toBe("contain");
   expect(wide?.captionLastLineBottom).toBeDefined();
   expect(wide?.captionLastLineRight).toBeDefined();
   expect(Math.abs(wide!.metaBottom! - wide!.captionLastLineBottom!)).toBeLessThan(5);
   expect(wide!.metaLeft!).toBeGreaterThan(wide!.captionLastLineRight!);
   expect(wide!.captionFlowHeight!).toBeLessThan(32);
+
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath);
+    const state = telegramStore.getState() as {
+      messages: Map<string, Array<Record<string, unknown>>>;
+    };
+    const chatMessages = state.messages.get("chat-mia") ?? [];
+    const source = chatMessages.find((message) => message.id === "m-tall-caption");
+    if (!source) throw new Error("Missing portrait media fixture");
+    const messages = new Map(state.messages);
+    messages.set("chat-mia", [
+      ...chatMessages,
+      {
+        ...source,
+        id: "m-tall-caption-outgoing",
+        senderId: "self",
+        outgoing: true,
+        sentAt: "2026-08-01T09:27:00+08:00",
+      },
+    ]);
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const outgoingTall = await geometryFor("m-tall-caption-outgoing");
+  expect(outgoingTall).toBeDefined();
+  expect(Math.abs(outgoingTall!.shellWidth - tall!.shellWidth)).toBeLessThanOrEqual(1);
+  expect(Math.abs(outgoingTall!.previewHeight - tall!.previewHeight)).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 360, height: 760 });
+  const narrowTall = await geometryFor("m-tall-caption");
+  expect(narrowTall).toBeDefined();
+  expect(narrowTall!.previewWidth).toBeLessThan(320);
+  expect(narrowTall!.previewWidth / narrowTall!.previewHeight).toBeCloseTo(320 / 420, 2);
 });
 
 test("pasted images preview, respect Telegram's album limit, and send as one album", async ({ page }) => {
@@ -2738,10 +2770,9 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   });
   await composer.press("Enter");
   const sentPhoto = page.locator('.message-row.is-outgoing', { hasText: "短说明不应收窄图片" }).last();
-  await expect(sentPhoto.locator(".message-bubble-shell")).not.toHaveClass(/is-text-sized-visual/);
   await expect.poll(() => sentPhoto.locator(".photo-preview").evaluate(
     (element) => element.getBoundingClientRect().width,
-  )).toBeGreaterThan(350);
+  )).toBeGreaterThan(380);
   await expect(composer).toBeFocused();
 
   await composer.evaluate((element) => {
