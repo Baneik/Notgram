@@ -5,6 +5,10 @@ import type {
   EmojiPickerCatalog,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  ForumTopic,
+  ForumTopicPage,
+  GetForumTopicsInput,
+  CreateForumTopicInput,
   GlobalSearchInput,
   GlobalSearchPage,
   SetChatDraftInput,
@@ -117,7 +121,7 @@ export interface TelegramTransport {
   getBotCommandSuggestions(chatId: string, query?: string, botUsername?: string): Promise<BotCommandSuggestion[]>;
   getCallbackQueryAnswer(chatId: string, messageId: string, data: string): Promise<CallbackQueryAnswer>;
   getInlineQueryResults(chatId: string, botUsername: string, query: string, offset?: string): Promise<InlineQueryResultPage>;
-  sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string): Promise<void>;
+  sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string, topicId?: string): Promise<void>;
   sendBotStartMessage(chatId: string, botUserId: string, parameter?: string): Promise<void>;
   getBlockedSenders(): Promise<BlockedSender[]>;
   setMessageSenderBlocked(senderId: string, kind: "user" | "chat", blocked: boolean): Promise<void>;
@@ -131,7 +135,7 @@ export interface TelegramTransport {
   resolveTelegramLink(url: string): Promise<import("./types").TelegramLinkTarget | undefined>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
-  searchChatMessages(chatId: string, query: string, limit?: number): Promise<number>;
+  searchChatMessages(chatId: string, query: string, limit?: number, topicId?: string): Promise<number>;
   searchSharedMedia(input: SharedMediaSearchInput): Promise<SharedMediaPage>;
   loadMoreChats(chatListId: string, limit?: number): Promise<ChatListPage>;
   setChatPinned(chatListId: string, chatId: string, pinned: boolean): Promise<void>;
@@ -144,6 +148,12 @@ export interface TelegramTransport {
   deleteChatFolder(folderId: string): Promise<void>;
   setChatFolderMembership(folderId: string, chatId: string, included: boolean): Promise<void>;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
+  getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage>;
+  loadForumTopicHistory(chatId: string, topicId: string, limit?: number): Promise<ChatHistoryPage>;
+  createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic>;
+  editForumTopic(chatId: string, topicId: string, name: string): Promise<void>;
+  setForumTopicClosed(chatId: string, topicId: string, closed: boolean): Promise<void>;
+  setForumTopicPinned(chatId: string, topicId: string, pinned: boolean): Promise<void>;
   getMessageContext(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
   getMessage(chatId: string, messageId: string): Promise<Message | undefined>;
   getRawMessage(chatId: string, messageId: string): Promise<string | undefined>;
@@ -165,7 +175,7 @@ export interface TelegramTransport {
   deleteMessage(input: DeleteMessageInput): Promise<void>;
   forwardMessages(input: ForwardMessagesInput): Promise<ForwardMessagesResult>;
   setChatDraft(input: SetChatDraftInput): Promise<void>;
-  setChatTyping(chatId: string, typing: boolean): Promise<void>;
+  setChatTyping(chatId: string, typing: boolean, topicId?: string): Promise<void>;
   cacheFile(fileId: number, priority?: number): Promise<void>;
   streamFile(input: StreamFileInput): Promise<string>;
   suspendFileStream(fileId: number): Promise<void>;
@@ -179,4 +189,5 @@ export interface TelegramTransport {
   sendFiles(input: SendFilesInput): Promise<boolean>;
   cancelFileUpload(chatId: string, messageId: string): Promise<void>;
   markChatRead(chatId: string): Promise<void>;
+  markForumTopicRead(chatId: string, topicId: string, messageId: string): Promise<void>;
 }

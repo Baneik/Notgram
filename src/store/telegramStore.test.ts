@@ -9,10 +9,12 @@ import type {
   ConnectionStatus,
   GlobalSearchInput,
   GlobalSearchPage,
+  ForwardMessagesInput,
   Message,
   MessagePermissions,
   SendMessageInput,
   SendFilesInput,
+  SendEmojiAssetInput,
   SetChatDraftInput,
   TelegramAccount,
   TelegramAccountState,
@@ -1514,6 +1516,66 @@ describe("telegram store", () => {
     };
     expect(await store.getState().saveStorageSettings(updated)).toBe(true);
     expect(store.getState().storageSettings).toMatchObject(updated);
+  });
+
+  it("keeps forum topic context across drafts, search, rich sends, forwarding, and read state", async () => {
+    class ForumTrackingTransport extends MockTelegramTransport {
+      searches: Array<{ chatId: string; query: string; topicId?: string }> = [];
+      stickerSends: SendEmojiAssetInput[] = [];
+      forwards: ForwardMessagesInput[] = [];
+      topicReads: Array<{ chatId: string; topicId: string; messageId: string }> = [];
+
+      override async searchChatMessages(chatId: string, query: string, limit = 100, topicId?: string) {
+        this.searches.push({ chatId, query, topicId });
+        return super.searchChatMessages(chatId, query, limit, topicId);
+      }
+
+      override async sendSticker(input: SendEmojiAssetInput) {
+        this.stickerSends.push(structuredClone(input));
+        return super.sendSticker(input);
+      }
+
+      override async forwardMessages(input: ForwardMessagesInput) {
+        this.forwards.push(structuredClone(input));
+        return super.forwardMessages(input);
+      }
+
+      override async markForumTopicRead(chatId: string, topicId: string, messageId: string) {
+        this.topicReads.push({ chatId, topicId, messageId });
+        return super.markForumTopicRead(chatId, topicId, messageId);
+      }
+    }
+
+    const transport = new ForumTrackingTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-forum");
+    await store.getState().loadForumTopics("chat-forum");
+    await store.getState().selectForumTopic("12");
+    await vi.waitFor(() => expect(
+      store.getState().messages.get("chat-forum")?.some((message) => message.id === "forum-release-1"),
+    ).toBe(true));
+
+    store.getState().updateChatDraft("chat-forum", "release draft");
+    await store.getState().searchChatMessages("Windows");
+    await store.getState().sendSticker({
+      id: "sticker:forum",
+      kind: "sticker",
+      fileId: 71,
+      fileName: "forum.webp",
+    });
+    await store.getState().forwardMessages("chat-forum", ["forum-release-1"], "chat-forum", "18");
+    await store.getState().markActiveChatRead();
+
+    expect(store.getState().drafts.get("chat-forum:topic:12")).toMatchObject({
+      chatId: "chat-forum",
+      topicId: "12",
+      text: "release draft",
+    });
+    expect(transport.searches.at(-1)).toEqual({ chatId: "chat-forum", query: "Windows", topicId: "12" });
+    expect(transport.stickerSends.at(-1)).toMatchObject({ chatId: "chat-forum", topicId: "12" });
+    expect(transport.forwards.at(-1)).toMatchObject({ toChatId: "chat-forum", toTopicId: "18" });
+    expect(transport.topicReads.at(-1)).toMatchObject({ chatId: "chat-forum", topicId: "12" });
   });
 
   it("tracks remote typing state, expires it, and sends local typing state", async () => {

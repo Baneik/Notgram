@@ -8,6 +8,7 @@ import {
   Edit3,
   Flag,
   Forward,
+  Hash,
   LoaderCircle,
   Pin,
   PinOff,
@@ -21,7 +22,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNativeContextMenu, type NativeContextMenuItem } from "../contextMenu/nativeContextMenuBridge";
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
-import type { Chat, Message } from "../telegram/types";
+import type { Chat, ForumTopic, ForumTopicPage, Message } from "../telegram/types";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { formatMessageTime } from "../utils/formatters";
 import { currentColorTheme } from "../theme/theme";
@@ -403,28 +404,56 @@ export function AutoDeleteDialog({ currentTime, pending, onConfirm, onClose }: A
 interface ForwardMessagesDialogProps {
   selectedCount: number;
   targets: Chat[];
+  topicsByChat: Map<string, ForumTopic[]>;
   currentChatId: string;
   query: string;
   pending: boolean;
   pendingTargetId?: string;
   onQueryChange: (query: string) => void;
-  onConfirm: (target: Chat) => void;
+  onLoadTopics: (chatId: string) => Promise<ForumTopicPage | undefined>;
+  onConfirm: (target: Chat, topicId?: string) => void;
   onClose: () => void;
 }
 
 export function ForwardMessagesDialog({
   selectedCount,
   targets,
+  topicsByChat,
   currentChatId,
   query,
   pending,
   pendingTargetId,
   onQueryChange,
+  onLoadTopics,
   onConfirm,
   onClose,
 }: ForwardMessagesDialogProps) {
   const searchRef = useRef<HTMLInputElement>(null);
   const dialogRef = useModalFocus<HTMLElement>(onClose, pending, searchRef);
+  const [forumTarget, setForumTarget] = useState<Chat>();
+  const [topicQuery, setTopicQuery] = useState("");
+  const [topicsLoading, setTopicsLoading] = useState(false);
+  const topics = forumTarget
+    ? (topicsByChat.get(forumTarget.id) ?? []).filter((topic) => {
+        const normalized = topicQuery.trim().toLocaleLowerCase();
+        return !topic.isHidden && (!normalized || topic.name.toLocaleLowerCase().includes(normalized));
+      })
+    : [];
+
+  useEffect(() => {
+    if (!forumTarget || topicsByChat.has(forumTarget.id)) return;
+    setTopicsLoading(true);
+    void onLoadTopics(forumTarget.id).finally(() => setTopicsLoading(false));
+  }, [forumTarget, onLoadTopics, topicsByChat]);
+
+  const chooseTarget = (target: Chat) => {
+    if (!target.isForum) {
+      onConfirm(target);
+      return;
+    }
+    setForumTarget(target);
+    setTopicQuery("");
+  };
   return (
     <div
       className="message-delete-backdrop"
@@ -442,12 +471,16 @@ export function ForwardMessagesDialog({
         tabIndex={-1}
       >
         <header className="message-forward-heading">
-          <span className="message-forward-heading-icon">
-            <Forward size={18} strokeWidth={1.9} />
-          </span>
+          {forumTarget ? (
+            <button className="message-forward-heading-icon" type="button" aria-label="返回会话选择" title="返回" disabled={pending} onClick={() => setForumTarget(undefined)}>
+              <ChevronLeft size={18} strokeWidth={1.9} />
+            </button>
+          ) : (
+            <span className="message-forward-heading-icon"><Forward size={18} strokeWidth={1.9} /></span>
+          )}
           <div>
             <h3 id="message-forward-title">转发 {selectedCount} 条消息</h3>
-            <p>选择目标会话</p>
+            <p>{forumTarget ? `选择“${forumTarget.title}”中的话题` : "选择目标会话"}</p>
           </div>
           <button
             className="icon-button"
@@ -462,12 +495,12 @@ export function ForwardMessagesDialog({
         </header>
         <label className="forward-target-search">
           <Search size={16} strokeWidth={1.8} />
-          <span className="sr-only">搜索目标会话</span>
+          <span className="sr-only">{forumTarget ? "搜索目标话题" : "搜索目标会话"}</span>
           <input
             ref={searchRef}
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="搜索会话"
+            value={forumTarget ? topicQuery : query}
+            onChange={(event) => forumTarget ? setTopicQuery(event.target.value) : onQueryChange(event.target.value)}
+            placeholder={forumTarget ? "搜索话题" : "搜索会话"}
             type="search"
             disabled={pending}
             onKeyDown={(event) => {
@@ -503,7 +536,17 @@ export function ForwardMessagesDialog({
             rows[nextIndex].focus();
           }}
         >
-          {targets.length === 0 ? (
+          {forumTarget ? topicsLoading && topics.length === 0 ? (
+            <div className="forward-target-empty"><LoaderCircle className="spin" size={18} />正在加载话题</div>
+          ) : topics.length === 0 ? (
+            <div className="forward-target-empty">没有匹配的话题</div>
+          ) : topics.map((topic) => (
+            <button className="forward-target-row" type="button" key={topic.id} disabled={pending || topic.isClosed} onClick={() => onConfirm(forumTarget, topic.id)}>
+              <span className="forward-topic-icon"><Hash size={17} /></span>
+              <span><strong>{topic.name}</strong><small>{topic.isClosed ? "话题已关闭" : topic.lastMessage ? messageSummary(topic.lastMessage.content) : "暂无消息"}</small></span>
+              {pending && pendingTargetId === forumTarget.id ? <LoaderCircle className="spin" size={16} /> : <ChevronLeft className="forward-target-arrow" size={18} strokeWidth={1.8} />}
+            </button>
+          )) : targets.length === 0 ? (
             <div className="forward-target-empty">没有匹配的会话</div>
           ) : targets.map((target) => (
             <button
@@ -511,7 +554,7 @@ export function ForwardMessagesDialog({
               type="button"
               key={target.id}
               disabled={pending}
-              onClick={() => onConfirm(target)}
+              onClick={() => chooseTarget(target)}
             >
               <Avatar avatar={target.avatar} size="medium" />
               <span>

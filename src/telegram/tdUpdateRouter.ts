@@ -22,6 +22,7 @@ export interface TdUpdateHandlers {
   updateReadOutbox: (update: TdObject) => void;
   deleteMessages: (update: TdObject) => void;
   updateFile: (file?: TdObject) => void;
+  forumTopicsChanged: (chatId: unknown) => void;
 }
 
 export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
@@ -70,6 +71,12 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
       return;
     case "updateChatAction":
       handlers.updateChatAction(update);
+      return;
+    case "updateForumTopicInfo":
+      handlers.forumTopicsChanged(asTdObject(update.info)?.chat_id);
+      return;
+    case "updateForumTopic":
+      handlers.forumTopicsChanged(update.chat_id);
       return;
     case "updateChatPosition":
       handlers.updateChatPosition(update);

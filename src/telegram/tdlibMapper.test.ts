@@ -3,6 +3,7 @@ import {
   mapTdChat,
   mapTdChatDraft,
   mapTdChatFolders,
+  mapTdForumTopic,
   mapTdMessage,
   mapTdMessageContent,
   mapTdMessageProperties,
@@ -10,6 +11,57 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("maps forum chats, topic metadata, topic drafts, and message topic ids", () => {
+    expect(mapTdChat({
+      id: 77,
+      type: { "@type": "chatTypeSupergroup", is_channel: false, is_forum: true },
+      title: "Forum",
+      permissions: { can_create_topics: true },
+    })).toMatchObject({ id: "77", isForum: true, canCreateTopics: true });
+
+    expect(mapTdForumTopic({
+      "@type": "forumTopic",
+      info: {
+        "@type": "forumTopicInfo",
+        chat_id: 77,
+        forum_topic_id: 12,
+        name: "Releases",
+        icon: { "@type": "forumTopicIcon", color: 7_321_072, custom_emoji_id: 99 },
+        creation_date: 1_700_000_000,
+        is_outgoing: true,
+        is_closed: false,
+      },
+      last_message: {
+        id: 1001,
+        chat_id: 77,
+        topic_id: { "@type": "messageTopicForum", forum_topic_id: 12 },
+        sender_id: { "@type": "messageSenderUser", user_id: 7 },
+        date: 1_700_000_100,
+        content: { "@type": "messageText", text: { text: "v1 ready", entities: [] } },
+      },
+      order: "9223372036854775000",
+      is_pinned: true,
+      unread_count: 3,
+      notification_settings: { mute_for: 60 },
+      draft_message: {
+        "@type": "draftMessage",
+        date: 1_700_000_200,
+        content: { "@type": "draftMessageContentText", text: { text: "release note", entities: [] } },
+      },
+    })).toMatchObject({
+      id: "12",
+      chatId: "77",
+      name: "Releases",
+      iconCustomEmojiId: "99",
+      isPinned: true,
+      unreadCount: 3,
+      muted: true,
+      order: "9223372036854775000",
+      lastMessage: { id: "1001", topicId: "12" },
+      draft: { chatId: "77", topicId: "12", text: "release note" },
+    });
+  });
+
   it("preserves non-zero media album ids without creating zero albums", () => {
     const base = {
       id: 1000,

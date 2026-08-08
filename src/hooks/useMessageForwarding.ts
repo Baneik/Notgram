@@ -19,6 +19,7 @@ interface MessageForwardingOptions {
     fromChatId: string,
     messageIds: string[],
     toChatId: string,
+    toTopicId?: string,
   ) => Promise<ForwardMessagesResult | undefined>;
 }
 
@@ -111,7 +112,7 @@ export const useMessageForwarding = ({
       : new Set(current).add(message.id));
   }, [loadingIds, onLoadMessageProperties, selectedIds]);
 
-  const confirm = async (target: Chat) => {
+  const confirm = async (target: Chat, toTopicId?: string) => {
     if (!chatId || pending) return;
     const messageIds = messages
       .filter((message) => selectedIds.has(message.id))
@@ -119,7 +120,7 @@ export const useMessageForwarding = ({
     if (messageIds.length === 0) return;
     setPending(true);
     setPendingTargetId(target.id);
-    const result = await onForwardMessages(chatId, messageIds, target.id);
+    const result = await onForwardMessages(chatId, messageIds, target.id, toTopicId);
     setPending(false);
     setPendingTargetId(undefined);
     setDialogOpen(false);

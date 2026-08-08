@@ -427,6 +427,8 @@ export interface EmojiPickerCatalog {
 export interface Chat {
   id: string;
   kind: ChatKind;
+  isForum?: boolean;
+  canCreateTopics?: boolean;
   folderIds: string[];
   title: string;
   avatar: Avatar;
@@ -460,6 +462,7 @@ export interface CreateChatInput {
 
 export interface ChatDraft {
   chatId: string;
+  topicId?: string;
   text: string;
   replyToMessageId?: string;
   updatedAt: string;
@@ -750,6 +753,7 @@ export interface Message {
   id: string;
   renderKey?: string;
   chatId: string;
+  topicId?: string;
   mediaAlbumId?: string;
   senderId: string;
   senderTag?: string;
@@ -798,6 +802,7 @@ export interface CachedTelegramSnapshot {
 export interface QueuedOutgoingMessage {
   id: string;
   chatId: string;
+  topicId?: string;
   text: string;
   replyToMessageId?: string;
   createdAt: string;
@@ -840,11 +845,13 @@ export type TelegramEvent =
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
   | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }
   | { type: "chat.typingChanged"; chatId: string; senderId: string; typing: boolean }
+  | { type: "forumTopics.changed"; chatId: string }
   | { type: "user.upsert"; user: User }
   | { type: "sync.error"; message: string; fatal?: boolean };
 
 export interface SendMessageInput {
   chatId: string;
+  topicId?: string;
   text: string;
   replyToMessageId?: string;
   clearDraft?: boolean;
@@ -852,6 +859,7 @@ export interface SendMessageInput {
 
 export interface SendEmojiAssetInput {
   chatId: string;
+  topicId?: string;
   asset: EmojiPickerAsset;
   replyToMessageId?: string;
 }
@@ -871,6 +879,7 @@ export interface DeleteMessageInput {
 export interface ForwardMessagesInput {
   fromChatId: string;
   toChatId: string;
+  toTopicId?: string;
   messageIds: string[];
 }
 
@@ -881,6 +890,7 @@ export interface ForwardMessagesResult {
 
 export interface SetChatDraftInput {
   chatId: string;
+  topicId?: string;
   text: string;
   replyToMessageId?: string;
 }
@@ -912,6 +922,7 @@ export interface SetChatMessageAutoDeleteTimeInput {
 
 export interface SendFileInput {
   chatId: string;
+  topicId?: string;
   file?: File;
 }
 
@@ -932,6 +943,7 @@ export interface OutgoingAttachment {
 
 export interface SendFilesInput {
   chatId: string;
+  topicId?: string;
   attachments: OutgoingAttachment[];
   caption?: string;
 }
@@ -948,6 +960,53 @@ export interface ChatHistoryPage {
   loadedCount: number;
   hasMore: boolean;
   messageIds: string[];
+}
+
+export interface ForumTopic {
+  id: string;
+  chatId: string;
+  name: string;
+  iconColor: number;
+  iconCustomEmojiId?: string;
+  createdAt: string;
+  isGeneral: boolean;
+  isOutgoing: boolean;
+  isClosed: boolean;
+  isHidden: boolean;
+  isPinned: boolean;
+  unreadCount: number;
+  unreadMentionCount: number;
+  unreadReactionCount: number;
+  lastReadInboxMessageId?: string;
+  lastReadOutboxMessageId?: string;
+  lastMessage?: Message;
+  order: string;
+  muted: boolean;
+  draft?: ChatDraft;
+}
+
+export interface ForumTopicPage {
+  topics: ForumTopic[];
+  totalCount?: number;
+  nextOffsetDate?: number;
+  nextOffsetMessageId?: string;
+  nextOffsetTopicId?: string;
+  hasMore: boolean;
+}
+
+export interface GetForumTopicsInput {
+  chatId: string;
+  query?: string;
+  offsetDate?: number;
+  offsetMessageId?: string;
+  offsetTopicId?: string;
+  limit?: number;
+}
+
+export interface CreateForumTopicInput {
+  chatId: string;
+  name: string;
+  iconColor?: number;
 }
 
 export interface ChatListPage {

@@ -306,6 +306,33 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   grid-column: 3; min-width: 0; height: 100%; min-height: 0; display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto; background: var(--chat-canvas);
 }
+.forum-topics-view {
+  grid-column: 3; min-width: 0; height: 100%; min-height: 0; display: grid;
+  grid-template-rows: auto minmax(0, 1fr); background: var(--chat-canvas);
+}
+.forum-topics-header { grid-row: 1; }
+.forum-topic-create { margin-left: auto; }
+.forum-topics-content { min-height: 0; overflow: auto; padding: 10px 12px 16px; }
+.forum-topic-list { display: grid; }
+.forum-topic-row { position: relative; min-width: 0; display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.forum-topic-main { min-width: 0; flex: 1; min-height: 68px; padding: 9px 7px; display: flex; align-items: center; gap: 11px; color: var(--ink); background: transparent; border: 0; text-align: left; cursor: pointer; }
+.forum-topic-main:hover, .forum-topic-main:focus-visible { background: var(--surface-hover); }
+.forum-topic-icon { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; color: var(--color-text-on-accent); border-radius: 50%; }
+.forum-topic-copy { min-width: 0; display: grid; gap: 3px; }
+.forum-topic-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 650; }
+.forum-topic-preview { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.forum-topic-meta { min-width: 28px; padding-right: 2px; display: flex; align-items: center; justify-content: flex-end; gap: 5px; color: var(--muted); }
+.forum-topic-meta strong { min-width: 20px; height: 20px; padding: 0 5px; display: grid; place-items: center; color: var(--color-text-on-accent); background: var(--accent); border-radius: 10px; font-size: 10px; font-weight: 650; }
+.forum-topic-actions { position: relative; flex: 0 0 auto; padding-right: 3px; }
+.forum-topic-menu { position: absolute; z-index: 76; top: calc(100% - 4px); right: 3px; width: 144px; padding: 5px; display: grid; gap: 2px; background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 7px; box-shadow: 0 8px 28px var(--color-shadow); }
+.forum-topic-menu button { min-height: 34px; padding: 0 7px; display: flex; align-items: center; gap: 7px; color: var(--ink); background: transparent; border: 0; border-radius: 5px; text-align: left; cursor: pointer; font-size: 12px; }
+.forum-topic-menu button:hover, .forum-topic-menu button:focus-visible { background: var(--surface-hover); }
+.forum-topic-form { min-height: 56px; padding: 7px; display: flex; align-items: center; gap: 8px; color: var(--accent); border-bottom: 1px solid var(--line); }
+.forum-topic-form input { min-width: 0; flex: 1; height: 34px; padding: 0 9px; color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 5px; outline: 0; }
+.forum-topic-form input:focus { border-color: var(--accent); }
+.forum-topic-edit { width: 100%; border-bottom: 0; }
+.forum-topics-state { min-height: 180px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.mobile-back.forum-topic-back { display: inline-grid; }
 .conversation.has-message-search { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation-header {
   height: 60px; padding: 0 12px 0 16px; display: flex; align-items: center; gap: 11px;
@@ -1320,6 +1347,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   min-width: 0; padding: 16px 14px 12px 18px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px;
 }
 .message-forward-heading-icon { width: 36px; height: 36px; display: grid; place-items: center; color: var(--accent); background: var(--color-accent-soft); border-radius: 50%; }
+button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .message-forward-heading h3 { margin: 0 0 3px; font-size: 16px; font-weight: 650; }
 .message-forward-heading p { margin: 0; color: var(--muted); font-size: 11px; }
 .forward-target-search {
@@ -1335,6 +1363,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .forward-target-row:hover:not(:disabled), .forward-target-row:focus-visible { background: var(--surface-hover); }
 .forward-target-row:disabled { cursor: default; opacity: 0.72; }
 .forward-target-row > span { min-width: 0; display: grid; gap: 3px; }
+.forward-target-row > .forward-topic-icon { width: 38px; height: 38px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); border-radius: 50%; }
 .forward-target-row strong, .forward-target-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .forward-target-row strong { font-size: 13px; }
 .forward-target-row small { color: var(--muted); font-size: 11px; }
@@ -1963,7 +1992,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
   .emoji-picker { left: 6px; right: 6px; width: auto; height: min(560px, calc(100vh - 150px)); }
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
-  .chat-sidebar, .conversation { grid-column: 1; grid-row: 1; }
+  .chat-sidebar, .conversation, .forum-topics-view { grid-column: 1; grid-row: 1; }
   .contacts-view { grid-column: 1; grid-row: 1; }
   .global-search-controls { padding: 12px 14px; }
   .global-search-results { padding: 5px 14px 20px; }
@@ -1972,10 +2001,11 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   .contacts-results { padding: 8px 14px 20px; }
   .chat-sidebar { min-width: 0; }
   .sidebar-resizer { display: none; }
-  .conversation { display: none; }
+  .conversation, .forum-topics-view { display: none; }
   .mobile-chat-open .chat-sidebar, .mobile-chat-open .navigation-rail { display: none; }
   .mobile-chat-open { grid-template-rows: minmax(0, 1fr); }
   .mobile-chat-open .conversation { display: grid; }
+  .mobile-chat-open .forum-topics-view { display: grid; }
   .mobile-back { display: inline-grid; }
   .message-list { padding-top: 14px; }
   .conversation-jump-button { right: 12px; bottom: 12px; }

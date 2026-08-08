@@ -7,6 +7,10 @@ export const numericId = (id: string) => {
   return value;
 };
 
+export const forumTopicObject = (topicId?: string): TdObject | null => topicId
+  ? { "@type": "messageTopicForum", forum_topic_id: numericId(topicId) }
+  : null;
+
 export const formattedTextObject = (text: string): TdObject => ({
   "@type": "formattedText",
   text,

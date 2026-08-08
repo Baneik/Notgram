@@ -8,10 +8,10 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use libloading::Library;
 use runtime_log::RuntimeLogger;
 use security::{
-    PreparedUpload, prepared_chat_photo_request, prepared_file_request,
-    prepared_profile_photo_request, prepared_upload_album_request_with_caption,
-    prepared_upload_request_with_caption, request_type_from_extra, validate_webview_extra,
-    validate_webview_tdlib_request,
+    PreparedUpload, prepared_chat_photo_request, prepared_file_request_with_topic,
+    prepared_profile_photo_request, prepared_upload_album_request_with_caption_and_topic,
+    prepared_upload_request_with_caption_and_topic, request_type_from_extra,
+    validate_webview_extra, validate_webview_tdlib_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1241,6 +1241,7 @@ fn decode_pasted_upload(
 pub async fn telegram_send_pasted_files(
     app: AppHandle,
     chat_id: i64,
+    topic_id: Option<i64>,
     extra: String,
     files: Vec<PastedUploadFile>,
     caption: Option<String>,
@@ -1248,7 +1249,11 @@ pub async fn telegram_send_pasted_files(
 ) -> Result<bool, String> {
     validate_webview_extra(&extra)?;
     let caption = caption.unwrap_or_default();
-    if chat_id == 0 || files.is_empty() || files.len() > MAX_PASTED_UPLOAD_FILES {
+    if chat_id == 0
+        || topic_id.is_some_and(|id| id <= 0)
+        || files.is_empty()
+        || files.len() > MAX_PASTED_UPLOAD_FILES
+    {
         return Err("Pasted uploads must contain between 1 and 10 files".to_string());
     }
     let cache_root = crate::storage::sent_media_directory(&app)?.join(format!(
@@ -1303,9 +1308,17 @@ pub async fn telegram_send_pasted_files(
     }
 
     let request = if prepared.len() == 1 {
-        prepared_upload_request_with_caption(chat_id, &extra, &prepared[0], &caption)?
+        prepared_upload_request_with_caption_and_topic(
+            chat_id,
+            &extra,
+            &prepared[0],
+            &caption,
+            topic_id,
+        )?
     } else {
-        prepared_upload_album_request_with_caption(chat_id, &extra, &prepared, &caption)?
+        prepared_upload_album_request_with_caption_and_topic(
+            chat_id, &extra, &prepared, &caption, topic_id,
+        )?
     };
     runtime.send(&request)?;
     Ok(true)
@@ -1315,6 +1328,7 @@ pub async fn telegram_send_pasted_files(
 pub async fn telegram_pick_and_send_file(
     app: AppHandle,
     chat_id: i64,
+    topic_id: Option<i64>,
     extra: String,
     runtime: State<'_, TelegramRuntime>,
 ) -> Result<bool, String> {
@@ -1331,7 +1345,12 @@ pub async fn telegram_pick_and_send_file(
         .into_path()
         .map_err(|error| format!("Unable to resolve selected upload file: {error}"))?;
     let file = crate::storage::prepare_upload_file(&path)?;
-    runtime.send(&prepared_file_request(chat_id, &extra, &file)?)?;
+    if topic_id.is_some_and(|id| id <= 0) {
+        return Err("Invalid forum topic identifier".to_string());
+    }
+    runtime.send(&prepared_file_request_with_topic(
+        chat_id, &extra, &file, topic_id,
+    )?)?;
     Ok(true)
 }
 

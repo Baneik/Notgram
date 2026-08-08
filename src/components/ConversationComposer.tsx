@@ -28,6 +28,7 @@ import { EmojiPicker } from "./EmojiPicker";
 
 interface ConversationComposerProps {
   chatId: string;
+  draftKey?: string;
   editingMessage?: Message;
   replyingTo?: Message;
   contextTitle?: string;
@@ -65,6 +66,7 @@ interface PendingAttachment {
 
 export const ConversationComposer = memo(function ConversationComposer({
   chatId,
+  draftKey = chatId,
   editingMessage,
   replyingTo,
   contextTitle,
@@ -87,7 +89,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   onSendInlineResult,
   onSendBotStart,
 }: ConversationComposerProps) {
-  const chatDraft = useTelegramStore((state) => state.drafts.get(chatId));
+  const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
   const [draft, setDraft] = useState(chatDraft?.text ?? "");
   const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);

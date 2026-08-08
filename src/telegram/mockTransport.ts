@@ -41,6 +41,10 @@ import type {
   EmojiPickerCatalog,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  ForumTopic,
+  ForumTopicPage,
+  GetForumTopicsInput,
+  CreateForumTopicInput,
   GlobalSearchInput,
   GlobalSearchPage,
   Message,
@@ -203,6 +207,7 @@ export class MockTelegramTransport implements TelegramTransport {
   private cachedSnapshot?: CachedTelegramSnapshot;
   private accountState: TelegramAccountState;
   private historyOffsets = new Map<string, number>();
+  private forumTopics = new Map<string, ForumTopic[]>();
   private drafts = new Map((mockSnapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
   private createdChatSettings = new Map<string, CreateChatInput>();
   private chatManagement = new Map<string, ChatManagement>();
@@ -1079,11 +1084,11 @@ export class MockTelegramTransport implements TelegramTransport {
     return { queryId: `mock-query-${Date.now()}`, results: clone(page), nextOffset: start + page.length < all.length ? String(start + page.length) : undefined, hasMore: start + page.length < all.length };
   }
 
-  async sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string): Promise<void> {
+  async sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string, topicId?: string): Promise<void> {
     void queryId;
     const result = this.inlineResults.get(resultId);
     if (!result || result.botUserId !== botUserId) throw new Error("Inline 结果已过期");
-    await this.sendMessage({ chatId, text: result.text, replyToMessageId });
+    await this.sendMessage({ chatId, topicId, text: result.text, replyToMessageId });
   }
 
   async sendBotStartMessage(chatId: string, botUserId: string, parameter = ""): Promise<void> {
@@ -1212,11 +1217,12 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
-  async searchChatMessages(chatId: string, query: string, limit = 100) {
+  async searchChatMessages(chatId: string, query: string, limit = 100, topicId?: string) {
     const pattern = parseMessageSearchQuery(query);
     if (!pattern.query) return 0;
     const matches = this.snapshot.messages.filter((message) => {
       if (message.chatId !== chatId) return false;
+      if (topicId && message.topicId !== topicId) return false;
       return messageSearchMatches(messageContentText(message.content), pattern);
     }).slice(0, limit);
     for (const message of matches) {
@@ -1272,6 +1278,122 @@ export class MockTelegramTransport implements TelegramTransport {
       hasMore: offset + page.length < history.length,
       messageIds: page.map((message) => message.id),
     };
+  }
+
+  private ensureForumTopics(chatId: string) {
+    const existing = this.forumTopics.get(chatId);
+    if (existing) return existing;
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat?.isForum) return [];
+    const makeTopic = (id: string, name: string, color: number, isGeneral = false, unreadCount = 0): ForumTopic => {
+      const lastMessage = this.snapshot.messages
+        .filter((message) => message.chatId === chatId && message.topicId === id)
+        .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt))[0];
+      return {
+        id,
+        chatId,
+        name,
+        iconColor: color,
+        createdAt: "2026-08-01T08:00:00.000Z",
+        isGeneral,
+        isOutgoing: isGeneral,
+        isClosed: false,
+        isHidden: false,
+        isPinned: isGeneral,
+        unreadCount,
+        unreadMentionCount: 0,
+        unreadReactionCount: 0,
+        lastReadInboxMessageId: lastMessage?.id,
+        lastReadOutboxMessageId: lastMessage?.id,
+        lastMessage: lastMessage ? clone(lastMessage) : undefined,
+        order: id === "1" ? "300" : id === "12" ? "200" : "100",
+        muted: false,
+        draft: this.drafts.get(`${chatId}:topic:${id}`) ? clone(this.drafts.get(`${chatId}:topic:${id}`)) : undefined,
+      };
+    };
+    const topics = [
+      makeTopic("1", "常规", 0x6fb9f0, true),
+      makeTopic("12", "构建与发布", 0xffd67e, false, 3),
+      makeTopic("18", "设计反馈", 0xcb86db, false, 1),
+    ];
+    this.forumTopics.set(chatId, topics);
+    return topics;
+  }
+
+  async getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage> {
+    const all = this.ensureForumTopics(input.chatId)
+      .filter((topic) => !input.query?.trim() || topic.name.toLocaleLowerCase().includes(input.query.trim().toLocaleLowerCase()))
+      .sort((left, right) => Number(right.order) - Number(left.order));
+    const offset = input.offsetTopicId ? Math.max(0, all.findIndex((topic) => topic.id === input.offsetTopicId) + 1) : 0;
+    const limit = Math.max(1, Math.min(input.limit ?? 50, 100));
+    const topics = all.slice(offset, offset + limit);
+    const next = all[offset + topics.length];
+    return clone({
+      topics,
+      totalCount: all.length,
+      nextOffsetDate: next ? Math.floor(Date.parse(next.createdAt) / 1_000) : undefined,
+      nextOffsetMessageId: next?.lastMessage?.id,
+      nextOffsetTopicId: next?.id,
+      hasMore: Boolean(next),
+    });
+  }
+
+  async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
+    const historyKey = `forum:${chatId}:${topicId}`;
+    const history = this.snapshot.messages
+      .filter((message) => message.chatId === chatId && message.topicId === topicId)
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+    const offset = this.historyOffsets.get(historyKey) ?? 0;
+    const page = history.slice(offset, offset + limit);
+    this.historyOffsets.set(historyKey, offset + page.length);
+    this.listener?.({ type: "messages.upserted", messages: clone(page) });
+    return { loadedCount: page.length, hasMore: offset + page.length < history.length, messageIds: page.map((message) => message.id) };
+  }
+
+  async createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic> {
+    const topics = this.ensureForumTopics(input.chatId);
+    const id = String(100 + topics.length);
+    const topic: ForumTopic = {
+      id,
+      chatId: input.chatId,
+      name: input.name.trim(),
+      iconColor: input.iconColor ?? 0x6fb9f0,
+      createdAt: new Date().toISOString(),
+      isGeneral: false,
+      isOutgoing: true,
+      isClosed: false,
+      isHidden: false,
+      isPinned: false,
+      unreadCount: 0,
+      unreadMentionCount: 0,
+      unreadReactionCount: 0,
+      order: String(Date.now()),
+      muted: false,
+    };
+    topics.unshift(topic);
+    this.listener?.({ type: "forumTopics.changed", chatId: input.chatId });
+    return clone(topic);
+  }
+
+  async editForumTopic(chatId: string, topicId: string, name: string) {
+    const topic = this.ensureForumTopics(chatId).find((candidate) => candidate.id === topicId);
+    if (!topic) throw new Error("找不到话题");
+    topic.name = name.trim();
+    this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
+  async setForumTopicClosed(chatId: string, topicId: string, closed: boolean) {
+    const topic = this.ensureForumTopics(chatId).find((candidate) => candidate.id === topicId);
+    if (!topic) throw new Error("找不到话题");
+    topic.isClosed = closed;
+    this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
+  async setForumTopicPinned(chatId: string, topicId: string, pinned: boolean) {
+    const topic = this.ensureForumTopics(chatId).find((candidate) => candidate.id === topicId);
+    if (!topic) throw new Error("找不到话题");
+    topic.isPinned = pinned;
+    this.listener?.({ type: "forumTopics.changed", chatId });
   }
 
   async getMessageContext(chatId: string, messageId: string, limit = 31) {
@@ -1514,16 +1636,17 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
-  async sendMessage({ chatId, text, replyToMessageId, clearDraft = true }: SendMessageInput) {
+  async sendMessage({ chatId, topicId, text, replyToMessageId, clearDraft = true }: SendMessageInput) {
     const replyTarget = replyToMessageId
       ? this.snapshot.messages.find(
-          (message) => message.chatId === chatId && message.id === replyToMessageId,
+          (message) => message.chatId === chatId && message.topicId === topicId && message.id === replyToMessageId,
         )
       : undefined;
     if (replyToMessageId && !replyTarget) throw new Error("找不到需要回复的消息");
     this.appendMessage({
       id: crypto.randomUUID(),
       chatId,
+      topicId,
       senderId: this.snapshot.currentUserId,
       outgoing: true,
       sentAt: new Date().toISOString(),
@@ -1538,7 +1661,7 @@ export class MockTelegramTransport implements TelegramTransport {
         : undefined,
       content: { kind: "text", text },
     });
-    if (clearDraft) await this.setChatDraft({ chatId, text: "" });
+    if (clearDraft) await this.setChatDraft({ chatId, topicId, text: "" });
   }
 
   async editMessage({ chatId, messageId, text }: EditMessageInput) {
@@ -1564,7 +1687,7 @@ export class MockTelegramTransport implements TelegramTransport {
     this.refreshChatPreview(chatId);
   }
 
-  async forwardMessages({ fromChatId, toChatId, messageIds }: ForwardMessagesInput): Promise<ForwardMessagesResult> {
+  async forwardMessages({ fromChatId, toChatId, toTopicId, messageIds }: ForwardMessagesInput): Promise<ForwardMessagesResult> {
     const uniqueMessageIds = [...new Set(messageIds)];
     const selected = uniqueMessageIds
       .map((messageId) => this.snapshot.messages.find(
@@ -1584,6 +1707,7 @@ export class MockTelegramTransport implements TelegramTransport {
         ...clone(source),
         id: crypto.randomUUID(),
         chatId: toChatId,
+        topicId: toTopicId,
         senderId: this.snapshot.currentUserId,
         outgoing: true,
         sentAt: new Date(now + index).toISOString(),
@@ -1608,24 +1732,26 @@ export class MockTelegramTransport implements TelegramTransport {
     return { forwardedCount: selected.length, failedMessageIds: [] };
   }
 
-  async setChatDraft({ chatId, text, replyToMessageId }: SetChatDraftInput) {
+  async setChatDraft({ chatId, topicId, text, replyToMessageId }: SetChatDraftInput) {
     if (!this.snapshot.chats.some((chat) => chat.id === chatId)) {
       throw new Error("找不到需要保存草稿的会话");
     }
     const draft = text.length > 0 || replyToMessageId
       ? {
           chatId,
+          topicId,
           text,
           replyToMessageId,
           updatedAt: new Date().toISOString(),
         }
       : undefined;
-    if (draft) this.drafts.set(chatId, draft);
-    else this.drafts.delete(chatId);
+    const key = topicId ? `${chatId}:topic:${topicId}` : chatId;
+    if (draft) this.drafts.set(key, draft);
+    else this.drafts.delete(key);
     this.listener?.({ type: "chat.draftChanged", chatId, draft: clone(draft) });
   }
 
-  async setChatTyping(_chatId: string, _typing: boolean) {}
+  async setChatTyping(_chatId: string, _typing: boolean, _topicId?: string) {}
 
   async downloadFile(fileId: number, _fileName: string) {
     this.updateFileTransfer(fileId, {
@@ -1679,10 +1805,11 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "message.upsert", message: clone(message) });
   }
 
-  async sendFile({ chatId, file }: SendFileInput) {
+  async sendFile({ chatId, topicId, file }: SendFileInput) {
     if (!file) return false;
     return this.sendFiles({
       chatId,
+      topicId,
       attachments: [{
         file,
         kind: file.type.startsWith("image/") ? "photo" : "document",
@@ -1690,7 +1817,7 @@ export class MockTelegramTransport implements TelegramTransport {
     });
   }
 
-  async sendFiles({ chatId, attachments, caption }: SendFilesInput) {
+  async sendFiles({ chatId, topicId, attachments, caption }: SendFilesInput) {
     if (attachments.length === 0) return false;
     const allVisual = attachments.length > 1 && attachments.every(
       (attachment) => attachment.kind === "photo" || attachment.kind === "video",
@@ -1703,6 +1830,7 @@ export class MockTelegramTransport implements TelegramTransport {
       this.appendMessage({
         id: crypto.randomUUID(),
         chatId,
+        topicId,
         mediaAlbumId: isMedia ? albumId : undefined,
         senderId: this.snapshot.currentUserId,
         outgoing: true,
@@ -1746,6 +1874,16 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
+  async markForumTopicRead(chatId: string, topicId: string, messageId: string) {
+    const topic = this.ensureForumTopics(chatId).find((item) => item.id === topicId);
+    if (!topic || !this.snapshot.messages.some((message) => message.id === messageId && message.topicId === topicId)) return;
+    topic.unreadCount = 0;
+    topic.unreadMentionCount = 0;
+    topic.unreadReactionCount = 0;
+    topic.lastReadInboxMessageId = messageId;
+    this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
   private appendMessage(message: Message) {
     this.snapshot.messages.push(message);
     this.listener?.({ type: "message.upsert", message: clone(message), animateEntrance: true });
@@ -1776,6 +1914,7 @@ export class MockTelegramTransport implements TelegramTransport {
     this.appendMessage({
       id: crypto.randomUUID(),
       chatId: input.chatId,
+      topicId: input.topicId,
       senderId: this.snapshot.currentUserId,
       outgoing: true,
       sentAt: new Date().toISOString(),

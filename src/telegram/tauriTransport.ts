@@ -5,6 +5,7 @@ import {
   asTdObjects,
   mapTdChat,
   mapTdChatDraft,
+  mapTdForumTopic,
   mapTdChatFolders,
   mapTdMessage,
   mapTdMessageProperties,
@@ -42,6 +43,7 @@ import {
   inputMessageText,
   listObject,
   mapAuthorizationState,
+  forumTopicObject,
   numericId,
   proxyValue,
   sameProxy,
@@ -93,6 +95,10 @@ import type {
   EmojiPickerCatalog,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  ForumTopic,
+  ForumTopicPage,
+  GetForumTopicsInput,
+  CreateForumTopicInput,
   GlobalSearchFilter,
   GlobalSearchInput,
   GlobalSearchPage,
@@ -463,6 +469,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   private exhaustedHistories = new Set<string>();
   private historyCursors = new Map<string, number>();
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
+  private exhaustedForumTopicHistories = new Set<string>();
+  private forumTopicHistoryCursors = new Map<string, number>();
+  private forumTopicHistoryLoads = new Map<string, Promise<ChatHistoryPage>>();
   private pendingReplyHydrations = new Map<string, symbol>();
   private unavailableReplyHydrations = new Set<string>();
   private pendingRichMessageHydrations = new Set<string>();
@@ -504,6 +513,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     updateReadOutbox: (update) => this.updateReadOutbox(update),
     deleteMessages: (update) => this.deleteMessages(update),
     updateFile: (file) => this.updateFile(file),
+    forumTopicsChanged: (chatId) => this.emitForumTopicsChanged(chatId),
   };
   private pendingDownloads = new Map<number, string>();
   private rawFolderInfos: TdObject[] = [];
@@ -1408,9 +1418,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     return { queryId: String(result.inline_query_id ?? ""), results: mapped, nextOffset, hasMore: Boolean(nextOffset) };
   }
 
-  async sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string): Promise<void> {
+  async sendInlineQueryResultMessage(chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string, topicId?: string): Promise<void> {
     void botUserId;
-    await this.request({ "@type": "sendInlineQueryResultMessage", chat_id: numericId(chatId), topic_id: null, reply_to: replyToMessageId ? { "@type": "inputMessageReplyToMessage", message_id: numericId(replyToMessageId), quote: null, checklist_task_id: 0 } : null, options: { "@type": "messageSendOptions", disable_notification: false, from_background: false, protect_content: false, update_order_of_installed_sticker_sets: false, scheduling_state: null, paid_message_star_count: 0 }, query_id: numericId(queryId), result_id: resultId, hide_via_bot: false });
+    await this.request({ "@type": "sendInlineQueryResultMessage", chat_id: numericId(chatId), topic_id: forumTopicObject(topicId), reply_to: replyToMessageId ? { "@type": "inputMessageReplyToMessage", message_id: numericId(replyToMessageId), quote: null, checklist_task_id: 0 } : null, options: { "@type": "messageSendOptions", disable_notification: false, from_background: false, protect_content: false, update_order_of_installed_sticker_sets: false, scheduling_state: null, paid_message_star_count: 0 }, query_id: numericId(queryId), result_id: resultId, hide_via_bot: false });
   }
 
   async sendBotStartMessage(chatId: string, botUserId: string, parameter = ""): Promise<void> {
@@ -1612,13 +1622,13 @@ export class TauriTelegramTransport implements TelegramTransport {
     };
   }
 
-  async searchChatMessages(chatId: string, query: string, limit = 100) {
+  async searchChatMessages(chatId: string, query: string, limit = 100, topicId?: string) {
     const pattern = parseMessageSearchQuery(query);
     if (!pattern.query) return 0;
     const result = await this.request({
       "@type": "searchChatMessages",
       chat_id: numericId(chatId),
-      topic_id: null,
+      topic_id: forumTopicObject(topicId),
       query: pattern.serverQuery,
       sender_id: null,
       from_message_id: 0,
@@ -1815,6 +1825,119 @@ export class TauriTelegramTransport implements TelegramTransport {
       .finally(() => this.historyLoads.delete(chatId));
     this.historyLoads.set(chatId, load);
     return load;
+  }
+
+  async getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage> {
+    const limit = Math.max(1, Math.min(input.limit ?? 50, 100));
+    const result = await this.request({
+      "@type": "getForumTopics",
+      chat_id: numericId(input.chatId),
+      query: (input.query ?? "").trim(),
+      offset_date: Math.max(0, input.offsetDate ?? 0),
+      offset_message_id: input.offsetMessageId ? numericId(input.offsetMessageId) : 0,
+      offset_forum_topic_id: input.offsetTopicId ? numericId(input.offsetTopicId) : 0,
+      limit,
+    });
+    const rawTopics = asTdObjects(result.topics);
+    const topics = rawTopics
+      .map(mapTdForumTopic)
+      .filter((topic): topic is ForumTopic => Boolean(topic && topic.chatId === input.chatId));
+    const lastMessages = rawTopics.flatMap((topic) => {
+      const last = asTdObject(topic.last_message);
+      return last ? [last] : [];
+    });
+    this.emitMessages(lastMessages);
+    const nextOffsetDate = tdNumber(result.next_offset_date);
+    const nextOffsetMessageId = tdId(result.next_offset_message_id) || undefined;
+    const nextOffsetTopicId = tdId(result.next_offset_forum_topic_id) || undefined;
+    return {
+      topics,
+      totalCount: tdNumber(result.total_count),
+      nextOffsetDate,
+      nextOffsetMessageId,
+      nextOffsetTopicId,
+      hasMore: topics.length > 0 && Boolean(nextOffsetDate || nextOffsetMessageId || nextOffsetTopicId),
+    };
+  }
+
+  async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
+    const key = `${chatId}:${topicId}`;
+    if (this.exhaustedForumTopicHistories.has(key)) {
+      return { loadedCount: 0, hasMore: false, messageIds: [] };
+    }
+    const existing = this.forumTopicHistoryLoads.get(key);
+    if (existing) return existing;
+    const load = (async () => {
+      const cursor = this.forumTopicHistoryCursors.get(key) ?? 0;
+      const result = await this.request({
+        "@type": "getForumTopicHistory",
+        chat_id: numericId(chatId),
+        forum_topic_id: numericId(topicId),
+        from_message_id: cursor,
+        offset: 0,
+        limit: Math.max(1, Math.min(limit, 100)),
+      });
+      const rawMessages = asTdObjects(result.messages);
+      const messageIds = rawMessages.map((message) => tdId(message.id)).filter(Boolean);
+      const nextCursor = messageIds.at(-1);
+      if (nextCursor && nextCursor !== String(cursor)) this.forumTopicHistoryCursors.set(key, Number(nextCursor));
+      else this.exhaustedForumTopicHistories.add(key);
+      this.emitMessages(rawMessages);
+      return {
+        loadedCount: messageIds.length,
+        hasMore: !this.exhaustedForumTopicHistories.has(key),
+        messageIds,
+      };
+    })().finally(() => this.forumTopicHistoryLoads.delete(key));
+    this.forumTopicHistoryLoads.set(key, load);
+    return load;
+  }
+
+  async createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic> {
+    const name = input.name.trim();
+    if (!name || [...name].length > 128) throw new Error("话题名称需包含 1 至 128 个字符");
+    const iconColor = input.iconColor ?? 0x6fb9f0;
+    const info = await this.request({
+      "@type": "createForumTopic",
+      chat_id: numericId(input.chatId),
+      name,
+      is_name_implicit: false,
+      icon: { "@type": "forumTopicIcon", color: iconColor, custom_emoji_id: 0 },
+    });
+    try {
+      const topic = mapTdForumTopic(await this.request({
+        "@type": "getForumTopic",
+        chat_id: numericId(input.chatId),
+        forum_topic_id: numericId(tdId(info.forum_topic_id)),
+      }));
+      if (topic) {
+        this.emitForumTopicsChanged(input.chatId);
+        return topic;
+      }
+    } catch {
+      // Fall back to the information returned by createForumTopic below.
+    }
+    const topic = mapTdForumTopic({ info, is_pinned: false, unread_count: 0, order: "0", notification_settings: null, draft_message: null });
+    if (!topic) throw new Error("TDLib 未返回新话题");
+    this.emitForumTopicsChanged(input.chatId);
+    return topic;
+  }
+
+  async editForumTopic(chatId: string, topicId: string, name: string) {
+    const normalized = name.trim();
+    if (!normalized || [...normalized].length > 128) throw new Error("话题名称需包含 1 至 128 个字符");
+    await this.request({ "@type": "editForumTopic", chat_id: numericId(chatId), forum_topic_id: numericId(topicId), name: normalized, edit_icon_custom_emoji: false, icon_custom_emoji_id: 0 });
+    this.emitForumTopicsChanged(chatId);
+  }
+
+  async setForumTopicClosed(chatId: string, topicId: string, closed: boolean) {
+    await this.request({ "@type": "toggleForumTopicIsClosed", chat_id: numericId(chatId), forum_topic_id: numericId(topicId), is_closed: closed });
+    this.emitForumTopicsChanged(chatId);
+  }
+
+  async setForumTopicPinned(chatId: string, topicId: string, pinned: boolean) {
+    await this.request({ "@type": "toggleForumTopicIsPinned", chat_id: numericId(chatId), forum_topic_id: numericId(topicId), is_pinned: pinned });
+    this.emitForumTopicsChanged(chatId);
   }
 
   async getMessageContext(chatId: string, messageId: string, limit = 31) {
@@ -2063,7 +2186,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const response = await this.request({
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
-      topic_id: null,
+      topic_id: forumTopicObject(input.topicId),
       reply_to: this.emojiReplyTarget(input.replyToMessageId),
       options: null,
       reply_markup: null,
@@ -2086,7 +2209,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const response = await this.request({
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
-      topic_id: null,
+      topic_id: forumTopicObject(input.topicId),
       reply_to: this.emojiReplyTarget(input.replyToMessageId),
       options: null,
       reply_markup: null,
@@ -2135,7 +2258,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const response = await this.request({
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
-      topic_id: null,
+      topic_id: forumTopicObject(input.topicId),
       reply_to: input.replyToMessageId
         ? {
             "@type": "inputMessageReplyToMessage",
@@ -2180,7 +2303,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const response = await this.request({
       "@type": "forwardMessages",
       chat_id: numericId(input.toChatId),
-      topic_id: null,
+      topic_id: forumTopicObject(input.toTopicId),
       from_chat_id: numericId(input.fromChatId),
       message_ids: messageIds,
       options: null,
@@ -2207,7 +2330,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.request({
       "@type": "setChatDraftMessage",
       chat_id: numericId(input.chatId),
-      topic_id: null,
+      topic_id: forumTopicObject(input.topicId),
       draft_message: hasDraft
         ? {
             "@type": "draftMessage",
@@ -2232,11 +2355,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
-  async setChatTyping(chatId: string, typing: boolean) {
+  async setChatTyping(chatId: string, typing: boolean, topicId?: string) {
     await this.request({
       "@type": "sendChatAction",
       chat_id: numericId(chatId),
-      message_thread_id: 0,
+      topic_id: forumTopicObject(topicId),
       business_connection_id: "",
       action: { "@type": typing ? "chatActionTyping" : "chatActionCancel" },
     });
@@ -2328,9 +2451,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return input.file
       ? this.sendFiles({
           chatId: input.chatId,
+          topicId: input.topicId,
           attachments: [await inspectOutgoingAttachment(input.file)],
         })
-      : this.requestPreparedFile(input.chatId);
+      : this.requestPreparedFile(input.chatId, input.topicId);
   }
 
   async sendFiles(input: SendFilesInput) {
@@ -2351,7 +2475,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     let captionPending = input.caption;
     for (const group of groups) {
       const files = await Promise.all(group.map(this.preparePastedAttachment));
-      const sent = await this.requestPreparedPastedFiles(input.chatId, files, captionPending);
+      const sent = await this.requestPreparedPastedFiles(input.chatId, files, captionPending, input.topicId);
       if (!sent) return false;
       captionPending = undefined;
     }
@@ -2397,6 +2521,17 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
+  async markForumTopicRead(chatId: string, topicId: string, messageId: string) {
+    numericId(topicId);
+    await this.request({
+      "@type": "viewMessages",
+      chat_id: numericId(chatId),
+      message_ids: [numericId(messageId)],
+      source: { "@type": "messageSourceChatHistory" },
+      force_read: true,
+    });
+  }
+
   private async loadNextHistoryPage(
     chatId: string,
     targetCount: number,
@@ -2425,20 +2560,21 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.requestBroker.request(request);
   }
 
-  private async requestPreparedFile(chatId: string) {
+  private async requestPreparedFile(chatId: string, topicId?: string) {
     return this.requestBroker.requestPreparedFile(chatId, (error) => {
       this.listener?.({ type: "sync.error", message: error.message, fatal: false });
-    });
+    }, topicId);
   }
 
   private requestPreparedPastedFiles(
     chatId: string,
     files: PreparedPastedAttachment[],
     caption?: string,
+    topicId?: string,
   ) {
     return this.requestBroker.requestPreparedPastedFiles(chatId, files, caption, (error) => {
       this.listener?.({ type: "sync.error", message: error.message, fatal: false });
-    });
+    }, topicId);
   }
 
   private preparePastedFile = async (file: File): Promise<PreparedPastedFile> => {
@@ -3098,6 +3234,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
+  private emitForumTopicsChanged(chatIdValue: unknown) {
+    const chatId = tdId(chatIdValue);
+    if (chatId) this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
   private emitMessages(rawMessages: TdObject[]) {
     const messages = new Map<string, Message>();
     const uniqueRawMessages = new Map<string, TdObject>();
@@ -3475,6 +3616,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.exhaustedHistories.clear();
     this.historyCursors.clear();
     this.historyLoads.clear();
+    this.exhaustedForumTopicHistories.clear();
+    this.forumTopicHistoryCursors.clear();
+    this.forumTopicHistoryLoads.clear();
     this.pendingReplyHydrations.clear();
     this.unavailableReplyHydrations.clear();
     this.pendingRichMessageHydrations.clear();

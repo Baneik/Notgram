@@ -2,6 +2,7 @@ import type {
   Chat,
   ChatDraft,
   ChatFolder,
+  ForumTopic,
   Message,
   MessageContent,
   MessageForwardInfo,
@@ -1555,6 +1556,12 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const chatId = tdId(raw.chat_id);
   if (!id || !chatId) return undefined;
   const mediaAlbumId = tdId(raw.media_album_id);
+  const topic = asTdObject(raw.topic_id);
+  const topicId = topic?.["@type"] === "messageTopicForum"
+    ? tdId(topic.forum_topic_id)
+    : topic?.["@type"] === "messageTopicThread"
+      ? tdId(topic.message_thread_id)
+      : "";
 
   const senderId = messageSenderId(raw.sender_id) || "unknown";
   const sendingState = asTdObject(raw.sending_state);
@@ -1567,6 +1574,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   return {
     id,
     chatId,
+    topicId: topicId || undefined,
     mediaAlbumId: mediaAlbumId && mediaAlbumId !== "0" ? mediaAlbumId : undefined,
     senderId,
     senderTag: typeof raw.sender_tag === "string" && raw.sender_tag.trim()
@@ -1681,6 +1689,8 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
   return {
     id,
     kind,
+    isForum: type?.is_forum === true,
+    canCreateTopics: asTdObject(raw.permissions)?.can_create_topics === true,
     folderIds: [...folderIds],
     title: kind === "saved" ? "收藏夹" : title,
     avatar: {
@@ -1707,6 +1717,7 @@ export const mapTdChat = (raw: TdObject, currentUserId?: string): Chat | undefin
 export const mapTdChatDraft = (
   chatIdValue: unknown,
   value: unknown,
+  topicIdValue?: unknown,
 ): ChatDraft | undefined => {
   const chatId = tdId(chatIdValue);
   const draft = asTdObject(value);
@@ -1720,9 +1731,46 @@ export const mapTdChatDraft = (
     : undefined;
   return {
     chatId,
+    topicId: tdId(topicIdValue) || undefined,
     text: formattedText(content.text),
     replyToMessageId: replyToMessageId || undefined,
     updatedAt: unixDate(draft.date),
+  };
+};
+
+export const mapTdForumTopic = (value: unknown): ForumTopic | undefined => {
+  const raw = asTdObject(value);
+  const info = asTdObject(raw?.info ?? value);
+  const chatId = tdId(info?.chat_id);
+  const id = tdId(info?.forum_topic_id);
+  if (!raw || !info || !chatId || !id) return undefined;
+  const icon = asTdObject(info.icon);
+  const notificationSettings = asTdObject(raw.notification_settings);
+  const lastMessageRaw = asTdObject(raw.last_message);
+  const lastMessage = lastMessageRaw ? mapTdMessage(lastMessageRaw) : undefined;
+  const draft = mapTdChatDraft(chatId, raw.draft_message, id);
+  const customEmojiId = tdId(icon?.custom_emoji_id);
+  return {
+    id,
+    chatId,
+    name: typeof info.name === "string" && info.name.trim() ? info.name.trim() : "未命名话题",
+    iconColor: tdNumber(icon?.color) ?? 0x6fb9f0,
+    iconCustomEmojiId: customEmojiId && customEmojiId !== "0" ? customEmojiId : undefined,
+    createdAt: unixDate(info.creation_date),
+    isGeneral: info.is_general === true,
+    isOutgoing: info.is_outgoing === true,
+    isClosed: info.is_closed === true,
+    isHidden: info.is_hidden === true,
+    isPinned: raw.is_pinned === true,
+    unreadCount: Math.max(0, tdNumber(raw.unread_count) ?? 0),
+    unreadMentionCount: Math.max(0, tdNumber(raw.unread_mention_count) ?? 0),
+    unreadReactionCount: Math.max(0, tdNumber(raw.unread_reaction_count) ?? 0),
+    lastReadInboxMessageId: tdId(raw.last_read_inbox_message_id) || undefined,
+    lastReadOutboxMessageId: tdId(raw.last_read_outbox_message_id) || undefined,
+    lastMessage,
+    order: tdId(raw.order) || "0",
+    muted: (tdNumber(notificationSettings?.mute_for) ?? 0) > 0,
+    draft,
   };
 };
 

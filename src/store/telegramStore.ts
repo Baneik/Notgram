@@ -76,6 +76,8 @@ const errorMessage = (error: unknown, fallback: string) => {
   return fallback;
 };
 
+const topicKey = (chatId: string, topicId?: string) => topicId ? `${chatId}:topic:${topicId}` : chatId;
+
 const reloadCurrentApplication = () => {
   if (typeof window === "undefined") return;
   if (isTauri()) {
@@ -254,8 +256,9 @@ export const createTelegramStore = (
       isReady: () => get().authorization.kind === "ready",
       getDrafts: () => get().drafts,
       setDrafts: (drafts) => set({ drafts }),
-      sendDraft: (chatId, draft) => transport.setChatDraft({
-        chatId,
+      sendDraft: (draftKey, draft) => transport.setChatDraft({
+        chatId: draft?.chatId ?? draftKey.split(":topic:")[0],
+        topicId: draft?.topicId,
         text: draft?.text ?? "",
         replyToMessageId: draft?.replyToMessageId,
       }),
@@ -295,7 +298,11 @@ export const createTelegramStore = (
         typingUserIds: new Map(),
         outbox: [],
         histories: new Map(),
+        forumTopics: new Map(),
+        forumTopicsLoading: new Set(),
+        topicHistories: new Map(),
         activeChatId: undefined,
+        activeTopicId: undefined,
         globalSearch: emptyGlobalSearch(),
         accountProfile: emptyProfileState(),
         profile: emptyProfileState(),
@@ -395,6 +402,7 @@ export const createTelegramStore = (
               if (!stored) throw new Error("离线附件已过期或文件内容已变更，请重新选择");
               const sent = await transport.sendFiles({
                 chatId: item.chatId,
+                topicId: item.topicId,
                 attachments: stored.attachments,
                 caption: item.caption,
               });
@@ -402,9 +410,10 @@ export const createTelegramStore = (
             } else {
               await transport.sendMessage({
                 chatId: item.chatId,
+                topicId: item.topicId,
                 text: item.text,
                 replyToMessageId: item.replyToMessageId,
-                clearDraft: !get().drafts.has(item.chatId),
+                clearDraft: !get().drafts.has(topicKey(item.chatId, item.topicId)),
               });
             }
           } catch (error) {
@@ -451,7 +460,7 @@ export const createTelegramStore = (
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
       let messages = messageMapFrom(snapshot.messages);
-      const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
+      const drafts = new Map((snapshot.drafts ?? []).map((draft) => [topicKey(draft.chatId, draft.topicId), draft]));
       const outbox = snapshot.outbox ?? [];
       cachedMessageIds.clear();
       for (const message of snapshot.messages) {
@@ -585,6 +594,31 @@ export const createTelegramStore = (
       }
     };
 
+    const loadForumTopicHistory = async (
+      chatId: string,
+      topicId: string,
+      mode: "ensure" | "older",
+    ) => {
+      if (get().authorization.kind !== "ready") return;
+      const key = topicKey(chatId, topicId);
+      const current = get().topicHistories.get(key);
+      if (current?.loading || current?.hasMore === false || (mode === "ensure" && current?.initialized)) return;
+      const topicHistories = new Map(get().topicHistories);
+      topicHistories.set(key, { loading: true, hasMore: current?.hasMore ?? true, initialized: current?.initialized ?? false });
+      set({ topicHistories });
+      try {
+        const page = await transport.loadForumTopicHistory(chatId, topicId, 30);
+        const next = new Map(get().topicHistories);
+        next.set(key, { loading: false, hasMore: page.hasMore, initialized: true });
+        set({ topicHistories: next, operationError: undefined });
+        scheduleCacheWrite();
+      } catch (error) {
+        const next = new Map(get().topicHistories);
+        next.set(key, { loading: false, hasMore: true, initialized: current?.initialized ?? false });
+        set({ topicHistories: next, operationError: errorMessage(error, "无法加载话题消息") });
+      }
+    };
+
     const loadChats = async (chatListId = get().chatFilter) => {
       if (get().authorization.kind !== "ready") return;
       const current = get().chatLists.get(chatListId);
@@ -638,12 +672,54 @@ export const createTelegramStore = (
       return tracked.then(() => succeeded);
     };
 
+    const markForumTopicRead = async (chatId: string, topicId: string) => {
+      if (
+        get().authorization.kind !== "ready" ||
+        get().activeChatId !== chatId ||
+        get().activeTopicId !== topicId ||
+        !documentIsVisible()
+      ) return false;
+      const latestIncoming = (get().messages.get(chatId) ?? [])
+        .filter((message) => message.topicId === topicId && !message.outgoing)
+        .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt))[0];
+      if (!latestIncoming) return false;
+      try {
+        await transport.markForumTopicRead(chatId, topicId, latestIncoming.id);
+        const forumTopics = new Map(get().forumTopics);
+        forumTopics.set(chatId, (forumTopics.get(chatId) ?? []).map((topic) => topic.id === topicId
+          ? {
+              ...topic,
+              unreadCount: 0,
+              unreadMentionCount: 0,
+              unreadReactionCount: 0,
+              lastReadInboxMessageId: latestIncoming.id,
+            }
+          : topic));
+        set({ forumTopics });
+        return true;
+      } catch (error) {
+        set({ operationError: errorMessage(error, "无法更新话题已读状态") });
+        return false;
+      }
+    };
+
+    const markActiveConversationRead = (chatId: string) => {
+      const current = get();
+      if (current.activeChatId !== chatId) return Promise.resolve(false);
+      if (current.chats.get(chatId)?.isForum) {
+        return current.activeTopicId
+          ? markForumTopicRead(chatId, current.activeTopicId)
+          : Promise.resolve(false);
+      }
+      return markChatRead(chatId);
+    };
+
     const scheduleChatRead = (chatId: string, delayMs = 120) => {
       const currentTimer = readTimers.get(chatId);
       if (currentTimer) globalThis.clearTimeout(currentTimer);
       readTimers.set(chatId, globalThis.setTimeout(() => {
         readTimers.delete(chatId);
-        void markChatRead(chatId);
+        void markActiveConversationRead(chatId);
       }, delayMs));
     };
 
@@ -660,7 +736,16 @@ export const createTelegramStore = (
           void flushOutbox();
           const activeChatId = get().activeChatId;
           if (activeChatId) {
-            void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
+            const activeTopicId = get().activeTopicId;
+            if (get().chats.get(activeChatId)?.isForum) {
+              void get().loadForumTopics(activeChatId);
+              if (activeTopicId) {
+                void loadForumTopicHistory(activeChatId, activeTopicId, "ensure")
+                  .then(() => markForumTopicRead(activeChatId, activeTopicId));
+              }
+            } else {
+              void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
+            }
           }
         } else if (event.state.kind !== "preparing") {
           if (event.state.kind === "closing" || event.state.kind === "closed") {
@@ -725,7 +810,8 @@ export const createTelegramStore = (
         });
         scheduleCacheWrite();
         if (firstChat) {
-          void loadHistory(firstChat, "ensure").then(() => markChatRead(firstChat));
+          if (chats.get(firstChat)?.isForum) void get().loadForumTopics(firstChat);
+          else void loadHistory(firstChat, "ensure").then(() => markChatRead(firstChat));
         }
         return;
       }
@@ -742,6 +828,13 @@ export const createTelegramStore = (
       if (event.type === "chat.typingChanged") {
         if (event.senderId !== get().currentUserId) {
           setTypingUser(event.chatId, event.senderId, event.typing);
+        }
+        return;
+      }
+
+      if (event.type === "forumTopics.changed") {
+        if (get().chats.get(event.chatId)?.isForum) {
+          void get().loadForumTopics(event.chatId);
         }
         return;
       }
@@ -827,7 +920,11 @@ export const createTelegramStore = (
         });
         const activeChatId = get().activeChatId;
         if (activeChatId && event.messages.some(
-          (message) => message.chatId === activeChatId && !message.outgoing,
+          (message) => message.chatId === activeChatId &&
+            !message.outgoing &&
+            (!get().chats.get(activeChatId)?.isForum || (
+              Boolean(get().activeTopicId) && message.topicId === get().activeTopicId
+            )),
         )) {
           scheduleChatRead(activeChatId);
         }
@@ -836,6 +933,15 @@ export const createTelegramStore = (
       }
 
       if (event.type === "chat.draftChanged") {
+        if (event.draft?.topicId) {
+          const key = topicKey(event.chatId, event.draft.topicId);
+          const drafts = new Map(get().drafts);
+          if (event.draft.text || event.draft.replyToMessageId) drafts.set(key, { ...event.draft, pending: false });
+          else drafts.delete(key);
+          set({ drafts });
+          scheduleCacheWrite();
+          return;
+        }
         draftSync.acceptServerDraft(event.chatId, event.draft);
         return;
       }
@@ -862,7 +968,13 @@ export const createTelegramStore = (
         upsertMessage(existingMessages, event.message),
       );
       set({ messages });
-      if (!event.message.outgoing && event.message.chatId === get().activeChatId) {
+      if (
+        !event.message.outgoing &&
+        event.message.chatId === get().activeChatId &&
+        (!get().chats.get(event.message.chatId)?.isForum || (
+          Boolean(get().activeTopicId) && event.message.topicId === get().activeTopicId
+        ))
+      ) {
         scheduleChatRead(event.message.chatId);
       }
       scheduleCacheWrite();
@@ -1020,6 +1132,10 @@ export const createTelegramStore = (
       typingUserIds: new Map(),
       outbox: [],
       histories: new Map(),
+      forumTopics: new Map(),
+      forumTopicsLoading: new Set(),
+      topicHistories: new Map(),
+      activeTopicId: undefined,
       searchQuery: "",
       chatFilter: "main",
       globalSearch: emptyGlobalSearch(),
@@ -1336,12 +1452,105 @@ export const createTelegramStore = (
 
       selectChat: async (chatId) => {
         const previousChatId = get().activeChatId;
-        if (previousChatId && previousChatId !== chatId) void draftSync.flush(previousChatId);
-        set({ activeChatId: chatId });
+        const previousTopicId = get().activeTopicId;
+        if (previousChatId && previousChatId !== chatId) {
+          void draftSync.flush(topicKey(previousChatId, previousTopicId));
+        }
+        set({ activeChatId: chatId, activeTopicId: undefined });
         scheduleCacheWrite();
         if (get().authorization.kind !== "ready") return;
-        void loadHistory(chatId, "ensure");
-        void markChatRead(chatId);
+        if (get().chats.get(chatId)?.isForum) {
+          void get().loadForumTopics(chatId);
+        } else {
+          void loadHistory(chatId, "ensure");
+          void markChatRead(chatId);
+        }
+      },
+
+      selectForumTopic: async (topicId) => {
+        const chatId = get().activeChatId;
+        if (!chatId || !get().chats.get(chatId)?.isForum) return;
+        const previousTopicId = get().activeTopicId;
+        if (previousTopicId && previousTopicId !== topicId) void draftSync.flush(topicKey(chatId, previousTopicId));
+        set({ activeTopicId: topicId });
+        scheduleCacheWrite();
+        if (topicId && get().authorization.kind === "ready") {
+          void loadForumTopicHistory(chatId, topicId, "ensure")
+            .then(() => markForumTopicRead(chatId, topicId));
+        }
+      },
+
+      loadForumTopics: async (chatId, query = "") => {
+        if (!get().chats.get(chatId)?.isForum) return undefined;
+        if (get().forumTopicsLoading.has(chatId)) return undefined;
+        const loading = new Set(get().forumTopicsLoading);
+        loading.add(chatId);
+        set({ forumTopicsLoading: loading });
+        try {
+          const page = await transport.getForumTopics({ chatId, query, limit: 100 });
+          const forumTopics = new Map(get().forumTopics);
+          forumTopics.set(chatId, page.topics);
+          const drafts = new Map(get().drafts);
+          for (const topic of page.topics) {
+            const key = topicKey(chatId, topic.id);
+            if (drafts.get(key)?.pending) continue;
+            if (topic.draft) drafts.set(key, { ...topic.draft, pending: false });
+            else drafts.delete(key);
+          }
+          set({ forumTopics, drafts, operationError: undefined });
+          return page;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法加载话题列表") });
+          return undefined;
+        } finally {
+          const latest = new Set(get().forumTopicsLoading);
+          latest.delete(chatId);
+          set({ forumTopicsLoading: latest });
+        }
+      },
+
+      createForumTopic: async (chatId, name) => {
+        try {
+          const topic = await transport.createForumTopic({ chatId, name });
+          await get().loadForumTopics(chatId);
+          return topic;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法创建话题") });
+          return undefined;
+        }
+      },
+
+      editForumTopic: async (chatId, topicId, name) => {
+        try {
+          await transport.editForumTopic(chatId, topicId, name);
+          await get().loadForumTopics(chatId);
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法编辑话题") });
+          return false;
+        }
+      },
+
+      setForumTopicClosed: async (chatId, topicId, closed) => {
+        try {
+          await transport.setForumTopicClosed(chatId, topicId, closed);
+          await get().loadForumTopics(chatId);
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法更新话题状态") });
+          return false;
+        }
+      },
+
+      setForumTopicPinned: async (chatId, topicId, pinned) => {
+        try {
+          await transport.setForumTopicPinned(chatId, topicId, pinned);
+          await get().loadForumTopics(chatId);
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法更新话题置顶") });
+          return false;
+        }
       },
 
       resolveTelegramLink: async (url) => {
@@ -1533,7 +1742,10 @@ export const createTelegramStore = (
           set({ folderManagementPending: false });
         }
       },
-      loadMoreHistory: (chatId) => loadHistory(chatId, "older"),
+      loadMoreHistory: (chatId) => {
+        const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
+        return topicId ? loadForumTopicHistory(chatId, topicId, "older") : loadHistory(chatId, "older");
+      },
       loadMessage: async (chatId, messageId) => {
         if ((get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
           return true;
@@ -1563,7 +1775,7 @@ export const createTelegramStore = (
       },
       markActiveChatRead: async () => {
         const chatId = get().activeChatId;
-        if (chatId) await markChatRead(chatId);
+        if (chatId) await markActiveConversationRead(chatId);
       },
 
       dismissMessageAttention: (chatId, messageId) => {
@@ -1599,10 +1811,11 @@ export const createTelegramStore = (
 
       searchChatMessages: async (query) => {
         const chatId = get().activeChatId;
+        const topicId = get().activeTopicId;
         const normalized = query.trim();
         if (!chatId || !normalized || get().authorization.kind !== "ready") return;
         try {
-          await transport.searchChatMessages(chatId, normalized, 100);
+          await transport.searchChatMessages(chatId, normalized, 100, topicId);
           set({ operationError: undefined });
         } catch (error) {
           set({
@@ -2123,8 +2336,8 @@ export const createTelegramStore = (
         catch (error) { set({ operationError: errorMessage(error, "无法读取机器人 Inline 结果") }); return undefined; }
       },
 
-      sendInlineQueryResultMessage: async (chatId, botUserId, queryId, resultId, replyToMessageId) => {
-        try { await transport.sendInlineQueryResultMessage(chatId, botUserId, queryId, resultId, replyToMessageId); set({ operationError: undefined }); return true; }
+      sendInlineQueryResultMessage: async (chatId, botUserId, queryId, resultId, replyToMessageId, topicId) => {
+        try { await transport.sendInlineQueryResultMessage(chatId, botUserId, queryId, resultId, replyToMessageId, topicId); set({ operationError: undefined }); return true; }
         catch (error) { set({ operationError: errorMessage(error, "无法发送 Inline 结果") }); return false; }
       },
 
@@ -2395,13 +2608,14 @@ export const createTelegramStore = (
 
       sendSticker: async (asset, replyToMessageId) => {
         const chatId = get().activeChatId;
+        const topicId = get().activeTopicId;
         if (!chatId) return false;
         if (!connectionPresentation(get().connectionStatus).operational) {
           set({ operationError: "联网后才能发送贴纸" });
           return false;
         }
         try {
-          await transport.sendSticker({ chatId, asset, replyToMessageId });
+          await transport.sendSticker({ chatId, topicId, asset, replyToMessageId });
           set({ operationError: undefined });
           scheduleCacheWrite();
           return true;
@@ -2413,13 +2627,14 @@ export const createTelegramStore = (
 
       sendAnimation: async (asset, replyToMessageId) => {
         const chatId = get().activeChatId;
+        const topicId = get().activeTopicId;
         if (!chatId) return false;
         if (!connectionPresentation(get().connectionStatus).operational) {
           set({ operationError: "联网后才能发送 GIF" });
           return false;
         }
         try {
-          await transport.sendAnimation({ chatId, asset, replyToMessageId });
+          await transport.sendAnimation({ chatId, topicId, asset, replyToMessageId });
           set({ operationError: undefined });
           scheduleCacheWrite();
           return true;
@@ -2467,9 +2682,12 @@ export const createTelegramStore = (
 
       updateChatDraft: (chatId, text, replyToMessageId) => {
         if (!get().chats.has(chatId)) return;
-        const current = get().drafts.get(chatId);
+        const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
+        const key = topicKey(chatId, topicId);
+        const current = get().drafts.get(key);
         const next: ChatDraft = {
           chatId,
+          topicId,
           text,
           replyToMessageId,
           updatedAt: new Date().toISOString(),
@@ -2477,16 +2695,16 @@ export const createTelegramStore = (
         };
         if (draftSignature(current) === draftSignature(next)) return;
         const drafts = new Map(get().drafts);
-        drafts.set(chatId, next);
+        drafts.set(key, next);
         set({ drafts });
-        draftSync.expect(chatId, draftForSync(next), DRAFT_SYNC_DELAY_MS);
+        draftSync.expect(key, draftForSync(next), DRAFT_SYNC_DELAY_MS);
         scheduleCacheWrite();
       },
 
       setChatTyping: async (chatId, typing) => {
         if (get().authorization.kind !== "ready") return;
         try {
-          await transport.setChatTyping(chatId, typing);
+          await transport.setChatTyping(chatId, typing, get().activeChatId === chatId ? get().activeTopicId : undefined);
         } catch {
           // Typing state is ephemeral and must not replace actionable operation errors.
         }
@@ -2494,9 +2712,11 @@ export const createTelegramStore = (
 
       sendMessage: async (text, replyToMessageId) => {
         const chatId = get().activeChatId;
+        const topicId = get().activeTopicId;
         const normalizedText = text.trim();
         if (!chatId || !normalizedText) return false;
-        const previousDraft = get().drafts.get(chatId);
+        const draftKey = topicKey(chatId, topicId);
+        const previousDraft = get().drafts.get(draftKey);
         if (!connectionPresentation(get().connectionStatus).operational) {
           const previousOutbox = get().outbox;
           const previousMessages = get().messages;
@@ -2504,6 +2724,7 @@ export const createTelegramStore = (
           const item: QueuedOutgoingMessage = {
             id: globalThis.crypto.randomUUID(),
             chatId,
+            topicId,
             text: normalizedText,
             replyToMessageId,
             createdAt: new Date().toISOString(),
@@ -2511,8 +2732,8 @@ export const createTelegramStore = (
           };
           const outbox = [...previousOutbox, item];
           const drafts = new Map(previousDrafts);
-          drafts.delete(chatId);
-          const clearGeneration = draftSync.expect(chatId, undefined);
+          drafts.delete(draftKey);
+          const clearGeneration = draftSync.expect(draftKey, undefined);
           set({
             drafts,
             outbox,
@@ -2527,9 +2748,9 @@ export const createTelegramStore = (
             await flushCachedSnapshot();
             return true;
           } catch (error) {
-            draftSync.cancelExpectation(chatId, clearGeneration);
+            draftSync.cancelExpectation(draftKey, clearGeneration);
             if (previousDraft?.pending) {
-              draftSync.expect(chatId, draftForSync(previousDraft));
+              draftSync.expect(draftKey, draftForSync(previousDraft));
             }
             set({
               drafts: previousDrafts,
@@ -2541,15 +2762,15 @@ export const createTelegramStore = (
             return false;
           }
         }
-        await draftSync.flush(chatId);
-        const clearGeneration = draftSync.expect(chatId, undefined);
+        await draftSync.flush(draftKey);
+        const clearGeneration = draftSync.expect(draftKey, undefined);
         try {
-          await transport.sendMessage({ chatId, text: normalizedText, replyToMessageId });
-          draftSync.markAwaitingAck(chatId, clearGeneration);
-          const currentDraft = get().drafts.get(chatId);
+          await transport.sendMessage({ chatId, topicId, text: normalizedText, replyToMessageId });
+          draftSync.markAwaitingAck(draftKey, clearGeneration);
+          const currentDraft = get().drafts.get(draftKey);
           if (draftSignature(currentDraft) === draftSignature(previousDraft)) {
             const drafts = new Map(get().drafts);
-            drafts.delete(chatId);
+            drafts.delete(draftKey);
             set({ drafts, operationError: undefined });
           } else {
             set({ operationError: undefined });
@@ -2557,14 +2778,14 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          draftSync.cancelExpectation(chatId, clearGeneration);
-          const currentDraft = get().drafts.get(chatId);
+          draftSync.cancelExpectation(draftKey, clearGeneration);
+          const currentDraft = get().drafts.get(draftKey);
           if (previousDraft && draftSignature(currentDraft) === draftSignature(previousDraft)) {
             const restored = { ...previousDraft, pending: true };
             const drafts = new Map(get().drafts);
-            drafts.set(chatId, restored);
+            drafts.set(draftKey, restored);
             set({ drafts });
-            draftSync.expect(chatId, draftForSync(restored), 0);
+            draftSync.expect(draftKey, draftForSync(restored), 0);
           }
           set({ operationError: error instanceof Error ? error.message : "消息发送失败" });
           return false;
@@ -2613,7 +2834,7 @@ export const createTelegramStore = (
         }
       },
 
-      forwardMessages: async (fromChatId, messageIds, toChatId) => {
+      forwardMessages: async (fromChatId, messageIds, toChatId, toTopicId) => {
         if (!get().chats.has(fromChatId) || !get().chats.has(toChatId)) return undefined;
         const uniqueMessageIds = [...new Set(messageIds)];
         if (uniqueMessageIds.length === 0) return undefined;
@@ -2622,7 +2843,7 @@ export const createTelegramStore = (
           return undefined;
         }
         try {
-          const result = await transport.forwardMessages({ fromChatId, toChatId, messageIds: uniqueMessageIds });
+          const result = await transport.forwardMessages({ fromChatId, toChatId, toTopicId, messageIds: uniqueMessageIds });
           set({
             operationError: result.failedMessageIds.length > 0
               ? `${result.forwardedCount} 条消息已转发，${result.failedMessageIds.length} 条失败`
@@ -2743,12 +2964,13 @@ export const createTelegramStore = (
 
       sendFile: async (file) => {
         const chatId = get().activeChatId;
+        const topicId = get().activeTopicId;
         if (!chatId) return false;
         if (file && !connectionPresentation(get().connectionStatus).operational) {
           return get().sendFiles([await inspectOutgoingAttachment(file)]);
         }
         try {
-          const sent = await transport.sendFile({ chatId, file });
+          const sent = await transport.sendFile({ chatId, topicId, file });
           if (sent) set({ operationError: undefined });
           return sent;
         } catch (error) {
@@ -2759,6 +2981,7 @@ export const createTelegramStore = (
 
       sendFiles: async (attachments, caption) => {
         const chatId = get().activeChatId;
+        const topicId = get().activeTopicId;
         if (!chatId || attachments.length === 0) return false;
         if (!connectionPresentation(get().connectionStatus).operational) {
           const id = globalThis.crypto.randomUUID();
@@ -2771,6 +2994,7 @@ export const createTelegramStore = (
             const item: QueuedOutgoingMessage = {
               id,
               chatId,
+              topicId,
               text: caption?.trim() || metadata.map(({ name }) => name).join("、"),
               caption: caption?.trim() || undefined,
               kind: "attachments",
@@ -2793,7 +3017,7 @@ export const createTelegramStore = (
           }
         }
         try {
-          const sent = await transport.sendFiles({ chatId, attachments, caption });
+          const sent = await transport.sendFiles({ chatId, topicId, attachments, caption });
           if (sent) set({ operationError: undefined });
           return sent;
         } catch (error) {

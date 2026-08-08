@@ -102,11 +102,15 @@ describe("TauriTelegramTransport startup", () => {
     const commands = await transport.getBotCommandSuggestions("72", "", "notgram_bot");
     const page = await transport.getInlineQueryResults("72", "notgram_bot", "hello");
     const callback = await transport.getCallbackQueryAnswer("72", "100", "cGFnZT0y");
-    await transport.sendInlineQueryResultMessage("72", commands[0].botUserId, page.queryId, page.results[0].id);
+    await transport.sendInlineQueryResultMessage("72", commands[0].botUserId, page.queryId, page.results[0].id, undefined, "12");
     await transport.sendBotStartMessage("72", commands[0].botUserId, "demo");
     expect(commands[0]).toMatchObject({ botUserId: "901", command: "start" });
     expect(page).toMatchObject({ queryId: "1234", hasMore: true, results: [{ messageText: "结果正文" }] });
     expect(callback).toEqual({ text: "已翻页", showAlert: false, url: undefined });
+    expect(requests.find((request) => request["@type"] === "sendInlineQueryResultMessage")?.topic_id).toEqual({
+      "@type": "messageTopicForum",
+      forum_topic_id: 12,
+    });
     expect(requests.map((request) => request["@type"])).toEqual(["searchPublicChats", "getChat", "getUser", "getUserFullInfo", "searchPublicChats", "getChat", "getInlineQueryResults", "getCallbackQueryAnswer", "sendInlineQueryResultMessage", "sendBotStartMessage"]);
   });
 
@@ -1795,8 +1799,10 @@ describe("TauriTelegramTransport message operations", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const events: Parameters<TelegramEventListener>[0][] = [];
+    const requests: TdObject[] = [];
     internal.listener = (event) => events.push(event);
     internal.request = async (request) => {
+      requests.push(request);
       if (request["@type"] === "searchChatsOnServer") {
         return { "@type": "chats", chat_ids: [9] };
       }
@@ -1809,12 +1815,22 @@ describe("TauriTelegramTransport message operations", () => {
     internal.finishInitialChatSync();
 
     await transport.searchChats("project");
-    await expect(transport.searchChatMessages("7", "needle")).resolves.toBe(1);
+    await expect(transport.searchChatMessages("7", "needle", 100, "12")).resolves.toBe(1);
+    await transport.markForumTopicRead("7", "12", "15");
 
     expect(events).toContainEqual(expect.objectContaining({
       type: "chat.upsert",
       chat: expect.objectContaining({ id: "9" }),
     }));
+    expect(requests.find((request) => request["@type"] === "searchChatMessages")?.topic_id).toEqual({
+      "@type": "messageTopicForum",
+      forum_topic_id: 12,
+    });
+    expect(requests.find((request) => request["@type"] === "viewMessages")).toMatchObject({
+      chat_id: 7,
+      message_ids: [15],
+      force_read: true,
+    });
     expect(events).toContainEqual(expect.objectContaining({
       type: "message.upsert",
       message: expect.objectContaining({ id: "15", chatId: "7" }),
@@ -2105,7 +2121,7 @@ describe("TauriTelegramTransport message operations", () => {
     };
     internal.listener = (event) => events.push(event);
 
-    await transport.setChatTyping("7", true);
+    await transport.setChatTyping("7", true, "12");
     await transport.setChatTyping("7", false);
     internal.handleUpdate({
       "@type": "updateChatAction",
@@ -2124,14 +2140,14 @@ describe("TauriTelegramTransport message operations", () => {
       {
         "@type": "sendChatAction",
         chat_id: 7,
-        message_thread_id: 0,
+        topic_id: { "@type": "messageTopicForum", forum_topic_id: 12 },
         business_connection_id: "",
         action: { "@type": "chatActionTyping" },
       },
       {
         "@type": "sendChatAction",
         chat_id: 7,
-        message_thread_id: 0,
+        topic_id: null,
         business_connection_id: "",
         action: { "@type": "chatActionCancel" },
       },

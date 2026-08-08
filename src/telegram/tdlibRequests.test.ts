@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   chatListObject,
   effectiveProxy,
+  forumTopicObject,
   mapAuthorizationState,
   numericId,
 } from "./tdlibRequests";
@@ -15,6 +16,11 @@ describe("TDLib request builders", () => {
       chat_folder_id: 7,
     });
     expect(() => chatListObject("folder:bad")).toThrow("无效的聊天列表");
+    expect(forumTopicObject("12")).toEqual({
+      "@type": "messageTopicForum",
+      forum_topic_id: 12,
+    });
+    expect(forumTopicObject()).toBeNull();
   });
 
   it("maps authorization details without exposing raw TDLib objects", () => {

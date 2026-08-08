@@ -11,6 +11,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "checkAuthenticationEmailCode",
     "checkAuthenticationPassword",
     "createChatFolder",
+    "createForumTopic",
     "createNewBasicGroupChat",
     "createNewSupergroupChat",
     "createChatInviteLink",
@@ -21,6 +22,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "disableProxy",
     "downloadFile",
     "editChatFolder",
+    "editForumTopic",
     "editMessageText",
     "editChatInviteLink",
     "editChatSubscriptionInviteLink",
@@ -29,6 +31,9 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChat",
     "getChatFolder",
     "getChatHistory",
+    "getForumTopic",
+    "getForumTopicHistory",
+    "getForumTopics",
     "getChatInviteLinks",
     "getChatJoinRequests",
     "getMessageLinkInfo",
@@ -105,6 +110,8 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "toggleChatIsMarkedAsUnread",
     "toggleChatIsPinned",
     "toggleSupergroupIsAllHistoryAvailable",
+    "toggleForumTopicIsClosed",
+    "toggleForumTopicIsPinned",
     "unpinChatMessage",
     "viewMessages",
 ];
@@ -301,6 +308,112 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                     .is_none_or(|limit| !(1..=100).contains(&limit))
             {
                 return Err("Invalid join request pagination".to_string());
+            }
+        }
+        "getForumTopics" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_profile_text(request, "query", 128, true, false)?;
+            if request
+                .get("offset_date")
+                .and_then(Value::as_i64)
+                .is_none_or(|date| date < 0)
+                || request
+                    .get("offset_message_id")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|id| id < 0)
+                || request
+                    .get("offset_forum_topic_id")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|id| id < 0)
+                || request
+                    .get("limit")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|limit| !(1..=100).contains(&limit))
+            {
+                return Err("Invalid forum topic pagination".to_string());
+            }
+        }
+        "getForumTopic" | "getForumTopicHistory" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            let topic_id = request
+                .get("forum_topic_id")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Forum topic identifier is missing".to_string())?;
+            if topic_id <= 0 {
+                return Err("Invalid forum topic identifier".to_string());
+            }
+            if request_type == "getForumTopicHistory"
+                && (request
+                    .get("from_message_id")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|id| id < 0)
+                    || request
+                        .get("offset")
+                        .and_then(Value::as_i64)
+                        .is_none_or(|offset| !(-99..=0).contains(&offset))
+                    || request
+                        .get("limit")
+                        .and_then(Value::as_i64)
+                        .is_none_or(|limit| !(1..=100).contains(&limit)))
+            {
+                return Err("Invalid forum topic history pagination".to_string());
+            }
+        }
+        "createForumTopic" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_profile_text(request, "name", 128, false, true)?;
+            let icon = request
+                .get("icon")
+                .and_then(Value::as_object)
+                .ok_or_else(|| "Forum topic icon is missing".to_string())?;
+            if icon.get("@type").and_then(Value::as_str) != Some("forumTopicIcon")
+                || icon
+                    .get("color")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|color| !(0..=0xFF_FF_FF).contains(&color))
+                || icon
+                    .get("custom_emoji_id")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|id| id < 0)
+            {
+                return Err("Invalid forum topic icon".to_string());
+            }
+        }
+        "editForumTopic" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            let topic_id = request
+                .get("forum_topic_id")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Forum topic identifier is missing".to_string())?;
+            if topic_id <= 0 {
+                return Err("Invalid forum topic identifier".to_string());
+            }
+            validate_profile_text(request, "name", 128, false, false)?;
+            if request
+                .get("edit_icon_custom_emoji")
+                .and_then(Value::as_bool)
+                .is_none()
+                || request
+                    .get("icon_custom_emoji_id")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|id| id < 0)
+            {
+                return Err("Invalid forum topic edit".to_string());
+            }
+        }
+        "toggleForumTopicIsClosed" | "toggleForumTopicIsPinned" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            let topic_id = request
+                .get("forum_topic_id")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Forum topic identifier is missing".to_string())?;
+            let state_field = if request_type == "toggleForumTopicIsClosed" {
+                "is_closed"
+            } else {
+                "is_pinned"
+            };
+            if topic_id <= 0 || request.get(state_field).and_then(Value::as_bool).is_none() {
+                return Err("Invalid forum topic state".to_string());
             }
         }
         "getInlineQueryResults" => {
@@ -1142,6 +1255,7 @@ fn input_message_upload(upload: &PreparedUpload, caption_text: &str) -> Result<V
     Ok(result)
 }
 
+#[allow(dead_code)]
 pub(super) fn prepared_file_request(
     chat_id: i64,
     extra: &str,
@@ -1150,6 +1264,7 @@ pub(super) fn prepared_file_request(
     prepared_file_request_with_caption(chat_id, extra, file, "")
 }
 
+#[allow(dead_code)]
 pub(super) fn prepared_file_request_with_caption(
     chat_id: i64,
     extra: &str,
@@ -1159,11 +1274,37 @@ pub(super) fn prepared_file_request_with_caption(
     prepared_upload_request_with_caption(chat_id, extra, &PreparedUpload::automatic(file), caption)
 }
 
+pub(super) fn prepared_file_request_with_topic(
+    chat_id: i64,
+    extra: &str,
+    file: &crate::storage::UploadFileInfo,
+    topic_id: Option<i64>,
+) -> Result<Value, String> {
+    prepared_upload_request_with_caption_and_topic(
+        chat_id,
+        extra,
+        &PreparedUpload::automatic(file),
+        "",
+        topic_id,
+    )
+}
+
+#[allow(dead_code)]
 pub(super) fn prepared_upload_request_with_caption(
     chat_id: i64,
     extra: &str,
     upload: &PreparedUpload,
     caption: &str,
+) -> Result<Value, String> {
+    prepared_upload_request_with_caption_and_topic(chat_id, extra, upload, caption, None)
+}
+
+pub(super) fn prepared_upload_request_with_caption_and_topic(
+    chat_id: i64,
+    extra: &str,
+    upload: &PreparedUpload,
+    caption: &str,
+    topic_id: Option<i64>,
 ) -> Result<Value, String> {
     if chat_id == 0 {
         return Err("Invalid Telegram chat identifier".to_string());
@@ -1173,7 +1314,7 @@ pub(super) fn prepared_upload_request_with_caption(
     Ok(json!({
         "@type": "sendMessage",
         "chat_id": chat_id,
-        "topic_id": null,
+        "topic_id": topic_id.map(|id| json!({ "@type": "messageTopicForum", "forum_topic_id": id })).unwrap_or(Value::Null),
         "reply_to": null,
         "options": null,
         "reply_markup": null,
@@ -1196,11 +1337,22 @@ fn prepared_file_album_request_with_caption(
     prepared_upload_album_request_with_caption(chat_id, extra, &uploads, caption)
 }
 
+#[allow(dead_code)]
 pub(super) fn prepared_upload_album_request_with_caption(
     chat_id: i64,
     extra: &str,
     uploads: &[PreparedUpload],
     caption: &str,
+) -> Result<Value, String> {
+    prepared_upload_album_request_with_caption_and_topic(chat_id, extra, uploads, caption, None)
+}
+
+pub(super) fn prepared_upload_album_request_with_caption_and_topic(
+    chat_id: i64,
+    extra: &str,
+    uploads: &[PreparedUpload],
+    caption: &str,
+    topic_id: Option<i64>,
 ) -> Result<Value, String> {
     if chat_id == 0 {
         return Err("Invalid Telegram chat identifier".to_string());
@@ -1233,7 +1385,7 @@ pub(super) fn prepared_upload_album_request_with_caption(
     Ok(json!({
         "@type": "sendMessageAlbum",
         "chat_id": chat_id,
-        "topic_id": null,
+        "topic_id": topic_id.map(|id| json!({ "@type": "messageTopicForum", "forum_topic_id": id })).unwrap_or(Value::Null),
         "reply_to": null,
         "options": null,
         "input_message_contents": uploads.iter().enumerate().map(|(index, upload)| {

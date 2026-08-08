@@ -11,6 +11,7 @@ import {
 import { flushSync } from "react-dom";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
+import { ForumTopicsView } from "../components/ForumTopicsView";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
@@ -76,6 +77,7 @@ export function App() {
   const chatFilter = useTelegramStore((state) => state.chatFilter);
   const searchQuery = useTelegramStore((state) => state.searchQuery);
   const activeChatId = useTelegramStore((state) => state.activeChatId);
+  const activeTopicId = useTelegramStore((state) => state.activeTopicId);
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const chats = useTelegramStore((state) => state.chats);
   const chatListReady = useTelegramStore((state) => state.chatListReady);
@@ -86,6 +88,9 @@ export function App() {
   const contactsLoading = useTelegramStore((state) => state.contactsLoading);
   const contactsError = useTelegramStore((state) => state.contactsError);
   const messages = useTelegramStore((state) => state.messages);
+  const forumTopics = useTelegramStore((state) => state.forumTopics);
+  const forumTopicsLoading = useTelegramStore((state) => state.forumTopicsLoading);
+  const topicHistories = useTelegramStore((state) => state.topicHistories);
   const removingMessages = useTelegramStore((state) => state.removingMessages);
   const typingUserIds = useTelegramStore((state) => state.typingUserIds);
   const outbox = useTelegramStore((state) => state.outbox);
@@ -106,6 +111,12 @@ export function App() {
   const authorizationError = useTelegramStore((state) => state.authorizationError);
   const initialize = useTelegramStore((state) => state.initialize);
   const selectChat = useTelegramStore((state) => state.selectChat);
+  const selectForumTopic = useTelegramStore((state) => state.selectForumTopic);
+  const loadForumTopics = useTelegramStore((state) => state.loadForumTopics);
+  const createForumTopic = useTelegramStore((state) => state.createForumTopic);
+  const editForumTopic = useTelegramStore((state) => state.editForumTopic);
+  const setForumTopicClosed = useTelegramStore((state) => state.setForumTopicClosed);
+  const setForumTopicPinned = useTelegramStore((state) => state.setForumTopicPinned);
   const loadMessage = useTelegramStore((state) => state.loadMessage);
   const loadChatProfile = useTelegramStore((state) => state.loadChatProfile);
   const loadMoreChatProfileMembers = useTelegramStore((state) => state.loadMoreChatProfileMembers);
@@ -231,7 +242,7 @@ export function App() {
     ? getBotCommandSuggestions(activeChatId, query, botUsername)
     : Promise.resolve([]), [activeChatId, getBotCommandSuggestions]);
   const getComposerInlineResults = useCallback((botUsername: string, query: string, offset = "") => activeChatId ? getInlineQueryResults(activeChatId, botUsername, query, offset) : Promise.resolve(undefined), [activeChatId, getInlineQueryResults]);
-  const sendComposerInlineResult = useCallback((botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => activeChatId ? sendInlineQueryResultMessage(activeChatId, botUserId, queryId, resultId, replyToMessageId) : Promise.resolve(false), [activeChatId, sendInlineQueryResultMessage]);
+  const sendComposerInlineResult = useCallback((botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => activeChatId ? sendInlineQueryResultMessage(activeChatId, botUserId, queryId, resultId, replyToMessageId, activeTopicId) : Promise.resolve(false), [activeChatId, activeTopicId, sendInlineQueryResultMessage]);
   const sendComposerBotStart = useCallback((botUserId: string, parameter = "") => activeChatId ? sendBotStartMessage(activeChatId, botUserId, parameter) : Promise.resolve(false), [activeChatId, sendBotStartMessage]);
   const toggleProfileBlock = useCallback((senderId: string, kind: "user" | "chat", blocked: boolean) => setMessageSenderBlocked(senderId, kind, blocked), [setMessageSenderBlocked]);
   const [latestScrollRequest, setLatestScrollRequest] = useState<{
@@ -614,7 +625,7 @@ export function App() {
     [chats],
   );
   const activeOutbox = activeChatId
-    ? outbox.filter((item) => item.chatId === activeChatId)
+    ? outbox.filter((item) => item.chatId === activeChatId && item.topicId === activeTopicId)
     : [];
 
   const openLatestConversation = (chatId: string) => {
@@ -679,15 +690,23 @@ export function App() {
   }
 
   const activeChat = activeChatId ? chats.get(activeChatId) : undefined;
-  const activeMessages = activeChatId ? messages.get(activeChatId) ?? [] : [];
-  const activeRemovingMessages = activeChatId ? removingMessages.get(activeChatId) ?? [] : [];
+  const activeTopics = activeChatId ? forumTopics.get(activeChatId) ?? [] : [];
+  const activeTopic = activeTopicId ? activeTopics.find((topic) => topic.id === activeTopicId) : undefined;
+  const activeMessages = activeChatId
+    ? (messages.get(activeChatId) ?? []).filter((message) => message.topicId === activeTopicId)
+    : [];
+  const activeRemovingMessages = activeChatId
+    ? (removingMessages.get(activeChatId) ?? []).filter((message) => message.topicId === activeTopicId)
+    : [];
   const activeDisplayMessages = activeRemovingMessages.length > 0
     ? [...activeMessages, ...activeRemovingMessages].sort((left, right) =>
         Date.parse(left.sentAt) - Date.parse(right.sentAt),
       )
     : activeMessages;
   const activeHistory = activeChatId
-    ? histories.get(activeChatId) ?? { loading: false, hasMore: true, initialized: false }
+    ? (activeTopicId
+      ? topicHistories.get(`${activeChatId}:topic:${activeTopicId}`)
+      : histories.get(activeChatId)) ?? { loading: false, hasMore: true, initialized: false }
     : { loading: false, hasMore: false, initialized: false };
   const activeChatList = chatLists.get(chatFilter) ?? { loading: false, hasMore: true };
 
@@ -823,6 +842,19 @@ export function App() {
           onWidthPreview={previewSidebarWidth}
           onWidthChange={setSidebarWidth}
         />
+        {activeChat?.isForum && !activeTopicId ? (
+          <ForumTopicsView
+            chat={activeChat}
+            topics={activeTopics}
+            loading={activeChatId ? forumTopicsLoading.has(activeChatId) : false}
+            onBack={() => setMobileChatOpen(false)}
+            onSelectTopic={(topicId) => { void selectForumTopic(topicId); }}
+            onCreateTopic={(name) => activeChatId ? createForumTopic(activeChatId, name) : Promise.resolve(undefined)}
+            onEditTopic={(topicId, name) => activeChatId ? editForumTopic(activeChatId, topicId, name) : Promise.resolve(false)}
+            onSetTopicClosed={(topicId, closed) => activeChatId ? setForumTopicClosed(activeChatId, topicId, closed) : Promise.resolve(false)}
+            onSetTopicPinned={(topicId, pinned) => activeChatId ? setForumTopicPinned(activeChatId, topicId, pinned) : Promise.resolve(false)}
+          />
+        ) : (
           <Profiler
             id="conversation"
             onRender={(_id, phase, actualDuration, baseDuration, startTime) => {
@@ -854,12 +886,15 @@ export function App() {
           >
             <Conversation
           chat={activeChat}
+          topic={activeTopic}
+          onBackToTopics={() => { void selectForumTopic(undefined); }}
           scrollScope={activeAccountId}
           entryScrollRequest={entryScrollRequest}
           latestScrollRequest={latestScrollRequest}
           messageScrollRequest={messageScrollRequest}
             messages={activeDisplayMessages}
           forwardTargets={forwardTargets}
+          forumTopics={forumTopics}
           users={users}
           historyLoading={activeHistory.loading}
           historyInitialized={activeHistory.initialized === true}
@@ -886,6 +921,7 @@ export function App() {
           onDraftChange={updateChatDraft}
           onTypingChange={setChatTyping}
           onForwardMessages={forwardMessages}
+          onLoadForumTopics={loadForumTopics}
           onLoadMessageProperties={loadMessageProperties}
           onLoadRawMessage={loadRawMessage}
           onSetMessageReaction={setMessageReaction}
@@ -939,6 +975,7 @@ export function App() {
           onBack={() => setMobileChatOpen(false)}
             />
           </Profiler>
+        )}
       </main>
       {error && (
         <div className="runtime-error" role="alert">

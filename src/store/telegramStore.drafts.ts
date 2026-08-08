@@ -65,10 +65,10 @@ export class DraftSyncController {
 
   resumePending() {
     if (!this.dependencies.isReady()) return;
-    for (const draft of this.dependencies.getDrafts().values()) {
+    for (const [key, draft] of this.dependencies.getDrafts()) {
       if (!draft.pending) continue;
-      const generation = this.expect(draft.chatId, draftForSync(draft), 0);
-      void this.perform(draft.chatId, generation);
+      const generation = this.expect(key, draftForSync(draft), 0);
+      void this.perform(key, generation);
     }
   }
 
@@ -85,9 +85,9 @@ export class DraftSyncController {
   }
 
   async flushPending() {
-    await Promise.all([...this.dependencies.getDrafts().values()]
-      .filter((draft) => draft.pending)
-      .map((draft) => this.flush(draft.chatId)));
+    await Promise.all([...this.dependencies.getDrafts().entries()]
+      .filter(([, draft]) => draft.pending)
+      .map(([key]) => this.flush(key)));
   }
 
   acceptServerDraft(chatId: string, draft?: ChatDraft) {

@@ -49,12 +49,13 @@ export class TdRequestBroker {
     return response;
   }
 
-  async requestPreparedFile(chatId: string, onError: (error: Error) => void) {
+  async requestPreparedFile(chatId: string, onError: (error: Error) => void, topicId?: string) {
     const extra = crypto.randomUUID();
     this.preparedFiles.set(extra, onError);
     try {
       const selected = await this.invokeCommand("telegram_pick_and_send_file", {
         chatId: numericId(chatId),
+        topicId: topicId ? numericId(topicId) : undefined,
         extra,
       });
       if (!selected) {
@@ -73,12 +74,14 @@ export class TdRequestBroker {
     files: PreparedPastedAttachment[],
     caption: string | undefined,
     onError: (error: Error) => void,
+    topicId?: string,
   ) {
     const extra = crypto.randomUUID();
     this.preparedFiles.set(extra, onError);
     try {
       const sent = await this.invokeCommand("telegram_send_pasted_files", {
         chatId: numericId(chatId),
+        topicId: topicId ? numericId(topicId) : undefined,
         extra,
         files,
         caption,

@@ -32,6 +32,8 @@ import type {
   CreateChatInput,
   CreateChatInviteLinkInput,
   ForwardMessagesResult,
+  ForumTopic,
+  ForumTopicPage,
   EmojiPickerAsset,
   EmojiPickerCatalog,
   GlobalSearchFilter,
@@ -101,7 +103,11 @@ export interface TelegramState {
   typingUserIds: Map<string, string[]>;
   outbox: QueuedOutgoingMessage[];
   histories: Map<string, HistoryState>;
+  forumTopics: Map<string, ForumTopic[]>;
+  forumTopicsLoading: Set<string>;
+  topicHistories: Map<string, HistoryState>;
   activeChatId?: string;
+  activeTopicId?: string;
   searchQuery: string;
   chatFilter: ChatFilter;
   globalSearch: GlobalSearchState;
@@ -133,6 +139,12 @@ export interface TelegramState {
   switchAccount: (accountId: string) => Promise<boolean>;
   logOutCurrentAccount: () => Promise<boolean>;
   selectChat: (chatId: string) => Promise<void>;
+  selectForumTopic: (topicId?: string) => Promise<void>;
+  loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
+  createForumTopic: (chatId: string, name: string) => Promise<ForumTopic | undefined>;
+  editForumTopic: (chatId: string, topicId: string, name: string) => Promise<boolean>;
+  setForumTopicClosed: (chatId: string, topicId: string, closed: boolean) => Promise<boolean>;
+  setForumTopicPinned: (chatId: string, topicId: string, pinned: boolean) => Promise<boolean>;
   resolveTelegramLink: (url: string) => Promise<import("../telegram/types").TelegramLinkTarget | undefined>;
   loadMoreChats: (chatListId?: string) => Promise<void>;
   setChatPinned: (chatListId: string, chatId: string, pinned: boolean) => Promise<boolean>;
@@ -190,7 +202,7 @@ export interface TelegramState {
   getBotCommandSuggestions: (chatId: string, query?: string, botUsername?: string) => Promise<BotCommandSuggestion[]>;
   getCallbackQueryAnswer: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
   getInlineQueryResults: (chatId: string, botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
-  sendInlineQueryResultMessage: (chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
+  sendInlineQueryResultMessage: (chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string, topicId?: string) => Promise<boolean>;
   sendBotStartMessage: (chatId: string, botUserId: string, parameter?: string) => Promise<boolean>;
   loadBlockedSenders: () => Promise<void>;
   setMessageSenderBlocked: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
@@ -233,6 +245,7 @@ export interface TelegramState {
     fromChatId: string,
     messageIds: string[],
     toChatId: string,
+    toTopicId?: string,
   ) => Promise<ForwardMessagesResult | undefined>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
   streamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;

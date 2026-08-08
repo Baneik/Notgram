@@ -24,6 +24,7 @@ import { Virtuoso, type Components, type ListProps } from "react-virtuoso";
 import type {
   Chat,
   ConnectionStatus,
+  ForumTopic,
   Message,
   MessagePermissions,
   ForwardMessagesResult,
@@ -96,12 +97,15 @@ const messageListComponents: Components<VirtualMessageBlock> = {
 
 interface ConversationProps {
   chat?: Chat;
+  topic?: ForumTopic;
+  onBackToTopics?: () => void;
   scrollScope: string;
   entryScrollRequest?: EntryConversationScrollRequest;
   latestScrollRequest?: LatestConversationScrollRequest;
   messageScrollRequest?: MessageConversationScrollRequest;
   messages: Message[];
   forwardTargets: Chat[];
+  forumTopics: Map<string, ForumTopic[]>;
   users: Map<string, User>;
   historyLoading: boolean;
   historyInitialized: boolean;
@@ -123,7 +127,9 @@ interface ConversationProps {
     fromChatId: string,
     messageIds: string[],
     toChatId: string,
+    toTopicId?: string,
   ) => Promise<ForwardMessagesResult | undefined>;
+  onLoadForumTopics: (chatId: string) => Promise<import("../telegram/types").ForumTopicPage | undefined>;
   onLoadMessageProperties: (
     chatId: string,
     messageId: string,
@@ -167,12 +173,15 @@ interface ConversationProps {
 
 export function Conversation({
   chat,
+  topic,
+  onBackToTopics,
   scrollScope,
   entryScrollRequest,
   latestScrollRequest,
   messageScrollRequest,
   messages,
   forwardTargets,
+  forumTopics,
   users,
   historyLoading,
   historyInitialized,
@@ -191,6 +200,7 @@ export function Conversation({
   onDraftChange,
   onTypingChange,
   onForwardMessages,
+  onLoadForumTopics,
   onLoadMessageProperties,
   onLoadRawMessage,
   onSetMessageReaction,
@@ -258,7 +268,7 @@ export function Conversation({
   const groupManagement = useTelegramStore((state) => state.groupManagement);
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
   const draftReplyToMessageId = useTelegramStore((state) =>
-    chat ? state.drafts.get(chat.id)?.replyToMessageId : undefined,
+    chat ? state.drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id)?.replyToMessageId : undefined,
   );
   const cacheFile = useTelegramStore((state) => state.cacheFile);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
@@ -869,7 +879,7 @@ export function Conversation({
 
   const cancelReply = () => {
     setReplyingTo(undefined);
-    const currentDraft = telegramStore.getState().drafts.get(chat.id);
+    const currentDraft = telegramStore.getState().drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id);
     if (currentDraft?.replyToMessageId) {
       onDraftChange(chat.id, currentDraft.text, undefined);
     }
@@ -980,7 +990,7 @@ export function Conversation({
         if (selection && !selection.isCollapsed) return;
         composerInputRef.current?.focus({ preventScroll: true });
       }}
-      aria-label={`${chat.title} 对话`}
+      aria-label={`${topic ? `${topic.name} 话题` : chat.title} 对话`}
     >
       <header className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
         {selectionMode ? (
@@ -1001,7 +1011,13 @@ export function Conversation({
           </>
         ) : (
           <>
-            <button className="mobile-back icon-button" type="button" aria-label="返回会话列表" title="返回会话列表" onClick={onBack}>
+            <button
+              className={`mobile-back icon-button ${topic ? "forum-topic-back" : ""}`}
+              type="button"
+              aria-label={topic ? "返回话题列表" : "返回会话列表"}
+              title={topic ? "返回话题列表" : "返回会话列表"}
+              onClick={topic && onBackToTopics ? onBackToTopics : onBack}
+            >
               <ChevronLeft size={21} strokeWidth={2} />
             </button>
             <button
@@ -1013,8 +1029,10 @@ export function Conversation({
             >
               <Avatar avatar={chat.avatar} size="medium" />
               <span className="conversation-title">
-                <strong>{chat.title}</strong>
-                {typingStatus && (
+                <strong>{topic ? topic.name : chat.title}</strong>
+                {topic?.isClosed ? (
+                  <span className="conversation-typing-status">话题已关闭</span>
+                ) : typingStatus && (
                   <span className="conversation-typing-status" role="status">
                     {typingStatus}
                   </span>
@@ -1432,8 +1450,9 @@ export function Conversation({
         </div>
       ) : (
       <ConversationComposer
-        key={chat.id}
+        key={topic ? `${chat.id}:${topic.id}` : chat.id}
         chatId={chat.id}
+        draftKey={topic ? `${chat.id}:topic:${topic.id}` : chat.id}
         editingMessage={editingMessage}
         replyingTo={replyingTo}
         contextTitle={composerContextTitle}
@@ -1508,12 +1527,14 @@ export function Conversation({
         <ForwardMessagesDialog
           selectedCount={selectedMessageIds.size}
           targets={filteredForwardTargets}
+          topicsByChat={forumTopics}
           currentChatId={chat.id}
           query={forwardQuery}
           pending={forwardPending}
           pendingTargetId={forwardPendingTargetId}
           onQueryChange={forwarding.setQuery}
-          onConfirm={(target) => void confirmForward(target)}
+          onLoadTopics={onLoadForumTopics}
+          onConfirm={(target, topicId) => void confirmForward(target, topicId)}
           onClose={forwarding.closeDialog}
         />
       )}

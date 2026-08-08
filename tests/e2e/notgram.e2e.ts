@@ -82,6 +82,26 @@ const revealVirtualMessage = async (page: Page, messageId: string) => {
   return row;
 };
 
+test("forum groups expose topic navigation and management", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-forum"]').click();
+
+  const topics = page.locator(".forum-topics-view");
+  await expect(topics).toBeVisible();
+  await expect(topics.getByText("构建与发布", { exact: true })).toBeVisible();
+  await expect(topics.getByText("设计反馈", { exact: true })).toBeVisible();
+
+  await topics.locator(".forum-topic-main").filter({ hasText: "构建与发布" }).click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("构建与发布");
+  await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
+
+  await page.getByRole("button", { name: "返回话题列表" }).click();
+  await page.getByRole("button", { name: "创建话题" }).click();
+  await page.getByPlaceholder("话题名称").fill("自动化验收");
+  await page.getByRole("button", { name: "确认创建" }).click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("自动化验收");
+});
+
 test("the top bar keeps only window controls and the account entry opens settings", async ({ page }) => {
   await page.goto("/");
 
