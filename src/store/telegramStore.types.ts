@@ -139,7 +139,7 @@ export interface TelegramState {
   addAccount: () => Promise<boolean>;
   switchAccount: (accountId: string) => Promise<boolean>;
   logOutCurrentAccount: () => Promise<boolean>;
-  selectChat: (chatId: string) => Promise<void>;
+  selectChat: (chatId: string, options?: { forumTopicId?: string }) => Promise<void>;
   selectForumTopic: (topicId?: string) => Promise<void>;
   loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
   createForumTopic: (chatId: string, name: string) => Promise<ForumTopic | undefined>;

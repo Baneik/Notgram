@@ -113,6 +113,7 @@ const navigationLabels: Record<number, string> = {
   1: "打开会话",
   2: "跳到最新",
   3: "搜索结果",
+  4: "切换话题",
 };
 
 const phaseLabels: Record<number, string> = {

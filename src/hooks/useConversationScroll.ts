@@ -113,6 +113,7 @@ export const useConversationScroll = ({
   const contentAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningFrameRef = useRef<number | undefined>(undefined);
+  const positioningIdentityRef = useRef<string | undefined>(undefined);
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const smoothScrollUntilRef = useRef(0);
   const userIntentUntilRef = useRef(0);
@@ -589,17 +590,26 @@ export const useConversationScroll = ({
   const completePositioning = useCallback(() => {
     if (!currentScrollKey) return;
     if (positionedIdentityRef.current === initialLocationIdentity) return;
-    if (positioningFrameRef.current !== undefined) return;
     const identity = initialLocationIdentity;
+    if (positioningFrameRef.current !== undefined) {
+      if (positioningIdentityRef.current === identity) return;
+      cancelAnimationFrame(positioningFrameRef.current);
+      positioningFrameRef.current = undefined;
+    }
+    positioningIdentityRef.current = identity;
     const expectedVirtuosoKey = virtuosoKey;
     let attempts = 0;
     const finishWhenRendered = () => {
       attempts += 1;
       positioningFrameRef.current = requestAnimationFrame(() => {
         positioningFrameRef.current = undefined;
-        if (initialLocationRef.current?.identity !== identity) return;
+        if (initialLocationRef.current?.identity !== identity) {
+          positioningIdentityRef.current = undefined;
+          return;
+        }
         if (messageListRef.current?.dataset.conversationVirtuosoKey !== expectedVirtuosoKey) {
           if (attempts < 12) finishWhenRendered();
+          else positioningIdentityRef.current = undefined;
           return;
         }
         if (revealTargetTokenRef.current) {
@@ -631,6 +641,7 @@ export const useConversationScroll = ({
           );
         }
         positionedIdentityRef.current = identity;
+        positioningIdentityRef.current = undefined;
         setPositionedIdentity(identity);
         markConversationSwitch(
           matchingMessageRequest?.performanceTraceId ??
@@ -1090,6 +1101,7 @@ export const useConversationScroll = ({
       cancelAnimationFrame(positioningAnchorFrameRef.current);
     }
     if (positioningFrameRef.current !== undefined) cancelAnimationFrame(positioningFrameRef.current);
+    positioningIdentityRef.current = undefined;
     if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);
     if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
   }, []);

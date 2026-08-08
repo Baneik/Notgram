@@ -1,4 +1,4 @@
-import type { CachedTelegramSnapshot, ChatProfile, Message } from "../telegram/types";
+import type { CachedTelegramSnapshot, ChatProfile, ForumTopic, Message } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
 import type { QueuedOutgoingAttachment } from "../telegram/types";
 
@@ -7,6 +7,8 @@ const MAX_CACHED_MESSAGES_PER_CHAT = 60;
 const MAX_CACHED_MESSAGES = 5_000;
 const MAX_CACHED_FORUM_CHATS = 20;
 const MAX_CACHED_TOPICS_PER_FORUM = 100;
+const MAX_CACHED_FORUM_TOPIC_BYTES = 256 * 1_024;
+const MAX_CACHED_FORUM_SELECTIONS = 100;
 
 export type CacheHealth = "empty" | "healthy" | "migrated" | "invalid" | "rebuilt";
 
@@ -145,25 +147,53 @@ const cacheableMessage = (message: Message): Message => {
 const forumTopicsForCache = (state: TelegramState) => {
   const lastForumTopicIds = state.lastForumTopicIds ?? new Map<string, string>();
   const forumTopics = state.forumTopics ?? new Map();
+  const seen = new Set<string>();
   const orderedChatIds = [
     state.activeChatId,
-    ...lastForumTopicIds.keys(),
-    ...forumTopics.keys(),
-  ].filter((chatId, index, values): chatId is string =>
-    Boolean(chatId) && values.indexOf(chatId) === index,
-  ).slice(0, MAX_CACHED_FORUM_CHATS);
+    ...[...lastForumTopicIds.keys()].reverse(),
+    ...[...forumTopics.keys()].reverse(),
+  ].filter((chatId): chatId is string => {
+    if (!chatId || seen.has(chatId) || !forumTopics.get(chatId)?.length) return false;
+    seen.add(chatId);
+    return true;
+  }).slice(0, MAX_CACHED_FORUM_CHATS);
 
-  return orderedChatIds.flatMap((chatId) => {
+  const encoder = new TextEncoder();
+  const byteLength = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength;
+  const cachedGroups: Array<{ chatId: string; topics: ForumTopic[] }> = [];
+  let totalBytes = 2;
+  for (const chatId of orderedChatIds) {
     const topics = forumTopics.get(chatId);
-    if (!topics?.length) return [];
-    return [{
-      chatId,
-      topics: topics.slice(0, MAX_CACHED_TOPICS_PER_FORUM).map((topic) => ({
-        ...topic,
-        lastMessage: topic.lastMessage ? cacheableMessage(topic.lastMessage) : undefined,
-      })),
-    }];
-  });
+    if (!topics?.length) continue;
+    const cachedTopics: ForumTopic[] = [];
+    let groupBytes = byteLength({ chatId, topics: [] });
+    const groupSeparatorBytes = cachedGroups.length > 0 ? 1 : 0;
+    for (const topic of topics.slice(0, MAX_CACHED_TOPICS_PER_FORUM)) {
+      const cachedTopic = { ...topic };
+      delete cachedTopic.lastMessage;
+      delete cachedTopic.draft;
+      const topicBytes = byteLength(cachedTopic) + (cachedTopics.length > 0 ? 1 : 0);
+      if (totalBytes + groupSeparatorBytes + groupBytes + topicBytes > MAX_CACHED_FORUM_TOPIC_BYTES) break;
+      cachedTopics.push(cachedTopic);
+      groupBytes += topicBytes;
+    }
+    if (cachedTopics.length === 0) continue;
+    cachedGroups.push({ chatId, topics: cachedTopics });
+    totalBytes += groupSeparatorBytes + groupBytes;
+  }
+  return cachedGroups;
+};
+
+const lastForumTopicIdsForCache = (state: TelegramState) => {
+  const selections = [...(state.lastForumTopicIds ?? new Map<string, string>())];
+  if (state.activeChatId) {
+    const activeIndex = selections.findIndex(([chatId]) => chatId === state.activeChatId);
+    if (activeIndex >= 0) selections.push(...selections.splice(activeIndex, 1));
+  }
+  return selections.slice(-MAX_CACHED_FORUM_SELECTIONS).map(([chatId, topicId]) => ({
+    chatId,
+    topicId,
+  }));
 };
 
 export const recentMessagesForCache = (state: TelegramState) => {
@@ -207,8 +237,5 @@ export const cachedSnapshotFrom = (
   chatFilter: state.chatFilter,
   profiles,
   forumTopics: forumTopicsForCache(state),
-  lastForumTopicIds: [...(state.lastForumTopicIds ?? new Map<string, string>())].map(([chatId, topicId]) => ({
-    chatId,
-    topicId,
-  })),
+  lastForumTopicIds: lastForumTopicIdsForCache(state),
 });

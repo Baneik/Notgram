@@ -38,6 +38,8 @@ with prerelease identifiers used for release candidates.
   back-to-topic-list control.
 - Cache bounded forum-topic metadata with per-group selection state so forum entry
   paints immediately while topic metadata and history refresh in the background.
+- Coalesce forum-topic refreshes, reuse fresh topic/read state, and load only the
+  destination topic when opening a search result or notification.
 - Preserve TDLib voice-note duration before media loading and disable unavailable
   voice controls instead of presenting an inert play action.
 - Merge chat and message search into the single conversation-sidebar field, and hide
@@ -47,6 +49,11 @@ with prerelease identifiers used for release candidates.
 - Present fullscreen video controls in a light 550-by-80 floating panel that hides
   after pointer inactivity, and route Space to the selected video without activating
   the currently focused non-text control.
+
+### Fixed
+
+- Prevent rapid forum history initialization from leaving the virtual message list
+  stuck in its positioning state and delaying conversation performance traces.
 
 ## [0.5.0-rc.2] - 2026-08-03
 

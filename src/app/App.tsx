@@ -111,7 +111,6 @@ export function App() {
   const authorizationError = useTelegramStore((state) => state.authorizationError);
   const initialize = useTelegramStore((state) => state.initialize);
   const selectChat = useTelegramStore((state) => state.selectChat);
-  const selectForumTopic = useTelegramStore((state) => state.selectForumTopic);
   const loadForumTopics = useTelegramStore((state) => state.loadForumTopics);
   const createForumTopic = useTelegramStore((state) => state.createForumTopic);
   const editForumTopic = useTelegramStore((state) => state.editForumTopic);
@@ -364,7 +363,11 @@ export function App() {
 
   const openGlobalSearchChat = useCallback(async (chatId: string) => {
     const state = telegramStore.getState();
-    const targetMessages = state.messages.get(chatId) ?? [];
+    const targetTopicId = state.chats.get(chatId)?.isForum
+      ? state.lastForumTopicIds.get(chatId) ?? state.forumTopics.get(chatId)?.find((topic) => !topic.isHidden)?.id
+      : undefined;
+    const targetMessages = (state.messages.get(chatId) ?? [])
+      .filter((message) => !targetTopicId || message.topicId === targetTopicId);
     const performanceTraceId = beginConversationSwitch({
       cached: targetMessages.length > 0,
       messageCount: targetMessages.length,
@@ -390,18 +393,13 @@ export function App() {
     });
   }, [beginConversationSnapshot, closeSearch, selectChat]);
 
-  const selectLoadedMessageForumTopic = useCallback(async (chatId: string, messageId: string) => {
-    const state = telegramStore.getState();
-    if (!state.chats.get(chatId)?.isForum) return;
-    const topicId = state.messages.get(chatId)?.find((message) => message.id === messageId)?.topicId;
-    if (topicId) await state.selectForumTopic(topicId);
-  }, []);
-
   const openGlobalSearchMessage = useCallback(async (chatId: string, messageId: string) => {
     const state = telegramStore.getState();
-    const targetMessages = state.messages.get(chatId) ?? [];
+    const cachedTarget = state.messages.get(chatId)?.find((message) => message.id === messageId);
+    const targetMessages = (state.messages.get(chatId) ?? [])
+      .filter((message) => !cachedTarget?.topicId || message.topicId === cachedTarget.topicId);
     const performanceTraceId = beginConversationSwitch({
-      cached: targetMessages.some((message) => message.id === messageId),
+      cached: Boolean(cachedTarget),
       messageCount: targetMessages.length,
       viewTransition: false,
       navigationKind: 3,
@@ -409,9 +407,12 @@ export function App() {
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
     beginConversationSnapshot(chatId);
-    await selectChat(chatId);
     await loadMessage(chatId, messageId);
-    await selectLoadedMessageForumTopic(chatId, messageId);
+    const loadedState = telegramStore.getState();
+    const targetTopicId = loadedState.chats.get(chatId)?.isForum
+      ? loadedState.messages.get(chatId)?.find((message) => message.id === messageId)?.topicId
+      : undefined;
+    await loadedState.selectChat(chatId, { forumTopicId: targetTopicId });
     closeSearch();
     setMobileChatOpen(true);
     setEntryScrollRequest(undefined);
@@ -426,7 +427,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
-  }, [beginConversationSnapshot, closeSearch, loadMessage, selectChat, selectLoadedMessageForumTopic]);
+  }, [beginConversationSnapshot, closeSearch, loadMessage]);
 
   const openProfileMessage = useCallback((chatId: string, messageId: string) => {
     clearProfile();
@@ -510,9 +511,12 @@ export function App() {
     state.setSearchQuery("");
     state.clearProfile();
     beginConversationSnapshot(route.chatId);
-    await state.selectChat(route.chatId);
     await telegramStore.getState().loadMessage(route.chatId, route.messageId);
-    await selectLoadedMessageForumTopic(route.chatId, route.messageId);
+    const loadedState = telegramStore.getState();
+    const targetTopicId = loadedState.chats.get(route.chatId)?.isForum
+      ? loadedState.messages.get(route.chatId)?.find((message) => message.id === route.messageId)?.topicId
+      : undefined;
+    await loadedState.selectChat(route.chatId, { forumTopicId: targetTopicId });
     clearPendingNotificationRoute();
     setMobileChatOpen(true);
     setEntryScrollRequest(undefined);
@@ -523,7 +527,7 @@ export function App() {
       messageId: route.messageId,
       requestId: messageScrollRequestIdRef.current,
     });
-  }, [beginConversationSnapshot, selectLoadedMessageForumTopic]);
+  }, [beginConversationSnapshot]);
 
   useEffect(() => {
     let disposed = false;
@@ -643,7 +647,9 @@ export function App() {
     beginConversationSnapshot(chatId);
     setMobileChatOpen(true);
     const state = telegramStore.getState();
-    const targetMessages = state.messages.get(chatId) ?? [];
+    const targetTopicId = state.chats.get(chatId)?.isForum ? state.activeTopicId : undefined;
+    const targetMessages = (state.messages.get(chatId) ?? [])
+      .filter((message) => !targetTopicId || message.topicId === targetTopicId);
     const performanceTraceId = beginConversationSwitch({
       cached: targetMessages.length > 0,
       messageCount: targetMessages.length,
@@ -668,6 +674,36 @@ export function App() {
     if (state.activeChatId !== chatId || (state.chats.get(chatId)?.isForum && !state.activeTopicId)) {
       void state.selectChat(chatId);
     }
+  };
+
+  const openForumTopic = (topicId: string) => {
+    const state = telegramStore.getState();
+    const chatId = state.activeChatId;
+    if (!chatId || !state.chats.get(chatId)?.isForum || state.activeTopicId === topicId) return;
+    const targetMessages = (state.messages.get(chatId) ?? [])
+      .filter((message) => message.topicId === topicId);
+    const performanceTraceId = beginConversationSwitch({
+      cached: targetMessages.length > 0,
+      messageCount: targetMessages.length,
+      viewTransition: false,
+      navigationKind: 4,
+    });
+    markConversationSwitch(performanceTraceId, "transitionStarted");
+    latestScrollRequestIdRef.current += 1;
+    flushSync(() => {
+      setEntryScrollRequest(undefined);
+      setMessageScrollRequest(undefined);
+      setLatestScrollRequest({
+        chatId,
+        requestId: latestScrollRequestIdRef.current,
+        performanceTraceId,
+      });
+      void state.selectForumTopic(topicId);
+    });
+    markConversationSwitch(performanceTraceId, "selectionCommitted");
+    requestAnimationFrame(() => {
+      markConversationSwitch(performanceTraceId, "transitionFinished");
+    });
   };
 
   if (!chatListReady && (authorization.kind === "preparing" || authorization.kind === "ready")) {
@@ -802,15 +838,14 @@ export function App() {
                 ? `${activeAccountId}:topic:${restoredTopicId}`
                 : activeAccountId;
               const restoreLocally = hasConversationScrollMemory(targetScrollScope, chatId);
-              const targetMessages = state.messages.get(chatId) ?? [];
-              const performanceTraceId = forumTopicReady
-                ? beginConversationSwitch({
-                    cached: targetMessages.length > 0,
-                    messageCount: targetMessages.length,
-                    viewTransition: false,
-                    navigationKind: 1,
-                  })
-                : undefined;
+              const targetMessages = (state.messages.get(chatId) ?? [])
+                .filter((message) => !restoredTopicId || message.topicId === restoredTopicId);
+              const performanceTraceId = beginConversationSwitch({
+                cached: targetMessages.length > 0,
+                messageCount: targetMessages.length,
+                viewTransition: false,
+                navigationKind: 1,
+              });
               entryScrollRequestIdRef.current += 1;
               markConversationSwitch(performanceTraceId, "transitionStarted");
               markConversationSwitch(performanceTraceId, "selectionCommitted");
@@ -873,7 +908,7 @@ export function App() {
             topics={activeTopics}
             loading={activeChatId ? forumTopicsLoading.has(activeChatId) : false}
             onBack={() => setMobileChatOpen(false)}
-            onSelectTopic={(topicId) => { void selectForumTopic(topicId); }}
+            onSelectTopic={openForumTopic}
             onCreateTopic={(name) => activeChatId ? createForumTopic(activeChatId, name) : Promise.resolve(undefined)}
             onEditTopic={(topicId, name) => activeChatId ? editForumTopic(activeChatId, topicId, name) : Promise.resolve(false)}
             onSetTopicClosed={(topicId, closed) => activeChatId ? setForumTopicClosed(activeChatId, topicId, closed) : Promise.resolve(false)}
@@ -913,7 +948,7 @@ export function App() {
           chat={activeChat}
           topic={activeTopic}
           topics={activeTopics}
-          onSelectTopic={(topicId) => { void selectForumTopic(topicId); }}
+          onSelectTopic={openForumTopic}
           scrollScope={activeTopicId ? `${activeAccountId}:topic:${activeTopicId}` : activeAccountId}
           entryScrollRequest={entryScrollRequest}
           latestScrollRequest={latestScrollRequest}

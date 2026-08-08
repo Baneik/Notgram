@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
+interface ConversationSwitchRecord {
+  durationMs?: number;
+  navigationKind?: number;
+  cancelled?: boolean;
+  [key: string]: number | boolean | undefined;
+}
+
 const horizontalOverflow = async (page: Page) =>
   page.evaluate(() => [...document.querySelectorAll("body *")].some((element) => {
     if (element.closest(".rail-actions")) return false;
@@ -8,6 +15,20 @@ const horizontalOverflow = async (page: Page) =>
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && (rect.left < -1 || rect.right > innerWidth + 1);
   }));
+
+const conversationSwitchRecords = (page: Page): Promise<ConversationSwitchRecord[]> =>
+  page.evaluate(async () => {
+    const performanceModule = await (0, eval)('import("/src/utils/performanceMonitor.ts")') as {
+      getPerformanceRecords: () => Array<{
+        event: string;
+        durationMs?: number;
+        details: Record<string, number | boolean>;
+      }>;
+    };
+    return performanceModule.getPerformanceRecords()
+      .filter((record) => record.event === "ui_conversation_switch")
+      .map((record) => ({ durationMs: record.durationMs, ...record.details }));
+  });
 
 const messageListMetrics = (page: Page) => page.locator(".message-list").evaluate((element) => ({
   scrollTop: element.scrollTop,
@@ -90,6 +111,9 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");
   await expect(page.getByRole("button", { name: "返回话题列表" })).toHaveCount(0);
   await expect(page.locator('[data-message-id="forum-general-1"]')).toBeVisible();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await conversationSwitchRecords(page))
+    .filter((record) => record.navigationKind === 1 && record.cancelled !== true).length).toBe(1);
   const strip = page.getByRole("navigation", { name: "话题切换" });
   await expect(strip).toBeVisible();
   await expect(strip.getByRole("tab")).toHaveCount(3);
@@ -101,6 +125,8 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await expect(page.getByRole("region", { name: "构建与发布 话题 对话" })).toBeVisible();
   await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");
   await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
+  await expect.poll(async () => (await conversationSwitchRecords(page))
+    .filter((record) => record.navigationKind === 4 && record.cancelled !== true).length).toBe(1);
 
   await page.locator('[data-chat-id="chat-mia"]').click();
   await page.locator('[data-chat-id="chat-forum"]').click();

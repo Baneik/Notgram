@@ -25,6 +25,7 @@ export interface ForumControllerOptions {
   set: StoreSetter;
   topicKey: (chatId: string, topicId?: string) => string;
   onError: (error: unknown, fallback: string) => string;
+  onTopicsLoaded?: (chatId: string, query: string) => void;
 }
 
 /** Keeps forum topic list state and topic mutations behind one Store boundary. */
@@ -34,6 +35,7 @@ export const createForumController = ({
   set,
   topicKey,
   onError,
+  onTopicsLoaded,
 }: ForumControllerOptions): ForumController => {
   const pendingLoads = new Map<string, Promise<ForumTopicPage | undefined>>();
 
@@ -58,6 +60,7 @@ export const createForumController = ({
           else drafts.delete(key);
         }
         set({ forumTopics, drafts, operationError: undefined });
+        onTopicsLoaded?.(chatId, query);
         return page;
       } catch (error) {
         set({ operationError: onError(error, "无法加载话题列表") });

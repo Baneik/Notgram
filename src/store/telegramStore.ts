@@ -72,6 +72,8 @@ export { filterAndSortChats, selectVisibleChats } from "./telegramStore.selector
 
 const CACHE_WRITE_DELAY_MS = 2_000;
 const CACHE_WRITE_IDLE_TIMEOUT_MS = 1_500;
+const FORUM_TOPICS_REFRESH_TTL_MS = 10_000;
+const FORUM_TOPICS_CHANGE_COALESCE_MS = 500;
 
 const errorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -105,6 +107,7 @@ export const createTelegramStore = (
     let accountRegistration = Promise.resolve();
     const readTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const readRequestChains = new Map<string, Promise<void>>();
+    const forumTopicsRefreshedAt = new Map<string, number>();
     const groupManagementLoads = new Map<string, Promise<ChatManagement | undefined>>();
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -269,6 +272,7 @@ export const createTelegramStore = (
       for (const timer of readTimers.values()) globalThis.clearTimeout(timer);
       readTimers.clear();
       readRequestChains.clear();
+      forumTopicsRefreshedAt.clear();
       searchController.reset();
       profileController.reset();
       set({
@@ -611,10 +615,23 @@ export const createTelegramStore = (
         get().activeTopicId !== topicId ||
         !documentIsVisible()
       ) return false;
-      const latestIncoming = (get().messages.get(chatId) ?? [])
-        .filter((message) => message.topicId === topicId && !message.outgoing)
-        .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt))[0];
+      const messages = get().messages.get(chatId) ?? [];
+      let latestIncoming: Message | undefined;
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message.topicId === topicId && !message.outgoing) {
+          latestIncoming = message;
+          break;
+        }
+      }
       if (!latestIncoming) return false;
+      const topic = get().forumTopics.get(chatId)?.find((candidate) => candidate.id === topicId);
+      if (
+        topic?.lastReadInboxMessageId === latestIncoming.id &&
+        topic.unreadCount === 0 &&
+        topic.unreadMentionCount === 0 &&
+        topic.unreadReactionCount === 0
+      ) return false;
       try {
         await transport.markForumTopicRead(chatId, topicId, latestIncoming.id);
         const forumTopics = new Map(get().forumTopics);
@@ -779,7 +796,7 @@ export const createTelegramStore = (
 
       if (event.type === "forumTopics.changed") {
         if (get().chats.get(event.chatId)?.isForum) {
-          void get().loadForumTopics(event.chatId);
+          void refreshForumConversation(event.chatId, true);
         }
         return;
       }
@@ -1055,7 +1072,16 @@ export const createTelegramStore = (
       set,
       topicKey,
       onError: errorMessage,
+      onTopicsLoaded: (chatId, query) => {
+        if (!query.trim()) forumTopicsRefreshedAt.set(chatId, Date.now());
+      },
     });
+    const touchForumTopic = (chatId: string, topicId: string) => {
+      const next = new Map(get().lastForumTopicIds);
+      next.delete(chatId);
+      next.set(chatId, topicId);
+      return next;
+    };
     const restorableForumTopicId = (chatId: string, topics = get().forumTopics.get(chatId) ?? []) => {
       const remembered = get().lastForumTopicIds.get(chatId);
       if (remembered && (topics.length === 0 || topics.some((topic) => topic.id === remembered))) {
@@ -1068,7 +1094,13 @@ export const createTelegramStore = (
       void loadForumTopicHistory(chatId, topicId, "ensure")
         .then(() => markForumTopicRead(chatId, topicId));
     };
-    const refreshForumConversation = async (chatId: string) => {
+    const refreshForumConversation = async (chatId: string, changed = false) => {
+      const topics = get().forumTopics.get(chatId) ?? [];
+      const refreshedAt = forumTopicsRefreshedAt.get(chatId) ?? 0;
+      const minimumAge = changed
+        ? FORUM_TOPICS_CHANGE_COALESCE_MS
+        : FORUM_TOPICS_REFRESH_TTL_MS;
+      if (topics.length > 0 && Date.now() - refreshedAt < minimumAge) return;
       const page = await forumController.loadForumTopics(chatId);
       if (!page || get().activeChatId !== chatId || !get().chats.get(chatId)?.isForum) return;
       const currentTopicId = get().activeTopicId;
@@ -1435,7 +1467,7 @@ export const createTelegramStore = (
         }
       },
 
-      selectChat: async (chatId) => {
+      selectChat: async (chatId, options) => {
         const previousChatId = get().activeChatId;
         const previousTopicId = get().activeTopicId;
         if (previousChatId && previousChatId !== chatId) {
@@ -1443,10 +1475,11 @@ export const createTelegramStore = (
         }
         const targetChat = get().chats.get(chatId);
         const restoredTopicId = targetChat?.isForum
-          ? restorableForumTopicId(chatId)
+          ? options?.forumTopicId ?? restorableForumTopicId(chatId)
           : undefined;
-        const lastForumTopicIds = new Map(get().lastForumTopicIds);
-        if (restoredTopicId) lastForumTopicIds.set(chatId, restoredTopicId);
+        const lastForumTopicIds = restoredTopicId
+          ? touchForumTopic(chatId, restoredTopicId)
+          : new Map(get().lastForumTopicIds);
         set({
           activeChatId: chatId,
           activeTopicId: restoredTopicId,
@@ -1468,8 +1501,9 @@ export const createTelegramStore = (
         if (!chatId || !get().chats.get(chatId)?.isForum) return;
         const previousTopicId = get().activeTopicId;
         if (previousTopicId && previousTopicId !== topicId) void draftSync.flush(topicKey(chatId, previousTopicId));
-        const lastForumTopicIds = new Map(get().lastForumTopicIds);
-        if (topicId) lastForumTopicIds.set(chatId, topicId);
+        const lastForumTopicIds = topicId
+          ? touchForumTopic(chatId, topicId)
+          : new Map(get().lastForumTopicIds);
         set({ activeTopicId: topicId, lastForumTopicIds });
         scheduleCacheWrite();
         if (topicId) loadActiveForumTopic(chatId, topicId);

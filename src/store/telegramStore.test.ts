@@ -10,6 +10,7 @@ import type {
   GlobalSearchInput,
   GlobalSearchPage,
   ForwardMessagesInput,
+  ForumTopic,
   Message,
   MessagePermissions,
   SendMessageInput,
@@ -1631,6 +1632,144 @@ describe("telegram store", () => {
 
     transport.release();
     await initialization;
+  });
+
+  it("opens an explicit forum topic atomically and reuses fresh read topic state", async () => {
+    const seedStore = createTelegramStore(new MockTelegramTransport());
+    await seedStore.getState().initialize();
+    await seedStore.getState().selectChat("chat-forum");
+    await vi.waitFor(() => expect(seedStore.getState().forumTopics.get("chat-forum")).toHaveLength(3));
+    await seedStore.getState().selectForumTopic("12");
+    await seedStore.getState().selectChat("chat-mia");
+    const cachedSnapshot = cachedSnapshotFrom(seedStore.getState());
+
+    class CountingForumTransport extends MockTelegramTransport {
+      topicLoads = 0;
+      historyTopicIds: string[] = [];
+      readTopicIds: string[] = [];
+
+      override async getForumTopics(input: Parameters<MockTelegramTransport["getForumTopics"]>[0]) {
+        this.topicLoads += 1;
+        return super.getForumTopics(input);
+      }
+
+      override async loadForumTopicHistory(chatId: string, topicId: string, limit = 30) {
+        this.historyTopicIds.push(topicId);
+        return super.loadForumTopicHistory(chatId, topicId, limit);
+      }
+
+      override async markForumTopicRead(chatId: string, topicId: string, messageId: string) {
+        this.readTopicIds.push(topicId);
+        return super.markForumTopicRead(chatId, topicId, messageId);
+      }
+
+      resetCounts() {
+        this.topicLoads = 0;
+        this.historyTopicIds = [];
+        this.readTopicIds = [];
+      }
+    }
+
+    const transport = new CountingForumTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    transport.resetCounts();
+
+    await store.getState().selectChat("chat-forum", { forumTopicId: "1" });
+    await vi.waitFor(() => expect(
+      store.getState().topicHistories.get("chat-forum:topic:1")?.initialized,
+    ).toBe(true));
+    await vi.waitFor(() => expect(store.getState().forumTopicsLoading.size).toBe(0));
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(store.getState().activeTopicId).toBe("1");
+    expect(transport.historyTopicIds).toEqual(["1"]);
+    expect(transport.topicLoads).toBe(1);
+
+    transport.resetCounts();
+    for (let index = 0; index < 10; index += 1) {
+      await store.getState().selectChat("chat-mia");
+      await store.getState().selectChat("chat-forum");
+    }
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+
+    expect(transport.historyTopicIds).toEqual([]);
+    expect(transport.readTopicIds).toEqual([]);
+    expect(transport.topicLoads).toBe(0);
+  });
+
+  it("bounds cached forum metadata by recency and serialized size", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-forum");
+    await vi.waitFor(() => expect(store.getState().forumTopics.get("chat-forum")).toHaveLength(3));
+    const template = store.getState().forumTopics.get("chat-forum")?.[0];
+    expect(template).toBeDefined();
+
+    const forumTopics = new Map<string, ForumTopic[]>();
+    const lastForumTopicIds = new Map<string, string>();
+    for (let index = 0; index < 25; index += 1) {
+      const chatId = `forum-${index}`;
+      const topicId = `topic-${index}`;
+      forumTopics.set(chatId, [{
+        ...template!,
+        id: topicId,
+        chatId,
+        name: `话题 ${index} ${"长名称".repeat(20)}`,
+        lastMessage: {
+          ...mockSnapshot.messages[0],
+          id: `message-${index}`,
+          chatId,
+          topicId,
+        },
+        draft: {
+          chatId,
+          topicId,
+          text: `草稿 ${index}`,
+          updatedAt: "2026-08-08T12:00:00+08:00",
+        },
+      }]);
+      lastForumTopicIds.set(chatId, topicId);
+    }
+    store.setState({
+      activeChatId: "forum-0",
+      activeTopicId: "topic-0",
+      forumTopics,
+      lastForumTopicIds,
+    });
+
+    const snapshot = cachedSnapshotFrom(store.getState());
+    const cachedChatIds = snapshot.forumTopics?.map((entry) => entry.chatId) ?? [];
+    const serializedForumTopics = JSON.stringify(snapshot.forumTopics ?? []);
+
+    expect(cachedChatIds).toHaveLength(20);
+    expect(cachedChatIds[0]).toBe("forum-0");
+    expect(cachedChatIds).toContain("forum-24");
+    expect(cachedChatIds).not.toContain("forum-1");
+    expect(new TextEncoder().encode(serializedForumTopics).byteLength).toBeLessThanOrEqual(256 * 1_024);
+    for (const entry of snapshot.forumTopics ?? []) {
+      expect(entry.topics[0]).not.toHaveProperty("lastMessage");
+      expect(entry.topics[0]).not.toHaveProperty("draft");
+    }
+
+    store.setState({ activeChatId: "chat-mia" });
+    expect(cachedSnapshotFrom(store.getState()).forumTopics).toHaveLength(20);
+
+    const heavyForumTopics = new Map([...forumTopics].map(([chatId, topics]) => [
+      chatId,
+      Array.from({ length: 100 }, (_, topicIndex) => ({
+        ...topics[0],
+        id: `${topics[0].id}-${topicIndex}`,
+        name: `${topics[0].name}-${topicIndex}-${"大容量话题".repeat(64)}`,
+      })),
+    ]));
+    store.setState({ forumTopics: heavyForumTopics });
+    const boundedSnapshot = cachedSnapshotFrom(store.getState());
+    const boundedTopics = boundedSnapshot.forumTopics ?? [];
+    expect(new TextEncoder().encode(JSON.stringify(boundedTopics)).byteLength)
+      .toBeLessThanOrEqual(256 * 1_024);
+    expect(boundedTopics.reduce((count, entry) => count + entry.topics.length, 0))
+      .toBeLessThan(20 * 100);
   });
 
   it("reloads the active conversation when live metadata changes its forum mode", async () => {
