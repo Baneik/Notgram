@@ -979,6 +979,41 @@ test("composer coalesces resizing and persists drafts without blocking input", a
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 });
 
+test("member mentions stay in their chat and the resulting draft can be cleared", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  const senderAvatar = page.locator(".message-sender-avatar").last();
+  await expect(senderAvatar).toBeVisible();
+  await senderAvatar.click({ button: "right" });
+  const senderMenu = page.getByRole("menu", { name: "成员操作" });
+  await senderMenu.getByRole("menuitem", { name: /^@/ }).click();
+
+  await expect(composer).toHaveValue(/^@[A-Za-z0-9_]{5,32} $/);
+  const mentionDraft = await composer.inputValue();
+  await page.waitForTimeout(250);
+  await expect(page.locator(".inline-query-panel")).toHaveCount(0);
+  await expect(page.locator(".operation-error")).toHaveCount(0);
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(composer).toHaveValue("");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(composer).toHaveValue(mentionDraft);
+
+  await composer.fill("");
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(composer).toHaveValue("");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(composer).toHaveValue("");
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, unknown> };
+      };
+    };
+    return storeModule.telegramStore.getState().drafts.has("chat-product");
+  }, "/src/store/telegramStore.ts")).toBe(false);
+});
+
 test("IME composition defers draft persistence and layout work until commit", async ({ page }) => {
   await page.goto("/");
   const composer = page.locator(".composer textarea");

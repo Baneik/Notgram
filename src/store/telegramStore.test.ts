@@ -11,6 +11,7 @@ import type {
   GlobalSearchPage,
   ForwardMessagesInput,
   ForumTopic,
+  InlineQueryResultPage,
   Message,
   MessagePermissions,
   SendMessageInput,
@@ -940,6 +941,24 @@ describe("telegram store", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps passive inline bot lookup misses out of the global error toast", async () => {
+    class MissingInlineBotTransport extends MockTelegramTransport {
+      override async getInlineQueryResults(): Promise<InlineQueryResultPage> {
+        throw new Error("找不到这个机器人");
+      }
+    }
+
+    const store = createTelegramStore(new MissingInlineBotTransport());
+    await store.getState().initialize();
+
+    await expect(store.getState().getInlineQueryResults(
+      "chat-product",
+      "mia_design",
+      "",
+    )).resolves.toBeUndefined();
+    expect(store.getState().operationError).toBeUndefined();
   });
 
   it("ignores stale server draft updates while local text is pending", async () => {

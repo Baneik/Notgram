@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { insertComposerText, mentionTextForUser } from "./composerInsertion";
+import {
+  composerInlineQueryForDraft,
+  insertComposerText,
+  mentionTextForUser,
+} from "./composerInsertion";
 
 describe("composer insertion", () => {
   it("uses a Telegram username when one is available", () => {
@@ -20,5 +24,16 @@ describe("composer insertion", () => {
       value: "hello @ada ",
       cursor: 11,
     });
+  });
+
+  it("does not treat a known non-bot mention as an inline query", () => {
+    const knownNonBots = new Set(["mia_design"]);
+    expect(composerInlineQueryForDraft("@MIA_DESIGN release notes", knownNonBots))
+      .toBeUndefined();
+  });
+
+  it("keeps unknown usernames eligible for inline bot queries", () => {
+    expect(composerInlineQueryForDraft("@release_bot latest", new Set()))
+      .toEqual({ username: "release_bot", query: "latest" });
   });
 });

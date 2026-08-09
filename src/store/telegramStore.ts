@@ -1998,7 +1998,7 @@ export const createTelegramStore = (
 
       getInlineQueryResults: async (chatId, botUsername, query, offset = "") => {
         try { return await transport.getInlineQueryResults(chatId, botUsername, query, offset); }
-        catch (error) { set({ operationError: errorMessage(error, "无法读取机器人 Inline 结果") }); return undefined; }
+        catch { return undefined; }
       },
 
       sendInlineQueryResultMessage: async (chatId, botUserId, queryId, resultId, replyToMessageId, topicId) => {

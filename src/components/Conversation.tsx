@@ -304,6 +304,17 @@ export function Conversation({
   const conversationIdentity = chat
     ? topic ? `${chat.id}:topic:${topic.id}` : chat.id
     : undefined;
+  const knownNonBotUsernames = useMemo(() => {
+    const usernames = new Set<string>();
+    for (const user of users.values()) {
+      if (user.isBot === true) continue;
+      const username = user.username?.trim().replace(/^@/, "");
+      if (username) usernames.add(username.toLocaleLowerCase());
+      const mentionToken = mentionTextForUser(user).match(/^@([A-Za-z0-9_]{5,32})(?:\s|$)/)?.[1];
+      if (mentionToken) usernames.add(mentionToken.toLocaleLowerCase());
+    }
+    return usernames;
+  }, [users]);
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const attentionMessageIds = useTelegramStore((state) => chat
     ? state.unreadAttentionMessageIds.get(chat.id) ?? EMPTY_ATTENTION_MESSAGE_IDS
@@ -325,6 +336,9 @@ export function Conversation({
   }>();
   const [composerTextInsertion, setComposerTextInsertion] = useState<ComposerTextInsertion>();
   const composerTextInsertionIdRef = useRef(0);
+  const consumeComposerTextInsertion = useCallback((id: string) => {
+    setComposerTextInsertion((current) => current?.id === id ? undefined : current);
+  }, []);
   const [actionLoadingId, setActionLoadingId] = useState<string>();
   const [replyingTo, setReplyingTo] = useState<Message>();
   const [editingMessage, setEditingMessage] = useState<Message>();
@@ -1077,6 +1091,7 @@ export function Conversation({
   useEffect(() => {
     setActionMenu(undefined);
     setActionLoadingId(undefined);
+    setComposerTextInsertion(undefined);
     setReplyingTo(undefined);
     setEditingMessage(undefined);
     setDeleteTarget(undefined);
@@ -1838,6 +1853,7 @@ export function Conversation({
                 setComposerTextInsertion({
                   id: `${sender.id}:${composerTextInsertionIdRef.current}`,
                   text: mentionTextForUser(sender),
+                  draftKey: conversationIdentity ?? chat.id,
                 });
               }
             : undefined}
@@ -1880,6 +1896,8 @@ export function Conversation({
           ? users.get(chat.peerId)?.username
           : undefined}
         textInsertion={composerTextInsertion}
+        knownNonBotUsernames={knownNonBotUsernames}
+        onTextInsertionApplied={consumeComposerTextInsertion}
         inputRef={composerInputRef}
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}

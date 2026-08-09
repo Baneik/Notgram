@@ -3,6 +3,12 @@ import type { User } from "../telegram/types";
 export interface ComposerTextInsertion {
   id: string;
   text: string;
+  draftKey: string;
+}
+
+export interface ComposerInlineQuery {
+  username: string;
+  query: string;
 }
 
 export interface ComposerInsertionResult {
@@ -34,4 +40,15 @@ export const insertComposerText = (
     value: `${prefix}${inserted}${suffix}`,
     cursor: prefix.length + inserted.length,
   };
+};
+
+export const composerInlineQueryForDraft = (
+  value: string,
+  knownNonBotUsernames?: ReadonlySet<string>,
+): ComposerInlineQuery | undefined => {
+  const match = value.match(/^@([A-Za-z0-9_]{5,32})\s+(.{0,256})$/);
+  if (!match) return undefined;
+  const username = match[1];
+  if (knownNonBotUsernames?.has(username.toLocaleLowerCase())) return undefined;
+  return { username, query: match[2] };
 };
