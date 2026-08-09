@@ -57,6 +57,7 @@ import { PollMessage } from "./PollMessage";
 import { InlineKeyboard } from "./InlineKeyboard";
 import type { CallbackQueryAnswer } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { formatFileSize, isExecutableFile } from "../utils/fileTransfer";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 const INLINE_META_LOWERING_PX = 2.5;
@@ -372,6 +373,19 @@ function MessageBubbleComponent({
     : undefined;
   const canOpenFile = (content.kind === "file" || content.kind === "media") &&
     content.isDownloaded === true && Boolean(localFilePath);
+  const executableFile = (content.kind === "file" || content.kind === "media") &&
+    isExecutableFile(content.fileName, content.mimeType);
+  const fileSizeLabel = content.kind === "file" || content.kind === "media"
+    ? formatFileSize(content.size) ?? content.sizeLabel
+    : undefined;
+  const openOrDownloadFile = () => {
+    if (canOpenFile) {
+      if (executableFile) void onOpenDownloadDirectory();
+      else void onOpenFile(localFilePath!);
+    } else if (canDownload) {
+      void onDownload(downloadFileId!, downloadFileName);
+    }
+  };
   const previewFileId = content.kind === "media" && content.thumbnailFileId !== undefined &&
     content.thumbnailCanDownload === true && !content.thumbnailPath && !content.thumbnailIsDownloading
     ? content.thumbnailFileId
@@ -902,13 +916,32 @@ function MessageBubbleComponent({
           ) : (
             <div className="attachment-message">
               <div className="file-message">
-                <span className="file-icon"><FileText size={19} strokeWidth={1.8} /></span>
-                <span className="file-copy">
-                  <strong>{highlightedText(content.fileName, searchQuery)}</strong>
-                  <small>{content.isUploading ? `上传中 ${fileProgress ?? ""}` : content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : content.isDownloaded ? `已缓存 · ${content.sizeLabel}` : content.sizeLabel}</small>
-                </span>
+                <button
+                  className="file-primary-action"
+                  type="button"
+                  disabled={!canOpenFile && !canDownload}
+                  aria-label={canOpenFile
+                    ? executableFile ? `打开下载目录 ${content.fileName}` : `打开 ${content.fileName}`
+                    : canDownload ? `下载 ${content.fileName}` : content.fileName}
+                  title={canOpenFile
+                    ? executableFile ? "可执行文件已下载，打开下载目录" : "打开文件"
+                    : canDownload ? "下载文件" : undefined}
+                  onClick={openOrDownloadFile}
+                >
+                  <span className={`file-status-icon ${content.isDownloading ? "is-downloading" : content.isDownloaded ? "is-downloaded" : "is-pending"}`}>
+                    {content.isDownloading
+                      ? <MediaProgressRing progress={transferProgress} size={44} />
+                      : content.isDownloaded
+                        ? <FileText size={21} strokeWidth={1.8} />
+                        : <Download size={21} strokeWidth={1.9} />}
+                  </span>
+                  <span className="file-copy">
+                    <strong>{highlightedText(content.fileName, searchQuery)}</strong>
+                    <small>{content.isUploading ? `上传中 ${fileProgress ?? ""}` : content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : content.isDownloaded ? `已缓存 · ${fileSizeLabel ?? "文件"}` : fileSizeLabel ?? "待下载"}</small>
+                  </span>
+                </button>
                 <span className="file-actions">
-                  {canOpenFile && <button type="button" aria-label={`打开 ${content.fileName}`} title="打开文件" onClick={() => void onOpenFile(localFilePath!)}><ExternalLink size={15} /></button>}
+                  {canOpenFile && !executableFile && <button type="button" aria-label={`打开 ${content.fileName}`} title="打开文件" onClick={() => void onOpenFile(localFilePath!)}><ExternalLink size={15} /></button>}
                   {canOpenFile && <button type="button" aria-label={`另存为 ${content.fileName}`} title="另存为" onClick={() => void onSaveFileAs(localFilePath!, content.fileName)}><Save size={15} /></button>}
                   {canOpenFile && <button type="button" aria-label="打开下载目录" title="打开下载目录" onClick={() => void onOpenDownloadDirectory()}><FolderOpen size={15} /></button>}
                   {(canDownload || canCancelUpload || canCancelDownload) && (
@@ -918,7 +951,9 @@ function MessageBubbleComponent({
                       title={canCancelUpload ? "取消上传" : canCancelDownload ? "取消下载" : "下载到 downloads"}
                       onClick={() => canCancelUpload ? void onCancelUpload(message.id) : canCancelDownload ? void onCancelDownload(downloadFileId!) : void onDownload(downloadFileId!, downloadFileName)}
                     >
-                      {canCancelUpload || canCancelDownload ? <X size={16} strokeWidth={2.2} /> : <Download size={16} strokeWidth={2} />}
+                      {canCancelUpload || canCancelDownload
+                        ? <X size={16} strokeWidth={2.2} />
+                        : <Download size={16} strokeWidth={2} />}
                     </button>
                   )}
                 </span>
