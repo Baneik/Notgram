@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
+  AtSign,
   Check,
   ChevronRight,
   Copy,
@@ -10,6 +11,7 @@ import {
   FolderInput,
   Forward,
   LogOut,
+  MessageCircle,
   Pin,
   PictureInPicture2,
   Reply,
@@ -32,6 +34,7 @@ import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
 
 const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   archive: Archive,
+  at: AtSign,
   check: Check,
   copy: Copy,
   download: Download,
@@ -39,6 +42,7 @@ const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   folder: FolderInput,
   forward: Forward,
   leave: LogOut,
+  message: MessageCircle,
   pin: Pin,
   "play-window": PictureInPicture2,
   reply: Reply,

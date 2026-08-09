@@ -1184,6 +1184,7 @@ export function App() {
             if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
             else void loadUserProfile(senderId);
           }}
+          onStartPrivateChat={(senderId) => { void openProfilePrivateChat(senderId); }}
           onSetChatPinned={(pinned) => activeChatId
             ? setChatPinned(
                 activeChat?.folderIds.includes(chatFilter)
