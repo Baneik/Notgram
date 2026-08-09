@@ -621,6 +621,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list.is-scrolling::-webkit-scrollbar-thumb { background-color: var(--message-scrollbar-thumb); }
 .message-list.is-history-adjusting { scrollbar-color: transparent transparent; }
 .message-list.is-history-adjusting::-webkit-scrollbar-thumb { background-color: transparent; }
+.message-list.is-jump-transitioning { pointer-events: none; }
 .message-list-content {
   position: relative;
   width: calc(100% - var(--message-list-inline-padding) - var(--message-list-inline-padding));
