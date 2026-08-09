@@ -483,6 +483,7 @@ function PreferenceSettings({
   error,
   onChange,
 }: PreferenceSettingsProps) {
+  const systemReduceMotion = usePreferencesStore((state) => state.systemReduceMotion);
   const options: Array<{
     key: BooleanPreferenceKey;
     label: string;
@@ -728,6 +729,11 @@ function PreferenceSettings({
             </label>
           ))}
         </div>
+        {category === "power" && systemReduceMotion && (
+          <p className="preference-policy-note" role="status">
+            系统已启用“减少动态效果”，Notgram 会自动停用过渡和动画播放。
+          </p>
+        )}
       </section>
       {error && <div className="settings-error" role="alert">{error}</div>}
     </div>

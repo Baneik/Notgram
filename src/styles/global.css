@@ -22,6 +22,10 @@
   --message-group-spacing: 10px;
   --message-row-spacing: 1px;
   --message-bubble-padding-y: 8px;
+  --motion-duration-fast: 120ms;
+  --motion-duration-standard: 180ms;
+  --motion-duration-slow: 220ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0.75, 0.25, 1);
 }
 
 * { box-sizing: border-box; letter-spacing: 0; }
@@ -37,8 +41,70 @@ button { color: inherit; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .spin { animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.reduce-motion * { scroll-behavior: auto !important; transition: none !important; }
-.reduce-motion .spin { animation-duration: 1800ms; }
+html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0ms !important;
+}
+@keyframes motion-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes motion-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes motion-surface-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes motion-surface-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(5px) scale(0.99); }
+}
+@keyframes motion-pop-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes motion-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes motion-pane-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes motion-media-image-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.dialog-backdrop, .profile-backdrop, .message-delete-backdrop, .media-viewer-backdrop {
+  animation: motion-backdrop-in var(--motion-duration-standard) var(--motion-ease-standard) both;
+}
+.dialog-backdrop > *, .profile-backdrop > *, .message-delete-backdrop > *, .media-viewer-backdrop > * {
+  animation: motion-surface-in var(--motion-duration-slow) var(--motion-ease-standard) both;
+}
+.chat-action-menu, .context-menu-surface, .native-context-menu, .native-context-menu-children,
+.message-action-menu, .bot-suggestion-panel, .inline-query-panel, .emoji-picker {
+  animation: motion-pop-in var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+.runtime-error, .operation-error { animation: motion-toast-in var(--motion-duration-standard) var(--motion-ease-standard) both; }
+.settings-detail { animation: motion-pane-in var(--motion-duration-standard) var(--motion-ease-standard) both; }
+.motion-presence { display: contents; }
+.motion-presence[data-motion-state="exiting"] > .dialog-backdrop,
+.motion-presence[data-motion-state="exiting"] > .profile-backdrop,
+.motion-presence[data-motion-state="exiting"] > .message-delete-backdrop,
+.motion-presence[data-motion-state="exiting"] > .media-viewer-backdrop {
+  animation: motion-backdrop-out var(--motion-duration-standard) ease both;
+}
+.motion-presence[data-motion-state="exiting"] > .dialog-backdrop > *,
+.motion-presence[data-motion-state="exiting"] > .profile-backdrop > *,
+.motion-presence[data-motion-state="exiting"] > .message-delete-backdrop > *,
+.motion-presence[data-motion-state="exiting"] > .media-viewer-backdrop > * {
+  animation: motion-surface-out var(--motion-duration-standard) ease both;
+}
 
 .main-window-frame { width: 100%; height: 100%; display: grid; grid-template-rows: 32px minmax(0, 1fr); overflow: hidden; background: var(--surface); }
 .main-window-content { min-width: 0; min-height: 0; overflow: hidden; }
@@ -1216,7 +1282,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .media-viewer-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: grid; place-items: center; background: transparent; touch-action: none; }
 .media-viewer-stage.is-pannable { cursor: grab; }
 .media-viewer-stage.is-dragging { cursor: grabbing; }
-.media-viewer-image { max-width: calc(100% - 112px); max-height: calc(100% - 32px); display: block; object-fit: contain; transition: transform 120ms ease; transform-origin: center; user-select: none; }
+.media-viewer-image { max-width: calc(100% - 112px); max-height: calc(100% - 32px); display: block; object-fit: contain; animation: motion-media-image-in var(--motion-duration-fast) ease both; transition: transform 120ms ease; transform-origin: center; user-select: none; }
 .media-viewer-stage.is-dragging .media-viewer-image { transition: none; }
 .media-viewer-stage.has-thumbnails .media-viewer-image { max-height: calc(100% - 118px); }
 .reduce-motion .media-viewer-image { transition: none; }
@@ -1848,6 +1914,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .proxy-checkbox input { width: 16px; height: 16px; accent-color: var(--accent); }
 .proxy-latency { color: var(--color-status-success); font-size: 12px; font-weight: 650; }
 .preference-list { display: grid; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.preference-policy-note { margin: 10px 2px 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .preference-row {
   min-height: 52px; padding: 0 13px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
   color: var(--ink); background: var(--color-bg-surface); font-size: 13px;
@@ -2099,8 +2166,13 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .conversation, .forum-topics-view { display: none; }
   .mobile-chat-open .chat-sidebar, .mobile-chat-open .navigation-rail { display: none; }
   .mobile-chat-open { grid-template-rows: minmax(0, 1fr); }
-  .mobile-chat-open .conversation { display: grid; }
-  .mobile-chat-open .forum-topics-view { display: grid; }
+  .mobile-chat-open .conversation, .mobile-chat-open .forum-topics-view {
+    display: grid;
+    animation: motion-pane-in var(--motion-duration-standard) var(--motion-ease-standard) both;
+  }
+  .app-shell:not(.mobile-chat-open) .chat-sidebar {
+    animation: motion-pane-in var(--motion-duration-standard) var(--motion-ease-standard) both;
+  }
   .mobile-back { display: inline-grid; }
   .message-list { padding-top: 14px; }
   .conversation-jump-button { right: 12px; bottom: 12px; }

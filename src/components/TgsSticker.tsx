@@ -56,5 +56,11 @@ export function TgsSticker({ src, label, autoplay, onError }: TgsStickerProps) {
     };
   }, [autoplay, src]);
 
-  return <span ref={containerRef} className="tgs-sticker" role="img" aria-label={label} />;
+  return <span
+    ref={containerRef}
+    className="tgs-sticker"
+    role="img"
+    aria-label={label}
+    data-motion-autoplay={autoplay ? "true" : "false"}
+  />;
 }

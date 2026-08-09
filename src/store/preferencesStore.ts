@@ -10,6 +10,7 @@ import {
   type ColorScheme,
   type ThemeId,
 } from "../theme/theme";
+import { effectiveReduceMotion } from "../utils/motionPreference";
 
 export type ColorTheme = ColorScheme;
 export type UnreadBadgePosition = "right" | "avatar";
@@ -42,6 +43,8 @@ export interface AppPreferences {
 }
 
 interface PreferencesState extends AppPreferences {
+  systemReduceMotion: boolean;
+  effectiveReduceMotion: boolean;
   setPreference: <Key extends keyof AppPreferences>(
     key: Key,
     value: AppPreferences[Key],
@@ -164,17 +167,41 @@ const readPreferences = (): AppPreferences => {
 };
 
 const initialPreferences = readPreferences();
+const readSystemReduceMotion = () => typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const initialSystemReduceMotion = readSystemReduceMotion();
 let appliedInterfaceScale: number | undefined;
 let appliedThemeId: ThemeId | undefined;
 
 export const preferencesStore = createStore<PreferencesState>((set) => ({
   ...initialPreferences,
-  setPreference: (key, value) => set({ [key]: value } as Partial<PreferencesState>),
+  systemReduceMotion: initialSystemReduceMotion,
+  effectiveReduceMotion: effectiveReduceMotion({
+    reduceMotion: initialPreferences.reduceMotion,
+    systemReduceMotion: initialSystemReduceMotion,
+  }),
+  setPreference: (key, value) => set((state) => ({
+    [key]: value,
+    ...(key === "reduceMotion"
+      ? {
+          effectiveReduceMotion: effectiveReduceMotion({
+            reduceMotion: Boolean(value),
+            systemReduceMotion: state.systemReduceMotion,
+          }),
+        }
+      : {}),
+  }) as Partial<PreferencesState>),
 }));
 
-const applyPreferences = (preferences: AppPreferences) => {
+const applyPreferences = (preferences: AppPreferences, systemMotionReduced: boolean) => {
   if (typeof document === "undefined") return;
-  document.documentElement.classList.toggle("reduce-motion", preferences.reduceMotion);
+  const reduceMotion = effectiveReduceMotion({
+    reduceMotion: preferences.reduceMotion,
+    systemReduceMotion: systemMotionReduced,
+  });
+  document.documentElement.classList.toggle("reduce-motion", reduceMotion);
+  document.documentElement.dataset.motion = reduceMotion ? "reduced" : "full";
   document.documentElement.style.setProperty("--chat-font-size", `${preferences.chatFontSize}px`);
   document.documentElement.style.setProperty(
     "--chat-row-min-height",
@@ -216,7 +243,7 @@ const applyPreferences = (preferences: AppPreferences) => {
   }
 };
 
-applyPreferences(initialPreferences);
+applyPreferences(initialPreferences, preferencesStore.getState().systemReduceMotion);
 preferencesStore.subscribe((state) => {
   const preferences: AppPreferences = {
     notificationsEnabled: state.notificationsEnabled,
@@ -244,7 +271,7 @@ preferencesStore.subscribe((state) => {
     unreadBadgePosition: state.unreadBadgePosition,
     themeId: state.themeId,
   };
-  applyPreferences(preferences);
+  applyPreferences(preferences, state.systemReduceMotion);
   try {
     globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(preferences));
   } catch {
@@ -253,9 +280,36 @@ preferencesStore.subscribe((state) => {
 });
 
 if (typeof window !== "undefined") {
+  const reducedMotionQuery = typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-reduced-motion: reduce)")
+    : undefined;
+  const syncSystemMotion = (matches: boolean) => {
+    preferencesStore.setState((state) => ({
+      systemReduceMotion: matches,
+      effectiveReduceMotion: effectiveReduceMotion({
+        reduceMotion: state.reduceMotion,
+        systemReduceMotion: matches,
+      }),
+    }));
+  };
+  if (reducedMotionQuery) {
+    const onSystemMotionChange = (event: MediaQueryListEvent) => syncSystemMotion(event.matches);
+    if (typeof reducedMotionQuery.addEventListener === "function") {
+      reducedMotionQuery.addEventListener("change", onSystemMotionChange);
+    } else {
+      reducedMotionQuery.addListener(onSystemMotionChange);
+    }
+  }
   window.addEventListener("storage", (event) => {
     if (event.key !== STORAGE_KEY || !event.newValue) return;
-    preferencesStore.setState(readPreferences());
+    const next = readPreferences();
+    preferencesStore.setState((state) => ({
+      ...next,
+      effectiveReduceMotion: effectiveReduceMotion({
+        reduceMotion: next.reduceMotion,
+        systemReduceMotion: state.systemReduceMotion,
+      }),
+    }));
   });
 }
 

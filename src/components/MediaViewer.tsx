@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { usePreferencesStore } from "../store/preferencesStore";
 import {
   adjacentPhotoId,
   type PhotoMessage,
@@ -107,6 +108,7 @@ export function MediaViewer({
   } | undefined>(undefined);
   const [failedSource, setFailedSource] = useState<string>();
   const [retryKey, setRetryKey] = useState(0);
+  const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const activeThumbnailRef = useRef<HTMLButtonElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const dialogRef = useModalFocus<HTMLDivElement>(onClose);
@@ -137,11 +139,11 @@ export function MediaViewer({
 
   useEffect(() => {
     activeThumbnailRef.current?.scrollIntoView({
-      behavior: "smooth",
+      behavior: reduceMotion ? "auto" : "smooth",
       block: "nearest",
       inline: "nearest",
     });
-  }, [activeMessageId]);
+  }, [activeMessageId, reduceMotion]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

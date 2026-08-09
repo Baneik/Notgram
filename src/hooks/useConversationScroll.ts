@@ -10,6 +10,8 @@ import {
 } from "react";
 import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
+import { usePreferencesStore } from "../store/preferencesStore";
+import { motionScrollBehavior } from "../utils/motionPreference";
 import {
   appendedMessageCount,
   conversationLayouts,
@@ -98,6 +100,7 @@ export const useConversationScroll = ({
   messageCount,
   onLoadOlder,
 }: ConversationScrollOptions) => {
+  const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const messageListRef = useRef<HTMLDivElement>(null);
   const [messageListElement, setMessageListElement] = useState<HTMLDivElement | null>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -469,6 +472,10 @@ export const useConversationScroll = ({
   ) => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
+    const resolvedBehavior = motionScrollBehavior(behavior, {
+      reduceMotion,
+      systemReduceMotion: false,
+    });
     const needsConvergence = converge || distanceFromBottom(element) > BOTTOM_PROXIMITY_PX;
     interruptControlledPositioning("following");
     const generation = scrollControlRef.current.generation;
@@ -476,7 +483,7 @@ export const useConversationScroll = ({
     pointerActiveRef.current = false;
     writeMemory(currentScrollKey, element, true, 0, false);
     if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);
-    if (behavior === "smooth") {
+    if (resolvedBehavior === "smooth") {
       smoothScrollUntilRef.current = performance.now() + SMOOTH_SCROLL_DURATION_MS;
       virtuosoRef.current?.scrollToIndex({
         index: "LAST",
@@ -508,6 +515,7 @@ export const useConversationScroll = ({
     initialLocationIdentity,
     interruptControlledPositioning,
     pinToBottom,
+    reduceMotion,
     scheduleBottomPin,
     settleBottomPosition,
     virtuosoKey,
@@ -788,6 +796,10 @@ export const useConversationScroll = ({
     const element = messageListRef.current;
     const itemIndex = messageItemIndexesRef.current.get(messageId);
     if (!element || !currentScrollKey || itemIndex === undefined) return false;
+    const resolvedBehavior = motionScrollBehavior(behavior, {
+      reduceMotion,
+      systemReduceMotion: false,
+    });
     const expectedNavigationIdentity = navigationRequestIdentityRef.current;
     const revealToken = Symbol(messageId);
     userIntentUntilRef.current = 0;
@@ -810,7 +822,7 @@ export const useConversationScroll = ({
       const offset = (targetBounds.top + targetBounds.bottom) / 2 -
         (listBounds.top + listBounds.bottom) / 2;
       if (Math.abs(offset) <= 0.5) return;
-      element.scrollBy({ top: offset, behavior });
+      element.scrollBy({ top: offset, behavior: resolvedBehavior });
     };
     const persistTargetPosition = () => {
       const current = conversationScrollMemory.get(currentScrollKey);
@@ -823,7 +835,7 @@ export const useConversationScroll = ({
       );
     };
     const settleMountedTarget = () => {
-      let remainingFrames = behavior === "smooth" ? 36 : 18;
+      let remainingFrames = resolvedBehavior === "smooth" ? 36 : 18;
       let stableFrames = 0;
       let previousScrollTop = element.scrollTop;
       let requestedMissingTarget = false;
@@ -942,6 +954,7 @@ export const useConversationScroll = ({
     completePositioning,
     currentScrollKey,
     navigationRequestIdentity,
+    reduceMotion,
     stopFollowingLatest,
     writeMemory,
   ]);

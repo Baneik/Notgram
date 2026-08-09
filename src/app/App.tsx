@@ -15,6 +15,7 @@ import { ForumTopicsView } from "../components/ForumTopicsView";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
+import { MotionPresence } from "../components/MotionPresence";
 import { ProfileDrawer } from "../components/ProfileDrawer";
 import { FolderManagerDialog } from "../components/FolderManagerDialog";
 import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
@@ -777,7 +778,9 @@ export function App() {
         onSubmit={authenticate}
         onOpenSettings={openSettings}
       />
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      <MotionPresence present={settingsOpen}>
+        {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+      </MotionPresence>
       </>
     );
   }
@@ -1100,23 +1103,25 @@ export function App() {
           </Profiler>
         )}
       </main>
-      {error && (
-        <div className="runtime-error" role="alert">
+      <MotionPresence present={Boolean(error)}>
+        {error ? <div className="runtime-error" role="alert">
           <CircleAlert size={17} />
           <span>{error}</span>
           <button type="button" aria-label="关闭错误提示" title="关闭" onClick={clearError}><X size={16} /></button>
-        </div>
-      )}
-      {operationError && (
-        <div className="operation-error" role="alert">
+        </div> : null}
+      </MotionPresence>
+      <MotionPresence present={Boolean(operationError)}>
+        {operationError ? <div className="operation-error" role="alert">
           <CircleAlert size={17} />
           <span>{operationError}</span>
           <button type="button" aria-label="关闭操作提示" title="关闭" onClick={clearOperationError}><X size={16} /></button>
-        </div>
-      )}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
-      {folderManagerOpen && (
-        <FolderManagerDialog
+        </div> : null}
+      </MotionPresence>
+      <MotionPresence present={settingsOpen}>
+        {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+      </MotionPresence>
+      <MotionPresence present={folderManagerOpen}>
+        {folderManagerOpen ? <FolderManagerDialog
           folders={folders}
           chats={[...chats.values()]}
           initialFolderId={folderManagerInitialId}
@@ -1126,10 +1131,10 @@ export function App() {
           onDelete={deleteChatFolder}
           onSetMembership={setChatFolderMembership}
           onClose={closeFolderManager}
-        />
-      )}
-      {newChatOpen && (
-        <NewChatDialog
+        /> : null}
+      </MotionPresence>
+      <MotionPresence present={newChatOpen}>
+        {newChatOpen ? <NewChatDialog
           contacts={contacts}
           currentUserId={currentUserId}
           contactsLoading={contactsLoading}
@@ -1142,10 +1147,10 @@ export function App() {
             return chatId;
           }}
           onClose={() => { if (!chatCreationPending) setNewChatOpen(false); }}
-        />
-      )}
-      {pendingConfirmation && (
-        <ConfirmActionDialog
+        /> : null}
+      </MotionPresence>
+      <MotionPresence present={Boolean(pendingConfirmation)}>
+        {pendingConfirmation ? <ConfirmActionDialog
           title={pendingConfirmation.kind === "leaveGroup"
             ? `退出“${pendingConfirmation.title}”？`
             : `删除“${pendingConfirmation.title}”？`}
@@ -1157,10 +1162,10 @@ export function App() {
             ? leaveGroup(pendingConfirmation.chatId)
             : deleteChatFolder(pendingConfirmation.folderId)}
           onClose={() => setPendingConfirmation(undefined)}
-        />
-      )}
-      {profile.target && (
-        <ProfileDrawer
+        /> : null}
+      </MotionPresence>
+      <MotionPresence present={Boolean(profile.target)}>
+        {profile.target ? <ProfileDrawer
           state={profile}
           forwardTargets={forwardTargets}
           currentUserId={currentUserId}
@@ -1185,10 +1190,10 @@ export function App() {
           onDownloadFile={downloadFile}
           onDeleteMessages={deleteMessagesFromChat}
           onForwardMessages={forwardMessages}
-        />
-      )}
-      {managementChat && managementChatId && (
-        <ChatManagementDialog
+        /> : null}
+      </MotionPresence>
+      <MotionPresence present={Boolean(managementChat && managementChatId)}>
+        {managementChat && managementChatId ? <ChatManagementDialog
           chat={managementChat}
           currentUserId={currentUserId}
           contacts={contacts}
@@ -1209,8 +1214,8 @@ export function App() {
           onGetJoinRequests={getManagementJoinRequests}
           onProcessJoinRequest={processManagementJoinRequest}
           onProcessJoinRequests={processManagementJoinRequests}
-        />
-      )}
+        /> : null}
+      </MotionPresence>
     </>
   );
 }

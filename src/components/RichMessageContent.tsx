@@ -15,6 +15,9 @@ import { VideoPlayer } from "./VideoPlayer";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { highlightedText } from "../utils/textHighlight";
+import { autoplayAllowed } from "../utils/motionPreference";
+import { usePreferencesStore } from "../store/preferencesStore";
+import { AutoplayVideo } from "./AutoplayVideo";
 
 interface RichMessageContentProps {
   blocks: MessageRichBlock[];
@@ -165,6 +168,10 @@ function RichMediaBlock({ media, context, blockKey }: {
   blockKey: string;
 }) {
   const [revealed, setRevealed] = useState(!media.hasSpoiler);
+  const autoplay = usePreferencesStore((state) => autoplayAllowed(
+    media.autoplay,
+    state,
+  ));
   const source = localSource(media.localPath);
   const poster = localSource(media.thumbnailPath) ?? media.previewDataUrl;
   const canDownload = media.fileId !== undefined && media.canDownload !== false && !media.isDownloaded;
@@ -218,7 +225,7 @@ function RichMediaBlock({ media, context, blockKey }: {
   } else if (source || poster) {
     const mediaSource = source ?? poster;
     content = media.mediaType === "animation" && /^video\//i.test(media.mimeType ?? "")
-      ? <video src={mediaSource} poster={poster} autoPlay={media.autoplay} loop={media.loop} muted playsInline />
+      ? <AutoplayVideo src={mediaSource} poster={poster} autoplay={autoplay} loop={media.loop} muted playsInline />
       : <img src={mediaSource} alt={media.fileName} loading="lazy" />;
   } else {
     content = (

@@ -61,6 +61,7 @@ import {
 } from "./conversationMessages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { autoplayAllowed } from "../utils/motionPreference";
 import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
 import { ReportDialog } from "./SafetySettings";
@@ -77,6 +78,7 @@ import {
 } from "../utils/messageVirtualization";
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
+import { MotionPresence } from "./MotionPresence";
 import { ForumTopicStrip } from "./ForumTopicStrip";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
@@ -341,7 +343,10 @@ export function Conversation({
     chat ? state.drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id)?.replyToMessageId : undefined,
   );
   const cacheFile = useTelegramStore((state) => state.cacheFile);
-  const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
+  const autoplayAnimations = usePreferencesStore((state) => autoplayAllowed(
+    state.autoplayAnimations,
+    state,
+  ));
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
@@ -1939,7 +1944,11 @@ export function Conversation({
         />
       )}
 
-      {reportTarget && chat && <ReportDialog chatId={chat.id} messageIds={[reportTarget.id]} title={chat.title} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onClose={() => setReportTarget(undefined)} />}
+      <MotionPresence present={Boolean(reportTarget && chat)}>
+        {reportTarget && chat
+          ? <ReportDialog chatId={chat.id} messageIds={[reportTarget.id]} title={chat.title} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onClose={() => setReportTarget(undefined)} />
+          : null}
+      </MotionPresence>
 
       {pinnedViewOpen ? null : selectionMode ? (
         <div className="message-selection-bar">
@@ -1985,38 +1994,38 @@ export function Conversation({
       />
       )}
 
-      {deleteTarget && (
-        <DeleteMessageDialog
+      <MotionPresence present={Boolean(deleteTarget)}>
+        {deleteTarget ? <DeleteMessageDialog
           message={deleteTarget}
           pending={deletePending}
           onConfirm={(revoke) => void confirmDelete(revoke)}
           onFuckOff={() => void fuckOff()}
           onClose={() => setDeleteTarget(undefined)}
-        />
-      )}
+        /> : null}
+      </MotionPresence>
 
-      {pinTarget && (
-        <PinMessageDialog
+      <MotionPresence present={Boolean(pinTarget)}>
+        {pinTarget ? <PinMessageDialog
           message={pinTarget}
           pending={pinPending}
           allowOnlyForSelf={chat.kind === "direct"}
           allowNotification={chat.kind === "group"}
           onConfirm={(disableNotification, onlyForSelf) => void confirmPin(disableNotification, onlyForSelf)}
           onClose={() => { if (!pinPending) setPinTarget(undefined); }}
-        />
-      )}
+        /> : null}
+      </MotionPresence>
 
-      {autoDeleteDialogOpen && chat && (
-        <AutoDeleteDialog
+      <MotionPresence present={Boolean(autoDeleteDialogOpen && chat)}>
+        {autoDeleteDialogOpen && chat ? <AutoDeleteDialog
           currentTime={chat.messageAutoDeleteTime ?? 0}
           pending={autoDeletePending}
           onConfirm={(seconds) => void saveAutoDelete(seconds)}
           onClose={() => { if (!autoDeletePending) setAutoDeleteDialogOpen(false); }}
-        />
-      )}
+        /> : null}
+      </MotionPresence>
 
-      {forwardDialogOpen && selectionMode && (
-        <ForwardMessagesDialog
+      <MotionPresence present={Boolean(forwardDialogOpen && selectionMode)}>
+        {forwardDialogOpen && selectionMode ? <ForwardMessagesDialog
           selectedCount={selectedMessageIds.size}
           targets={filteredForwardTargets}
           topicsByChat={forumTopics}
@@ -2028,8 +2037,8 @@ export function Conversation({
           onLoadTopics={onLoadForumTopics}
           onConfirm={(target, topicId) => void confirmForward(target, topicId)}
           onClose={forwarding.closeDialog}
-        />
-      )}
+        /> : null}
+      </MotionPresence>
 
     </section>
   );

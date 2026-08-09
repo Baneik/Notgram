@@ -35,6 +35,7 @@ import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { writeClipboardText } from "../utils/clipboard";
 import { TgsSticker } from "./TgsSticker";
+import { AutoplayVideo } from "./AutoplayVideo";
 import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
@@ -713,10 +714,10 @@ function MessageBubbleComponent({
                     onError={markMediaSourceFailed}
                   />
                 ) : usableFullMediaSource && isVideoSticker ? (
-                  <video
+                  <AutoplayVideo
                     src={usableFullMediaSource}
                     poster={usablePreviewSource}
-                    autoPlay={autoplayAnimations}
+                    autoplay={autoplayAnimations}
                     loop
                     muted
                     playsInline
@@ -736,10 +737,10 @@ function MessageBubbleComponent({
                     onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
                 ) : usableFullMediaSource && content.mediaType === "animation" && /^video\//i.test(content.mimeType ?? "") ? (
-                  <video
+                  <AutoplayVideo
                     src={usableFullMediaSource}
                     poster={usablePreviewSource}
-                    autoPlay={autoplayAnimations}
+                    autoplay={autoplayAnimations}
                     loop
                     muted
                     playsInline

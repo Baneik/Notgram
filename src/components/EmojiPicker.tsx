@@ -9,12 +9,15 @@ import {
   type PointerEventHandler,
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
+import { autoplayAllowed } from "../utils/motionPreference";
+import { usePreferencesStore } from "../store/preferencesStore";
 import type {
   EmojiPickerAsset,
   EmojiPickerCatalog,
   StickerSet,
 } from "../telegram/types";
 import { TgsSticker } from "./TgsSticker";
+import { AutoplayVideo } from "./AutoplayVideo";
 
 type PickerTab = "emoji" | "sticker" | "animation";
 
@@ -83,9 +86,11 @@ const assetSource = (path?: string) => {
 function LazyEmojiAsset({
   asset,
   onSelect,
+  autoplay,
 }: {
   asset: EmojiPickerAsset;
   onSelect: (asset: EmojiPickerAsset) => void;
+  autoplay: boolean;
 }) {
   const loadEmojiAsset = useTelegramStore((state) => state.loadEmojiAsset);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -142,9 +147,9 @@ function LazyEmojiAsset({
       {!source && !failed ? <LoaderCircle className="spin" size={18} /> : failed ? (
         <span className="emoji-asset-fallback">{asset.emoji ?? "GIF"}</span>
       ) : usingFullAsset && asset.mimeType === "application/x-tgsticker" ? (
-        <TgsSticker src={source!} label={label} autoplay onError={() => setFailed(true)} />
+        <TgsSticker src={source!} label={label} autoplay={autoplay} onError={() => setFailed(true)} />
       ) : usingFullAsset && (asset.mimeType === "video/webm" || asset.kind === "animation") ? (
-        <video src={source} muted autoPlay loop playsInline onError={() => setFailed(true)} />
+        <AutoplayVideo src={source} muted autoplay={autoplay} loop playsInline onError={() => setFailed(true)} />
       ) : (
         <img src={source} alt="" draggable={false} onError={() => setFailed(true)} />
       )}
@@ -166,6 +171,10 @@ export function EmojiPicker({
   const searchStickers = useTelegramStore((state) => state.searchStickers);
   const sendSticker = useTelegramStore((state) => state.sendSticker);
   const sendAnimation = useTelegramStore((state) => state.sendAnimation);
+  const autoplayAnimations = usePreferencesStore((state) => autoplayAllowed(
+    state.autoplayAnimations,
+    state,
+  ));
   const panelRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<PickerTab>("sticker");
@@ -350,7 +359,7 @@ export function EmojiPicker({
               </div>
             ) : stickerAssets.length > 0 ? (
               <div className="emoji-asset-grid">
-                {stickerAssets.map((asset) => <LazyEmojiAsset key={asset.id} asset={asset} onSelect={(value) => void sendAsset(value)} />)}
+                {stickerAssets.map((asset) => <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} onSelect={(value) => void sendAsset(value)} />)}
               </div>
             ) : <div className="emoji-picker-empty">没有可用的贴纸</div>}
           </section>
@@ -360,7 +369,7 @@ export function EmojiPicker({
             {(catalog?.savedAnimations ?? []).filter((asset) => !normalizedQuery || asset.fileName.toLocaleLowerCase().includes(normalizedQuery)).length > 0 ? (
               <div className="emoji-animation-grid">
                 {(catalog?.savedAnimations ?? []).filter((asset) => !normalizedQuery || asset.fileName.toLocaleLowerCase().includes(normalizedQuery)).map((asset) => (
-                  <LazyEmojiAsset key={asset.id} asset={asset} onSelect={(value) => void sendAsset(value)} />
+                  <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} onSelect={(value) => void sendAsset(value)} />
                 ))}
               </div>
             ) : <div className="emoji-picker-empty">没有已保存的 GIF</div>}

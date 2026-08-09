@@ -38,6 +38,34 @@ test("forced colors preserve selection and custom switches without focus frames"
   await expect(viewportOverflow(page)).resolves.toEqual([]);
 });
 
+test("reduced motion is applied from the system and app preferences", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => ({
+    className: document.documentElement.className,
+    motion: document.documentElement.dataset.motion,
+  }))).toEqual({ className: expect.stringContaining("reduce-motion"), motion: "reduced" });
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "电池和动画", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "设置" });
+  const motionStyle = await dialog.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      animationDurationMs: Number.parseFloat(style.animationDuration) || 0,
+      transitionDurationMs: Number.parseFloat(style.transitionDuration) || 0,
+    };
+  });
+  expect(motionStyle.animationDurationMs).toBeLessThan(0.01);
+  expect(motionStyle.transitionDurationMs).toBeLessThan(0.01);
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.motion)).toBe("full");
+  const reducedMotion = page.getByRole("switch", { name: "减少动态效果" });
+  await reducedMotion.click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.motion)).toBe("reduced");
+});
+
 test("long unbroken content remains contained on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 720 });
   await page.goto("/");
