@@ -2482,7 +2482,7 @@ test("reply previews jump to their source and channel senders keep their identit
   expect(Math.abs(
     replyBounds!.x + replyBounds!.width - (bubbleBounds!.x + bubbleBounds!.width - 10),
   )).toBeLessThanOrEqual(1);
-  await expect(channelMessage.getByRole("button", { name: "前往频道原消息" })).toBeVisible();
+  await expect(channelMessage.getByRole("button", { name: "前往频道原消息" })).toHaveCount(0);
 
   await page.evaluate(() => {
     type JumpSample = {
@@ -2557,16 +2557,6 @@ test("reply previews jump to their source and channel senders keep their identit
   await expect(profile.getByRole("heading", { name: "Release Notes" })).toBeVisible();
   await profile.getByRole("button", { name: "关闭资料" }).click();
 
-  await channelMessage.getByRole("button", { name: "前往频道原消息" }).click();
-  await expect(page.locator(".conversation-title strong")).toHaveText("Release Notes");
-  const sourcePost = page.locator('[data-message-id="release-post-1"]');
-  await expect(sourcePost).toHaveClass(/is-notification-target/);
-  await expect.poll(() => sourcePost.evaluate((element) => {
-    const list = element.closest(".message-list")?.getBoundingClientRect();
-    const row = element.getBoundingClientRect();
-    if (!list) return false;
-    return row.top >= list.top - 1 && row.bottom <= list.bottom + 1;
-  })).toBe(true);
 });
 
 test("text message time stays on the last line when it fits and wraps without widening the bubble", async ({ page }) => {
@@ -4346,6 +4336,20 @@ test("messages support pin lists, notification scope, and auto-delete settings",
   await expect(pinnedList).toContainText("早上好，左侧会话列表的密度已经调整好了。");
   await expect(pinnedList).toContainText("我把交互稿更新到最新版本了");
   await expect(pinnedList).not.toContainText("看到了。消息区再留一点呼吸感");
+  const locateButton = pinnedList.getByRole("button", { name: /定位到原消息：早上好/ });
+  const locateGeometry = await locateButton.evaluate((button) => {
+    const shell = button.closest<HTMLElement>(".message-bubble-shell")!;
+    const buttonBounds = button.getBoundingClientRect();
+    const shellBounds = shell.getBoundingClientRect();
+    return {
+      width: buttonBounds.width,
+      height: buttonBounds.height,
+      rightOffset: buttonBounds.right - shellBounds.right,
+      topOffset: buttonBounds.top - shellBounds.top,
+    };
+  });
+  expect(locateGeometry).toEqual({ width: 28, height: 28, rightOffset: 18, topOffset: 5 });
+  expect(await horizontalOverflow(page)).toBe(false);
 
   await page.getByRole("button", { name: "返回会话" }).click();
   const normalList = page.getByRole("log", { name: "消息列表" });
@@ -4356,7 +4360,7 @@ test("messages support pin lists, notification scope, and auto-delete settings",
   })).toBeCloseTo(normalTargetOffset, 0);
 
   await pinnedBanner.getByRole("button", { name: "查看全部置顶消息" }).click();
-  await pinnedList.getByRole("button", { name: /定位到原消息：早上好/ }).click();
+  await locateButton.click();
   await expect(normalList).toBeVisible();
   await expect(target).toHaveClass(/is-notification-target/);
 

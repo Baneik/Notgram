@@ -5,7 +5,6 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
-  CircleArrowRight,
   Copy,
   Download,
   ExternalLink,
@@ -51,7 +50,6 @@ import {
   type MessageEntrance,
 } from "../utils/messageEntrance";
 import { isLargeEmojiText } from "../utils/largeEmoji";
-import { channelPostTargetFor } from "./conversationMessages";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { PollMessage } from "./PollMessage";
 import { InlineKeyboard } from "./InlineKeyboard";
@@ -109,7 +107,7 @@ interface MessageBubbleProps {
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMedia?: (messageId: string) => void;
-  trailingAction?: ReactNode;
+  cornerAction?: ReactNode;
   albumItem?: boolean;
   autoplayAnimations: boolean;
   autoDownloadPolicy: AutoDownloadPolicy;
@@ -162,7 +160,7 @@ function MessageBubbleComponent({
   onOpenReply,
   onOpenSenderProfile,
   onOpenMedia,
-  trailingAction,
+  cornerAction,
   albumItem = false,
   autoplayAnimations,
   autoDownloadPolicy,
@@ -200,7 +198,6 @@ function MessageBubbleComponent({
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
   const showSender = !albumItem && !message.outgoing && !isSticker && isGroupFirst(groupPosition);
-  const channelPostTarget = !albumItem ? channelPostTargetFor(message) : undefined;
   const fullMediaSource = content.kind === "media" ? localSource(content.localPath) : undefined;
   const previewSource = content.kind === "media"
     ? localSource(content.thumbnailPath) ?? content.previewDataUrl
@@ -510,7 +507,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""} ${trailingAction ? "has-trailing-action" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       onAnimationEnd={(event) => {
         if (
@@ -539,7 +536,7 @@ function MessageBubbleComponent({
         </button>
       )}
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""}`}
         style={visualShellStyle}
         tabIndex={!selectionMode && !isService ? 0 : undefined}
         onContextMenu={(event) => {
@@ -953,19 +950,8 @@ function MessageBubbleComponent({
             })}
           </div>
         )}
+        {cornerAction}
       </div>
-      {channelPostTarget && !selectionMode && !isService && (
-        <button
-          className="channel-post-jump"
-          type="button"
-          aria-label="前往频道原消息"
-          title="前往频道原消息"
-          onClick={() => onOpenReply(channelPostTarget.chatId, channelPostTarget.messageId)}
-        >
-          <CircleArrowRight size={22} strokeWidth={2.2} />
-        </button>
-      )}
-      {trailingAction}
     </article>
   );
 }

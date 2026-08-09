@@ -35,6 +35,8 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Move pinned-list message navigation into a compact action at each bubble's
+  top-right corner and remove the redundant linked-channel jump button.
 - Replace the pinned-message preview dialog with an in-conversation pinned-message
   view, a persistent header strip that advances through earlier pins as their source
   messages enter the viewport, per-message history jumps, and exact return-position

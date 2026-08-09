@@ -1,11 +1,11 @@
 import {
   ArrowDown,
+  ArrowUpRight,
   AtSign,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   Forward,
-  LocateFixed,
   MoreVertical,
   LoaderCircle,
   Pin,
@@ -1572,7 +1572,7 @@ export function Conversation({
                         onOpenReply={openMessageInHistory}
                         onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}
-                        trailingAction={pinnedViewOpen ? (
+                        cornerAction={pinnedViewOpen ? (
                           <button
                             className="pinned-message-locate"
                             type="button"
@@ -1580,7 +1580,7 @@ export function Conversation({
                             title="定位到原消息"
                             onClick={() => locatePinnedMessage(message)}
                           >
-                            <LocateFixed size={17} strokeWidth={2} />
+                            <ArrowUpRight size={15} strokeWidth={2.1} />
                           </button>
                         ) : undefined}
                         albumItem={albumItem}

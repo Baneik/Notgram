@@ -558,14 +558,16 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-group-avatar .message-sender-avatar { position: sticky; bottom: 4px; align-self: flex-end; }
 .message-group-avatar .avatar { position: relative; }
 .message-row { position: relative; isolation: isolate; width: 100%; display: flex; align-items: flex-end; justify-content: flex-start; margin: var(--message-row-spacing) 0; user-select: none; -webkit-user-select: none; }
-.message-row.has-trailing-action { gap: 8px; }
-.pinned-message-view .message-bubble-shell { max-width: calc(min(74%, 720px) - 42px); }
+.pinned-message-view .message-bubble-shell { max-width: calc(min(74%, 720px) - 18px); }
 .pinned-message-locate {
-  width: 34px; height: 34px; margin-bottom: 2px; padding: 0; display: grid; place-items: center; flex: 0 0 auto;
-  color: var(--muted); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 50%;
-  box-shadow: 0 2px 8px var(--color-shadow); cursor: pointer;
+  position: absolute; z-index: 4; top: 5px; right: -18px;
+  width: 28px; height: 28px; padding: 0; display: grid; place-items: center;
+  color: var(--color-text-secondary); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 6px;
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--color-shadow) 78%, transparent); cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
-.pinned-message-locate:hover, .pinned-message-locate:focus-visible { color: var(--accent); background: var(--accent-soft); border-color: var(--color-border-focus); }
+.pinned-message-locate:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--color-border-focus); box-shadow: 0 3px 9px var(--color-shadow); }
+.pinned-message-locate:focus-visible { color: var(--accent); background: var(--accent-soft); border-color: var(--color-border-focus); outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .message-row.is-preparing-entrance-incoming { visibility: hidden; opacity: 0; transform: translate3d(-10px, 0, 0) scale(0.985); }
 .message-row.is-preparing-entrance-outgoing { visibility: hidden; opacity: 0; transform: translate3d(10px, 0, 0) scale(0.985); }
 .message-row.is-entering-incoming { animation: message-enter-incoming 220ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
@@ -1158,12 +1160,6 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 }
 .message-reactions > button span { font-size: 10px; }
 .message-reactions > button.is-chosen { color: var(--accent); background: var(--color-accent-soft); border-color: var(--color-border-focus); }
-.channel-post-jump {
-  width: 38px; height: 38px; margin: 0 0 3px 8px; padding: 0; display: grid; place-items: center; flex: 0 0 auto;
-  color: var(--color-on-media); background: var(--color-overlay); border: 1px solid color-mix(in srgb, var(--color-on-media) 24%, transparent); border-radius: 50%;
-  box-shadow: 0 1px 4px var(--color-shadow); cursor: pointer;
-}
-.channel-post-jump:hover, .channel-post-jump:focus-visible { background: color-mix(in srgb, var(--color-overlay) 86%, var(--color-bg-media)); }
 .photo-placeholder { width: 100%; height: 100%; min-height: 120px; display: grid; place-items: center; color: var(--subtle); }
 .photo-preview.has-media-ratio .photo-placeholder { min-height: 0; }
 .media-viewer-backdrop { position: fixed; z-index: 120; inset: 0; color: var(--color-on-media); background: var(--color-overlay); }
@@ -2076,7 +2072,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .jump-to-attention.is-stacked { bottom: 66px; }
   .message-group { gap: 6px; }
   .message-bubble-shell { max-width: 88%; }
-  .pinned-message-view .message-bubble-shell { max-width: calc(88% - 42px); }
+  .pinned-message-view .message-bubble-shell { max-width: calc(88% - 18px); }
   .pinned-message-entry { min-width: 62px; padding: 0 8px; }
   .video-controls { gap: 2px; }
   .video-volume { display: none; }
