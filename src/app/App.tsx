@@ -226,15 +226,11 @@ export function App() {
   const {
     scope: sidebarSearchScope,
     chatId: sidebarSearchChatId,
-    filter: chatSearchFilter,
     senderId: chatSearchSenderId,
-    date: chatSearchDate,
     stateMatchesInput: chatSearchStateMatchesInput,
     enterChat: enterChatSearch,
     exitScope: exitSidebarSearchScope,
-    setFilter: setChatSearchFilter,
     setSenderId: setChatSearchSenderId,
-    setDate: setChatSearchDate,
   } = sidebarSearch;
   useEffect(() => {
     if (phase !== "ready" || cacheRetentionDays <= 0) return;
@@ -929,14 +925,10 @@ export function App() {
           }}
           searchScope={sidebarSearchScope}
           chatMessageSearch={chatMessageSearch}
-          chatSearchFilter={chatSearchFilter}
           chatSearchSenderId={chatSearchSenderId}
-          chatSearchDate={chatSearchDate}
           chatSearchSenderOptions={chatSearchSenderOptions}
           chatSearchStateMatchesInput={chatSearchStateMatchesInput}
-          onChatSearchFilterChange={setChatSearchFilter}
           onChatSearchSenderChange={setChatSearchSenderId}
-          onChatSearchDateChange={setChatSearchDate}
           onLoadMoreChatSearch={loadMoreChatMessages}
           onExitSearchScope={(preserveQuery) => {
             exitSidebarSearchScope(preserveQuery);

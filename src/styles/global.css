@@ -340,11 +340,37 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .global-search-results-panel .global-chat-result,
 .global-search-results-panel .global-message-result { padding-right: 6px; padding-left: 6px; }
 .global-search-results-panel .global-search-state { min-height: 150px; }
-.chat-search-results-panel .chat-search-controls { padding-top: 8px; }
-.chat-search-results-panel .chat-search-options { padding: 0; border-top: 0; }
-.chat-search-results-panel .chat-search-options label { flex: 1 1 120px; }
-.chat-search-results-panel .chat-search-options select,
-.chat-search-results-panel .chat-search-options input[type="date"] { width: 100%; max-width: none; }
+.chat-search-results-panel .chat-search-controls { position: relative; z-index: 2; padding-top: 8px; }
+.chat-search-member-picker { position: relative; min-width: 0; }
+.chat-search-member-control { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
+.chat-search-member-trigger {
+  min-width: 0; height: 32px; padding: 0 9px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px;
+  color: var(--ink); text-align: left; background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 6px; cursor: pointer; font-size: 11px;
+}
+.chat-search-member-trigger:hover, .chat-search-member-trigger:focus-visible { border-color: var(--accent); }
+.chat-search-member-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-search-member-clear {
+  width: 32px; height: 32px; display: grid; place-items: center; color: var(--muted); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 6px; cursor: pointer;
+}
+.chat-search-member-clear:hover, .chat-search-member-clear:focus-visible { color: var(--accent); border-color: var(--accent); }
+.chat-search-member-popup {
+  position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 15; min-width: 190px; max-height: min(320px, calc(100vh - 205px)); padding: 7px;
+  display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; overflow: hidden; color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 7px; box-shadow: 0 8px 24px var(--color-shadow);
+}
+.chat-search-member-field {
+  min-width: 0; height: 30px; padding: 0 8px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px; color: var(--muted); background: var(--color-bg-control-hover); border-radius: 5px;
+}
+.chat-search-member-field input { min-width: 0; height: 100%; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 11px; }
+.chat-search-member-field input::-webkit-search-cancel-button { appearance: none; }
+.chat-search-member-field > button { width: 20px; height: 20px; padding: 0; display: grid; place-items: center; color: var(--muted); background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+.chat-search-member-field > button:hover, .chat-search-member-field > button:focus-visible { color: var(--ink); background: var(--surface-hover); }
+.chat-search-member-options { min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.chat-search-member-options > button {
+  width: 100%; min-height: 32px; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink); text-align: left; background: transparent; border: 0; border-radius: 5px; cursor: pointer; font-size: 11px;
+}
+.chat-search-member-options > button:hover, .chat-search-member-options > button:focus-visible { background: var(--surface-hover); }
+.chat-search-member-options > button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
+.chat-search-member-empty { min-height: 60px; display: grid; place-items: center; color: var(--muted); font-size: 11px; }
 .contacts-view {
   grid-column: 2 / 4; min-width: 0; min-height: 0; display: grid; grid-template-rows: 58px auto minmax(0, 1fr);
   background: var(--color-bg-surface);
@@ -555,15 +581,6 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   color: var(--accent); background: transparent; border: 0; border-left: 1px solid var(--line); cursor: pointer; font-size: 11px; font-weight: 650;
 }
 .pinned-message-entry:hover, .pinned-message-entry:focus-visible { background: var(--accent-soft); }
-.message-search-options { min-height: 38px; padding: 4px 12px 5px 20px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--line); }
-.message-search-options label { min-width: 0; display: inline-flex; align-items: center; gap: 4px; }
-.message-search-options select,
-.message-search-options input[type="date"] { height: 28px; max-width: 180px; padding: 0 7px; color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 5px; outline: 0; font-size: 11px; }
-.message-search-options select:focus,
-.message-search-options input[type="date"]:focus { border-color: var(--accent); }
-.message-search-date { color: var(--muted); }
-.message-search-sender-clear { min-height: 28px; max-width: 180px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; overflow: hidden; color: var(--accent); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); border-radius: 5px; cursor: pointer; font-size: 11px; }
-.message-search-sender-clear span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
 .message-list-shell.has-pinned-message-banner {
   display: grid; grid-template-rows: 48px minmax(0, 1fr);
@@ -2170,7 +2187,6 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .message-group { gap: 6px; }
   .message-bubble-shell { max-width: 88%; }
   .pinned-message-entry { min-width: 62px; padding: 0 8px; }
-  .message-search-options { padding-left: 12px; padding-right: 12px; }
   .video-controls { gap: 2px; }
   .video-volume { display: none; }
   .composer-wrap { min-height: 50px; padding: 0; }

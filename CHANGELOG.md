@@ -30,7 +30,7 @@ with prerelease identifiers used for release candidates.
 - Add a lightweight WebView performance timeline for startup, interaction, rendering,
   history, and media stalls, backed by a separately rotated performance log.
 - Search the current conversation from the shared sidebar field through TDLib with
-  stable pagination, total counts, sender, message-type and date filters, exact
+  stable pagination, total counts, a searchable sender filter, exact
   context loading, and a member-avatar context-menu shortcut.
 - Add a muted inline video surface, Alt-click floating playback, and progress-preserving
   fullscreen transitions with compact controls for narrow conversations.
@@ -66,6 +66,8 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Stop conversation search from restarting itself whenever its loading state changes,
+  and keep the searchable member picker open while results update.
 - Keep pinned-message jumps smooth by avoiding redundant same-chat selection,
   suppressing the transient target flash, and ignoring clicks when the pinned
   source message is already visible.

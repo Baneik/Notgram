@@ -1,20 +1,22 @@
 import {
-  Calendar,
+  Check,
+  ChevronDown,
   FileText,
   Image,
   Link,
   LoaderCircle,
   MessageSquare,
+  Search,
+  Users,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import type { ChatMessageSearchFilter } from "../telegram/types";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { messageContentText } from "../telegram/messageContent";
-import { chatMessageSearchFilterDisallowsQueryOrSender } from "../telegram/messageSearch";
 import type { Chat, GlobalSearchFilter, Message } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
+import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { Avatar } from "./Avatar";
 
 interface GlobalSearchResultsProps {
@@ -41,39 +43,163 @@ export interface SidebarSearchSenderOption {
   label: string;
 }
 
-const chatMessageFilters: Array<{ id: ChatMessageSearchFilter; label: string }> = [
-  { id: "all", label: "全部类型" },
-  { id: "photoAndVideo", label: "照片和视频" },
-  { id: "photo", label: "照片" },
-  { id: "video", label: "视频" },
-  { id: "animation", label: "GIF" },
-  { id: "audio", label: "音频" },
-  { id: "voiceNote", label: "语音消息" },
-  { id: "videoNote", label: "视频消息" },
-  { id: "voiceAndVideoNote", label: "语音和视频消息" },
-  { id: "document", label: "文件" },
-  { id: "url", label: "链接" },
-  { id: "poll", label: "投票" },
-  { id: "mention", label: "提及我" },
-  { id: "unreadMention", label: "未读提及" },
-  { id: "unreadReaction", label: "未读回应" },
-  { id: "unreadPollVote", label: "未读投票" },
-  { id: "failedToSend", label: "发送失败" },
-  { id: "pinned", label: "置顶消息" },
-];
+function ChatSearchSenderPicker({
+  senderId,
+  options,
+  onChange,
+}: {
+  senderId?: string;
+  options: SidebarSearchSenderOption[];
+  onChange: (senderId: string | undefined) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [memberQuery, setMemberQuery] = useState("");
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const popupId = useId();
+  const selectedLabel = options.find((option) => option.id === senderId)?.label ?? (
+    senderId ? "已选成员" : "所有成员"
+  );
+  const normalizedMemberQuery = memberQuery.trim().toLocaleLowerCase();
+  const visibleOptions = normalizedMemberQuery
+    ? options.filter((option) => option.label.toLocaleLowerCase().includes(normalizedMemberQuery))
+    : options;
+
+  useEffect(() => {
+    if (!open) return;
+    const focusTimer = globalThis.setTimeout(() => searchRef.current?.focus(), 0);
+    const dismissOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && pickerRef.current?.contains(target)) return;
+      setOpen(false);
+      setMemberQuery("");
+    };
+    const dismissWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      setMemberQuery("");
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    document.addEventListener("keydown", dismissWithKeyboard);
+    return () => {
+      globalThis.clearTimeout(focusTimer);
+      document.removeEventListener("pointerdown", dismissOutside, true);
+      document.removeEventListener("keydown", dismissWithKeyboard);
+    };
+  }, [open]);
+
+  const closePicker = (restoreFocus = false) => {
+    setOpen(false);
+    setMemberQuery("");
+    if (restoreFocus) globalThis.setTimeout(() => triggerRef.current?.focus(), 0);
+  };
+  const selectSender = (nextSenderId?: string) => {
+    closePicker();
+    onChange(nextSenderId);
+  };
+
+  return (
+    <div className="chat-search-member-picker" ref={pickerRef}>
+      <div className="chat-search-member-control">
+        <button
+          ref={triggerRef}
+          className="chat-search-member-trigger"
+          type="button"
+          aria-label={`成员筛选：${selectedLabel}`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? popupId : undefined}
+          onClick={() => {
+            setOpen((current) => !current);
+            if (open) setMemberQuery("");
+          }}
+        >
+          <Users size={15} strokeWidth={1.8} />
+          <span>{selectedLabel}</span>
+          <ChevronDown size={14} strokeWidth={1.8} />
+        </button>
+        {senderId && (
+          <button
+            className="chat-search-member-clear"
+            type="button"
+            aria-label="清除成员筛选"
+            title="清除成员筛选"
+            onClick={() => selectSender(undefined)}
+          >
+            <X size={15} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div id={popupId} className="chat-search-member-popup" role="dialog" aria-label="选择成员">
+          <label className="chat-search-member-field">
+            <Search size={14} strokeWidth={1.8} />
+            <span className="sr-only">搜索成员</span>
+            <input
+              ref={searchRef}
+              type="search"
+              value={memberQuery}
+              placeholder="搜索成员"
+              aria-label="搜索成员"
+              onChange={(event) => setMemberQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowDown") return;
+                event.preventDefault();
+                focusFirstMenuButton(optionsRef.current);
+              }}
+            />
+            {memberQuery && (
+              <button type="button" aria-label="清除成员搜索" title="清除成员搜索" onClick={() => setMemberQuery("")}>
+                <X size={13} />
+              </button>
+            )}
+          </label>
+          <div
+            ref={optionsRef}
+            className="chat-search-member-options"
+            aria-label="成员列表"
+            onKeyDown={(event) => handleMenuKeyboard(event, () => closePicker(true))}
+          >
+            {!normalizedMemberQuery && (
+              <button type="button" aria-pressed={!senderId} onClick={() => selectSender(undefined)}>
+                <span>所有成员</span>
+                {!senderId && <Check size={14} />}
+              </button>
+            )}
+            {visibleOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={option.id === senderId}
+                onClick={() => selectSender(option.id)}
+              >
+                <span>{option.label}</span>
+                {option.id === senderId && <Check size={14} />}
+              </button>
+            ))}
+            {visibleOptions.length === 0 && (
+              <div className="chat-search-member-empty" role="status">没有匹配的成员</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export interface ChatSearchResultsProps {
   chat: Chat;
   query: string;
-  filter: ChatMessageSearchFilter;
   senderId?: string;
-  date: string;
   senderOptions: SidebarSearchSenderOption[];
   state: ChatMessageSearchState;
   stateMatchesInput: boolean;
-  onFilterChange: (filter: ChatMessageSearchFilter) => void;
   onSenderChange: (senderId: string | undefined) => void;
-  onDateChange: (date: string) => void;
   onLoadMore: () => Promise<void>;
   onOpenMessage: (chatId: string, messageId: string) => void;
 }
@@ -81,49 +207,19 @@ export interface ChatSearchResultsProps {
 export function ChatSearchResults({
   chat,
   query,
-  filter,
   senderId,
-  date,
   senderOptions,
   state,
   stateMatchesInput,
-  onFilterChange,
   onSenderChange,
-  onDateChange,
   onLoadMore,
   onOpenMessage,
 }: ChatSearchResultsProps) {
-  const filterDisablesText = chatMessageSearchFilterDisallowsQueryOrSender(filter);
   const total = state.totalCount ?? state.messages.length;
   return (
     <section className="global-search-results-panel chat-search-results-panel" aria-label={`搜索${chat.title}中的消息`}>
       <div className="global-search-controls chat-search-controls">
-        <div className="message-search-options chat-search-options">
-          <label>
-            <span className="sr-only">消息类型</span>
-            <select aria-label="消息类型" value={filter} onChange={(event) => onFilterChange(event.target.value as ChatMessageSearchFilter)}>
-              {chatMessageFilters.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-            </select>
-          </label>
-          <label>
-            <span className="sr-only">消息发送者</span>
-            <select aria-label="消息发送者" value={senderId ?? ""} onChange={(event) => onSenderChange(event.target.value || undefined)} disabled={filterDisablesText}>
-              <option value="">所有成员</option>
-              {senderOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-            </select>
-          </label>
-          <label className="message-search-date">
-            <Calendar size={14} strokeWidth={1.8} />
-            <span className="sr-only">消息日期</span>
-            <input aria-label="消息日期" type="date" value={date} onChange={(event) => onDateChange(event.target.value)} />
-          </label>
-          {senderId && (
-            <button className="message-search-sender-clear" type="button" aria-label="清除成员筛选" title="清除成员筛选" onClick={() => onSenderChange(undefined)}>
-              <X size={14} />
-              <span>{senderOptions.find((option) => option.id === senderId)?.label ?? "成员"}</span>
-            </button>
-          )}
-        </div>
+        <ChatSearchSenderPicker senderId={senderId} options={senderOptions} onChange={onSenderChange} />
       </div>
       <div className="global-search-results" aria-live="polite">
         {stateMatchesInput && state.messages.length > 0 && (
@@ -147,10 +243,10 @@ export function ChatSearchResults({
         {(!stateMatchesInput || (state.loading && state.messages.length === 0)) && (
           <div className="global-search-state" role="status" aria-label="正在搜索"><LoaderCircle className="spin" size={21} /></div>
         )}
-        {stateMatchesInput && !state.loading && !state.error && query.trim() === "" && filter === "all" && !senderId && !date && (
+        {stateMatchesInput && !state.loading && !state.error && query.trim() === "" && !senderId && (
           <div className="global-search-state"><span>输入关键词搜索此会话</span></div>
         )}
-        {stateMatchesInput && !state.loading && !state.error && state.messages.length === 0 && (query.trim() || filter !== "all" || senderId || date) && (
+        {stateMatchesInput && !state.loading && !state.error && state.messages.length === 0 && (query.trim() || senderId) && (
           <div className="global-search-state"><span>没有搜索结果</span></div>
         )}
         {stateMatchesInput && state.nextFromMessageId && (

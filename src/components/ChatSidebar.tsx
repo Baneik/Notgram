@@ -12,7 +12,7 @@ import {
 } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { useTelegramStore } from "../store/telegramStore";
-import type { Chat, ChatFolder, ChatMessageSearchFilter, GlobalSearchFilter, User } from "../telegram/types";
+import type { Chat, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { SidebarSearchScope } from "../hooks/useSidebarSearch";
 import { formatChatTime } from "../utils/formatters";
@@ -41,14 +41,10 @@ interface ChatSidebarProps {
   onOpenSearchMessage: (chatId: string, messageId: string) => void;
   searchScope: SidebarSearchScope;
   chatMessageSearch: ChatMessageSearchState;
-  chatSearchFilter: ChatMessageSearchFilter;
   chatSearchSenderId?: string;
-  chatSearchDate: string;
   chatSearchStateMatchesInput: boolean;
   chatSearchSenderOptions: SidebarSearchSenderOption[];
-  onChatSearchFilterChange: (filter: ChatMessageSearchFilter) => void;
   onChatSearchSenderChange: (senderId: string | undefined) => void;
-  onChatSearchDateChange: (date: string) => void;
   onLoadMoreChatSearch: () => Promise<void>;
   onExitSearchScope: (preserveQuery: boolean) => void;
   onSelect: (chatId: string) => void;
@@ -93,14 +89,10 @@ export function ChatSidebar({
   onOpenSearchMessage,
   searchScope,
   chatMessageSearch,
-  chatSearchFilter,
   chatSearchSenderId,
-  chatSearchDate,
   chatSearchStateMatchesInput,
   chatSearchSenderOptions,
-  onChatSearchFilterChange,
   onChatSearchSenderChange,
-  onChatSearchDateChange,
   onLoadMoreChatSearch,
   onExitSearchScope,
   onSelect,
@@ -414,15 +406,11 @@ export function ChatSidebar({
         <ChatSearchResults
           chat={scopedChat}
           query={searchQuery}
-          filter={chatSearchFilter}
           senderId={chatSearchSenderId}
-          date={chatSearchDate}
           senderOptions={chatSearchSenderOptions}
           state={chatMessageSearch}
           stateMatchesInput={chatSearchStateMatchesInput}
-          onFilterChange={onChatSearchFilterChange}
           onSenderChange={onChatSearchSenderChange}
-          onDateChange={onChatSearchDateChange}
           onLoadMore={onLoadMoreChatSearch}
           onOpenMessage={onOpenSearchMessage}
         />

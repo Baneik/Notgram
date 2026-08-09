@@ -2232,7 +2232,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(actionTrigger).toBeFocused();
 });
 
-test("search paginates, filters the current conversation, and opens exact messages", async ({ page }) => {
+test("search paginates, filters the current conversation by member, and opens exact messages", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("searchbox")).toHaveCount(1);
   await page.keyboard.press("Control+K");
@@ -2262,6 +2262,24 @@ test("search paginates, filters the current conversation, and opens exact messag
     return Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2);
   })).toBeLessThan(2);
 
+  await page.evaluate(async (storePath) => {
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { searchChatMessages: (input: unknown) => Promise<void> };
+        setState: (state: { searchChatMessages: (input: unknown) => Promise<void> }) => void;
+      };
+    };
+    const originalSearch = storeModule.telegramStore.getState().searchChatMessages;
+    const counters = globalThis as typeof globalThis & { __notgramChatSearchCalls?: number };
+    counters.__notgramChatSearchCalls = 0;
+    storeModule.telegramStore.setState({
+      searchChatMessages: async (input) => {
+        counters.__notgramChatSearchCalls = (counters.__notgramChatSearchCalls ?? 0) + 1;
+        await originalSearch(input);
+      },
+    });
+  }, "/src/store/telegramStore.ts");
+
   await page.keyboard.press("Control+F");
   await expect(search).toBeFocused();
   await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeVisible();
@@ -2269,6 +2287,10 @@ test("search paginates, filters the current conversation, and opens exact messag
   await search.fill("产品讨论历史消息");
   const scopedResults = page.locator(".chat-search-results-panel [data-search-message-id]");
   await expect(scopedResults).toHaveCount(30);
+  await page.waitForTimeout(800);
+  expect(await page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramChatSearchCalls?: number }
+  ).__notgramChatSearchCalls)).toBe(1);
   await expect(page.getByRole("log", { name: "消息列表" })).toBeVisible();
   await page.locator(".chat-search-results-panel").getByRole("button", { name: "加载更多" }).click();
   await expect(scopedResults).toHaveCount(36);
@@ -2283,12 +2305,22 @@ test("search paginates, filters the current conversation, and opens exact messag
 
   await page.keyboard.press("Control+F");
   await expect(search).toBeFocused();
-  await search.fill("");
-  await page.getByRole("combobox", { name: "消息类型" }).selectOption("photoAndVideo");
-  await expect(page.locator('.chat-search-results-panel [data-search-message-id="p-5"]')).toBeVisible();
-  await page.getByRole("combobox", { name: "消息类型" }).selectOption("all");
+  await expect(page.getByLabel("消息类型")).toHaveCount(0);
+  await expect(page.getByLabel("消息日期")).toHaveCount(0);
   await search.fill("产品讨论历史消息");
-  await page.getByRole("combobox", { name: "消息发送者" }).selectOption({ label: "Jules" });
+  const memberFilter = page.locator(".chat-search-member-trigger");
+  await expect(memberFilter).toHaveAccessibleName("成员筛选：所有成员");
+  await memberFilter.click();
+  const memberDialog = page.getByRole("dialog", { name: "选择成员" });
+  await expect(memberDialog).toBeVisible();
+  const memberSearch = memberDialog.getByRole("searchbox", { name: "搜索成员" });
+  await expect(memberSearch).toBeFocused();
+  await memberSearch.fill("Jules");
+  await expect(memberDialog.getByRole("button", { name: "Jules", exact: true })).toBeVisible();
+  await expect(memberDialog.getByRole("button", { name: "我", exact: true })).toHaveCount(0);
+  await memberDialog.getByRole("button", { name: "Jules", exact: true }).click();
+  await expect(memberFilter).toHaveAccessibleName("成员筛选：Jules");
+  await expect(memberDialog).toBeHidden();
   await expect.poll(() => scopedResults.count()).toBeGreaterThan(0);
   await search.press("Escape");
   await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeHidden();
@@ -2301,7 +2333,7 @@ test("search paginates, filters the current conversation, and opens exact messag
   await expect(senderMenu.getByRole("menuitem", { name: /^搜索 .* 的消息$/ })).toBeVisible();
   await senderMenu.getByRole("menuitem", { name: /^搜索 .* 的消息$/ }).click();
   await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "消息发送者" })).not.toHaveValue("");
+  await expect(page.locator(".chat-search-member-trigger")).not.toHaveAccessibleName("成员筛选：所有成员");
   await page.getByRole("button", { name: "移除会话搜索范围" }).click();
 
   await page.keyboard.press("Control+K");
