@@ -12,6 +12,7 @@ import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
+import { conversationJumpMotion } from "../utils/conversationJumpMotion";
 import {
   appendedMessageCount,
   conversationLayouts,
@@ -867,6 +868,15 @@ export const useConversationScroll = ({
     const mounted = element.querySelector<HTMLElement>(
       `[data-message-id="${CSS.escape(messageId)}"]`,
     );
+    const visibleAnchorRow = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((row) => {
+        const listBounds = element.getBoundingClientRect();
+        const rowBounds = row.getBoundingClientRect();
+        return rowBounds.bottom > listBounds.top + 1 && rowBounds.top < listBounds.bottom - 1;
+      });
+    const visibleAnchorIndex = visibleAnchorRow?.dataset.messageId
+      ? messageItemIndexesRef.current.get(visibleAnchorRow.dataset.messageId)
+      : undefined;
     const centerMountedTarget = (target: HTMLElement) => {
       const listBounds = element.getBoundingClientRect();
       const targetBounds = target.getBoundingClientRect();
@@ -971,6 +981,40 @@ export const useConversationScroll = ({
     if (mounted) {
       centerMountedTarget(mounted);
       scheduleTargetSettlement();
+    } else if (resolvedBehavior === "smooth" && typeof element.animate === "function") {
+      settleScheduled = true;
+      const motion = conversationJumpMotion(
+        visibleAnchorIndex !== undefined && itemIndex < visibleAnchorIndex ? "older" : "newer",
+      );
+      const content = element.querySelector<HTMLElement>(".message-list-content") ?? element;
+      element.classList.add("is-jump-transitioning");
+      const exit = content.animate(motion.exit, motion.exitTiming);
+      void exit.finished.catch(() => undefined).then(() => {
+        const invalid =
+          messageListRef.current !== element ||
+          navigationRequestIdentityRef.current !== expectedNavigationIdentity ||
+          revealTargetTokenRef.current !== revealToken ||
+          scrollControlRef.current.generation !== navigationGeneration;
+        if (invalid) {
+          exit.cancel();
+          element.classList.remove("is-jump-transitioning");
+          return;
+        }
+        virtuosoRef.current?.scrollToIndex({
+          index: itemIndex,
+          align: "center",
+          behavior: "auto",
+        });
+        requestAnimationFrame(() => {
+          exit.cancel();
+          const nextContent = element.querySelector<HTMLElement>(".message-list-content") ?? element;
+          const enter = nextContent.animate(motion.enter, motion.enterTiming);
+          void enter.finished.catch(() => undefined).finally(() => {
+            element.classList.remove("is-jump-transitioning");
+          });
+          settleMountedTarget();
+        });
+      });
     } else {
       virtuosoRef.current?.scrollToIndex({
         index: itemIndex,
@@ -1042,7 +1086,7 @@ export const useConversationScroll = ({
   ]);
 
   const revealAttentionMessage = useCallback(
-    (messageId: string) => revealTarget(messageId, "auto", true),
+    (messageId: string) => revealTarget(messageId, "smooth", true),
     [revealTarget],
   );
 

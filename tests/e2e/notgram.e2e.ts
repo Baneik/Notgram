@@ -2596,6 +2596,55 @@ test("reply previews jump to their source and channel senders keep their identit
 
 });
 
+test("distant message jumps use a directional exit and entrance transition", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const source = page.locator('[data-message-id="p-channel-reply"]');
+  await source.scrollIntoViewIfNeeded();
+  await expect(page.locator('[data-message-id="p-old-8"]')).toHaveCount(0);
+  await page.evaluate(() => {
+    const originalAnimate = Element.prototype.animate;
+    const records: Array<{ duration: number; firstOpacity?: number; lastOpacity?: number }> = [];
+    (globalThis as typeof globalThis & { __notgramJumpAnimations?: typeof records })
+      .__notgramJumpAnimations = records;
+    Element.prototype.animate = function (keyframes, options) {
+      if (this.classList.contains("message-list-content") && Array.isArray(keyframes)) {
+        const timing = typeof options === "number" ? { duration: options } : options;
+        records.push({
+          duration: Number(timing?.duration ?? 0),
+          firstOpacity: Number(keyframes[0]?.opacity),
+          lastOpacity: Number(keyframes.at(-1)?.opacity),
+        });
+      }
+      return originalAnimate.call(this, keyframes, options);
+    };
+  });
+
+  await source.locator(".message-reply-preview").click();
+  const target = page.locator('[data-message-id="p-old-8"]');
+  await expect(target).toHaveClass(/is-notification-target/);
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramJumpAnimations?: unknown[] }
+  ).__notgramJumpAnimations?.length ?? 0)).toBe(2);
+  const animations = await page.evaluate(() => (
+    globalThis as typeof globalThis & {
+      __notgramJumpAnimations?: Array<{ duration: number; firstOpacity?: number; lastOpacity?: number }>;
+    }
+  ).__notgramJumpAnimations ?? []);
+  expect(animations).toEqual([
+    expect.objectContaining({ duration: 110, firstOpacity: 1, lastOpacity: 0.22 }),
+    expect.objectContaining({ duration: 210, firstOpacity: 0.22, lastOpacity: 1 }),
+  ]);
+  await expect.poll(() => target.evaluate((element) => {
+    const list = element.closest(".message-list")?.getBoundingClientRect();
+    const row = element.getBoundingClientRect();
+    return list
+      ? Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2)
+      : Number.POSITIVE_INFINITY;
+  })).toBeLessThan(2);
+  await expect(page.locator(".message-list")).not.toHaveClass(/is-jump-transitioning/);
+});
+
 test("text message time stays on the last line when it fits and wraps without widening the bubble", async ({ page }) => {
   await page.goto("/");
   const shortMessage = page.locator('[data-message-id="p-rich-entities"]');

@@ -1615,7 +1615,7 @@ export function Conversation({
                 ? `跳到最新消息，${newMessageNotice.count} 条新消息`
                 : "跳到最新消息"}
               title="跳到最新消息"
-              onClick={() => jumpToLatest("auto", true)}
+              onClick={() => jumpToLatest("smooth", true)}
             >
               <ArrowDown size={19} strokeWidth={2.1} />
               {newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0 && (
