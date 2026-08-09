@@ -122,6 +122,7 @@ export const useConversationScroll = ({
   const historyRestoreFrameRef = useRef<number | undefined>(undefined);
   const bottomFrameRef = useRef<number | undefined>(undefined);
   const bottomSettleFrameRef = useRef<number | undefined>(undefined);
+  const viewportResizeFrameRef = useRef<number | undefined>(undefined);
   const anchorFrameRef = useRef<number | undefined>(undefined);
   const contentAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningAnchorFrameRef = useRef<number | undefined>(undefined);
@@ -363,6 +364,56 @@ export const useConversationScroll = ({
     const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
     if (Math.abs(element.scrollTop - maximum) > 0.5) element.scrollTop = maximum;
   }, [currentScrollKey, searchActive]);
+
+  useLayoutEffect(() => {
+    if (!messageListElement) return;
+    let previousHeight = messageListElement.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const nextHeight = messageListElement.clientHeight;
+      if (Math.abs(nextHeight - previousHeight) <= 0.5) return;
+      previousHeight = nextHeight;
+      const control = scrollControlRef.current;
+      const followsLatest = control.mode === "following" ||
+        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom");
+      if (control.identity !== initialLocationIdentity || !followsLatest) return;
+      pinToBottom();
+      // Virtuoso preserves its top anchor after a scroller resize. Reassert the
+      // following edge after that measurement so composer growth cannot cover it.
+      if (viewportResizeFrameRef.current !== undefined) {
+        cancelAnimationFrame(viewportResizeFrameRef.current);
+      }
+      const expectedGeneration = control.generation;
+      let remainingFrames = 2;
+      const settleFollowingViewport = () => {
+        viewportResizeFrameRef.current = undefined;
+        const latestControl = scrollControlRef.current;
+        const stillFollowsLatest = latestControl.mode === "following" ||
+          (latestControl.mode === "restoring" && initialLocationRef.current?.mode === "bottom");
+        if (
+          messageListRef.current !== messageListElement ||
+          latestControl.identity !== initialLocationIdentity ||
+          latestControl.generation !== expectedGeneration ||
+          !stillFollowsLatest ||
+          (currentScrollKey &&
+            conversationScrollMemory.get(currentScrollKey)?.followLatest === false)
+        ) return;
+        pinToBottom();
+        remainingFrames -= 1;
+        if (remainingFrames > 0) {
+          viewportResizeFrameRef.current = requestAnimationFrame(settleFollowingViewport);
+        }
+      };
+      viewportResizeFrameRef.current = requestAnimationFrame(settleFollowingViewport);
+    });
+    observer.observe(messageListElement);
+    return () => {
+      observer.disconnect();
+      if (viewportResizeFrameRef.current !== undefined) {
+        cancelAnimationFrame(viewportResizeFrameRef.current);
+        viewportResizeFrameRef.current = undefined;
+      }
+    };
+  }, [currentScrollKey, initialLocationIdentity, messageListElement, pinToBottom]);
 
   const scheduleBottomPin = useCallback(() => {
     if (!currentScrollKey || searchActive) return;
@@ -1248,6 +1299,9 @@ export const useConversationScroll = ({
     if (historyRestoreFrameRef.current !== undefined) cancelAnimationFrame(historyRestoreFrameRef.current);
     if (bottomFrameRef.current !== undefined) cancelAnimationFrame(bottomFrameRef.current);
     if (bottomSettleFrameRef.current !== undefined) cancelAnimationFrame(bottomSettleFrameRef.current);
+    if (viewportResizeFrameRef.current !== undefined) {
+      cancelAnimationFrame(viewportResizeFrameRef.current);
+    }
     if (anchorFrameRef.current !== undefined) cancelAnimationFrame(anchorFrameRef.current);
     if (contentAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(contentAnchorFrameRef.current);

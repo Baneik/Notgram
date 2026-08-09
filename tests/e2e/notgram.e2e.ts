@@ -2953,6 +2953,67 @@ test("chat switching and ordinary message interactions keep typing focus in the 
   await expect(page.getByRole("group", { name: "搜索范围：Mia Chen" })).toBeVisible();
 });
 
+test("reply context resizes the latest viewport without moving a detached anchor", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+
+  const latest = page.locator('[data-message-id="p-video"]');
+  await latest.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+  await expect(page.locator(".composer-context.is-replying")).toBeVisible();
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+  const latestGap = await latest.evaluate((element) => {
+    const list = element.closest<HTMLElement>(".message-list");
+    return list
+      ? list.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom
+      : Number.NEGATIVE_INFINITY;
+  });
+  expect(latestGap).toBeGreaterThanOrEqual(11);
+  expect(latestGap).toBeLessThanOrEqual(13);
+
+  await page.getByRole("button", { name: "取消回复", exact: true }).click();
+  await scrollAwayFromBottom(page);
+  const anchorBeforeReply = await visibleMessageAnchor(page);
+  const detachedReplyTargetId = await messageList.evaluate((list) => {
+    const bounds = list.getBoundingClientRect();
+    return [...list.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((row) => {
+        const rowBounds = row.getBoundingClientRect();
+        return row.querySelector(".message-bubble-shell") &&
+          rowBounds.top >= bounds.top + 40 && rowBounds.bottom <= bounds.bottom - 40;
+      })?.dataset.messageId;
+  });
+  expect(detachedReplyTargetId).toBeTruthy();
+  await page.evaluate(async ({ modulePath, messageId }) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, unknown> };
+        setState: (partial: { drafts: Map<string, unknown> }) => void;
+      };
+    };
+    const drafts = new Map(storeModule.telegramStore.getState().drafts);
+    drafts.set("chat-product", {
+      chatId: "chat-product",
+      text: "",
+      replyToMessageId: messageId,
+      updatedAt: new Date().toISOString(),
+      pending: false,
+    });
+    storeModule.telegramStore.setState({ drafts });
+  }, {
+    modulePath: "/src/store/telegramStore.ts",
+    messageId: detachedReplyTargetId!,
+  });
+  await expect(page.locator(".composer-context.is-replying")).toBeVisible();
+  const anchorAfterReply = await visibleMessageAnchor(page);
+  expect(anchorAfterReply.id).toBe(anchorBeforeReply.id);
+  expect(Math.abs(anchorAfterReply.offset - anchorBeforeReply.offset)).toBeLessThanOrEqual(1);
+});
+
 test("reply context survives concurrent message updates and is sent", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });

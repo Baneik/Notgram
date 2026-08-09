@@ -66,6 +66,8 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Keep the latest messages immediately above a newly opened reply or edit context
+  while preserving the visible anchor when the user has scrolled away from the bottom.
 - Stop conversation search from restarting itself whenever its loading state changes,
   and keep the searchable member picker open while results update.
 - Keep pinned-message jumps smooth by avoiding redundant same-chat selection,
