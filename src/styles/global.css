@@ -1244,21 +1244,54 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 }
 .media-download:hover { background: color-mix(in srgb, var(--color-overlay) 86%, var(--color-bg-media)); }
 .audio-message {
-  min-width: min(420px, 62vw); display: grid; grid-template-columns: auto minmax(90px, 1fr); align-items: center; gap: 9px;
+  width: min(390px, 62vw); min-width: min(330px, 62vw); display: grid;
+  grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 9px;
 }
-.audio-player { position: relative; min-width: 0; grid-column: 1 / -1; display: grid; grid-template-columns: 30px 34px minmax(64px, 1fr) 34px 38px auto; align-items: center; gap: 4px; }
-.audio-player audio { display: none; }
-.audio-player button { height: 28px; padding: 0; display: grid; place-items: center; color: var(--color-text-link); background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+.audio-player {
+  position: relative; min-width: 0; grid-column: 1 / -1; display: grid;
+  grid-template-columns: 36px minmax(100px, 1fr) auto 36px 30px; align-items: center; gap: 6px;
+}
+.audio-player button { height: 30px; padding: 0; display: grid; place-items: center; color: var(--color-text-link); background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
 .audio-player button:hover, .audio-player button:focus-visible { background: var(--color-accent-soft); outline: none; }
-.audio-play { width: 30px; }
-.audio-time { color: var(--muted); font-size: 10px; text-align: center; font-variant-numeric: tabular-nums; }
-.audio-seek { width: 100%; min-width: 0; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; opacity: 0.72; }
-.audio-player .playback-rate { width: 38px; font-size: 10px; font-weight: 700; }
-.audio-download { width: 28px; }
+.audio-player button:disabled { opacity: 0.42; cursor: default; background: transparent; }
+.audio-player .audio-play { width: 34px; height: 34px; color: var(--color-text-on-accent); background: var(--accent); border-radius: 50%; }
+.audio-player .audio-play:hover, .audio-player .audio-play:focus-visible { background: color-mix(in srgb, var(--accent) 84%, var(--ink)); }
+.audio-waveform-control { min-width: 0; display: grid; grid-template-rows: 29px 8px; align-items: center; gap: 1px; }
+.audio-spectrum { width: 100%; height: 100%; display: block; color: var(--accent); }
+.audio-time { color: var(--muted); font-size: 10px; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.audio-seek { width: 100%; min-width: 0; height: 8px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.audio-seek:disabled { cursor: default; opacity: 0.46; }
+.audio-player .playback-rate { width: 36px; font-size: 10px; font-weight: 700; }
+.audio-download { width: 30px; }
 .audio-transfer-indicator { position: relative; width: 22px; height: 22px; display: grid; place-items: center; }
 .audio-transfer-indicator .spin { position: absolute; inset: 0; }
 .audio-transfer-indicator .media-progress-ring { position: absolute; inset: 0; }
 .audio-transfer-indicator .audio-transfer-cancel { position: relative; z-index: 1; }
+.persistent-audio-engine { display: none; }
+.audio-floating-controller {
+  position: fixed; z-index: 74; top: 104px; right: 14px; width: min(320px, calc(100vw - 28px));
+  padding: 9px 10px 10px; display: grid; grid-template-rows: 26px 42px auto 34px; gap: 5px;
+  color: var(--ink); background: color-mix(in srgb, var(--color-bg-elevated) 95%, transparent);
+  border: 1px solid var(--color-border-default); border-radius: 8px;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 82%, transparent);
+  backdrop-filter: blur(12px); animation: motion-pane-in var(--motion-duration-standard) var(--motion-ease-standard) both;
+}
+.audio-floating-controller header { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto 28px; align-items: center; gap: 4px; }
+.audio-floating-controller header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
+.audio-floating-controller button { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; color: var(--color-text-secondary); background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
+.audio-floating-controller button:hover, .audio-floating-controller button:focus-visible { color: var(--ink); background: var(--surface-hover); outline: none; }
+.audio-floating-controller button:disabled { opacity: 0.34; cursor: default; background: transparent; }
+.audio-floating-controller header .playback-rate { width: 38px; color: var(--accent); font-size: 10px; font-weight: 700; }
+.audio-floating-controller .audio-spectrum.is-floating { width: 100%; height: 42px; color: var(--accent); }
+.audio-floating-progress { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.audio-floating-progress input { width: 100%; min-width: 0; height: 8px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.audio-floating-progress span { color: var(--muted); font-size: 9px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.audio-floating-controller footer { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.audio-floating-controller footer .audio-floating-play { width: 34px; height: 34px; color: var(--color-text-on-accent); background: var(--accent); border-radius: 50%; }
+.audio-floating-controller footer .audio-floating-play:hover, .audio-floating-controller footer .audio-floating-play:focus-visible { color: var(--color-text-on-accent); background: color-mix(in srgb, var(--accent) 84%, var(--ink)); }
+.audio-floating-transfer { position: relative; width: 22px; height: 22px; display: grid; place-items: center; }
+.audio-floating-transfer .media-progress-ring { position: absolute; inset: 0; }
+.audio-floating-transfer > svg:last-child { position: relative; z-index: 1; }
 .message-reactions { min-height: 24px; margin-top: 4px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .is-outgoing .message-reactions { justify-content: flex-end; }
 .message-reactions > button {

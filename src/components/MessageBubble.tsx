@@ -1,4 +1,3 @@
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
   AlertCircle,
   AudioLines,
@@ -57,6 +56,7 @@ import { PollMessage } from "./PollMessage";
 import { InlineKeyboard } from "./InlineKeyboard";
 import type { CallbackQueryAnswer } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { localMediaSource } from "../media/localMediaSource";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 const INLINE_META_LOWERING_PX = 2.5;
@@ -106,6 +106,7 @@ interface MessageBubbleProps {
   onExpandLongText: (messageId: string) => void;
   onMount?: () => void;
   deferUntilPinned?: boolean;
+  previousAudioPlaybackId?: string;
   nextAudioPlaybackId?: string;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
@@ -116,11 +117,6 @@ interface MessageBubbleProps {
   autoDownloadPolicy: AutoDownloadPolicy;
   developerMode: boolean;
 }
-
-const localSource = (path?: string) => {
-  if (!path) return undefined;
-  return isTauri() ? convertFileSrc(path) : path;
-};
 
 const reactionLabel = (reaction: MessageReaction) => {
   if (reaction.type.kind === "emoji") return reaction.type.emoji;
@@ -160,6 +156,7 @@ function MessageBubbleComponent({
   onExpandLongText,
   onMount,
   deferUntilPinned = false,
+  previousAudioPlaybackId,
   nextAudioPlaybackId,
   onOpenReply,
   onOpenSenderProfile,
@@ -202,9 +199,9 @@ function MessageBubbleComponent({
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
   const showSender = !albumItem && !message.outgoing && !isSticker && isGroupFirst(groupPosition);
-  const fullMediaSource = content.kind === "media" ? localSource(content.localPath) : undefined;
+  const fullMediaSource = content.kind === "media" ? localMediaSource(content.localPath) : undefined;
   const previewSource = content.kind === "media"
-    ? localSource(content.thumbnailPath) ?? content.previewDataUrl
+    ? localMediaSource(content.thumbnailPath) ?? content.previewDataUrl
     : undefined;
   const usableFullMediaSource = fullMediaSource && failedMediaSources.has(fullMediaSource)
     ? undefined
@@ -879,9 +876,13 @@ function MessageBubbleComponent({
                   size={content.size}
                   mimeType={content.mimeType}
                   durationHint={content.duration}
+                  previousPlaybackId={previousAudioPlaybackId}
                   nextPlaybackId={nextAudioPlaybackId}
                   downloadProgress={content.progress}
                   onRequestStream={onStream}
+                  onSuspendStream={content.fileId !== undefined
+                    ? () => { void onSuspendStream(content.fileId!); }
+                    : undefined}
                   onDownload={canDownload && downloadFileId !== undefined
                     ? () => void onDownload(downloadFileId, downloadFileName)
                     : undefined}
