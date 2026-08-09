@@ -622,6 +622,16 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list.is-history-adjusting { scrollbar-color: transparent transparent; }
 .message-list.is-history-adjusting::-webkit-scrollbar-thumb { background-color: transparent; }
 .message-list.is-jump-transitioning { pointer-events: none; }
+.conversation-date-indicator {
+  position: absolute; z-index: 19; top: 8px; left: 50%; padding: 4px 10px;
+  color: var(--color-on-media); background: color-mix(in srgb, var(--color-message-service) 82%, transparent);
+  border-radius: 10px; box-shadow: 0 1px 4px color-mix(in srgb, var(--color-shadow) 70%, transparent);
+  backdrop-filter: blur(8px); font-size: 10px; font-weight: 650; pointer-events: none;
+  opacity: 0; transform: translate(-50%, -5px);
+  transition: opacity 150ms ease, transform 180ms ease;
+}
+.conversation-date-indicator.is-visible { opacity: 1; transform: translate(-50%, 0); }
+.message-list-shell.has-pinned-message-banner .conversation-date-indicator { top: 56px; }
 .message-list-content {
   position: relative;
   width: calc(100% - var(--message-list-inline-padding) - var(--message-list-inline-padding));
@@ -643,9 +653,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .history-loading { position: absolute; top: 6px; left: 50%; z-index: 4; width: 32px; height: 24px; display: grid; place-items: center; color: var(--color-on-media); background: var(--color-message-service); border-radius: 12px; transform: translateX(-50%); }
 .message-list-shell.has-pinned-message-banner .history-loading { top: 54px; }
 .message-day {
-  width: fit-content; margin: 0 auto 14px; padding: 4px 10px; color: var(--color-on-media); background: var(--color-message-service);
+  width: fit-content; margin: 14px auto; padding: 4px 10px; color: var(--color-on-media); background: var(--color-message-service);
   border-radius: 12px; font-size: 10px; font-weight: 600;
 }
+.message-day + .message-group .message-group-stack > .message-row:first-child { margin-top: 0; }
 .message-group { width: 100%; display: flex; align-items: stretch; gap: 8px; margin: var(--message-group-spacing) 0; }
 .message-group.is-last-visible { padding-bottom: 12px; }
 .message-group.continues-before { margin-top: 1px; }
@@ -691,6 +702,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .reduce-motion .message-row.is-preparing-entrance-incoming,
 .reduce-motion .message-row.is-preparing-entrance-outgoing { opacity: 0; transform: none; }
 .reduce-motion .conversation-jump-button { transition: none; }
+.reduce-motion .conversation-date-indicator { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .message-row.is-entering-incoming,
   .message-row.is-entering-outgoing,
@@ -700,6 +712,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .message-row.is-preparing-entrance-incoming,
   .message-row.is-preparing-entrance-outgoing { opacity: 0; transform: none; }
   .conversation-jump-button { transition: none; }
+  .conversation-date-indicator { transition: none; }
 }
 .message-group:last-child .message-row:last-child { margin-bottom: 0; }
 .message-row.is-outgoing { justify-content: flex-end; }

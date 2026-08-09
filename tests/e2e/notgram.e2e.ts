@@ -3851,6 +3851,44 @@ test("group service messages render as centered notices", async ({ page }) => {
   await expect(profile.getByRole("heading", { name: "Mia Chen" })).toBeVisible();
 });
 
+test("date separators are centered between messages and scrolling exposes the visible day", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  const currentDayMessage = await revealVirtualMessage(page, "p-service");
+  const separator = page.locator(".message-day").filter({ hasText: "8月1日" }).first();
+  await expect(separator).toBeVisible();
+  const spacing = await separator.evaluate((label) => {
+    const next = document.querySelector<HTMLElement>('[data-message-id="p-service"]');
+    const labelBounds = label.getBoundingClientRect();
+    const previous = [...document.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .filter((row) => row.dataset.messageId !== "p-service")
+      .filter((row) => row.getBoundingClientRect().bottom <= labelBounds.top + 1)
+      .sort((left, right) => right.getBoundingClientRect().bottom - left.getBoundingClientRect().bottom)[0];
+    if (!previous || !next) return undefined;
+    return {
+      before: labelBounds.top - previous.getBoundingClientRect().bottom,
+      after: next.getBoundingClientRect().top - labelBounds.bottom,
+    };
+  });
+  expect(spacing).toBeTruthy();
+  expect(Math.abs(spacing!.before - spacing!.after)).toBeLessThanOrEqual(1);
+
+  const indicator = page.locator(".conversation-date-indicator");
+  await currentDayMessage.evaluate((element) => {
+    element.scrollIntoView({ block: "start", behavior: "auto" });
+  });
+  await page.locator(".message-list").evaluate((element) => {
+    element.dispatchEvent(new Event("scroll"));
+  });
+  await expect(indicator).toHaveText("8月1日");
+  await expect(indicator).toHaveClass(/is-visible/);
+
+  await revealVirtualMessage(page, "p-old-8");
+  await expect(indicator).toHaveText("7月30日");
+  await expect(indicator).toHaveClass(/is-visible/);
+  await expect(indicator).toHaveCSS("pointer-events", "none");
+});
+
 test("developer mode copies the complete raw unknown message", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: "http://127.0.0.1:1422",
