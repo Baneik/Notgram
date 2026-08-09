@@ -872,6 +872,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const value: ChatManagement = {
       chatId,
       members,
+      memberCount: members.length,
       permissions,
       slowModeDelay: 0,
       canManageMembers: true,

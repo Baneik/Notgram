@@ -89,6 +89,7 @@ import {
   usePinnedMessages,
 } from "../hooks/usePinnedMessages";
 import { PinnedMessageBanner } from "./PinnedMessageBanner";
+import { conversationHeaderStatus } from "../utils/conversationHeaderStatus";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 type MessageNavigationOptions = Pick<
@@ -1021,6 +1022,14 @@ export function Conversation({
         : typingUserIds.length === 2
           ? `${typingNames.join("、")} 正在输入...`
           : `${typingNames.slice(0, 2).join("、")} 等 ${typingUserIds.length} 人正在输入...`;
+  const headerStatus = conversationHeaderStatus({
+    chat,
+    peer: chat.peerId ? users.get(chat.peerId) : undefined,
+    typingStatus: topic?.isClosed ? "话题已关闭" : typingStatus,
+    memberCount: groupManagement?.chatId === chat.id
+      ? groupManagement.memberCount ?? chat.memberCount
+      : chat.memberCount,
+  });
 
   const openActionMenu = useCallback(async (
     message: Message,
@@ -1269,16 +1278,11 @@ export function Conversation({
               title="查看资料"
               onClick={onOpenProfile}
             >
-              <Avatar avatar={chat.avatar} size="medium" />
               <span className="conversation-title">
                 <strong>{chat.title}</strong>
-                {topic?.isClosed ? (
-                  <span className="conversation-typing-status">话题已关闭</span>
-                ) : typingStatus && (
-                  <span className="conversation-typing-status" role="status">
-                    {typingStatus}
-                  </span>
-                )}
+                <span className={`conversation-header-status ${typingStatus || topic?.isClosed ? "is-typing" : ""}`} role={typingStatus || topic?.isClosed ? "status" : undefined}>
+                  {headerStatus}
+                </span>
               </span>
             </button>
             <div className="conversation-actions">

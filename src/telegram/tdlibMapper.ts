@@ -1655,6 +1655,8 @@ export const mapTdChat = (
 
   const type = asTdObject(raw.type);
   const supergroup = asTdObject(supergroupValue);
+  const memberCount = tdNumber(supergroup?.member_count) ?? tdNumber(raw.member_count);
+  const activeUserCount = tdNumber(raw.active_user_count);
   const peerId = type?.["@type"] === "chatTypePrivate" ? tdId(type.user_id) : undefined;
   const kind =
     peerId && peerId === currentUserId
@@ -1704,6 +1706,8 @@ export const mapTdChat = (
       ...avatarFile(asTdObject(raw.photo)?.small),
     },
     peerId,
+    ...(memberCount !== undefined ? { memberCount } : {}),
+    ...(activeUserCount !== undefined ? { activeUserCount } : {}),
     preview: lastMessage ? messagePreview(lastMessage) : "暂无消息",
     previewSenderId: lastMessage ? messageSenderId(lastMessage.sender_id) || undefined : undefined,
     updatedAt: unixDate(lastMessage?.date),
