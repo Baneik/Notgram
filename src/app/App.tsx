@@ -1180,6 +1180,9 @@ export function App() {
           onOpenMessageSearch={(senderId) => {
             if (activeChatId) openChatSearch(activeChatId, senderId);
           }}
+          onOpenChat={(chatId) => {
+            void openGlobalSearchChat(chatId);
+          }}
           onOpenSenderProfile={(senderId) => {
             if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
             else void loadUserProfile(senderId);

@@ -84,6 +84,7 @@ interface MessageBubbleProps {
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
   forwardLabel?: string;
+  onOpenForwardSource?: () => void;
   selectionMode: boolean;
   selected: boolean;
   highlighted: boolean;
@@ -142,6 +143,7 @@ function MessageBubbleComponent({
   groupPosition,
   replyPreview,
   forwardLabel,
+  onOpenForwardSource,
   selectionMode,
   selected,
   highlighted,
@@ -525,7 +527,16 @@ function MessageBubbleComponent({
         </>
       )}
       {showChannelMetadata && channelAuthor && (
-        <span className="message-channel-author">{channelAuthor}</span>
+        onOpenForwardSource && !forwardLabel ? (
+          <button
+            className="message-channel-author"
+            type="button"
+            aria-label={`打开频道原消息：${channelAuthor}`}
+            onClick={onOpenForwardSource}
+          >
+            {channelAuthor}
+          </button>
+        ) : <span className="message-channel-author">{channelAuthor}</span>
       )}
       {message.editedAt && <span>已编辑</span>}
       {message.isPinned && <Pin size={13} strokeWidth={2} aria-label="已置顶" />}
@@ -594,10 +605,22 @@ function MessageBubbleComponent({
       >
         <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
-            <span className="message-forward-label">
-              <Forward size={12} strokeWidth={2} />
-              {forwardLabel}
-            </span>
+            onOpenForwardSource ? (
+              <button
+                className="message-forward-label"
+                type="button"
+                aria-label={`打开${forwardLabel}`}
+                onClick={onOpenForwardSource}
+              >
+                <Forward size={12} strokeWidth={2} />
+                {forwardLabel}
+              </button>
+            ) : (
+              <span className="message-forward-label">
+                <Forward size={12} strokeWidth={2} />
+                {forwardLabel}
+              </span>
+            )
           )}
           {!isService && showSender && (
             <div className="message-sender-row">

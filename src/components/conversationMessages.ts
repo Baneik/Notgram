@@ -9,6 +9,16 @@ export interface ReplyPreview {
   isCurrentUser?: boolean;
 }
 
+export type ForwardSourceNavigation =
+  | { kind: "message"; chatId: string; messageId: string }
+  | { kind: "chat"; chatId: string }
+  | { kind: "user"; userId: string };
+
+export interface ForwardSource {
+  label?: string;
+  navigation?: ForwardSourceNavigation;
+}
+
 export const senderChatId = (senderId: string) =>
   senderId.startsWith("chat:") ? senderId.slice("chat:".length) : undefined;
 
@@ -27,15 +37,28 @@ export const senderNameForMessage = (
     (chat.kind === "direct" ? chat.title : "Telegram 用户");
 };
 
-export const forwardLabelFor = (
+export const forwardSourceFor = (
   message: Message,
   users: Map<string, User>,
   chats: Map<string, Chat>,
-) => {
+): ForwardSource | undefined => {
   const info = message.forwardInfo;
   if (!info) return undefined;
-  if (isAutomaticChannelForward(message)) return undefined;
   const origin = info.origin;
+  const sourceChatId = info.source?.chatId;
+  const sourceMessageId = info.source?.messageId;
+  if (isAutomaticChannelForward(message)) {
+    if (sourceChatId && sourceMessageId) {
+      return { navigation: { kind: "message", chatId: sourceChatId, messageId: sourceMessageId } };
+    }
+    if (origin?.kind === "channel" && origin.messageId) {
+      return { navigation: { kind: "message", chatId: origin.chatId, messageId: origin.messageId } };
+    }
+    const channelChatId = sourceChatId ?? (origin?.kind === "channel" ? origin.chatId : undefined);
+    return channelChatId
+      ? { navigation: { kind: "chat", chatId: channelChatId } }
+      : undefined;
+  }
   const name = origin?.kind === "user"
     ? users.get(origin.userId)?.displayName
     : origin?.kind === "hiddenUser"
@@ -45,7 +68,21 @@ export const forwardLabelFor = (
         : undefined;
   const sourceName = info.source?.senderName ??
     (info.source?.chatId ? chats.get(info.source.chatId)?.title : undefined);
-  return name ? `转发自 ${name}` : sourceName ? `转发自 ${sourceName}` : "已转发";
+  const label = name ? `转发自 ${name}` : sourceName ? `转发自 ${sourceName}` : "已转发";
+  if (sourceChatId && sourceMessageId) {
+    return { label, navigation: { kind: "message", chatId: sourceChatId, messageId: sourceMessageId } };
+  }
+  if (origin?.kind === "channel" && origin.messageId) {
+    return { label, navigation: { kind: "message", chatId: origin.chatId, messageId: origin.messageId } };
+  }
+  if (sourceChatId) return { label, navigation: { kind: "chat", chatId: sourceChatId } };
+  if (origin?.kind === "user") {
+    return { label, navigation: { kind: "user", userId: origin.userId } };
+  }
+  if (origin?.kind === "chat" || origin?.kind === "channel") {
+    return { label, navigation: { kind: "chat", chatId: origin.chatId } };
+  }
+  return { label };
 };
 
 export const isAutomaticChannelForward = (message: Message) => {
@@ -70,6 +107,12 @@ export const channelAuthorFor = (message: Message) => {
 
 export const displaysChannelMetadata = (message: Message) =>
   message.isChannelPost === true || isAutomaticChannelForward(message);
+
+export const forwardLabelFor = (
+  message: Message,
+  users: Map<string, User>,
+  chats: Map<string, Chat>,
+) => forwardSourceFor(message, users, chats)?.label;
 
 export const replyPreviewFor = (
   message: Message,

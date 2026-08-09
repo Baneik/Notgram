@@ -2688,6 +2688,21 @@ test("distant message jumps use a directional exit and entrance transition", asy
   await expect(page.locator(".message-list")).not.toHaveClass(/is-jump-transitioning/);
 });
 
+test("forward source labels open the original message", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const forwardedMessage = page.locator('[data-message-id="p-channel-reply"]');
+  const sourceButton = forwardedMessage.getByRole("button", { name: "打开频道原消息：Release editor" });
+  await expect(sourceButton).toBeVisible();
+  await sourceButton.click();
+
+  await expect(page.locator(".conversation-title strong")).toHaveText("Release Notes");
+  const originalMessage = page.locator('[data-message-id="release-post-1"]');
+  await expect(originalMessage).toBeVisible();
+  await expect(originalMessage).toHaveClass(/is-notification-target/);
+});
+
 test("text message time stays on the last line when it fits and wraps without widening the bubble", async ({ page }) => {
   await page.goto("/");
   const shortMessage = page.locator('[data-message-id="p-rich-entities"]');

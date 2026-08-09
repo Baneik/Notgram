@@ -4,6 +4,7 @@ import {
   channelAuthorFor,
   displaysChannelMetadata,
   forwardLabelFor,
+  forwardSourceFor,
   isAutomaticChannelForward,
   replyPreviewFor,
 } from "./conversationMessages";
@@ -130,9 +131,54 @@ describe("channel message presentation", () => {
     expect(displaysChannelMetadata(automatic)).toBe(true);
     expect(channelAuthorFor(automatic)).toBe("Editor");
     expect(forwardLabelFor(automatic, new Map(), chats)).toBeUndefined();
+    expect(forwardSourceFor(automatic, new Map(), chats)).toEqual({
+      navigation: { kind: "message", chatId: "source-channel", messageId: "source-message" },
+    });
 
     const manual = { ...automatic, senderId: "member" };
     expect(isAutomaticChannelForward(manual)).toBe(false);
     expect(forwardLabelFor(manual, new Map(), chats)).toBe("转发自 Release Notes");
+  });
+});
+
+describe("forward sources", () => {
+  it("targets the exact source message when Telegram provides it", () => {
+    const sourceChat = { id: "source-channel", kind: "channel", title: "Release Notes" } as Chat;
+
+    expect(forwardSourceFor(
+      linkedChannelPost({ senderId: "member" }),
+      new Map(),
+      new Map([[sourceChat.id, sourceChat]]),
+    )).toEqual({
+      label: "转发自 Release Notes",
+      navigation: { kind: "message", chatId: sourceChat.id, messageId: "source-message" },
+    });
+  });
+
+  it("opens a member profile when a forwarded user has no source message", () => {
+    const member: User = {
+      id: "u-member",
+      displayName: "Mia",
+      avatar: { label: "M", color: "#667788" },
+      presence: "offline",
+    };
+    const message = linkedChannelPost({
+      forwardInfo: { origin: { kind: "user", userId: member.id } },
+    });
+
+    expect(forwardSourceFor(message, new Map([[member.id, member]]), new Map())).toEqual({
+      label: "转发自 Mia",
+      navigation: { kind: "user", userId: member.id },
+    });
+  });
+
+  it("keeps hidden senders non-interactive", () => {
+    const message = linkedChannelPost({
+      forwardInfo: { origin: { kind: "hiddenUser", senderName: "Hidden sender" } },
+    });
+
+    expect(forwardSourceFor(message, new Map(), new Map())).toEqual({
+      label: "转发自 Hidden sender",
+    });
   });
 });
