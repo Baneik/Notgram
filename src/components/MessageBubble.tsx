@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Copy,
   Download,
+  Eye,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -30,7 +31,7 @@ import {
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction } from "../telegram/types";
-import { formatMessageTime } from "../utils/formatters";
+import { formatCompactCount, formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { writeClipboardText } from "../utils/clipboard";
@@ -75,6 +76,8 @@ interface MessageBubbleProps {
   senderName: string;
   senderLabel?: string;
   senderProfileAvailable: boolean;
+  channelAuthor?: string;
+  showChannelMetadata?: boolean;
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
   forwardLabel?: string;
@@ -134,6 +137,8 @@ function MessageBubbleComponent({
   senderName,
   senderLabel,
   senderProfileAvailable,
+  channelAuthor,
+  showChannelMetadata = false,
   groupPosition,
   replyPreview,
   forwardLabel,
@@ -493,6 +498,21 @@ function MessageBubbleComponent({
 
   const messageMeta = !isService ? (
     <span className="message-meta">
+      {showChannelMetadata && message.interaction && (
+        <>
+          <span className="message-meta-stat" aria-label={`转发 ${message.interaction.forwardCount} 次`}>
+            <Forward size={12} strokeWidth={2} />
+            {formatCompactCount(message.interaction.forwardCount)}
+          </span>
+          <span className="message-meta-stat" aria-label={`${message.interaction.viewCount} 次观看`}>
+            <Eye size={13} strokeWidth={2} />
+            {formatCompactCount(message.interaction.viewCount)}
+          </span>
+        </>
+      )}
+      {showChannelMetadata && channelAuthor && (
+        <span className="message-channel-author">{channelAuthor}</span>
+      )}
       {message.editedAt && <span>已编辑</span>}
       {message.isPinned && <Pin size={13} strokeWidth={2} aria-label="已置顶" />}
       <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>

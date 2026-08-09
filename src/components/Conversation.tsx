@@ -50,6 +50,8 @@ import {
 } from "./ConversationOverlays";
 import {
   forwardLabelFor,
+  channelAuthorFor,
+  displaysChannelMetadata,
   messageSummary,
   replyPreviewFor,
   senderChatId,
@@ -1474,6 +1476,8 @@ export function Conversation({
                         senderName={senderName}
                         senderLabel={message.senderTag || memberLabels.get(message.senderId)}
                         senderProfileAvailable={!message.outgoing && message.senderId !== "unknown"}
+                        channelAuthor={channelAuthorFor(message)}
+                        showChannelMetadata={displaysChannelMetadata(message)}
                         groupPosition={positions.get(message.id) ?? "single"}
                         replyPreview={replyPreviewFor(
                           message,

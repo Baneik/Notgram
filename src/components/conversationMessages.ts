@@ -34,6 +34,7 @@ export const forwardLabelFor = (
 ) => {
   const info = message.forwardInfo;
   if (!info) return undefined;
+  if (isAutomaticChannelForward(message)) return undefined;
   const origin = info.origin;
   const name = origin?.kind === "user"
     ? users.get(origin.userId)?.displayName
@@ -46,6 +47,29 @@ export const forwardLabelFor = (
     (info.source?.chatId ? chats.get(info.source.chatId)?.title : undefined);
   return name ? `转发自 ${name}` : sourceName ? `转发自 ${sourceName}` : "已转发";
 };
+
+export const isAutomaticChannelForward = (message: Message) => {
+  const origin = message.forwardInfo?.origin;
+  const source = message.forwardInfo?.source;
+  if (
+    origin?.kind !== "channel" || !source ||
+    message.chatId === origin.chatId ||
+    message.senderId !== `chat:${origin.chatId}` ||
+    source.chatId !== origin.chatId
+  ) return false;
+  return !origin.messageId || !source.messageId || origin.messageId === source.messageId;
+};
+
+export const channelAuthorFor = (message: Message) => {
+  if (message.authorSignature?.trim()) return message.authorSignature.trim();
+  const origin = message.forwardInfo?.origin;
+  return origin?.kind === "channel" && origin.authorSignature?.trim()
+    ? origin.authorSignature.trim()
+    : undefined;
+};
+
+export const displaysChannelMetadata = (message: Message) =>
+  message.isChannelPost === true || isAutomaticChannelForward(message);
 
 export const replyPreviewFor = (
   message: Message,

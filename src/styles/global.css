@@ -1021,6 +1021,9 @@ button.message-sender:hover { text-decoration: none; }
 .rich-spoiler:hover, .rich-spoiler:focus { color: inherit; background: color-mix(in srgb, var(--color-text-tertiary) 18%, transparent); }
 .rich-image-alt { color: var(--muted); font-style: italic; }
 .message-meta { min-height: 15px; margin: 1px 0 0 10px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; color: var(--subtle); font-size: 10px; line-height: 1; }
+.message-meta-stat { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.message-meta-stat + .message-meta-stat { margin-left: 2px; }
+.message-channel-author { max-width: 120px; margin: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .is-outgoing .message-meta, .is-outgoing .message-meta svg { color: var(--color-status-success); }
 .message-retry { width: 17px; height: 17px; padding: 0; display: inline-grid; place-items: center; color: var(--color-status-danger); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .message-retry:disabled { cursor: default; }

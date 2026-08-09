@@ -1110,6 +1110,8 @@ describe("TDLib mapper", () => {
       chat_id: 99,
       sender_id: { "@type": "messageSenderUser", user_id: 7 },
       is_outgoing: false,
+      is_channel_post: true,
+      author_signature: "Channel editor",
       contains_unread_mention: true,
       date: 1_700_000_000,
       edit_date: 1_700_000_100,
@@ -1178,6 +1180,8 @@ describe("TDLib mapper", () => {
     });
 
     expect(message).toMatchObject({
+      isChannelPost: true,
+      authorSignature: "Channel editor",
       editedAt: "2023-11-14T22:15:00.000Z",
       containsUnreadMention: true,
       replyTo: {

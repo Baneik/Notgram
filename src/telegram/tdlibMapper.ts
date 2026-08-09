@@ -1580,6 +1580,10 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     senderTag: typeof raw.sender_tag === "string" && raw.sender_tag.trim()
       ? raw.sender_tag.trim()
       : undefined,
+    authorSignature: typeof raw.author_signature === "string" && raw.author_signature.trim()
+      ? raw.author_signature.trim()
+      : undefined,
+    isChannelPost: raw.is_channel_post === true,
     outgoing: raw.is_outgoing === true,
     sentAt: unixDate(raw.date),
     delivery: failed ? "failed" : sendingState ? "sending" : "sent",

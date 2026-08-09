@@ -2501,12 +2501,33 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
   await expect(settings.locator(".settings-categories")).toHaveCSS("background-color", "rgb(41, 47, 53)");
 });
 
+test("channel posts expose views, forwards, and author metadata without a sync forward label", async ({ page }) => {
+  await page.goto("/");
+  const linked = page.locator('[data-message-id="p-channel-reply"]');
+  await expect(linked).toBeVisible();
+  await expect(linked.locator(".message-forward-label")).toHaveCount(0);
+  await expect(linked.locator('[aria-label="转发 23 次"]')).toHaveText("23");
+  await expect(linked.locator('[aria-label="22200 次观看"]')).toHaveText("22.2K");
+  await expect(linked.locator(".message-channel-author")).toHaveText("Release editor");
+
+  await page.locator('[data-chat-id="chat-release"]').click();
+  const post = page.locator('[data-message-id="release-post-1"]');
+  await expect(post).toBeVisible();
+  await expect(post.locator('[aria-label="转发 23 次"]')).toHaveText("23");
+  await expect(post.locator('[aria-label="22200 次观看"]')).toHaveText("22.2K");
+  await expect(post.locator(".message-channel-author")).toHaveText("Release editor");
+});
+
 test("reply previews jump to their source and channel senders keep their identity", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   const channelMessage = page.locator('[data-message-id="p-channel-reply"]');
   await expect(channelMessage).toBeVisible();
   await expect(channelMessage.locator(".message-sender")).toHaveText("Release Notes");
+  await expect(channelMessage.locator(".message-forward-label")).toHaveCount(0);
+  await expect(channelMessage.locator('[aria-label="转发 23 次"]')).toHaveText("23");
+  await expect(channelMessage.locator('[aria-label="22200 次观看"]')).toHaveText("22.2K");
+  await expect(channelMessage.locator(".message-channel-author")).toHaveText("Release editor");
   await expect(page.locator('.message-group:has([data-message-id="p-channel-reply"]) .message-group-avatar .avatar')).toContainText("R");
   await expect(channelMessage.locator(".message-reply-preview")).toHaveCSS(
     "background-color",
