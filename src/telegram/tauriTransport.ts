@@ -848,6 +848,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       canManageMembers,
       canManagePermissions,
       canTransferOwnership: statusType === "chatMemberStatusCreator",
+      memberCount,
       memberOffset: offset,
       memberHasMore: values.length === 50 || (memberCount !== undefined && offset + values.length < memberCount),
     };

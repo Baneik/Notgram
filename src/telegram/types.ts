@@ -105,6 +105,7 @@ export interface ManagedChatMember extends ProfileMember {
 export interface ChatManagement {
   chatId: string;
   members: ManagedChatMember[];
+  memberCount?: number;
   administratorLabels?: Record<string, string>;
   permissions: ChatPermissions;
   slowModeDelay: number;
@@ -433,6 +434,8 @@ export interface Chat {
   title: string;
   avatar: Avatar;
   peerId?: string;
+  memberCount?: number;
+  activeUserCount?: number;
   preview: string;
   previewSenderId?: string;
   updatedAt: string;
