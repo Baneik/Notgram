@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   Pin,
   PinOff,
+  Search,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Chat } from "../telegram/types";
@@ -20,6 +21,7 @@ interface ChatActionMenuProps {
   onSetMuted: (muted: boolean) => Promise<boolean>;
   onSetArchived: (archived: boolean) => Promise<boolean>;
   onOpenPinned: () => void;
+  onOpenMessageSearch: () => void;
   onOpenAutoDelete: () => void;
   onClose: () => void;
 }
@@ -34,6 +36,7 @@ export function ChatActionMenu({
   onSetMuted,
   onSetArchived,
   onOpenPinned,
+  onOpenMessageSearch,
   onOpenAutoDelete,
   onClose,
 }: ChatActionMenuProps) {
@@ -85,6 +88,18 @@ export function ChatActionMenu({
       <button type="button" role="menuitem" disabled={busy} onClick={onOpenPinned}>
         <Pin size={16} strokeWidth={1.9} />
         <span>查看置顶消息</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy}
+        onClick={() => {
+          onClose();
+          onOpenMessageSearch();
+        }}
+      >
+        <Search size={16} strokeWidth={1.9} />
+        <span>搜索消息</span>
       </button>
       <button
         type="button"

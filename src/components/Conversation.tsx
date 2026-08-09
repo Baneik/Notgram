@@ -7,7 +7,6 @@ import {
   MoreVertical,
   LoaderCircle,
   Pin,
-  Search,
   X,
 } from "lucide-react";
 import {
@@ -1283,15 +1282,6 @@ export function Conversation({
             </button>
             <div className="conversation-actions">
               <button
-                className="icon-button"
-                type="button"
-                aria-label="搜索消息"
-                title="搜索消息"
-                onClick={() => onOpenMessageSearch()}
-              >
-                <Search size={19} strokeWidth={1.8} />
-              </button>
-              <button
                 ref={chatMenuButtonRef}
                 className={`icon-button ${chatMenuOpen ? "is-active" : ""}`}
                 type="button"
@@ -1313,6 +1303,7 @@ export function Conversation({
                   onSetMuted={onSetChatMuted}
                   onSetArchived={onSetChatArchived}
                   onOpenPinned={() => openPinnedMessages()}
+                  onOpenMessageSearch={() => onOpenMessageSearch()}
                   onOpenAutoDelete={() => {
                     setChatMenuOpen(false);
                     setAutoDeleteDialogOpen(true);
