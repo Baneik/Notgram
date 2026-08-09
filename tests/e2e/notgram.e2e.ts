@@ -2062,10 +2062,10 @@ test("long text uses configurable line folding and expands from its start", asyn
   await settings.getByRole("button", { name: "关闭", exact: true }).click();
 
   await page.getByRole("button", { name: "搜索消息" }).click();
-  const messageSearch = page.getByPlaceholder("搜索当前对话");
+  const messageSearch = page.getByRole("searchbox", { name: "搜索会话和消息" });
+  await expect(page.getByRole("group", { name: "搜索范围：收藏夹" })).toBeVisible();
   await messageSearch.fill("长消息内容第 120 行");
-  await expect(page.locator(".message-search-count")).toHaveText("1 / 1");
-  await messageSearch.press("Enter");
+  await page.locator('.chat-search-results-panel [data-search-message-id="p-long-text"]').click();
   const row = page.locator('[data-message-id="p-long-text"]');
   await expect(row).toBeVisible();
   await expect(row).toHaveClass(/is-outgoing/);
@@ -2263,103 +2263,36 @@ test("search paginates, filters the current conversation, and opens exact messag
   })).toBeLessThan(2);
 
   await page.keyboard.press("Control+F");
-  const conversationSearch = page.getByRole("searchbox", { name: "搜索当前对话" });
-  await expect(conversationSearch).toBeFocused();
-  await conversationSearch.fill("新的媒体预览样式");
-  await conversationSearch.press("Enter");
-  await expect(page.locator('[data-message-id="p-5"]')).toBeVisible();
-  await conversationSearch.fill("产品讨论历史消息");
-  await expect.poll(() => page.locator("[data-conversation-search-message-id]").count()).toBeGreaterThan(0);
-  await expect(page.locator(".message-search-count")).toHaveText("1 / 36");
-  await expect(page.locator(".conversation-search-panel .message-search-results")).toHaveCount(0);
-  const newestSearchResult = page.locator('[data-conversation-search-message-id="p-old-36"]');
-  await expect(newestSearchResult).toHaveClass(/message-row/);
-  await expect(newestSearchResult.locator(".message-bubble")).toBeVisible();
-  await expect(newestSearchResult.locator(".message-search-highlight")).toHaveText("产品讨论历史消息");
-  const searchResultJump = newestSearchResult.getByRole("button", { name: /跳转到消息原位置/ });
-  await expect(searchResultJump).toBeVisible();
-  await searchResultJump.click();
-  await expect(conversationSearch).toBeHidden();
+  await expect(search).toBeFocused();
+  await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeVisible();
+  await expect(page.locator(".conversation-search-panel")).toHaveCount(0);
+  await search.fill("产品讨论历史消息");
+  const scopedResults = page.locator(".chat-search-results-panel [data-search-message-id]");
+  await expect(scopedResults).toHaveCount(30);
   await expect(page.getByRole("log", { name: "消息列表" })).toBeVisible();
-  await expect(page.locator("[data-conversation-search-message-id]")).toHaveCount(0);
+  await page.locator(".chat-search-results-panel").getByRole("button", { name: "加载更多" }).click();
+  await expect(scopedResults).toHaveCount(36);
+
+  const newestSearchResult = page.locator('.chat-search-results-panel [data-search-message-id="p-old-36"]');
+  await expect(newestSearchResult).toContainText("产品讨论历史消息 36");
+  await newestSearchResult.click();
+  await expect(page.locator(".chat-search-results-panel")).toBeHidden();
   const searchSourceMessage = page.locator('[data-message-id="p-old-36"]');
   await expect(searchSourceMessage).toHaveClass(/is-notification-target/);
   await expect(searchSourceMessage).toBeInViewport();
 
   await page.keyboard.press("Control+F");
-  await expect(conversationSearch).toBeFocused();
-  await conversationSearch.fill("产品讨论历史消息");
-  await expect.poll(() => page.locator("[data-conversation-search-message-id]").count()).toBeGreaterThan(0);
-  await expect(page.getByRole("button", { name: "加载更早结果" })).toHaveCount(0);
-  const searchResultList = page.getByRole("log", { name: "搜索结果消息列表" });
-  await expect.poll(() => searchResultList.evaluate((element) => element.scrollTop)).toBeGreaterThan(10);
-  const beforePreload = await searchResultList.evaluate((element) => new Promise<{
-    messageId?: string;
-    offset: number;
-    viewportDistance: number;
-  }>((resolve) => {
-    element.addEventListener("scroll", () => {
-      const listBounds = element.getBoundingClientRect();
-      const firstVisible = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
-        .find((row) => {
-          const bounds = row.getBoundingClientRect();
-          return bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1;
-        });
-      resolve({
-        messageId: firstVisible?.dataset.messageId,
-        offset: firstVisible ? firstVisible.getBoundingClientRect().top - listBounds.top : 0,
-        viewportDistance: element.scrollTop / element.clientHeight,
-      });
-    }, { once: true });
-    const nextScrollTop = Math.min(element.clientHeight * 2.5, element.scrollTop - 10);
-    element.scrollTo({ top: nextScrollTop, behavior: "auto" });
-  }));
-  expect(beforePreload.messageId).toBeTruthy();
-  expect(beforePreload.viewportDistance).toBeGreaterThan(1.25);
-  expect(beforePreload.viewportDistance).toBeLessThanOrEqual(2.51);
-  await expect.poll(() => page.evaluate(async (modulePath) => {
-    const storeModule = await import(modulePath) as {
-      telegramStore: { getState: () => { chatMessageSearch: { messages: unknown[] } } };
-    };
-    return storeModule.telegramStore.getState().chatMessageSearch.messages.length;
-  }, "/src/store/telegramStore.ts")).toBe(36);
-  await expect.poll(() => searchResultList.evaluate((element, anchor) => {
-    const target = element.querySelector<HTMLElement>(
-      `[data-message-id="${CSS.escape(anchor.messageId ?? "")}"]`,
-    );
-    if (!target) return Number.POSITIVE_INFINITY;
-    return Math.abs(
-      target.getBoundingClientRect().top - element.getBoundingClientRect().top - anchor.offset,
-    );
-  }, beforePreload)).toBeLessThan(1.5);
-  await expect.poll(() => searchResultList.evaluate((element) => (
-    element.scrollTop / element.clientHeight
-  ))).toBeGreaterThan(1.25);
-  await searchResultList.evaluate((element) => element.scrollTo({ top: 0, behavior: "auto" }));
-  await expect(page.locator('[data-conversation-search-message-id="p-old-1"]')).toBeVisible();
-  await expect(page.locator('[data-conversation-search-message-id="p-old-36"]')).not.toBeInViewport();
-  await page.getByRole("button", { name: "下一个搜索结果" }).click();
-  const olderLocatedMessage = page.locator('[data-message-id="p-old-35"]');
-  await expect(olderLocatedMessage).toHaveClass(/is-search-current/);
-  await expect(olderLocatedMessage.locator(".message-search-highlight")).toHaveText("产品讨论历史消息");
-  await expect(olderLocatedMessage).toBeInViewport();
-
-  await page.getByRole("combobox", { name: "消息发送者" }).selectOption({ label: "Jules" });
-  await expect.poll(() => page.locator("[data-conversation-search-message-id]").count()).toBeGreaterThan(0);
-  await page.getByRole("combobox", { name: "消息发送者" }).selectOption("");
-  await conversationSearch.fill("TDLib bold");
-  const entitySearchResult = page.locator('[data-conversation-search-message-id="p-rich-entities"]');
-  await expect(entitySearchResult).toBeVisible();
-  await expect(entitySearchResult.locator(".message-search-highlight")).toHaveCount(2);
-  await expect(entitySearchResult.locator(".message-search-highlight strong")).toHaveText("bold");
-  await conversationSearch.fill("Markdown");
-  await expect(page.locator('[data-conversation-search-message-id="p-markdown"] strong .message-search-highlight')).toHaveText("Markdown");
-  await conversationSearch.fill("");
+  await expect(search).toBeFocused();
+  await search.fill("");
   await page.getByRole("combobox", { name: "消息类型" }).selectOption("photoAndVideo");
-  await expect(page.locator('[data-conversation-search-message-id="p-5"]')).toBeVisible();
-  await conversationSearch.press("Escape");
-  await expect(conversationSearch).toBeHidden();
-  await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
+  await expect(page.locator('.chat-search-results-panel [data-search-message-id="p-5"]')).toBeVisible();
+  await page.getByRole("combobox", { name: "消息类型" }).selectOption("all");
+  await search.fill("产品讨论历史消息");
+  await page.getByRole("combobox", { name: "消息发送者" }).selectOption({ label: "Jules" });
+  await expect.poll(() => scopedResults.count()).toBeGreaterThan(0);
+  await search.press("Escape");
+  await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeHidden();
+  await expect(search).toHaveValue("");
 
   const senderAvatar = page.locator(".message-sender-avatar").last();
   await expect(senderAvatar).toBeVisible();
@@ -2367,8 +2300,9 @@ test("search paginates, filters the current conversation, and opens exact messag
   const senderMenu = page.getByRole("menu", { name: "成员操作" });
   await expect(senderMenu.getByRole("menuitem", { name: /^搜索 .* 的消息$/ })).toBeVisible();
   await senderMenu.getByRole("menuitem", { name: /^搜索 .* 的消息$/ }).click();
+  await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "消息发送者" })).not.toHaveValue("");
-  await page.getByRole("button", { name: "关闭消息搜索" }).click();
+  await page.getByRole("button", { name: "移除会话搜索范围" }).click();
 
   await page.keyboard.press("Control+K");
   await search.fill("Mia Chen");
@@ -2620,9 +2554,9 @@ test("reply previews jump to their source and channel senders keep their identit
   await expect(target.locator(".message-bubble")).toHaveCSS("outline-style", "none");
 
   await page.getByRole("button", { name: "搜索消息" }).click();
-  const search = page.getByRole("searchbox", { name: "搜索当前对话" });
+  const search = page.getByRole("searchbox", { name: "搜索会话和消息" });
   await search.fill("Release Notes channel posted this reply");
-  await search.press("Enter");
+  await page.locator('.chat-search-results-panel [data-search-message-id="p-channel-reply"]').click();
   await page.locator('[data-message-id="p-channel-reply"] .message-sender').click();
   const profile = page.getByRole("dialog", { name: "资料" });
   await expect(profile.getByRole("heading", { name: "Release Notes" })).toBeVisible();
@@ -2983,7 +2917,8 @@ test("chat switching and ordinary message interactions keep typing focus in the 
   await expect(composer).toBeFocused();
 
   await page.getByRole("button", { name: "搜索消息" }).click();
-  await expect(page.getByRole("searchbox", { name: "搜索当前对话" })).toBeFocused();
+  await expect(page.getByRole("searchbox", { name: "搜索会话和消息" })).toBeFocused();
+  await expect(page.getByRole("group", { name: "搜索范围：Mia Chen" })).toBeVisible();
 });
 
 test("reply context survives concurrent message updates and is sent", async ({ page }) => {
@@ -4360,7 +4295,7 @@ test("chat organization menu confirms pin, mute, and archive changes", async ({ 
   await moreButton.click();
   await page.getByRole("button", { name: "搜索消息" }).click();
   await expect(menu).toBeHidden();
-  await page.getByRole("button", { name: "关闭消息搜索" }).click();
+  await page.getByRole("button", { name: "移除会话搜索范围" }).click();
 
   await moreButton.click();
   await expect(menu.getByRole("menuitem", { name: "取消置顶" })).toBeFocused();

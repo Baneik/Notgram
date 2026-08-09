@@ -577,7 +577,6 @@ export const createTelegramStore = (
       transport,
       get,
       set,
-      loadChats,
       onError: errorMessage,
     });
 

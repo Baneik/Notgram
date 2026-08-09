@@ -11,13 +11,10 @@ import type { TelegramState } from "./telegramStore.types";
 
 type StoreState = Pick<
   TelegramState,
-  | "activeChatId"
-  | "activeTopicId"
   | "authorization"
   | "globalSearch"
   | "chatMessageSearch"
   | "searchQuery"
-  | "chatFilter"
 >;
 
 type StoreSetter = (
@@ -41,7 +38,6 @@ export interface SearchControllerOptions {
   transport: TelegramTransport;
   get: () => StoreState;
   set: StoreSetter;
-  loadChats: (chatListId?: string) => Promise<void>;
   onError: (error: unknown, fallback: string) => string;
 }
 
@@ -54,18 +50,10 @@ export const createSearchController = ({
   transport,
   get,
   set,
-  loadChats,
   onError,
 }: SearchControllerOptions): SearchController => {
-  let chatSearchTimer: ReturnType<typeof setTimeout> | undefined;
-  let chatSearchGeneration = 0;
   let chatMessageSearchGeneration = 0;
   let globalSearchGeneration = 0;
-
-  const clearChatSearchTimer = () => {
-    if (chatSearchTimer) globalThis.clearTimeout(chatSearchTimer);
-    chatSearchTimer = undefined;
-  };
 
   return {
     searchChatMessages: async (input) => {
@@ -228,25 +216,9 @@ export const createSearchController = ({
 
     setSearchQuery: (searchQuery) => {
       set({ searchQuery });
-      clearChatSearchTimer();
-      const normalized = searchQuery.trim();
-      const generation = ++chatSearchGeneration;
-      if (
-        !normalized ||
-        get().authorization.kind !== "ready"
-      ) return;
-      chatSearchTimer = globalThis.setTimeout(() => {
-        chatSearchTimer = undefined;
-        void transport.searchChats(normalized, 50).catch((error) => {
-          if (generation !== chatSearchGeneration) return;
-          set({ operationError: onError(error, "无法搜索会话") });
-        });
-      }, 250);
     },
 
     reset: () => {
-      clearChatSearchTimer();
-      chatSearchGeneration += 1;
       chatMessageSearchGeneration += 1;
       globalSearchGeneration += 1;
       set({ chatMessageSearch: emptyChatMessageSearch() });

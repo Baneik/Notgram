@@ -1,4 +1,4 @@
-import { Archive, CheckCheck, LoaderCircle, Pin, Plus, Search } from "lucide-react";
+import { Archive, CheckCheck, LoaderCircle, Pin, Plus, Search, X } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -12,11 +12,13 @@ import {
 } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { useTelegramStore } from "../store/telegramStore";
-import type { Chat, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
+import type { Chat, ChatFolder, ChatMessageSearchFilter, GlobalSearchFilter, User } from "../telegram/types";
+import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
+import type { SidebarSearchScope } from "../hooks/useSidebarSearch";
 import { formatChatTime } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
-import { GlobalSearchResults } from "./GlobalSearchView";
+import { ChatSearchResults, GlobalSearchResults, type SidebarSearchSenderOption } from "./GlobalSearchView";
 import { ChatContextMenu } from "./SidebarContextMenus";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { usePreferencesStore, type UnreadBadgePosition } from "../store/preferencesStore";
@@ -37,6 +39,18 @@ interface ChatSidebarProps {
   onLoadMoreSearchMessages: () => Promise<void>;
   onCancelMessageSearch: () => void;
   onOpenSearchMessage: (chatId: string, messageId: string) => void;
+  searchScope: SidebarSearchScope;
+  chatMessageSearch: ChatMessageSearchState;
+  chatSearchFilter: ChatMessageSearchFilter;
+  chatSearchSenderId?: string;
+  chatSearchDate: string;
+  chatSearchStateMatchesInput: boolean;
+  chatSearchSenderOptions: SidebarSearchSenderOption[];
+  onChatSearchFilterChange: (filter: ChatMessageSearchFilter) => void;
+  onChatSearchSenderChange: (senderId: string | undefined) => void;
+  onChatSearchDateChange: (date: string) => void;
+  onLoadMoreChatSearch: () => Promise<void>;
+  onExitSearchScope: (preserveQuery: boolean) => void;
   onSelect: (chatId: string) => void;
   loadingMore: boolean;
   hasMore: boolean;
@@ -77,6 +91,18 @@ export function ChatSidebar({
   onLoadMoreSearchMessages,
   onCancelMessageSearch,
   onOpenSearchMessage,
+  searchScope,
+  chatMessageSearch,
+  chatSearchFilter,
+  chatSearchSenderId,
+  chatSearchDate,
+  chatSearchStateMatchesInput,
+  chatSearchSenderOptions,
+  onChatSearchFilterChange,
+  onChatSearchSenderChange,
+  onChatSearchDateChange,
+  onLoadMoreChatSearch,
+  onExitSearchScope,
   onSelect,
   loadingMore,
   hasMore,
@@ -331,10 +357,12 @@ export function ChatSidebar({
   const contextChat = contextMenu
     ? chats.find((chat) => chat.id === contextMenu.chatId)
     : undefined;
+  const scopedChat = searchScope.type === "chat" ? allChats.get(searchScope.chatId) : undefined;
+  const scopedSearch = Boolean(scopedChat);
 
   return (
     <>
-    <aside ref={sidebarRef} className={`chat-sidebar ${resizing ? "is-resizing" : ""}`} aria-label="会话列表">
+    <aside ref={sidebarRef} className={`chat-sidebar ${scopedSearch ? "has-scoped-search" : ""} ${resizing ? "is-resizing" : ""}`} aria-label="会话列表">
       <div className="sidebar-heading">
         <div>
           <h1>{folderTitle}</h1>
@@ -352,7 +380,9 @@ export function ChatSidebar({
           value={searchQuery}
           onChange={(event) => onSearchChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Escape") onSearchChange("");
+            if (event.key !== "Escape") return;
+            if (scopedSearch) onExitSearchScope(false);
+            else onSearchChange("");
           }}
           placeholder="搜索会话和消息"
           type="search"
@@ -370,7 +400,33 @@ export function ChatSidebar({
         )}
       </label>
 
-      {searchQuery.trim() ? (
+      {scopedChat && (
+        <div className="sidebar-search-scope" role="group" aria-label={`搜索范围：${scopedChat.title}`}>
+          <Avatar avatar={scopedChat.avatar} size="small" />
+          <span>此会话：{scopedChat.title}</span>
+          <button type="button" className="icon-button" aria-label="移除会话搜索范围" title="移除会话搜索范围" onClick={() => onExitSearchScope(true)}>
+            <X size={16} strokeWidth={1.9} />
+          </button>
+        </div>
+      )}
+
+      {scopedChat ? (
+        <ChatSearchResults
+          chat={scopedChat}
+          query={searchQuery}
+          filter={chatSearchFilter}
+          senderId={chatSearchSenderId}
+          date={chatSearchDate}
+          senderOptions={chatSearchSenderOptions}
+          state={chatMessageSearch}
+          stateMatchesInput={chatSearchStateMatchesInput}
+          onFilterChange={onChatSearchFilterChange}
+          onSenderChange={onChatSearchSenderChange}
+          onDateChange={onChatSearchDateChange}
+          onLoadMore={onLoadMoreChatSearch}
+          onOpenMessage={onOpenSearchMessage}
+        />
+      ) : searchQuery.trim() ? (
         <GlobalSearchResults
           query={searchQuery}
           state={globalSearch}

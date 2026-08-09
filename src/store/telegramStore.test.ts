@@ -1163,7 +1163,7 @@ describe("telegram store", () => {
     expect(store.getState().operationError).toBe("reaction unavailable");
   });
 
-  it("debounces server chat search and delegates current-chat message search", async () => {
+  it("keeps the shared sidebar query side-effect free and delegates chat message search", async () => {
     class SearchTrackingTransport extends MockTelegramTransport {
       chatQueries: string[] = [];
       messageQueries: ChatMessageSearchInput[] = [];
@@ -1178,26 +1178,19 @@ describe("telegram store", () => {
       }
     }
 
-    vi.useFakeTimers();
-    try {
-      const transport = new SearchTrackingTransport();
-      const store = createTelegramStore(transport);
-      await store.getState().initialize();
-      await store.getState().selectChat("chat-product");
-      store.getState().setSearchQuery("pro");
-      store.getState().setSearchQuery("project");
-      await vi.advanceTimersByTimeAsync(251);
-      store.getState().setSearchQuery("product");
-      await vi.advanceTimersByTimeAsync(251);
-      await store.getState().searchChatMessages({ chatId: "chat-product", query: "needle" });
+    const transport = new SearchTrackingTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-product");
+    store.getState().setSearchQuery("project");
+    store.getState().setSearchQuery("product");
+    await store.getState().searchChatMessages({ chatId: "chat-product", query: "needle" });
 
-      expect(transport.chatQueries).toEqual(["project", "product"]);
-      expect(transport.messageQueries).toEqual([
-        { chatId: "chat-product", query: "needle", filter: "all", limit: 30 },
-      ]);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(store.getState().searchQuery).toBe("product");
+    expect(transport.chatQueries).toEqual([]);
+    expect(transport.messageQueries).toEqual([
+      { chatId: "chat-product", query: "needle", filter: "all", limit: 30 },
+    ]);
   });
 
   it("discards stale permissions when the message changes during the request", async () => {

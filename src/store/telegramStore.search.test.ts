@@ -30,13 +30,10 @@ const resultMessage = (id: string): Message => ({
 
 const createHarness = (overrides: Record<string, unknown> = {}) => {
   let state: ReturnType<SearchControllerOptions["get"]> = {
-    activeChatId: "chat-1",
-    activeTopicId: undefined,
     authorization: { kind: "ready" as const },
     globalSearch: emptyGlobalSearch(),
     chatMessageSearch: emptyChatMessageSearch(),
     searchQuery: "",
-    chatFilter: "main",
     ...overrides,
   };
   const set = ((patch: Partial<TelegramState> | ((value: TelegramState) => Partial<TelegramState>)) => {
@@ -46,13 +43,11 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
   const transport = {
     searchChatMessages: vi.fn().mockResolvedValue(undefined),
     searchGlobal: vi.fn(),
-    searchChats: vi.fn().mockResolvedValue(undefined),
   } as unknown as SearchControllerOptions["transport"];
   const controller = createSearchController({
     transport,
     get: () => state,
     set,
-    loadChats: vi.fn().mockResolvedValue(undefined),
     onError: (error, fallback) => error instanceof Error ? error.message : fallback,
   });
   return { controller, transport, getState: () => state };
@@ -80,19 +75,11 @@ describe("telegram store search controller", () => {
     expect(harness.getState().globalSearch.totalCount).toBe(0);
   });
 
-  it("debounces chat search and keeps plain queries server-backed", async () => {
-    vi.useFakeTimers();
+  it("stores the shared sidebar query without starting a second chat search", () => {
     const harness = createHarness();
 
     harness.controller.setSearchQuery("  product  ");
-    await vi.advanceTimersByTimeAsync(249);
-    expect(harness.transport.searchChats).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(harness.transport.searchChats).toHaveBeenCalledWith("product", 50);
-
-    harness.controller.setSearchQuery("product");
-    await vi.advanceTimersByTimeAsync(300);
-    expect(harness.transport.searchChats).toHaveBeenCalledTimes(2);
+    expect(harness.getState().searchQuery).toBe("  product  ");
   });
 
   it("isolates stale chat-message searches and merges cursor pages without duplicates", async () => {

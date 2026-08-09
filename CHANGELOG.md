@@ -29,20 +29,17 @@ with prerelease identifiers used for release candidates.
   and native-path-safe chat photo selection.
 - Add a lightweight WebView performance timeline for startup, interaction, rendering,
   history, and media stalls, backed by a separately rotated performance log.
-- Search the current conversation through TDLib with stable pagination, total counts,
-  sender, message-type, date, and forum-topic scope filters, exact context loading,
-  and a member-avatar context-menu shortcut.
+- Search the current conversation from the shared sidebar field through TDLib with
+  stable pagination, total counts, sender, message-type and date filters, exact
+  context loading, and a member-avatar context-menu shortcut.
 - Add a muted inline video surface, Alt-click floating playback, and progress-preserving
   fullscreen transitions with compact controls for narrow conversations.
 
 ### Changed
 
-- Preload earlier in-conversation search results automatically several viewports
-  before the timeline reaches the top instead of requiring a separate action.
-- Render in-conversation search results directly as the normal message timeline,
-  preserve message interactions and media rendering, and highlight literal query
-  matches across entity text, Markdown, rich content, polls, filenames, and captions;
-  each result can jump directly to its real position in the conversation history.
+- Route Ctrl+F to the shared sidebar search field with the active conversation as an
+  explicit scope, keep direct sidebar input global, and return to global results when
+  the conversation scope is removed.
 - Move pinned-list message navigation into a compact action at each bubble's
   top-right corner and remove the redundant linked-channel jump button.
 - Replace the pinned-message preview dialog with an in-conversation pinned-message
@@ -57,8 +54,9 @@ with prerelease identifiers used for release candidates.
   destination topic when opening a search result or notification.
 - Preserve TDLib voice-note duration before media loading and disable unavailable
   voice controls instead of presenting an inert play action.
-- Merge chat and message search into the single conversation-sidebar field, and hide
-  the contacts navigation entry until it is assigned a new location.
+- Merge chat and message search into the single conversation-sidebar field, return
+  global chat results without mutating the canonical chat list through a second
+  request, and hide the contacts navigation entry until it is assigned a new location.
 - Treat all search input as plain text and remove the local regular-expression mode.
 - Prefetch image and video covers above the viewport, replace percentage media loaders
   with rotating indicators, and stop paused streams after a bounded buffer window.
@@ -68,10 +66,6 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
-- Preserve the exact visible result and pixel offset while earlier search pages are
-  prepended instead of moving the viewport to the newly inserted results.
-- Keep an in-conversation search timeline at the user's reading position when
-  older result pages are prepended instead of repeatedly returning to the latest match.
 - Keep pinned-message jumps smooth by avoiding redundant same-chat selection,
   suppressing the transient target flash, and ignoring clicks when the pinned
   source message is already visible.

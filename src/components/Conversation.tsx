@@ -31,15 +31,12 @@ import type {
   ForwardMessagesResult,
   User,
 } from "../telegram/types";
-import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
-import { useConversationSearch } from "../hooks/useConversationSearch";
 import {
   useConversationScroll,
   type EntryConversationScrollRequest,
   type LatestConversationScrollRequest,
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
-import { visibleAnchor } from "../hooks/conversationScrollState";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { formatMessageDay } from "../utils/formatters";
 import { Avatar } from "./Avatar";
@@ -51,7 +48,6 @@ import {
   PinMessageDialog,
   SenderActionMenu,
 } from "./ConversationOverlays";
-import { ConversationSearchPanel } from "./ConversationSearchPanel";
 import {
   forwardLabelFor,
   messageSummary,
@@ -95,27 +91,10 @@ import {
 import { PinnedMessageBanner } from "./PinnedMessageBanner";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
-const LOAD_NO_OLDER_MESSAGES = async () => undefined;
-const SEARCH_RESULTS_PRELOAD_MIN_PX = 960;
-const SEARCH_RESULTS_PRELOAD_VIEWPORTS = 3;
-const SEARCH_PAGE_ANCHOR_SETTLE_FRAMES = 18;
-interface SearchPageAnchor {
-  element: HTMLDivElement;
-  messageId: string;
-  offset: number;
-}
 type MessageNavigationOptions = Pick<
   MessageConversationScrollRequest,
   "behavior" | "highlight"
 > & { loadContext?: boolean };
-
-const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
-  <div {...props} className="message-list-content" ref={ref} />
-));
-VirtualMessageListContent.displayName = "VirtualMessageListContent";
-
-const EmptyMessageList = () => <div className="messages-empty">没有匹配的消息</div>;
-const EmptyPinnedMessageList = () => <div className="messages-empty">当前没有置顶消息</div>;
 
 const MessageSourceLocateButton = ({
   message,
@@ -137,6 +116,14 @@ const MessageSourceLocateButton = ({
     <ArrowUpRight size={15} strokeWidth={2.1} />
   </button>
 );
+
+const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
+  <div {...props} className="message-list-content" ref={ref} />
+));
+VirtualMessageListContent.displayName = "VirtualMessageListContent";
+
+const EmptyMessageList = () => <div className="messages-empty">没有匹配的消息</div>;
+const EmptyPinnedMessageList = () => <div className="messages-empty">当前没有置顶消息</div>;
 
 const messageListComponents: Components<VirtualMessageBlock> = {
   EmptyPlaceholder: EmptyMessageList,
@@ -197,10 +184,6 @@ interface ConversationProps {
   onPinMessage: (messageId: string, disableNotification: boolean, onlyForSelf: boolean) => Promise<boolean>;
   onUnpinMessage: (messageId: string) => Promise<boolean>;
   onSetChatMessageAutoDeleteTime: (chatId: string, seconds: number) => Promise<boolean>;
-  chatMessageSearch: ChatMessageSearchState;
-  onSearchMessages: (input: ChatMessageSearchInput) => Promise<void>;
-  onLoadMoreSearchMessages: () => Promise<void>;
-  onClearSearchMessages: () => void;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onCancelFileDownload: (fileId: number) => Promise<void>;
   onOpenFile: (sourcePath: string) => Promise<void>;
@@ -219,6 +202,7 @@ interface ConversationProps {
     messageId: string,
     options?: MessageNavigationOptions,
   ) => void;
+  onOpenMessageSearch: (senderId?: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
@@ -274,10 +258,6 @@ export function Conversation({
   onPinMessage,
   onUnpinMessage,
   onSetChatMessageAutoDeleteTime,
-  chatMessageSearch,
-  onSearchMessages,
-  onLoadMoreSearchMessages,
-  onClearSearchMessages,
   onDownloadFile,
   onCancelFileDownload,
   onOpenFile,
@@ -292,6 +272,7 @@ export function Conversation({
   onOpenProfile,
   onPositioned,
   onOpenMessage,
+  onOpenMessageSearch,
   onOpenSenderProfile,
   onSetChatPinned,
   onSetChatMuted,
@@ -437,120 +418,35 @@ export function Conversation({
       : messages,
     [chat?.kind, messages],
   );
-  const {
-    open: searchOpen,
-    query: messageSearch,
-    filter: messageSearchFilter,
-    senderId: messageSearchSenderId,
-    date: messageSearchDate,
-    scope: messageSearchScope,
-    active: messageSearchActive,
-    visibleMessages,
-    matchingMessages,
-    stateMatchesInput: messageSearchStateMatchesInput,
-    setQuery: setMessageSearch,
-    setFilter: setMessageSearchFilter,
-    setSenderId: setMessageSearchSenderId,
-    setDate: setMessageSearchDate,
-    setScope: setMessageSearchScope,
-    searchSender,
-    close: closeMessageSearch,
-    show: showMessageSearch,
-    toggle: toggleMessageSearch,
-  } = useConversationSearch({
-    chatId: chat?.id,
-    topicId: topic?.id,
-    isForum: chat?.isForum,
-    messages: displayMessages,
-    searchState: chatMessageSearch,
-    onSearchMessages,
-    onClearSearch: onClearSearchMessages,
-  });
-  const messageSearchInputRef = useRef<HTMLInputElement>(null);
-  const searchResultScrollFrameRef = useRef<number | undefined>(undefined);
-  const searchPageAnchorFrameRef = useRef<number | undefined>(undefined);
-  const pendingSearchPageAnchorRef = useRef<SearchPageAnchor | undefined>(undefined);
-  const pendingInitialSearchResultScrollRef = useRef<string | undefined>(undefined);
-  const [activeSearchResultId, setActiveSearchResultId] = useState<string>();
   const renderedMessages = useMemo(
     () => {
       const source = pinnedViewOpen
         ? allPinnedMessages.map((message) => message.mediaAlbumId
           ? { ...message, mediaAlbumId: undefined }
           : message)
-        : visibleMessages;
-      return chat?.kind === "saved"
-        ? source.map((message) => message.outgoing ? message : { ...message, outgoing: true })
-        : source;
+        : displayMessages;
+      return source;
     },
-    [allPinnedMessages, chat?.kind, pinnedViewOpen, visibleMessages],
+    [allPinnedMessages, displayMessages, pinnedViewOpen],
   );
 
   const focusComposer = useCallback(() => {
     globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
   }, []);
 
-  const focusMessageSearch = useCallback(() => {
-    globalThis.setTimeout(() => {
-      messageSearchInputRef.current?.focus();
-      messageSearchInputRef.current?.select();
-    }, 0);
-  }, []);
-
-  const openMessageSearch = useCallback(() => {
-    if (!chat) return;
-    showMessageSearch();
-    focusMessageSearch();
-  }, [chat, focusMessageSearch, showMessageSearch]);
-
-  const closeMessageSearchAndFocusComposer = useCallback(() => {
-    closeMessageSearch();
-    focusComposer();
-  }, [closeMessageSearch, focusComposer]);
-
-  useEffect(() => {
-    const openSearchWithKeyboard = (event: KeyboardEvent) => {
-      if (
-        !chat || pinnedViewOpen || event.altKey || event.shiftKey ||
-        !(event.ctrlKey || event.metaKey) ||
-        event.key.toLocaleLowerCase() !== "f"
-      ) return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-      event.preventDefault();
-      openMessageSearch();
-    };
-    globalThis.addEventListener("keydown", openSearchWithKeyboard);
-    return () => globalThis.removeEventListener("keydown", openSearchWithKeyboard);
-  }, [chat, openMessageSearch, pinnedViewOpen]);
-
-  useEffect(() => {
-    if (!messageSearchActive || matchingMessages.length === 0) {
-      pendingInitialSearchResultScrollRef.current = undefined;
-      if (activeSearchResultId !== undefined) setActiveSearchResultId(undefined);
-      return;
-    }
-    if (
-      activeSearchResultId &&
-      matchingMessages.some((message) => message.id === activeSearchResultId)
-    ) return;
-    const nextResultId = matchingMessages[0]?.id;
-    pendingInitialSearchResultScrollRef.current = nextResultId;
-    setActiveSearchResultId(nextResultId);
-  }, [activeSearchResultId, matchingMessages, messageSearchActive]);
-
   const messageProjection = useMemo(() => {
     const startedAt = performance.now();
-    const blocks = virtualizeMessageGroups(renderedMessages, undefined, !messageSearchActive);
+    const blocks = virtualizeMessageGroups(renderedMessages);
     return { blocks, durationMs: performance.now() - startedAt };
-  }, [messageSearchActive, renderedMessages]);
+  }, [renderedMessages]);
   const visibleMessageBlocks = messageProjection.blocks;
   const messageItemIndexes = useMemo(
     () => indexMessagesByVirtualBlock(visibleMessageBlocks),
     [visibleMessageBlocks],
   );
   const viewerPhotos = useMemo(
-    () => photoMessages(messageSearchActive ? renderedMessages : pinnedViewOpen ? allPinnedMessages : displayMessages),
-    [allPinnedMessages, displayMessages, messageSearchActive, pinnedViewOpen, renderedMessages],
+    () => photoMessages(pinnedViewOpen ? allPinnedMessages : displayMessages),
+    [allPinnedMessages, displayMessages, pinnedViewOpen],
   );
   const openMediaViewer = useCallback((messageId: string) => {
     const activeIndex = viewerPhotos.findIndex((message) => message.id === messageId);
@@ -655,33 +551,10 @@ export function Conversation({
     () => new Map(forwardTargets.map((target) => [target.id, target])),
     [forwardTargets],
   );
-  const senderOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const options: Array<{ id: string; label: string; avatar?: User["avatar"] }> = [];
-    const add = (id: string, label: string, avatar?: User["avatar"]) => {
-      if (!id || seen.has(id)) return;
-      seen.add(id);
-      options.push({ id, label, avatar });
-    };
-    for (const member of groupManagement?.chatId === chat?.id ? groupManagement?.members ?? [] : []) {
-      add(member.user.id, member.user.displayName, member.user.avatar);
-    }
-    for (const message of messages) {
-      if (message.senderId === "self") add(message.senderId, "我");
-      else if (message.senderId.startsWith("chat:")) {
-        const senderChat = forwardTargetsById.get(senderChatId(message.senderId) ?? "");
-        add(message.senderId, senderChat?.title ?? "群组账号", senderChat?.avatar);
-      } else {
-        const user = users.get(message.senderId);
-        add(message.senderId, user?.displayName ?? "Telegram 用户", user?.avatar);
-      }
-    }
-    return options.sort((left, right) => left.label.localeCompare(right.label, "zh-Hans"));
-  }, [chat?.id, forwardTargetsById, groupManagement, messages, users]);
   const forwarding = useMessageForwarding({
     chatId: chat?.id,
     conversationIdentity,
-    messages: messageSearchActive ? renderedMessages : messages,
+    messages: renderedMessages,
     messagesById,
     targets: forwardTargets,
     onLoadMessageProperties,
@@ -697,7 +570,7 @@ export function Conversation({
     pendingTargetId: forwardPendingTargetId,
     filteredTargets: filteredForwardTargets,
   } = forwarding;
-  const pinnedBannerVisible = !pinnedViewOpen && !selectionMode && !messageSearchActive &&
+  const pinnedBannerVisible = !pinnedViewOpen && !selectionMode &&
     (chat?.kind === "group" || chat?.kind === "channel") &&
     allPinnedMessages.length > 0;
   const {
@@ -733,216 +606,13 @@ export function Conversation({
     visibleMessages: renderedMessages,
     messageItemIndexes,
     virtualItemCount: visibleMessageBlocks.length,
-    search: pinnedViewOpen ? "" : messageSearchActive ? "search" : "",
-    historyLoading: pinnedViewOpen || messageSearchActive ? false : historyLoading,
+    search: pinnedViewOpen ? "" : "",
+    historyLoading: pinnedViewOpen ? false : historyLoading,
     historyInitialized: pinnedViewOpen ? true : historyInitialized,
-    hasOlderMessages: pinnedViewOpen || messageSearchActive ? false : hasOlderMessages,
-    messageCount: pinnedViewOpen || messageSearchActive ? renderedMessages.length : messages.length,
-    onLoadOlder: pinnedViewOpen || messageSearchActive ? LOAD_NO_OLDER_MESSAGES : onLoadOlder,
+    hasOlderMessages: pinnedViewOpen ? false : hasOlderMessages,
+    messageCount: pinnedViewOpen ? renderedMessages.length : messages.length,
+    onLoadOlder: pinnedViewOpen ? async () => undefined : onLoadOlder,
   });
-  const currentSearchError = messageSearchStateMatchesInput
-    ? chatMessageSearch.error
-    : undefined;
-
-  const preloadEarlierSearchResults = useCallback(() => {
-    const cursor = chatMessageSearch.nextFromMessageId;
-    if (
-      !messageSearchActive ||
-      !messageSearchStateMatchesInput ||
-      chatMessageSearch.loading ||
-      chatMessageSearch.loadingMore ||
-      !cursor ||
-      pendingSearchPageAnchorRef.current
-    ) return;
-    const anchor = messageListElement ? visibleAnchor(messageListElement) : undefined;
-    if (!messageListElement || !anchor?.messageId) return;
-    pendingSearchPageAnchorRef.current = {
-      element: messageListElement,
-      messageId: anchor.messageId,
-      offset: anchor.offset,
-    };
-    void onLoadMoreSearchMessages();
-  }, [
-    chatMessageSearch.loading,
-    chatMessageSearch.loadingMore,
-    chatMessageSearch.nextFromMessageId,
-    messageListElement,
-    messageSearchActive,
-    messageSearchStateMatchesInput,
-    onLoadMoreSearchMessages,
-  ]);
-
-  useEffect(() => {
-    if (!messageSearchActive || !messageListElement) return;
-    let previousScrollTop = messageListElement.scrollTop;
-    const withinPreloadRange = () => messageListElement.scrollTop <= Math.max(
-      SEARCH_RESULTS_PRELOAD_MIN_PX,
-      messageListElement.clientHeight * SEARCH_RESULTS_PRELOAD_VIEWPORTS,
-    );
-    const onSearchScroll = () => {
-      const nextScrollTop = messageListElement.scrollTop;
-      const scrollingUp = nextScrollTop < previousScrollTop - 0.5;
-      previousScrollTop = nextScrollTop;
-      if (scrollingUp && withinPreloadRange()) preloadEarlierSearchResults();
-    };
-    const onSearchWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0 && messageListElement.scrollTop <= 1) {
-        preloadEarlierSearchResults();
-      }
-    };
-    messageListElement.addEventListener("scroll", onSearchScroll, { passive: true });
-    messageListElement.addEventListener("wheel", onSearchWheel, { passive: true });
-    return () => {
-      messageListElement.removeEventListener("scroll", onSearchScroll);
-      messageListElement.removeEventListener("wheel", onSearchWheel);
-    };
-  }, [messageListElement, messageSearchActive, preloadEarlierSearchResults]);
-
-  useLayoutEffect(() => {
-    const pendingAnchor = pendingSearchPageAnchorRef.current;
-    if (!pendingAnchor) return;
-    if (
-      !messageSearchActive ||
-      !messageSearchStateMatchesInput ||
-      messageListElement !== pendingAnchor.element
-    ) {
-      pendingSearchPageAnchorRef.current = undefined;
-      return;
-    }
-    if (chatMessageSearch.loadingMore) return;
-    const itemIndex = messageItemIndexes.get(pendingAnchor.messageId);
-    if (itemIndex === undefined) {
-      pendingSearchPageAnchorRef.current = undefined;
-      return;
-    }
-    const element = pendingAnchor.element;
-    let remainingFrames = SEARCH_PAGE_ANCHOR_SETTLE_FRAMES;
-    let stableFrames = 0;
-    let previousSignature = "";
-    const settleAnchor = () => {
-      searchPageAnchorFrameRef.current = undefined;
-      if (
-        pendingSearchPageAnchorRef.current !== pendingAnchor ||
-        messageListRef.current !== element ||
-        !messageSearchActive
-      ) return;
-      const target = element.querySelector<HTMLElement>(
-        `[data-message-id="${CSS.escape(pendingAnchor.messageId)}"]`,
-      );
-      if (!target) {
-        stableFrames = 0;
-        virtuosoRef.current?.scrollToIndex({
-          index: itemIndex,
-          align: "start",
-          offset: -pendingAnchor.offset,
-          behavior: "auto",
-        });
-      } else {
-        const actualOffset = target.getBoundingClientRect().top -
-          element.getBoundingClientRect().top;
-        const correction = actualOffset - pendingAnchor.offset;
-        if (Math.abs(correction) > 0.5) element.scrollTop += correction;
-        const signature = `${element.scrollTop.toFixed(1)}:${actualOffset.toFixed(1)}`;
-        stableFrames = Math.abs(correction) <= 1
-          ? signature === previousSignature ? stableFrames + 1 : 1
-          : 0;
-        previousSignature = signature;
-      }
-      remainingFrames -= 1;
-      if (stableFrames >= 2 || remainingFrames <= 0) {
-        if (pendingSearchPageAnchorRef.current === pendingAnchor) {
-          pendingSearchPageAnchorRef.current = undefined;
-        }
-        return;
-      }
-      searchPageAnchorFrameRef.current = requestAnimationFrame(settleAnchor);
-    };
-    settleAnchor();
-    return () => {
-      if (searchPageAnchorFrameRef.current !== undefined) {
-        cancelAnimationFrame(searchPageAnchorFrameRef.current);
-        searchPageAnchorFrameRef.current = undefined;
-      }
-    };
-  }, [
-    chatMessageSearch.loadingMore,
-    messageItemIndexes,
-    messageListElement,
-    messageSearchActive,
-    messageSearchStateMatchesInput,
-    virtuosoRef,
-  ]);
-
-  const searchMessageListComponents = useMemo<Components<VirtualMessageBlock>>(() => ({
-    List: VirtualMessageListContent,
-    EmptyPlaceholder: () => (
-      <div
-        className={`messages-empty message-search-timeline-state ${currentSearchError ? "is-error" : ""}`}
-        role={currentSearchError ? "alert" : "status"}
-      >
-        {!messageSearchStateMatchesInput || chatMessageSearch.loading ? (
-          <><LoaderCircle className="spin" size={18} /><span>正在搜索消息</span></>
-        ) : currentSearchError ?? "没有搜索结果"}
-      </div>
-    ),
-    Header: () => chatMessageSearch.loadingMore || currentSearchError && renderedMessages.length > 0 ? (
-      <div className="message-search-timeline-header">
-        {currentSearchError && renderedMessages.length > 0 && (
-          <span className="message-search-timeline-error" role="alert">{currentSearchError}</span>
-        )}
-        {chatMessageSearch.loadingMore && (
-          <span className="message-search-preloading" role="status">
-            <LoaderCircle className="spin" size={15} />
-            <span>正在加载更早结果</span>
-          </span>
-        )}
-      </div>
-    ) : null,
-  }), [
-    chatMessageSearch.loading,
-    chatMessageSearch.loadingMore,
-    currentSearchError,
-    messageSearchStateMatchesInput,
-    renderedMessages.length,
-  ]);
-
-  const scrollToSearchResult = useCallback((messageId: string) => {
-    const itemIndex = messageItemIndexes.get(messageId);
-    if (itemIndex === undefined) return;
-    if (searchResultScrollFrameRef.current !== undefined) {
-      cancelAnimationFrame(searchResultScrollFrameRef.current);
-    }
-    searchResultScrollFrameRef.current = requestAnimationFrame(() => {
-      searchResultScrollFrameRef.current = undefined;
-      virtuosoRef.current?.scrollToIndex({
-        index: itemIndex,
-        align: "center",
-        behavior: "auto",
-      });
-    });
-  }, [messageItemIndexes, virtuosoRef]);
-
-  useLayoutEffect(() => {
-    if (
-      !messageSearchActive ||
-      !activeSearchResultId ||
-      pendingInitialSearchResultScrollRef.current !== activeSearchResultId ||
-      !messageItemIndexes.has(activeSearchResultId)
-    ) return;
-    pendingInitialSearchResultScrollRef.current = undefined;
-    scrollToSearchResult(activeSearchResultId);
-  }, [activeSearchResultId, messageItemIndexes, messageSearchActive, scrollToSearchResult]);
-
-  useEffect(() => () => {
-    if (searchResultScrollFrameRef.current !== undefined) {
-      cancelAnimationFrame(searchResultScrollFrameRef.current);
-    }
-    if (searchPageAnchorFrameRef.current !== undefined) {
-      cancelAnimationFrame(searchPageAnchorFrameRef.current);
-    }
-    pendingSearchPageAnchorRef.current = undefined;
-  }, []);
-
   useEffect(() => {
     if (pinnedViewOpen || !messageListElement || !pinnedMessageIdsKey) {
       setVisiblePinnedMessageIds((current) => current.size === 0 ? current : new Set());
@@ -1026,7 +696,7 @@ export function Conversation({
   useEffect(() => {
     const conversation = conversationRef.current;
     if (
-      pinnedViewOpen || messageSearchActive || !chat || !messageListElement ||
+      pinnedViewOpen || !chat || !messageListElement ||
       !conversation || attentionMessageIds.length === 0
     ) return;
     const attentionIds = new Set(attentionMessageIds);
@@ -1079,7 +749,6 @@ export function Conversation({
     chat,
     dismissMessageAttention,
     messageListElement,
-    messageSearchActive,
     pinnedViewOpen,
   ]);
   const actionMessage = actionMenu
@@ -1114,7 +783,7 @@ export function Conversation({
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
-    if (!chat || pinnedViewOpen || searchOpen) return;
+    if (!chat || pinnedViewOpen) return;
     let focusTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
     const isEditable = (target: Element | null) => target instanceof HTMLTextAreaElement ||
       (target instanceof HTMLInputElement && !["checkbox", "radio", "range", "file"].includes(target.type)) ||
@@ -1153,7 +822,7 @@ export function Conversation({
       window.removeEventListener("focus", onWindowFocus);
       if (focusTimer !== undefined) globalThis.clearTimeout(focusTimer);
     };
-  }, [chat?.id, pinnedViewOpen, searchOpen]);
+  }, [chat?.id, pinnedViewOpen]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -1188,7 +857,6 @@ export function Conversation({
       pinnedViewOpen ||
       positioning ||
       historyLoading ||
-      searchOpen ||
       selectionMode
     ) return;
     const active = document.activeElement;
@@ -1197,7 +865,7 @@ export function Conversation({
       active !== composerInputRef.current &&
       (!activeChatRow || window.matchMedia("(forced-colors: active)").matches)) return;
     composerInputRef.current?.focus({ preventScroll: true });
-  }, [conversationIdentity, historyLoading, pinnedViewOpen, positioning, searchOpen, selectionMode]);
+  }, [conversationIdentity, historyLoading, pinnedViewOpen, positioning, selectionMode]);
 
   useLayoutEffect(() => {
     if (
@@ -1354,35 +1022,6 @@ export function Conversation({
           ? `${typingNames.join("、")} 正在输入...`
           : `${typingNames.slice(0, 2).join("、")} 等 ${typingUserIds.length} 人正在输入...`;
 
-  const activeSearchResultIndex = activeSearchResultId
-    ? matchingMessages.findIndex((message) => message.id === activeSearchResultId)
-    : -1;
-  const chatMessageSearchHasMore = Boolean(chatMessageSearch.nextFromMessageId);
-  const activateSearchResult = (target: Message) => {
-    pendingInitialSearchResultScrollRef.current = undefined;
-    setActiveSearchResultId(target.id);
-    scrollToSearchResult(target.id);
-    globalThis.setTimeout(() => messageSearchInputRef.current?.focus(), 0);
-  };
-  const openSearchResult = (direction: "older" | "newer") => {
-    if (matchingMessages.length === 0) {
-      if (direction === "older" && chatMessageSearchHasMore) void onLoadMoreSearchMessages();
-      return;
-    }
-    const currentIndex = activeSearchResultIndex >= 0
-      ? activeSearchResultIndex
-      : 0;
-    const nextIndex = direction === "older"
-      ? Math.min(matchingMessages.length - 1, currentIndex + 1)
-      : Math.max(0, currentIndex - 1);
-    const target = matchingMessages[nextIndex];
-    if (!target || (direction === "older" && nextIndex === currentIndex && chatMessageSearchHasMore)) {
-      if (direction === "older" && chatMessageSearchHasMore) void onLoadMoreSearchMessages();
-      return;
-    }
-    activateSearchResult(target);
-  };
-
   const openActionMenu = useCallback(async (
     message: Message,
     left: number,
@@ -1505,7 +1144,6 @@ export function Conversation({
     if (!chat) return;
     capturePinnedReturnAnchor();
     setChatMenuOpen(false);
-    closeMessageSearch();
     openPinnedView(knownPinnedMessages);
   };
 
@@ -1518,13 +1156,6 @@ export function Conversation({
     if (pinnedViewOpen) {
       pinnedReturnAnchorRef.current = undefined;
       closePinnedView();
-    }
-    if (messageSearchActive) {
-      closeMessageSearch();
-      requestAnimationFrame(() => {
-        onOpenMessage(chatId, messageId, { loadContext: true, behavior: "auto" });
-      });
-      return;
     }
     onOpenMessage(chatId, messageId);
   };
@@ -1566,14 +1197,13 @@ export function Conversation({
 
   const toggleMessageSelection = forwarding.toggleSelection;
   const confirmForward = forwarding.confirm;
-  const messageSearchPanelVisible = searchOpen && !pinnedViewOpen && !selectionMode;
 
   return (
     <section
       ref={conversationRef}
-      className={`conversation ${messageSearchPanelVisible ? "has-message-search" : ""} ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
+      className={`conversation ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
       onPointerUp={(event) => {
-        if (event.button !== 0 || selectionMode || pinnedViewOpen || searchOpen) return;
+        if (event.button !== 0 || selectionMode || pinnedViewOpen) return;
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (target.closest("button, a, input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
@@ -1653,11 +1283,11 @@ export function Conversation({
             </button>
             <div className="conversation-actions">
               <button
-                className={`icon-button ${searchOpen ? "is-active" : ""}`}
+                className="icon-button"
                 type="button"
                 aria-label="搜索消息"
                 title="搜索消息"
-                onClick={toggleMessageSearch}
+                onClick={() => onOpenMessageSearch()}
               >
                 <Search size={19} strokeWidth={1.8} />
               </button>
@@ -1703,30 +1333,6 @@ export function Conversation({
         />
       )}
 
-      {messageSearchPanelVisible && (
-        <ConversationSearchPanel
-          query={messageSearch}
-          filter={messageSearchFilter}
-          senderId={messageSearchSenderId}
-          date={messageSearchDate}
-          scope={messageSearchScope}
-          isForum={Boolean(chat.isForum && topic)}
-          senderOptions={senderOptions}
-          searchState={chatMessageSearch}
-          stateMatchesInput={messageSearchStateMatchesInput}
-          results={matchingMessages}
-          activeResultId={activeSearchResultId}
-          inputRef={messageSearchInputRef}
-          onQueryChange={setMessageSearch}
-          onFilterChange={setMessageSearchFilter}
-          onSenderChange={setMessageSearchSenderId}
-          onDateChange={setMessageSearchDate}
-          onScopeChange={setMessageSearchScope}
-          onNavigate={openSearchResult}
-          onClose={closeMessageSearchAndFocusComposer}
-        />
-      )}
-
       <div className={`message-list-shell ${positioning ? "is-positioning" : ""} ${pinnedViewOpen ? "pinned-message-view" : ""} ${pinnedBannerVisible ? "has-pinned-message-banner" : ""}`}>
         {pinnedBannerVisible && (
           <PinnedMessageBanner
@@ -1751,30 +1357,27 @@ export function Conversation({
             <span>正在加载消息</span>
           </div>
         )}
-        {!pinnedViewOpen && !messageSearchActive && historyLoading && (
+        {!pinnedViewOpen && historyLoading && (
           <div className="history-loading" aria-label="正在加载更早消息">
             <LoaderCircle className="spin" size={16} />
           </div>
         )}
         <Virtuoso
           key={virtuosoKey}
-          className={`message-list ${messageSearchActive ? "is-search-results" : ""} ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (historyLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
+          className={`message-list ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (historyLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
           ref={virtuosoRef}
           scrollerRef={setMessageListRef}
           isScrolling={setMessageListScrolling}
           role="log"
-          aria-label={pinnedViewOpen ? "置顶消息列表" : messageSearchActive ? "搜索结果消息列表" : "消息列表"}
+          aria-label={pinnedViewOpen ? "置顶消息列表" : "消息列表"}
           aria-busy={
             positioning ||
             (pinnedViewOpen && pinnedMessagesLoading) ||
-            (messageSearchActive && (!messageSearchStateMatchesInput || chatMessageSearch.loading)) ||
-            (!pinnedViewOpen && !messageSearchActive && historyLoading)
+            (!pinnedViewOpen && historyLoading)
           }
           tabIndex={0}
           alignToBottom={initialAlignToBottom}
-          components={pinnedViewOpen
-            ? pinnedMessageListComponents
-            : messageSearchActive ? searchMessageListComponents : messageListComponents}
+          components={pinnedViewOpen ? pinnedMessageListComponents : messageListComponents}
           computeItemKey={(_, block) => block.id}
           data={visibleMessageBlocks}
           defaultItemHeight={52}
@@ -1880,9 +1483,6 @@ export function Conversation({
                         selectionMode={selectionMode}
                         selected={selectedMessageIds.has(message.id)}
                         highlighted={highlightedMessageId === message.id}
-                        searchResult={messageSearchActive}
-                        searchResultActive={messageSearchActive && activeSearchResultId === message.id}
-                        searchQuery={messageSearchActive ? messageSearch : undefined}
                         selectionPending={selectionLoadingIds.has(message.id)}
                         selectionLimitReached={selectedMessageIds.size >= 100}
                         onToggleSelection={toggleMessageSelection}
@@ -1908,8 +1508,7 @@ export function Conversation({
                         onOpenReply={openMessageInHistory}
                         onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}
-                        onActivateSearchResult={messageSearchActive ? activateSearchResult : undefined}
-                        cornerAction={!selectionMode && (pinnedViewOpen || messageSearchActive) ? (
+                        cornerAction={!selectionMode && pinnedViewOpen ? (
                           <MessageSourceLocateButton
                             message={message}
                             onLocate={openMessageInHistory}
@@ -1973,7 +1572,6 @@ export function Conversation({
                                     className="media-album-caption"
                                     text={content.caption}
                                     entities={content.captionEntities}
-                                    highlightQuery={messageSearchActive ? messageSearch : undefined}
                                   />
                                 </div>
                               ) : null;
@@ -1989,7 +1587,7 @@ export function Conversation({
             );
           }}
         />
-        {!pinnedViewOpen && !messageSearchActive && currentScrollKey && attentionMessageIds.length > 0 && (
+        {!pinnedViewOpen && currentScrollKey && attentionMessageIds.length > 0 && (
           <button
             className={`conversation-jump-button jump-to-attention ${awayFromLatest ? "is-stacked" : ""}`}
             type="button"
@@ -2009,7 +1607,7 @@ export function Conversation({
             <span>{attentionMessageIds.length > 99 ? "99+" : attentionMessageIds.length}</span>
           </button>
         )}
-        {!pinnedViewOpen && !messageSearchActive && currentScrollKey && awayFromLatest && (
+        {!pinnedViewOpen && currentScrollKey && awayFromLatest && (
             <button
               className="conversation-jump-button jump-to-latest"
               type="button"
@@ -2080,7 +1678,7 @@ export function Conversation({
         <SenderActionMenu
           position={senderMenu}
           senderName={senderMenu.senderName}
-          onSearch={() => searchSender(senderMenu.senderId)}
+          onSearch={() => onOpenMessageSearch(senderMenu.senderId)}
           onDismiss={() => setSenderMenu(undefined)}
         />
       )}

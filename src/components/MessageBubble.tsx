@@ -81,8 +81,6 @@ interface MessageBubbleProps {
   selectionMode: boolean;
   selected: boolean;
   highlighted: boolean;
-  searchResult?: boolean;
-  searchResultActive?: boolean;
   searchQuery?: string;
   selectionPending: boolean;
   selectionLimitReached: boolean;
@@ -112,7 +110,6 @@ interface MessageBubbleProps {
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMedia?: (messageId: string) => void;
-  onActivateSearchResult?: (message: Message) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
   autoplayAnimations: boolean;
@@ -143,8 +140,6 @@ function MessageBubbleComponent({
   selectionMode,
   selected,
   highlighted,
-  searchResult = false,
-  searchResultActive = false,
   searchQuery,
   selectionPending,
   selectionLimitReached,
@@ -169,7 +164,6 @@ function MessageBubbleComponent({
   onOpenReply,
   onOpenSenderProfile,
   onOpenMedia,
-  onActivateSearchResult,
   cornerAction,
   albumItem = false,
   autoplayAnimations,
@@ -202,7 +196,7 @@ function MessageBubbleComponent({
   const [textExpanded, setTextExpanded] = useState(false);
   const content = message.content;
   const isSticker = content.kind === "media" && content.mediaType === "sticker";
-  const textCollapsible = !searchResult && content.kind === "text" && textLineCount > collapseThresholdLines;
+  const textCollapsible = content.kind === "text" && textLineCount > collapseThresholdLines;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
@@ -517,17 +511,8 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${searchResultActive ? "is-search-current" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
-      data-conversation-search-message-id={searchResult ? message.id : undefined}
-      onClick={(event) => {
-        if (!searchResult || selectionMode || !onActivateSearchResult) return;
-        const target = event.target;
-        if (target instanceof Element && target.closest("button, a, input, textarea, select, summary")) return;
-        const selection = globalThis.getSelection();
-        if (selection && !selection.isCollapsed) return;
-        onActivateSearchResult(message);
-      }}
       onAnimationEnd={(event) => {
         if (
           event.target === event.currentTarget &&

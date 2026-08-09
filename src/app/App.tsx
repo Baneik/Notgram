@@ -44,6 +44,8 @@ import {
   hasConversationScrollMemory,
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
+import { useSidebarSearch } from "../hooks/useSidebarSearch";
+import type { SidebarSearchSenderOption } from "../components/GlobalSearchView";
 import {
   beginConversationSwitch,
   isConversationSwitchActive,
@@ -214,6 +216,26 @@ export function App() {
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const sidebarSearch = useSidebarSearch({
+    query: searchQuery,
+    chatMessageSearch,
+    onQueryChange: setSearchQuery,
+    onSearchMessages: searchChatMessages,
+    onClearSearch: clearChatMessageSearch,
+  });
+  const {
+    scope: sidebarSearchScope,
+    chatId: sidebarSearchChatId,
+    filter: chatSearchFilter,
+    senderId: chatSearchSenderId,
+    date: chatSearchDate,
+    stateMatchesInput: chatSearchStateMatchesInput,
+    enterChat: enterChatSearch,
+    exitScope: exitSidebarSearchScope,
+    setFilter: setChatSearchFilter,
+    setSenderId: setChatSearchSenderId,
+    setDate: setChatSearchDate,
+  } = sidebarSearch;
   useEffect(() => {
     if (phase !== "ready" || cacheRetentionDays <= 0) return;
     const key = `notgram:cache-cleanup:${activeAccountId}`;
@@ -338,13 +360,19 @@ export function App() {
   }, []);
 
   const closeSearch = useCallback((restoreFocus = false) => {
+    exitSidebarSearchScope(false);
     cancelGlobalSearch();
     clearGlobalSearch();
-    setSearchQuery("");
     if (restoreFocus) {
       globalThis.setTimeout(() => searchInputRef.current?.focus(), 0);
     }
-  }, [cancelGlobalSearch, clearGlobalSearch, setSearchQuery]);
+  }, [cancelGlobalSearch, clearGlobalSearch, exitSidebarSearchScope]);
+  const searchAccountRef = useRef(activeAccountId);
+  useEffect(() => {
+    if (searchAccountRef.current === activeAccountId) return;
+    searchAccountRef.current = activeAccountId;
+    closeSearch();
+  }, [activeAccountId, closeSearch]);
 
   const updateSearchQuery = useCallback((value: string) => {
     if (!value.trim()) {
@@ -353,6 +381,19 @@ export function App() {
     }
     setSearchQuery(value);
   }, [cancelGlobalSearch, clearGlobalSearch, setSearchQuery]);
+
+  const openChatSearch = useCallback((chatId: string, senderId?: string) => {
+    if (!chatId) return;
+    cancelGlobalSearch();
+    clearGlobalSearch();
+    enterChatSearch(chatId, senderId);
+    clearProfile();
+    setMobileChatOpen(false);
+    globalThis.setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }, 0);
+  }, [cancelGlobalSearch, clearGlobalSearch, clearProfile, enterChatSearch]);
 
   const openFolderManager = useCallback((folderId?: string) => {
     setFolderManagerInitialId(folderId);
@@ -513,11 +554,23 @@ export function App() {
         setMobileChatOpen(false);
         clearProfile();
         globalThis.setTimeout(() => searchInputRef.current?.focus(), 0);
+        return;
       }
+      if (
+        !activeChatId ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey ||
+        event.shiftKey ||
+        event.repeat ||
+        event.key.toLocaleLowerCase() !== "f" ||
+        document.querySelector('[role="dialog"][aria-modal="true"]')
+      ) return;
+      event.preventDefault();
+      openChatSearch(activeChatId);
     };
     window.addEventListener("keydown", openSearch);
     return () => window.removeEventListener("keydown", openSearch);
-  }, [clearProfile]);
+  }, [activeChatId, clearProfile, openChatSearch]);
 
   const openNotificationRoute = useCallback(async (route: DesktopNotificationRoute) => {
     const state = telegramStore.getState();
@@ -527,8 +580,8 @@ export function App() {
       return;
     }
 
+    exitSidebarSearchScope(false);
     state.clearGlobalSearch();
-    state.setSearchQuery("");
     state.clearProfile();
     beginConversationSnapshot(route.chatId);
     await telegramStore.getState().loadMessage(route.chatId, route.messageId);
@@ -547,7 +600,7 @@ export function App() {
       messageId: route.messageId,
       requestId: messageScrollRequestIdRef.current,
     });
-  }, [beginConversationSnapshot]);
+  }, [beginConversationSnapshot, exitSidebarSearchScope]);
 
   useEffect(() => {
     let disposed = false;
@@ -657,6 +710,28 @@ export function App() {
     ),
     [chats],
   );
+  const chatSearchSenderOptions = useMemo<SidebarSearchSenderOption[]>(() => {
+    if (!sidebarSearchChatId) return [];
+    const seen = new Set<string>();
+    const options: SidebarSearchSenderOption[] = [];
+    const add = (id: string, label: string) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      options.push({ id, label });
+    };
+    const management = groupManagement?.chatId === sidebarSearchChatId ? groupManagement : undefined;
+    for (const member of management?.members ?? []) add(member.user.id, member.user.displayName);
+    for (const message of messages.get(sidebarSearchChatId) ?? []) {
+      if (message.senderId === "self") add(message.senderId, "我");
+      else if (message.senderId.startsWith("chat:")) {
+        const senderChat = chats.get(message.senderId.slice("chat:".length));
+        add(message.senderId, senderChat?.title ?? "群组账号");
+      } else {
+        add(message.senderId, users.get(message.senderId)?.displayName ?? "Telegram 用户");
+      }
+    }
+    return options.sort((left, right) => left.label.localeCompare(right.label, "zh-Hans"));
+  }, [chats, groupManagement, messages, sidebarSearchChatId, users]);
   const activeOutbox = activeChatId
     ? outbox.filter((item) => item.chatId === activeChatId && item.topicId === activeTopicId)
     : [];
@@ -851,6 +926,24 @@ export function App() {
           onCancelMessageSearch={cancelGlobalSearch}
           onOpenSearchMessage={(chatId, messageId) => {
             void openGlobalSearchMessage(chatId, messageId);
+          }}
+          searchScope={sidebarSearchScope}
+          chatMessageSearch={chatMessageSearch}
+          chatSearchFilter={chatSearchFilter}
+          chatSearchSenderId={chatSearchSenderId}
+          chatSearchDate={chatSearchDate}
+          chatSearchSenderOptions={chatSearchSenderOptions}
+          chatSearchStateMatchesInput={chatSearchStateMatchesInput}
+          onChatSearchFilterChange={setChatSearchFilter}
+          onChatSearchSenderChange={setChatSearchSenderId}
+          onChatSearchDateChange={setChatSearchDate}
+          onLoadMoreChatSearch={loadMoreChatMessages}
+          onExitSearchScope={(preserveQuery) => {
+            exitSidebarSearchScope(preserveQuery);
+            if (preserveQuery) {
+              cancelGlobalSearch();
+              clearGlobalSearch();
+            }
           }}
           onSelect={(chatId) => {
             if (searchQuery.trim()) void openGlobalSearchChat(chatId);
@@ -1052,10 +1145,6 @@ export function App() {
           onPinMessage={pinMessage}
           onUnpinMessage={unpinMessage}
           onSetChatMessageAutoDeleteTime={setChatMessageAutoDeleteTime}
-          chatMessageSearch={chatMessageSearch}
-          onSearchMessages={searchChatMessages}
-          onLoadMoreSearchMessages={loadMoreChatMessages}
-          onClearSearchMessages={clearChatMessageSearch}
           onDownloadFile={downloadFile}
           onCancelFileDownload={cancelFileDownload}
           onOpenFile={openFile}
@@ -1071,6 +1160,9 @@ export function App() {
           onPositioned={finishConversationSnapshot}
           onOpenMessage={(chatId, messageId, options) => {
             void openGlobalSearchMessage(chatId, messageId, options);
+          }}
+          onOpenMessageSearch={(senderId) => {
+            if (activeChatId) openChatSearch(activeChatId, senderId);
           }}
           onOpenSenderProfile={(senderId) => {
             if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
