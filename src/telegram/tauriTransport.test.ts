@@ -268,6 +268,9 @@ describe("TauriTelegramTransport startup", () => {
     const requests: TdObject[] = [];
     internal.request = async (request) => {
       requests.push(request);
+      if (request["@type"] === "getInternalLinkType") {
+        return { "@type": "internalLinkTypeMessage", url: request.link };
+      }
       if (request["@type"] === "getMessageLinkInfo") {
         return {
           "@type": "messageLinkInfo",
@@ -294,8 +297,61 @@ describe("TauriTelegramTransport startup", () => {
     await expect(transport.resolveTelegramLink("https://t.me/release_channel/123"))
       .resolves.toEqual({ chatId: "-10072", messageId: "128974848" });
     expect(requests.map((request) => request["@type"])).toEqual([
+      "getInternalLinkType",
       "getMessageLinkInfo",
       "getChat",
+    ]);
+  });
+
+  it("rejects Telegram theme routes without searching for a public chat", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.resolveTelegramLink("https://t.me/addtheme/NotgramTheme"))
+      .resolves.toEqual({
+        kind: "unsupported",
+        linkType: "internalLinkTypeTheme",
+        reason: "Telegram 主题链接与 Notgram 不兼容",
+      });
+    expect(requests).toEqual([]);
+  });
+
+  it("opens public usernames even when TDLib resolves them to a private chat", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getInternalLinkType") {
+        return {
+          "@type": "internalLinkTypePublicChat",
+          chat_username: "mia_design",
+          draft_text: "",
+          open_profile: false,
+        };
+      }
+      if (request["@type"] === "searchPublicChat") {
+        return {
+          "@type": "chat",
+          id: 92,
+          title: "Mia Chen",
+          type: { "@type": "chatTypePrivate", user_id: 12 },
+          positions: [],
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.resolveTelegramLink("https://t.me/mia_design"))
+      .resolves.toEqual({ chatId: "92" });
+    expect(requests.map((request) => request["@type"])).toEqual([
+      "getInternalLinkType",
+      "searchPublicChat",
     ]);
   });
 

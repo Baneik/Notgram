@@ -1,6 +1,10 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { MouseEvent } from "react";
 import { telegramStore } from "../store/telegramStore";
+import {
+  isUnsupportedTelegramLink,
+  parseTelegramUrl,
+} from "../telegram/telegramLinks";
 
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:", "tg:"]);
 const MAX_EXTERNAL_URL_LENGTH = 4_096;
@@ -32,19 +36,10 @@ export const openExternalLink = async (value: string) => {
   if (opened) opened.opener = null;
 };
 
-const isTelegramLink = (value: string) => {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "tg:" || ["t.me", "telegram.me", "telegram.dog", "www.t.me"].includes(parsed.hostname.toLowerCase());
-  } catch {
-    return false;
-  }
-};
-
 export const openTelegramLinkInApp = async (value: string) => {
-  if (!isTelegramLink(value)) return false;
+  if (!parseTelegramUrl(value)) return false;
   const target = await telegramStore.getState().resolveTelegramLink(value);
-  if (!target) return false;
+  if (!target || isUnsupportedTelegramLink(target)) return true;
   globalThis.dispatchEvent(new CustomEvent("notgram:telegram-link-opened", { detail: target }));
   return true;
 };

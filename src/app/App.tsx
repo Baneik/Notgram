@@ -24,6 +24,8 @@ import { ChatManagementDialog } from "../components/ChatManagementDialog";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
+import type { TelegramLinkTarget } from "../telegram/types";
+import { isTelegramUserLink } from "../telegram/telegramLinks";
 import { connectionPresentation } from "../telegram/connectionState";
 import {
   listenForDesktopNotificationOpen,
@@ -493,7 +495,12 @@ export function App() {
 
   useEffect(() => {
     const openTelegramLink = (event: Event) => {
-      const detail = (event as CustomEvent<{ chatId?: unknown; messageId?: unknown }>).detail;
+      const detail = (event as CustomEvent<TelegramLinkTarget>).detail;
+      if (detail && isTelegramUserLink(detail)) {
+        void loadUserProfile(detail.userId);
+        return;
+      }
+      if (!detail || !("chatId" in detail)) return;
       if (typeof detail?.chatId !== "string" || !detail.chatId) return;
       if (typeof detail.messageId === "string" && detail.messageId) {
         void openGlobalSearchMessage(detail.chatId, detail.messageId);
@@ -503,7 +510,7 @@ export function App() {
     };
     globalThis.addEventListener("notgram:telegram-link-opened", openTelegramLink);
     return () => globalThis.removeEventListener("notgram:telegram-link-opened", openTelegramLink);
-  }, [openGlobalSearchChat, openGlobalSearchMessage]);
+  }, [loadUserProfile, openGlobalSearchChat, openGlobalSearchMessage]);
 
   const openProfilePrivateChat = useCallback(async (userId: string) => {
     const chatId = await startPrivateChat(userId);

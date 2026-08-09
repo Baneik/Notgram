@@ -2727,4 +2727,17 @@ describe("chat filtering", () => {
     store.getState().dismissMessageAttention("chat-product", "attention-mention");
     expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false);
   });
+
+  it("surfaces incompatible Telegram links instead of treating reserved routes as chats", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+
+    const target = await store.getState().resolveTelegramLink("https://t.me/addtheme/NotgramTheme");
+
+    expect(target).toEqual({
+      kind: "unsupported",
+      linkType: "internalLinkTypeTheme",
+      reason: "Telegram 主题链接与 Notgram 不兼容",
+    });
+    expect(store.getState().operationError).toBe("Telegram 主题链接与 Notgram 不兼容");
+  });
 });

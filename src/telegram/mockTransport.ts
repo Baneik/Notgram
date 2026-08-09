@@ -73,6 +73,10 @@ import type {
   User,
 } from "./types";
 import {
+  knownUnsupportedTelegramLink,
+  unsupportedTelegramLink,
+} from "./telegramLinks";
+import {
   DEFAULT_CHAT_ADMIN_RIGHTS,
   DEFAULT_CHAT_PERMISSIONS,
   cloneChatAdminRights,
@@ -1182,11 +1186,27 @@ export class MockTelegramTransport implements TelegramTransport {
     try { parsed = new URL(url); } catch { return undefined; }
     const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
     if (parsed.protocol !== "tg:" && !["t.me", "telegram.me", "telegram.dog"].includes(host)) return undefined;
+    const knownUnsupported = knownUnsupportedTelegramLink(url);
+    if (knownUnsupported) return knownUnsupported;
     const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "user") {
+      const userId = parsed.searchParams.get("id");
+      const user = this.snapshot.users.find((candidate) => candidate.id === userId);
+      return user
+        ? { kind: "user" as const, userId: user.id }
+        : unsupportedTelegramLink(undefined, "找不到链接中的 Telegram 用户");
+    }
     const username = parsed.protocol === "tg:" ? parsed.searchParams.get("domain") : parts[0];
-    if (!username) return undefined;
+    if (!username) return unsupportedTelegramLink("internalLinkTypeUnknownDeepLink");
+    const user = this.snapshot.users.find((candidate) => candidate.username?.toLowerCase() === username.toLowerCase());
+    if (user) {
+      const privateChat = this.snapshot.chats.find((candidate) => candidate.peerId === user.id);
+      return privateChat ? { chatId: privateChat.id } : { kind: "user" as const, userId: user.id };
+    }
     const chat = this.snapshot.chats.find((candidate) => candidate.title.toLowerCase() === username.toLowerCase());
-    return chat ? { chatId: chat.id, messageId: parts[1] && /^\d+$/.test(parts[1]) ? parts[1] : parsed.searchParams.get("post") || undefined } : undefined;
+    return chat
+      ? { chatId: chat.id, messageId: parts[1] && /^\d+$/.test(parts[1]) ? parts[1] : parsed.searchParams.get("post") || undefined }
+      : unsupportedTelegramLink(undefined, "找不到链接中的 Telegram 会话或用户");
   }
 
   async searchChats(query: string, limit = 50) {
