@@ -89,6 +89,10 @@ import {
   usePinnedMessages,
 } from "../hooks/usePinnedMessages";
 import { PinnedMessageBanner } from "./PinnedMessageBanner";
+import {
+  mentionTextForUser,
+  type ComposerTextInsertion,
+} from "../utils/composerInsertion";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 type MessageNavigationOptions = Pick<
@@ -204,6 +208,7 @@ interface ConversationProps {
   ) => void;
   onOpenMessageSearch: (senderId?: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
+  onStartPrivateChat: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
   onSetChatArchived: (archived: boolean) => Promise<boolean>;
@@ -274,6 +279,7 @@ export function Conversation({
   onOpenMessage,
   onOpenMessageSearch,
   onOpenSenderProfile,
+  onStartPrivateChat,
   onSetChatPinned,
   onSetChatMuted,
   onSetChatArchived,
@@ -308,6 +314,8 @@ export function Conversation({
     x: number;
     y: number;
   }>();
+  const [composerTextInsertion, setComposerTextInsertion] = useState<ComposerTextInsertion>();
+  const composerTextInsertionIdRef = useRef(0);
   const [actionLoadingId, setActionLoadingId] = useState<string>();
   const [replyingTo, setReplyingTo] = useState<Message>();
   const [editingMessage, setEditingMessage] = useState<Message>();
@@ -1678,6 +1686,20 @@ export function Conversation({
         <SenderActionMenu
           position={senderMenu}
           senderName={senderMenu.senderName}
+          onMention={!senderMenu.senderId.startsWith("chat:") && senderMenu.senderId !== "unknown"
+            ? () => {
+                const sender = users.get(senderMenu.senderId);
+                if (!sender) return;
+                composerTextInsertionIdRef.current += 1;
+                setComposerTextInsertion({
+                  id: `${sender.id}:${composerTextInsertionIdRef.current}`,
+                  text: mentionTextForUser(sender),
+                });
+              }
+            : undefined}
+          onPrivateChat={!senderMenu.senderId.startsWith("chat:") && senderMenu.senderId !== "unknown"
+            ? () => onStartPrivateChat(senderMenu.senderId)
+            : undefined}
           onSearch={() => onOpenMessageSearch(senderMenu.senderId)}
           onDismiss={() => setSenderMenu(undefined)}
         />
@@ -1713,6 +1735,7 @@ export function Conversation({
         defaultBotUsername={chat.kind === "direct" && chat.peerId && users.get(chat.peerId)?.isBot
           ? users.get(chat.peerId)?.username
           : undefined}
+        textInsertion={composerTextInsertion}
         inputRef={composerInputRef}
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}

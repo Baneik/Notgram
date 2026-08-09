@@ -22,6 +22,10 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
 import type { BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, OutgoingAttachment } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
+import {
+  insertComposerText,
+  type ComposerTextInsertion,
+} from "../utils/composerInsertion";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { EmojiPicker } from "./EmojiPicker";
@@ -33,6 +37,7 @@ interface ConversationComposerProps {
   replyingTo?: Message;
   contextTitle?: string;
   defaultBotUsername?: string;
+  textInsertion?: ComposerTextInsertion;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
@@ -71,6 +76,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   replyingTo,
   contextTitle,
   defaultBotUsername,
+  textInsertion,
   inputRef,
   connectionStatus,
   queuedMessageCount,
@@ -126,6 +132,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const emojiOpenedByHoverRef = useRef(false);
   const pendingAttachmentsRef = useRef(pendingAttachments);
+  const appliedTextInsertionRef = useRef<string | undefined>(undefined);
 
   pendingAttachmentsRef.current = pendingAttachments;
 
@@ -286,6 +293,25 @@ export const ConversationComposer = memo(function ConversationComposer({
     scheduleDraft(value, replyingTo?.id ?? chatDraft?.replyToMessageId);
     keepTyping(value);
   }, [chatDraft?.replyToMessageId, editingMessage, keepTyping, replyingTo?.id, scheduleDraft]);
+
+  useEffect(() => {
+    if (!textInsertion || editingMessage || appliedTextInsertionRef.current === textInsertion.id) return;
+    appliedTextInsertionRef.current = textInsertion.id;
+    const input = inputRef.current;
+    const result = insertComposerText(
+      draftRef.current,
+      textInsertion.text,
+      input?.selectionStart ?? draftRef.current.length,
+      input?.selectionEnd ?? draftRef.current.length,
+    );
+    draftRef.current = result.value;
+    setDraft(result.value);
+    commitInputSideEffects(result.value);
+    globalThis.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(result.cursor, result.cursor);
+    });
+  }, [commitInputSideEffects, editingMessage, inputRef, textInsertion]);
 
   const finishComposition = useCallback((value: string) => {
     if (!composingRef.current) return;

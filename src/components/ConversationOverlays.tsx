@@ -14,6 +14,8 @@ import {
   PinOff,
   PictureInPicture2,
   Reply,
+  AtSign,
+  MessageCircle,
   Search,
   Trash2,
   X,
@@ -33,24 +35,45 @@ interface SenderActionMenuProps {
   position: ContextMenuPoint;
   senderName: string;
   onSearch: () => void;
+  onMention?: () => void;
+  onPrivateChat?: () => void;
   onDismiss: () => void;
 }
 
-export function SenderActionMenu({ position, senderName, onSearch, onDismiss }: SenderActionMenuProps) {
+export function SenderActionMenu({
+  position,
+  senderName,
+  onSearch,
+  onMention,
+  onPrivateChat,
+  onDismiss,
+}: SenderActionMenuProps) {
   const nativeMenu = useNativeContextMenu({
     label: "成员操作",
     colorTheme: currentColorTheme(),
-    items: [{ id: "search", label: "搜索成员消息", icon: "search" }],
+    items: [
+      { id: "mention", label: `@${senderName}`, icon: "at", disabled: !onMention },
+      { id: "private", label: "私聊", icon: "message", disabled: !onPrivateChat },
+      { id: "search", label: "搜索成员消息", icon: "search" },
+    ],
   }, position, (actionId) => {
-    if (actionId === "search") {
-      onDismiss();
-      onSearch();
-    }
+    onDismiss();
+    if (actionId === "mention") onMention?.();
+    else if (actionId === "private") onPrivateChat?.();
+    else if (actionId === "search") onSearch();
   }, onDismiss);
   if (nativeMenu) return null;
   return (
     <ContextMenuSurface label="成员操作" point={position} onClose={onDismiss}>
       <ContextMenuPanel>
+        <button type="button" role="menuitem" disabled={!onMention} onClick={() => { onDismiss(); onMention?.(); }}>
+          <AtSign size={16} strokeWidth={1.9} />
+          <span>@{senderName}</span>
+        </button>
+        <button type="button" role="menuitem" disabled={!onPrivateChat} onClick={() => { onDismiss(); onPrivateChat?.(); }}>
+          <MessageCircle size={16} strokeWidth={1.9} />
+          <span>私聊</span>
+        </button>
         <button type="button" role="menuitem" onClick={() => { onDismiss(); onSearch(); }}>
           <Search size={16} strokeWidth={1.9} />
           <span>搜索 {senderName} 的消息</span>

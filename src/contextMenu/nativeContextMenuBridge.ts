@@ -9,6 +9,7 @@ import {
 
 export type NativeContextMenuIcon =
   | "archive"
+  | "at"
   | "check"
   | "copy"
   | "download"
@@ -16,6 +17,7 @@ export type NativeContextMenuIcon =
   | "folder"
   | "forward"
   | "leave"
+  | "message"
   | "pin"
   | "play-window"
   | "reply"
