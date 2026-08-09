@@ -757,6 +757,8 @@ export interface Message {
   mediaAlbumId?: string;
   senderId: string;
   senderTag?: string;
+  authorSignature?: string;
+  isChannelPost?: boolean;
   outgoing: boolean;
   sentAt: string;
   delivery: DeliveryState;

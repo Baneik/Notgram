@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Chat, Message, User } from "../telegram/types";
-import { replyPreviewFor } from "./conversationMessages";
+import {
+  channelAuthorFor,
+  displaysChannelMetadata,
+  forwardLabelFor,
+  isAutomaticChannelForward,
+  replyPreviewFor,
+} from "./conversationMessages";
 
 const linkedChannelPost = (overrides: Partial<Message> = {}): Message => ({
   id: "group-copy",
@@ -93,5 +99,40 @@ describe("reply preview authors", () => {
       new Map([[currentUser.id, currentUser]]),
       chat,
     )?.author).toBe("林然");
+  });
+});
+
+describe("channel message presentation", () => {
+  it("recognizes linked-channel synchronization without hiding manual forwards", () => {
+    const automatic = linkedChannelPost({
+      forwardInfo: {
+        origin: {
+          kind: "channel",
+          chatId: "source-channel",
+          messageId: "source-message",
+          authorSignature: "Editor",
+        },
+        source: {
+          chatId: "source-channel",
+          messageId: "source-message",
+          senderId: "chat:source-channel",
+          outgoing: false,
+        },
+      },
+    });
+    const chats = new Map<string, Chat>([["source-channel", {
+      id: "source-channel",
+      kind: "channel",
+      title: "Release Notes",
+    } as Chat]]);
+
+    expect(isAutomaticChannelForward(automatic)).toBe(true);
+    expect(displaysChannelMetadata(automatic)).toBe(true);
+    expect(channelAuthorFor(automatic)).toBe("Editor");
+    expect(forwardLabelFor(automatic, new Map(), chats)).toBeUndefined();
+
+    const manual = { ...automatic, senderId: "member" };
+    expect(isAutomaticChannelForward(manual)).toBe(false);
+    expect(forwardLabelFor(manual, new Map(), chats)).toBe("转发自 Release Notes");
   });
 });

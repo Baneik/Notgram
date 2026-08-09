@@ -45,3 +45,17 @@ export const formatMessageDay = (isoDate: string, now = new Date()) => {
     day: "numeric",
   }).format(date);
 };
+
+export const formatCompactCount = (value: number) => {
+  const count = Math.max(0, Math.trunc(Number.isFinite(value) ? value : 0));
+  if (count < 1_000) return String(count);
+  const units = [
+    { threshold: 1_000_000_000, suffix: "B" },
+    { threshold: 1_000_000, suffix: "M" },
+    { threshold: 1_000, suffix: "K" },
+  ];
+  const unit = units.find(({ threshold }) => count >= threshold)!;
+  const scaled = count / unit.threshold;
+  const digits = scaled < 100 ? 1 : 0;
+  return `${scaled.toFixed(digits).replace(/\.0$/, "")}${unit.suffix}`;
+};

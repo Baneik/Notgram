@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
-import { formatMessageDay, formatMessageTime, localDateKey } from "./formatters";
+import { formatCompactCount, formatMessageDay, formatMessageTime, localDateKey } from "./formatters";
 import { groupConsecutiveMessages, messageGroupPosition } from "./messageGrouping";
 
 const message = (
@@ -73,6 +73,12 @@ describe("message grouping", () => {
 
   it("formats bubble timestamps with seconds", () => {
     expect(formatMessageTime("2026-08-01T09:18:07+08:00")).toMatch(/:\d{2}:07$/);
+  });
+
+  it("formats channel counters without locale-dependent compact notation", () => {
+    expect(formatCompactCount(23)).toBe("23");
+    expect(formatCompactCount(22_200)).toBe("22.2K");
+    expect(formatCompactCount(1_240_000)).toBe("1.2M");
   });
 
   it("formats message day separators against the local calendar", () => {

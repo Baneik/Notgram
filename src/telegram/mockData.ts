@@ -430,7 +430,7 @@ const messages: Message[] = [
     sentAt: "2026-08-01T09:48:10+08:00",
     delivery: "read",
     forwardInfo: {
-      origin: { kind: "channel", chatId: "chat-release", messageId: "release-post-1" },
+      origin: { kind: "channel", chatId: "chat-release", messageId: "release-post-1", authorSignature: "Release editor" },
       source: {
         chatId: "chat-release",
         messageId: "release-post-1",
@@ -438,6 +438,7 @@ const messages: Message[] = [
         outgoing: false,
       },
     },
+    interaction: { viewCount: 22_200, forwardCount: 23, replyCount: 0, reactions: [] },
     replyTo: {
       kind: "message",
       chatId: "chat-product",
@@ -808,9 +809,12 @@ const messages: Message[] = [
     id: "release-post-1",
     chatId: "chat-release",
     senderId: "chat:chat-release",
+    authorSignature: "Release editor",
+    isChannelPost: true,
     outgoing: false,
     sentAt: "2026-08-01T09:48:10+08:00",
     delivery: "read",
+    interaction: { viewCount: 22_200, forwardCount: 23, replyCount: 0, reactions: [] },
     content: { kind: "text", text: "Release Notes channel posted this reply" },
   },
   {
