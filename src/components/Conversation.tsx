@@ -83,7 +83,10 @@ import {
   markConversationSwitch,
 } from "../utils/performanceMonitor";
 import { messageEntranceFor } from "../utils/messageEntrance";
-import { usePinnedMessages } from "../hooks/usePinnedMessages";
+import {
+  pinnedMessageForVisibleRange,
+  usePinnedMessages,
+} from "../hooks/usePinnedMessages";
 import { PinnedMessageBanner } from "./PinnedMessageBanner";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
@@ -327,6 +330,13 @@ export function Conversation({
     chatMessages,
     onLoadPinnedMessages,
   });
+  const [visiblePinnedMessageIds, setVisiblePinnedMessageIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const pinnedMessageIdsKey = useMemo(
+    () => allPinnedMessages.map((message) => message.id).join("\n"),
+    [allPinnedMessages],
+  );
   useEffect(() => {
     if (pinnedReturnAnchorRef.current?.chatId !== chat?.id) {
       pinnedReturnAnchorRef.current = undefined;
@@ -618,6 +628,71 @@ export function Conversation({
     messageCount: pinnedViewOpen ? allPinnedMessages.length : messages.length,
     onLoadOlder: pinnedViewOpen ? LOAD_NO_OLDER_MESSAGES : onLoadOlder,
   });
+
+  useEffect(() => {
+    if (pinnedViewOpen || !messageListElement || !pinnedMessageIdsKey) {
+      setVisiblePinnedMessageIds((current) => current.size === 0 ? current : new Set());
+      return;
+    }
+
+    const pinnedMessageOrder = pinnedMessageIdsKey.split("\n");
+    const pinnedMessageIds = new Set(pinnedMessageOrder);
+    const bannerMessageIdFor = (visibleMessageIds: ReadonlySet<string>) => {
+      const firstVisibleIndex = pinnedMessageOrder.findIndex(
+        (messageId) => visibleMessageIds.has(messageId),
+      );
+      return pinnedMessageOrder[
+        firstVisibleIndex < 0
+          ? pinnedMessageOrder.length - 1
+          : Math.max(0, firstVisibleIndex - 1)
+      ];
+    };
+    let frame: number | undefined;
+    const publishVisiblePinnedMessages = () => {
+      frame = undefined;
+      const rootBounds = messageListElement.getBoundingClientRect();
+      const next = new Set<string>();
+      for (const row of messageListElement.querySelectorAll<HTMLElement>("[data-message-id]")) {
+        const messageId = row.dataset.messageId;
+        if (!messageId || !pinnedMessageIds.has(messageId)) continue;
+        const bounds = row.getBoundingClientRect();
+        if (bounds.bottom > rootBounds.top + 1 && bounds.top < rootBounds.bottom - 1) {
+          next.add(messageId);
+        }
+      }
+      setVisiblePinnedMessageIds((current) => {
+        if (bannerMessageIdFor(current) === bannerMessageIdFor(next)) return current;
+        return next;
+      });
+    };
+    const scheduleVisiblePinnedMessages = () => {
+      if (frame !== undefined) return;
+      frame = requestAnimationFrame(publishVisiblePinnedMessages);
+    };
+
+    scheduleVisiblePinnedMessages();
+    messageListElement.addEventListener("scroll", scheduleVisiblePinnedMessages, { passive: true });
+    globalThis.addEventListener("resize", scheduleVisiblePinnedMessages);
+    const mutationObserver = new MutationObserver(scheduleVisiblePinnedMessages);
+    mutationObserver.observe(messageListElement, { childList: true, subtree: true });
+    const resizeObserver = new ResizeObserver(scheduleVisiblePinnedMessages);
+    resizeObserver.observe(messageListElement);
+    const content = messageListElement.querySelector(".message-list-content");
+    if (content) resizeObserver.observe(content);
+
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      messageListElement.removeEventListener("scroll", scheduleVisiblePinnedMessages);
+      globalThis.removeEventListener("resize", scheduleVisiblePinnedMessages);
+      mutationObserver.disconnect();
+      resizeObserver.disconnect();
+    };
+  }, [messageListElement, pinnedMessageIdsKey, pinnedViewOpen]);
+
+  const pinnedBannerMessage = useMemo(
+    () => pinnedMessageForVisibleRange(allPinnedMessages, visiblePinnedMessageIds),
+    [allPinnedMessages, visiblePinnedMessageIds],
+  );
 
   useEffect(() => {
     const conversation = conversationRef.current;
@@ -1328,6 +1403,7 @@ export function Conversation({
         {pinnedBannerVisible && (
           <PinnedMessageBanner
             messages={allPinnedMessages}
+            message={pinnedBannerMessage}
             onOpenAll={openPinnedMessages}
             onOpenMessage={onOpenMessage}
           />

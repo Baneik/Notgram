@@ -18,6 +18,15 @@ const mergePinnedMessages = (loaded: Message[], chatMessages: Message[]) => {
     .sort((left, right) => Date.parse(left.sentAt) - Date.parse(right.sentAt));
 };
 
+export const pinnedMessageForVisibleRange = (
+  messages: Message[],
+  visibleMessageIds: ReadonlySet<string>,
+) => {
+  const firstVisibleIndex = messages.findIndex((message) => visibleMessageIds.has(message.id));
+  if (firstVisibleIndex < 0) return messages.at(-1);
+  return messages[Math.max(0, firstVisibleIndex - 1)];
+};
+
 export const usePinnedMessages = ({
   chat,
   chatMessages,

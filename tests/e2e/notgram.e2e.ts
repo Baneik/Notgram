@@ -4314,8 +4314,26 @@ test("messages support pin lists, notification scope, and auto-delete settings",
   await expect(pinDialog).toBeHidden();
   await expect(target.locator('[aria-label="已置顶"]')).toBeVisible();
 
-  const pinnedBanner = page.getByLabel("最新置顶消息");
-  await expect(pinnedBanner).toContainText("我把交互稿更新到最新版本了");
+  const pinnedBanner = page.getByLabel("置顶消息", { exact: true });
+  await expect(pinnedBanner).toBeVisible();
+  await expect(pinnedBanner).toContainText("早上好，左侧会话列表的密度已经调整好了。");
+  const pinnedBannerLayout = await pinnedBanner.evaluate((element) => {
+    const shell = element.parentElement!;
+    const list = shell.querySelector<HTMLElement>(".message-list")!;
+    const bannerBounds = element.getBoundingClientRect();
+    const shellBounds = shell.getBoundingClientRect();
+    const listBounds = list.getBoundingClientRect();
+    return {
+      bannerTop: bannerBounds.top,
+      bannerBottom: bannerBounds.bottom,
+      shellTop: shellBounds.top,
+      shellScrollTop: shell.scrollTop,
+      listTop: listBounds.top,
+    };
+  });
+  expect(pinnedBannerLayout.bannerTop).toBeCloseTo(pinnedBannerLayout.shellTop, 0);
+  expect(pinnedBannerLayout.listTop).toBeCloseTo(pinnedBannerLayout.bannerBottom, 0);
+  expect(pinnedBannerLayout.shellScrollTop).toBe(0);
   const normalTargetOffset = await target.evaluate((element) => {
     const list = element.closest(".message-list")!;
     return element.getBoundingClientRect().top - list.getBoundingClientRect().top;
@@ -4378,6 +4396,44 @@ test("messages support pin lists, notification scope, and auto-delete settings",
     };
     return module.telegramStore.getState().chats.get("chat-product")?.messageAutoDeleteTime;
   })).toBe(1_036_800);
+});
+
+test("pinned banner advances through earlier pins as source messages enter the viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 420 });
+  await page.goto("/");
+  await page.addStyleTag({ content: ".message-row { min-height: 96px; }" });
+  await page.evaluate(async () => {
+    const module = await import("/src/store/telegramStore.ts" as string) as {
+      telegramStore: {
+        getState: () => {
+          pinMessage: (
+            messageId: string,
+            disableNotification: boolean,
+            onlyForSelf: boolean,
+          ) => Promise<boolean>;
+        };
+      };
+    };
+    const state = module.telegramStore.getState();
+    await state.pinMessage("p-old-1", true, false);
+    await state.pinMessage("p-1", true, false);
+  });
+
+  const pinnedBanner = page.getByLabel("置顶消息", { exact: true });
+  const pinnedPreview = pinnedBanner.locator(".pinned-message-preview");
+  await expect(pinnedBanner).toContainText("我把交互稿更新到最新版本了");
+
+  await pinnedPreview.click();
+  await expect(page.locator('[data-message-id="p-4"]')).toBeVisible();
+  await expect(pinnedBanner).toContainText("早上好，左侧会话列表的密度已经调整好了。");
+
+  await pinnedPreview.click();
+  await expect(page.locator('[data-message-id="p-1"]')).toBeVisible();
+  await expect(pinnedBanner).toContainText("产品讨论历史消息 1");
+
+  await pinnedPreview.click();
+  await expect(page.locator('[data-message-id="p-old-1"]')).toBeVisible();
+  await expect(pinnedBanner).toContainText("产品讨论历史消息 1");
 });
 
 test("native context menu rows fill a consistently rounded popup frame", async ({ page }) => {

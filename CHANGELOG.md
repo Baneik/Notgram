@@ -36,7 +36,8 @@ with prerelease identifiers used for release candidates.
 ### Changed
 
 - Replace the pinned-message preview dialog with an in-conversation pinned-message
-  view, a latest-pin header strip, per-message history jumps, and exact return-position
+  view, a persistent header strip that advances through earlier pins as their source
+  messages enter the viewport, per-message history jumps, and exact return-position
   restoration without injecting non-contiguous pinned history into the normal timeline.
 - Keep the forum group name in topic conversation headers and remove the redundant
   back-to-topic-list control.
