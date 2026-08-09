@@ -1750,6 +1750,38 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 }
 .settings-dialog-header h2 { margin: 0; font-size: 19px; line-height: 1.2; font-weight: 650; }
 .settings-dialog-header h2:focus { outline: none; }
+.download-manager-dialog {
+  width: min(720px, calc(100vw - 40px)); height: min(640px, calc(100vh - 40px)); min-height: 0;
+  display: grid; grid-template-rows: 64px 48px minmax(0, 1fr) 58px; overflow: hidden;
+  color: var(--ink); background: var(--color-bg-elevated); border-radius: 8px; box-shadow: 0 16px 48px var(--color-shadow);
+}
+.download-manager-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.download-manager-heading > svg { color: var(--accent); }
+.download-manager-heading > span { min-width: 0; display: grid; gap: 2px; }
+.download-manager-heading small { color: var(--muted); font-size: 10px; }
+.download-manager-tabs { padding: 6px 12px; display: flex; align-items: center; gap: 4px; background: var(--color-bg-surface-hover); border-bottom: 1px solid var(--line); }
+.download-manager-tabs button { min-width: 72px; height: 34px; padding: 0 12px; color: var(--muted); background: transparent; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.download-manager-tabs button:hover { background: var(--surface-hover); }
+.download-manager-tabs button.is-active { color: var(--color-text-on-accent); background: var(--accent); font-weight: 650; }
+.download-manager-list { min-height: 0; padding: 8px 12px; overflow-y: auto; display: grid; align-content: start; gap: 2px; }
+.download-manager-empty { min-height: 220px; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.download-manager-item { min-width: 0; min-height: 76px; padding: 9px 8px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 34px; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+.download-manager-item:hover { background: var(--surface-hover); }
+.download-kind-icon { width: 40px; height: 40px; display: grid; place-items: center; color: var(--accent); background: var(--color-accent-soft); border-radius: 7px; }
+.download-kind-icon.kind-video { color: var(--color-status-danger); background: color-mix(in srgb, var(--color-status-danger) 11%, transparent); }
+.download-kind-icon.kind-audio, .download-kind-icon.kind-voice { color: var(--color-status-success); background: color-mix(in srgb, var(--color-status-success) 11%, transparent); }
+.download-item-copy { min-width: 0; display: grid; gap: 3px; }
+.download-item-copy > strong, .download-item-copy > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.download-item-copy > strong { font-size: 12px; font-weight: 650; }
+.download-item-copy > small { color: var(--muted); font-size: 10px; }
+.download-progress-track { position: relative; width: 100%; height: 4px; overflow: hidden; background: var(--color-bg-control); border-radius: 2px; }
+.download-progress-track > span { height: 100%; display: block; background: var(--accent); border-radius: inherit; transition: width 140ms linear; }
+.download-item-status { display: flex; justify-content: space-between; color: var(--muted); font-variant-numeric: tabular-nums; }
+.download-item-status small { font-size: 9px; }
+.download-item-action button { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; color: var(--accent); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
+.download-item-action button:hover { background: var(--color-accent-soft); }
+.download-manager-footer { padding: 0 14px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); border-top: 1px solid var(--line); font-size: 10px; }
+.download-manager-footer button { min-height: 34px; padding: 0 10px; display: inline-flex; align-items: center; gap: 7px; color: var(--accent); background: var(--color-accent-soft); border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 650; }
 .settings-categories {
   grid-column: 1; grid-row: 2; min-height: 0; padding: 8px 6px; overflow-y: auto;
   background: var(--color-bg-surface-hover); border-right: 1px solid var(--line);
