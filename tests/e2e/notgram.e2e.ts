@@ -2276,6 +2276,20 @@ test("search paginates, filters the current conversation, and opens exact messag
   await expect(newestSearchResult).toHaveClass(/message-row/);
   await expect(newestSearchResult.locator(".message-bubble")).toBeVisible();
   await expect(newestSearchResult.locator(".message-search-highlight")).toHaveText("产品讨论历史消息");
+  const searchResultJump = newestSearchResult.getByRole("button", { name: /跳转到消息原位置/ });
+  await expect(searchResultJump).toBeVisible();
+  await searchResultJump.click();
+  await expect(conversationSearch).toBeHidden();
+  await expect(page.getByRole("log", { name: "消息列表" })).toBeVisible();
+  await expect(page.locator("[data-conversation-search-message-id]")).toHaveCount(0);
+  const searchSourceMessage = page.locator('[data-message-id="p-old-36"]');
+  await expect(searchSourceMessage).toHaveClass(/is-notification-target/);
+  await expect(searchSourceMessage).toBeInViewport();
+
+  await page.keyboard.press("Control+F");
+  await expect(conversationSearch).toBeFocused();
+  await conversationSearch.fill("产品讨论历史消息");
+  await expect.poll(() => page.locator("[data-conversation-search-message-id]").count()).toBeGreaterThan(0);
   await page.getByRole("button", { name: "加载更早结果" }).click();
   await expect(page.getByRole("button", { name: "加载更早结果" })).toHaveCount(0);
   await page.getByRole("button", { name: "下一个搜索结果" }).click();
@@ -4347,7 +4361,7 @@ test("messages support pin lists, notification scope, and auto-delete settings",
   await expect(pinnedList).toContainText("早上好，左侧会话列表的密度已经调整好了。");
   await expect(pinnedList).toContainText("我把交互稿更新到最新版本了");
   await expect(pinnedList).not.toContainText("看到了。消息区再留一点呼吸感");
-  const locateButton = pinnedList.getByRole("button", { name: /定位到原消息：早上好/ });
+  const locateButton = pinnedList.getByRole("button", { name: /跳转到消息原位置：早上好/ });
   const locateGeometry = await locateButton.evaluate((button) => {
     const shell = button.closest<HTMLElement>(".message-bubble-shell")!;
     const buttonBounds = button.getBoundingClientRect();
@@ -4359,7 +4373,7 @@ test("messages support pin lists, notification scope, and auto-delete settings",
       topOffset: buttonBounds.top - shellBounds.top,
     };
   });
-  expect(locateGeometry).toEqual({ width: 28, height: 28, rightOffset: 18, topOffset: 5 });
+  expect(locateGeometry).toEqual({ width: 28, height: 28, rightOffset: -5, topOffset: 5 });
   expect(await horizontalOverflow(page)).toBe(false);
 
   await page.getByRole("button", { name: "返回会话" }).click();

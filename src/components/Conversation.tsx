@@ -107,6 +107,27 @@ VirtualMessageListContent.displayName = "VirtualMessageListContent";
 const EmptyMessageList = () => <div className="messages-empty">没有匹配的消息</div>;
 const EmptyPinnedMessageList = () => <div className="messages-empty">当前没有置顶消息</div>;
 
+const MessageSourceLocateButton = ({
+  message,
+  onLocate,
+}: {
+  message: Message;
+  onLocate: (chatId: string, messageId: string) => void;
+}) => (
+  <button
+    className="message-source-locate"
+    type="button"
+    aria-label={`跳转到消息原位置：${messageSummary(message.content)}`}
+    title="跳转到消息原位置"
+    onClick={(event) => {
+      event.stopPropagation();
+      onLocate(message.chatId, message.id);
+    }}
+  >
+    <ArrowUpRight size={15} strokeWidth={2.1} />
+  </button>
+);
+
 const messageListComponents: Components<VirtualMessageBlock> = {
   EmptyPlaceholder: EmptyMessageList,
   List: VirtualMessageListContent,
@@ -1326,12 +1347,15 @@ export function Conversation({
       pinnedReturnAnchorRef.current = undefined;
       closePinnedView();
     }
-    if (messageSearchActive) closeMessageSearch();
+    if (messageSearchActive) {
+      closeMessageSearch();
+      requestAnimationFrame(() => {
+        onOpenMessage(chatId, messageId, { loadContext: true, behavior: "auto" });
+      });
+      return;
+    }
     onOpenMessage(chatId, messageId);
   };
-
-  const locatePinnedMessage = (message: Message) =>
-    openMessageInHistory(message.chatId, message.id);
 
   const confirmPin = async (disableNotification: boolean, onlyForSelf: boolean) => {
     if (!pinTarget || pinPending) return;
@@ -1562,7 +1586,7 @@ export function Conversation({
         )}
         <Virtuoso
           key={virtuosoKey}
-          className={`message-list ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (historyLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
+          className={`message-list ${messageSearchActive ? "is-search-results" : ""} ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (historyLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
           ref={virtuosoRef}
           scrollerRef={setMessageListRef}
           isScrolling={setMessageListScrolling}
@@ -1713,16 +1737,11 @@ export function Conversation({
                         onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}
                         onActivateSearchResult={messageSearchActive ? activateSearchResult : undefined}
-                        cornerAction={pinnedViewOpen ? (
-                          <button
-                            className="pinned-message-locate"
-                            type="button"
-                            aria-label={`定位到原消息：${messageSummary(message.content)}`}
-                            title="定位到原消息"
-                            onClick={() => locatePinnedMessage(message)}
-                          >
-                            <ArrowUpRight size={15} strokeWidth={2.1} />
-                          </button>
+                        cornerAction={!selectionMode && (pinnedViewOpen || messageSearchActive) ? (
+                          <MessageSourceLocateButton
+                            message={message}
+                            onLocate={openMessageInHistory}
+                          />
                         ) : undefined}
                         albumItem={albumItem}
                         autoplayAnimations={autoplayAnimations}
