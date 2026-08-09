@@ -455,7 +455,7 @@ const messages: Message[] = [
     delivery: "read",
     content: {
       kind: "text",
-      text: "**Markdown 粗体**、*斜体*、~~删除线~~\n\n- 支持列表\n- 支持 `code` 与 [链接](https://example.com)",
+      text: "**Markdown 粗体**、*斜体*、~~删除线~~\n\n- 支持列表\n- 支持 `code` 与 [链接](https://t.me/mia_design)",
     },
   },
   {
@@ -470,7 +470,7 @@ const messages: Message[] = [
       text: "TDLib bold link",
       entities: [
         { offset: 6, length: 4, kind: "bold" },
-        { offset: 11, length: 4, kind: "textUrl", href: "https://example.com/rich" },
+        { offset: 11, length: 4, kind: "textUrl", href: "https://t.me/addtheme/NotgramTheme" },
       ],
     },
   },

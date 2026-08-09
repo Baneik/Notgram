@@ -329,10 +329,10 @@ export type PrivacySettingKey = "showStatus" | "showPhoneNumber" | "showProfileP
 export type PrivacyRuleKind = "allowAll" | "allowContacts" | "allowUsers" | "restrictAll" | "restrictContacts" | "restrictUsers";
 export interface PrivacyRule { kind: PrivacyRuleKind; userIds?: string[]; }
 
-export interface TelegramLinkTarget {
-  chatId: string;
-  messageId?: string;
-}
+export type TelegramLinkTarget =
+  | { chatId: string; messageId?: string }
+  | { kind: "user"; userId: string }
+  | { kind: "unsupported"; reason: string; linkType?: string };
 
 export interface ProfileMember {
   user: User;

@@ -120,6 +120,10 @@ import type {
   User,
 } from "./types";
 import { DEFAULT_CHAT_PERMISSIONS, DEFAULT_CHAT_ADMIN_RIGHTS } from "./chatManagement";
+import {
+  knownUnsupportedTelegramLink,
+  unsupportedTelegramLink,
+} from "./telegramLinks";
 
 interface RuntimeStatus {
   backend: string;
@@ -1224,12 +1228,63 @@ export class TauriTelegramTransport implements TelegramTransport {
     const isTelegram = parsed.protocol === "tg:" || host === "t.me" || host === "telegram.me" || host === "telegram.dog";
     if (!isTelegram) return undefined;
 
+    const knownUnsupported = knownUnsupportedTelegramLink(url);
+    if (knownUnsupported) return knownUnsupported;
+
+    if (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "user") {
+      const userId = parsed.searchParams.get("id");
+      if (!userId || !/^-?\d+$/.test(userId)) {
+        return unsupportedTelegramLink(undefined, "Telegram 用户链接无效");
+      }
+      const rawUser = this.rawUsers.get(userId) ?? await this.request({
+        "@type": "getUser",
+        user_id: numericId(userId),
+      }).catch(() => undefined);
+      if (!rawUser || !tdId(rawUser.id)) {
+        return unsupportedTelegramLink(undefined, "找不到链接中的 Telegram 用户");
+      }
+      this.upsertUser(rawUser);
+      return { kind: "user", userId };
+    }
+
+    const rawLinkType = await this.request({
+      "@type": "getInternalLinkType",
+      link: parsed.toString(),
+    }).catch(() => undefined);
+    const linkType = typeof rawLinkType?.["@type"] === "string"
+      ? rawLinkType["@type"]
+      : undefined;
+    if (linkType === "internalLinkTypeUserPhoneNumber") {
+      const phoneNumber = typeof rawLinkType?.phone_number === "string"
+        ? rawLinkType.phone_number
+        : undefined;
+      if (!phoneNumber) return unsupportedTelegramLink(linkType, "Telegram 用户链接无效");
+      const rawUser = await this.request({
+        "@type": "searchUserByPhoneNumber",
+        phone_number: phoneNumber,
+        only_local: false,
+      }).catch(() => undefined);
+      const userId = tdId(rawUser?.id);
+      if (!rawUser || !userId) {
+        return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 用户");
+      }
+      this.upsertUser(rawUser);
+      if (rawLinkType?.open_profile === false) {
+        const chat = await this.createPrivateChat(userId).catch(() => undefined);
+        if (chat) return { chatId: chat.id };
+      }
+      return { kind: "user", userId };
+    }
+    if (linkType && linkType !== "ok" && linkType !== "internalLinkTypeMessage" && linkType !== "internalLinkTypePublicChat") {
+      return unsupportedTelegramLink(linkType);
+    }
+
     const path = parsed.pathname.split("/").filter(Boolean);
-    const hasMessageReference = parsed.protocol === "tg:"
+    const hasMessageReference = linkType === "internalLinkTypeMessage" || (parsed.protocol === "tg:"
       ? /^\d+$/.test(parsed.searchParams.get("post") ?? "")
       : path[0]?.toLowerCase() === "c"
         ? /^\d+$/.test(path[2] ?? "")
-        : /^\d+$/.test(path[1] ?? "");
+        : /^\d+$/.test(path[1] ?? ""));
     if (hasMessageReference) {
       const linkInfo = await this.request({
         "@type": "getMessageLinkInfo",
@@ -1246,6 +1301,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         if (linkedMessage) this.emitMessage(linkedMessage);
         return { chatId: linkedChatId, messageId: tdId(linkedMessage?.id) || undefined };
       }
+      return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 消息，或当前账号无权访问");
     }
     if (parsed.protocol !== "tg:" && path[0]?.toLowerCase() === "c" && /^\d+$/.test(path[1] ?? "")) {
       const internalChatId = `-100${path[1]}`;
@@ -1254,14 +1310,21 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.upsertChat(raw);
         return { chatId: internalChatId };
       }
-      return undefined;
+      return unsupportedTelegramLink(undefined, "找不到链接中的 Telegram 会话，或当前账号无权访问");
     }
-    const domain = parsed.protocol === "tg:" ? parsed.searchParams.get("domain") : path[0];
-    if (!domain || !/^[A-Za-z0-9_]{5,32}$/.test(domain)) return undefined;
-    const raw = await this.request({ "@type": "searchPublicChat", username: domain });
+    const domain = linkType === "internalLinkTypePublicChat" && typeof rawLinkType?.chat_username === "string"
+      ? rawLinkType.chat_username
+      : parsed.protocol === "tg:" ? parsed.searchParams.get("domain") : path[0];
+    if (!domain || !/^[A-Za-z0-9_]{5,32}$/.test(domain)) {
+      return unsupportedTelegramLink(linkType ?? "internalLinkTypeUnknownDeepLink");
+    }
+    const raw = await this.request({ "@type": "searchPublicChat", username: domain }).catch(() => undefined);
+    if (!raw) return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 会话或用户");
     const chatId = tdId(raw.id);
     const chatType = asTdObject(raw.type);
-    if (!chatId || (chatType?.["@type"] !== "chatTypeSupergroup" && chatType?.["@type"] !== "chatTypeBasicGroup")) return undefined;
+    if (!chatId || !["chatTypePrivate", "chatTypeSupergroup", "chatTypeBasicGroup"].includes(String(chatType?.["@type"]))) {
+      return unsupportedTelegramLink(linkType, "此 Telegram 会话类型暂时无法在 Notgram 中打开");
+    }
     this.upsertChat(raw);
     return { chatId };
   }

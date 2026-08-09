@@ -2596,6 +2596,25 @@ test("reply previews jump to their source and channel senders keep their identit
 
 });
 
+test("Telegram links navigate internally and incompatible routes stay in Notgram", async ({ page, context }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const initialPageCount = context.pages().length;
+
+  await page.locator('[data-message-id="p-markdown"]').getByRole("link", { name: "链接" }).click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  expect(context.pages()).toHaveLength(initialPageCount);
+
+  await page.locator('[data-chat-id="chat-product"]').click();
+  const themeLink = page.locator('[data-message-id="p-rich-entities"]').getByRole("link", { name: "link" });
+  await expect(themeLink).toBeVisible();
+  await themeLink.click();
+
+  await expect(page.getByRole("alert")).toContainText("Telegram 主题链接与 Notgram 不兼容");
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+  expect(context.pages()).toHaveLength(initialPageCount);
+});
+
 test("text message time stays on the last line when it fits and wraps without widening the bubble", async ({ page }) => {
   await page.goto("/");
   const shortMessage = page.locator('[data-message-id="p-rich-entities"]');

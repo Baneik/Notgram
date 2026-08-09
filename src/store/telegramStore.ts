@@ -1519,7 +1519,15 @@ export const createTelegramStore = (
 
       resolveTelegramLink: async (url) => {
         try {
-          return await transport.resolveTelegramLink(url);
+          const target = await transport.resolveTelegramLink(url);
+          if (target && "kind" in target && target.kind === "unsupported") {
+            set({ operationError: target.reason });
+          } else if (!target) {
+            set({ operationError: "无法识别或打开此 Telegram 链接" });
+          } else {
+            set({ operationError: undefined });
+          }
+          return target;
         } catch (error) {
           set({ operationError: error instanceof Error ? error.message : "Telegram 链接无法打开" });
           return undefined;
