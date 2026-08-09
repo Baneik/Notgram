@@ -1439,6 +1439,13 @@ export function Conversation({
     if (editingMessage) {
       setEditingMessage(undefined);
     }
+    // Persist the reply target immediately. Message updates can replace the
+    // `messagesById` map before the composer debounce runs; without a draft
+    // target the sync effect treats that update as a cancelled reply.
+    const currentDraft = telegramStore.getState().drafts.get(
+      topic ? `${chat.id}:topic:${topic.id}` : chat.id,
+    );
+    onDraftChange(chat.id, currentDraft?.text ?? "", message.id);
     setReplyingTo(message);
     setActionMenu(undefined);
     focusComposer();

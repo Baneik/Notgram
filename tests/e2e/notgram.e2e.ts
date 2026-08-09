@@ -2986,9 +2986,41 @@ test("chat switching and ordinary message interactions keep typing focus in the 
   await expect(page.getByRole("searchbox", { name: "搜索当前对话" })).toBeFocused();
 });
 
+test("reply context survives concurrent message updates and is sent", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await revealVirtualMessage(page, "p-2");
+  const source = page.locator('[data-message-id="p-2"]');
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+  await expect(page.locator(".composer-context.is-replying")).toBeVisible();
+
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, unknown[]> };
+        setState: (state: { messages: Map<string, unknown[]> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    module.telegramStore.setState({ messages: new Map(state.messages) });
+  }, "/src/store/telegramStore.ts");
+
+  await expect(page.locator(".composer-context.is-replying")).toBeVisible();
+  await composer.fill("消息刷新后仍保留引用");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const sent = page.locator(
+    ".message-row.is-outgoing",
+    { hasText: "消息刷新后仍保留引用" },
+  ).last();
+  await expect(sent).toBeVisible();
+  await expect(sent.locator(".message-reply-preview")).toBeVisible();
+});
+
 test("canceling a draft reply removes the persisted reply target", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });
+  await revealVirtualMessage(page, "p-2");
   const source = page.locator('[data-message-id="p-2"]');
   await source.locator(".message-bubble-shell").click({ button: "right" });
   await chooseMessageMenuItem(page, "回复");
