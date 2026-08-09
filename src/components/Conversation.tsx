@@ -454,6 +454,8 @@ export function Conversation({
     onClearSearch: onClearSearchMessages,
   });
   const messageSearchInputRef = useRef<HTMLInputElement>(null);
+  const searchResultScrollFrameRef = useRef<number | undefined>(undefined);
+  const pendingInitialSearchResultScrollRef = useRef<string | undefined>(undefined);
   const [activeSearchResultId, setActiveSearchResultId] = useState<string>();
   const renderedMessages = useMemo(
     () => {
@@ -508,15 +510,18 @@ export function Conversation({
 
   useEffect(() => {
     if (!messageSearchActive || matchingMessages.length === 0) {
-      setActiveSearchResultId(undefined);
+      pendingInitialSearchResultScrollRef.current = undefined;
+      if (activeSearchResultId !== undefined) setActiveSearchResultId(undefined);
       return;
     }
-    setActiveSearchResultId((current) =>
-      current && matchingMessages.some((message) => message.id === current)
-        ? current
-        : matchingMessages[0]?.id,
-    );
-  }, [matchingMessages, messageSearchActive]);
+    if (
+      activeSearchResultId &&
+      matchingMessages.some((message) => message.id === activeSearchResultId)
+    ) return;
+    const nextResultId = matchingMessages[0]?.id;
+    pendingInitialSearchResultScrollRef.current = nextResultId;
+    setActiveSearchResultId(nextResultId);
+  }, [activeSearchResultId, matchingMessages, messageSearchActive]);
 
   const messageProjection = useMemo(() => {
     const startedAt = performance.now();
@@ -766,19 +771,38 @@ export function Conversation({
     renderedMessages.length,
   ]);
 
-  useLayoutEffect(() => {
-    if (!messageSearchActive || !activeSearchResultId) return;
-    const itemIndex = messageItemIndexes.get(activeSearchResultId);
+  const scrollToSearchResult = useCallback((messageId: string) => {
+    const itemIndex = messageItemIndexes.get(messageId);
     if (itemIndex === undefined) return;
-    const frame = requestAnimationFrame(() => {
+    if (searchResultScrollFrameRef.current !== undefined) {
+      cancelAnimationFrame(searchResultScrollFrameRef.current);
+    }
+    searchResultScrollFrameRef.current = requestAnimationFrame(() => {
+      searchResultScrollFrameRef.current = undefined;
       virtuosoRef.current?.scrollToIndex({
         index: itemIndex,
         align: "center",
         behavior: "auto",
       });
     });
-    return () => cancelAnimationFrame(frame);
-  }, [activeSearchResultId, messageItemIndexes, messageSearchActive, virtuosoRef]);
+  }, [messageItemIndexes, virtuosoRef]);
+
+  useLayoutEffect(() => {
+    if (
+      !messageSearchActive ||
+      !activeSearchResultId ||
+      pendingInitialSearchResultScrollRef.current !== activeSearchResultId ||
+      !messageItemIndexes.has(activeSearchResultId)
+    ) return;
+    pendingInitialSearchResultScrollRef.current = undefined;
+    scrollToSearchResult(activeSearchResultId);
+  }, [activeSearchResultId, messageItemIndexes, messageSearchActive, scrollToSearchResult]);
+
+  useEffect(() => () => {
+    if (searchResultScrollFrameRef.current !== undefined) {
+      cancelAnimationFrame(searchResultScrollFrameRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (pinnedViewOpen || !messageListElement || !pinnedMessageIdsKey) {
@@ -1196,7 +1220,9 @@ export function Conversation({
     : -1;
   const chatMessageSearchHasMore = Boolean(chatMessageSearch.nextFromMessageId);
   const activateSearchResult = (target: Message) => {
+    pendingInitialSearchResultScrollRef.current = undefined;
     setActiveSearchResultId(target.id);
+    scrollToSearchResult(target.id);
     globalThis.setTimeout(() => messageSearchInputRef.current?.focus(), 0);
   };
   const openSearchResult = (direction: "older" | "newer") => {

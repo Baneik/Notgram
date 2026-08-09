@@ -66,6 +66,8 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Keep an in-conversation search timeline at the user's reading position when
+  older result pages are prepended instead of repeatedly returning to the latest match.
 - Keep pinned-message jumps smooth by avoiding redundant same-chat selection,
   suppressing the transient target flash, and ignoring clicks when the pinned
   source message is already visible.

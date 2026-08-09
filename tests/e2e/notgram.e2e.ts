@@ -2292,6 +2292,7 @@ test("search paginates, filters the current conversation, and opens exact messag
   await expect.poll(() => page.locator("[data-conversation-search-message-id]").count()).toBeGreaterThan(0);
   await page.getByRole("button", { name: "加载更早结果" }).click();
   await expect(page.getByRole("button", { name: "加载更早结果" })).toHaveCount(0);
+  await expect(page.locator('[data-conversation-search-message-id="p-old-36"]')).not.toBeInViewport();
   await page.getByRole("button", { name: "下一个搜索结果" }).click();
   const olderLocatedMessage = page.locator('[data-message-id="p-old-35"]');
   await expect(olderLocatedMessage).toHaveClass(/is-search-current/);
