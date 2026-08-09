@@ -78,6 +78,7 @@ interface MessageBubbleProps {
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
   forwardLabel?: string;
+  onOpenForwardSource?: () => void;
   selectionMode: boolean;
   selected: boolean;
   highlighted: boolean;
@@ -137,6 +138,7 @@ function MessageBubbleComponent({
   groupPosition,
   replyPreview,
   forwardLabel,
+  onOpenForwardSource,
   selectionMode,
   selected,
   highlighted,
@@ -560,10 +562,22 @@ function MessageBubbleComponent({
       >
         <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
-            <span className="message-forward-label">
-              <Forward size={12} strokeWidth={2} />
-              {forwardLabel}
-            </span>
+            onOpenForwardSource ? (
+              <button
+                className="message-forward-label"
+                type="button"
+                aria-label={`打开${forwardLabel}`}
+                onClick={onOpenForwardSource}
+              >
+                <Forward size={12} strokeWidth={2} />
+                {forwardLabel}
+              </button>
+            ) : (
+              <span className="message-forward-label">
+                <Forward size={12} strokeWidth={2} />
+                {forwardLabel}
+              </span>
+            )
           )}
           {!isService && showSender && (
             <div className="message-sender-row">

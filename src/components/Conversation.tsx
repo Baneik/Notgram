@@ -49,7 +49,7 @@ import {
   SenderActionMenu,
 } from "./ConversationOverlays";
 import {
-  forwardLabelFor,
+  forwardSourceFor,
   messageSummary,
   replyPreviewFor,
   senderChatId,
@@ -203,6 +203,7 @@ interface ConversationProps {
     options?: MessageNavigationOptions,
   ) => void;
   onOpenMessageSearch: (senderId?: string) => void;
+  onOpenChat: (chatId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
@@ -273,6 +274,7 @@ export function Conversation({
   onPositioned,
   onOpenMessage,
   onOpenMessageSearch,
+  onOpenChat,
   onOpenSenderProfile,
   onSetChatPinned,
   onSetChatMuted,
@@ -1463,6 +1465,8 @@ export function Conversation({
                   ).map((segment) => {
                     const renderBubble = (message: Message, albumItem = false) => {
                       const entrance = messageEntranceFor(message);
+                      const forwardSource = forwardSourceFor(message, users, forwardTargetsById);
+                      const forwardNavigation = forwardSource?.navigation;
                       return <RichMessageBubble
                         key={message.renderKey ?? message.id}
                         message={message}
@@ -1479,7 +1483,16 @@ export function Conversation({
                           forwardTargetsById,
                           currentUserId,
                         )}
-                        forwardLabel={forwardLabelFor(message, users, forwardTargetsById)}
+                        forwardLabel={forwardSource?.label}
+                        onOpenForwardSource={!selectionMode && forwardNavigation ? () => {
+                          if (forwardNavigation.kind === "message") {
+                            openMessageInHistory(forwardNavigation.chatId, forwardNavigation.messageId);
+                          } else if (forwardNavigation.kind === "chat") {
+                            onOpenChat(forwardNavigation.chatId);
+                          } else {
+                            onOpenSenderProfile(forwardNavigation.userId);
+                          }
+                        } : undefined}
                         selectionMode={selectionMode}
                         selected={selectedMessageIds.has(message.id)}
                         highlighted={highlightedMessageId === message.id}

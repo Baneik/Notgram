@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Chat, Message, User } from "../telegram/types";
-import { replyPreviewFor } from "./conversationMessages";
+import { forwardSourceFor, replyPreviewFor } from "./conversationMessages";
 
 const linkedChannelPost = (overrides: Partial<Message> = {}): Message => ({
   id: "group-copy",
@@ -93,5 +93,47 @@ describe("reply preview authors", () => {
       new Map([[currentUser.id, currentUser]]),
       chat,
     )?.author).toBe("林然");
+  });
+});
+
+describe("forward sources", () => {
+  it("targets the exact source message when Telegram provides it", () => {
+    const sourceChat = { id: "source-channel", kind: "channel", title: "Release Notes" } as Chat;
+
+    expect(forwardSourceFor(
+      linkedChannelPost(),
+      new Map(),
+      new Map([[sourceChat.id, sourceChat]]),
+    )).toEqual({
+      label: "转发自 Release Notes",
+      navigation: { kind: "message", chatId: sourceChat.id, messageId: "source-message" },
+    });
+  });
+
+  it("opens a member profile when a forwarded user has no source message", () => {
+    const member: User = {
+      id: "u-member",
+      displayName: "Mia",
+      avatar: { label: "M", color: "#667788" },
+      presence: "offline",
+    };
+    const message = linkedChannelPost({
+      forwardInfo: { origin: { kind: "user", userId: member.id } },
+    });
+
+    expect(forwardSourceFor(message, new Map([[member.id, member]]), new Map())).toEqual({
+      label: "转发自 Mia",
+      navigation: { kind: "user", userId: member.id },
+    });
+  });
+
+  it("keeps hidden senders non-interactive", () => {
+    const message = linkedChannelPost({
+      forwardInfo: { origin: { kind: "hiddenUser", senderName: "Hidden sender" } },
+    });
+
+    expect(forwardSourceFor(message, new Map(), new Map())).toEqual({
+      label: "转发自 Hidden sender",
+    });
   });
 });
