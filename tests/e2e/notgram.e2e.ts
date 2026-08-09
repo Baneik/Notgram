@@ -49,7 +49,10 @@ const latestMessageBottomGap = (page: Page) => page.locator(".message-list").eva
 const visibleMessageAnchor = (page: Page) => page.locator(".message-list").evaluate((element) => {
   const listBounds = element.getBoundingClientRect();
   const row = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
-    .find((candidate) => candidate.getBoundingClientRect().bottom > listBounds.top + 1);
+    .find((candidate) => {
+      const bounds = candidate.getBoundingClientRect();
+      return bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1;
+    });
   return {
     id: row?.dataset.messageId,
     offset: row ? row.getBoundingClientRect().top - listBounds.top : 0,
@@ -3821,6 +3824,57 @@ test("developer mode copies the complete raw unknown message", async ({ page, co
     id: "p-2",
     chat_id: "chat-product",
   });
+});
+
+const messageViewportOffset = (page: Page, messageId: string) =>
+  page.locator(`[data-message-id="${messageId}"]`).evaluate((element) => {
+    const list = element.closest<HTMLElement>(".message-list");
+    if (!list) return Number.POSITIVE_INFINITY;
+    return element.getBoundingClientRect().top - list.getBoundingClientRect().top;
+  });
+
+test("message jumps return through prior reading positions before returning to latest", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const source = page.locator('[data-message-id="p-channel-reply"]');
+  await expect(source).toBeVisible();
+  await source.scrollIntoViewIfNeeded();
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  const originalSourceOffset = await messageViewportOffset(page, "p-channel-reply");
+
+  await source.locator(".message-reply-preview").click();
+  const firstTarget = page.locator('[data-message-id="p-old-8"]');
+  await expect(firstTarget).toHaveClass(/is-notification-target/);
+  await expect.poll(() => firstTarget.evaluate((element) => {
+    const list = element.closest(".message-list")?.getBoundingClientRect();
+    const row = element.getBoundingClientRect();
+    return list
+      ? Math.abs((row.top + row.bottom) / 2 - (list.top + list.bottom) / 2)
+      : Number.POSITIVE_INFINITY;
+  })).toBeLessThan(2);
+  await expect(page.getByRole("button", { name: "返回跳转前位置，可回退 1 次" })).toBeVisible();
+  const firstTargetOffset = await messageViewportOffset(page, "p-old-8");
+
+  await page.locator(".pinned-message-preview").click();
+  await expect(page.locator('[data-message-id="p-4"]')).toBeVisible();
+  const returnButton = page.getByRole("button", { name: "返回跳转前位置，可回退 2 次" });
+  await expect(returnButton).toBeVisible();
+
+  await returnButton.click();
+  await expect(firstTarget).toBeAttached();
+  await expect.poll(async () => Math.abs(
+    await messageViewportOffset(page, "p-old-8") - firstTargetOffset,
+  )).toBeLessThanOrEqual(2);
+
+  await page.getByRole("button", { name: "返回跳转前位置，可回退 1 次" }).click();
+  await expect(source).toBeAttached();
+  await expect.poll(async () => Math.abs(
+    await messageViewportOffset(page, "p-channel-reply") - originalSourceOffset,
+  )).toBeLessThanOrEqual(2);
+  await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^跳到最新消息/ })).toBeVisible();
 });
 
 test("conversation scroll state follows, restores, counts, and resets to latest", async ({ page }) => {
