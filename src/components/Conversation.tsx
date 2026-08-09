@@ -92,6 +92,11 @@ import {
 } from "../hooks/usePinnedMessages";
 import { PinnedMessageBanner } from "./PinnedMessageBanner";
 import { conversationHeaderStatus } from "../utils/conversationHeaderStatus";
+import {
+  audioPlaybackController,
+  type AudioTrackDescriptor,
+} from "../media/audioPlayback";
+import { localMediaSource } from "../media/localMediaSource";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 type MessageNavigationOptions = Pick<
@@ -540,15 +545,62 @@ export function Conversation({
   const messagesById = useMemo(() => new Map(
     [...displayMessages, ...allPinnedMessages, ...renderedMessages].map((message) => [message.id, message]),
   ), [allPinnedMessages, displayMessages, renderedMessages]);
-  const nextAudioPlaybackIdByMessage = useMemo(() => {
+  const audioPlaybackNeighborsByMessage = useMemo(() => {
     const audioMessages = renderedMessages.filter((message) =>
       message.content.kind === "media" && ["audio", "voice"].includes(message.content.mediaType)
     );
-    return new Map(audioMessages.slice(0, -1).map((message, index) => [
-      message.id,
-      `${message.chatId}:${audioMessages[index + 1].id}`,
-    ]));
+    return new Map(audioMessages.map((message, index) => [message.id, {
+      previousId: index > 0
+        ? `${audioMessages[index - 1].chatId}:${audioMessages[index - 1].id}`
+        : undefined,
+      nextId: index < audioMessages.length - 1
+        ? `${audioMessages[index + 1].chatId}:${audioMessages[index + 1].id}`
+        : undefined,
+    }]));
   }, [renderedMessages]);
+  const audioTrackQueue = useMemo<AudioTrackDescriptor[]>(() => renderedMessages.flatMap((message) => {
+    const content = message.content;
+    if (content.kind !== "media" || !["audio", "voice"].includes(content.mediaType)) return [];
+    const neighbors = audioPlaybackNeighborsByMessage.get(message.id);
+    const canDownload = content.fileId !== undefined &&
+      content.canDownload !== false &&
+      !content.isDownloaded &&
+      !content.isDownloading;
+    const canCancelDownload = content.fileId !== undefined && content.isDownloading === true;
+    return [{
+      id: `${message.chatId}:${message.id}`,
+      label: content.fileName,
+      source: localMediaSource(content.localPath),
+      fileId: content.fileId,
+      size: content.size,
+      mimeType: content.mimeType,
+      durationHint: content.duration,
+      previousId: neighbors?.previousId,
+      nextId: neighbors?.nextId,
+      downloadProgress: content.progress,
+      onRequestStream: onStreamFile,
+      onSuspendStream: content.fileId !== undefined
+        ? () => { void onSuspendFileStream(content.fileId!); }
+        : undefined,
+      onDownload: canDownload && content.fileId !== undefined
+        ? () => { void onDownloadFile(content.fileId!, content.fileName); }
+        : undefined,
+      onCancelDownload: canCancelDownload && content.fileId !== undefined
+        ? () => { void onCancelFileDownload(content.fileId!); }
+        : undefined,
+    }];
+  }), [
+    audioPlaybackNeighborsByMessage,
+    onCancelFileDownload,
+    onDownloadFile,
+    onStreamFile,
+    onSuspendFileStream,
+    renderedMessages,
+  ]);
+
+  useEffect(() => {
+    audioPlaybackController.registerTracks(audioTrackQueue);
+  }, [audioTrackQueue]);
 
   const forwardTargetsById = useMemo(
     () => new Map(forwardTargets.map((target) => [target.id, target])),
@@ -1519,7 +1571,8 @@ export function Conversation({
                           ? pinFollowingMessageMount
                           : undefined}
                         deferUntilPinned={message.id === appendMountMessageId}
-                        nextAudioPlaybackId={nextAudioPlaybackIdByMessage.get(message.id)}
+                        previousAudioPlaybackId={audioPlaybackNeighborsByMessage.get(message.id)?.previousId}
+                        nextAudioPlaybackId={audioPlaybackNeighborsByMessage.get(message.id)?.nextId}
                         onOpenReply={openMessageInHistory}
                         onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}

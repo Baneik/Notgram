@@ -1,4 +1,3 @@
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { Download, Image as ImageIcon, LoaderCircle, MapPin } from "lucide-react";
 import katex from "katex";
 import { createElement, Fragment, useState, type CSSProperties, type ReactNode } from "react";
@@ -11,6 +10,7 @@ import type {
   MessageRichTextRun,
 } from "../telegram/types";
 import { AudioPlayer } from "./AudioPlayer";
+import { localMediaSource } from "../media/localMediaSource";
 import { VideoPlayer } from "./VideoPlayer";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { MediaProgressRing } from "./MediaProgressRing";
@@ -34,11 +34,6 @@ interface RichMessageContentProps {
 interface RenderContext extends Omit<RichMessageContentProps, "blocks" | "isRtl" | "isFull"> {
   scope: string;
 }
-
-const localSource = (path?: string) => {
-  if (!path) return undefined;
-  return isTauri() ? convertFileSrc(path) : path;
-};
 
 const scopedAnchor = (context: RenderContext, kind: "anchor" | "reference", name: string) =>
   `${context.scope}-${kind}-${encodeURIComponent(name || "top")}`;
@@ -172,8 +167,8 @@ function RichMediaBlock({ media, context, blockKey }: {
     media.autoplay,
     state,
   ));
-  const source = localSource(media.localPath);
-  const poster = localSource(media.thumbnailPath) ?? media.previewDataUrl;
+  const source = localMediaSource(media.localPath);
+  const poster = localMediaSource(media.thumbnailPath) ?? media.previewDataUrl;
   const canDownload = media.fileId !== undefined && media.canDownload !== false && !media.isDownloaded;
   const style = media.width && media.height
     ? { "--rich-media-ratio": `${media.width} / ${media.height}` } as CSSProperties
@@ -194,6 +189,9 @@ function RichMediaBlock({ media, context, blockKey }: {
         mimeType={media.mimeType}
         downloadProgress={media.progress}
         onRequestStream={context.onStream}
+        onSuspendStream={media.fileId !== undefined
+          ? () => { void context.onSuspendStream(media.fileId!); }
+          : undefined}
         onDownload={requestDownload}
         onCancelDownload={media.isDownloading && media.fileId !== undefined
           ? () => void context.onCancelDownload(media.fileId!)

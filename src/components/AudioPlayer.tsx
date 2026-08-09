@@ -1,10 +1,12 @@
 import { AlertCircle, Download, LoaderCircle, Pause, Play, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import {
-  formatPlaybackTime,
-  mediaPlaybackCoordinator,
-  nextPlaybackRate,
-} from "../media/mediaPlayback";
+  audioPlaybackController,
+  type AudioTrackDescriptor,
+  useAudioPlayback,
+} from "../media/audioPlayback";
+import { formatPlaybackTime } from "../media/mediaPlayback";
+import { AudioSpectrum } from "./AudioSpectrum";
 import { MediaProgressRing } from "./MediaProgressRing";
 
 interface AudioPlayerProps {
@@ -15,9 +17,11 @@ interface AudioPlayerProps {
   size?: number;
   mimeType?: string;
   durationHint?: number;
+  previousPlaybackId?: string;
   nextPlaybackId?: string;
   downloadProgress?: number;
   onRequestStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
+  onSuspendStream?: () => void;
   onDownload?: () => void;
   onCancelDownload?: () => void;
 }
@@ -30,169 +34,99 @@ export function AudioPlayer({
   size,
   mimeType,
   durationHint,
+  previousPlaybackId,
   nextPlaybackId,
   downloadProgress,
   onRequestStream,
+  onSuspendStream,
   onDownload,
   onCancelDownload,
 }: AudioPlayerProps) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const pendingPlayRef = useRef(false);
-  const lastRememberedSecondRef = useRef(0);
-  const [resolvedSource, setResolvedSource] = useState(source);
-  const [playing, setPlaying] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [duration, setDuration] = useState(durationHint ?? 0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const playback = useAudioPlayback();
+  const track = useMemo<AudioTrackDescriptor>(() => ({
+    id: playbackId,
+    label,
+    source,
+    fileId,
+    size,
+    mimeType,
+    durationHint,
+    previousId: previousPlaybackId,
+    nextId: nextPlaybackId,
+    downloadProgress,
+    onRequestStream,
+    onSuspendStream,
+    onDownload,
+    onCancelDownload,
+  }), [
+    downloadProgress,
+    durationHint,
+    fileId,
+    label,
+    mimeType,
+    nextPlaybackId,
+    onCancelDownload,
+    onDownload,
+    onRequestStream,
+    onSuspendStream,
+    playbackId,
+    previousPlaybackId,
+    size,
+    source,
+  ]);
 
-  useEffect(() => {
-    if (!source) return;
-    setResolvedSource(source);
-    setFailed(false);
-  }, [source]);
+  useEffect(() => audioPlaybackController.registerTrack(track), [track]);
 
-  useEffect(() => {
-    if (duration <= 0 && durationHint && durationHint > 0) setDuration(durationHint);
-  }, [duration, durationHint]);
-
-  useEffect(() => () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    mediaPlaybackCoordinator.remember(playbackId, audio.currentTime, audio.duration);
-    mediaPlaybackCoordinator.release(audio);
-  }, [playbackId]);
-
-  const startPlayback = useCallback(async () => {
-    const audio = audioRef.current;
-    if (resolvedSource && audio) {
-      await audio.play().catch(() => setFailed(true));
-      return;
-    }
-    if (loading || fileId === undefined || !size) return;
-    setLoading(true);
-    setFailed(false);
-    try {
-      const streamSource = await onRequestStream(fileId, size, mimeType);
-      if (!streamSource) {
-        setFailed(true);
-        return;
-      }
-      pendingPlayRef.current = true;
-      setResolvedSource(streamSource);
-    } catch {
-      setFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [fileId, loading, mimeType, onRequestStream, resolvedSource, size]);
-
-  useEffect(
-    () => mediaPlaybackCoordinator.registerAutoplayTarget(playbackId, () => {
-      void startPlayback();
-    }),
-    [playbackId, startPlayback],
-  );
-
-  const togglePlayback = () => {
-    const audio = audioRef.current;
-    if (!audio || !resolvedSource) {
-      void startPlayback();
-      return;
-    }
-    if (audio.paused) void audio.play().catch(() => setFailed(true));
-    else audio.pause();
-  };
-
-  const cyclePlaybackRate = () => {
-    const next = nextPlaybackRate(playbackRate);
-    if (audioRef.current) audioRef.current.playbackRate = next;
-    setPlaybackRate(next);
-  };
-
-  const canPlay = Boolean(resolvedSource || (fileId !== undefined && size && size > 0));
+  const active = playback.track?.id === playbackId;
+  const playing = active && playback.playing;
+  const loading = active && playback.loading;
+  const failed = active && playback.failed;
+  const currentTime = active ? playback.currentTime : 0;
+  const duration = active ? playback.duration : durationHint ?? 0;
+  const playbackRate = active ? playback.playbackRate : 1;
+  const canPlay = Boolean(source || (fileId !== undefined && size && size > 0));
   const playbackLabel = canPlay
     ? playing ? `暂停 ${label}` : `播放 ${label}`
     : `${label} 暂不可播放`;
 
   return (
-    <div className="audio-player" role="group" aria-label={label}>
-      <audio
-        ref={audioRef}
-        src={resolvedSource}
-        preload={resolvedSource ? "metadata" : "none"}
-        onLoadedMetadata={(event) => {
-          const audio = event.currentTarget;
-          const nextDuration = Number.isFinite(audio.duration) ? audio.duration : 0;
-          setDuration(nextDuration);
-          audio.playbackRate = playbackRate;
-          const resume = mediaPlaybackCoordinator.resumePosition(playbackId, nextDuration);
-          if (resume > 0) {
-            audio.currentTime = resume;
-            setCurrentTime(resume);
-          }
-        }}
-        onCanPlay={(event) => {
-          if (!pendingPlayRef.current) return;
-          pendingPlayRef.current = false;
-          void event.currentTarget.play().catch(() => setFailed(true));
-        }}
-        onPlay={(event) => mediaPlaybackCoordinator.activate(playbackId, event.currentTarget)}
-        onPlaying={() => { setPlaying(true); setFailed(false); }}
-        onPause={(event) => {
-          setPlaying(false);
-          mediaPlaybackCoordinator.remember(playbackId, event.currentTarget.currentTime, event.currentTarget.duration);
-          mediaPlaybackCoordinator.release(event.currentTarget);
-        }}
-        onTimeUpdate={(event) => {
-          const audio = event.currentTarget;
-          setCurrentTime(audio.currentTime);
-          const wholeSecond = Math.floor(audio.currentTime);
-          if (wholeSecond - lastRememberedSecondRef.current >= 5) {
-            lastRememberedSecondRef.current = wholeSecond;
-            mediaPlaybackCoordinator.remember(playbackId, audio.currentTime, audio.duration);
-          }
-        }}
-        onEnded={(event) => {
-          setPlaying(false);
-          setCurrentTime(0);
-          mediaPlaybackCoordinator.clear(playbackId);
-          mediaPlaybackCoordinator.release(event.currentTarget);
-          mediaPlaybackCoordinator.requestAutoplay(nextPlaybackId);
-        }}
-        onError={() => { setFailed(true); setPlaying(false); }}
-      />
+    <div className={`audio-player ${active ? "is-active" : ""}`} role="group" aria-label={label}>
       <button
         className="audio-play"
         type="button"
         aria-label={playbackLabel}
         title={canPlay ? playing ? "暂停" : "播放" : "音频文件暂不可用"}
         disabled={!canPlay}
-        onClick={togglePlayback}
+        onClick={() => audioPlaybackController.toggle(track)}
       >
         {loading
-          ? <LoaderCircle className="spin" size={17} />
-          : failed || !canPlay ? <AlertCircle size={17} />
-            : playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}
+          ? <LoaderCircle className="spin" size={18} />
+          : failed || !canPlay ? <AlertCircle size={18} />
+            : playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
       </button>
-      <span className="audio-time">{formatPlaybackTime(currentTime)}</span>
-      <input
-        className="audio-seek"
-        type="range"
-        min={0}
-        max={duration || 0}
-        step={0.1}
-        value={Math.min(currentTime, duration || 0)}
-        aria-label="播放进度"
-        onChange={(event) => {
-          const nextTime = Number(event.currentTarget.value);
-          if (audioRef.current) audioRef.current.currentTime = nextTime;
-          setCurrentTime(nextTime);
-        }}
-      />
-      <span className="audio-time">{formatPlaybackTime(duration)}</span>
-      <button className="playback-rate" type="button" aria-label={`播放速度 ${playbackRate} 倍`} title="切换播放速度" onClick={cyclePlaybackRate}>
+      <div className="audio-waveform-control">
+        <AudioSpectrum playbackId={playbackId} playing={playing} bars={30} />
+        <input
+          className="audio-seek"
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={0.1}
+          value={Math.min(currentTime, duration || 0)}
+          aria-label="播放进度"
+          disabled={!active || duration <= 0}
+          onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
+        />
+      </div>
+      <span className="audio-time">{formatPlaybackTime(currentTime)} / {formatPlaybackTime(duration)}</span>
+      <button
+        className="playback-rate"
+        type="button"
+        aria-label={`播放速度 ${playbackRate} 倍`}
+        title="切换播放速度"
+        disabled={!active}
+        onClick={() => audioPlaybackController.cyclePlaybackRate()}
+      >
         {playbackRate}x
       </button>
       {onCancelDownload ? (
@@ -210,20 +144,8 @@ export function AudioPlayer({
         </button>
       ) : onDownload && (
         <button className="audio-download" type="button" aria-label={`下载 ${label}`} title="下载音频" onClick={onDownload}>
-          <Download size={15} />
+          <Download size={16} />
         </button>
-      )}
-      {!resolvedSource && downloadProgress !== undefined && downloadProgress > 0 && !onCancelDownload && (
-        <span
-          className="audio-transfer-indicator"
-          role="progressbar"
-          aria-label="音频加载进度"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(downloadProgress * 100)}
-        >
-          <MediaProgressRing progress={downloadProgress} size={22} />
-        </span>
       )}
     </div>
   );

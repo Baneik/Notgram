@@ -21,6 +21,7 @@ import { FolderManagerDialog } from "../components/FolderManagerDialog";
 import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
 import { NewChatDialog } from "../components/NewChatDialog";
 import { ChatManagementDialog } from "../components/ChatManagementDialog";
+import { AudioPlaybackHost } from "../components/AudioPlaybackHost";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
@@ -1194,6 +1195,7 @@ export function App() {
           </Profiler>
         )}
       </main>
+      <AudioPlaybackHost />
       <MotionPresence present={Boolean(error)}>
         {error ? <div className="runtime-error" role="alert">
           <CircleAlert size={17} />
