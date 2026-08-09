@@ -31,6 +31,11 @@ import {
   markConversationSwitch,
   markHistoryInteraction,
 } from "../utils/performanceMonitor";
+import {
+  popAvailableConversationJumpAnchor,
+  pushConversationJumpAnchor,
+  type ConversationJumpAnchor,
+} from "./conversationJumpHistory";
 
 const BOTTOM_PROXIMITY_PX = 32;
 const BOTTOM_EPSILON_PX = 1;
@@ -146,6 +151,8 @@ export const useConversationScroll = ({
     generation: 0,
     mode: "restoring",
   });
+  const jumpHistoryRef = useRef(new Map<string, ConversationJumpAnchor[]>());
+  const preparedJumpRef = useRef<{ key: string; messageId: string } | undefined>(undefined);
 
   const [positionedIdentity, setPositionedIdentity] = useState<string>();
   const [hasRenderedRows, setHasRenderedRows] = useState(false);
@@ -160,6 +167,10 @@ export const useConversationScroll = ({
   const [highlightedMessage, setHighlightedMessage] = useState<{
     key: string;
     messageId: string;
+  }>();
+  const [jumpHistoryState, setJumpHistoryState] = useState<{
+    key: string;
+    count: number;
   }>();
 
   const currentScrollKey = scrollMemoryKey(scope, chatId);
@@ -193,6 +204,12 @@ export const useConversationScroll = ({
   const requestIdentityTargetId = matchingMessageRequest?.messageId ??
     matchingEntryRequest?.serverMessageId;
   const searchActive = Boolean(search);
+
+  useEffect(() => {
+    setJumpHistoryState(currentScrollKey
+      ? { key: currentScrollKey, count: jumpHistoryRef.current.get(currentScrollKey)?.length ?? 0 }
+      : undefined);
+  }, [currentScrollKey]);
   const dataPhase = virtualItemCount > 0 ? "ready" : historyLoading ? "loading" : "empty";
   const targetPhase = !requestIdentityTargetId
     ? "none"
@@ -838,6 +855,48 @@ export const useConversationScroll = ({
     settleBottomPosition,
   ]);
 
+  const publishJumpHistory = useCallback((key: string, history: ConversationJumpAnchor[]) => {
+    if (history.length > 0) jumpHistoryRef.current.set(key, history);
+    else jumpHistoryRef.current.delete(key);
+    setJumpHistoryState({ key, count: history.length });
+  }, []);
+
+  const captureJumpAnchor = useCallback((destinationMessageId: string) => {
+    const element = messageListRef.current;
+    if (
+      !element || !currentScrollKey ||
+      element.dataset.conversationVirtuosoKey !== virtuosoKey
+    ) return;
+    const bounds = element.getBoundingClientRect();
+    const destination = element.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(destinationMessageId)}"]`,
+    );
+    if (destination) {
+      const destinationBounds = destination.getBoundingClientRect();
+      if (
+        destinationBounds.bottom > bounds.top + 1 &&
+        destinationBounds.top < bounds.bottom - 1
+      ) return;
+    }
+    const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((row) => {
+        const rowBounds = row.getBoundingClientRect();
+        return rowBounds.bottom > bounds.top + 1 && rowBounds.top < bounds.bottom - 1;
+      });
+    if (!anchor?.dataset.messageId) return;
+    publishJumpHistory(
+      currentScrollKey,
+      pushConversationJumpAnchor(
+        jumpHistoryRef.current.get(currentScrollKey) ?? [],
+        {
+          messageId: anchor.dataset.messageId,
+          offset: anchor.getBoundingClientRect().top - bounds.top,
+        },
+      ),
+    );
+    preparedJumpRef.current = { key: currentScrollKey, messageId: destinationMessageId };
+  }, [currentScrollKey, publishJumpHistory, virtuosoKey]);
+
   const revealTarget = useCallback((
     messageId: string,
     behavior: "auto" | "smooth",
@@ -1041,10 +1100,46 @@ export const useConversationScroll = ({
     writeMemory,
   ]);
 
-  const revealAttentionMessage = useCallback(
-    (messageId: string) => revealTarget(messageId, "auto", true),
-    [revealTarget],
-  );
+  const revealAttentionMessage = useCallback((messageId: string) => {
+    captureJumpAnchor(messageId);
+    return revealTarget(messageId, "auto", true);
+  }, [captureJumpAnchor, revealTarget]);
+
+  const returnFromJump = useCallback(() => {
+    const element = messageListRef.current;
+    if (!currentScrollKey || !element) return false;
+    const result = popAvailableConversationJumpAnchor(
+      jumpHistoryRef.current.get(currentScrollKey) ?? [],
+      new Set(messageItemIndexesRef.current.keys()),
+    );
+    publishJumpHistory(currentScrollKey, result.history);
+    if (!result.anchor) return false;
+    stopFollowingLatest();
+    settleContentAnchorPosition(
+      element,
+      result.anchor.messageId,
+      result.anchor.offset,
+      virtuosoKey,
+      () => {
+        const current = conversationScrollMemory.get(currentScrollKey);
+        writeMemory(
+          currentScrollKey,
+          element,
+          false,
+          current?.pendingNewCount ?? 0,
+          true,
+        );
+      },
+    );
+    return true;
+  }, [
+    currentScrollKey,
+    publishJumpHistory,
+    settleContentAnchorPosition,
+    stopFollowingLatest,
+    virtuosoKey,
+    writeMemory,
+  ]);
 
   useLayoutEffect(() => {
     if (!currentScrollKey || !messageListElement) return;
@@ -1191,6 +1286,15 @@ export const useConversationScroll = ({
       !targetReady
     ) return;
     const requestId = matchingMessageRequest.requestId;
+    const prepared = preparedJumpRef.current;
+    if (
+      prepared && prepared.key === currentScrollKey &&
+      prepared.messageId === matchingMessageRequest.messageId
+    ) {
+      preparedJumpRef.current = undefined;
+    } else {
+      captureJumpAnchor(matchingMessageRequest.messageId);
+    }
     revealTarget(
       matchingMessageRequest.messageId,
       matchingMessageRequest.behavior ?? "smooth",
@@ -1202,7 +1306,7 @@ export const useConversationScroll = ({
         );
       },
     );
-  }, [matchingMessageRequest, revealTarget, targetReady]);
+  }, [captureJumpAnchor, matchingMessageRequest, revealTarget, targetReady]);
 
   useLayoutEffect(() => {
     if (
@@ -1540,6 +1644,11 @@ export const useConversationScroll = ({
       followingState?.key === currentScrollKey &&
       !followingState.followLatest
     ),
+    jumpHistoryCount: jumpHistoryState && jumpHistoryState.key === currentScrollKey
+      ? jumpHistoryState.count
+      : 0,
+    rememberJumpOrigin: captureJumpAnchor,
+    returnFromJump,
     jumpToLatest,
     pinFollowingMessageMount,
     appendMountMessageId,

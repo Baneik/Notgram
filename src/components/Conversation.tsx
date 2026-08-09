@@ -587,6 +587,9 @@ export function Conversation({
     highlightedMessageId,
     newMessageNotice,
     awayFromLatest,
+    jumpHistoryCount,
+    rememberJumpOrigin,
+    returnFromJump,
     jumpToLatest,
     pinFollowingMessageMount,
     appendMountMessageId,
@@ -690,8 +693,9 @@ export function Conversation({
         return;
       }
     }
+    rememberJumpOrigin(messageId);
     onOpenMessage(chatId, messageId, { behavior: "smooth", highlight: false });
-  }, [onOpenMessage]);
+  }, [onOpenMessage, rememberJumpOrigin]);
 
   useEffect(() => {
     const conversation = conversationRef.current;
@@ -1157,6 +1161,7 @@ export function Conversation({
       pinnedReturnAnchorRef.current = undefined;
       closePinnedView();
     }
+    rememberJumpOrigin(messageId);
     onOpenMessage(chatId, messageId);
   };
 
@@ -1589,7 +1594,7 @@ export function Conversation({
         />
         {!pinnedViewOpen && currentScrollKey && attentionMessageIds.length > 0 && (
           <button
-            className={`conversation-jump-button jump-to-attention ${awayFromLatest ? "is-stacked" : ""}`}
+            className={`conversation-jump-button jump-to-attention ${awayFromLatest || jumpHistoryCount > 0 ? "is-stacked" : ""}`}
             type="button"
             aria-label={`跳到提及或引用，${attentionMessageIds.length} 条待查看`}
             title="跳到提及或引用"
@@ -1607,15 +1612,21 @@ export function Conversation({
             <span>{attentionMessageIds.length > 99 ? "99+" : attentionMessageIds.length}</span>
           </button>
         )}
-        {!pinnedViewOpen && currentScrollKey && awayFromLatest && (
+        {!pinnedViewOpen && currentScrollKey && (jumpHistoryCount > 0 || awayFromLatest) && (
             <button
               className="conversation-jump-button jump-to-latest"
               type="button"
-              aria-label={newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0
-                ? `跳到最新消息，${newMessageNotice.count} 条新消息`
-                : "跳到最新消息"}
-              title="跳到最新消息"
-              onClick={() => jumpToLatest("auto", true)}
+              aria-label={jumpHistoryCount > 0
+                ? `返回跳转前位置，可回退 ${jumpHistoryCount} 次`
+                : newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0
+                  ? `跳到最新消息，${newMessageNotice.count} 条新消息`
+                  : "跳到最新消息"}
+              title={jumpHistoryCount > 0 ? "返回跳转前位置" : "跳到最新消息"}
+              onClick={() => {
+                if (jumpHistoryCount === 0 || !returnFromJump()) {
+                  jumpToLatest("smooth", true);
+                }
+              }}
             >
               <ArrowDown size={19} strokeWidth={2.1} />
               {newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0 && (
