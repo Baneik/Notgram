@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   AtSign,
   ChevronLeft,
-  ChevronUp,
   Forward,
   MoreVertical,
   LoaderCircle,
@@ -96,6 +95,8 @@ import { PinnedMessageBanner } from "./PinnedMessageBanner";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 const LOAD_NO_OLDER_MESSAGES = async () => undefined;
+const SEARCH_RESULTS_PRELOAD_MIN_PX = 320;
+const SEARCH_RESULTS_PRELOAD_VIEWPORTS = 1.25;
 type MessageNavigationOptions = Pick<
   MessageConversationScrollRequest,
   "behavior" | "highlight"
@@ -734,6 +735,48 @@ export function Conversation({
     ? chatMessageSearch.error
     : undefined;
 
+  const preloadEarlierSearchResults = useCallback(() => {
+    if (
+      !messageSearchActive ||
+      !messageSearchStateMatchesInput ||
+      chatMessageSearch.loading ||
+      chatMessageSearch.loadingMore ||
+      !chatMessageSearch.nextFromMessageId
+    ) return;
+    void onLoadMoreSearchMessages();
+  }, [
+    chatMessageSearch.loading,
+    chatMessageSearch.loadingMore,
+    chatMessageSearch.nextFromMessageId,
+    messageSearchActive,
+    messageSearchStateMatchesInput,
+    onLoadMoreSearchMessages,
+  ]);
+
+  useEffect(() => {
+    if (!messageSearchActive || !messageListElement) return;
+    let previousScrollTop = messageListElement.scrollTop;
+    const withinPreloadRange = () => messageListElement.scrollTop <= Math.max(
+      SEARCH_RESULTS_PRELOAD_MIN_PX,
+      messageListElement.clientHeight * SEARCH_RESULTS_PRELOAD_VIEWPORTS,
+    );
+    const onSearchScroll = () => {
+      const nextScrollTop = messageListElement.scrollTop;
+      const scrollingUp = nextScrollTop < previousScrollTop - 0.5;
+      previousScrollTop = nextScrollTop;
+      if (scrollingUp && withinPreloadRange()) preloadEarlierSearchResults();
+    };
+    const onSearchWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0 && withinPreloadRange()) preloadEarlierSearchResults();
+    };
+    messageListElement.addEventListener("scroll", onSearchScroll, { passive: true });
+    messageListElement.addEventListener("wheel", onSearchWheel, { passive: true });
+    return () => {
+      messageListElement.removeEventListener("scroll", onSearchScroll);
+      messageListElement.removeEventListener("wheel", onSearchWheel);
+    };
+  }, [messageListElement, messageSearchActive, preloadEarlierSearchResults]);
+
   const searchMessageListComponents = useMemo<Components<VirtualMessageBlock>>(() => ({
     List: VirtualMessageListContent,
     EmptyPlaceholder: () => (
@@ -746,33 +789,24 @@ export function Conversation({
         ) : currentSearchError ?? "没有搜索结果"}
       </div>
     ),
-    Header: () => chatMessageSearch.nextFromMessageId || currentSearchError && renderedMessages.length > 0 ? (
+    Header: () => chatMessageSearch.loadingMore || currentSearchError && renderedMessages.length > 0 ? (
       <div className="message-search-timeline-header">
         {currentSearchError && renderedMessages.length > 0 && (
           <span className="message-search-timeline-error" role="alert">{currentSearchError}</span>
         )}
-        {chatMessageSearch.nextFromMessageId && (
-          <button
-            className="message-search-more"
-            type="button"
-            disabled={chatMessageSearch.loadingMore}
-            onClick={() => void onLoadMoreSearchMessages()}
-          >
-            {chatMessageSearch.loadingMore
-              ? <LoaderCircle className="spin" size={15} />
-              : <ChevronUp size={15} />}
-            <span>加载更早结果</span>
-          </button>
+        {chatMessageSearch.loadingMore && (
+          <span className="message-search-preloading" role="status">
+            <LoaderCircle className="spin" size={15} />
+            <span>正在加载更早结果</span>
+          </span>
         )}
       </div>
     ) : null,
   }), [
     chatMessageSearch.loading,
     chatMessageSearch.loadingMore,
-    chatMessageSearch.nextFromMessageId,
     currentSearchError,
     messageSearchStateMatchesInput,
-    onLoadMoreSearchMessages,
     renderedMessages.length,
   ]);
 

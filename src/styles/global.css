@@ -567,9 +567,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-search-timeline-error { color: var(--color-status-danger); font-size: 11px; }
 .message-search-timeline-state { display: flex; align-items: center; gap: 7px; }
 .message-search-timeline-state.is-error { color: var(--color-status-danger); }
-.message-search-more { min-height: 32px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--accent); background: var(--color-bg-elevated); border: 1px solid var(--color-border-focus); border-radius: 6px; cursor: pointer; font-size: 11px; }
-.message-search-more:hover:not(:disabled), .message-search-more:focus-visible { background: var(--accent-soft); }
-.message-search-more:disabled { opacity: .55; cursor: default; }
+.message-search-preloading { min-height: 32px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--accent); font-size: 11px; }
 .message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
 .message-list-shell.has-pinned-message-banner {
   display: grid; grid-template-rows: 48px minmax(0, 1fr);

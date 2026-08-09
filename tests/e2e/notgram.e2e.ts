@@ -2290,8 +2290,23 @@ test("search paginates, filters the current conversation, and opens exact messag
   await expect(conversationSearch).toBeFocused();
   await conversationSearch.fill("产品讨论历史消息");
   await expect.poll(() => page.locator("[data-conversation-search-message-id]").count()).toBeGreaterThan(0);
-  await page.getByRole("button", { name: "加载更早结果" }).click();
   await expect(page.getByRole("button", { name: "加载更早结果" })).toHaveCount(0);
+  const searchResultList = page.getByRole("log", { name: "搜索结果消息列表" });
+  await expect.poll(() => searchResultList.evaluate((element) => element.scrollTop)).toBeGreaterThan(10);
+  const preloadScrollTop = await searchResultList.evaluate((element) => {
+    const nextScrollTop = Math.min(element.clientHeight, element.scrollTop - 10);
+    element.scrollTo({ top: nextScrollTop, behavior: "auto" });
+    return nextScrollTop;
+  });
+  expect(preloadScrollTop).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: { getState: () => { chatMessageSearch: { messages: unknown[] } } };
+    };
+    return storeModule.telegramStore.getState().chatMessageSearch.messages.length;
+  }, "/src/store/telegramStore.ts")).toBe(36);
+  await searchResultList.evaluate((element) => element.scrollTo({ top: 0, behavior: "auto" }));
+  await expect(page.locator('[data-conversation-search-message-id="p-old-1"]')).toBeVisible();
   await expect(page.locator('[data-conversation-search-message-id="p-old-36"]')).not.toBeInViewport();
   await page.getByRole("button", { name: "下一个搜索结果" }).click();
   const olderLocatedMessage = page.locator('[data-message-id="p-old-35"]');
