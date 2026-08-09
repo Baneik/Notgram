@@ -200,7 +200,7 @@ const messages: Message[] = [
     outgoing: false,
     sentAt: "2026-08-01T09:17:00+08:00",
     delivery: "read",
-    content: { kind: "service", text: "Mia Chen 加入了群聊" },
+    content: { kind: "service", text: "Mia Chen 加入了群聊", memberUserIds: ["u-mia"] },
   },
   {
     id: "p-rich-message",

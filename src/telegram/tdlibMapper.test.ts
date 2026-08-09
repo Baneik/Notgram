@@ -630,37 +630,49 @@ describe("TDLib mapper", () => {
     const cases = [
       [
         { "@type": "messageChatAddMembers", member_user_ids: [7, 8] },
-        "2 位新成员加入了群聊",
+        { kind: "service", text: "2 位新成员加入了群聊", memberUserIds: ["7", "8"] },
       ],
       [
         { "@type": "messageChatJoinByLink" },
-        "有成员通过邀请链接加入了群聊",
+        { kind: "service", text: "有成员通过邀请链接加入了群聊", memberUserIds: [] },
       ],
       [
         { "@type": "messageChatJoinByRequest" },
-        "入群申请已通过",
+        { kind: "service", text: "入群申请已通过", memberUserIds: [] },
       ],
       [
         { "@type": "messageChatChangeTitle", title: "设计讨论" },
-        "群聊名称已更改：设计讨论",
+        { kind: "service", text: "群聊名称已更改：设计讨论" },
       ],
       [
         { "@type": "messagePinMessage" },
-        "置顶了一条消息",
+        { kind: "service", text: "置顶了一条消息" },
       ],
       [
         { "@type": "messageVideoChatStarted" },
-        "视频聊天已开始",
+        { kind: "service", text: "视频聊天已开始" },
       ],
       [
         { "@type": "messageExpiredPhoto" },
-        "照片已过期",
+        { kind: "service", text: "照片已过期" },
       ],
     ] as const;
 
-    for (const [content, text] of cases) {
-      expect(mapTdMessageContent(content)).toEqual({ kind: "service", text });
+    for (const [content, expected] of cases) {
+      expect(mapTdMessageContent(content)).toEqual(expected);
     }
+
+    expect(mapTdMessage({
+      id: 100,
+      chat_id: 9,
+      sender_id: { "@type": "messageSenderUser", user_id: 7 },
+      date: 1_700_000_000,
+      content: { "@type": "messageChatJoinByLink" },
+    })?.content).toEqual({
+      kind: "service",
+      text: "有成员通过邀请链接加入了群聊",
+      memberUserIds: ["7"],
+    });
   });
 
   it("maps additional interactive content instead of using an unsupported placeholder", () => {

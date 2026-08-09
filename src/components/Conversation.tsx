@@ -1470,6 +1470,13 @@ export function Conversation({
                         senderName={senderName}
                         senderLabel={message.senderTag || memberLabels.get(message.senderId)}
                         senderProfileAvailable={!message.outgoing && message.senderId !== "unknown"}
+                        serviceMembers={message.content.kind === "service"
+                          ? message.content.memberUserIds?.map((userId) => ({
+                              id: userId,
+                              name: users.get(userId)?.displayName ?? "Telegram 用户",
+                              profileAvailable: users.has(userId),
+                            }))
+                          : undefined}
                         groupPosition={positions.get(message.id) ?? "single"}
                         replyPreview={replyPreviewFor(
                           message,

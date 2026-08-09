@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  Fragment,
   memo,
   useCallback,
   useLayoutEffect,
@@ -75,6 +76,7 @@ interface MessageBubbleProps {
   senderName: string;
   senderLabel?: string;
   senderProfileAvailable: boolean;
+  serviceMembers?: Array<{ id: string; name: string; profileAvailable: boolean }>;
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
   forwardLabel?: string;
@@ -134,6 +136,7 @@ function MessageBubbleComponent({
   senderName,
   senderLabel,
   senderProfileAvailable,
+  serviceMembers,
   groupPosition,
   replyPreview,
   forwardLabel,
@@ -647,7 +650,27 @@ function MessageBubbleComponent({
               onSuspendStream={onSuspendStream}
             />
           ) : content.kind === "service" ? (
-            <p>{highlightedText(content.text, searchQuery)}</p>
+            <p className="message-service-content">
+              {serviceMembers && serviceMembers.length > 0 ? (
+                <>
+                  {serviceMembers.map((member, index) => (
+                    <Fragment key={member.id}>
+                      {index > 0 && "、"}
+                      {member.profileAvailable ? (
+                        <button
+                          type="button"
+                          aria-label={`查看 ${member.name} 资料`}
+                          onClick={() => onOpenSenderProfile(member.id)}
+                        >
+                          {member.name}
+                        </button>
+                      ) : member.name}
+                    </Fragment>
+                  ))}
+                  <span> 加入了群聊</span>
+                </>
+              ) : highlightedText(content.text, searchQuery)}
+            </p>
           ) : content.kind === "unsupported" ? (
             developerMode ? (
               <button
