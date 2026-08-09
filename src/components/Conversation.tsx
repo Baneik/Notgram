@@ -39,6 +39,7 @@ import {
   type LatestConversationScrollRequest,
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
+import { visibleAnchor } from "../hooks/conversationScrollState";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { formatMessageDay } from "../utils/formatters";
 import { Avatar } from "./Avatar";
@@ -95,8 +96,14 @@ import { PinnedMessageBanner } from "./PinnedMessageBanner";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 const LOAD_NO_OLDER_MESSAGES = async () => undefined;
-const SEARCH_RESULTS_PRELOAD_MIN_PX = 320;
-const SEARCH_RESULTS_PRELOAD_VIEWPORTS = 1.25;
+const SEARCH_RESULTS_PRELOAD_MIN_PX = 960;
+const SEARCH_RESULTS_PRELOAD_VIEWPORTS = 3;
+const SEARCH_PAGE_ANCHOR_SETTLE_FRAMES = 18;
+interface SearchPageAnchor {
+  element: HTMLDivElement;
+  messageId: string;
+  offset: number;
+}
 type MessageNavigationOptions = Pick<
   MessageConversationScrollRequest,
   "behavior" | "highlight"
@@ -461,6 +468,8 @@ export function Conversation({
   });
   const messageSearchInputRef = useRef<HTMLInputElement>(null);
   const searchResultScrollFrameRef = useRef<number | undefined>(undefined);
+  const searchPageAnchorFrameRef = useRef<number | undefined>(undefined);
+  const pendingSearchPageAnchorRef = useRef<SearchPageAnchor | undefined>(undefined);
   const pendingInitialSearchResultScrollRef = useRef<string | undefined>(undefined);
   const [activeSearchResultId, setActiveSearchResultId] = useState<string>();
   const renderedMessages = useMemo(
@@ -736,18 +745,28 @@ export function Conversation({
     : undefined;
 
   const preloadEarlierSearchResults = useCallback(() => {
+    const cursor = chatMessageSearch.nextFromMessageId;
     if (
       !messageSearchActive ||
       !messageSearchStateMatchesInput ||
       chatMessageSearch.loading ||
       chatMessageSearch.loadingMore ||
-      !chatMessageSearch.nextFromMessageId
+      !cursor ||
+      pendingSearchPageAnchorRef.current
     ) return;
+    const anchor = messageListElement ? visibleAnchor(messageListElement) : undefined;
+    if (!messageListElement || !anchor?.messageId) return;
+    pendingSearchPageAnchorRef.current = {
+      element: messageListElement,
+      messageId: anchor.messageId,
+      offset: anchor.offset,
+    };
     void onLoadMoreSearchMessages();
   }, [
     chatMessageSearch.loading,
     chatMessageSearch.loadingMore,
     chatMessageSearch.nextFromMessageId,
+    messageListElement,
     messageSearchActive,
     messageSearchStateMatchesInput,
     onLoadMoreSearchMessages,
@@ -767,7 +786,9 @@ export function Conversation({
       if (scrollingUp && withinPreloadRange()) preloadEarlierSearchResults();
     };
     const onSearchWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0 && withinPreloadRange()) preloadEarlierSearchResults();
+      if (event.deltaY < 0 && messageListElement.scrollTop <= 1) {
+        preloadEarlierSearchResults();
+      }
     };
     messageListElement.addEventListener("scroll", onSearchScroll, { passive: true });
     messageListElement.addEventListener("wheel", onSearchWheel, { passive: true });
@@ -776,6 +797,81 @@ export function Conversation({
       messageListElement.removeEventListener("wheel", onSearchWheel);
     };
   }, [messageListElement, messageSearchActive, preloadEarlierSearchResults]);
+
+  useLayoutEffect(() => {
+    const pendingAnchor = pendingSearchPageAnchorRef.current;
+    if (!pendingAnchor) return;
+    if (
+      !messageSearchActive ||
+      !messageSearchStateMatchesInput ||
+      messageListElement !== pendingAnchor.element
+    ) {
+      pendingSearchPageAnchorRef.current = undefined;
+      return;
+    }
+    if (chatMessageSearch.loadingMore) return;
+    const itemIndex = messageItemIndexes.get(pendingAnchor.messageId);
+    if (itemIndex === undefined) {
+      pendingSearchPageAnchorRef.current = undefined;
+      return;
+    }
+    const element = pendingAnchor.element;
+    let remainingFrames = SEARCH_PAGE_ANCHOR_SETTLE_FRAMES;
+    let stableFrames = 0;
+    let previousSignature = "";
+    const settleAnchor = () => {
+      searchPageAnchorFrameRef.current = undefined;
+      if (
+        pendingSearchPageAnchorRef.current !== pendingAnchor ||
+        messageListRef.current !== element ||
+        !messageSearchActive
+      ) return;
+      const target = element.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(pendingAnchor.messageId)}"]`,
+      );
+      if (!target) {
+        stableFrames = 0;
+        virtuosoRef.current?.scrollToIndex({
+          index: itemIndex,
+          align: "start",
+          offset: -pendingAnchor.offset,
+          behavior: "auto",
+        });
+      } else {
+        const actualOffset = target.getBoundingClientRect().top -
+          element.getBoundingClientRect().top;
+        const correction = actualOffset - pendingAnchor.offset;
+        if (Math.abs(correction) > 0.5) element.scrollTop += correction;
+        const signature = `${element.scrollTop.toFixed(1)}:${actualOffset.toFixed(1)}`;
+        stableFrames = Math.abs(correction) <= 1
+          ? signature === previousSignature ? stableFrames + 1 : 1
+          : 0;
+        previousSignature = signature;
+      }
+      remainingFrames -= 1;
+      if (stableFrames >= 2 || remainingFrames <= 0) {
+        if (pendingSearchPageAnchorRef.current === pendingAnchor) {
+          pendingSearchPageAnchorRef.current = undefined;
+        }
+        return;
+      }
+      searchPageAnchorFrameRef.current = requestAnimationFrame(settleAnchor);
+    };
+    settleAnchor();
+    return () => {
+      if (searchPageAnchorFrameRef.current !== undefined) {
+        cancelAnimationFrame(searchPageAnchorFrameRef.current);
+        searchPageAnchorFrameRef.current = undefined;
+      }
+    };
+  }, [
+    chatMessageSearch.loadingMore,
+    messageItemIndexes,
+    messageListElement,
+    messageSearchActive,
+    messageSearchStateMatchesInput,
+    virtuosoRef,
+  ]);
 
   const searchMessageListComponents = useMemo<Components<VirtualMessageBlock>>(() => ({
     List: VirtualMessageListContent,
@@ -841,6 +937,10 @@ export function Conversation({
     if (searchResultScrollFrameRef.current !== undefined) {
       cancelAnimationFrame(searchResultScrollFrameRef.current);
     }
+    if (searchPageAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(searchPageAnchorFrameRef.current);
+    }
+    pendingSearchPageAnchorRef.current = undefined;
   }, []);
 
   useEffect(() => {

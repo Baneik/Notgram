@@ -37,8 +37,8 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
-- Preload earlier in-conversation search results automatically as the timeline
-  approaches the top instead of requiring a separate load-more action.
+- Preload earlier in-conversation search results automatically several viewports
+  before the timeline reaches the top instead of requiring a separate action.
 - Render in-conversation search results directly as the normal message timeline,
   preserve message interactions and media rendering, and highlight literal query
   matches across entity text, Markdown, rich content, polls, filenames, and captions;
@@ -68,6 +68,8 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Preserve the exact visible result and pixel offset while earlier search pages are
+  prepended instead of moving the viewport to the newly inserted results.
 - Keep an in-conversation search timeline at the user's reading position when
   older result pages are prepended instead of repeatedly returning to the latest match.
 - Keep pinned-message jumps smooth by avoiding redundant same-chat selection,
