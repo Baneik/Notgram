@@ -371,6 +371,8 @@ export function Conversation({
   const [visiblePinnedMessageIds, setVisiblePinnedMessageIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const [visibleMessageDay, setVisibleMessageDay] = useState<string>();
+  const [dateIndicatorVisible, setDateIndicatorVisible] = useState(false);
   const pinnedMessageIdsKey = useMemo(
     () => allPinnedMessages.map((message) => message.id).join("\n"),
     [allPinnedMessages],
@@ -672,6 +674,57 @@ export function Conversation({
       resizeObserver.disconnect();
     };
   }, [messageListElement, pinnedMessageIdsKey, pinnedViewOpen]);
+
+  useEffect(() => {
+    if (pinnedViewOpen || !messageListElement) {
+      setVisibleMessageDay(undefined);
+      setDateIndicatorVisible(false);
+      return;
+    }
+    let frame: number | undefined;
+    let hideTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+    let revealOnPublish = true;
+    const publishVisibleDay = () => {
+      frame = undefined;
+      const listBounds = messageListElement.getBoundingClientRect();
+      const firstVisible = [...messageListElement.querySelectorAll<HTMLElement>("[data-message-id]")]
+        .filter((row) => {
+          const bounds = row.getBoundingClientRect();
+          return bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1;
+        })
+        .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0];
+      const message = firstVisible?.dataset.messageId
+        ? messagesById.get(firstVisible.dataset.messageId)
+        : undefined;
+      if (message) setVisibleMessageDay(formatMessageDay(message.sentAt));
+      if (message && revealOnPublish) {
+        setDateIndicatorVisible(true);
+        if (hideTimer !== undefined) globalThis.clearTimeout(hideTimer);
+        hideTimer = globalThis.setTimeout(() => {
+          hideTimer = undefined;
+          setDateIndicatorVisible(false);
+        }, 1_200);
+      }
+      revealOnPublish = false;
+    };
+    const scheduleVisibleDay = (reveal = false) => {
+      revealOnPublish = revealOnPublish || reveal;
+      if (frame === undefined) frame = requestAnimationFrame(publishVisibleDay);
+    };
+    const onScroll = () => scheduleVisibleDay(true);
+    scheduleVisibleDay(true);
+    messageListElement.addEventListener("scroll", onScroll, { passive: true });
+    globalThis.addEventListener("resize", onScroll);
+    const mutationObserver = new MutationObserver(() => scheduleVisibleDay(false));
+    mutationObserver.observe(messageListElement, { childList: true, subtree: true });
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      if (hideTimer !== undefined) globalThis.clearTimeout(hideTimer);
+      messageListElement.removeEventListener("scroll", onScroll);
+      globalThis.removeEventListener("resize", onScroll);
+      mutationObserver.disconnect();
+    };
+  }, [messageListElement, messagesById, pinnedViewOpen]);
 
   const pinnedBannerMessage = useMemo(
     () => pinnedMessageForVisibleRange(allPinnedMessages, visiblePinnedMessageIds),
@@ -1360,6 +1413,14 @@ export function Conversation({
         {!pinnedViewOpen && historyLoading && (
           <div className="history-loading" aria-label="正在加载更早消息">
             <LoaderCircle className="spin" size={16} />
+          </div>
+        )}
+        {!pinnedViewOpen && visibleMessageDay && (
+          <div
+            className={`conversation-date-indicator ${dateIndicatorVisible ? "is-visible" : ""}`}
+            aria-hidden="true"
+          >
+            {visibleMessageDay}
           </div>
         )}
         <Virtuoso
