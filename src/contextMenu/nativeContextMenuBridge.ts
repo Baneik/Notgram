@@ -19,6 +19,7 @@ export type NativeContextMenuIcon =
   | "pin"
   | "play-window"
   | "reply"
+  | "search"
   | "trash";
 
 export interface NativeContextMenuItem {

@@ -329,7 +329,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     upsertChat: (raw) => this.upsertChat(raw),
     mapChat: (raw) => this.mapChat(raw),
     mapMessage: (raw) => this.mapMessage(raw),
-    emitMessage: (raw) => this.emitMessage(raw),
     emitMessages: (rawMessages) => this.emitMessages(rawMessages),
   });
   private forumTopicService = new TauriForumTopicService({
@@ -1271,8 +1270,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.searchService.searchGlobal(input);
   }
 
-  async searchChatMessages(chatId: string, query: string, limit = 100, topicId?: string) {
-    return this.searchService.searchChatMessages(chatId, query, limit, topicId);
+  async searchChatMessages(input: import("./types").ChatMessageSearchInput) {
+    return this.searchService.searchChatMessages(input);
   }
 
   async searchSharedMedia(input: import("./types").SharedMediaSearchInput): Promise<import("./types").SharedMediaPage> {

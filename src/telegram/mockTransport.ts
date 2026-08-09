@@ -1,6 +1,6 @@
 import { mockSnapshot } from "./mockData";
 import { messageContentText } from "./messageContent";
-import { messageSearchMatches, parseMessageSearchQuery } from "./messageSearch";
+import { messageSearchMatches } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
   AuthorizationAction,
@@ -47,6 +47,9 @@ import type {
   CreateForumTopicInput,
   GlobalSearchInput,
   GlobalSearchPage,
+  ChatMessageSearchFilter,
+  ChatMessageSearchInput,
+  ChatMessageSearchPage,
   Message,
   MessagePermissions,
   PinMessageInput,
@@ -103,6 +106,31 @@ const readableFileSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const mockChatSearchFilterMatches = (message: Message, filter: ChatMessageSearchFilter) => {
+  const content = message.content;
+  if (filter === "all") return true;
+  if (filter === "animation") return content.kind === "media" && content.mediaType === "animation";
+  if (filter === "audio") return content.kind === "media" && content.mediaType === "audio";
+  if (filter === "document") return content.kind === "file";
+  if (filter === "photo") return content.kind === "media" && content.mediaType === "photo";
+  if (filter === "poll") return content.kind === "poll";
+  if (filter === "video") return content.kind === "media" && content.mediaType === "video";
+  if (filter === "voiceNote") return content.kind === "media" && content.mediaType === "voice";
+  if (filter === "photoAndVideo") return content.kind === "media" && ["photo", "video"].includes(content.mediaType);
+  if (filter === "url") return content.kind === "text" && (
+    content.entities?.some((entity) => entity.kind === "url" || entity.kind === "textUrl") ||
+    /https?:\/\//i.test(content.text)
+  );
+  if (filter === "chatPhoto") return content.kind === "service" && /头像|照片|photo/i.test(content.text);
+  if (filter === "videoNote") return content.kind === "media" && content.mediaType === "videoNote";
+  if (filter === "voiceAndVideoNote") return content.kind === "media" && ["voice", "videoNote"].includes(content.mediaType);
+  if (filter === "mention" || filter === "unreadMention") return Boolean(message.containsUnreadMention);
+  if (filter === "unreadReaction") return Boolean(message.interaction?.reactions.some((reaction) => reaction.chosen));
+  if (filter === "unreadPollVote") return content.kind === "poll" && content.options.some((option) => option.chosen);
+  if (filter === "failedToSend") return message.delivery === "failed";
+  return message.isPinned === true;
 };
 
 const previewDataUrl = async (file: File) => {
@@ -1172,8 +1200,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async searchGlobal({ query, filter, offset = "", limit = 30 }: GlobalSearchInput): Promise<GlobalSearchPage> {
-    const pattern = parseMessageSearchQuery(query);
-    if (!pattern.query) return { chats: [], messages: [], totalCount: 0 };
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) return { chats: [], messages: [], totalCount: 0 };
     const typeMatches = (message: Message) => {
       const content = message.content;
       if (filter === "all") return true;
@@ -1196,7 +1224,7 @@ export class MockTelegramTransport implements TelegramTransport {
         const searchable = [messageContentText(content), fileName]
           .filter(Boolean)
           .join(" ");
-        return typeMatches(message) && messageSearchMatches(searchable, pattern);
+        return typeMatches(message) && messageSearchMatches(searchable, normalizedQuery);
       })
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
     const start = Math.max(0, Number.parseInt(offset, 10) || 0);
@@ -1204,9 +1232,9 @@ export class MockTelegramTransport implements TelegramTransport {
     const messages = matches.slice(start, start + boundedLimit);
     const next = start + messages.length;
     const chatIds = new Set(messages.map((message) => message.chatId));
-    if (!offset && pattern.kind === "text") {
+    if (!offset) {
       for (const chat of this.snapshot.chats) {
-        if (messageSearchMatches(`${chat.title} ${chat.preview}`, pattern)) chatIds.add(chat.id);
+        if (messageSearchMatches(`${chat.title} ${chat.preview}`, normalizedQuery)) chatIds.add(chat.id);
       }
     }
     return {
@@ -1217,18 +1245,33 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
-  async searchChatMessages(chatId: string, query: string, limit = 100, topicId?: string) {
-    const pattern = parseMessageSearchQuery(query);
-    if (!pattern.query) return 0;
-    const matches = this.snapshot.messages.filter((message) => {
-      if (message.chatId !== chatId) return false;
-      if (topicId && message.topicId !== topicId) return false;
-      return messageSearchMatches(messageContentText(message.content), pattern);
-    }).slice(0, limit);
-    for (const message of matches) {
-      this.listener?.({ type: "message.upsert", message: clone(message) });
-    }
-    return matches.length;
+  async searchChatMessages(input: ChatMessageSearchInput): Promise<ChatMessageSearchPage> {
+    const query = input.query?.trim() ?? "";
+    const filter = input.filter ?? "all";
+    const limit = Math.max(1, Math.min(input.limit ?? 30, 100));
+    const matches = this.snapshot.messages
+      .filter((message) => message.chatId === input.chatId)
+      .filter((message) => !input.topicId || message.topicId === input.topicId)
+      .filter((message) => !input.senderId || message.senderId === input.senderId)
+      .filter((message) => {
+        const timestamp = Math.floor(Date.parse(message.sentAt) / 1000);
+        return (!input.minDate || timestamp >= input.minDate) &&
+          (!input.maxDate || timestamp <= input.maxDate);
+      })
+      .filter((message) => mockChatSearchFilterMatches(message, filter))
+      .filter((message) => !query || messageSearchMatches(messageContentText(message.content), query))
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+    const start = input.fromMessageId
+      ? Math.max(0, matches.findIndex((message) => message.id === input.fromMessageId))
+      : 0;
+    const messages = matches.slice(start, start + limit);
+    const nextFromMessageId = matches[start + messages.length]?.id;
+    return {
+      messages: clone(messages),
+      totalCount: matches.length,
+      nextFromMessageId,
+      hasMore: Boolean(nextFromMessageId),
+    };
   }
 
   async searchSharedMedia(input: SharedMediaSearchInput) {

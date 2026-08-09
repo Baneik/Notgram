@@ -181,6 +181,9 @@ export function App() {
   const loadSharedMedia = useTelegramStore((state) => state.loadSharedMedia);
   const deleteMessagesFromChat = useTelegramStore((state) => state.deleteMessagesFromChat);
   const searchChatMessages = useTelegramStore((state) => state.searchChatMessages);
+  const chatMessageSearch = useTelegramStore((state) => state.chatMessageSearch);
+  const loadMoreChatMessages = useTelegramStore((state) => state.loadMoreChatMessages);
+  const clearChatMessageSearch = useTelegramStore((state) => state.clearChatMessageSearch);
   const searchGlobal = useTelegramStore((state) => state.searchGlobal);
   const loadMoreGlobalSearch = useTelegramStore((state) => state.loadMoreGlobalSearch);
   const cancelGlobalSearch = useTelegramStore((state) => state.cancelGlobalSearch);
@@ -395,7 +398,7 @@ export function App() {
   const openGlobalSearchMessage = useCallback(async (
     chatId: string,
     messageId: string,
-    options?: Pick<MessageConversationScrollRequest, "behavior" | "highlight">,
+    options?: Pick<MessageConversationScrollRequest, "behavior" | "highlight"> & { loadContext?: boolean },
   ) => {
     const state = telegramStore.getState();
     const cachedTarget = state.messages.get(chatId)?.find((message) => message.id === messageId);
@@ -410,7 +413,9 @@ export function App() {
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
     beginConversationSnapshot(chatId);
-    if (!cachedTarget) await loadMessage(chatId, messageId);
+    if (!cachedTarget || options?.loadContext) {
+      await loadMessage(chatId, messageId, { forceContext: Boolean(options?.loadContext) });
+    }
     const loadedState = telegramStore.getState();
     const targetTopicId = loadedState.chats.get(chatId)?.isForum
       ? loadedState.messages.get(chatId)?.find((message) => message.id === messageId)?.topicId
@@ -1044,7 +1049,10 @@ export function App() {
           onPinMessage={pinMessage}
           onUnpinMessage={unpinMessage}
           onSetChatMessageAutoDeleteTime={setChatMessageAutoDeleteTime}
+          chatMessageSearch={chatMessageSearch}
           onSearchMessages={searchChatMessages}
+          onLoadMoreSearchMessages={loadMoreChatMessages}
+          onClearSearchMessages={clearChatMessageSearch}
           onDownloadFile={downloadFile}
           onCancelFileDownload={cancelFileDownload}
           onOpenFile={openFile}

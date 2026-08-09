@@ -1,30 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
-  isRegexMessageSearchQuery,
+  chatMessageSearchFilterDisallowsQueryOrSender,
+  localDateSearchRange,
   messageSearchMatches,
-  parseMessageSearchQuery,
 } from "./messageSearch";
 
 describe("message search query", () => {
   it("keeps regular search case-insensitive", () => {
-    const pattern = parseMessageSearchQuery(" Layout ");
-
-    expect(pattern).toMatchObject({ kind: "text", serverQuery: "Layout" });
-    expect(messageSearchMatches("Desktop layout review", pattern)).toBe(true);
-    expect(messageSearchMatches("unrelated", pattern)).toBe(false);
+    expect(messageSearchMatches("Desktop layout review", " Layout ")).toBe(true);
+    expect(messageSearchMatches("unrelated", "Layout")).toBe(false);
   });
 
-  it("parses reg: expressions as case-insensitive Unicode regular expressions", () => {
-    const pattern = parseMessageSearchQuery(" reg:^消息\\s+\\d+$ ");
-
-    expect(pattern).toMatchObject({ kind: "regex", serverQuery: "" });
-    expect(isRegexMessageSearchQuery(" reg:^消息")).toBe(true);
-    expect(messageSearchMatches("消息 42", pattern)).toBe(true);
-    expect(messageSearchMatches("消息 四十二", pattern)).toBe(false);
+  it("identifies TDLib filters that cannot combine with a query or sender", () => {
+    expect(chatMessageSearchFilterDisallowsQueryOrSender("unreadMention")).toBe(true);
+    expect(chatMessageSearchFilterDisallowsQueryOrSender("unreadReaction")).toBe(true);
+    expect(chatMessageSearchFilterDisallowsQueryOrSender("poll")).toBe(false);
   });
 
-  it("rejects missing and invalid regular expressions", () => {
-    expect(() => parseMessageSearchQuery("reg:")).toThrow("正则表达式不能为空");
-    expect(() => parseMessageSearchQuery("reg:[")).toThrow("无效的正则表达式");
+  it("converts a local calendar date into a server timestamp range", () => {
+    expect(localDateSearchRange("2026-08-09")).toEqual({
+      minDate: new Date(2026, 7, 9).getTime() / 1000,
+      maxDate: new Date(2026, 7, 10).getTime() / 1000 - 1,
+    });
+    expect(localDateSearchRange("2026-02-30")).toBeUndefined();
   });
 });

@@ -48,6 +48,7 @@ import {
 import { markMessageEntrance, transferMessageEntrance } from "../utils/messageEntrance";
 import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch } from "./globalSearchState";
+import { emptyChatMessageSearch } from "./chatMessageSearchState";
 import { emptyProfileState } from "./profileState";
 import { createSearchController } from "./telegramStore.search";
 import { createProfileController } from "./telegramStore.profile";
@@ -296,6 +297,7 @@ export const createTelegramStore = (
         activeChatId: undefined,
         activeTopicId: undefined,
         globalSearch: emptyGlobalSearch(),
+        chatMessageSearch: emptyChatMessageSearch(),
         accountProfile: emptyProfileState(),
         profile: emptyProfileState(),
         contacts: [],
@@ -1150,6 +1152,7 @@ export const createTelegramStore = (
       searchQuery: "",
       chatFilter: "main",
       globalSearch: emptyGlobalSearch(),
+      chatMessageSearch: emptyChatMessageSearch(),
       accountProfile: emptyProfileState(),
       profile: emptyProfileState(),
       contacts: [],
@@ -1710,8 +1713,8 @@ export const createTelegramStore = (
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         return topicId ? loadForumTopicHistory(chatId, topicId, "older") : loadHistory(chatId, "older");
       },
-      loadMessage: async (chatId, messageId) => {
-        if ((get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
+      loadMessage: async (chatId, messageId, options) => {
+        if (!options?.forceContext && (get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
           return true;
         }
         if (get().authorization.kind !== "ready") return false;
@@ -1774,6 +1777,9 @@ export const createTelegramStore = (
       },
 
       searchChatMessages: searchController.searchChatMessages,
+      loadMoreChatMessages: searchController.loadMoreChatMessages,
+      cancelChatMessageSearch: searchController.cancelChatMessageSearch,
+      clearChatMessageSearch: searchController.clearChatMessageSearch,
       searchGlobal: searchController.searchGlobal,
       loadMoreGlobalSearch: searchController.loadMoreGlobalSearch,
       cancelGlobalSearch: searchController.cancelGlobalSearch,

@@ -1,6 +1,7 @@
 import type { TelegramTransport } from "../telegram/transport";
 import type { CacheHealth } from "./telegramStore.cache";
 import type { GlobalSearchState } from "./globalSearchState";
+import type { ChatMessageSearchState } from "./chatMessageSearchState";
 import type { ProfileState } from "./profileState";
 import type {
   AuthorizationAction,
@@ -37,6 +38,7 @@ import type {
   EmojiPickerAsset,
   EmojiPickerCatalog,
   GlobalSearchFilter,
+  ChatMessageSearchInput,
   GetChatInviteLinksInput,
   GetChatJoinRequestsInput,
   Message,
@@ -112,6 +114,7 @@ export interface TelegramState {
   searchQuery: string;
   chatFilter: ChatFilter;
   globalSearch: GlobalSearchState;
+  chatMessageSearch: ChatMessageSearchState;
   accountProfile: ProfileState;
   profile: ProfileState;
   contacts: User[];
@@ -163,7 +166,7 @@ export interface TelegramState {
   ) => Promise<boolean>;
   markChatFolderRead: (folderId: string) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
-  loadMessage: (chatId: string, messageId: string) => Promise<boolean>;
+  loadMessage: (chatId: string, messageId: string, options?: { forceContext?: boolean }) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
   dismissMessageAttention: (chatId: string, messageId: string) => void;
   loadMessageProperties: (
@@ -171,7 +174,10 @@ export interface TelegramState {
     messageId: string,
   ) => Promise<MessagePermissions | undefined>;
   loadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
-  searchChatMessages: (query: string) => Promise<void>;
+  searchChatMessages: (input: ChatMessageSearchInput) => Promise<void>;
+  loadMoreChatMessages: () => Promise<void>;
+  cancelChatMessageSearch: () => void;
+  clearChatMessageSearch: () => void;
   searchGlobal: (query: string, filter?: GlobalSearchFilter) => Promise<void>;
   loadMoreGlobalSearch: () => Promise<void>;
   cancelGlobalSearch: () => void;

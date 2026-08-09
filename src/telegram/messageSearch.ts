@@ -1,34 +1,47 @@
-export const REGEX_SEARCH_PREFIX = "reg:";
+import type { ChatMessageSearchFilter, ChatMessageSearchInput } from "./types";
 
-export type MessageSearchPattern =
-  | { kind: "text"; query: string; serverQuery: string }
-  | { kind: "regex"; query: string; serverQuery: ""; expression: string; regex: RegExp };
+const FILTERS_WITHOUT_QUERY_OR_SENDER = new Set<ChatMessageSearchFilter>([
+  "unreadMention",
+  "unreadReaction",
+  "unreadPollVote",
+]);
 
-export const isRegexMessageSearchQuery = (query: string) =>
-  query.trim().startsWith(REGEX_SEARCH_PREFIX);
+export const normalizeMessageSearchQuery = (query: string) => query.trim();
 
-export const parseMessageSearchQuery = (query: string): MessageSearchPattern => {
-  const normalized = query.trim();
-  if (!normalized.startsWith(REGEX_SEARCH_PREFIX)) {
-    return { kind: "text", query: normalized, serverQuery: normalized };
-  }
-
-  const expression = normalized.slice(REGEX_SEARCH_PREFIX.length);
-  if (!expression) throw new Error("正则表达式不能为空");
-  try {
-    return {
-      kind: "regex",
-      query: normalized,
-      serverQuery: "",
-      expression,
-      regex: new RegExp(expression, "iu"),
-    };
-  } catch {
-    throw new Error("无效的正则表达式");
-  }
+export const messageSearchMatches = (value: string, query: string) => {
+  const normalized = normalizeMessageSearchQuery(query);
+  return Boolean(normalized) && value.toLocaleLowerCase().includes(normalized.toLocaleLowerCase());
 };
 
-export const messageSearchMatches = (value: string, pattern: MessageSearchPattern) =>
-  pattern.kind === "regex"
-    ? pattern.regex.test(value)
-    : value.toLocaleLowerCase().includes(pattern.query.toLocaleLowerCase());
+export const chatMessageSearchFilterDisallowsQueryOrSender = (
+  filter: ChatMessageSearchFilter,
+) => FILTERS_WITHOUT_QUERY_OR_SENDER.has(filter);
+
+export const chatMessageSearchCriteriaActive = (
+  input: Pick<ChatMessageSearchInput, "query" | "senderId" | "filter" | "minDate" | "maxDate">,
+) => Boolean(
+  normalizeMessageSearchQuery(input.query ?? "") ||
+  input.senderId ||
+  (input.filter ?? "all") !== "all" ||
+  input.minDate ||
+  input.maxDate
+);
+
+export const localDateSearchRange = (value: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const start = new Date(year, month - 1, day);
+  const end = new Date(year, month - 1, day + 1);
+  if (
+    start.getFullYear() !== year ||
+    start.getMonth() !== month - 1 ||
+    start.getDate() !== day
+  ) return undefined;
+  return {
+    minDate: Math.floor(start.getTime() / 1000),
+    maxDate: Math.floor(end.getTime() / 1000) - 1,
+  };
+};

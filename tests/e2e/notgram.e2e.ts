@@ -2232,7 +2232,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(actionTrigger).toBeFocused();
 });
 
-test("the unified sidebar search paginates, filters, supports regex, and opens exact messages", async ({ page }) => {
+test("search paginates, filters the current conversation, and opens exact messages", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("searchbox")).toHaveCount(1);
   await page.keyboard.press("Control+K");
@@ -2244,10 +2244,8 @@ test("the unified sidebar search paginates, filters, supports regex, and opens e
   await page.getByRole("button", { name: "加载更多" }).click();
   await expect(page.locator("[data-search-message-id]")).toHaveCount(36);
 
-  await search.fill("reg:^产品讨论历史消息 3[0-6]$");
-  await expect(page.locator("[data-search-message-id]")).toHaveCount(7);
-  await search.fill("reg:[");
-  await expect(page.getByRole("alert").getByText("无效的正则表达式")).toBeVisible();
+  await search.fill("产品讨论历史消息 36");
+  await expect(page.locator("[data-search-message-id]")).toHaveCount(1);
 
   await page.getByRole("tab", { name: "媒体" }).click();
   await search.fill("预览");
@@ -2267,12 +2265,15 @@ test("the unified sidebar search paginates, filters, supports regex, and opens e
   await page.keyboard.press("Control+F");
   const conversationSearch = page.getByRole("searchbox", { name: "搜索当前对话" });
   await expect(conversationSearch).toBeFocused();
-  await conversationSearch.fill("reg:^新的媒体预览样式$");
+  await conversationSearch.fill("新的媒体预览样式");
   await conversationSearch.press("Enter");
   await expect(page.locator('[data-message-id="p-5"]')).toBeVisible();
   await conversationSearch.fill("产品讨论历史消息");
-  await expect(page.locator(".message-search-count")).toHaveText("36 / 36");
-  await page.getByRole("button", { name: "上一个搜索结果" }).click();
+  await expect(page.locator("[data-conversation-search-message-id]")).toHaveCount(30);
+  await expect(page.locator(".message-search-count")).toHaveText("1 / 36");
+  await page.getByRole("button", { name: "加载更早结果" }).click();
+  await expect(page.locator("[data-conversation-search-message-id]")).toHaveCount(36);
+  await page.getByRole("button", { name: "下一个搜索结果" }).click();
   const olderLocatedMessage = page.locator('[data-message-id="p-old-35"]');
   await expect(olderLocatedMessage).toHaveClass(/is-notification-target/);
   const highlightStyle = await olderLocatedMessage.evaluate((element) => {
@@ -2290,14 +2291,25 @@ test("the unified sidebar search paginates, filters, supports regex, and opens e
   expect(highlightStyle.right).toBe("0px");
   expect(highlightStyle.bubbleBoxShadow).not.toContain("0px 0px 0px 2px");
   await expect(conversationSearch).toBeFocused();
-  await conversationSearch.fill("reg:[");
-  await expect(page.locator(".message-row").first()).toBeVisible();
-  await expect(page.locator(".messages-empty")).toHaveCount(0);
-  await expect(page.getByRole("alert").getByText("无效的正则表达式")).toBeVisible();
+
+  await page.getByRole("combobox", { name: "消息发送者" }).selectOption({ label: "Jules" });
+  await expect(page.locator("[data-conversation-search-message-id]")).toHaveCount(18);
+  await page.getByRole("combobox", { name: "消息发送者" }).selectOption("");
+  await conversationSearch.fill("");
+  await page.getByRole("combobox", { name: "消息类型" }).selectOption("photoAndVideo");
+  await expect(page.locator('[data-conversation-search-message-id="p-5"]')).toBeVisible();
   await conversationSearch.press("Escape");
   await expect(conversationSearch).toBeHidden();
   await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
-  await page.getByRole("button", { name: "关闭操作提示" }).click();
+
+  const senderAvatar = page.locator(".message-sender-avatar").last();
+  await expect(senderAvatar).toBeVisible();
+  await senderAvatar.click({ button: "right" });
+  const senderMenu = page.getByRole("menu", { name: "成员操作" });
+  await expect(senderMenu.getByRole("menuitem", { name: /^搜索 .* 的消息$/ })).toBeVisible();
+  await senderMenu.getByRole("menuitem", { name: /^搜索 .* 的消息$/ }).click();
+  await expect(page.getByRole("combobox", { name: "消息发送者" })).not.toHaveValue("");
+  await page.getByRole("button", { name: "关闭消息搜索" }).click();
 
   await page.keyboard.press("Control+K");
   await search.fill("Mia Chen");

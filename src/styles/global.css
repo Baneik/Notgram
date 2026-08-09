@@ -483,6 +483,35 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   align-items: center; gap: 4px; color: var(--subtle); background: var(--color-bg-surface); border-bottom: 1px solid var(--line);
 }
 .message-search-count { min-width: 48px; color: var(--muted); text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.conversation-search-panel { min-width: 0; background: var(--color-bg-surface); border-bottom: 1px solid var(--line); }
+.conversation-search-panel .message-search-row { border-bottom: 0; }
+.message-search-options { min-height: 38px; padding: 4px 12px 5px 20px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--line); }
+.message-search-options label { min-width: 0; display: inline-flex; align-items: center; gap: 4px; }
+.message-search-options select,
+.message-search-options input[type="date"] { height: 28px; max-width: 180px; padding: 0 7px; color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 5px; outline: 0; font-size: 11px; }
+.message-search-options select:focus,
+.message-search-options input[type="date"]:focus { border-color: var(--accent); }
+.message-search-scope { display: inline-flex; align-items: center; padding: 2px; gap: 2px; background: var(--surface-hover); border-radius: 6px; }
+.message-search-scope button { min-height: 26px; padding: 0 8px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.message-search-scope button.is-active { color: var(--accent); background: var(--color-bg-elevated); box-shadow: 0 1px 2px var(--color-shadow); }
+.message-search-date { color: var(--muted); }
+.message-search-sender-clear { min-height: 28px; max-width: 180px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; overflow: hidden; color: var(--accent); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); border-radius: 5px; cursor: pointer; font-size: 11px; }
+.message-search-sender-clear span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-search-results { max-height: min(34vh, 260px); overflow: auto; border-top: 1px solid var(--line); }
+.message-search-result { width: 100%; min-height: 52px; padding: 6px 14px 6px 20px; display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); text-align: left; background: transparent; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent); cursor: pointer; }
+.message-search-result:hover, .message-search-result:focus-visible, .message-search-result.is-active { background: var(--surface-hover); }
+.message-search-result-copy { min-width: 0; display: grid; gap: 3px; }
+.message-search-result-copy > span { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+.message-search-result-copy strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
+.message-search-result-copy time { flex: 0 0 auto; color: var(--subtle); font-size: 10px; }
+.message-search-result-copy small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.message-search-result-copy mark { color: var(--accent-strong); background: var(--accent-soft); }
+.message-search-result-copy em { overflow: hidden; color: var(--subtle); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-style: normal; }
+.message-search-state { min-height: 52px; padding: 12px 20px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 11px; }
+.message-search-state.is-error { color: var(--color-status-danger); }
+.message-search-more { width: 100%; min-height: 34px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--accent); background: transparent; border: 0; cursor: pointer; font-size: 11px; }
+.message-search-more:hover:not(:disabled), .message-search-more:focus-visible { background: var(--accent-soft); }
+.message-search-more:disabled { opacity: .55; cursor: default; }
 .message-list-shell { position: relative; min-height: 0; contain: layout paint style; overflow: hidden; }
 .message-list-shell.has-pinned-message-banner {
   display: grid; grid-template-rows: 48px minmax(0, 1fr);
@@ -2074,6 +2103,10 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .message-bubble-shell { max-width: 88%; }
   .pinned-message-view .message-bubble-shell { max-width: calc(88% - 18px); }
   .pinned-message-entry { min-width: 62px; padding: 0 8px; }
+  .message-search-row { padding-left: 12px; grid-template-columns: auto minmax(0, 1fr) auto 34px 34px 34px; }
+  .message-search-options { padding-left: 12px; padding-right: 12px; }
+  .message-search-results { max-height: min(42vh, 300px); }
+  .message-search-result { padding-left: 12px; }
   .video-controls { gap: 2px; }
   .video-volume { display: none; }
   .composer-wrap { min-height: 50px; padding: 0; }

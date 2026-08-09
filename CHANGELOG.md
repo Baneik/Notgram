@@ -29,7 +29,9 @@ with prerelease identifiers used for release candidates.
   and native-path-safe chat photo selection.
 - Add a lightweight WebView performance timeline for startup, interaction, rendering,
   history, and media stalls, backed by a separately rotated performance log.
-- Support `reg:` regular expressions in global and current-conversation message search.
+- Search the current conversation through TDLib with stable pagination, total counts,
+  sender, message-type, date, and forum-topic scope filters, exact context loading,
+  and a member-avatar context-menu shortcut.
 - Add a muted inline video surface, Alt-click floating playback, and progress-preserving
   fullscreen transitions with compact controls for narrow conversations.
 
@@ -51,6 +53,7 @@ with prerelease identifiers used for release candidates.
   voice controls instead of presenting an inert play action.
 - Merge chat and message search into the single conversation-sidebar field, and hide
   the contacts navigation entry until it is assigned a new location.
+- Treat all search input as plain text and remove the local regular-expression mode.
 - Prefetch image and video covers above the viewport, replace percentage media loaders
   with rotating indicators, and stop paused streams after a bounded buffer window.
 - Present fullscreen video controls in a light 550-by-80 floating panel that hides

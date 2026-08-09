@@ -1016,6 +1016,46 @@ export interface ChatListPage {
   hasMore: boolean;
 }
 
+export type ChatMessageSearchFilter =
+  | "all"
+  | "animation"
+  | "audio"
+  | "document"
+  | "photo"
+  | "poll"
+  | "video"
+  | "voiceNote"
+  | "photoAndVideo"
+  | "url"
+  | "chatPhoto"
+  | "videoNote"
+  | "voiceAndVideoNote"
+  | "mention"
+  | "unreadMention"
+  | "unreadReaction"
+  | "unreadPollVote"
+  | "failedToSend"
+  | "pinned";
+
+export interface ChatMessageSearchInput {
+  chatId: string;
+  topicId?: string;
+  query?: string;
+  senderId?: string;
+  filter?: ChatMessageSearchFilter;
+  fromMessageId?: string;
+  minDate?: number;
+  maxDate?: number;
+  limit?: number;
+}
+
+export interface ChatMessageSearchPage {
+  messages: Message[];
+  totalCount?: number;
+  nextFromMessageId?: string;
+  hasMore: boolean;
+}
+
 export type GlobalSearchFilter = "all" | "message" | "media" | "file" | "link";
 
 export interface GlobalSearchInput {

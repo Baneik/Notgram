@@ -636,7 +636,7 @@ describe("TauriTelegramTransport startup", () => {
     });
   });
 
-  it("uses empty TDLib queries as regex candidates and emits only matching messages", async () => {
+  it("keeps server-backed message search plain and paginated", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -649,32 +649,38 @@ describe("TauriTelegramTransport startup", () => {
           "@type": "foundMessages",
           total_count: 200,
           messages: [rawMessage(90), rawMessage(81)],
-          next_offset: "regex-next",
+          next_offset: "server-next",
         };
       }
       if (request["@type"] === "searchChatMessages") {
-        return { "@type": "messages", messages: [rawMessage(90), rawMessage(81)] };
+        return {
+          "@type": "foundChatMessages",
+          total_count: 2,
+          messages: [rawMessage(90), rawMessage(81)],
+          next_from_message_id: 0,
+        };
       }
       if (request["@type"] === "getChat") return rawChat(7, 1_700_000_000);
       return { "@type": "ok" };
     };
 
     const page = await transport.searchGlobal({
-      query: "reg:^message 9\\d$",
+      query: "message 9",
       filter: "message",
     });
-    const count = await transport.searchChatMessages("7", "reg:^message 9\\d$");
+    const pageForChat = await transport.searchChatMessages({ chatId: "7", query: "message 9", limit: 30 });
 
-    expect(page.messages.map(({ id }) => id)).toEqual(["90"]);
-    expect(page).toMatchObject({ nextOffset: "regex-next" });
+    expect(page.messages.map(({ id }) => id)).toEqual(["90", "81"]);
+    expect(page).toMatchObject({ nextOffset: "server-next" });
     expect(page.totalCount).toBeUndefined();
-    expect(count).toBe(1);
-    expect(events).toMatchObject([{ type: "message.upsert", message: { id: "90" } }]);
+    expect(pageForChat.messages.map(({ id }) => id)).toEqual(["90", "81"]);
+    expect(pageForChat.totalCount).toBe(2);
+    expect(events).toEqual([]);
     expect(requests.filter((request) => request["@type"] === "searchChatsOnServer"))
-      .toEqual([]);
+      .toMatchObject([{ query: "message 9" }]);
     expect(requests.filter((request) =>
       request["@type"] === "searchMessages" || request["@type"] === "searchChatMessages"
-    ).map((request) => request.query)).toEqual(["", ""]);
+    ).map((request) => request.query)).toEqual(["message 9", "message 9"]);
   });
 
   it("cancels a TDLib file download without limiting cancellation to pending work", async () => {
@@ -1882,7 +1888,9 @@ describe("TauriTelegramTransport message operations", () => {
     internal.finishInitialChatSync();
 
     await transport.searchChats("project");
-    await expect(transport.searchChatMessages("7", "needle", 100, "12")).resolves.toBe(1);
+    await expect(transport.searchChatMessages({ chatId: "7", query: "needle", limit: 100, topicId: "12" })).resolves.toMatchObject({
+      messages: [{ id: "15" }],
+    });
     await transport.markForumTopicRead("7", "12", "15");
 
     expect(events).toContainEqual(expect.objectContaining({
@@ -1898,7 +1906,7 @@ describe("TauriTelegramTransport message operations", () => {
       message_ids: [15],
       force_read: true,
     });
-    expect(events).toContainEqual(expect.objectContaining({
+    expect(events).not.toContainEqual(expect.objectContaining({
       type: "message.upsert",
       message: expect.objectContaining({ id: "15", chatId: "7" }),
     }));
@@ -1914,6 +1922,7 @@ describe("TauriTelegramTransport message operations", () => {
         "@type": "foundChatMessages",
         total_count: 7,
         messages: [rawMessage(15), rawMessage(14)],
+        next_from_message_id: 14,
       };
     };
 

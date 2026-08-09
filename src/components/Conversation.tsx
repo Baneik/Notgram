@@ -2,9 +2,7 @@ import {
   ArrowDown,
   ArrowUpRight,
   AtSign,
-  ChevronDown,
   ChevronLeft,
-  ChevronUp,
   Forward,
   MoreVertical,
   LoaderCircle,
@@ -25,6 +23,7 @@ import {
 import { Virtuoso, type Components, type ListProps } from "react-virtuoso";
 import type {
   Chat,
+  ChatMessageSearchInput,
   ConnectionStatus,
   ForumTopic,
   Message,
@@ -32,6 +31,7 @@ import type {
   ForwardMessagesResult,
   User,
 } from "../telegram/types";
+import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import { useConversationSearch } from "../hooks/useConversationSearch";
 import {
   useConversationScroll,
@@ -48,7 +48,9 @@ import {
   MessageActionMenu,
   AutoDeleteDialog,
   PinMessageDialog,
+  SenderActionMenu,
 } from "./ConversationOverlays";
+import { ConversationSearchPanel } from "./ConversationSearchPanel";
 import {
   forwardLabelFor,
   messageSummary,
@@ -94,7 +96,7 @@ const LOAD_NO_OLDER_MESSAGES = async () => undefined;
 type MessageNavigationOptions = Pick<
   MessageConversationScrollRequest,
   "behavior" | "highlight"
->;
+> & { loadContext?: boolean };
 
 const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
   <div {...props} className="message-list-content" ref={ref} />
@@ -163,7 +165,10 @@ interface ConversationProps {
   onPinMessage: (messageId: string, disableNotification: boolean, onlyForSelf: boolean) => Promise<boolean>;
   onUnpinMessage: (messageId: string) => Promise<boolean>;
   onSetChatMessageAutoDeleteTime: (chatId: string, seconds: number) => Promise<boolean>;
-  onSearchMessages: (query: string) => Promise<void>;
+  chatMessageSearch: ChatMessageSearchState;
+  onSearchMessages: (input: ChatMessageSearchInput) => Promise<void>;
+  onLoadMoreSearchMessages: () => Promise<void>;
+  onClearSearchMessages: () => void;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onCancelFileDownload: (fileId: number) => Promise<void>;
   onOpenFile: (sourcePath: string) => Promise<void>;
@@ -237,7 +242,10 @@ export function Conversation({
   onPinMessage,
   onUnpinMessage,
   onSetChatMessageAutoDeleteTime,
+  chatMessageSearch,
   onSearchMessages,
+  onLoadMoreSearchMessages,
+  onClearSearchMessages,
   onDownloadFile,
   onCancelFileDownload,
   onOpenFile,
@@ -280,6 +288,12 @@ export function Conversation({
     left: number;
     top: number;
     returnFocus?: HTMLElement;
+  }>();
+  const [senderMenu, setSenderMenu] = useState<{
+    senderId: string;
+    senderName: string;
+    x: number;
+    y: number;
   }>();
   const [actionLoadingId, setActionLoadingId] = useState<string>();
   const [replyingTo, setReplyingTo] = useState<Message>();
@@ -391,13 +405,31 @@ export function Conversation({
   const {
     open: searchOpen,
     query: messageSearch,
+    filter: messageSearchFilter,
+    senderId: messageSearchSenderId,
+    date: messageSearchDate,
+    scope: messageSearchScope,
+    active: messageSearchActive,
     visibleMessages,
     matchingMessages,
     setQuery: setMessageSearch,
+    setFilter: setMessageSearchFilter,
+    setSenderId: setMessageSearchSenderId,
+    setDate: setMessageSearchDate,
+    setScope: setMessageSearchScope,
+    searchSender,
     close: closeMessageSearch,
     show: showMessageSearch,
     toggle: toggleMessageSearch,
-  } = useConversationSearch(conversationIdentity, displayMessages, onSearchMessages);
+  } = useConversationSearch({
+    chatId: chat?.id,
+    topicId: topic?.id,
+    isForum: chat?.isForum,
+    messages: displayMessages,
+    searchState: chatMessageSearch,
+    onSearchMessages,
+    onClearSearch: onClearSearchMessages,
+  });
   const messageSearchInputRef = useRef<HTMLInputElement>(null);
   const [activeSearchResultId, setActiveSearchResultId] = useState<string>();
   const renderedMessages = useMemo(
@@ -447,16 +479,16 @@ export function Conversation({
   }, [chat, openMessageSearch, pinnedViewOpen]);
 
   useEffect(() => {
-    if (!messageSearch.trim() || matchingMessages.length === 0) {
+    if (!messageSearchActive || matchingMessages.length === 0) {
       setActiveSearchResultId(undefined);
       return;
     }
     setActiveSearchResultId((current) =>
       current && matchingMessages.some((message) => message.id === current)
         ? current
-        : matchingMessages.at(-1)?.id,
+        : matchingMessages[0]?.id,
     );
-  }, [matchingMessages, messageSearch]);
+  }, [matchingMessages, messageSearchActive]);
 
   const messageProjection = useMemo(() => {
     const startedAt = performance.now();
@@ -526,6 +558,7 @@ export function Conversation({
 
   useEffect(() => {
     setChatMenuOpen(false);
+    setSenderMenu(undefined);
   }, [chat?.id]);
 
   useLayoutEffect(() => {
@@ -574,6 +607,29 @@ export function Conversation({
     () => new Map(forwardTargets.map((target) => [target.id, target])),
     [forwardTargets],
   );
+  const senderOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: Array<{ id: string; label: string; avatar?: User["avatar"] }> = [];
+    const add = (id: string, label: string, avatar?: User["avatar"]) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      options.push({ id, label, avatar });
+    };
+    for (const member of groupManagement?.chatId === chat?.id ? groupManagement?.members ?? [] : []) {
+      add(member.user.id, member.user.displayName, member.user.avatar);
+    }
+    for (const message of messages) {
+      if (message.senderId === "self") add(message.senderId, "我");
+      else if (message.senderId.startsWith("chat:")) {
+        const senderChat = forwardTargetsById.get(senderChatId(message.senderId) ?? "");
+        add(message.senderId, senderChat?.title ?? "群组账号", senderChat?.avatar);
+      } else {
+        const user = users.get(message.senderId);
+        add(message.senderId, user?.displayName ?? "Telegram 用户", user?.avatar);
+      }
+    }
+    return options.sort((left, right) => left.label.localeCompare(right.label, "zh-Hans"));
+  }, [chat?.id, forwardTargetsById, groupManagement, messages, users]);
   const forwarding = useMessageForwarding({
     chatId: chat?.id,
     conversationIdentity,
@@ -629,7 +685,7 @@ export function Conversation({
     visibleMessages: renderedMessages,
     messageItemIndexes,
     virtualItemCount: visibleMessageBlocks.length,
-    search: pinnedViewOpen ? "" : messageSearch,
+    search: pinnedViewOpen ? "" : messageSearchActive ? "search" : "",
     historyLoading: pinnedViewOpen ? false : historyLoading,
     historyInitialized: pinnedViewOpen ? true : historyInitialized,
     hasOlderMessages: pinnedViewOpen ? false : hasOlderMessages,
@@ -1041,19 +1097,29 @@ export function Conversation({
   const activeSearchResultIndex = activeSearchResultId
     ? matchingMessages.findIndex((message) => message.id === activeSearchResultId)
     : -1;
+  const chatMessageSearchHasMore = Boolean(chatMessageSearch.nextFromMessageId);
+  const openSearchResultMessage = (target: Message) => {
+    setActiveSearchResultId(target.id);
+    onOpenMessage(target.chatId, target.id, { loadContext: true });
+    globalThis.setTimeout(() => messageSearchInputRef.current?.focus(), 0);
+  };
   const openSearchResult = (direction: "older" | "newer") => {
-    if (matchingMessages.length === 0) return;
+    if (matchingMessages.length === 0) {
+      if (direction === "older" && chatMessageSearchHasMore) void onLoadMoreSearchMessages();
+      return;
+    }
     const currentIndex = activeSearchResultIndex >= 0
       ? activeSearchResultIndex
-      : matchingMessages.length - 1;
+      : 0;
     const nextIndex = direction === "older"
-      ? Math.max(0, currentIndex - 1)
-      : Math.min(matchingMessages.length - 1, currentIndex + 1);
+      ? Math.min(matchingMessages.length - 1, currentIndex + 1)
+      : Math.max(0, currentIndex - 1);
     const target = matchingMessages[nextIndex];
-    if (!target) return;
-    setActiveSearchResultId(target.id);
-    onOpenMessage(target.chatId, target.id);
-    globalThis.setTimeout(() => messageSearchInputRef.current?.focus(), 0);
+    if (!target || (direction === "older" && nextIndex === currentIndex && chatMessageSearchHasMore)) {
+      if (direction === "older" && chatMessageSearchHasMore) void onLoadMoreSearchMessages();
+      return;
+    }
+    openSearchResultMessage(target);
   };
 
   const openActionMenu = useCallback(async (
@@ -1366,60 +1432,31 @@ export function Conversation({
       )}
 
       {searchOpen && !pinnedViewOpen && (
-        <div
-          className="message-search-row"
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            closeMessageSearchAndFocusComposer();
-          }}
-        >
-          <Search size={16} strokeWidth={1.8} />
-          <input
-            ref={messageSearchInputRef}
-            autoFocus
-            value={messageSearch}
-            onChange={(event) => setMessageSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              event.preventDefault();
-              openSearchResult(event.shiftKey ? "newer" : "older");
-            }}
-            placeholder="搜索当前对话"
-            type="search"
-          />
-          <span className="message-search-count" aria-live="polite">
-            {matchingMessages.length === 0
-              ? "0 / 0"
-              : `${Math.max(0, activeSearchResultIndex) + 1} / ${matchingMessages.length}`}
-          </span>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="上一个搜索结果"
-            title="上一个搜索结果"
-            disabled={matchingMessages.length === 0 || activeSearchResultIndex <= 0}
-            onClick={() => openSearchResult("older")}
-          >
-            <ChevronUp size={17} strokeWidth={1.9} />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="下一个搜索结果"
-            title="下一个搜索结果"
-            disabled={
-              matchingMessages.length === 0 ||
-              activeSearchResultIndex >= matchingMessages.length - 1
-            }
-            onClick={() => openSearchResult("newer")}
-          >
-            <ChevronDown size={17} strokeWidth={1.9} />
-          </button>
-          <button className="icon-button" type="button" aria-label="关闭消息搜索" title="关闭消息搜索" onClick={closeMessageSearchAndFocusComposer}>
-            <X size={17} strokeWidth={1.8} />
-          </button>
-        </div>
+        <ConversationSearchPanel
+          query={messageSearch}
+          filter={messageSearchFilter}
+          senderId={messageSearchSenderId}
+          date={messageSearchDate}
+          scope={messageSearchScope}
+          isForum={Boolean(chat.isForum && topic)}
+          senderOptions={senderOptions}
+          users={users}
+          chats={forwardTargetsById}
+          topics={topics}
+          searchState={chatMessageSearch}
+          results={matchingMessages}
+          activeResultId={activeSearchResultId}
+          inputRef={messageSearchInputRef}
+          onQueryChange={setMessageSearch}
+          onFilterChange={setMessageSearchFilter}
+          onSenderChange={setMessageSearchSenderId}
+          onDateChange={setMessageSearchDate}
+          onScopeChange={setMessageSearchScope}
+          onNavigate={openSearchResult}
+          onOpenResult={openSearchResultMessage}
+          onLoadMore={() => void onLoadMoreSearchMessages()}
+          onClose={closeMessageSearchAndFocusComposer}
+        />
       )}
 
       <div className={`message-list-shell ${positioning ? "is-positioning" : ""} ${pinnedViewOpen ? "pinned-message-view" : ""} ${pinnedBannerVisible ? "has-pinned-message-banner" : ""}`}>
@@ -1508,6 +1545,27 @@ export function Conversation({
                         type="button"
                         aria-label={`查看 ${senderName} 资料`}
                         onClick={() => onOpenSenderProfile(firstMessage.senderId)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSenderMenu({
+                            senderId: firstMessage.senderId,
+                            senderName,
+                            x: event.clientX,
+                            y: event.clientY,
+                          });
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                          event.preventDefault();
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          setSenderMenu({
+                            senderId: firstMessage.senderId,
+                            senderName,
+                            x: bounds.left + bounds.width / 2,
+                            y: bounds.top + bounds.height / 2,
+                          });
+                        }}
                       >
                         <Avatar
                           avatar={senderAvatar ?? {
@@ -1656,7 +1714,7 @@ export function Conversation({
             );
           }}
         />
-        {!pinnedViewOpen && !messageSearch && currentScrollKey && attentionMessageIds.length > 0 && (
+        {!pinnedViewOpen && !messageSearchActive && currentScrollKey && attentionMessageIds.length > 0 && (
           <button
             className={`conversation-jump-button jump-to-attention ${awayFromLatest ? "is-stacked" : ""}`}
             type="button"
@@ -1676,7 +1734,7 @@ export function Conversation({
             <span>{attentionMessageIds.length > 99 ? "99+" : attentionMessageIds.length}</span>
           </button>
         )}
-        {!pinnedViewOpen && !messageSearch && currentScrollKey && awayFromLatest && (
+        {!pinnedViewOpen && !messageSearchActive && currentScrollKey && awayFromLatest && (
             <button
               className="conversation-jump-button jump-to-latest"
               type="button"
@@ -1740,6 +1798,15 @@ export function Conversation({
           onReport={() => { setReportTarget(actionMessage); setActionMenu(undefined); }}
           onDismiss={() => closeActionMenu(false)}
           onClose={() => closeActionMenu(true)}
+        />
+      )}
+
+      {senderMenu && (
+        <SenderActionMenu
+          position={senderMenu}
+          senderName={senderMenu.senderName}
+          onSearch={() => searchSender(senderMenu.senderId)}
+          onDismiss={() => setSenderMenu(undefined)}
         />
       )}
 

@@ -1,6 +1,11 @@
 import type { TelegramTransport } from "../telegram/transport";
-import { isRegexMessageSearchQuery } from "../telegram/messageSearch";
-import type { GlobalSearchFilter } from "../telegram/types";
+import { chatMessageSearchCriteriaActive } from "../telegram/messageSearch";
+import type { ChatMessageSearchInput, GlobalSearchFilter } from "../telegram/types";
+import {
+  chatMessageSearchInputKey,
+  emptyChatMessageSearch,
+  mergeChatMessageSearchPage,
+} from "./chatMessageSearchState";
 import { emptyGlobalSearch, mergeGlobalSearchPage } from "./globalSearchState";
 import type { TelegramState } from "./telegramStore.types";
 
@@ -10,6 +15,7 @@ type StoreState = Pick<
   | "activeTopicId"
   | "authorization"
   | "globalSearch"
+  | "chatMessageSearch"
   | "searchQuery"
   | "chatFilter"
 >;
@@ -19,7 +25,10 @@ type StoreSetter = (
 ) => void;
 
 export interface SearchController {
-  searchChatMessages: (query: string) => Promise<void>;
+  searchChatMessages: (input: ChatMessageSearchInput) => Promise<void>;
+  loadMoreChatMessages: () => Promise<void>;
+  cancelChatMessageSearch: () => void;
+  clearChatMessageSearch: () => void;
   searchGlobal: (query: string, filter?: GlobalSearchFilter) => Promise<void>;
   loadMoreGlobalSearch: () => Promise<void>;
   cancelGlobalSearch: () => void;
@@ -50,6 +59,7 @@ export const createSearchController = ({
 }: SearchControllerOptions): SearchController => {
   let chatSearchTimer: ReturnType<typeof setTimeout> | undefined;
   let chatSearchGeneration = 0;
+  let chatMessageSearchGeneration = 0;
   let globalSearchGeneration = 0;
 
   const clearChatSearchTimer = () => {
@@ -58,17 +68,78 @@ export const createSearchController = ({
   };
 
   return {
-    searchChatMessages: async (query) => {
-      const chatId = get().activeChatId;
-      const topicId = get().activeTopicId;
-      const normalized = query.trim();
-      if (!chatId || !normalized || get().authorization.kind !== "ready") return;
-      try {
-        await transport.searchChatMessages(chatId, normalized, 100, topicId);
-        set({ operationError: undefined });
-      } catch (error) {
-        set({ operationError: onError(error, "无法搜索聊天消息") });
+    searchChatMessages: async (input) => {
+      const normalizedInput: ChatMessageSearchInput = {
+        ...input,
+        query: input.query?.trim() ?? "",
+        filter: input.filter ?? "all",
+        limit: undefined,
+      };
+      const generation = ++chatMessageSearchGeneration;
+      if (!chatMessageSearchCriteriaActive(normalizedInput)) {
+        set({ chatMessageSearch: emptyChatMessageSearch() });
+        return;
       }
+      if (get().authorization.kind !== "ready") {
+        set({
+          chatMessageSearch: {
+            ...emptyChatMessageSearch(normalizedInput),
+            error: "Telegram 就绪后才能搜索",
+          },
+        });
+        return;
+      }
+      set({
+        chatMessageSearch: {
+          ...emptyChatMessageSearch(normalizedInput),
+          loading: true,
+        },
+      });
+      try {
+        const page = await transport.searchChatMessages({ ...normalizedInput, limit: 30 });
+        if (generation !== chatMessageSearchGeneration ||
+          chatMessageSearchInputKey(get().chatMessageSearch.input) !== chatMessageSearchInputKey(normalizedInput)) return;
+        set({
+          chatMessageSearch: mergeChatMessageSearchPage(
+            { ...emptyChatMessageSearch(normalizedInput), loading: true },
+            page,
+          ),
+          operationError: undefined,
+        });
+      } catch (error) {
+        if (generation !== chatMessageSearchGeneration) return;
+        set({ chatMessageSearch: { ...emptyChatMessageSearch(normalizedInput), error: onError(error, "无法搜索聊天消息") } });
+      }
+    },
+
+    loadMoreChatMessages: async () => {
+      const current = get().chatMessageSearch;
+      const input = current.input;
+      if (current.loading || current.loadingMore || !input || !current.nextFromMessageId) return;
+      const generation = ++chatMessageSearchGeneration;
+      set({ chatMessageSearch: { ...current, loadingMore: true, error: undefined } });
+      try {
+        const page = await transport.searchChatMessages({
+          ...input,
+          fromMessageId: current.nextFromMessageId,
+          limit: 30,
+        });
+        if (generation !== chatMessageSearchGeneration) return;
+        set({ chatMessageSearch: mergeChatMessageSearchPage(current, page) });
+      } catch (error) {
+        if (generation !== chatMessageSearchGeneration) return;
+        set({ chatMessageSearch: { ...current, loadingMore: false, error: onError(error, "无法加载更多聊天搜索结果") } });
+      }
+    },
+
+    cancelChatMessageSearch: () => {
+      chatMessageSearchGeneration += 1;
+      set((state) => ({ chatMessageSearch: { ...state.chatMessageSearch, loading: false, loadingMore: false } }));
+    },
+
+    clearChatMessageSearch: () => {
+      chatMessageSearchGeneration += 1;
+      set({ chatMessageSearch: emptyChatMessageSearch() });
     },
 
     searchGlobal: async (query, filter = "all") => {
@@ -162,7 +233,6 @@ export const createSearchController = ({
       const generation = ++chatSearchGeneration;
       if (
         !normalized ||
-        isRegexMessageSearchQuery(normalized) ||
         get().authorization.kind !== "ready"
       ) return;
       chatSearchTimer = globalThis.setTimeout(() => {
@@ -177,7 +247,9 @@ export const createSearchController = ({
     reset: () => {
       clearChatSearchTimer();
       chatSearchGeneration += 1;
+      chatMessageSearchGeneration += 1;
       globalSearchGeneration += 1;
+      set({ chatMessageSearch: emptyChatMessageSearch() });
     },
   };
 };

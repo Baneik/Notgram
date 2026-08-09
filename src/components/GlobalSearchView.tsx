@@ -8,7 +8,6 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { messageContentText } from "../telegram/messageContent";
-import { isRegexMessageSearchQuery } from "../telegram/messageSearch";
 import type { Chat, GlobalSearchFilter, Message } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { Avatar } from "./Avatar";
@@ -47,7 +46,7 @@ export function GlobalSearchResults({
   const current = state.query === normalizedQuery && state.filter === filter;
   const chats = current ? state.chats : [];
   const messages = current ? state.messages : [];
-  const matchingChats = filter === "all" && !isRegexMessageSearchQuery(normalizedQuery)
+  const matchingChats = filter === "all"
     ? [...new Map([
         ...knownChats,
         ...chats.map((chat) => [chat.id, chat] as const),

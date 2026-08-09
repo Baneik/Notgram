@@ -31,6 +31,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChat",
     "getChatFolder",
     "getChatHistory",
+    "getChatMessageByDate",
     "getForumTopic",
     "getForumTopicHistory",
     "getForumTopics",
@@ -657,7 +658,56 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid auto-delete settings".to_string());
             }
         }
+        "getChatMessageByDate" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            if request
+                .get("date")
+                .and_then(Value::as_i64)
+                .is_none_or(|date| date < 0)
+            {
+                return Err("Invalid message date".to_string());
+            }
+        }
         "searchChatMessages" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_profile_text(request, "query", 1_024, false, false)?;
+            for field in ["from_message_id", "min_date", "max_date"] {
+                if request.get(field).is_some_and(|value| {
+                    !value.is_null() && value.as_i64().is_none_or(|number| number < 0)
+                }) {
+                    return Err(format!("Invalid chat search field: {field}"));
+                }
+            }
+            if let Some(topic) = request.get("topic_id").filter(|value| !value.is_null())
+                && (topic.get("@type").and_then(Value::as_str) != Some("messageTopicForum")
+                    || topic
+                        .get("forum_topic_id")
+                        .and_then(Value::as_i64)
+                        .is_none_or(|id| id <= 0))
+            {
+                return Err("Invalid chat search topic".to_string());
+            }
+            if request
+                .get("limit")
+                .and_then(Value::as_i64)
+                .is_none_or(|limit| !(1..=100).contains(&limit))
+            {
+                return Err("Invalid chat search pagination".to_string());
+            }
+            if let Some(sender) = request.get("sender_id").filter(|value| !value.is_null()) {
+                let sender_type = sender.get("@type").and_then(Value::as_str);
+                if !matches!(sender_type, Some("messageSenderUser" | "messageSenderChat")) {
+                    return Err("Invalid chat search sender".to_string());
+                }
+                if sender
+                    .get("user_id")
+                    .or_else(|| sender.get("chat_id"))
+                    .and_then(Value::as_i64)
+                    .is_none_or(|id| id == 0)
+                {
+                    return Err("Invalid chat search sender identifier".to_string());
+                }
+            }
             let filter = request
                 .get("filter")
                 .and_then(|value| value.get("@type"))
@@ -665,10 +715,23 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
             if filter.is_some_and(|filter| {
                 !matches!(
                     filter,
-                    "searchMessagesFilterPhotoAndVideo"
-                        | "searchMessagesFilterDocument"
-                        | "searchMessagesFilterUrl"
+                    "searchMessagesFilterAnimation"
                         | "searchMessagesFilterAudio"
+                        | "searchMessagesFilterDocument"
+                        | "searchMessagesFilterPhoto"
+                        | "searchMessagesFilterPoll"
+                        | "searchMessagesFilterVideo"
+                        | "searchMessagesFilterVoiceNote"
+                        | "searchMessagesFilterPhotoAndVideo"
+                        | "searchMessagesFilterUrl"
+                        | "searchMessagesFilterChatPhoto"
+                        | "searchMessagesFilterVideoNote"
+                        | "searchMessagesFilterVoiceAndVideoNote"
+                        | "searchMessagesFilterMention"
+                        | "searchMessagesFilterUnreadMention"
+                        | "searchMessagesFilterUnreadReaction"
+                        | "searchMessagesFilterUnreadPollVote"
+                        | "searchMessagesFilterFailedToSend"
                         | "searchMessagesFilterPinned"
                 )
             }) {
@@ -1748,9 +1811,29 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&media_search).is_ok());
+        let mut topic_search = media_search.clone();
+        topic_search["topic_id"] = json!({
+            "@type": "messageTopicForum",
+            "forum_topic_id": 12
+        });
+        assert!(validate_webview_tdlib_request(&topic_search).is_ok());
+        let mut unread_search = media_search.clone();
+        unread_search["filter"] = json!({ "@type": "searchMessagesFilterUnreadMention" });
+        assert!(validate_webview_tdlib_request(&unread_search).is_ok());
         let mut unsupported_search = media_search.clone();
-        unsupported_search["filter"] = json!({ "@type": "searchMessagesFilterUnreadMention" });
+        unsupported_search["filter"] = json!({ "@type": "searchMessagesFilterCall" });
         assert!(validate_webview_tdlib_request(&unsupported_search).is_err());
+        let mut invalid_sender = media_search.clone();
+        invalid_sender["sender_id"] = json!({ "@type": "messageSenderUser", "user_id": 0 });
+        assert!(validate_webview_tdlib_request(&invalid_sender).is_err());
+
+        let message_by_date = json!({
+            "@type": "getChatMessageByDate",
+            "chat_id": 7,
+            "date": 1_786_319_999,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&message_by_date).is_ok());
     }
 
     #[test]

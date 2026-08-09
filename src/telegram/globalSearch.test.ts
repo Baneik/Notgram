@@ -42,25 +42,17 @@ describe("global search transport", () => {
     })).resolves.toMatchObject({ messages: [{ id: "p-rich-entities" }] });
   });
 
-  it("filters global messages with reg: expressions and rejects invalid patterns", async () => {
+  it("treats search syntax as plain text", async () => {
     const transport = new MockTelegramTransport();
 
     const page = await transport.searchGlobal({
-      query: "reg:^产品讨论历史消息 3[0-6]$",
+      query: "产品讨论历史消息 36",
       filter: "message",
     });
 
-    expect(page.messages.map(({ id }) => id)).toEqual([
-      "p-old-36",
-      "p-old-35",
-      "p-old-34",
-      "p-old-33",
-      "p-old-32",
-      "p-old-31",
-      "p-old-30",
-    ]);
-    expect(page.totalCount).toBe(7);
-    await expect(transport.searchGlobal({ query: "reg:[", filter: "all" }))
-      .rejects.toThrow("无效的正则表达式");
+    expect(page.messages.map(({ id }) => id)).toEqual(["p-old-36"]);
+    expect(page.totalCount).toBe(1);
+    await expect(transport.searchGlobal({ query: "literal:[", filter: "all" }))
+      .resolves.toMatchObject({ messages: [], totalCount: 0 });
   });
 });

@@ -1,5 +1,8 @@
 import type {
   Chat,
+  ChatMessageSearchFilter,
+  ChatMessageSearchInput,
+  ChatMessageSearchPage,
   GlobalSearchFilter,
   GlobalSearchInput,
   GlobalSearchPage,
@@ -12,8 +15,6 @@ import {
   tdId,
   tdNumber,
 } from "./tdlibMapper";
-import { messageContentText } from "./messageContent";
-import { messageSearchMatches, parseMessageSearchQuery } from "./messageSearch";
 import { forumTopicObject, numericId } from "./tdlibRequests";
 import type { TdObject } from "./tdlibMapper";
 
@@ -23,7 +24,6 @@ export interface TauriSearchServiceContext {
   upsertChat: (raw?: TdObject) => void;
   mapChat: (raw: TdObject) => Chat | undefined;
   mapMessage: (raw: TdObject) => Message | undefined;
-  emitMessage: (raw: TdObject) => void;
   emitMessages: (rawMessages: TdObject[]) => void;
 }
 
@@ -46,6 +46,41 @@ const globalSearchContentMatches = (message: Message, filter: GlobalSearchFilter
     /https?:\/\//i.test(message.content.text)
   );
 };
+
+const chatSearchFilterTypes: Record<Exclude<ChatMessageSearchFilter, "all">, string> = {
+  animation: "searchMessagesFilterAnimation",
+  audio: "searchMessagesFilterAudio",
+  document: "searchMessagesFilterDocument",
+  photo: "searchMessagesFilterPhoto",
+  poll: "searchMessagesFilterPoll",
+  video: "searchMessagesFilterVideo",
+  voiceNote: "searchMessagesFilterVoiceNote",
+  photoAndVideo: "searchMessagesFilterPhotoAndVideo",
+  url: "searchMessagesFilterUrl",
+  chatPhoto: "searchMessagesFilterChatPhoto",
+  videoNote: "searchMessagesFilterVideoNote",
+  voiceAndVideoNote: "searchMessagesFilterVoiceAndVideoNote",
+  mention: "searchMessagesFilterMention",
+  unreadMention: "searchMessagesFilterUnreadMention",
+  unreadReaction: "searchMessagesFilterUnreadReaction",
+  unreadPollVote: "searchMessagesFilterUnreadPollVote",
+  failedToSend: "searchMessagesFilterFailedToSend",
+  pinned: "searchMessagesFilterPinned",
+};
+
+const chatSearchFilterObject = (filter: ChatMessageSearchFilter): TdObject | null => filter === "all"
+  ? null
+  : { "@type": chatSearchFilterTypes[filter] };
+
+const messageSenderObject = (senderId?: string): TdObject | null => {
+  if (!senderId) return null;
+  if (senderId.startsWith("chat:")) {
+    return { "@type": "messageSenderChat", chat_id: numericId(senderId.slice(5)) };
+  }
+  return { "@type": "messageSenderUser", user_id: numericId(senderId) };
+};
+
+const unixDate = (message: Message) => Math.floor(Date.parse(message.sentAt) / 1000);
 
 export class TauriSearchService {
   constructor(private readonly context: TauriSearchServiceContext) {}
@@ -76,15 +111,15 @@ export class TauriSearchService {
     offset = "",
     limit = 30,
   }: GlobalSearchInput): Promise<GlobalSearchPage> {
-    const pattern = parseMessageSearchQuery(query);
-    if (!pattern.query) return { chats: [], messages: [], totalCount: 0 };
+    const normalized = query.trim();
+    if (!normalized) return { chats: [], messages: [], totalCount: 0 };
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const filterObject = globalSearchFilterObject(filter);
     const [found, serverChats, publicChats] = await Promise.all([
       this.context.request({
         "@type": "searchMessages",
         chat_list: null,
-        query: pattern.serverQuery,
+        query: normalized,
         offset,
         limit: boundedLimit,
         filter: filterObject,
@@ -92,14 +127,14 @@ export class TauriSearchService {
         min_date: 0,
         max_date: 0,
       }),
-      offset || pattern.kind === "regex" ? Promise.resolve(undefined) : this.context.request({
+      offset ? Promise.resolve(undefined) : this.context.request({
         "@type": "searchChatsOnServer",
-        query: pattern.serverQuery,
+        query: normalized,
         limit: 50,
       }).catch(() => undefined),
-      offset || pattern.kind === "regex" ? Promise.resolve(undefined) : this.context.request({
+      offset ? Promise.resolve(undefined) : this.context.request({
         "@type": "searchPublicChats",
-        query: pattern.serverQuery,
+        query: normalized,
       }).catch(() => undefined),
     ]);
     const rawMessages = asTdObjects(found.messages);
@@ -116,11 +151,7 @@ export class TauriSearchService {
     const messages = rawMessages
       .map((raw) => this.context.mapMessage(raw))
       .filter((message): message is Message => Boolean(message))
-      .filter((message) => globalSearchContentMatches(message, filter))
-      .filter((message) => pattern.kind === "text" || messageSearchMatches(
-        messageContentText(message.content),
-        pattern,
-      ));
+      .filter((message) => globalSearchContentMatches(message, filter));
     const uniqueMessages = [...new Map(messages.map((message) => [
       `${message.chatId}:${message.id}`,
       message,
@@ -143,7 +174,7 @@ export class TauriSearchService {
     return {
       chats,
       messages: uniqueMessages,
-      totalCount: pattern.kind === "text" && filter !== "message" && totalCount !== undefined && totalCount >= 0
+      totalCount: filter !== "message" && totalCount !== undefined && totalCount >= 0
         ? totalCount
         : undefined,
       nextOffset: typeof found.next_offset === "string" && found.next_offset
@@ -152,32 +183,58 @@ export class TauriSearchService {
     };
   }
 
-  async searchChatMessages(chatId: string, query: string, limit = 100, topicId?: string) {
-    const pattern = parseMessageSearchQuery(query);
-    if (!pattern.query) return 0;
+  async searchChatMessages(input: ChatMessageSearchInput): Promise<ChatMessageSearchPage> {
+    const query = input.query?.trim() ?? "";
+    const filter = input.filter ?? "all";
+    const limit = Math.max(1, Math.min(input.limit ?? 30, 100));
+    let fromMessageId = input.fromMessageId ? numericId(input.fromMessageId) : 0;
+    if (!fromMessageId && input.maxDate) {
+      try {
+        const byDate = await this.context.request({
+          "@type": "getChatMessageByDate",
+          chat_id: numericId(input.chatId),
+          date: input.maxDate,
+        });
+        fromMessageId = numericId(tdId(byDate.id));
+      } catch (error) {
+        if (String(error).includes("(404)")) {
+          return { messages: [], totalCount: 0, hasMore: false };
+        }
+        throw error;
+      }
+    }
     const result = await this.context.request({
       "@type": "searchChatMessages",
-      chat_id: numericId(chatId),
-      topic_id: forumTopicObject(topicId),
-      query: pattern.serverQuery,
-      sender_id: null,
-      from_message_id: 0,
+      chat_id: numericId(input.chatId),
+      topic_id: forumTopicObject(input.topicId),
+      query,
+      sender_id: messageSenderObject(input.senderId),
+      from_message_id: fromMessageId,
       offset: 0,
-      limit: Math.max(1, Math.min(limit, 100)),
-      filter: null,
+      limit,
+      filter: chatSearchFilterObject(filter),
     });
-    const messages = asTdObjects(result.messages);
-    const matches = pattern.kind === "text"
-      ? messages
-      : messages.filter((raw) => {
-          const message = this.context.mapMessage(raw);
-          return Boolean(message && messageSearchMatches(
-            messageContentText(message.content),
-            pattern,
-          ));
-        });
-    for (const message of matches) this.context.emitMessage(message);
-    return matches.length;
+    const rawMessages = asTdObjects(result.messages);
+    const mappedMessages = rawMessages
+      .map((raw) => this.context.mapMessage(raw))
+      .filter((message): message is Message => Boolean(message && message.chatId === input.chatId));
+    const messages = mappedMessages.filter((message) => (
+      (!input.minDate || unixDate(message) >= input.minDate) &&
+      (!input.maxDate || unixDate(message) <= input.maxDate)
+    ));
+    const nextFromMessageId = tdId(result.next_from_message_id) || undefined;
+    const reachedMinimumDate = Boolean(
+      input.minDate && mappedMessages.some((message) => unixDate(message) < input.minDate!),
+    );
+    const totalCount = tdNumber(result.total_count);
+    return {
+      messages,
+      totalCount: input.minDate || input.maxDate
+        ? undefined
+        : totalCount !== undefined && totalCount >= 0 ? totalCount : undefined,
+      nextFromMessageId: reachedMinimumDate ? undefined : nextFromMessageId,
+      hasMore: !reachedMinimumDate && Boolean(nextFromMessageId),
+    };
   }
 
   async searchSharedMedia(input: SharedMediaSearchInput): Promise<SharedMediaPage> {
@@ -203,12 +260,12 @@ export class TauriSearchService {
     const messages = rawMessages.map((raw) => this.context.mapMessage(raw))
       .filter((message): message is Message => Boolean(message && message.chatId === input.chatId));
     this.context.emitMessages(rawMessages);
-    const nextFromMessageId = rawMessages.length > 0 ? tdId(rawMessages.at(-1)?.id) : undefined;
+    const nextFromMessageId = tdId(result.next_from_message_id) || undefined;
     return {
       messages,
       totalCount: Math.max(0, tdNumber(result.total_count) ?? messages.length),
       nextFromMessageId: nextFromMessageId || undefined,
-      hasMore: rawMessages.length === limit && Boolean(nextFromMessageId),
+      hasMore: Boolean(nextFromMessageId),
     };
   }
 }

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNativeContextMenu, type NativeContextMenuItem } from "../contextMenu/nativeContextMenuBridge";
+import { ContextMenuPanel, ContextMenuSurface, type ContextMenuPoint } from "./ContextMenuSurface";
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, ForumTopic, ForumTopicPage, Message } from "../telegram/types";
@@ -27,6 +28,37 @@ import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard"
 import { currentColorTheme } from "../theme/theme";
 import { Avatar } from "./Avatar";
 import { messageSummary } from "./conversationMessages";
+
+interface SenderActionMenuProps {
+  position: ContextMenuPoint;
+  senderName: string;
+  onSearch: () => void;
+  onDismiss: () => void;
+}
+
+export function SenderActionMenu({ position, senderName, onSearch, onDismiss }: SenderActionMenuProps) {
+  const nativeMenu = useNativeContextMenu({
+    label: "成员操作",
+    colorTheme: currentColorTheme(),
+    items: [{ id: "search", label: "搜索成员消息", icon: "search" }],
+  }, position, (actionId) => {
+    if (actionId === "search") {
+      onDismiss();
+      onSearch();
+    }
+  }, onDismiss);
+  if (nativeMenu) return null;
+  return (
+    <ContextMenuSurface label="成员操作" point={position} onClose={onDismiss}>
+      <ContextMenuPanel>
+        <button type="button" role="menuitem" onClick={() => { onDismiss(); onSearch(); }}>
+          <Search size={16} strokeWidth={1.9} />
+          <span>搜索 {senderName} 的消息</span>
+        </button>
+      </ContextMenuPanel>
+    </ContextMenuSurface>
+  );
+}
 
 interface MessageActionMenuProps {
   position: { left: number; top: number };

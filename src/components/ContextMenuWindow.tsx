@@ -13,6 +13,7 @@ import {
   Pin,
   PictureInPicture2,
   Reply,
+  Search,
   Trash2,
 } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
@@ -41,6 +42,7 @@ const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   pin: Pin,
   "play-window": PictureInPicture2,
   reply: Reply,
+  search: Search,
   trash: Trash2,
 };
 

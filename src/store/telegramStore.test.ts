@@ -20,6 +20,7 @@ import type {
   TelegramAccount,
   TelegramAccountState,
   TelegramEvent,
+  ChatMessageSearchInput,
 } from "../telegram/types";
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 import { cachedSnapshotFrom } from "./telegramStore.cache";
@@ -1165,15 +1166,15 @@ describe("telegram store", () => {
   it("debounces server chat search and delegates current-chat message search", async () => {
     class SearchTrackingTransport extends MockTelegramTransport {
       chatQueries: string[] = [];
-      messageQueries: Array<{ chatId: string; query: string }> = [];
+      messageQueries: ChatMessageSearchInput[] = [];
 
       override async searchChats(query: string) {
         this.chatQueries.push(query);
       }
 
-      override async searchChatMessages(chatId: string, query: string) {
-        this.messageQueries.push({ chatId, query });
-        return 0;
+      override async searchChatMessages(input: ChatMessageSearchInput) {
+        this.messageQueries.push(input);
+        return { messages: [], totalCount: 0, hasMore: false };
       }
     }
 
@@ -1186,13 +1187,13 @@ describe("telegram store", () => {
       store.getState().setSearchQuery("pro");
       store.getState().setSearchQuery("project");
       await vi.advanceTimersByTimeAsync(251);
-      store.getState().setSearchQuery("reg:pro.*");
+      store.getState().setSearchQuery("product");
       await vi.advanceTimersByTimeAsync(251);
-      await store.getState().searchChatMessages("reg:^needle$");
+      await store.getState().searchChatMessages({ chatId: "chat-product", query: "needle" });
 
-      expect(transport.chatQueries).toEqual(["project"]);
+      expect(transport.chatQueries).toEqual(["project", "product"]);
       expect(transport.messageQueries).toEqual([
-        { chatId: "chat-product", query: "reg:^needle$" },
+        { chatId: "chat-product", query: "needle", filter: "all", limit: 30 },
       ]);
     } finally {
       vi.useRealTimers();
@@ -1553,9 +1554,9 @@ describe("telegram store", () => {
       forwards: ForwardMessagesInput[] = [];
       topicReads: Array<{ chatId: string; topicId: string; messageId: string }> = [];
 
-      override async searchChatMessages(chatId: string, query: string, limit = 100, topicId?: string) {
-        this.searches.push({ chatId, query, topicId });
-        return super.searchChatMessages(chatId, query, limit, topicId);
+      override async searchChatMessages(input: ChatMessageSearchInput) {
+        this.searches.push({ chatId: input.chatId, query: input.query ?? "", topicId: input.topicId });
+        return super.searchChatMessages(input);
       }
 
       override async sendSticker(input: SendEmojiAssetInput) {
@@ -1585,7 +1586,7 @@ describe("telegram store", () => {
     ).toBe(true));
 
     store.getState().updateChatDraft("chat-forum", "release draft");
-    await store.getState().searchChatMessages("Windows");
+    await store.getState().searchChatMessages({ chatId: "chat-forum", topicId: "12", query: "Windows" });
     await store.getState().sendSticker({
       id: "sticker:forum",
       kind: "sticker",
