@@ -15,6 +15,7 @@ import { ForumTopicsView } from "../components/ForumTopicsView";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { SettingsDialog } from "../components/SettingsDialog";
+import { DownloadManagerDialog } from "../components/DownloadManagerDialog";
 import { MotionPresence } from "../components/MotionPresence";
 import { ProfileDrawer } from "../components/ProfileDrawer";
 import { FolderManagerDialog } from "../components/FolderManagerDialog";
@@ -57,6 +58,7 @@ import {
   captureConversationSwitchSnapshot,
   removeConversationSwitchSnapshot,
 } from "../utils/conversationSwitchSnapshot";
+import { collectManagedDownloads } from "../utils/downloadManager";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -209,6 +211,7 @@ export function App() {
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [managementChatId, setManagementChatId] = useState<string>();
@@ -216,6 +219,10 @@ export function App() {
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const managedDownloads = useMemo(
+    () => collectManagedDownloads(messages, chats),
+    [chats, messages],
+  );
   const sidebarSearch = useSidebarSearch({
     query: searchQuery,
     chatMessageSearch,
@@ -544,6 +551,15 @@ export function App() {
 
   useEffect(() => {
     const openSearch = (event: globalThis.KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey &&
+        !event.repeat && event.key.toLocaleLowerCase() === "j"
+      ) {
+        event.preventDefault();
+        setSettingsOpen(false);
+        setDownloadManagerOpen(true);
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
         event.preventDefault();
         setSettingsOpen(false);
@@ -881,8 +897,8 @@ export function App() {
   return (
     <>
       <main
-        inert={settingsOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || Boolean(managementChatId)}
-        aria-hidden={settingsOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
+        inert={settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || Boolean(managementChatId)}
+        aria-hidden={settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
         <NavigationRail
@@ -1203,6 +1219,15 @@ export function App() {
       </MotionPresence>
       <MotionPresence present={settingsOpen}>
         {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+      </MotionPresence>
+      <MotionPresence present={downloadManagerOpen}>
+        {downloadManagerOpen ? <DownloadManagerDialog
+          items={managedDownloads}
+          onDownload={downloadFile}
+          onCancel={cancelFileDownload}
+          onOpenDirectory={openDownloadDirectory}
+          onClose={() => setDownloadManagerOpen(false)}
+        /> : null}
       </MotionPresence>
       <MotionPresence present={folderManagerOpen}>
         {folderManagerOpen ? <FolderManagerDialog
