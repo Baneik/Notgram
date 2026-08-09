@@ -39,7 +39,10 @@ import {
   savePendingNotificationRoute,
 } from "../notifications/notificationRouting";
 import { mediaPlaybackCoordinator } from "../media/mediaPlayback";
-import { hasConversationScrollMemory } from "../hooks/useConversationScroll";
+import {
+  hasConversationScrollMemory,
+  type MessageConversationScrollRequest,
+} from "../hooks/useConversationScroll";
 import {
   beginConversationSwitch,
   isConversationSwitchActive,
@@ -258,12 +261,8 @@ export function App() {
   }>();
   const entryScrollRequestIdRef = useRef(0);
   const chatOpenGenerationRef = useRef(0);
-  const [messageScrollRequest, setMessageScrollRequest] = useState<{
-    chatId: string;
-    messageId: string;
-    requestId: number;
-    performanceTraceId?: number;
-  }>();
+  const [messageScrollRequest, setMessageScrollRequest] =
+    useState<MessageConversationScrollRequest>();
   const messageScrollRequestIdRef = useRef(0);
   const latestConversationIntentChatIdRef = useRef<string | undefined>(undefined);
   const conversationSnapshotRef = useRef<HTMLElement | undefined>(undefined);
@@ -393,7 +392,11 @@ export function App() {
     });
   }, [beginConversationSnapshot, closeSearch, selectChat]);
 
-  const openGlobalSearchMessage = useCallback(async (chatId: string, messageId: string) => {
+  const openGlobalSearchMessage = useCallback(async (
+    chatId: string,
+    messageId: string,
+    options?: Pick<MessageConversationScrollRequest, "behavior" | "highlight">,
+  ) => {
     const state = telegramStore.getState();
     const cachedTarget = state.messages.get(chatId)?.find((message) => message.id === messageId);
     const targetMessages = (state.messages.get(chatId) ?? [])
@@ -407,22 +410,33 @@ export function App() {
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
     beginConversationSnapshot(chatId);
-    await loadMessage(chatId, messageId);
+    if (!cachedTarget) await loadMessage(chatId, messageId);
     const loadedState = telegramStore.getState();
     const targetTopicId = loadedState.chats.get(chatId)?.isForum
       ? loadedState.messages.get(chatId)?.find((message) => message.id === messageId)?.topicId
       : undefined;
-    await loadedState.selectChat(chatId, { forumTopicId: targetTopicId });
+    const destinationAlreadyActive = loadedState.activeChatId === chatId && (
+      !loadedState.chats.get(chatId)?.isForum ||
+      !targetTopicId ||
+      loadedState.activeTopicId === targetTopicId
+    );
+    if (!destinationAlreadyActive) {
+      await loadedState.selectChat(chatId, { forumTopicId: targetTopicId });
+    }
     closeSearch();
     setMobileChatOpen(true);
-    setEntryScrollRequest(undefined);
-    setLatestScrollRequest(undefined);
     messageScrollRequestIdRef.current += 1;
-    setMessageScrollRequest({
-      chatId,
-      messageId,
-      requestId: messageScrollRequestIdRef.current,
-      performanceTraceId,
+    flushSync(() => {
+      setEntryScrollRequest(undefined);
+      setLatestScrollRequest(undefined);
+      setMessageScrollRequest({
+        chatId,
+        messageId,
+        requestId: messageScrollRequestIdRef.current,
+        performanceTraceId,
+        behavior: options?.behavior,
+        highlight: options?.highlight,
+      });
     });
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
@@ -1044,7 +1058,9 @@ export function App() {
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
           onPositioned={finishConversationSnapshot}
-          onOpenMessage={(chatId, messageId) => { void openGlobalSearchMessage(chatId, messageId); }}
+          onOpenMessage={(chatId, messageId, options) => {
+            void openGlobalSearchMessage(chatId, messageId, options);
+          }}
           onOpenSenderProfile={(senderId) => {
             if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
             else void loadUserProfile(senderId);

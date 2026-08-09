@@ -57,6 +57,9 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Keep pinned-message jumps smooth by avoiding redundant same-chat selection,
+  suppressing the transient target flash, and ignoring clicks when the pinned
+  source message is already visible.
 - Give captioned media a stable readable card width without letting short captions
   shrink wide media, keep incoming and outgoing geometry identical, and scale the
   complete media frame proportionally in narrow conversations.

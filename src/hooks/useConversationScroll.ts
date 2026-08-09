@@ -61,6 +61,8 @@ export interface MessageConversationScrollRequest {
   messageId: string;
   requestId: number;
   performanceTraceId?: number;
+  behavior?: "auto" | "smooth";
+  highlight?: boolean;
 }
 
 interface ConversationScrollOptions {
@@ -803,16 +805,12 @@ export const useConversationScroll = ({
       `[data-message-id="${CSS.escape(messageId)}"]`,
     );
     const centerMountedTarget = (target: HTMLElement) => {
-      if (!target.closest(".media-album")) {
-        target.scrollIntoView({ block: "center", behavior });
-        return;
-      }
       const listBounds = element.getBoundingClientRect();
       const targetBounds = target.getBoundingClientRect();
       const offset = (targetBounds.top + targetBounds.bottom) / 2 -
         (listBounds.top + listBounds.bottom) / 2;
-      if (behavior === "smooth") element.scrollBy({ top: offset, behavior });
-      else element.scrollTop += offset;
+      if (Math.abs(offset) <= 0.5) return;
+      element.scrollBy({ top: offset, behavior });
     };
     const persistTargetPosition = () => {
       const current = conversationScrollMemory.get(currentScrollKey);
@@ -825,7 +823,10 @@ export const useConversationScroll = ({
       );
     };
     const settleMountedTarget = () => {
-      let remainingFrames = 18;
+      let remainingFrames = behavior === "smooth" ? 36 : 18;
+      let stableFrames = 0;
+      let previousScrollTop = element.scrollTop;
+      let requestedMissingTarget = false;
       const finish = () => {
         const invalid =
           messageListRef.current !== element ||
@@ -872,16 +873,27 @@ export const useConversationScroll = ({
           }
           return;
         }
-        const latestItemIndex = messageItemIndexesRef.current.get(messageId);
-        if (latestItemIndex !== undefined) {
+        const target = element.querySelector<HTMLElement>(
+          `[data-message-id="${CSS.escape(messageId)}"]`,
+        );
+        if (!target && !requestedMissingTarget) {
+          const latestItemIndex = messageItemIndexesRef.current.get(messageId);
+          requestedMissingTarget = true;
           virtuosoRef.current?.scrollToIndex({
-            index: latestItemIndex,
+            index: latestItemIndex ?? itemIndex,
             align: "center",
             behavior: "auto",
           });
         }
+        const currentScrollTop = element.scrollTop;
+        if (target && Math.abs(currentScrollTop - previousScrollTop) <= 0.5) {
+          stableFrames += 1;
+        } else {
+          stableFrames = 0;
+        }
+        previousScrollTop = currentScrollTop;
         remainingFrames -= 1;
-        if (remainingFrames > 0) {
+        if (stableFrames < 3 && remainingFrames > 0) {
           requestAnimationFrame(settle);
         } else requestAnimationFrame(finish);
       };
@@ -1115,12 +1127,17 @@ export const useConversationScroll = ({
       !targetReady
     ) return;
     const requestId = matchingMessageRequest.requestId;
-    revealTarget(matchingMessageRequest.messageId, "smooth", true, () => {
-      handledMessageRequestRef.current = Math.max(
-        handledMessageRequestRef.current,
-        requestId,
-      );
-    });
+    revealTarget(
+      matchingMessageRequest.messageId,
+      matchingMessageRequest.behavior ?? "smooth",
+      matchingMessageRequest.highlight !== false,
+      () => {
+        handledMessageRequestRef.current = Math.max(
+          handledMessageRequestRef.current,
+          requestId,
+        );
+      },
+    );
   }, [matchingMessageRequest, revealTarget, targetReady]);
 
   useLayoutEffect(() => {

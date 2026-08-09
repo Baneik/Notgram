@@ -91,6 +91,10 @@ import { PinnedMessageBanner } from "./PinnedMessageBanner";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 const LOAD_NO_OLDER_MESSAGES = async () => undefined;
+type MessageNavigationOptions = Pick<
+  MessageConversationScrollRequest,
+  "behavior" | "highlight"
+>;
 
 const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
   <div {...props} className="message-list-content" ref={ref} />
@@ -173,7 +177,11 @@ interface ConversationProps {
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
   onPositioned?: (chatId: string) => void;
-  onOpenMessage: (chatId: string, messageId: string) => void;
+  onOpenMessage: (
+    chatId: string,
+    messageId: string,
+    options?: MessageNavigationOptions,
+  ) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
@@ -693,6 +701,21 @@ export function Conversation({
     () => pinnedMessageForVisibleRange(allPinnedMessages, visiblePinnedMessageIds),
     [allPinnedMessages, visiblePinnedMessageIds],
   );
+
+  const openPinnedBannerMessage = useCallback((chatId: string, messageId: string) => {
+    const element = messageListRef.current;
+    const target = element?.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(messageId)}"]`,
+    );
+    if (element && target) {
+      const listBounds = element.getBoundingClientRect();
+      const targetBounds = target.getBoundingClientRect();
+      if (targetBounds.bottom > listBounds.top + 1 && targetBounds.top < listBounds.bottom - 1) {
+        return;
+      }
+    }
+    onOpenMessage(chatId, messageId, { behavior: "smooth", highlight: false });
+  }, [onOpenMessage]);
 
   useEffect(() => {
     const conversation = conversationRef.current;
@@ -1405,7 +1428,7 @@ export function Conversation({
             messages={allPinnedMessages}
             message={pinnedBannerMessage}
             onOpenAll={openPinnedMessages}
-            onOpenMessage={onOpenMessage}
+            onOpenMessage={openPinnedBannerMessage}
           />
         )}
         {pinnedViewOpen && pinnedMessagesLoading && allPinnedMessages.length === 0 && (

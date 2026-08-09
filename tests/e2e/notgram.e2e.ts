@@ -4424,16 +4424,36 @@ test("pinned banner advances through earlier pins as source messages enter the v
   await expect(pinnedBanner).toContainText("我把交互稿更新到最新版本了");
 
   await pinnedPreview.click();
-  await expect(page.locator('[data-message-id="p-4"]')).toBeVisible();
+  const latestPinnedSource = page.locator('[data-message-id="p-4"]');
+  await expect(latestPinnedSource).toBeVisible();
+  await expect(latestPinnedSource).not.toHaveClass(/is-notification-target/);
   await expect(pinnedBanner).toContainText("早上好，左侧会话列表的密度已经调整好了。");
 
   await pinnedPreview.click();
-  await expect(page.locator('[data-message-id="p-1"]')).toBeVisible();
+  const middlePinnedSource = page.locator('[data-message-id="p-1"]');
+  await expect(middlePinnedSource).toBeVisible();
+  await expect(middlePinnedSource).not.toHaveClass(/is-notification-target/);
   await expect(pinnedBanner).toContainText("产品讨论历史消息 1");
 
   await pinnedPreview.click();
-  await expect(page.locator('[data-message-id="p-old-1"]')).toBeVisible();
+  const earliestPinnedSource = page.locator('[data-message-id="p-old-1"]');
+  await expect(earliestPinnedSource).toBeVisible();
+  await expect(earliestPinnedSource).not.toHaveClass(/is-notification-target/);
   await expect(pinnedBanner).toContainText("产品讨论历史消息 1");
+
+  const messageList = page.getByRole("log", { name: "消息列表", exact: true });
+  await expect.poll(() => earliestPinnedSource.evaluate((element) => {
+    const list = element.closest<HTMLElement>(".message-list")!;
+    const listBounds = list.getBoundingClientRect();
+    const targetBounds = element.getBoundingClientRect();
+    return targetBounds.bottom > listBounds.top + 1 && targetBounds.top < listBounds.bottom - 1;
+  })).toBe(true);
+  const scrollTopBeforeNoop = await messageList.evaluate((element) => element.scrollTop);
+  await pinnedPreview.click();
+  await page.waitForTimeout(350);
+  await expect.poll(() => messageList.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(scrollTopBeforeNoop, 0);
+  await expect(earliestPinnedSource).not.toHaveClass(/is-notification-target/);
 });
 
 test("native context menu rows fill a consistently rounded popup frame", async ({ page }) => {
