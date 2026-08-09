@@ -27,6 +27,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import type { Message, MessageReaction } from "../telegram/types";
@@ -108,6 +109,7 @@ interface MessageBubbleProps {
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMedia?: (messageId: string) => void;
+  trailingAction?: ReactNode;
   albumItem?: boolean;
   autoplayAnimations: boolean;
   autoDownloadPolicy: AutoDownloadPolicy;
@@ -160,6 +162,7 @@ function MessageBubbleComponent({
   onOpenReply,
   onOpenSenderProfile,
   onOpenMedia,
+  trailingAction,
   albumItem = false,
   autoplayAnimations,
   autoDownloadPolicy,
@@ -507,7 +510,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""} ${trailingAction ? "has-trailing-action" : ""}`}
       data-message-id={message.id}
       onAnimationEnd={(event) => {
         if (
@@ -962,6 +965,7 @@ function MessageBubbleComponent({
           <CircleArrowRight size={22} strokeWidth={2.2} />
         </button>
       )}
+      {trailingAction}
     </article>
   );
 }

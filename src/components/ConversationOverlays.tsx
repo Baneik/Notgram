@@ -24,7 +24,6 @@ import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, ForumTopic, ForumTopicPage, Message } from "../telegram/types";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
-import { formatMessageTime } from "../utils/formatters";
 import { currentColorTheme } from "../theme/theme";
 import { Avatar } from "./Avatar";
 import { messageSummary } from "./conversationMessages";
@@ -312,43 +311,6 @@ export function PinMessageDialog({ message, pending, allowOnlyForSelf, allowNoti
             {pending ? <LoaderCircle className="spin" size={16} /> : <Pin size={16} />}置顶
           </button>
           <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-interface PinnedMessagesDialogProps {
-  messages: Message[];
-  loading: boolean;
-  pendingMessageId?: string;
-  onOpen: (message: Message) => void;
-  onUnpin: (message: Message) => void;
-  onClose: () => void;
-}
-
-export function PinnedMessagesDialog({ messages, loading, pendingMessageId, onOpen, onUnpin, onClose }: PinnedMessagesDialogProps) {
-  const dialogRef = useModalFocus<HTMLElement>(onClose, loading || Boolean(pendingMessageId));
-  return (
-    <div className="message-delete-backdrop" role="presentation">
-      <section ref={dialogRef} className="pinned-messages-dialog" role="dialog" aria-modal="true" aria-labelledby="pinned-messages-title" tabIndex={-1}>
-        <header className="message-forward-heading">
-          <span className="message-forward-heading-icon"><Pin size={18} strokeWidth={1.9} /></span>
-          <div><h3 id="pinned-messages-title">置顶消息</h3><p>{loading ? "正在读取置顶消息" : `${messages.length} 条置顶消息`}</p></div>
-          <button className="icon-button" type="button" aria-label="关闭置顶消息" title="关闭" onClick={onClose} disabled={loading || Boolean(pendingMessageId)}><X size={18} /></button>
-        </header>
-        <div className="pinned-messages-list">
-          {loading ? <div className="pinned-messages-empty"><LoaderCircle className="spin" size={18} />正在读取</div> : messages.length === 0 ? <div className="pinned-messages-empty">当前没有置顶消息</div> : messages.map((message) => (
-            <div className="pinned-message-row" key={message.id}>
-              <button type="button" className="pinned-message-open" disabled={Boolean(pendingMessageId)} onClick={() => onOpen(message)}>
-                <strong>{message.content.kind === "text" ? message.content.text : messageSummary(message.content)}</strong>
-                <small>{formatMessageTime(message.sentAt)}</small>
-              </button>
-              <button type="button" className="icon-button" aria-label={`取消置顶 ${message.id}`} title="取消置顶" disabled={Boolean(pendingMessageId)} onClick={() => onUnpin(message)}>
-                {pendingMessageId === message.id ? <LoaderCircle className="spin" size={16} /> : <PinOff size={16} />}
-              </button>
-            </div>
-          ))}
         </div>
       </section>
     </div>

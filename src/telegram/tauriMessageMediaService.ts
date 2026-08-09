@@ -48,6 +48,8 @@ import type {
   StreamFileInput,
 } from "./types";
 
+const MAX_PINNED_MESSAGE_PAGES = 100;
+
 const emojiPreviewDataUrl = (value: unknown) => {
   const minithumbnail = asTdObject(value);
   return typeof minithumbnail?.data === "string" && minithumbnail.data
@@ -254,23 +256,30 @@ export class TauriMessageMediaService {
       .filter((message): message is Message => Boolean(message));
     const pinnedById = new Map(known.map((message) => [message.id, message]));
     try {
-      const result = await this.context.request({
-        "@type": "searchChatMessages",
-        chat_id: numericId(chatId),
-        topic_id: null,
-        query: "",
-        sender_id: null,
-        from_message_id: 0,
-        offset: 0,
-        limit: 100,
-        filter: { "@type": "searchMessagesFilterPinned" },
-      });
-      for (const raw of asTdObjects(result.messages)) {
-        const pinnedRaw = { ...raw, is_pinned: true };
-        const message = this.context.mapMessage(pinnedRaw);
-        if (!message || message.chatId !== chatId) continue;
-        pinnedById.set(message.id, message);
-        this.context.emitMessage(pinnedRaw);
+      let fromMessageId = 0;
+      const seenCursors = new Set<number>();
+      for (let page = 0; page < MAX_PINNED_MESSAGE_PAGES; page += 1) {
+        const result = await this.context.request({
+          "@type": "searchChatMessages",
+          chat_id: numericId(chatId),
+          topic_id: null,
+          query: "",
+          sender_id: null,
+          from_message_id: fromMessageId,
+          offset: 0,
+          limit: 100,
+          filter: { "@type": "searchMessagesFilterPinned" },
+        });
+        for (const raw of asTdObjects(result.messages)) {
+          const pinnedRaw = { ...raw, is_pinned: true };
+          const message = this.context.mapMessage(pinnedRaw);
+          if (!message || message.chatId !== chatId) continue;
+          pinnedById.set(message.id, message);
+        }
+        const nextFromMessageId = tdNumber(result.next_from_message_id) ?? 0;
+        if (nextFromMessageId === 0 || seenCursors.has(nextFromMessageId)) break;
+        seenCursors.add(nextFromMessageId);
+        fromMessageId = nextFromMessageId;
       }
     } catch {
       // Fall back to the latest pinned message on older TDLib deployments.
@@ -282,7 +291,6 @@ export class TauriMessageMediaService {
       });
       const pinned = this.context.mapMessage(raw);
       if (pinned && pinned.chatId === chatId) {
-        this.context.emitMessage({ ...raw, is_pinned: true });
         pinnedById.set(pinned.id, { ...pinned, isPinned: true });
       }
     } catch {

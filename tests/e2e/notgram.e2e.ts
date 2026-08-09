@@ -4314,18 +4314,43 @@ test("messages support pin lists, notification scope, and auto-delete settings",
   await expect(pinDialog).toBeHidden();
   await expect(target.locator('[aria-label="已置顶"]')).toBeVisible();
 
-  await page.getByRole("button", { name: "更多操作" }).click();
-  const chatMenu = page.getByRole("menu", { name: "会话操作" });
-  await chatMenu.getByRole("menuitem", { name: "查看置顶消息" }).click();
-  const pinnedDialog = page.getByRole("dialog", { name: "置顶消息" });
-  await expect(pinnedDialog).toContainText("早上好，左侧会话列表的密度已经调整好了。");
-  await expect(pinnedDialog).toContainText("我把交互稿更新到最新版本了");
-  await pinnedDialog.getByRole("button", { name: /取消置顶/ }).first().click();
-  await expect(pinnedDialog).not.toContainText("我把交互稿更新到最新版本了");
-  await pinnedDialog.getByRole("button", { name: "关闭置顶消息" }).click();
-  await expect(pinnedDialog).toBeHidden();
+  const pinnedBanner = page.getByLabel("最新置顶消息");
+  await expect(pinnedBanner).toContainText("我把交互稿更新到最新版本了");
+  const normalTargetOffset = await target.evaluate((element) => {
+    const list = element.closest(".message-list")!;
+    return element.getBoundingClientRect().top - list.getBoundingClientRect().top;
+  });
+
+  await pinnedBanner.getByRole("button", { name: "查看全部置顶消息" }).click();
+  const pinnedList = page.getByRole("log", { name: "置顶消息列表" });
+  await expect(page.getByRole("button", { name: "返回会话" })).toBeVisible();
+  await expect(pinnedList.locator(".message-row")).toHaveCount(2);
+  await expect(pinnedList).toContainText("早上好，左侧会话列表的密度已经调整好了。");
+  await expect(pinnedList).toContainText("我把交互稿更新到最新版本了");
+  await expect(pinnedList).not.toContainText("看到了。消息区再留一点呼吸感");
+
+  await page.getByRole("button", { name: "返回会话" }).click();
+  const normalList = page.getByRole("log", { name: "消息列表" });
+  await expect(normalList).toBeVisible();
+  await expect.poll(async () => target.evaluate((element) => {
+    const list = element.closest(".message-list")!;
+    return element.getBoundingClientRect().top - list.getBoundingClientRect().top;
+  })).toBeCloseTo(normalTargetOffset, 0);
+
+  await pinnedBanner.getByRole("button", { name: "查看全部置顶消息" }).click();
+  await pinnedList.getByRole("button", { name: /定位到原消息：早上好/ }).click();
+  await expect(normalList).toBeVisible();
+  await expect(target).toHaveClass(/is-notification-target/);
+
+  const pinnedP4 = await revealVirtualMessage(page, "p-4");
+  await pinnedP4.locator(".message-bubble-shell").click({ button: "right" });
+  await page.getByRole("menu", { name: "消息操作" })
+    .getByRole("menuitem", { name: "取消置顶" }).click();
+  await expect(pinnedBanner).toContainText("早上好，左侧会话列表的密度已经调整好了。");
 
   await page.getByRole("button", { name: "更多操作" }).click();
+  const chatMenu = page.getByRole("menu", { name: "会话操作" });
+
   await chatMenu.getByRole("menuitem", { name: "自动删除消息" }).click();
   const autoDeleteDialog = page.getByRole("dialog", { name: "自动删除消息" });
   await autoDeleteDialog.getByLabel("自动删除时长").selectOption("604800");

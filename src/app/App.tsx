@@ -769,6 +769,7 @@ export function App() {
   const activeMessages = activeChatId
     ? (messages.get(activeChatId) ?? []).filter((message) => !activeTopicId || message.topicId === activeTopicId)
     : [];
+  const activeChatMessages = activeChatId ? messages.get(activeChatId) ?? [] : [];
   const activeRemovingMessages = activeChatId
     ? (removingMessages.get(activeChatId) ?? []).filter((message) => !activeTopicId || message.topicId === activeTopicId)
     : [];
@@ -989,7 +990,8 @@ export function App() {
           entryScrollRequest={entryScrollRequest}
           latestScrollRequest={latestScrollRequest}
           messageScrollRequest={messageScrollRequest}
-            messages={activeDisplayMessages}
+          messages={activeDisplayMessages}
+          chatMessages={activeChatMessages}
           forwardTargets={forwardTargets}
           forumTopics={forumTopics}
           users={users}

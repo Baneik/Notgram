@@ -2080,14 +2080,7 @@ export const createTelegramStore = (
         if (!get().chats.has(chatId)) return [];
         try {
           const pinned = await transport.getPinnedMessages(chatId);
-          if (pinned.length > 0) {
-            const messages = new Map(get().messages);
-            messages.set(chatId, upsertMessages(messages.get(chatId) ?? [], pinned));
-            set({ messages, operationError: undefined });
-            scheduleCacheWrite();
-          } else {
-            set({ operationError: undefined });
-          }
+          if (get().operationError) set({ operationError: undefined });
           return pinned;
         } catch (error) {
           set({ operationError: errorMessage(error, "无法读取置顶消息") });

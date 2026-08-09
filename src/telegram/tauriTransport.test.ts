@@ -1747,7 +1747,9 @@ describe("TauriTelegramTransport message operations", () => {
       chatId: "7",
       messageAutoDeleteTime: 604800,
     });
+    const eventCountBeforePinnedFetch = events.length;
     await expect(transport.getPinnedMessages("7")).resolves.toHaveLength(1);
+    expect(events).toHaveLength(eventCountBeforePinnedFetch);
 
     expect(requests).toEqual([
       {
@@ -1777,10 +1779,46 @@ describe("TauriTelegramTransport message operations", () => {
       },
       { "@type": "getChatPinnedMessage", chat_id: 7 },
     ]);
-    expect(events.at(-1)).toMatchObject({
-      type: "message.upsert",
-      message: { id: "12", isPinned: true },
-    });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "message.upsert",
+        message: expect.objectContaining({ id: "12", isPinned: true }),
+      }),
+      expect.objectContaining({
+        type: "message.upsert",
+        message: expect.objectContaining({ id: "12", isPinned: false }),
+      }),
+    ]));
+  });
+
+  it("paginates pinned-message search without emitting detached timeline messages", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] !== "searchChatMessages") return { "@type": "ok" };
+      return request.from_message_id === 0
+        ? {
+            "@type": "foundChatMessages",
+            messages: [{ ...rawMessage(12), is_pinned: true }],
+            next_from_message_id: 10,
+          }
+        : {
+            "@type": "foundChatMessages",
+            messages: [{ ...rawMessage(10), is_pinned: true }],
+            next_from_message_id: 0,
+          };
+    };
+
+    await expect(transport.getPinnedMessages("7")).resolves.toMatchObject([
+      { id: "12", isPinned: true },
+      { id: "10", isPinned: true },
+    ]);
+    expect(requests.map((request) => request.from_message_id)).toEqual([0, 10]);
+    expect(events).toEqual([]);
   });
 
   it("preserves 64-bit sticker set identifiers and maps animated sticker assets", async () => {

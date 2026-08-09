@@ -98,6 +98,32 @@ describe("telegram store", () => {
     expect(store.getState().operationError).toBeUndefined();
   });
 
+  it("returns pinned messages without injecting detached history into the active timeline", async () => {
+    class DetachedPinnedTransport extends MockTelegramTransport {
+      override async getPinnedMessages(chatId: string) {
+        const source = mockSnapshot.messages.find((message) => message.chatId === chatId)!;
+        return [{
+          ...structuredClone(source),
+          id: "detached-pinned-message",
+          sentAt: "2025-01-01T00:00:00.000Z",
+          isPinned: true,
+        }];
+      }
+    }
+
+    const store = createTelegramStore(new DetachedPinnedTransport());
+    await store.getState().initialize();
+    const messagesBefore = store.getState().messages;
+
+    const pinned = await store.getState().loadPinnedMessages("chat-product");
+
+    expect(pinned).toMatchObject([{ id: "detached-pinned-message", isPinned: true }]);
+    expect(store.getState().messages).toBe(messagesBefore);
+    expect(store.getState().messages.get("chat-product")?.some(
+      (message) => message.id === "detached-pinned-message",
+    )).toBe(false);
+  });
+
   it("persists offline text messages and sends them once after restart and reconnect", async () => {
     class TrackingOutboxTransport extends MockTelegramTransport {
       sends: SendMessageInput[] = [];
