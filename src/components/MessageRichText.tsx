@@ -1,6 +1,7 @@
 import { Fragment, lazy, Suspense, type ReactNode } from "react";
 import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
+import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
 
 const MarkdownText = lazy(() => import("./MarkdownText"));
 
@@ -8,6 +9,7 @@ interface MessageRichTextProps {
   text: string;
   entities?: MessageTextEntity[];
   className?: string;
+  highlightQuery?: string;
 }
 
 const entityHref = (entity: MessageTextEntity, value: string) => {
@@ -51,6 +53,7 @@ const renderInlineRange = (
   startOffset: number,
   endOffset: number,
   keyPrefix: string,
+  highlightRanges: ReturnType<typeof textHighlightRanges>,
 ) => {
   const overlapping = entities.filter((entity) =>
     entity.offset < endOffset && entity.offset + entity.length > startOffset,
@@ -62,6 +65,12 @@ const renderInlineRange = (
       Math.max(startOffset, entity.offset),
       Math.min(endOffset, entity.offset + entity.length),
     ]),
+    ...highlightRanges
+      .filter((range) => range.start < endOffset && range.end > startOffset)
+      .flatMap((range) => [
+        Math.max(startOffset, range.start),
+        Math.min(endOffset, range.end),
+      ]),
   ])].sort((left, right) => left - right);
 
   return boundaries.slice(0, -1).map((start, index) => {
@@ -71,7 +80,7 @@ const renderInlineRange = (
     const active = overlapping
       .filter((entity) => entity.offset <= start && entity.offset + entity.length >= end)
       .sort((left, right) => left.offset - right.offset || right.length - left.length);
-    const node = active.reduceRight<ReactNode>(
+    let node = active.reduceRight<ReactNode>(
       (children, entity, entityIndex) => wrapEntity(
         entity,
         text.slice(entity.offset, entity.offset + entity.length),
@@ -80,11 +89,15 @@ const renderInlineRange = (
       ),
       value,
     );
+    if (highlightRanges.some((range) => range.start <= start && range.end >= end)) {
+      node = <mark className="message-search-highlight">{node}</mark>;
+    }
     return <Fragment key={`${keyPrefix}:${start}:${end}`}>{node}</Fragment>;
   });
 };
 
-const renderEntities = (text: string, entities: MessageTextEntity[]) => {
+const renderEntities = (text: string, entities: MessageTextEntity[], highlightQuery?: string) => {
+  const highlightRanges = textHighlightRanges(text, highlightQuery);
   const valid = entities.filter((entity) =>
     entity.offset >= 0 && entity.length > 0 && entity.offset + entity.length <= text.length,
   );
@@ -93,7 +106,7 @@ const renderEntities = (text: string, entities: MessageTextEntity[]) => {
     .sort((left, right) => left.offset - right.offset || right.length - left.length);
   const inlineEntities = valid.filter((entity) => entity.kind !== "blockquote");
   if (blockquotes.length === 0) {
-    return renderInlineRange(text, inlineEntities, 0, text.length, "inline");
+    return renderInlineRange(text, inlineEntities, 0, text.length, "inline", highlightRanges);
   }
 
   const nodes: ReactNode[] = [];
@@ -103,35 +116,42 @@ const renderEntities = (text: string, entities: MessageTextEntity[]) => {
     const quoteEnd = quote.offset + quote.length;
     if (quoteEnd <= cursor) continue;
     if (quoteStart > cursor) {
-      nodes.push(...renderInlineRange(text, inlineEntities, cursor, quoteStart, `plain:${cursor}`));
+      nodes.push(...renderInlineRange(text, inlineEntities, cursor, quoteStart, `plain:${cursor}`, highlightRanges));
     }
     nodes.push(
       <span className="rich-blockquote" key={`quote:${quote.offset}:${quote.length}`}>
-        {renderInlineRange(text, inlineEntities, quoteStart, quoteEnd, `quote:${quote.offset}`)}
+        {renderInlineRange(text, inlineEntities, quoteStart, quoteEnd, `quote:${quote.offset}`, highlightRanges)}
       </span>,
     );
     cursor = quoteEnd;
   }
   if (cursor < text.length) {
-    nodes.push(...renderInlineRange(text, inlineEntities, cursor, text.length, `plain:${cursor}`));
+    nodes.push(...renderInlineRange(text, inlineEntities, cursor, text.length, `plain:${cursor}`, highlightRanges));
   }
   return nodes;
 };
 
-export function MessageRichText({ text, entities, className = "" }: MessageRichTextProps) {
+export function MessageRichText({
+  text,
+  entities,
+  className = "",
+  highlightQuery,
+}: MessageRichTextProps) {
   if (entities && entities.length > 0) {
     return (
       <div className={`message-rich-text ${className}`} data-rich-text="entities">
-        {renderEntities(text, entities)}
+        {renderEntities(text, entities, highlightQuery)}
       </div>
     );
   }
 
   return (
     <Suspense fallback={(
-      <div className={`message-rich-text ${className}`} data-rich-text="loading">{text}</div>
+      <div className={`message-rich-text ${className}`} data-rich-text="loading">
+        {highlightedText(text, highlightQuery)}
+      </div>
     )}>
-      <MarkdownText text={text} className={className} />
+      <MarkdownText text={text} className={className} highlightQuery={highlightQuery} />
     </Suspense>
   );
 }

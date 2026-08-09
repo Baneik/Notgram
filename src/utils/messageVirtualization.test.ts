@@ -96,6 +96,19 @@ describe("message virtualization", () => {
     expect(indexes.get("7")).toBe(2);
   });
 
+  it("isolates sparse search results instead of visually grouping skipped messages", () => {
+    const blocks = virtualizeMessageGroups([
+      message("first"),
+      message("second"),
+    ], 4, false);
+
+    expect(blocks.map((block) => block.messages.map(({ id }) => id))).toEqual([
+      ["first"],
+      ["second"],
+    ]);
+    expect(blocks.every((block) => block.positions.get(block.firstMessage.id) === "single")).toBe(true);
+  });
+
   it("keeps a virtual block stable when TDLib replaces a temporary message id", () => {
     const temporary = virtualizeMessageGroups([
       message("-10", { renderKey: "send-1", outgoing: true }),

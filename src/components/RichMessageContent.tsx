@@ -14,12 +14,14 @@ import { AudioPlayer } from "./AudioPlayer";
 import { VideoPlayer } from "./VideoPlayer";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { MediaProgressRing } from "./MediaProgressRing";
+import { highlightedText } from "../utils/textHighlight";
 
 interface RichMessageContentProps {
   blocks: MessageRichBlock[];
   isRtl: boolean;
   isFull: boolean;
   messageId: string;
+  highlightQuery?: string;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancelDownload: (fileId: number) => Promise<void>;
   onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
@@ -99,7 +101,7 @@ const MathExpression = ({ expression, displayMode }: { expression: string; displ
 const renderRun = (run: MessageRichTextRun, key: string, context: RenderContext) => {
   let node: ReactNode = run.mathematicalExpression
     ? <MathExpression expression={run.mathematicalExpression} displayMode={false} />
-    : richDateTimeText(run);
+    : highlightedText(richDateTimeText(run), context.highlightQuery);
   if (run.code) node = <code>{node}</code>;
   if (run.bold) node = <strong>{node}</strong>;
   if (run.italic) node = <em>{node}</em>;
@@ -378,6 +380,7 @@ export function RichMessageContent({
   isRtl,
   isFull,
   messageId,
+  highlightQuery,
   onDownload,
   onCancelDownload,
   onStream,
@@ -385,6 +388,7 @@ export function RichMessageContent({
 }: RichMessageContentProps) {
   const context: RenderContext = {
     messageId,
+    highlightQuery,
     scope: `rich-message-${encodeURIComponent(messageId)}`,
     onDownload,
     onCancelDownload,

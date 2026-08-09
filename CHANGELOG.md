@@ -37,6 +37,9 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Render in-conversation search results directly as the normal message timeline,
+  preserve message interactions and media rendering, and highlight literal query
+  matches across entity text, Markdown, rich content, polls, filenames, and captions.
 - Move pinned-list message navigation into a compact action at each bubble's
   top-right corner and remove the redundant linked-channel jump button.
 - Replace the pinned-message preview dialog with an in-conversation pinned-message

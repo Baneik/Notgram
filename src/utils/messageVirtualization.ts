@@ -45,12 +45,15 @@ const splitSegments = (segments: MediaAlbumSegment[], maximumMessages: number) =
 export const virtualizeMessageGroups = (
   messages: Message[],
   maximumMessages = MAX_MESSAGES_PER_VIRTUAL_BLOCK,
+  groupAdjacentMessages = true,
 ): VirtualMessageBlock[] => {
   if (!Number.isInteger(maximumMessages) || maximumMessages < 1) {
     throw new Error("maximumMessages must be a positive integer");
   }
 
-  const groups = groupConsecutiveMessages(messages);
+  const groups = groupAdjacentMessages
+    ? groupConsecutiveMessages(messages)
+    : messages.map((message) => [message]);
   return groups.flatMap((group, groupIndex) => {
     const positions = new Map(group.map((message, messageIndex) => [
       message.id,

@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   AtSign,
   ChevronLeft,
+  ChevronUp,
   Forward,
   MoreVertical,
   LoaderCircle,
@@ -412,6 +413,7 @@ export function Conversation({
     active: messageSearchActive,
     visibleMessages,
     matchingMessages,
+    stateMatchesInput: messageSearchStateMatchesInput,
     setQuery: setMessageSearch,
     setFilter: setMessageSearchFilter,
     setSenderId: setMessageSearchSenderId,
@@ -433,12 +435,17 @@ export function Conversation({
   const messageSearchInputRef = useRef<HTMLInputElement>(null);
   const [activeSearchResultId, setActiveSearchResultId] = useState<string>();
   const renderedMessages = useMemo(
-    () => pinnedViewOpen
-      ? allPinnedMessages.map((message) => message.mediaAlbumId
-        ? { ...message, mediaAlbumId: undefined }
-        : message)
-      : visibleMessages,
-    [allPinnedMessages, pinnedViewOpen, visibleMessages],
+    () => {
+      const source = pinnedViewOpen
+        ? allPinnedMessages.map((message) => message.mediaAlbumId
+          ? { ...message, mediaAlbumId: undefined }
+          : message)
+        : visibleMessages;
+      return chat?.kind === "saved"
+        ? source.map((message) => message.outgoing ? message : { ...message, outgoing: true })
+        : source;
+    },
+    [allPinnedMessages, chat?.kind, pinnedViewOpen, visibleMessages],
   );
 
   const focusComposer = useCallback(() => {
@@ -492,17 +499,17 @@ export function Conversation({
 
   const messageProjection = useMemo(() => {
     const startedAt = performance.now();
-    const blocks = virtualizeMessageGroups(renderedMessages);
+    const blocks = virtualizeMessageGroups(renderedMessages, undefined, !messageSearchActive);
     return { blocks, durationMs: performance.now() - startedAt };
-  }, [renderedMessages]);
+  }, [messageSearchActive, renderedMessages]);
   const visibleMessageBlocks = messageProjection.blocks;
   const messageItemIndexes = useMemo(
     () => indexMessagesByVirtualBlock(visibleMessageBlocks),
     [visibleMessageBlocks],
   );
   const viewerPhotos = useMemo(
-    () => photoMessages(pinnedViewOpen ? allPinnedMessages : displayMessages),
-    [allPinnedMessages, displayMessages, pinnedViewOpen],
+    () => photoMessages(messageSearchActive ? renderedMessages : pinnedViewOpen ? allPinnedMessages : displayMessages),
+    [allPinnedMessages, displayMessages, messageSearchActive, pinnedViewOpen, renderedMessages],
   );
   const openMediaViewer = useCallback((messageId: string) => {
     const activeIndex = viewerPhotos.findIndex((message) => message.id === messageId);
@@ -591,8 +598,8 @@ export function Conversation({
   }, [chatMenuOpen, closeChatMenu]);
 
   const messagesById = useMemo(() => new Map(
-    [...displayMessages, ...allPinnedMessages].map((message) => [message.id, message]),
-  ), [allPinnedMessages, displayMessages]);
+    [...displayMessages, ...allPinnedMessages, ...renderedMessages].map((message) => [message.id, message]),
+  ), [allPinnedMessages, displayMessages, renderedMessages]);
   const nextAudioPlaybackIdByMessage = useMemo(() => {
     const audioMessages = renderedMessages.filter((message) =>
       message.content.kind === "media" && ["audio", "voice"].includes(message.content.mediaType)
@@ -633,7 +640,7 @@ export function Conversation({
   const forwarding = useMessageForwarding({
     chatId: chat?.id,
     conversationIdentity,
-    messages,
+    messages: messageSearchActive ? renderedMessages : messages,
     messagesById,
     targets: forwardTargets,
     onLoadMessageProperties,
@@ -649,7 +656,7 @@ export function Conversation({
     pendingTargetId: forwardPendingTargetId,
     filteredTargets: filteredForwardTargets,
   } = forwarding;
-  const pinnedBannerVisible = !pinnedViewOpen && !selectionMode &&
+  const pinnedBannerVisible = !pinnedViewOpen && !selectionMode && !messageSearchActive &&
     (chat?.kind === "group" || chat?.kind === "channel") &&
     allPinnedMessages.length > 0;
   const {
@@ -686,12 +693,71 @@ export function Conversation({
     messageItemIndexes,
     virtualItemCount: visibleMessageBlocks.length,
     search: pinnedViewOpen ? "" : messageSearchActive ? "search" : "",
-    historyLoading: pinnedViewOpen ? false : historyLoading,
+    historyLoading: pinnedViewOpen || messageSearchActive ? false : historyLoading,
     historyInitialized: pinnedViewOpen ? true : historyInitialized,
-    hasOlderMessages: pinnedViewOpen ? false : hasOlderMessages,
-    messageCount: pinnedViewOpen ? allPinnedMessages.length : messages.length,
-    onLoadOlder: pinnedViewOpen ? LOAD_NO_OLDER_MESSAGES : onLoadOlder,
+    hasOlderMessages: pinnedViewOpen || messageSearchActive ? false : hasOlderMessages,
+    messageCount: pinnedViewOpen || messageSearchActive ? renderedMessages.length : messages.length,
+    onLoadOlder: pinnedViewOpen || messageSearchActive ? LOAD_NO_OLDER_MESSAGES : onLoadOlder,
   });
+  const currentSearchError = messageSearchStateMatchesInput
+    ? chatMessageSearch.error
+    : undefined;
+
+  const searchMessageListComponents = useMemo<Components<VirtualMessageBlock>>(() => ({
+    List: VirtualMessageListContent,
+    EmptyPlaceholder: () => (
+      <div
+        className={`messages-empty message-search-timeline-state ${currentSearchError ? "is-error" : ""}`}
+        role={currentSearchError ? "alert" : "status"}
+      >
+        {!messageSearchStateMatchesInput || chatMessageSearch.loading ? (
+          <><LoaderCircle className="spin" size={18} /><span>正在搜索消息</span></>
+        ) : currentSearchError ?? "没有搜索结果"}
+      </div>
+    ),
+    Header: () => chatMessageSearch.nextFromMessageId || currentSearchError && renderedMessages.length > 0 ? (
+      <div className="message-search-timeline-header">
+        {currentSearchError && renderedMessages.length > 0 && (
+          <span className="message-search-timeline-error" role="alert">{currentSearchError}</span>
+        )}
+        {chatMessageSearch.nextFromMessageId && (
+          <button
+            className="message-search-more"
+            type="button"
+            disabled={chatMessageSearch.loadingMore}
+            onClick={() => void onLoadMoreSearchMessages()}
+          >
+            {chatMessageSearch.loadingMore
+              ? <LoaderCircle className="spin" size={15} />
+              : <ChevronUp size={15} />}
+            <span>加载更早结果</span>
+          </button>
+        )}
+      </div>
+    ) : null,
+  }), [
+    chatMessageSearch.loading,
+    chatMessageSearch.loadingMore,
+    chatMessageSearch.nextFromMessageId,
+    currentSearchError,
+    messageSearchStateMatchesInput,
+    onLoadMoreSearchMessages,
+    renderedMessages.length,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!messageSearchActive || !activeSearchResultId) return;
+    const itemIndex = messageItemIndexes.get(activeSearchResultId);
+    if (itemIndex === undefined) return;
+    const frame = requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({
+        index: itemIndex,
+        align: "center",
+        behavior: "auto",
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeSearchResultId, messageItemIndexes, messageSearchActive, virtuosoRef]);
 
   useEffect(() => {
     if (pinnedViewOpen || !messageListElement || !pinnedMessageIdsKey) {
@@ -775,7 +841,10 @@ export function Conversation({
 
   useEffect(() => {
     const conversation = conversationRef.current;
-    if (pinnedViewOpen || !chat || !messageListElement || !conversation || attentionMessageIds.length === 0) return;
+    if (
+      pinnedViewOpen || messageSearchActive || !chat || !messageListElement ||
+      !conversation || attentionMessageIds.length === 0
+    ) return;
     const attentionIds = new Set(attentionMessageIds);
     const visibleIds = new Set<string>();
     const observedRows = new Set<Element>();
@@ -821,7 +890,14 @@ export function Conversation({
       globalThis.removeEventListener("focus", consumeVisibleAttention);
       document.removeEventListener("visibilitychange", consumeVisibleAttention);
     };
-  }, [attentionMessageIds, chat, dismissMessageAttention, messageListElement, pinnedViewOpen]);
+  }, [
+    attentionMessageIds,
+    chat,
+    dismissMessageAttention,
+    messageListElement,
+    messageSearchActive,
+    pinnedViewOpen,
+  ]);
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
@@ -854,7 +930,7 @@ export function Conversation({
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
-    if (!chat || pinnedViewOpen) return;
+    if (!chat || pinnedViewOpen || searchOpen) return;
     let focusTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
     const isEditable = (target: Element | null) => target instanceof HTMLTextAreaElement ||
       (target instanceof HTMLInputElement && !["checkbox", "radio", "range", "file"].includes(target.type)) ||
@@ -893,7 +969,7 @@ export function Conversation({
       window.removeEventListener("focus", onWindowFocus);
       if (focusTimer !== undefined) globalThis.clearTimeout(focusTimer);
     };
-  }, [chat?.id, pinnedViewOpen]);
+  }, [chat?.id, pinnedViewOpen, searchOpen]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -1098,9 +1174,8 @@ export function Conversation({
     ? matchingMessages.findIndex((message) => message.id === activeSearchResultId)
     : -1;
   const chatMessageSearchHasMore = Boolean(chatMessageSearch.nextFromMessageId);
-  const openSearchResultMessage = (target: Message) => {
+  const activateSearchResult = (target: Message) => {
     setActiveSearchResultId(target.id);
-    onOpenMessage(target.chatId, target.id, { loadContext: true });
     globalThis.setTimeout(() => messageSearchInputRef.current?.focus(), 0);
   };
   const openSearchResult = (direction: "older" | "newer") => {
@@ -1119,7 +1194,7 @@ export function Conversation({
       if (direction === "older" && chatMessageSearchHasMore) void onLoadMoreSearchMessages();
       return;
     }
-    openSearchResultMessage(target);
+    activateSearchResult(target);
   };
 
   const openActionMenu = useCallback(async (
@@ -1251,6 +1326,7 @@ export function Conversation({
       pinnedReturnAnchorRef.current = undefined;
       closePinnedView();
     }
+    if (messageSearchActive) closeMessageSearch();
     onOpenMessage(chatId, messageId);
   };
 
@@ -1288,20 +1364,20 @@ export function Conversation({
       setEditingMessage(undefined);
     }
     setActionMenu(undefined);
-    closeMessageSearch();
     forwarding.startSelection(message);
     globalThis.setTimeout(() => selectionForwardButtonRef.current?.focus(), 0);
   };
 
   const toggleMessageSelection = forwarding.toggleSelection;
   const confirmForward = forwarding.confirm;
+  const messageSearchPanelVisible = searchOpen && !pinnedViewOpen && !selectionMode;
 
   return (
     <section
       ref={conversationRef}
-      className={`conversation ${searchOpen && !pinnedViewOpen ? "has-message-search" : ""} ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
+      className={`conversation ${messageSearchPanelVisible ? "has-message-search" : ""} ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
       onPointerUp={(event) => {
-        if (event.button !== 0 || selectionMode || pinnedViewOpen) return;
+        if (event.button !== 0 || selectionMode || pinnedViewOpen || searchOpen) return;
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (target.closest("button, a, input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
@@ -1431,7 +1507,7 @@ export function Conversation({
         />
       )}
 
-      {searchOpen && !pinnedViewOpen && (
+      {messageSearchPanelVisible && (
         <ConversationSearchPanel
           query={messageSearch}
           filter={messageSearchFilter}
@@ -1440,10 +1516,8 @@ export function Conversation({
           scope={messageSearchScope}
           isForum={Boolean(chat.isForum && topic)}
           senderOptions={senderOptions}
-          users={users}
-          chats={forwardTargetsById}
-          topics={topics}
           searchState={chatMessageSearch}
+          stateMatchesInput={messageSearchStateMatchesInput}
           results={matchingMessages}
           activeResultId={activeSearchResultId}
           inputRef={messageSearchInputRef}
@@ -1453,8 +1527,6 @@ export function Conversation({
           onDateChange={setMessageSearchDate}
           onScopeChange={setMessageSearchScope}
           onNavigate={openSearchResult}
-          onOpenResult={openSearchResultMessage}
-          onLoadMore={() => void onLoadMoreSearchMessages()}
           onClose={closeMessageSearchAndFocusComposer}
         />
       )}
@@ -1483,7 +1555,7 @@ export function Conversation({
             <span>正在加载消息</span>
           </div>
         )}
-        {!pinnedViewOpen && historyLoading && (
+        {!pinnedViewOpen && !messageSearchActive && historyLoading && (
           <div className="history-loading" aria-label="正在加载更早消息">
             <LoaderCircle className="spin" size={16} />
           </div>
@@ -1495,11 +1567,18 @@ export function Conversation({
           scrollerRef={setMessageListRef}
           isScrolling={setMessageListScrolling}
           role="log"
-          aria-label={pinnedViewOpen ? "置顶消息列表" : "消息列表"}
-          aria-busy={positioning || (pinnedViewOpen && pinnedMessagesLoading) || (!pinnedViewOpen && historyLoading)}
+          aria-label={pinnedViewOpen ? "置顶消息列表" : messageSearchActive ? "搜索结果消息列表" : "消息列表"}
+          aria-busy={
+            positioning ||
+            (pinnedViewOpen && pinnedMessagesLoading) ||
+            (messageSearchActive && (!messageSearchStateMatchesInput || chatMessageSearch.loading)) ||
+            (!pinnedViewOpen && !messageSearchActive && historyLoading)
+          }
           tabIndex={0}
           alignToBottom={initialAlignToBottom}
-          components={pinnedViewOpen ? pinnedMessageListComponents : messageListComponents}
+          components={pinnedViewOpen
+            ? pinnedMessageListComponents
+            : messageSearchActive ? searchMessageListComponents : messageListComponents}
           computeItemKey={(_, block) => block.id}
           data={visibleMessageBlocks}
           defaultItemHeight={52}
@@ -1605,6 +1684,9 @@ export function Conversation({
                         selectionMode={selectionMode}
                         selected={selectedMessageIds.has(message.id)}
                         highlighted={highlightedMessageId === message.id}
+                        searchResult={messageSearchActive}
+                        searchResultActive={messageSearchActive && activeSearchResultId === message.id}
+                        searchQuery={messageSearchActive ? messageSearch : undefined}
                         selectionPending={selectionLoadingIds.has(message.id)}
                         selectionLimitReached={selectedMessageIds.size >= 100}
                         onToggleSelection={toggleMessageSelection}
@@ -1630,6 +1712,7 @@ export function Conversation({
                         onOpenReply={openMessageInHistory}
                         onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}
+                        onActivateSearchResult={messageSearchActive ? activateSearchResult : undefined}
                         cornerAction={pinnedViewOpen ? (
                           <button
                             className="pinned-message-locate"
@@ -1699,6 +1782,7 @@ export function Conversation({
                                     className="media-album-caption"
                                     text={content.caption}
                                     entities={content.captionEntities}
+                                    highlightQuery={messageSearchActive ? messageSearch : undefined}
                                   />
                                 </div>
                               ) : null;

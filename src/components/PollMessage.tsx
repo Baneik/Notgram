@@ -6,6 +6,7 @@ import { MessageRichText } from "./MessageRichText";
 interface PollMessageProps {
   poll: MessagePollContent;
   messageId: string;
+  highlightQuery?: string;
   onAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
 }
 
@@ -13,7 +14,7 @@ const chosenPositions = (poll: MessagePollContent) => poll.options
   .filter((option) => option.chosen)
   .map((option) => option.position);
 
-export function PollMessage({ poll, messageId, onAnswer }: PollMessageProps) {
+export function PollMessage({ poll, messageId, highlightQuery, onAnswer }: PollMessageProps) {
   const serverSelection = useMemo(() => chosenPositions(poll), [poll]);
   const [selection, setSelection] = useState(serverSelection);
   const [pending, setPending] = useState(false);
@@ -35,7 +36,11 @@ export function PollMessage({ poll, messageId, onAnswer }: PollMessageProps) {
   return (
     <section className="poll-message" aria-label={poll.type === "quiz" ? "测验" : "投票"}>
       <header>
-        <MessageRichText text={poll.question} entities={poll.questionEntities} />
+        <MessageRichText
+          text={poll.question}
+          entities={poll.questionEntities}
+          highlightQuery={highlightQuery}
+        />
         <small>{poll.type === "quiz" ? "测验" : poll.isAnonymous ? "匿名投票" : "公开投票"}</small>
       </header>
       <div className="poll-options">
@@ -71,7 +76,11 @@ export function PollMessage({ poll, messageId, onAnswer }: PollMessageProps) {
                     ? option.correct ? <Check size={14} /> : <X size={14} />
                     : selected ? <Check size={14} /> : null}
               </span>
-              <MessageRichText text={option.text} entities={option.entities} />
+              <MessageRichText
+                text={option.text}
+                entities={option.entities}
+                highlightQuery={highlightQuery}
+              />
               {showResults && <span className="poll-option-result">{option.votePercentage}%</span>}
             </button>
           );
@@ -92,7 +101,11 @@ export function PollMessage({ poll, messageId, onAnswer }: PollMessageProps) {
       )}
       {poll.explanation && (
         <div className="poll-explanation">
-          <MessageRichText text={poll.explanation} entities={poll.explanationEntities} />
+          <MessageRichText
+            text={poll.explanation}
+            entities={poll.explanationEntities}
+            highlightQuery={highlightQuery}
+          />
         </div>
       )}
       <footer>

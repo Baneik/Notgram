@@ -1162,11 +1162,8 @@ export const useConversationScroll = ({
 
   useLayoutEffect(() => {
     if (!searchActive || !messageListElement) return;
-    if (virtualItemCount > 0) {
-      virtuosoRef.current?.scrollToIndex({ index: 0, align: "start", behavior: "auto" });
-    }
     completePositioning();
-  }, [completePositioning, messageListElement, searchActive, virtualItemCount]);
+  }, [completePositioning, messageListElement, searchActive]);
 
   useLayoutEffect(() => {
     if (!currentScrollKey || searchActive) return;

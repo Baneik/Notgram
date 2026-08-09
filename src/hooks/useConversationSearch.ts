@@ -9,6 +9,7 @@ import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import { chatMessageSearchInputKey } from "../store/chatMessageSearchState";
 
 export type ConversationSearchScope = "topic" | "chat";
+const EMPTY_SEARCH_RESULTS: Message[] = [];
 
 interface ConversationSearchOptions {
   chatId?: string;
@@ -46,7 +47,11 @@ export const useConversationSearch = ({
   }), [chatId, dateRange, filter, isForum, query, scope, senderId, topicId]);
   const active = Boolean(chatId && chatMessageSearchCriteriaActive(input));
   const stateMatchesInput = chatMessageSearchInputKey(searchState.input) === chatMessageSearchInputKey(input);
-  const searchResults = stateMatchesInput ? searchState.messages : [];
+  const searchResults = stateMatchesInput ? searchState.messages : EMPTY_SEARCH_RESULTS;
+  const visibleMessages = useMemo(
+    () => active ? [...searchResults].reverse() : messages,
+    [active, messages, searchResults],
+  );
 
   useEffect(() => {
     setOpen(false);
@@ -105,7 +110,7 @@ export const useConversationSearch = ({
     scope,
     active,
     input,
-    visibleMessages: messages,
+    visibleMessages,
     matchingMessages: searchResults,
     searchResults,
     stateMatchesInput,

@@ -8,17 +8,12 @@ import {
 } from "lucide-react";
 import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from "react";
 import type {
-  Chat,
   ChatMessageSearchFilter,
-  ForumTopic,
   Message,
   User,
 } from "../telegram/types";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { ConversationSearchScope } from "../hooks/useConversationSearch";
-import { messageContentText } from "../telegram/messageContent";
-import { formatMessageTime } from "../utils/formatters";
-import { Avatar } from "./Avatar";
 
 const filterOptions: Array<{ id: ChatMessageSearchFilter; label: string }> = [
   { id: "all", label: "全部类型" },
@@ -56,10 +51,8 @@ interface ConversationSearchPanelProps {
   scope: ConversationSearchScope;
   isForum: boolean;
   senderOptions: SenderOption[];
-  users: Map<string, User>;
-  chats: Map<string, Chat>;
-  topics: ForumTopic[];
   searchState: ChatMessageSearchState;
+  stateMatchesInput: boolean;
   results: Message[];
   activeResultId?: string;
   onQueryChange: Dispatch<SetStateAction<string>>;
@@ -69,41 +62,8 @@ interface ConversationSearchPanelProps {
   onDateChange: (date: string) => void;
   onScopeChange: (scope: ConversationSearchScope) => void;
   onNavigate: (direction: "older" | "newer") => void;
-  onOpenResult: (message: Message) => void;
-  onLoadMore: () => void;
   onClose: () => void;
 }
-
-const senderNameFor = (message: Message, users: Map<string, User>, chats: Map<string, Chat>) => {
-  if (message.senderId === "self") return "我";
-  if (message.senderId.startsWith("chat:")) return chats.get(message.senderId.slice(5))?.title ?? "群组账号";
-  return users.get(message.senderId)?.displayName ?? "Telegram 用户";
-};
-
-const topicNameFor = (message: Message, topics: ForumTopic[]) =>
-  message.topicId ? topics.find((topic) => topic.id === message.topicId)?.name ?? `话题 ${message.topicId}` : undefined;
-
-const highlightSnippet = (text: string, query: string) => {
-  const normalized = query.trim();
-  if (!normalized) return text;
-  const lowerText = text.toLocaleLowerCase();
-  const lowerQuery = normalized.toLocaleLowerCase();
-  const parts: Array<{ text: string; hit: boolean }> = [];
-  let cursor = 0;
-  while (cursor < text.length) {
-    const index = lowerText.indexOf(lowerQuery, cursor);
-    if (index < 0) {
-      parts.push({ text: text.slice(cursor), hit: false });
-      break;
-    }
-    if (index > cursor) parts.push({ text: text.slice(cursor, index), hit: false });
-    parts.push({ text: text.slice(index, index + normalized.length), hit: true });
-    cursor = index + normalized.length;
-  }
-  return parts.map((part, index) => part.hit
-    ? <mark key={`${part.text}:${index}`}>{part.text}</mark>
-    : <span key={`${part.text}:${index}`}>{part.text}</span>);
-};
 
 export function ConversationSearchPanel({
   query,
@@ -113,10 +73,8 @@ export function ConversationSearchPanel({
   scope,
   isForum,
   senderOptions,
-  users,
-  chats,
-  topics,
   searchState,
+  stateMatchesInput,
   results,
   activeResultId,
   onQueryChange,
@@ -126,8 +84,6 @@ export function ConversationSearchPanel({
   onDateChange,
   onScopeChange,
   onNavigate,
-  onOpenResult,
-  onLoadMore,
   onClose,
 }: ConversationSearchPanelProps) {
   const activeIndex = activeResultId ? results.findIndex((message) => message.id === activeResultId) : -1;
@@ -163,12 +119,14 @@ export function ConversationSearchPanel({
           disabled={filterDisablesText}
         />
         <span className="message-search-count" aria-live="polite">
-          {total === 0 ? "0 / 0" : `${activeIndex < 0 ? 0 : activeIndex + 1} / ${total}`}
+          {!stateMatchesInput || searchState.loading
+            ? "搜索中"
+            : total === 0 ? "0 / 0" : `${activeIndex < 0 ? 0 : activeIndex + 1} / ${total}`}
         </span>
-        <button className="icon-button" type="button" aria-label="上一个搜索结果" title="上一个搜索结果" disabled={activeIndex <= 0} onClick={() => onNavigate("newer")}>
+        <button className="icon-button" type="button" aria-label="上一个搜索结果" title="上一个搜索结果" disabled={!stateMatchesInput || activeIndex <= 0} onClick={() => onNavigate("newer")}>
           <ChevronUp size={17} strokeWidth={1.9} />
         </button>
-        <button className="icon-button" type="button" aria-label="下一个搜索结果" title="下一个搜索结果" disabled={results.length === 0 || (activeIndex >= results.length - 1 && !searchState.nextFromMessageId)} onClick={() => onNavigate("older")}>
+        <button className="icon-button" type="button" aria-label="下一个搜索结果" title="下一个搜索结果" disabled={!stateMatchesInput || results.length === 0 || (activeIndex >= results.length - 1 && !searchState.nextFromMessageId)} onClick={() => onNavigate("older")}>
           {searchState.loadingMore ? <LoaderCircle className="spin" size={17} /> : <ChevronDown size={17} strokeWidth={1.9} />}
         </button>
         <button className="icon-button" type="button" aria-label="关闭消息搜索" title="关闭消息搜索" onClick={onClose}>
@@ -204,45 +162,6 @@ export function ConversationSearchPanel({
           <button className="message-search-sender-clear" type="button" aria-label="清除成员筛选" title="清除成员筛选" onClick={() => onSenderChange(undefined)}>
             <X size={14} />
             <span>{senderOptions.find((option) => option.id === senderId)?.label ?? "成员"}</span>
-          </button>
-        )}
-      </div>
-      <div className="message-search-results" aria-live="polite">
-        {searchState.error && (
-          <div className="message-search-state is-error" role="alert">{searchState.error}</div>
-        )}
-        {(searchState.loading || !searchState.input) && results.length === 0 && !searchState.error && (
-          <div className="message-search-state" role="status">
-            {searchState.loading ? <LoaderCircle className="spin" size={18} /> : "输入关键词或选择筛选条件"}
-          </div>
-        )}
-        {!searchState.loading && !searchState.error && searchState.input && results.length === 0 && (
-          <div className="message-search-state">没有搜索结果</div>
-        )}
-        {results.map((message) => {
-          const content = messageContentText(message.content);
-          const topicName = topicNameFor(message, topics);
-          return (
-            <button
-              className={`message-search-result ${activeResultId === message.id ? "is-active" : ""}`}
-              type="button"
-              key={message.id}
-              data-conversation-search-message-id={message.id}
-              onClick={() => onOpenResult(message)}
-            >
-              <Avatar avatar={message.senderId === "self" ? { label: "我", color: "#73828c" } : users.get(message.senderId)?.avatar ?? chats.get(message.senderId.slice(5))?.avatar ?? { label: "T", color: "#73828c" }} size="small" />
-              <span className="message-search-result-copy">
-                <span><strong>{senderNameFor(message, users, chats)}</strong><time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time></span>
-                <small>{highlightSnippet(content, query)}</small>
-                {topicName && <em>{topicName}</em>}
-              </span>
-            </button>
-          );
-        })}
-        {searchState.nextFromMessageId && (
-          <button className="message-search-more" type="button" disabled={searchState.loadingMore} onClick={onLoadMore}>
-            {searchState.loadingMore ? <LoaderCircle className="spin" size={15} /> : <ChevronDown size={15} />}
-            <span>加载更早结果</span>
           </button>
         )}
       </div>

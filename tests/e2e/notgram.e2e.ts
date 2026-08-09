@@ -2269,32 +2269,31 @@ test("search paginates, filters the current conversation, and opens exact messag
   await conversationSearch.press("Enter");
   await expect(page.locator('[data-message-id="p-5"]')).toBeVisible();
   await conversationSearch.fill("产品讨论历史消息");
-  await expect(page.locator("[data-conversation-search-message-id]")).toHaveCount(30);
+  await expect.poll(() => page.locator("[data-conversation-search-message-id]").count()).toBeGreaterThan(0);
   await expect(page.locator(".message-search-count")).toHaveText("1 / 36");
+  await expect(page.locator(".conversation-search-panel .message-search-results")).toHaveCount(0);
+  const newestSearchResult = page.locator('[data-conversation-search-message-id="p-old-36"]');
+  await expect(newestSearchResult).toHaveClass(/message-row/);
+  await expect(newestSearchResult.locator(".message-bubble")).toBeVisible();
+  await expect(newestSearchResult.locator(".message-search-highlight")).toHaveText("产品讨论历史消息");
   await page.getByRole("button", { name: "加载更早结果" }).click();
-  await expect(page.locator("[data-conversation-search-message-id]")).toHaveCount(36);
+  await expect(page.getByRole("button", { name: "加载更早结果" })).toHaveCount(0);
   await page.getByRole("button", { name: "下一个搜索结果" }).click();
   const olderLocatedMessage = page.locator('[data-message-id="p-old-35"]');
-  await expect(olderLocatedMessage).toHaveClass(/is-notification-target/);
-  const highlightStyle = await olderLocatedMessage.evaluate((element) => {
-    const highlight = getComputedStyle(element, "::before");
-    const bubble = element.querySelector<HTMLElement>(".message-bubble");
-    return {
-      animationName: highlight.animationName,
-      left: highlight.left,
-      right: highlight.right,
-      bubbleBoxShadow: bubble ? getComputedStyle(bubble).boxShadow : "",
-    };
-  });
-  expect(highlightStyle.animationName).toBe("message-target-flash");
-  expect(highlightStyle.left).toBe("-44px");
-  expect(highlightStyle.right).toBe("0px");
-  expect(highlightStyle.bubbleBoxShadow).not.toContain("0px 0px 0px 2px");
-  await expect(conversationSearch).toBeFocused();
+  await expect(olderLocatedMessage).toHaveClass(/is-search-current/);
+  await expect(olderLocatedMessage.locator(".message-search-highlight")).toHaveText("产品讨论历史消息");
+  await expect(olderLocatedMessage).toBeInViewport();
 
   await page.getByRole("combobox", { name: "消息发送者" }).selectOption({ label: "Jules" });
-  await expect(page.locator("[data-conversation-search-message-id]")).toHaveCount(18);
+  await expect.poll(() => page.locator("[data-conversation-search-message-id]").count()).toBeGreaterThan(0);
   await page.getByRole("combobox", { name: "消息发送者" }).selectOption("");
+  await conversationSearch.fill("TDLib bold");
+  const entitySearchResult = page.locator('[data-conversation-search-message-id="p-rich-entities"]');
+  await expect(entitySearchResult).toBeVisible();
+  await expect(entitySearchResult.locator(".message-search-highlight")).toHaveCount(2);
+  await expect(entitySearchResult.locator(".message-search-highlight strong")).toHaveText("bold");
+  await conversationSearch.fill("Markdown");
+  await expect(page.locator('[data-conversation-search-message-id="p-markdown"] strong .message-search-highlight')).toHaveText("Markdown");
   await conversationSearch.fill("");
   await page.getByRole("combobox", { name: "消息类型" }).selectOption("photoAndVideo");
   await expect(page.locator('[data-conversation-search-message-id="p-5"]')).toBeVisible();

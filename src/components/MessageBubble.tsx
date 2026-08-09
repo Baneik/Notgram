@@ -38,6 +38,7 @@ import { TgsSticker } from "./TgsSticker";
 import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
+import { highlightedText } from "../utils/textHighlight";
 import { AudioPlayer } from "./AudioPlayer";
 import {
   nextVisibleMediaFileId,
@@ -79,6 +80,9 @@ interface MessageBubbleProps {
   selectionMode: boolean;
   selected: boolean;
   highlighted: boolean;
+  searchResult?: boolean;
+  searchResultActive?: boolean;
+  searchQuery?: string;
   selectionPending: boolean;
   selectionLimitReached: boolean;
   onToggleSelection: (message: Message) => Promise<void>;
@@ -107,6 +111,7 @@ interface MessageBubbleProps {
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMedia?: (messageId: string) => void;
+  onActivateSearchResult?: (message: Message) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
   autoplayAnimations: boolean;
@@ -137,6 +142,9 @@ function MessageBubbleComponent({
   selectionMode,
   selected,
   highlighted,
+  searchResult = false,
+  searchResultActive = false,
+  searchQuery,
   selectionPending,
   selectionLimitReached,
   onToggleSelection,
@@ -160,6 +168,7 @@ function MessageBubbleComponent({
   onOpenReply,
   onOpenSenderProfile,
   onOpenMedia,
+  onActivateSearchResult,
   cornerAction,
   albumItem = false,
   autoplayAnimations,
@@ -192,7 +201,7 @@ function MessageBubbleComponent({
   const [textExpanded, setTextExpanded] = useState(false);
   const content = message.content;
   const isSticker = content.kind === "media" && content.mediaType === "sticker";
-  const textCollapsible = content.kind === "text" && textLineCount > collapseThresholdLines;
+  const textCollapsible = !searchResult && content.kind === "text" && textLineCount > collapseThresholdLines;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
@@ -507,8 +516,17 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${searchResultActive ? "is-search-current" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
+      data-conversation-search-message-id={searchResult ? message.id : undefined}
+      onClick={(event) => {
+        if (!searchResult || selectionMode || !onActivateSearchResult) return;
+        const target = event.target;
+        if (target instanceof Element && target.closest("button, a, input, textarea, select, summary")) return;
+        const selection = globalThis.getSelection();
+        if (selection && !selection.isCollapsed) return;
+        onActivateSearchResult(message);
+      }}
       onAnimationEnd={(event) => {
         if (
           event.target === event.currentTarget &&
@@ -600,7 +618,11 @@ function MessageBubbleComponent({
                 "--collapsed-message-height": `${collapsedTextHeight}px`,
               } as CSSProperties}
             >
-              <MessageRichText text={content.text} entities={content.entities} />
+              <MessageRichText
+                text={content.text}
+                entities={content.entities}
+                highlightQuery={searchQuery}
+              />
               {message.isPending && (
                 content.text ? (
                   <span className="pending-message-caret" aria-label="机器人仍在生成"><span /></span>
@@ -632,13 +654,14 @@ function MessageBubbleComponent({
               isRtl={content.isRtl}
               isFull={content.isFull}
               messageId={message.id}
+              highlightQuery={searchQuery}
               onDownload={onDownload}
               onCancelDownload={onCancelDownload}
               onStream={onStream}
               onSuspendStream={onSuspendStream}
             />
           ) : content.kind === "service" ? (
-            <p>{content.text}</p>
+            <p>{highlightedText(content.text, searchQuery)}</p>
           ) : content.kind === "unsupported" ? (
             developerMode ? (
               <button
@@ -657,7 +680,7 @@ function MessageBubbleComponent({
                   ? "已复制原始消息"
                   : copyState === "error" ? "复制失败，请重试" : content.text}</span>
               </button>
-            ) : <p>{content.text}</p>
+            ) : <p>{highlightedText(content.text, searchQuery)}</p>
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
               <div
@@ -841,19 +864,25 @@ function MessageBubbleComponent({
                     className="photo-caption"
                     text={content.caption}
                     entities={content.captionEntities}
+                    highlightQuery={searchQuery}
                   />
                   {messageMeta}
                 </div>
               )}
             </div>
           ) : content.kind === "poll" ? (
-            <PollMessage poll={content} messageId={message.id} onAnswer={onPollAnswer} />
+            <PollMessage
+              poll={content}
+              messageId={message.id}
+              highlightQuery={searchQuery}
+              onAnswer={onPollAnswer}
+            />
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
             <div className="attachment-message">
               <div className="audio-message">
                 <span className="file-icon"><AudioLines size={19} strokeWidth={1.8} /></span>
                 <span className="file-copy">
-                  <strong>{content.fileName}</strong>
+                  <strong>{highlightedText(content.fileName, searchQuery)}</strong>
                   <small>{content.sizeLabel}</small>
                 </span>
                 <AudioPlayer
@@ -880,6 +909,7 @@ function MessageBubbleComponent({
                   className="attachment-caption"
                   text={content.caption}
                   entities={content.captionEntities}
+                  highlightQuery={searchQuery}
                 />
               )}
             </div>
@@ -888,7 +918,7 @@ function MessageBubbleComponent({
               <div className="file-message">
                 <span className="file-icon"><FileText size={19} strokeWidth={1.8} /></span>
                 <span className="file-copy">
-                  <strong>{content.fileName}</strong>
+                  <strong>{highlightedText(content.fileName, searchQuery)}</strong>
                   <small>{content.isUploading ? `上传中 ${fileProgress ?? ""}` : content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : content.isDownloaded ? `已缓存 · ${content.sizeLabel}` : content.sizeLabel}</small>
                 </span>
                 <span className="file-actions">
@@ -912,6 +942,7 @@ function MessageBubbleComponent({
                   className="attachment-caption"
                   text={content.caption}
                   entities={content.captionEntities}
+                  highlightQuery={searchQuery}
                 />
               )}
             </div>
