@@ -324,7 +324,11 @@ const minithumbnailDataUrl = (value: unknown) => {
     : undefined;
 };
 
-const serviceContent = (text: string): MessageContent => ({ kind: "service", text });
+const serviceContent = (text: string, memberUserIds?: string[]): MessageContent => ({
+  kind: "service",
+  text,
+  ...(memberUserIds ? { memberUserIds } : {}),
+});
 
 export const serializeTdObject = (value: unknown) => {
   try {
@@ -1149,13 +1153,18 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
     case "messageSupergroupChatCreate":
       return serviceContent(labeledText(content.is_channel === true ? "频道已创建" : "群聊已创建", content.title));
     case "messageChatAddMembers": {
-      const count = Array.isArray(content.member_user_ids) ? content.member_user_ids.length : 0;
-      return serviceContent(count > 1 ? `${count} 位新成员加入了群聊` : "新成员加入了群聊");
+      const memberUserIds = Array.isArray(content.member_user_ids)
+        ? content.member_user_ids.map(tdId).filter(Boolean)
+        : [];
+      return serviceContent(
+        memberUserIds.length > 1 ? `${memberUserIds.length} 位新成员加入了群聊` : "新成员加入了群聊",
+        memberUserIds,
+      );
     }
     case "messageChatJoinByLink":
-      return serviceContent("有成员通过邀请链接加入了群聊");
+      return serviceContent("有成员通过邀请链接加入了群聊", []);
     case "messageChatJoinByRequest":
-      return serviceContent("入群申请已通过");
+      return serviceContent("入群申请已通过", []);
     case "messageChatDeleteMember":
       return serviceContent("一位成员离开或被移出了群聊");
     case "messageChatChangeTitle":
@@ -1567,9 +1576,15 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const sendingState = asTdObject(raw.sending_state);
   const failed = sendingState?.["@type"] === "messageSendingStateFailed";
   const mappedContent = mapTdMessageContent(raw.content, raw.is_outgoing === true);
-  const content = mappedContent.kind === "unsupported"
+  let content = mappedContent.kind === "unsupported"
     ? { ...mappedContent, raw: serializeTdObject(raw) }
     : mappedContent;
+  if (
+    content.kind === "service" && content.memberUserIds?.length === 0 &&
+    senderId !== "unknown" && !senderId.startsWith("chat:")
+  ) {
+    content = { ...content, memberUserIds: [senderId] };
+  }
 
   return {
     id,

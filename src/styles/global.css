@@ -799,6 +799,12 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-row.is-service .message-bubble::after { display: none; }
 .message-row.is-service .message-bubble p,
 .unknown-message-copy { font-size: 11px; line-height: 1.35; }
+.message-service-content button {
+  margin: 0; padding: 0; color: inherit; background: transparent; border: 0;
+  font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.message-service-content button:hover { opacity: 0.82; }
+.message-service-content button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
 .unknown-message-copy {
   max-width: 100%; padding: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   color: inherit; background: transparent; border: 0; cursor: pointer; font-family: inherit; text-align: center;

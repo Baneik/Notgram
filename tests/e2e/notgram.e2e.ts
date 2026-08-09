@@ -3766,6 +3766,8 @@ test("group service messages render as centered notices", async ({ page }) => {
   await expect(notice).toBeVisible();
   await expect(notice).toHaveClass(/is-service/);
   await expect(notice.locator(".message-bubble")).toHaveText("Mia Chen 加入了群聊");
+  const member = notice.getByRole("button", { name: "查看 Mia Chen 资料" });
+  await expect(member).toBeVisible();
   await expect(notice.locator(".message-meta")).toHaveCount(0);
   const centerDelta = await notice.evaluate((row) => {
     const shell = row.querySelector<HTMLElement>(".message-bubble-shell");
@@ -3777,6 +3779,9 @@ test("group service messages render as centered notices", async ({ page }) => {
     );
   });
   expect(centerDelta).toBeLessThanOrEqual(1);
+  await member.click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await expect(profile.getByRole("heading", { name: "Mia Chen" })).toBeVisible();
 });
 
 test("developer mode copies the complete raw unknown message", async ({ page, context }) => {
