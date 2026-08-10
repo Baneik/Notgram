@@ -211,6 +211,13 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 }
 .rail-account > span:last-child { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
 .rail-account:hover, .rail-account:focus-visible { color: var(--accent); background: var(--accent-soft); }
+.rail-navigation { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; margin: 0 0 8px; flex: 0 0 auto; }
+.rail-navigation-button {
+  min-width: 0; height: 31px; display: grid; place-items: center; color: var(--muted);
+  background: transparent; border: 0; border-radius: 6px; cursor: pointer;
+}
+.rail-navigation-button:hover:not(:disabled), .rail-navigation-button:focus-visible:not(:disabled) { color: var(--ink); background: var(--surface-hover); }
+.rail-navigation-button:disabled { color: var(--subtle); cursor: default; opacity: 0.45; }
 .rail-actions { min-height: 0; display: grid; align-content: start; gap: 4px; overflow-y: auto; scrollbar-width: none; }
 .rail-button {
   width: 100%; min-height: 62px; padding: 5px 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
@@ -2265,6 +2272,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .rail-account { width: min(72px, 18vw); min-height: 54px; height: 54px; margin: 0 4px 0 0; padding: 3px 2px; flex: 0 0 auto; }
   .rail-account .avatar { width: 30px; height: 30px; }
   .rail-account > span:last-child { font-size: 10px; }
+  .rail-navigation { width: 62px; height: 54px; margin: 0 4px 0 0; align-self: center; }
   .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
   .emoji-picker { left: 6px; right: 6px; width: auto; height: min(560px, calc(100vh - 150px)); }
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }

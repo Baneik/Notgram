@@ -2388,6 +2388,97 @@ test("search paginates, filters the current conversation by member, and opens ex
   await expect(page.locator(".global-search-results-panel")).toBeHidden();
 });
 
+test("conversation navigation restores search results with controls and mouse side buttons", async ({ page }) => {
+  await page.goto("/");
+  const search = page.getByRole("searchbox", { name: "搜索会话和消息" });
+  const back = page.getByRole("button", { name: "后退" });
+  const forward = page.getByRole("button", { name: "前进" });
+
+  await expect(back).toBeDisabled();
+  await expect(forward).toBeDisabled();
+  await search.fill("Mia Chen");
+  const searchResult = page.locator(".global-chat-result", { hasText: "Mia Chen" });
+  await expect(searchResult).toBeVisible();
+  await searchResult.click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await expect(back).toBeEnabled();
+
+  await back.click();
+  await expect(search).toHaveValue("Mia Chen");
+  await expect(page.locator(".global-search-results-panel")).toBeVisible();
+  await expect(searchResult).toBeVisible();
+  await expect(forward).toBeEnabled();
+
+  await forward.click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await expect(page.locator(".global-search-results-panel")).toBeHidden();
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent("pointerdown", {
+      button: 3,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+  await expect(search).toHaveValue("Mia Chen");
+  await expect(searchResult).toBeVisible();
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent("pointerdown", {
+      button: 4,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+
+  await back.click();
+  await search.fill("产品讨论历史消息");
+  const messageResults = page.locator("[data-search-message-id]");
+  await expect(messageResults).toHaveCount(30);
+  const resultsPanel = page.locator(".global-search-results");
+  const savedScrollTop = await resultsPanel.evaluate((element) => {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+    element.dispatchEvent(new Event("scroll"));
+    return element.scrollTop;
+  });
+  expect(savedScrollTop).toBeGreaterThan(0);
+  await messageResults.last().click();
+  await expect(page.locator(".global-search-results-panel")).toBeHidden();
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent("pointerdown", {
+      button: 3,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+  await expect(search).toHaveValue("产品讨论历史消息");
+  await expect(messageResults).toHaveCount(30);
+  await expect.poll(() => resultsPanel.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(savedScrollTop, 0);
+
+  await search.fill("");
+  await page.keyboard.press("Control+F");
+  await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeVisible();
+  await search.fill("产品讨论历史消息 36");
+  const scopedResult = page.locator('.chat-search-results-panel [data-search-message-id="p-old-36"]');
+  await expect(scopedResult).toBeVisible();
+  await scopedResult.click();
+  await expect(page.locator(".chat-search-results-panel")).toBeHidden();
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent("pointerdown", {
+      button: 3,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+  await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeVisible();
+  await expect(search).toHaveValue("产品讨论历史消息 36");
+  await expect(scopedResult).toBeVisible();
+});
+
 test("chat profiles expose members and shared media with focus restoration", async ({ page }) => {
   await page.goto("/");
   const profileTrigger = page.getByRole("button", { name: "查看 产品讨论 资料" });

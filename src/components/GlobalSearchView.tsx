@@ -291,12 +291,12 @@ export function GlobalSearchResults({
   ]), [chats, knownChats]);
 
   useEffect(() => {
-    if (!normalizedQuery) return;
+    if (!normalizedQuery || current) return;
     const timer = globalThis.setTimeout(() => {
       void onSearch(normalizedQuery, filter);
     }, 250);
     return () => globalThis.clearTimeout(timer);
-  }, [filter, normalizedQuery, onSearch]);
+  }, [current, filter, normalizedQuery, onSearch]);
 
   useEffect(() => () => onCancel(), [onCancel]);
 
