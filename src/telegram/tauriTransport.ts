@@ -1626,6 +1626,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.cacheFile(fileId, priority);
   }
 
+  recoverFile(fileId: number, priority = 32) {
+    return this.messageMediaService.recoverFile(fileId, priority);
+  }
+
   async streamFile(input: StreamFileInput) {
     return this.messageMediaService.streamFile(input);
   }

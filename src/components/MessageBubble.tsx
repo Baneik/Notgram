@@ -100,6 +100,7 @@ interface MessageBubbleProps {
   ) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancelDownload: (fileId: number) => Promise<void>;
+  onRecoverFile: (fileId: number, priority?: number) => Promise<boolean>;
   onOpenFile: (sourcePath: string) => Promise<void>;
   onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
   onOpenDownloadDirectory: () => Promise<void>;
@@ -154,6 +155,7 @@ function MessageBubbleComponent({
   onOpenActions,
   onDownload,
   onCancelDownload,
+  onRecoverFile,
   onOpenFile,
   onSaveFileAs,
   onOpenDownloadDirectory,
@@ -186,6 +188,7 @@ function MessageBubbleComponent({
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const attemptedMediaRecoveryRef = useRef(new Set<string>());
   const [measuredMedia, setMeasuredMedia] = useState<{
     source: string;
     width: number;
@@ -211,8 +214,11 @@ function MessageBubbleComponent({
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
   const showSender = !albumItem && !message.outgoing && !isSticker && isGroupFirst(groupPosition);
   const fullMediaSource = content.kind === "media" ? localMediaSource(content.localPath) : undefined;
+  const localPreviewSource = content.kind === "media"
+    ? localMediaSource(content.thumbnailPath)
+    : undefined;
   const previewSource = content.kind === "media"
-    ? localMediaSource(content.thumbnailPath) ?? content.previewDataUrl
+    ? localPreviewSource ?? content.previewDataUrl
     : undefined;
   const usableFullMediaSource = fullMediaSource && failedMediaSources.has(fullMediaSource)
     ? undefined
@@ -352,6 +358,21 @@ function MessageBubbleComponent({
       const next = new Set(current);
       next.add(source);
       return next;
+    });
+    if (attemptedMediaRecoveryRef.current.has(source) || content.kind !== "media") return;
+    const fileId = source === fullMediaSource
+      ? content.fileId
+      : source === localPreviewSource ? content.thumbnailFileId : undefined;
+    if (fileId === undefined) return;
+    attemptedMediaRecoveryRef.current.add(source);
+    void onRecoverFile(fileId, 32).then((recovered) => {
+      if (!recovered) return;
+      setFailedMediaSources((current) => {
+        if (!current.has(source)) return current;
+        const next = new Set(current);
+        next.delete(source);
+        return next;
+      });
     });
   };
   const fileProgress = (content.kind === "file" || content.kind === "media") && content.progress !== undefined
@@ -1011,16 +1032,14 @@ function MessageBubbleComponent({
                   {canOpenFile && !executableFile && <button type="button" aria-label={`打开 ${content.fileName}`} title="打开文件" onClick={() => void onOpenFile(localFilePath!)}><ExternalLink size={15} /></button>}
                   {canOpenFile && <button type="button" aria-label={`另存为 ${content.fileName}`} title="另存为" onClick={() => void onSaveFileAs(localFilePath!, content.fileName)}><Save size={15} /></button>}
                   {canOpenFile && <button type="button" aria-label="打开下载目录" title="打开下载目录" onClick={() => void onOpenDownloadDirectory()}><FolderOpen size={15} /></button>}
-                  {(canDownload || canCancelUpload || canCancelDownload) && (
+                  {(canCancelUpload || canCancelDownload) && (
                     <button
                       type="button"
-                      aria-label={canCancelUpload ? `取消上传 ${content.fileName}` : canCancelDownload ? `取消下载 ${content.fileName}` : `下载 ${content.fileName}`}
-                      title={canCancelUpload ? "取消上传" : canCancelDownload ? "取消下载" : "下载到 downloads"}
-                      onClick={() => canCancelUpload ? void onCancelUpload(message.id) : canCancelDownload ? void onCancelDownload(downloadFileId!) : void onDownload(downloadFileId!, downloadFileName)}
+                      aria-label={canCancelUpload ? `取消上传 ${content.fileName}` : `取消下载 ${content.fileName}`}
+                      title={canCancelUpload ? "取消上传" : "取消下载"}
+                      onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onCancelDownload(downloadFileId!)}
                     >
-                      {canCancelUpload || canCancelDownload
-                        ? <X size={16} strokeWidth={2.2} />
-                        : <Download size={16} strokeWidth={2} />}
+                      <X size={16} strokeWidth={2.2} />
                     </button>
                   )}
                 </span>

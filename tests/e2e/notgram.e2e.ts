@@ -2998,22 +2998,129 @@ test("poll messages support voting, results, and revoking an answer", async ({ p
 
 test("audio messages continue to the next item in the same conversation", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator('[data-message-id="p-audio"] audio')).toHaveCount(1);
-  await expect(page.locator('[data-message-id="p-audio-next"] audio')).toHaveCount(1);
+  await expect(page.locator('[data-message-id="p-audio"] audio')).toHaveCount(0);
+  const audioEngine = page.locator(".persistent-audio-engine");
+  await expect(audioEngine).toHaveCount(1);
+  await expect(audioEngine).toHaveAttribute("crossorigin", "anonymous");
   await page.evaluate(() => {
     const scope = window as unknown as { __notgramAudioPlayCalls: string[] };
     scope.__notgramAudioPlayCalls = [];
     HTMLMediaElement.prototype.play = function play() {
-      const messageId = this.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
-      if (messageId) scope.__notgramAudioPlayCalls.push(messageId);
+      const playbackId = this.dataset.playbackId;
+      if (playbackId) scope.__notgramAudioPlayCalls.push(playbackId);
       return Promise.resolve();
     };
-    document.querySelector<HTMLAudioElement>('[data-message-id="p-audio"] audio')
-      ?.dispatchEvent(new Event("ended"));
   });
+  await page.getByRole("button", { name: "播放 产品语音.m4a" }).click();
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __notgramAudioPlayCalls: string[] }
-  ).__notgramAudioPlayCalls)).toContain("p-audio-next");
+  ).__notgramAudioPlayCalls)).toContain("chat-product:p-audio");
+  await expect(audioEngine).toHaveAttribute("src", /mock-video\.mp4/);
+  await audioEngine.evaluate((audio) => audio.dispatchEvent(new Event("ended")));
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramAudioPlayCalls: string[] }
+  ).__notgramAudioPlayCalls)).toContain("chat-product:p-audio-next");
+});
+
+test("download manager lists only explicit downloads and supports batch management", async ({ page }) => {
+  await page.goto("/");
+  await page.keyboard.press("Control+j");
+  const dialog = page.getByRole("dialog", { name: "下载" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("暂无下载")).toBeVisible();
+  await dialog.getByRole("button", { name: "关闭下载管理" }).click();
+
+  await page.evaluate(async (storePath) => {
+    type TestMessage = { id: string; content: { kind: string; [key: string]: unknown }; [key: string]: unknown };
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, TestMessage[]> };
+        setState: (partial: { messages: Map<string, TestMessage[]> }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) =>
+      message.id === "p-file-downloading" && message.content.kind === "file"
+        ? {
+            ...message,
+            content: {
+              ...message.content,
+              isDownloading: false,
+              isDownloaded: false,
+              progress: undefined,
+              downloadedSize: undefined,
+            },
+          }
+        : message
+    ));
+    storeModule.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const fileMessage = await revealVirtualMessage(page, "p-file-downloading");
+  await expect(fileMessage.getByRole("button", { name: "下载 research-notes.zip" })).toHaveCount(1);
+  await fileMessage.getByRole("button", { name: "下载 research-notes.zip" }).click();
+  await page.keyboard.press("Control+j");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("research-notes.zip", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("progressbar", { name: "research-notes.zip 下载进度" })).toHaveAttribute("aria-valuenow", "0");
+  await page.setViewportSize({ width: 375, height: 667 });
+  await expect.poll(() => dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await dialog.getByRole("checkbox", { name: "选择 research-notes.zip" }).check();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog.getByText("等待下载", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "移除", exact: true }).click();
+  await expect(dialog.getByText("暂无下载")).toBeVisible();
+});
+
+test("stale cached photos request recovery and render the refreshed local source", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async (storePath) => {
+    type TestMessage = { id: string; content: { kind: string; [key: string]: unknown }; [key: string]: unknown };
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, TestMessage[]> };
+        setState: (partial: {
+          messages?: Map<string, TestMessage[]>;
+          recoverFile?: (fileId: number) => Promise<boolean>;
+        }) => void;
+      };
+    };
+    const updatePhoto = (localPath: string) => {
+      const state = storeModule.telegramStore.getState();
+      const messages = new Map(state.messages);
+      messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) =>
+        message.id === "p-5" && message.content.kind === "media"
+          ? {
+              ...message,
+              content: {
+                ...message.content,
+                fileId: 510,
+                localPath,
+                isDownloaded: true,
+                isDownloading: false,
+              },
+            }
+          : message
+      ));
+      storeModule.telegramStore.setState({ messages });
+    };
+    (window as unknown as { __notgramRecoveredFiles: number[] }).__notgramRecoveredFiles = [];
+    storeModule.telegramStore.setState({
+      recoverFile: async (fileId: number) => {
+        (window as unknown as { __notgramRecoveredFiles: number[] }).__notgramRecoveredFiles.push(fileId);
+        updatePhoto("/mock-video-poster.jpg");
+        return true;
+      },
+    });
+    updatePhoto("/missing-cleared-cache-photo.jpg");
+  }, "/src/store/telegramStore.ts");
+
+  const photoMessage = await revealVirtualMessage(page, "p-5");
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramRecoveredFiles: number[] }
+  ).__notgramRecoveredFiles)).toContain(510);
+  await expect(photoMessage.locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
 });
 
 test("unloaded media uses a blurred glass preview instead of exposing thumbnail pixels", async ({ page }) => {
@@ -4012,6 +4119,26 @@ test("message jumps return through prior reading positions before returning to l
   )).toBeLessThanOrEqual(2);
   await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^跳到最新消息/ })).toBeVisible();
+});
+
+test("manual bottom navigation and conversation switches clear reply jump history", async ({ page }) => {
+  await page.goto("/");
+  const source = await revealVirtualMessage(page, "p-channel-reply");
+  await source.locator(".message-reply-preview").click();
+  await expect(page.getByRole("button", { name: "返回跳转前位置，可回退 1 次" })).toBeVisible();
+
+  const messageList = page.locator(".message-list");
+  await messageList.focus();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
+
+  await page.locator(".pinned-message-preview").click();
+  await expect(page.getByRole("button", { name: "返回跳转前位置，可回退 1 次" })).toBeVisible();
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+  await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
 });
 
 test("conversation scroll state follows, restores, counts, and resets to latest", async ({ page }) => {

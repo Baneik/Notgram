@@ -4,10 +4,11 @@ import {
   FileText,
   FolderOpen,
   Mic2,
+  Trash2,
   Video,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import {
   formatDownloadSize,
@@ -19,6 +20,7 @@ interface DownloadManagerDialogProps {
   items: ManagedDownloadItem[];
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancel: (fileId: number) => Promise<void>;
+  onRemove: (fileIds: number[]) => void;
   onOpenDirectory: () => Promise<void>;
   onClose: () => void;
 }
@@ -42,16 +44,44 @@ export function DownloadManagerDialog({
   items,
   onDownload,
   onCancel,
+  onRemove,
   onOpenDirectory,
   onClose,
 }: DownloadManagerDialogProps) {
   const [filter, setFilter] = useState<DownloadFilter>("all");
+  const [selectedFileIds, setSelectedFileIds] = useState<ReadonlySet<number>>(() => new Set());
   const dialogRef = useModalFocus<HTMLDivElement>(onClose);
   const filteredItems = useMemo(() => items.filter((item) =>
     filter === "all" ||
     (filter === "completed" ? item.status === "completed" : item.status !== "completed"),
   ), [filter, items]);
   const activeCount = items.filter((item) => item.status === "downloading").length;
+  const selectedItems = filteredItems.filter((item) => selectedFileIds.has(item.fileId));
+  const startableItems = selectedItems.filter((item) => item.status === "pending");
+  const cancellableItems = selectedItems.filter((item) => item.status === "downloading");
+  const removableItems = selectedItems.filter((item) => item.status !== "downloading");
+  const completedItems = items.filter((item) => item.status === "completed");
+  const allFilteredSelected = filteredItems.length > 0 &&
+    filteredItems.every((item) => selectedFileIds.has(item.fileId));
+
+  useEffect(() => {
+    const available = new Set(items.map((item) => item.fileId));
+    setSelectedFileIds((current) => {
+      const next = new Set([...current].filter((fileId) => available.has(fileId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [items]);
+
+  const removeRecords = (records: ManagedDownloadItem[]) => {
+    if (records.length === 0) return;
+    const fileIds = records.map((item) => item.fileId);
+    onRemove(fileIds);
+    setSelectedFileIds((current) => {
+      const next = new Set(current);
+      for (const fileId of fileIds) next.delete(fileId);
+      return next;
+    });
+  };
 
   return (
     <div
@@ -95,6 +125,42 @@ export function DownloadManagerDialog({
           ))}
         </nav>
 
+        <div className="download-manager-batch" aria-label="批量管理">
+          <label>
+            <input
+              type="checkbox"
+              checked={allFilteredSelected}
+              disabled={filteredItems.length === 0}
+              onChange={(event) => {
+                const checked = event.currentTarget.checked;
+                setSelectedFileIds((current) => {
+                  const next = new Set(current);
+                  for (const item of filteredItems) {
+                    if (checked) next.add(item.fileId);
+                    else next.delete(item.fileId);
+                  }
+                  return next;
+                });
+              }}
+            />
+            <span>{selectedItems.length > 0 ? `已选 ${selectedItems.length} 项` : "全选"}</span>
+          </label>
+          <span className="download-batch-actions">
+            <button type="button" aria-label="开始" title="开始选中下载" disabled={startableItems.length === 0} onClick={() => void Promise.allSettled(startableItems.map((item) => onDownload(item.fileId, item.fileName)))}>
+              <Download size={14} /><span>开始</span>
+            </button>
+            <button type="button" aria-label="取消" title="取消选中下载" disabled={cancellableItems.length === 0} onClick={() => void Promise.allSettled(cancellableItems.map((item) => onCancel(item.fileId)))}>
+              <X size={14} /><span>取消</span>
+            </button>
+            <button type="button" aria-label="移除" title="移除选中记录" disabled={removableItems.length === 0} onClick={() => removeRecords(removableItems)}>
+              <Trash2 size={14} /><span>移除</span>
+            </button>
+            <button type="button" aria-label="清除已完成" title="清除已完成记录" disabled={completedItems.length === 0} onClick={() => removeRecords(completedItems)}>
+              <Trash2 size={14} /><span>清除已完成</span>
+            </button>
+          </span>
+        </div>
+
         <section className="download-manager-list" aria-live="polite">
           {filteredItems.length === 0 ? (
             <div className="download-manager-empty">
@@ -103,6 +169,21 @@ export function DownloadManagerDialog({
             </div>
           ) : filteredItems.map((item) => (
             <article className="download-manager-item" key={item.fileId}>
+              <input
+                className="download-item-select"
+                type="checkbox"
+                aria-label={`选择 ${item.fileName}`}
+                checked={selectedFileIds.has(item.fileId)}
+                onChange={(event) => {
+                  const checked = event.currentTarget.checked;
+                  setSelectedFileIds((current) => {
+                    const next = new Set(current);
+                    if (checked) next.add(item.fileId);
+                    else next.delete(item.fileId);
+                    return next;
+                  });
+                }}
+              />
               <span className={`download-kind-icon kind-${item.kind}`}><DownloadKindIcon item={item} /></span>
               <span className="download-item-copy">
                 <strong title={item.fileName}>{item.fileName}</strong>

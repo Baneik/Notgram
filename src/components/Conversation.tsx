@@ -197,6 +197,7 @@ interface ConversationProps {
   onSetChatMessageAutoDeleteTime: (chatId: string, seconds: number) => Promise<boolean>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onCancelFileDownload: (fileId: number) => Promise<void>;
+  onRecoverFile: (fileId: number, priority?: number) => Promise<boolean>;
   onOpenFile: (sourcePath: string) => Promise<void>;
   onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
   onOpenDownloadDirectory: () => Promise<void>;
@@ -273,6 +274,7 @@ export function Conversation({
   onSetChatMessageAutoDeleteTime,
   onDownloadFile,
   onCancelFileDownload,
+  onRecoverFile,
   onOpenFile,
   onSaveFileAs,
   onOpenDownloadDirectory,
@@ -1649,6 +1651,7 @@ export function Conversation({
                         onOpenActions={openActionMenu}
                         onDownload={onDownloadFile}
                         onCancelDownload={onCancelFileDownload}
+                        onRecoverFile={onRecoverFile}
                         onOpenFile={onOpenFile}
                         onSaveFileAs={onSaveFileAs}
                         onOpenDownloadDirectory={onOpenDownloadDirectory}

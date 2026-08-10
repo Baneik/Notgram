@@ -2488,6 +2488,15 @@ export const createTelegramStore = (
         await transport.cacheFile(fileId, priority);
       },
 
+      recoverFile: async (fileId, priority) => {
+        try {
+          await transport.recoverFile(fileId, priority);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+
       streamFile: async (fileId, size, mimeType) => {
         try {
           const source = await transport.streamFile({ fileId, size, mimeType });

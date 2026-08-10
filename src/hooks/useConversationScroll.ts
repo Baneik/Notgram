@@ -207,9 +207,9 @@ export const useConversationScroll = ({
   const searchActive = Boolean(search);
 
   useEffect(() => {
-    setJumpHistoryState(currentScrollKey
-      ? { key: currentScrollKey, count: jumpHistoryRef.current.get(currentScrollKey)?.length ?? 0 }
-      : undefined);
+    jumpHistoryRef.current.clear();
+    preparedJumpRef.current = undefined;
+    setJumpHistoryState(currentScrollKey ? { key: currentScrollKey, count: 0 } : undefined);
   }, [currentScrollKey]);
   const dataPhase = virtualItemCount > 0 ? "ready" : historyLoading ? "loading" : "empty";
   const targetPhase = !requestIdentityTargetId
@@ -1558,6 +1558,7 @@ export const useConversationScroll = ({
         if (memory?.followLatest !== true || memory.pendingNewCount !== 0) {
           writeMemory(currentScrollKey, element, true, 0, false);
         }
+        publishJumpHistory(currentScrollKey, []);
       }
       return;
     }
@@ -1605,6 +1606,7 @@ export const useConversationScroll = ({
       if (currentScrollKey) {
         interruptControlledPositioning("following");
         writeMemory(currentScrollKey, event.currentTarget, true, 0, false);
+        publishJumpHistory(currentScrollKey, []);
       }
       userIntentUntilRef.current = performance.now() + 320;
       return;
@@ -1643,6 +1645,7 @@ export const useConversationScroll = ({
       current?.pendingNewCount ?? 0,
       !followLatest,
     );
+    if (atBottom) publishJumpHistory(currentScrollKey, []);
     if (
       element.scrollTop <= HISTORY_TRIGGER_PX &&
       userInitiated &&

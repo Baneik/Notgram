@@ -255,6 +255,7 @@ export interface TelegramState {
     toTopicId?: string,
   ) => Promise<ForwardMessagesResult | undefined>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
+  recoverFile: (fileId: number, priority?: number) => Promise<boolean>;
   streamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   suspendFileStream: (fileId: number) => Promise<void>;
   downloadFile: (fileId: number, fileName: string) => Promise<void>;

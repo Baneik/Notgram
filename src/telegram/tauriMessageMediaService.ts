@@ -601,6 +601,15 @@ export class TauriMessageMediaService {
     return this.context.fileDownloads.cache(fileId, priority);
   }
 
+  async recoverFile(fileId: number, priority = 32) {
+    this.context.fileDownloads.cancel(fileId);
+    await this.context.request({
+      "@type": "deleteFile",
+      file_id: fileId,
+    });
+    await this.context.fileDownloads.cache(fileId, priority);
+  }
+
   async streamFile({ fileId, size, mimeType }: StreamFileInput) {
     await invoke("telegram_register_media_stream", {
       fileId,

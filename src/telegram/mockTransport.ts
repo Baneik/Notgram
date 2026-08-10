@@ -1851,6 +1851,15 @@ export class MockTelegramTransport implements TelegramTransport {
     return;
   }
 
+  async recoverFile(fileId: number, _priority?: number) {
+    this.updateFileTransfer(fileId, {
+      isDownloading: true,
+      isDownloaded: false,
+      canDownload: true,
+      progress: 0,
+    });
+  }
+
   async streamFile() {
     return "/mock-video.mp4";
   }

@@ -71,6 +71,7 @@ function PersistentAudioEngine() {
   ) => {
     const audio = audioRef.current;
     if (!audio || requestGenerationRef.current !== generation || trackRef.current?.id !== track.id) return;
+    audio.crossOrigin = "anonymous";
     audio.dataset.playbackId = track.id;
     audio.src = source;
     audio.playbackRate = playbackRateRef.current;
@@ -218,6 +219,7 @@ function PersistentAudioEngine() {
     <audio
       ref={audioRef}
       className="persistent-audio-engine"
+      crossOrigin="anonymous"
       preload="metadata"
       onLoadedMetadata={(event) => {
         const audio = event.currentTarget;

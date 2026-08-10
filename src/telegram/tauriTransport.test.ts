@@ -10,6 +10,7 @@ type TestableTransport = {
   request: (request: TdObject) => Promise<TdObject>;
   bootstrap: () => Promise<void>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
+  recoverFile: (fileId: number, priority?: number) => Promise<void>;
   requestPreparedFile: (chatId: string) => Promise<boolean>;
   requestPreparedPastedFiles: (
     chatId: string,
@@ -2878,6 +2879,39 @@ describe("TauriTelegramTransport media", () => {
 });
 
 describe("TauriTelegramTransport avatars", () => {
+  it("invalidates a stale local file before downloading it again", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.listener = () => undefined;
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "deleteFile") return { "@type": "ok" };
+      return {
+        "@type": "file",
+        id: request.file_id,
+        local: {
+          can_be_downloaded: true,
+          is_downloading_active: false,
+          is_downloading_completed: true,
+          path: "C:\\cache\\restored.jpg",
+        },
+        remote: {},
+      };
+    };
+
+    await internal.recoverFile(44, 32);
+
+    expect(requests).toEqual([
+      { "@type": "deleteFile", file_id: 44 },
+      expect.objectContaining({
+        "@type": "downloadFile",
+        file_id: 44,
+        priority: 32,
+      }),
+    ]);
+  });
+
   it("downloads and publishes a user's small profile photo on demand", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

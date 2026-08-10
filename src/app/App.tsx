@@ -61,7 +61,10 @@ import {
   captureConversationSwitchSnapshot,
   removeConversationSwitchSnapshot,
 } from "../utils/conversationSwitchSnapshot";
-import { collectManagedDownloads } from "../utils/downloadManager";
+import {
+  collectManagedDownloads,
+  type ManagedDownloadRequest,
+} from "../utils/downloadManager";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -210,11 +213,15 @@ export function App() {
   const clearError = useTelegramStore((state) => state.clearError);
   const clearOperationError = useTelegramStore((state) => state.clearOperationError);
   const clearMediaCache = useTelegramStore((state) => state.clearMediaCache);
+  const recoverFile = useTelegramStore((state) => state.recoverFile);
   const cacheRetentionDays = usePreferencesStore((state) => state.cacheRetentionDays);
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
+  const [managedDownloadRequests, setManagedDownloadRequests] = useState<ReadonlyMap<string, ManagedDownloadRequest>>(
+    () => new Map(),
+  );
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [managementChatId, setManagementChatId] = useState<string>();
@@ -222,10 +229,33 @@ export function App() {
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const requestedDownloadsForAccount = useMemo(() => [...managedDownloadRequests.values()]
+    .filter((request) => request.accountId === activeAccountId), [activeAccountId, managedDownloadRequests]);
   const managedDownloads = useMemo(
-    () => collectManagedDownloads(messages, chats),
-    [chats, messages],
+    () => collectManagedDownloads(messages, chats, requestedDownloadsForAccount),
+    [chats, messages, requestedDownloadsForAccount],
   );
+  const requestDownload = useCallback((fileId: number, fileName: string) => {
+    const key = `${activeAccountId}:${fileId}`;
+    setManagedDownloadRequests((current) => {
+      const next = new Map(current);
+      next.set(key, {
+        accountId: activeAccountId,
+        fileId,
+        fileName,
+        requestedAt: current.get(key)?.requestedAt ?? new Date().toISOString(),
+      });
+      return next;
+    });
+    return downloadFile(fileId, fileName);
+  }, [activeAccountId, downloadFile]);
+  const removeDownloadRecords = useCallback((fileIds: number[]) => {
+    setManagedDownloadRequests((current) => {
+      const next = new Map(current);
+      for (const fileId of fileIds) next.delete(`${activeAccountId}:${fileId}`);
+      return next;
+    });
+  }, [activeAccountId]);
   const sidebarSearch = useSidebarSearch({
     query: searchQuery,
     chatMessageSearch,
@@ -1161,8 +1191,9 @@ export function App() {
           onPinMessage={pinMessage}
           onUnpinMessage={unpinMessage}
           onSetChatMessageAutoDeleteTime={setChatMessageAutoDeleteTime}
-          onDownloadFile={downloadFile}
+          onDownloadFile={requestDownload}
           onCancelFileDownload={cancelFileDownload}
+          onRecoverFile={recoverFile}
           onOpenFile={openFile}
           onSaveFileAs={saveFileAs}
           onOpenDownloadDirectory={openDownloadDirectory}
@@ -1236,8 +1267,9 @@ export function App() {
       <MotionPresence present={downloadManagerOpen}>
         {downloadManagerOpen ? <DownloadManagerDialog
           items={managedDownloads}
-          onDownload={downloadFile}
+          onDownload={requestDownload}
           onCancel={cancelFileDownload}
+          onRemove={removeDownloadRecords}
           onOpenDirectory={openDownloadDirectory}
           onClose={() => setDownloadManagerOpen(false)}
         /> : null}
@@ -1309,7 +1341,7 @@ export function App() {
           onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
           onLoadMoreMembers={(chatId) => loadMoreChatProfileMembers(chatId)}
           onLoadSharedMedia={loadSharedMedia}
-          onDownloadFile={downloadFile}
+          onDownloadFile={requestDownload}
           onDeleteMessages={deleteMessagesFromChat}
           onForwardMessages={forwardMessages}
         /> : null}

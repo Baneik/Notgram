@@ -3,6 +3,13 @@ import type { Chat, Message } from "../telegram/types";
 export type ManagedDownloadKind = "video" | "file" | "audio" | "voice";
 export type ManagedDownloadStatus = "pending" | "downloading" | "completed";
 
+export interface ManagedDownloadRequest {
+  accountId: string;
+  fileId: number;
+  fileName: string;
+  requestedAt: string;
+}
+
 export interface ManagedDownloadItem {
   fileId: number;
   fileName: string;
@@ -15,12 +22,13 @@ export interface ManagedDownloadItem {
   size?: number;
   transferredSize: number;
   progress: number;
+  requestedAt: string;
 }
 
 const statusRank: Record<ManagedDownloadStatus, number> = {
-  completed: 3,
-  downloading: 2,
-  pending: 1,
+  downloading: 3,
+  pending: 2,
+  completed: 1,
 };
 
 const downloadKind = (message: Message): ManagedDownloadKind | undefined => {
@@ -45,7 +53,10 @@ export const formatDownloadSize = (bytes?: number) => {
 export const collectManagedDownloads = (
   messages: ReadonlyMap<string, Message[]>,
   chats: ReadonlyMap<string, Chat>,
+  requests: Iterable<ManagedDownloadRequest>,
 ) => {
+  const requestedFiles = new Map<number, ManagedDownloadRequest>();
+  for (const request of requests) requestedFiles.set(request.fileId, request);
   const downloads = new Map<number, ManagedDownloadItem>();
   for (const [chatId, chatMessages] of messages) {
     for (const message of chatMessages) {
@@ -53,21 +64,25 @@ export const collectManagedDownloads = (
       const kind = downloadKind(message);
       if (
         !kind || (content.kind !== "file" && content.kind !== "media") ||
-        content.fileId === undefined || content.isUploading
+        content.fileId === undefined || content.isUploading || !requestedFiles.has(content.fileId)
       ) continue;
+      const request = requestedFiles.get(content.fileId)!;
       const status: ManagedDownloadStatus = content.isDownloaded
         ? "completed"
         : content.isDownloading ? "downloading" : "pending";
-      if (status === "pending" && content.canDownload === false) continue;
-      const transferredSize = Math.max(0, content.downloadedSize ?? 0);
+      const sizeProgress = content.size && content.downloadedSize !== undefined
+        ? content.downloadedSize / content.size
+        : undefined;
       const progress = status === "completed"
         ? 1
-        : Math.max(0, Math.min(1, content.progress ?? (content.size
-          ? transferredSize / content.size
-          : 0)));
+        : Math.max(0, Math.min(1, sizeProgress ?? content.progress ?? 0));
+      const transferredSize = Math.max(
+        0,
+        content.downloadedSize ?? (content.size ? Math.round(content.size * progress) : 0),
+      );
       const item: ManagedDownloadItem = {
         fileId: content.fileId,
-        fileName: content.fileName,
+        fileName: request.fileName || content.fileName,
         chatId,
         chatTitle: chats.get(chatId)?.title ?? "未知会话",
         messageId: message.id,
@@ -77,6 +92,7 @@ export const collectManagedDownloads = (
         size: content.size,
         transferredSize,
         progress,
+        requestedAt: request.requestedAt,
       };
       const current = downloads.get(item.fileId);
       if (
@@ -86,6 +102,7 @@ export const collectManagedDownloads = (
     }
   }
   return [...downloads.values()].sort((left, right) =>
-    statusRank[right.status] - statusRank[left.status] || right.sentAt.localeCompare(left.sentAt),
+    statusRank[right.status] - statusRank[left.status] ||
+    right.requestedAt.localeCompare(left.requestedAt),
   );
 };

@@ -179,6 +179,7 @@ export interface TelegramTransport {
   setChatDraft(input: SetChatDraftInput): Promise<void>;
   setChatTyping(chatId: string, typing: boolean, topicId?: string): Promise<void>;
   cacheFile(fileId: number, priority?: number): Promise<void>;
+  recoverFile(fileId: number, priority?: number): Promise<void>;
   streamFile(input: StreamFileInput): Promise<string>;
   suspendFileStream(fileId: number): Promise<void>;
   downloadFile(fileId: number, fileName: string): Promise<void>;
