@@ -45,7 +45,8 @@ export function ForumTopicsView({
   const [editingName, setEditingName] = useState("");
   const [menuTopicId, setMenuTopicId] = useState<string>();
   const [pendingTopicId, setPendingTopicId] = useState<string>();
-  const canCreate = chat.canCreateTopics === true;
+  const canManage = chat.management?.canManageTopics === true;
+  const canCreate = canManage || chat.canCreateTopics === true;
   const orderedTopics = useMemo(
     () => [...topics].sort((left, right) => Number(right.isPinned) - Number(left.isPinned) || Number(right.order) - Number(left.order)),
     [topics],
@@ -157,7 +158,7 @@ export function ForumTopicsView({
                         {topic.unreadCount > 0 && <strong>{topic.unreadCount > 99 ? "99+" : topic.unreadCount}</strong>}
                       </span>
                     </button>
-                    <div className="forum-topic-actions">
+                    {(canManage || topic.isOutgoing) && <div className="forum-topic-actions">
                       <button
                         className="icon-button"
                         type="button"
@@ -171,11 +172,11 @@ export function ForumTopicsView({
                       {menuTopicId === topic.id && (
                         <div className="forum-topic-menu" role="menu">
                           <button type="button" role="menuitem" onClick={() => { setEditingTopicId(topic.id); setEditingName(topic.name); setMenuTopicId(undefined); }}><Pencil size={16} />重命名</button>
-                          <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "pinned")}><Pin size={16} />{topic.isPinned ? "取消置顶" : "置顶"}</button>
+                          {canManage && <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "pinned")}><Pin size={16} />{topic.isPinned ? "取消置顶" : "置顶"}</button>}
                           <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "closed")}><LockKeyhole size={16} />{topic.isClosed ? "重新开启" : "关闭话题"}</button>
                         </div>
                       )}
-                    </div>
+                    </div>}
                   </>
                 )}
               </article>

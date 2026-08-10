@@ -195,6 +195,7 @@ export interface TelegramState {
   loadChatManagement: (chatId: string, memberOffset?: number) => Promise<ChatManagement | undefined>;
   addChatMembers: (chatId: string, userIds: string[]) => Promise<boolean>;
   setChatMemberStatus: (chatId: string, userId: string, status: ChatMemberStatusInput) => Promise<boolean>;
+  setChatMemberTag: (chatId: string, userId: string, tag: string) => Promise<boolean>;
   setChatPermissions: (chatId: string, permissions: ChatPermissions) => Promise<boolean>;
   setChatSlowModeDelay: (chatId: string, delaySeconds: number) => Promise<boolean>;
   transferChatOwnership: (chatId: string, userId: string, password: string) => Promise<boolean>;

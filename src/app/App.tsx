@@ -146,6 +146,7 @@ export function App() {
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
   const addChatMembers = useTelegramStore((state) => state.addChatMembers);
   const setChatMemberStatus = useTelegramStore((state) => state.setChatMemberStatus);
+  const setChatMemberTag = useTelegramStore((state) => state.setChatMemberTag);
   const setChatPermissions = useTelegramStore((state) => state.setChatPermissions);
   const setChatSlowModeDelay = useTelegramStore((state) => state.setChatSlowModeDelay);
   const transferChatOwnership = useTelegramStore((state) => state.transferChatOwnership);
@@ -294,25 +295,27 @@ export function App() {
     void clearMediaCache(["image", "video", "audio", "document", "other"], cacheRetentionDays);
   }, [activeAccountId, cacheRetentionDays, clearMediaCache, phase]);
   const openChatManagement = useCallback((chatId: string) => {
+    if (chats.get(chatId)?.management?.canOpenManagement !== true) return;
     clearProfile();
     setManagementChatId(chatId);
     void loadContacts();
-  }, [clearProfile, loadContacts]);
+  }, [chats, clearProfile, loadContacts]);
   const managementChat = managementChatId ? chats.get(managementChatId) : undefined;
   const loadManagement = useCallback((offset = 0) => managementChatId ? loadChatManagement(managementChatId, offset) : Promise.resolve(undefined), [loadChatManagement, managementChatId]);
   const addManagementMembers = useCallback((userIds: string[]) => managementChatId ? addChatMembers(managementChatId, userIds) : Promise.resolve(false), [addChatMembers, managementChatId]);
   const setManagementMemberStatus = useCallback((userId: string, status: import("../telegram/types").ChatMemberStatusInput) => managementChatId ? setChatMemberStatus(managementChatId, userId, status) : Promise.resolve(false), [managementChatId, setChatMemberStatus]);
+  const setManagementMemberTag = useCallback((userId: string, tag: string) => managementChatId ? setChatMemberTag(managementChatId, userId, tag) : Promise.resolve(false), [managementChatId, setChatMemberTag]);
   const setManagementPermissions = useCallback((permissions: import("../telegram/types").ChatPermissions) => managementChatId ? setChatPermissions(managementChatId, permissions) : Promise.resolve(false), [managementChatId, setChatPermissions]);
   const setManagementSlowMode = useCallback((seconds: number) => managementChatId ? setChatSlowModeDelay(managementChatId, seconds) : Promise.resolve(false), [managementChatId, setChatSlowModeDelay]);
   const transferManagementOwnership = useCallback((userId: string, password: string) => managementChatId ? transferChatOwnership(managementChatId, userId, password) : Promise.resolve(false), [managementChatId, transferChatOwnership]);
   const loadManagementEvents = useCallback((fromEventId?: string) => managementChatId ? loadChatEventLog({ chatId: managementChatId, fromEventId, limit: 30 }) : Promise.resolve(undefined), [loadChatEventLog, managementChatId]);
-  const getManagementInviteLinks = useCallback(() => managementChatId ? getChatInviteLinks({ chatId: managementChatId, revoked: false, limit: 50 }) : Promise.resolve(undefined), [getChatInviteLinks, managementChatId]);
+  const getManagementInviteLinks = useCallback((offsetDate = 0, offsetLink = "") => managementChatId ? getChatInviteLinks({ chatId: managementChatId, creatorUserId: currentUserId, revoked: false, offsetDate, offsetLink, limit: 50 }) : Promise.resolve(undefined), [currentUserId, getChatInviteLinks, managementChatId]);
   const saveManagementInviteLink = useCallback((input: Omit<import("../telegram/types").CreateChatInviteLinkInput, "chatId">, inviteLink?: string) => {
     if (!managementChatId) return Promise.resolve(undefined);
     return inviteLink ? editChatInviteLink({ ...input, chatId: managementChatId, inviteLink }) : createChatInviteLink({ ...input, chatId: managementChatId });
   }, [createChatInviteLink, editChatInviteLink, managementChatId]);
   const revokeManagementInviteLink = useCallback((inviteLink: string) => managementChatId ? revokeChatInviteLink(managementChatId, inviteLink) : Promise.resolve(false), [managementChatId, revokeChatInviteLink]);
-  const getManagementJoinRequests = useCallback((inviteLink?: string) => managementChatId ? getChatJoinRequests({ chatId: managementChatId, inviteLink, limit: 50 }) : Promise.resolve(undefined), [getChatJoinRequests, managementChatId]);
+  const getManagementJoinRequests = useCallback((inviteLink?: string, offsetUserId?: string, offsetDate = 0) => managementChatId ? getChatJoinRequests({ chatId: managementChatId, inviteLink, offsetUserId, offsetDate, limit: 50 }) : Promise.resolve(undefined), [getChatJoinRequests, managementChatId]);
   const processManagementJoinRequest = useCallback((userId: string, approve: boolean) => managementChatId ? processChatJoinRequest(managementChatId, userId, approve) : Promise.resolve(false), [managementChatId, processChatJoinRequest]);
   const processManagementJoinRequests = useCallback((inviteLink: string | undefined, approve: boolean) => managementChatId ? processChatJoinRequests(managementChatId, inviteLink, approve) : Promise.resolve(false), [managementChatId, processChatJoinRequests]);
   const getComposerBotCommands = useCallback((query = "", botUsername?: string) => activeChatId
@@ -1472,6 +1475,7 @@ export function App() {
           onOpenMessage={openProfileMessage}
           onStartPrivateChat={openProfilePrivateChat}
           onManageChat={openChatManagement}
+          canManageChat={profile.value?.chatId ? chats.get(profile.value.chatId)?.management?.canOpenManagement === true : false}
           isBlocked={profile.value?.userId ? blockedSenders.some((sender) => sender.kind === "user" && sender.id === profile.value?.userId) : profile.value?.chatId ? blockedSenders.some((sender) => sender.kind === "chat" && sender.id === profile.value?.chatId) : false}
           onToggleBlock={toggleProfileBlock}
           onGetReportOptions={getChatReportOptions}
@@ -1486,8 +1490,8 @@ export function App() {
           onForwardMessages={forwardMessages}
         /> : null}
       </MotionPresence>
-      <MotionPresence present={Boolean(managementChat && managementChatId)}>
-        {managementChat && managementChatId ? <ChatManagementDialog
+      <MotionPresence present={Boolean(managementChat?.management?.canOpenManagement && managementChatId)}>
+        {managementChat?.management?.canOpenManagement && managementChatId ? <ChatManagementDialog
           chat={managementChat}
           currentUserId={currentUserId}
           contacts={contacts}
@@ -1498,6 +1502,7 @@ export function App() {
           onClose={() => setManagementChatId(undefined)}
           onAddMembers={addManagementMembers}
           onSetMemberStatus={setManagementMemberStatus}
+          onSetMemberTag={setManagementMemberTag}
           onSetPermissions={setManagementPermissions}
           onSetSlowMode={setManagementSlowMode}
           onTransferOwnership={transferManagementOwnership}

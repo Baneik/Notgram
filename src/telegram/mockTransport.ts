@@ -81,6 +81,8 @@ import {
   DEFAULT_CHAT_PERMISSIONS,
   cloneChatAdminRights,
   cloneChatPermissions,
+  chatMemberTagError,
+  deriveChatManagementCapabilities,
 } from "./chatManagement";
 
 const clone = <T,>(value: T): T => structuredClone(value);
@@ -344,6 +346,13 @@ export class MockTelegramTransport implements TelegramTransport {
       : undefined;
     if (this.authFlow) {
       this.snapshot.authorization = { kind: "waitPhoneNumber" };
+    }
+    for (const chat of this.snapshot.chats) {
+      if (chat.kind !== "group" && chat.kind !== "channel") continue;
+      chat.management = deriveChatManagementCapabilities(
+        chat.kind === "channel" ? "channel" : chat.isForum ? "supergroup" : "basicGroup",
+        "owner",
+      );
     }
     this.restorePinnedOrders();
   }
@@ -802,6 +811,10 @@ export class MockTelegramTransport implements TelegramTransport {
       unreadCount: 0,
       pinned: false,
       muted: false,
+      management: deriveChatManagementCapabilities(
+        input.kind === "channel" ? "channel" : input.kind,
+        "owner",
+      ),
     };
     this.createdChatSettings.set(id, {
       ...clone(input),
@@ -824,12 +837,12 @@ export class MockTelegramTransport implements TelegramTransport {
         role: index === 0 ? "owner" : "member",
         status: index === 0 ? "owner" : "member",
         adminRights: index === 0 ? cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS) : undefined,
+        canBeEdited: index !== 0,
       })),
       permissions,
       slowModeDelay: 0,
-      canManageMembers: true,
-      canManagePermissions: true,
-      canTransferOwnership: true,
+      capabilities: deriveChatManagementCapabilities(input.kind === "channel" ? "channel" : input.kind, "owner"),
+      ownershipTransfer: { available: true },
       memberHasMore: false,
     });
     this.appendChatAudit(id, "群组已创建");
@@ -853,6 +866,8 @@ export class MockTelegramTransport implements TelegramTransport {
   private async ensureChatManagement(chatId: string): Promise<ChatManagement> {
     const existing = this.chatManagement.get(chatId);
     if (existing) return existing;
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) throw new Error("只有群组和频道支持成员管理");
     const profile = await this.getChatProfile(chatId);
     const settings = this.createdChatSettings.get(chatId);
     const permissions = settings?.permissionTemplate === "restricted"
@@ -864,10 +879,26 @@ export class MockTelegramTransport implements TelegramTransport {
       adminRights: member.role === "owner" || member.role === "administrator"
         ? cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS)
         : undefined,
+      canBeEdited: member.role !== "owner",
     }));
     if (!members.some((member) => member.user.id === this.snapshot.currentUserId)) {
       const current = this.snapshot.users.find((user) => user.id === this.snapshot.currentUserId);
       if (current) members.unshift({ user: clone(current), role: "owner", status: "owner", adminRights: cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS) });
+    }
+    const capabilities = chat.management ?? deriveChatManagementCapabilities(
+      chat.kind === "channel" ? "channel" : chat.isForum ? "supergroup" : "basicGroup",
+      "owner",
+    );
+    if (!capabilities.canOpenManagement) throw new Error("当前账号没有群组管理权限");
+    const currentMember = members.find((member) => member.user.id === this.snapshot.currentUserId);
+    if (currentMember) {
+      currentMember.status = capabilities.status;
+      currentMember.role = capabilities.status === "owner"
+        ? "owner"
+        : capabilities.status === "administrator" ? "administrator" : "member";
+      currentMember.adminRights = capabilities.status === "administrator"
+        ? cloneChatAdminRights(capabilities.adminRights ?? DEFAULT_CHAT_ADMIN_RIGHTS)
+        : capabilities.status === "owner" ? cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS) : undefined;
     }
     const value: ChatManagement = {
       chatId,
@@ -875,9 +906,8 @@ export class MockTelegramTransport implements TelegramTransport {
       memberCount: members.length,
       permissions,
       slowModeDelay: 0,
-      canManageMembers: true,
-      canManagePermissions: true,
-      canTransferOwnership: true,
+      capabilities: clone(capabilities),
+      ownershipTransfer: capabilities.status === "owner" ? { available: true } : undefined,
       memberHasMore: false,
     };
     this.chatManagement.set(chatId, value);
@@ -903,6 +933,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async addChatMembers(chatId: string, userIds: string[]): Promise<void> {
     const value = await this.ensureChatManagement(chatId);
+    if (!value.capabilities.canAddMembers) throw new Error("当前账号没有邀请成员权限");
     const ids = [...new Set(userIds)].filter((id) => id !== this.snapshot.currentUserId);
     for (const id of ids) {
       const user = this.snapshot.users.find((item) => item.id === id);
@@ -920,10 +951,17 @@ export class MockTelegramTransport implements TelegramTransport {
     const member = value.members.find((item) => item.user.id === userId);
     if (!member) throw new Error("找不到群成员");
     if (member.status === "owner") throw new Error("所有者需要使用所有权转移");
+    if (status.kind === "administrator" || member.status === "administrator") {
+      if (!value.capabilities.canPromoteMembers || member.canBeEdited === false) throw new Error("当前账号没有管理员任免权限");
+    }
+    if (status.kind === "restricted" || status.kind === "banned" || member.status === "restricted" || member.status === "banned") {
+      if (!value.capabilities.canRestrictMembers) throw new Error("当前账号没有限制成员权限");
+    }
     const user = member.user;
     if (status.kind === "administrator") {
       member.status = "administrator"; member.role = "administrator";
-      member.adminRights = cloneChatAdminRights(status.rights); member.customTitle = status.customTitle?.trim() || undefined;
+      member.adminRights = cloneChatAdminRights(status.rights);
+      member.canBeEdited = true;
       this.appendChatAudit(chatId, `设置管理员：${user.displayName}`, "memberPromotion");
     } else if (status.kind === "restricted") {
       member.status = "restricted"; member.role = "member"; member.permissions = cloneChatPermissions(status.permissions);
@@ -939,8 +977,20 @@ export class MockTelegramTransport implements TelegramTransport {
     }
   }
 
+  async setChatMemberTag(chatId: string, userId: string, tag: string): Promise<void> {
+    const value = await this.ensureChatManagement(chatId);
+    if (!value.capabilities.canManageTags) throw new Error("当前账号没有修改成员标签的权限");
+    const validationError = chatMemberTagError(tag);
+    if (validationError) throw new Error(validationError);
+    const member = value.members.find((item) => item.user.id === userId);
+    if (!member) throw new Error("找不到群成员");
+    member.customTitle = tag.trim() || undefined;
+    this.appendChatAudit(chatId, `更新成员标签：${member.user.displayName}`, "memberTagChange");
+  }
+
   async setChatPermissions(chatId: string, permissions: ChatPermissions): Promise<void> {
     const value = await this.ensureChatManagement(chatId);
+    if (!value.capabilities.canManagePermissions) throw new Error("当前账号没有修改默认权限的能力");
     value.permissions = cloneChatPermissions(permissions);
     this.appendChatAudit(chatId, "更新群组默认发送权限");
   }
@@ -948,6 +998,7 @@ export class MockTelegramTransport implements TelegramTransport {
   async setChatSlowModeDelay(chatId: string, delaySeconds: number): Promise<void> {
     if (!Number.isInteger(delaySeconds) || delaySeconds < 0 || delaySeconds > 86_400) throw new Error("慢速模式间隔无效");
     const value = await this.ensureChatManagement(chatId);
+    if (!value.capabilities.canManageSlowMode) throw new Error("当前账号没有修改慢速模式的能力");
     value.slowModeDelay = delaySeconds;
     this.appendChatAudit(chatId, delaySeconds ? `设置慢速模式：${delaySeconds} 秒` : "关闭慢速模式", "setting");
   }
@@ -955,15 +1006,22 @@ export class MockTelegramTransport implements TelegramTransport {
   async transferChatOwnership(chatId: string, userId: string, password: string): Promise<void> {
     if (!password.trim()) throw new Error("请输入两步验证密码");
     const value = await this.ensureChatManagement(chatId);
+    if (!value.capabilities.canTransferOwnership) throw new Error("当前账号不能转移所有权");
     const next = value.members.find((member) => member.user.id === userId);
     const current = value.members.find((member) => member.status === "owner");
     if (!next || !current) throw new Error("所有者候选人无效");
     current.status = "administrator"; current.role = "administrator"; current.adminRights = cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS);
     next.status = "owner"; next.role = "owner"; next.adminRights = cloneChatAdminRights(DEFAULT_CHAT_ADMIN_RIGHTS);
+    value.capabilities = deriveChatManagementCapabilities(value.capabilities.chatType, "administrator", DEFAULT_CHAT_ADMIN_RIGHTS);
+    value.ownershipTransfer = undefined;
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (chat) chat.management = clone(value.capabilities);
     this.appendChatAudit(chatId, `转移所有者给：${next.user.displayName}`, "memberPromotion");
   }
 
   async getChatEventLog({ chatId, query = "", fromEventId, limit = 30 }: ChatEventLogInput): Promise<ChatEventPage> {
+    const management = await this.ensureChatManagement(chatId);
+    if (!management.capabilities.canViewEventLog) throw new Error("当前账号没有查看管理日志的权限");
     const events = (this.chatAudit.get(chatId) ?? []).filter((event) => !query.trim() || event.summary.includes(query.trim()));
     const start = fromEventId ? Math.max(0, events.findIndex((event) => event.id === fromEventId) + 1) : 0;
     const page = events.slice(start, start + Math.min(100, Math.max(1, limit)));
@@ -996,6 +1054,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async getChatInviteLinks({ chatId, revoked = false, offsetLink = "", limit = 30 }: GetChatInviteLinksInput): Promise<ChatInviteLinkPage> {
+    const management = await this.ensureChatManagement(chatId);
+    if (!management.capabilities.canManageInvites) throw new Error("当前账号没有管理邀请链接的权限");
     const all = this.ensureInviteLinks(chatId).filter((link) => link.isRevoked === revoked);
     const start = offsetLink ? Math.max(0, all.findIndex((link) => link.inviteLink === offsetLink) + 1) : 0;
     const links = all.slice(start, start + Math.min(100, Math.max(1, limit)));
@@ -1003,6 +1063,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async createChatInviteLink(input: CreateChatInviteLinkInput): Promise<ChatInviteLink> {
+    const management = await this.ensureChatManagement(input.chatId);
+    if (!management.capabilities.canManageInvites) throw new Error("当前账号没有管理邀请链接的权限");
     this.ensureInviteLinks(input.chatId);
     const name = input.name.trim();
     if ([...name].length > 32) throw new Error("邀请链接名称最多 32 个字符");
@@ -1028,6 +1090,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async editChatInviteLink(input: CreateChatInviteLinkInput & { inviteLink: string }): Promise<ChatInviteLink> {
+    const management = await this.ensureChatManagement(input.chatId);
+    if (!management.capabilities.canManageInvites) throw new Error("当前账号没有管理邀请链接的权限");
     const link = this.ensureInviteLinks(input.chatId).find((item) => item.inviteLink === input.inviteLink);
     if (!link || link.isRevoked) throw new Error("邀请链接不存在或已撤销");
     link.name = input.name.trim() || link.name;
@@ -1040,6 +1104,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async revokeChatInviteLink(chatId: string, inviteLink: string): Promise<ChatInviteLink> {
+    const management = await this.ensureChatManagement(chatId);
+    if (!management.capabilities.canManageInvites) throw new Error("当前账号没有管理邀请链接的权限");
     const link = this.ensureInviteLinks(chatId).find((item) => item.inviteLink === inviteLink);
     if (!link) throw new Error("找不到邀请链接");
     link.isRevoked = true;
@@ -1048,6 +1114,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async getChatJoinRequests({ chatId, inviteLink, query = "", offsetUserId, limit = 30 }: GetChatJoinRequestsInput): Promise<ChatJoinRequestPage> {
+    const management = await this.ensureChatManagement(chatId);
+    if (!management.capabilities.canManageInvites) throw new Error("当前账号没有处理入群申请的权限");
     this.ensureInviteLinks(chatId);
     const normalized = query.trim().toLocaleLowerCase();
     const all = (this.chatJoinRequests.get(chatId) ?? []).filter((request) => (!inviteLink || request.inviteLink === inviteLink) && (!normalized || `${request.user.displayName} ${request.bio ?? ""}`.toLocaleLowerCase().includes(normalized)));
@@ -1058,6 +1126,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async processChatJoinRequest(chatId: string, userId: string, approve: boolean): Promise<void> {
+    const management = await this.ensureChatManagement(chatId);
+    if (!management.capabilities.canManageInvites) throw new Error("当前账号没有处理入群申请的权限");
     this.ensureInviteLinks(chatId);
     const requests = this.chatJoinRequests.get(chatId) ?? [];
     const request = requests.find((item) => item.user.id === userId);
@@ -1068,6 +1138,8 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async processChatJoinRequests(chatId: string, inviteLink: string | undefined, approve: boolean): Promise<void> {
+    const management = await this.ensureChatManagement(chatId);
+    if (!management.capabilities.canManageInvites) throw new Error("当前账号没有处理入群申请的权限");
     this.ensureInviteLinks(chatId);
     const requests = this.chatJoinRequests.get(chatId) ?? [];
     const selected = requests.filter((request) => !inviteLink || request.inviteLink === inviteLink);

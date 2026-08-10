@@ -25,6 +25,7 @@ import type {
   User,
 } from "./types";
 import { messageContentText } from "./messageContent";
+import { deriveChatManagementCapabilitiesFromTd } from "./chatManagement";
 
 export type TdObject = Record<string, unknown>;
 
@@ -1668,13 +1669,15 @@ export const mapTdChat = (
   raw: TdObject,
   currentUserId?: string,
   supergroupValue?: unknown,
+  basicGroupValue?: unknown,
 ): Chat | undefined => {
   const id = tdId(raw.id);
   if (!id) return undefined;
 
   const type = asTdObject(raw.type);
   const supergroup = asTdObject(supergroupValue);
-  const memberCount = tdNumber(supergroup?.member_count) ?? tdNumber(raw.member_count);
+  const basicGroup = asTdObject(basicGroupValue);
+  const memberCount = tdNumber(supergroup?.member_count) ?? tdNumber(basicGroup?.member_count) ?? tdNumber(raw.member_count);
   const activeUserCount = tdNumber(raw.active_user_count);
   const peerId = type?.["@type"] === "chatTypePrivate" ? tdId(type.user_id) : undefined;
   const kind =
@@ -1711,12 +1714,22 @@ export const mapTdChat = (
     const folderId = tdChatListId(position.list);
     return folderId ? [folderId] : [];
   });
+  const managedChatType = type?.["@type"] === "chatTypeBasicGroup"
+    ? "basicGroup" as const
+    : type?.["@type"] === "chatTypeSupergroup"
+      ? type.is_channel === true ? "channel" as const : "supergroup" as const
+      : undefined;
+  const groupStatus = managedChatType === "basicGroup" ? basicGroup?.status : supergroup?.status;
+  const management = managedChatType && groupStatus
+    ? deriveChatManagementCapabilitiesFromTd(managedChatType, groupStatus)
+    : undefined;
 
   return {
     id,
     kind,
     isForum: supergroup?.is_forum === true,
-    canCreateTopics: asTdObject(raw.permissions)?.can_create_topics === true,
+    canCreateTopics: management?.canManageTopics === true || asTdObject(raw.permissions)?.can_create_topics === true,
+    management,
     folderIds: [...folderIds],
     title: kind === "saved" ? "收藏夹" : title,
     avatar: {

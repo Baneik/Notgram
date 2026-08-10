@@ -109,6 +109,7 @@ export interface TelegramTransport {
   getChatManagement(chatId: string, memberOffset?: number): Promise<ChatManagement>;
   addChatMembers(chatId: string, userIds: string[]): Promise<void>;
   setChatMemberStatus(input: { chatId: string; userId: string; status: ChatMemberStatusInput }): Promise<void>;
+  setChatMemberTag(chatId: string, userId: string, tag: string): Promise<void>;
   setChatPermissions(chatId: string, permissions: ChatPermissions): Promise<void>;
   setChatSlowModeDelay(chatId: string, delaySeconds: number): Promise<void>;
   transferChatOwnership(chatId: string, userId: string, password: string): Promise<void>;

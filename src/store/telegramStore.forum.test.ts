@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ForumTopic, ForumTopicPage } from "../telegram/types";
+import { deriveChatManagementCapabilities } from "../telegram/chatManagement";
 import {
   createForumController,
   type ForumControllerOptions,
@@ -25,7 +26,12 @@ const topic = (id: string): ForumTopic => ({
 });
 
 interface ForumHarnessState extends Record<string, unknown> {
-  chats: Map<string, { id: string; isForum: boolean }>;
+  chats: Map<string, {
+    id: string;
+    isForum: boolean;
+    canCreateTopics?: boolean;
+    management?: ReturnType<typeof deriveChatManagementCapabilities>;
+  }>;
   drafts: Map<string, { pending?: boolean; text?: string }>;
   forumTopics: Map<string, ForumTopic[]>;
   forumTopicsLoading: Set<string>;
@@ -33,7 +39,12 @@ interface ForumHarnessState extends Record<string, unknown> {
 
 const createHarness = () => {
   let state: ForumHarnessState = {
-    chats: new Map([["forum-1", { id: "forum-1", isForum: true }]]),
+    chats: new Map([["forum-1", {
+      id: "forum-1",
+      isForum: true,
+      canCreateTopics: true,
+      management: deriveChatManagementCapabilities("supergroup", "owner"),
+    }]]),
     drafts: new Map<string, { pending?: boolean; text?: string }>(),
     forumTopics: new Map<string, ForumTopic[]>(),
     forumTopicsLoading: new Set<string>(),
@@ -108,5 +119,48 @@ describe("telegram store forum controller", () => {
     resolvePage(page);
     await expect(Promise.all([first, second])).resolves.toEqual([page, page]);
     expect(harness.getState().forumTopicsLoading.has("forum-1")).toBe(false);
+  });
+
+  it("blocks topic mutations outside the member's explicit topic scope", async () => {
+    const harness = createHarness();
+    harness.getState().chats.set("forum-1", {
+      id: "forum-1",
+      isForum: true,
+      canCreateTopics: false,
+      management: deriveChatManagementCapabilities("supergroup", "member"),
+    });
+    harness.getState().forumTopics.set("forum-1", [topic("topic-1")]);
+
+    await expect(harness.controller.createForumTopic("forum-1", "New topic")).resolves.toBeUndefined();
+    await expect(harness.controller.editForumTopic("forum-1", "topic-1", "Renamed")).resolves.toBe(false);
+    await expect(harness.controller.setForumTopicClosed("forum-1", "topic-1", true)).resolves.toBe(false);
+    await expect(harness.controller.setForumTopicPinned("forum-1", "topic-1", true)).resolves.toBe(false);
+    expect(harness.transport.createForumTopic).not.toHaveBeenCalled();
+    expect(harness.transport.editForumTopic).not.toHaveBeenCalled();
+    expect(harness.transport.setForumTopicClosed).not.toHaveBeenCalled();
+    expect(harness.transport.setForumTopicPinned).not.toHaveBeenCalled();
+  });
+
+  it("lets a member manage an outgoing topic without granting administrator controls", async () => {
+    const harness = createHarness();
+    harness.getState().chats.set("forum-1", {
+      id: "forum-1",
+      isForum: true,
+      canCreateTopics: true,
+      management: deriveChatManagementCapabilities("supergroup", "member"),
+    });
+    harness.getState().forumTopics.set("forum-1", [{ ...topic("topic-own"), isOutgoing: true }]);
+    vi.mocked(harness.transport.createForumTopic).mockResolvedValue(topic("topic-new"));
+    vi.mocked(harness.transport.getForumTopics).mockResolvedValue({ topics: [], hasMore: false });
+    vi.mocked(harness.transport.editForumTopic).mockResolvedValue(undefined);
+    vi.mocked(harness.transport.setForumTopicClosed).mockResolvedValue(undefined);
+
+    await expect(harness.controller.createForumTopic("forum-1", "New topic")).resolves.toBeDefined();
+    harness.getState().forumTopics.set("forum-1", [{ ...topic("topic-own"), isOutgoing: true }]);
+    await expect(harness.controller.editForumTopic("forum-1", "topic-own", "Renamed")).resolves.toBe(true);
+    harness.getState().forumTopics.set("forum-1", [{ ...topic("topic-own"), isOutgoing: true }]);
+    await expect(harness.controller.setForumTopicClosed("forum-1", "topic-own", true)).resolves.toBe(true);
+    await expect(harness.controller.setForumTopicPinned("forum-1", "topic-own", true)).resolves.toBe(false);
+    expect(harness.transport.setForumTopicPinned).not.toHaveBeenCalled();
   });
 });

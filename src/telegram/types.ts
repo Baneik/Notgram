@@ -64,6 +64,7 @@ export type ChatPermissionKey =
   | "canSendPolls"
   | "canSendOtherMessages"
   | "canAddLinkPreviews"
+  | "canReactToMessages"
   | "canEditTag"
   | "canChangeInfo"
   | "canInviteUsers"
@@ -88,7 +89,8 @@ export type ChatAdminRightKey =
   | "canEditStories"
   | "canDeleteStories"
   | "canManageDirectMessages"
-  | "canManageTags";
+  | "canManageTags"
+  | "isAnonymous";
 
 export type ChatAdminRights = Record<ChatAdminRightKey, boolean>;
 
@@ -100,6 +102,34 @@ export interface ManagedChatMember extends ProfileMember {
   permissions?: ChatPermissions;
   untilDate?: number;
   customTitle?: string;
+  canBeEdited?: boolean;
+}
+
+export type ManagedChatType = "basicGroup" | "supergroup" | "channel";
+
+export interface ChatManagementCapabilities {
+  chatType: ManagedChatType;
+  status: ManagedMemberStatus;
+  adminRights?: ChatAdminRights;
+  canOpenManagement: boolean;
+  canAddMembers: boolean;
+  canPromoteMembers: boolean;
+  canRestrictMembers: boolean;
+  canManagePermissions: boolean;
+  canManageSlowMode: boolean;
+  canTransferOwnership: boolean;
+  canManageInvites: boolean;
+  canManageAllInvites: boolean;
+  canViewEventLog: boolean;
+  canChangeInfo: boolean;
+  canManageTopics: boolean;
+  canManageTags: boolean;
+}
+
+export interface OwnershipTransferAvailability {
+  available: boolean;
+  reason?: "passwordNeeded" | "passwordTooFresh" | "sessionTooFresh";
+  retryAfter?: number;
 }
 
 export interface ChatManagement {
@@ -109,16 +139,15 @@ export interface ChatManagement {
   administratorLabels?: Record<string, string>;
   permissions: ChatPermissions;
   slowModeDelay: number;
-  canManageMembers: boolean;
-  canManagePermissions: boolean;
-  canTransferOwnership: boolean;
+  capabilities: ChatManagementCapabilities;
+  ownershipTransfer?: OwnershipTransferAvailability;
   memberOffset?: number;
   memberHasMore: boolean;
 }
 
 export type ChatMemberStatusInput =
   | { kind: "member" }
-  | { kind: "administrator"; rights: ChatAdminRights; customTitle?: string }
+  | { kind: "administrator"; rights: ChatAdminRights }
   | { kind: "restricted"; permissions: ChatPermissions; untilDate?: number }
   | { kind: "banned"; untilDate?: number };
 
@@ -430,6 +459,7 @@ export interface Chat {
   kind: ChatKind;
   isForum?: boolean;
   canCreateTopics?: boolean;
+  management?: ChatManagementCapabilities;
   folderIds: string[];
   title: string;
   avatar: Avatar;

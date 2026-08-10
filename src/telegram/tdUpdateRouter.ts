@@ -4,6 +4,7 @@ export interface TdUpdateHandlers {
   authorization: (update: TdObject) => void;
   connection: (update: TdObject) => void;
   upsertUser: (user?: TdObject) => void;
+  upsertBasicGroup: (basicGroup?: TdObject) => void;
   upsertSupergroup: (supergroup?: TdObject) => void;
   updateUserStatus: (update: TdObject) => void;
   updateChatFolders: (update: TdObject) => void;
@@ -39,6 +40,9 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
       return;
     case "updateUserStatus":
       handlers.updateUserStatus(update);
+      return;
+    case "updateBasicGroup":
+      handlers.upsertBasicGroup(asTdObject(update.basic_group));
       return;
     case "updateSupergroup":
       handlers.upsertSupergroup(asTdObject(update.supergroup));

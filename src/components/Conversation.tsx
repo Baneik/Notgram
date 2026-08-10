@@ -417,9 +417,9 @@ export function Conversation({
   }, [chat?.id]);
 
   useEffect(() => {
-    if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return;
+    if (!chat?.management?.canOpenManagement) return;
     void loadChatManagement(chat.id);
-  }, [chat?.id, chat?.kind, loadChatManagement]);
+  }, [chat?.id, chat?.management?.canOpenManagement, loadChatManagement]);
   const memberLabels = useMemo(() => new Map(
     groupManagement?.chatId === chat?.id
       ? [
@@ -1442,6 +1442,7 @@ export function Conversation({
                   chat={chat}
                   chatListId={chatListId}
                   pending={chatManagementPending}
+                  canSetAutoDelete={chat.kind === "direct" || chat.management?.canChangeInfo === true}
                   onSetPinned={onSetChatPinned}
                   onSetMuted={onSetChatMuted}
                   onSetArchived={onSetChatArchived}

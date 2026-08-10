@@ -80,10 +80,31 @@ export const createForumController = ({
     await loadForumTopics(chatId);
   };
 
+  const canCreateTopic = (chatId: string) => {
+    const chat = get().chats.get(chatId);
+    return chat?.isForum === true && (
+      chat.canCreateTopics === true || chat.management?.canManageTopics === true
+    );
+  };
+  const canChangeTopic = (chatId: string, topicId: string) => {
+    const chat = get().chats.get(chatId);
+    if (chat?.isForum !== true) return false;
+    if (chat.management?.canManageTopics === true) return true;
+    return get().forumTopics.get(chatId)?.some((topic) => topic.id === topicId && topic.isOutgoing) === true;
+  };
+  const rejectTopicMutation = (message: string) => {
+    set({ operationError: message });
+    return false;
+  };
+
   return {
     loadForumTopics,
 
     createForumTopic: async (chatId, name) => {
+      if (!canCreateTopic(chatId)) {
+        rejectTopicMutation("当前账号没有创建话题的权限");
+        return undefined;
+      }
       try {
         const topic = await transport.createForumTopic({ chatId, name });
         await reloadTopics(chatId);
@@ -95,6 +116,7 @@ export const createForumController = ({
     },
 
     editForumTopic: async (chatId, topicId, name) => {
+      if (!canChangeTopic(chatId, topicId)) return rejectTopicMutation("当前账号没有编辑该话题的权限");
       try {
         await transport.editForumTopic(chatId, topicId, name);
         await reloadTopics(chatId);
@@ -106,6 +128,7 @@ export const createForumController = ({
     },
 
     setForumTopicClosed: async (chatId, topicId, closed) => {
+      if (!canChangeTopic(chatId, topicId)) return rejectTopicMutation("当前账号没有修改该话题状态的权限");
       try {
         await transport.setForumTopicClosed(chatId, topicId, closed);
         await reloadTopics(chatId);
@@ -117,6 +140,9 @@ export const createForumController = ({
     },
 
     setForumTopicPinned: async (chatId, topicId, pinned) => {
+      if (get().chats.get(chatId)?.management?.canManageTopics !== true) {
+        return rejectTopicMutation("当前账号没有置顶话题的权限");
+      }
       try {
         await transport.setForumTopicPinned(chatId, topicId, pinned);
         await reloadTopics(chatId);

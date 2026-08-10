@@ -66,6 +66,44 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("maps live group status into management capabilities", () => {
+    expect(mapTdChat(
+      {
+        id: 78,
+        type: { "@type": "chatTypeSupergroup", supergroup_id: 92, is_channel: false },
+        title: "Managed",
+      },
+      "7",
+      {
+        "@type": "supergroup",
+        id: 92,
+        status: {
+          "@type": "chatMemberStatusAdministrator",
+          can_be_edited: true,
+          rights: { can_manage_chat: true, can_invite_users: true, can_restrict_members: true },
+        },
+      },
+    )).toMatchObject({
+      management: {
+        status: "administrator",
+        canOpenManagement: true,
+        canAddMembers: true,
+        canManagePermissions: true,
+        canViewEventLog: true,
+      },
+    });
+
+    expect(mapTdChat(
+      {
+        id: 79,
+        type: { "@type": "chatTypeSupergroup", supergroup_id: 93, is_channel: false },
+        title: "Member",
+      },
+      "7",
+      { "@type": "supergroup", id: 93, status: { "@type": "chatMemberStatusMember" } },
+    )?.management).toMatchObject({ canOpenManagement: false });
+  });
+
   it("preserves non-zero media album ids without creating zero albums", () => {
     const base = {
       id: 1000,

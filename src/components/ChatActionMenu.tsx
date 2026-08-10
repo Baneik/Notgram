@@ -17,6 +17,7 @@ interface ChatActionMenuProps {
   chat: Chat;
   chatListId: string;
   pending: boolean;
+  canSetAutoDelete: boolean;
   onSetPinned: (pinned: boolean) => Promise<boolean>;
   onSetMuted: (muted: boolean) => Promise<boolean>;
   onSetArchived: (archived: boolean) => Promise<boolean>;
@@ -32,6 +33,7 @@ export function ChatActionMenu({
   chat,
   chatListId,
   pending,
+  canSetAutoDelete,
   onSetPinned,
   onSetMuted,
   onSetArchived,
@@ -104,8 +106,8 @@ export function ChatActionMenu({
       <button
         type="button"
         role="menuitem"
-        disabled={busy || chat.kind === "saved"}
-        title={chat.kind === "saved" ? "收藏夹不支持自动删除" : undefined}
+        disabled={busy || !canSetAutoDelete}
+        title={!canSetAutoDelete ? "当前账号不能修改自动删除时间" : undefined}
         onClick={onOpenAutoDelete}
       >
         <Clock3 size={16} strokeWidth={1.9} />
