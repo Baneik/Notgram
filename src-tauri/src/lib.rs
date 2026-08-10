@@ -1,3 +1,4 @@
+mod automation;
 mod context_menu_window;
 mod desktop_lifecycle;
 mod desktop_notification;
@@ -22,6 +23,11 @@ pub fn run() {
         return;
     }
     development::load_environment();
+    let context = tauri::generate_context!();
+    if let Err(error) = automation::configure(&context.config().identifier) {
+        eprintln!("{error}");
+        std::process::exit(2);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             desktop_lifecycle::show_main_window(app);
@@ -51,6 +57,8 @@ pub fn run() {
             diagnostics::notgram_diagnostics_settings,
             diagnostics::notgram_export_diagnostics,
             diagnostics::notgram_set_crash_reporting_enabled,
+            automation::notgram_automation_settings,
+            automation::notgram_save_automation_settings,
             distribution::notgram_distribution_kind,
             desktop_notification::notgram_show_notification,
             context_menu_window::notgram_close_context_menu_window,
@@ -96,6 +104,6 @@ pub fn run() {
             telegram::telegram_pick_chat_photo,
             telegram::telegram_shutdown,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("failed to run Notgram");
 }

@@ -110,8 +110,8 @@ changelog rules are documented in
 
 Real TDLib acceptance is tracked separately from browser mocks. See
 [`docs/native-smoke.md`](docs/native-smoke.md) for the isolated clean-profile and
-existing-account passes, their non-sensitive evidence format, and verification
-commands.
+existing-account passes, their non-sensitive evidence format, verification
+commands, and the opt-in loopback Playwright endpoint for the real Tauri DOM.
 
 The automated accessibility gate and native Windows checklist are documented in
 [`docs/accessibility-matrix.md`](docs/accessibility-matrix.md).

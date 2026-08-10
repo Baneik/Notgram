@@ -65,6 +65,7 @@ import type {
 } from "../telegram/types";
 import { Avatar } from "./Avatar";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
+import { DeveloperAutomationSettings } from "./DeveloperAutomationSettings";
 import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
 import { SafetySettings } from "./SafetySettings";
@@ -1402,6 +1403,7 @@ function AdvancedSettings({
               />
             </label>
           </div>
+          <DeveloperAutomationSettings developerMode={developerMode} />
         </section>
 
         {error && <div className="auth-error settings-error" role="alert">{error}</div>}
