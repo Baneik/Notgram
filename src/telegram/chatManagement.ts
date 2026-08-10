@@ -147,6 +147,16 @@ export const DEFAULT_EVENT_LOG_FILTERS: ChatEventLogFilters = {
 export const cloneChatPermissions = (value: ChatPermissions): ChatPermissions => ({ ...value });
 export const cloneChatAdminRights = (value: ChatAdminRights): ChatAdminRights => ({ ...value });
 
+const CHAT_MEMBER_TAG_EMOJI = /(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[\uFE0F\u20E3])/u;
+
+export const chatMemberTagError = (value: string) => {
+  const tag = value.trim();
+  if (Array.from(tag).length > 16 || /[\r\n]/.test(value) || CHAT_MEMBER_TAG_EMOJI.test(tag)) {
+    return "成员标签需要包含 0 至 16 个非表情字符且不能换行";
+  }
+  return undefined;
+};
+
 const tdObject = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>

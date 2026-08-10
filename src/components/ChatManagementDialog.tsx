@@ -48,6 +48,7 @@ interface ChatManagementDialogProps {
   onClose: () => void;
   onAddMembers: (userIds: string[]) => Promise<boolean>;
   onSetMemberStatus: (userId: string, status: ChatMemberStatusInput) => Promise<boolean>;
+  onSetMemberTag: (userId: string, tag: string) => Promise<boolean>;
   onSetPermissions: (permissions: ChatPermissions) => Promise<boolean>;
   onSetSlowMode: (seconds: number) => Promise<boolean>;
   onTransferOwnership: (userId: string, password: string) => Promise<boolean>;
@@ -67,8 +68,9 @@ interface JoinRequestBucket extends ChatJoinRequestPage {
 }
 
 const roleLabel = (member: ManagedChatMember) => {
-  if (member.status === "owner") return "所有者";
+  if (member.status === "owner") return member.customTitle || "所有者";
   if (member.status === "administrator") return member.customTitle || "管理员";
+  if (member.customTitle) return member.customTitle;
   if (member.status === "restricted") return "受限成员";
   if (member.status === "banned") return "已封禁";
   if (member.status === "left") return "已离开";
@@ -130,6 +132,7 @@ export function ChatManagementDialog({
   onClose,
   onAddMembers,
   onSetMemberStatus,
+  onSetMemberTag,
   onSetPermissions,
   onSetSlowMode,
   onTransferOwnership,
@@ -165,16 +168,14 @@ export function ChatManagementDialog({
   const [inviteApproval, setInviteApproval] = useState(false);
   const [subscriptionStars, setSubscriptionStars] = useState(0);
   const [editingInviteLink, setEditingInviteLink] = useState<string>();
-  const [adminTitleDrafts, setAdminTitleDrafts] = useState<Record<string, string>>({});
+  const [memberTagDrafts, setMemberTagDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => { void onLoad(); }, [onLoad]);
   useEffect(() => { if (management) setLocalPermissions(management.permissions); }, [management]);
   useEffect(() => {
     if (!management) return;
-    setAdminTitleDrafts(Object.fromEntries(
-      management.members
-        .filter((member) => member.status === "administrator")
-        .map((member) => [member.user.id, member.customTitle ?? ""]),
+    setMemberTagDrafts(Object.fromEntries(
+      management.members.map((member) => [member.user.id, member.customTitle ?? ""]),
     ));
   }, [management]);
   useEffect(() => {
@@ -214,6 +215,9 @@ export function ChatManagementDialog({
   }, [capabilities?.canManageAllInvites, capabilities?.canManageInvites, onGetInviteLinks, onGetJoinRequests, tab]);
 
   const members = management?.members ?? [];
+  const taggableMembers = members.filter(
+    (member) => member.user.id !== currentUserId && member.status !== "left" && member.status !== "banned",
+  );
   const joinRequests = useMemo(() => deduplicateRequests(joinRequestBuckets), [joinRequestBuckets]);
   const visibleContacts = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -269,7 +273,6 @@ export function ChatManagementDialog({
       await setMemberStatus(member.user.id, {
         kind: "administrator",
         rights: member.adminRights ?? promotionRights(capabilities!),
-        customTitle: member.customTitle,
       });
     } else if (action === "restricted") {
       await setMemberStatus(member.user.id, {
@@ -285,16 +288,19 @@ export function ChatManagementDialog({
   const updateAdministrator = async (
     member: ManagedChatMember,
     rights: ChatAdminRights = member.adminRights ?? DEFAULT_CHAT_ADMIN_RIGHTS,
-    customTitle: string = adminTitleDrafts[member.user.id] ?? member.customTitle ?? "",
   ) => {
     if (!capabilities?.canPromoteMembers || member.canBeEdited === false) return;
     await setMemberStatus(member.user.id, {
       kind: "administrator",
       rights,
-      customTitle: customTitle.trim() || undefined,
     });
   };
-  const canEditAdminTags = capabilities?.canManageTags === true && capabilities.chatType !== "channel";
+  const updateMemberTag = async (member: ManagedChatMember) => {
+    if (!capabilities?.canManageTags || member.user.id === currentUserId) return;
+    setSaving(true);
+    await onSetMemberTag(member.user.id, memberTagDrafts[member.user.id] ?? "");
+    setSaving(false);
+  };
   const transfer = async () => {
     if (!capabilities?.canTransferOwnership || !transferUserId || !transferPassword.trim()) return;
     setSaving(true);
@@ -470,6 +476,10 @@ export function ChatManagementDialog({
                     </div>
                     {management?.memberHasMore && <button className="dialog-secondary" type="button" disabled={loading} onClick={() => void onLoad((management.memberOffset ?? 0) + members.length)}>加载更多成员</button>}
                   </section>
+                  {capabilities?.canManageTags && taggableMembers.length > 0 && <section className="management-section">
+                    <div className="management-section-heading"><h3>成员标签</h3><span>{taggableMembers.length} 人</span></div>
+                    {taggableMembers.map((member) => <div className="management-exception-editor" key={member.user.id}><div className="management-exception-row"><Avatar avatar={member.user.avatar} size="small" /><span>{member.user.displayName}</span><small>{roleLabel(member)}</small></div><div className="management-admin-title"><label><span>标签</span><input aria-label={`设置 ${member.user.displayName} 的成员标签`} value={memberTagDrafts[member.user.id] ?? member.customTitle ?? ""} maxLength={16} disabled={saving} onChange={(event) => setMemberTagDrafts((current) => ({ ...current, [member.user.id]: event.target.value }))} /></label><button className="dialog-secondary" type="button" disabled={saving || (memberTagDrafts[member.user.id] ?? "") === (member.customTitle ?? "")} onClick={() => void updateMemberTag(member)}>保存标签</button></div></div>)}
+                  </section>}
                   {capabilities?.status === "owner" && <section className="management-section">
                     <div className="management-section-heading"><h3>转移所有者</h3><span>{transferUnavailable ?? "需要两步验证密码"}</span></div>
                     {capabilities.canTransferOwnership ? <>
@@ -487,7 +497,7 @@ export function ChatManagementDialog({
                 {capabilities?.canPromoteMembers && members.some((member) => member.status === "administrator" && member.canBeEdited !== false) && <section className="management-section"><div className="management-section-heading"><h3>管理员权限</h3><span>只能授予自身拥有的权限</span></div>{members.filter((member) => member.status === "administrator" && member.canBeEdited !== false && member.user.id !== currentUserId).map((member) => <div className="management-exception-editor" key={member.user.id}><div className="management-exception-row"><Avatar avatar={member.user.avatar} size="small" /><span>{member.user.displayName}</span><small>{member.customTitle || "管理员"}</small></div><div className="management-permission-grid">{adminRightKeys.map((key) => {
                   const actorCanGrant = capabilities.status === "owner" || capabilities.adminRights?.[key] === true;
                   return <label key={key}><input type="checkbox" checked={(member.adminRights ?? DEFAULT_CHAT_ADMIN_RIGHTS)[key]} disabled={saving || !actorCanGrant} onChange={() => void updateAdministrator(member, { ...(member.adminRights ?? DEFAULT_CHAT_ADMIN_RIGHTS), [key]: !(member.adminRights ?? DEFAULT_CHAT_ADMIN_RIGHTS)[key] })} /><span>{CHAT_ADMIN_RIGHT_LABELS[key]}</span></label>;
-                })}</div>{canEditAdminTags && <div className="management-admin-title"><label><span>管理员头衔</span><input aria-label={`设置 ${member.user.displayName} 的管理员头衔`} value={adminTitleDrafts[member.user.id] ?? member.customTitle ?? ""} maxLength={16} disabled={saving} onChange={(event) => setAdminTitleDrafts((current) => ({ ...current, [member.user.id]: event.target.value }))} /></label><button className="dialog-secondary" type="button" disabled={saving || (adminTitleDrafts[member.user.id] ?? "") === (member.customTitle ?? "")} onClick={() => void updateAdministrator(member)}>保存头衔</button></div>}</div>)}</section>}
+                })}</div></div>)}</section>}
               </>}
               {tab === "invites" && capabilities?.canManageInvites && <>
                 <section className="management-section"><div className="management-section-heading"><h3>{editingInviteLink ? "编辑邀请链接" : "新建邀请链接"}</h3><span>可设置有效期、人数或订阅</span></div><div className="invite-form-grid"><label><span>名称</span><input aria-label="邀请链接名称" value={inviteName} onChange={(event) => setInviteName(event.target.value)} maxLength={32} placeholder="例如：发布群" /></label><label><span>有效期</span><input aria-label="邀请链接有效期" type="datetime-local" value={inviteExpiry} onChange={(event) => setInviteExpiry(event.target.value)} disabled={subscriptionStars > 0} /></label><label><span>使用人数</span><input aria-label="邀请链接使用人数" type="number" min={0} max={99999} value={inviteLimit} onChange={(event) => setInviteLimit(Math.max(0, Number(event.target.value)))} disabled={subscriptionStars > 0 || inviteApproval} /></label><label><span>每月 Stars</span><input aria-label="订阅 Stars" type="number" min={0} max={1000000000} value={subscriptionStars} onChange={(event) => { const value = Math.max(0, Number(event.target.value)); setSubscriptionStars(value); if (value > 0) setInviteApproval(false); }} disabled={Boolean(editingInviteLink && !subscriptionStars) || chat.kind !== "channel"} /></label></div><label className="management-check"><input type="checkbox" checked={inviteApproval} disabled={subscriptionStars > 0} onChange={(event) => { setInviteApproval(event.target.checked); if (event.target.checked) setInviteLimit(0); }} /><span>新成员需要管理员批准</span></label><div className="management-inline-actions"><button className="dialog-primary" type="button" disabled={saving} onClick={() => void saveInvite()}>{editingInviteLink ? "保存链接" : "创建链接"}</button>{editingInviteLink && <button className="dialog-secondary" type="button" onClick={resetInviteForm}>取消编辑</button>}</div></section>

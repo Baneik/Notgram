@@ -418,8 +418,9 @@ describe("TauriTelegramTransport startup", () => {
     await transport.setChatMemberStatus({
       chatId: "72",
       userId: "11",
-      status: { kind: "administrator", rights: { ...DEFAULT_CHAT_ADMIN_RIGHTS, canPromoteMembers: true }, customTitle: "值班" },
+      status: { kind: "administrator", rights: { ...DEFAULT_CHAT_ADMIN_RIGHTS, canPromoteMembers: true } },
     });
+    await transport.setChatMemberTag("72", "11", "值班");
     await transport.setChatMemberStatus({
       chatId: "72",
       userId: "12",
@@ -436,6 +437,20 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests[2]).toMatchObject({ chat_id: 72, user_id: 11, tag: "值班" });
     expect(requests[3].status).toMatchObject({ "@type": "chatMemberStatusRestricted", permissions: { can_send_videos: false } });
     expect(requests[5]).toMatchObject({ chat_id: 72, slow_mode_delay: 30 });
+  });
+
+  it("updates and clears member tags independently from member status", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawChats: Map<string, TdObject> };
+    const requests: TdObject[] = [];
+    internal.rawChats.set("72", { "@type": "chat", id: 72, type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false } });
+    internal.request = async (request) => { requests.push(request); return { "@type": "ok" }; };
+
+    await transport.setChatMemberTag("72", "11", "");
+    expect(requests.at(-1)).toMatchObject({ "@type": "setChatMemberTag", chat_id: 72, user_id: 11, tag: "" });
+    await expect(transport.setChatMemberTag("72", "11", "x".repeat(17))).rejects.toThrow("0 至 16");
+    await expect(transport.setChatMemberTag("72", "11", "值班🙂")).rejects.toThrow("非表情字符");
+    expect(requests).toHaveLength(1);
   });
 
   it("creates a public supergroup and applies members, history, and permissions", async () => {
@@ -463,6 +478,15 @@ describe("TauriTelegramTransport startup", () => {
       if (request["@type"] === "createNewSupergroupChat" || request["@type"] === "getChat") {
         return createdChat;
       }
+      if (request["@type"] === "getSupergroup") {
+        return {
+          "@type": "supergroup",
+          id: 91,
+          is_channel: false,
+          status: { "@type": "chatMemberStatusCreator" },
+          member_count: 3,
+        };
+      }
       return { "@type": "ok" };
     };
 
@@ -478,6 +502,7 @@ describe("TauriTelegramTransport startup", () => {
     });
 
     expect(chat).toMatchObject({ id: "72", kind: "group", title: "Notgram Team" });
+    expect(chat.management).toMatchObject({ status: "owner", canOpenManagement: true, canTransferOwnership: true });
     expect(requests.map((request) => request["@type"])).toEqual([
       "createNewSupergroupChat",
       "addChatMembers",
@@ -485,6 +510,7 @@ describe("TauriTelegramTransport startup", () => {
       "toggleSupergroupIsAllHistoryAvailable",
       "setChatPermissions",
       "getChat",
+      "getSupergroup",
     ]);
     expect(requests[0]).toMatchObject({
       is_forum: false,
@@ -499,6 +525,40 @@ describe("TauriTelegramTransport startup", () => {
       can_send_documents: false,
       can_invite_users: false,
     });
+  });
+
+  it("hydrates owner capabilities immediately after creating a basic group", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject> };
+    const requests: TdObject[] = [];
+    const createdChat: TdObject = {
+      "@type": "chat",
+      id: 73,
+      title: "Basic QA",
+      type: { "@type": "chatTypeBasicGroup", basic_group_id: 53 },
+      positions: [],
+      last_message: null,
+      unread_count: 0,
+      notification_settings: { mute_for: 0 },
+    };
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "createNewBasicGroupChat") return { "@type": "createdBasicGroupChat", chat_id: 73 };
+      if (request["@type"] === "getChat") return createdChat;
+      if (request["@type"] === "getBasicGroup") return {
+        "@type": "basicGroup",
+        id: 53,
+        member_count: 2,
+        status: { "@type": "chatMemberStatusCreator" },
+      };
+      return { "@type": "ok" };
+    };
+
+    const chat = await transport.createChat({ kind: "basicGroup", title: "Basic QA", memberUserIds: [], permissionTemplate: "open" });
+    expect(chat).toMatchObject({ id: "73", title: "Basic QA", management: { status: "owner", canOpenManagement: true } });
+    expect(requests.map((request) => request["@type"])).toEqual([
+      "createNewBasicGroupChat", "getChat", "setChatPermissions", "getChat", "getBasicGroup",
+    ]);
   });
 
   it("updates current profile fields and refreshes the mapped account", async () => {
@@ -626,6 +686,44 @@ describe("TauriTelegramTransport startup", () => {
     expect(events.find((event) => event.type === "chats.upserted")).toMatchObject({
       type: "chats.upserted",
       chats: [{ id: "72", isForum: true, canCreateTopics: true }],
+    });
+  });
+
+  it("publishes live management capability changes from group status updates", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.handleUpdate({
+      "@type": "updateSupergroup",
+      supergroup: {
+        "@type": "supergroup",
+        id: 91,
+        status: { "@type": "chatMemberStatusCreator", is_anonymous: false, is_member: true },
+      },
+    });
+    internal.upsertChat({
+      "@type": "chat",
+      id: 72,
+      title: "Managed group",
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+    internal.finishInitialChatSync();
+    expect(events.find((event) => event.type === "chats.upserted")).toMatchObject({
+      chats: [{ management: { status: "owner", canOpenManagement: true } }],
+    });
+
+    internal.handleUpdate({
+      "@type": "updateSupergroup",
+      supergroup: {
+        "@type": "supergroup",
+        id: 91,
+        status: { "@type": "chatMemberStatusMember" },
+      },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "chat.upsert",
+      chat: { id: "72", management: { status: "member", canOpenManagement: false } },
     });
   });
 

@@ -124,6 +124,7 @@ import {
   CHAT_PERMISSION_FIELDS,
   DEFAULT_CHAT_ADMIN_RIGHTS,
   DEFAULT_CHAT_PERMISSIONS,
+  chatMemberTagError,
   deriveChatManagementCapabilities,
   managedMemberStatusFromTd,
   mapChatAdminRightsFromTd,
@@ -755,6 +756,20 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
     if (input.selectPhoto) await this.requestPreparedChatPhoto(chatId);
     rawChat = await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
+    const createdType = asTdObject(rawChat.type);
+    if (createdType?.["@type"] === "chatTypeBasicGroup") {
+      const basicGroupId = tdId(createdType.basic_group_id);
+      if (basicGroupId) {
+        const basicGroup = await this.request({ "@type": "getBasicGroup", basic_group_id: numericId(basicGroupId) });
+        this.upsertBasicGroup(basicGroup);
+      }
+    } else if (createdType?.["@type"] === "chatTypeSupergroup") {
+      const supergroupId = tdId(createdType.supergroup_id);
+      if (supergroupId) {
+        const supergroup = await this.request({ "@type": "getSupergroup", supergroup_id: numericId(supergroupId) });
+        this.upsertSupergroup(supergroup);
+      }
+    }
     this.upsertChat(rawChat);
     const chat = this.mapChat(rawChat);
     if (!chat) throw new Error("TDLib 未返回已创建的聊天");
@@ -881,9 +896,12 @@ export class TauriTelegramTransport implements TelegramTransport {
       statusObject = { "@type": "chatMemberStatusMember", member_until_date: 0 };
     }
     await this.request({ "@type": "setChatMemberStatus", chat_id: numericId(chatId), member_id: { "@type": "messageSenderUser", user_id: numericId(userId) }, status: statusObject });
-    if (status.kind === "administrator" && status.customTitle !== undefined) {
-      await this.request({ "@type": "setChatMemberTag", chat_id: numericId(chatId), user_id: numericId(userId), tag: status.customTitle.trim() });
-    }
+  }
+
+  async setChatMemberTag(chatId: string, userId: string, tag: string): Promise<void> {
+    const validationError = chatMemberTagError(tag);
+    if (validationError) throw new Error(validationError);
+    await this.request({ "@type": "setChatMemberTag", chat_id: numericId(chatId), user_id: numericId(userId), tag: tag.trim() });
   }
 
   async setChatPermissions(chatId: string, permissions: ChatPermissions): Promise<void> {

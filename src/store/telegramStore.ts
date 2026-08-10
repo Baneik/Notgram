@@ -7,6 +7,7 @@ import type { TelegramTransport } from "../telegram/transport";
 import type {
   CachedTelegramSnapshot,
   ChatManagement,
+  ChatManagementCapabilities,
   ChatDraft,
   Message,
   QueuedOutgoingMessage,
@@ -73,6 +74,21 @@ export { filterAndSortChats, selectVisibleChats } from "./telegramStore.selector
 
 const CACHE_WRITE_DELAY_MS = 2_000;
 const CACHE_WRITE_IDLE_TIMEOUT_MS = 1_500;
+
+type ChatManagementCapabilityKey = keyof Pick<ChatManagementCapabilities,
+  | "canOpenManagement"
+  | "canAddMembers"
+  | "canPromoteMembers"
+  | "canRestrictMembers"
+  | "canManagePermissions"
+  | "canManageSlowMode"
+  | "canTransferOwnership"
+  | "canManageInvites"
+  | "canManageAllInvites"
+  | "canViewEventLog"
+  | "canChangeInfo"
+  | "canManageTags"
+>;
 const FORUM_TOPICS_REFRESH_TTL_MS = 10_000;
 const FORUM_TOPICS_CHANGE_COALESCE_MS = 500;
 
@@ -113,6 +129,21 @@ export const createTelegramStore = (
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const liveAttentionCandidates = new Set<string>();
+    const managementCapabilitiesFor = (chatId: string) => {
+      const loaded = get().groupManagement;
+      return loaded?.chatId === chatId
+        ? loaded.capabilities
+        : get().chats.get(chatId)?.management;
+    };
+    const requireManagementCapability = (
+      chatId: string,
+      capability: ChatManagementCapabilityKey,
+      message: string,
+    ) => {
+      if (managementCapabilitiesFor(chatId)?.[capability] === true) return true;
+      set({ operationError: message });
+      return false;
+    };
     const messageEventKey = (message: Message) => `${message.chatId}:${message.id}`;
     const queueLiveMessageAttention = (message: Message, live: boolean) => {
       const key = messageEventKey(message);
@@ -744,6 +775,11 @@ export const createTelegramStore = (
       if (event.type === "chats.upserted" || event.type === "chat.upsert") {
         const incomingChats = event.type === "chats.upserted" ? event.chats : [event.chat];
         const previousChats = get().chats;
+        const loadedManagement = get().groupManagement;
+        const managementChanged = Boolean(loadedManagement && incomingChats.some((chat) =>
+          chat.id === loadedManagement.chatId &&
+          JSON.stringify(previousChats.get(chat.id)?.management ?? null) !== JSON.stringify(chat.management ?? null),
+        ));
         const activeChatId = get().activeChatId;
         const previousActiveChat = activeChatId ? previousChats.get(activeChatId) : undefined;
         const chats = new Map(previousChats);
@@ -761,6 +797,8 @@ export const createTelegramStore = (
         );
         set({
           chats,
+          groupManagement: managementChanged ? undefined : loadedManagement,
+          groupManagementError: managementChanged ? undefined : get().groupManagementError,
           chatListReady: true,
           activeChatId: get().activeChatId ?? firstChat,
           activeTopicId: activeChatModeChanged && !activeChat?.isForum
@@ -1852,6 +1890,10 @@ export const createTelegramStore = (
       },
 
       loadChatManagement: (chatId, memberOffset = 0) => {
+        if (!requireManagementCapability(chatId, "canOpenManagement", "当前账号没有群组管理权限")) {
+          set({ groupManagement: undefined, groupManagementLoading: false, groupManagementError: "当前账号没有群组管理权限" });
+          return Promise.resolve(undefined);
+        }
         const key = `${chatId}:${memberOffset}`;
         const existing = groupManagementLoads.get(key);
         if (existing) return existing;
@@ -1870,7 +1912,10 @@ export const createTelegramStore = (
                   memberOffset: 0,
                 }
               : value;
-            set({ groupManagement: merged, groupManagementLoading: false });
+            const chats = new Map(get().chats);
+            const chat = chats.get(chatId);
+            if (chat) chats.set(chatId, { ...chat, management: value.capabilities });
+            set({ chats, groupManagement: merged, groupManagementLoading: false });
             return merged;
           } catch (error) {
             set({ groupManagementLoading: false, groupManagementError: errorMessage(error, "无法读取群组管理资料") });
@@ -1884,6 +1929,7 @@ export const createTelegramStore = (
       },
 
       addChatMembers: async (chatId, userIds) => {
+        if (!requireManagementCapability(chatId, "canAddMembers", "当前账号没有邀请成员权限")) return false;
         try {
           await transport.addChatMembers(chatId, userIds);
           await get().loadChatManagement(chatId, 0);
@@ -1896,6 +1942,24 @@ export const createTelegramStore = (
       },
 
       setChatMemberStatus: async (chatId, userId, status) => {
+        const management = get().groupManagement?.chatId === chatId ? get().groupManagement : undefined;
+        const member = management?.members.find((item) => item.user.id === userId);
+        const capability = status.kind === "administrator" || member?.status === "administrator"
+          ? "canPromoteMembers"
+          : status.kind === "restricted" || status.kind === "banned" || member?.status === "restricted" || member?.status === "banned"
+            ? "canRestrictMembers"
+            : member?.status === "left" ? "canAddMembers" : undefined;
+        if (capability && !requireManagementCapability(
+          chatId,
+          capability,
+          capability === "canPromoteMembers"
+            ? "当前账号没有管理员任免权限"
+            : capability === "canRestrictMembers" ? "当前账号没有限制成员权限" : "当前账号没有邀请成员权限",
+        )) return false;
+        if (!capability && !managementCapabilitiesFor(chatId)?.canOpenManagement) {
+          set({ operationError: "当前账号没有成员管理权限" });
+          return false;
+        }
         try {
           await transport.setChatMemberStatus({ chatId, userId, status });
           await get().loadChatManagement(chatId, 0);
@@ -1907,7 +1971,21 @@ export const createTelegramStore = (
         }
       },
 
+      setChatMemberTag: async (chatId, userId, tag) => {
+        if (!requireManagementCapability(chatId, "canManageTags", "当前账号没有修改成员标签的权限")) return false;
+        try {
+          await transport.setChatMemberTag(chatId, userId, tag);
+          await get().loadChatManagement(chatId, 0);
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法更新成员标签") });
+          return false;
+        }
+      },
+
       setChatPermissions: async (chatId, permissions) => {
+        if (!requireManagementCapability(chatId, "canManagePermissions", "当前账号没有修改默认权限的权限")) return false;
         try {
           await transport.setChatPermissions(chatId, permissions);
           await get().loadChatManagement(chatId, 0);
@@ -1920,6 +1998,7 @@ export const createTelegramStore = (
       },
 
       setChatSlowModeDelay: async (chatId, delaySeconds) => {
+        if (!requireManagementCapability(chatId, "canManageSlowMode", "当前账号没有修改慢速模式的权限")) return false;
         try {
           await transport.setChatSlowModeDelay(chatId, delaySeconds);
           await get().loadChatManagement(chatId, 0);
@@ -1932,6 +2011,7 @@ export const createTelegramStore = (
       },
 
       transferChatOwnership: async (chatId, userId, password) => {
+        if (!requireManagementCapability(chatId, "canTransferOwnership", "当前账号不能转移所有权")) return false;
         try {
           await transport.transferChatOwnership(chatId, userId, password);
           await get().loadChatManagement(chatId, 0);
@@ -1944,6 +2024,7 @@ export const createTelegramStore = (
       },
 
       loadChatEventLog: async (input) => {
+        if (!requireManagementCapability(input.chatId, "canViewEventLog", "当前账号没有查看管理日志的权限")) return undefined;
         try {
           const page = await transport.getChatEventLog(input);
           set({ operationError: undefined });
@@ -1955,36 +2036,60 @@ export const createTelegramStore = (
       },
 
       getChatInviteLinks: async (input) => {
+        if (!requireManagementCapability(input.chatId, "canManageInvites", "当前账号没有管理邀请链接的权限")) return undefined;
+        const capabilities = managementCapabilitiesFor(input.chatId);
+        if (
+          capabilities?.canManageAllInvites !== true &&
+          input.creatorUserId &&
+          input.creatorUserId !== get().currentUserId
+        ) {
+          set({ operationError: "管理员只能读取自己创建的邀请链接" });
+          return undefined;
+        }
         try { return await transport.getChatInviteLinks(input); }
         catch (error) { set({ operationError: errorMessage(error, "无法读取邀请链接") }); return undefined; }
       },
 
       createChatInviteLink: async (input) => {
+        if (!requireManagementCapability(input.chatId, "canManageInvites", "当前账号没有管理邀请链接的权限")) return undefined;
         try { const link = await transport.createChatInviteLink(input); set({ operationError: undefined }); return link; }
         catch (error) { set({ operationError: errorMessage(error, "无法创建邀请链接") }); return undefined; }
       },
 
       editChatInviteLink: async (input) => {
+        if (!requireManagementCapability(input.chatId, "canManageInvites", "当前账号没有管理邀请链接的权限")) return undefined;
         try { const link = await transport.editChatInviteLink(input); set({ operationError: undefined }); return link; }
         catch (error) { set({ operationError: errorMessage(error, "无法编辑邀请链接") }); return undefined; }
       },
 
       revokeChatInviteLink: async (chatId, inviteLink) => {
+        if (!requireManagementCapability(chatId, "canManageInvites", "当前账号没有管理邀请链接的权限")) return false;
         try { await transport.revokeChatInviteLink(chatId, inviteLink); set({ operationError: undefined }); return true; }
         catch (error) { set({ operationError: errorMessage(error, "无法撤销邀请链接") }); return false; }
       },
 
       getChatJoinRequests: async (input) => {
+        if (!requireManagementCapability(input.chatId, "canManageInvites", "当前账号没有处理入群申请的权限")) return undefined;
+        if (managementCapabilitiesFor(input.chatId)?.canManageAllInvites !== true && !input.inviteLink) {
+          set({ operationError: "管理员只能读取自己邀请链接的入群申请" });
+          return undefined;
+        }
         try { return await transport.getChatJoinRequests(input); }
         catch (error) { set({ operationError: errorMessage(error, "无法读取入群申请") }); return undefined; }
       },
 
       processChatJoinRequest: async (chatId, userId, approve) => {
+        if (!requireManagementCapability(chatId, "canManageInvites", "当前账号没有处理入群申请的权限")) return false;
         try { await transport.processChatJoinRequest(chatId, userId, approve); set({ operationError: undefined }); return true; }
         catch (error) { set({ operationError: errorMessage(error, "无法处理入群申请") }); return false; }
       },
 
       processChatJoinRequests: async (chatId, inviteLink, approve) => {
+        if (!requireManagementCapability(chatId, "canManageInvites", "当前账号没有处理入群申请的权限")) return false;
+        if (managementCapabilitiesFor(chatId)?.canManageAllInvites !== true && !inviteLink) {
+          set({ operationError: "管理员只能处理自己邀请链接的入群申请" });
+          return false;
+        }
         try { await transport.processChatJoinRequests(chatId, inviteLink, approve); set({ operationError: undefined }); return true; }
         catch (error) { set({ operationError: errorMessage(error, "无法批量处理入群申请") }); return false; }
       },
@@ -2154,7 +2259,16 @@ export const createTelegramStore = (
       },
 
       setChatMessageAutoDeleteTime: async (chatId, messageAutoDeleteTime) => {
-        if (!get().chats.has(chatId)) return false;
+        const targetChat = get().chats.get(chatId);
+        if (!targetChat) return false;
+        if (
+          (targetChat.kind === "group" || targetChat.kind === "channel") &&
+          !requireManagementCapability(chatId, "canChangeInfo", "当前账号没有修改群资料的权限")
+        ) return false;
+        if (targetChat.kind !== "direct" && targetChat.kind !== "group" && targetChat.kind !== "channel") {
+          set({ operationError: "当前会话不支持自动删除设置" });
+          return false;
+        }
         try {
           await transport.setChatMessageAutoDeleteTime({
             chatId,

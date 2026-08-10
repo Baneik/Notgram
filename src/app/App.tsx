@@ -146,6 +146,7 @@ export function App() {
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
   const addChatMembers = useTelegramStore((state) => state.addChatMembers);
   const setChatMemberStatus = useTelegramStore((state) => state.setChatMemberStatus);
+  const setChatMemberTag = useTelegramStore((state) => state.setChatMemberTag);
   const setChatPermissions = useTelegramStore((state) => state.setChatPermissions);
   const setChatSlowModeDelay = useTelegramStore((state) => state.setChatSlowModeDelay);
   const transferChatOwnership = useTelegramStore((state) => state.transferChatOwnership);
@@ -303,6 +304,7 @@ export function App() {
   const loadManagement = useCallback((offset = 0) => managementChatId ? loadChatManagement(managementChatId, offset) : Promise.resolve(undefined), [loadChatManagement, managementChatId]);
   const addManagementMembers = useCallback((userIds: string[]) => managementChatId ? addChatMembers(managementChatId, userIds) : Promise.resolve(false), [addChatMembers, managementChatId]);
   const setManagementMemberStatus = useCallback((userId: string, status: import("../telegram/types").ChatMemberStatusInput) => managementChatId ? setChatMemberStatus(managementChatId, userId, status) : Promise.resolve(false), [managementChatId, setChatMemberStatus]);
+  const setManagementMemberTag = useCallback((userId: string, tag: string) => managementChatId ? setChatMemberTag(managementChatId, userId, tag) : Promise.resolve(false), [managementChatId, setChatMemberTag]);
   const setManagementPermissions = useCallback((permissions: import("../telegram/types").ChatPermissions) => managementChatId ? setChatPermissions(managementChatId, permissions) : Promise.resolve(false), [managementChatId, setChatPermissions]);
   const setManagementSlowMode = useCallback((seconds: number) => managementChatId ? setChatSlowModeDelay(managementChatId, seconds) : Promise.resolve(false), [managementChatId, setChatSlowModeDelay]);
   const transferManagementOwnership = useCallback((userId: string, password: string) => managementChatId ? transferChatOwnership(managementChatId, userId, password) : Promise.resolve(false), [managementChatId, transferChatOwnership]);
@@ -1500,6 +1502,7 @@ export function App() {
           onClose={() => setManagementChatId(undefined)}
           onAddMembers={addManagementMembers}
           onSetMemberStatus={setManagementMemberStatus}
+          onSetMemberTag={setManagementMemberTag}
           onSetPermissions={setManagementPermissions}
           onSetSlowMode={setManagementSlowMode}
           onTransferOwnership={transferManagementOwnership}

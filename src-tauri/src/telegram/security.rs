@@ -224,7 +224,7 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         "setChatMemberTag" => {
             validate_nonzero_identifier(request, "chat_id")?;
             validate_nonzero_identifier(request, "user_id")?;
-            validate_profile_text(request, "tag", 16, true, false)?;
+            validate_profile_text(request, "tag", 16, false, false)?;
         }
         "setChatSlowModeDelay" => {
             validate_nonzero_identifier(request, "chat_id")?;
@@ -2080,6 +2080,21 @@ mod tests {
         let mut invalid_status = status.clone();
         invalid_status["member_id"]["user_id"] = json!(0);
         assert!(validate_webview_tdlib_request(&invalid_status).is_err());
+
+        let member_tag = json!({
+            "@type": "setChatMemberTag",
+            "chat_id": 72,
+            "user_id": 11,
+            "tag": "值班",
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&member_tag).is_ok());
+        let mut oversized_tag = member_tag.clone();
+        oversized_tag["tag"] = json!("x".repeat(17));
+        assert!(validate_webview_tdlib_request(&oversized_tag).is_err());
+        let mut multiline_tag = member_tag.clone();
+        multiline_tag["tag"] = json!("值班\n成员");
+        assert!(validate_webview_tdlib_request(&multiline_tag).is_err());
 
         let slow_mode = json!({
             "@type": "setChatSlowModeDelay",

@@ -25,6 +25,11 @@ import type {
 } from "../telegram/types";
 import { createTelegramStore, filterAndSortChats } from "./telegramStore";
 import { cachedSnapshotFrom } from "./telegramStore.cache";
+import {
+  DEFAULT_CHAT_ADMIN_RIGHTS,
+  DEFAULT_CHAT_PERMISSIONS,
+  deriveChatManagementCapabilities,
+} from "../telegram/chatManagement";
 
 describe("telegram store", () => {
   it.each([
@@ -2523,6 +2528,153 @@ describe("chat filtering", () => {
     const [left, right] = await Promise.all([first, second]);
     expect(left).toEqual(right);
     expect(store.getState().groupManagementLoading).toBe(false);
+  });
+
+  it("clears stale management state and blocks every management request after a live role downgrade", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await expect(store.getState().loadChatManagement("chat-product")).resolves.toBeDefined();
+
+    const spies = [
+      vi.spyOn(transport, "getChatManagement"),
+      vi.spyOn(transport, "addChatMembers"),
+      vi.spyOn(transport, "setChatMemberStatus"),
+      vi.spyOn(transport, "setChatMemberTag"),
+      vi.spyOn(transport, "setChatPermissions"),
+      vi.spyOn(transport, "setChatSlowModeDelay"),
+      vi.spyOn(transport, "setChatMessageAutoDeleteTime"),
+      vi.spyOn(transport, "transferChatOwnership"),
+      vi.spyOn(transport, "getChatEventLog"),
+      vi.spyOn(transport, "getChatInviteLinks"),
+      vi.spyOn(transport, "createChatInviteLink"),
+      vi.spyOn(transport, "editChatInviteLink"),
+      vi.spyOn(transport, "revokeChatInviteLink"),
+      vi.spyOn(transport, "getChatJoinRequests"),
+      vi.spyOn(transport, "processChatJoinRequest"),
+      vi.spyOn(transport, "processChatJoinRequests"),
+    ];
+    const current = store.getState().chats.get("chat-product")!;
+    const internal = transport as unknown as { listener?: TelegramEventListener };
+    internal.listener?.({
+      type: "chat.upsert",
+      chat: {
+        ...current,
+        management: deriveChatManagementCapabilities("basicGroup", "member"),
+      },
+    });
+
+    expect(store.getState().groupManagement).toBeUndefined();
+    await expect(store.getState().loadChatManagement("chat-product")).resolves.toBeUndefined();
+    await expect(store.getState().addChatMembers("chat-product", ["u-mia"])).resolves.toBe(false);
+    await expect(store.getState().setChatMemberStatus("chat-product", "u-mia", { kind: "banned" })).resolves.toBe(false);
+    await expect(store.getState().setChatMemberTag("chat-product", "u-mia", "值班")).resolves.toBe(false);
+    await expect(store.getState().setChatPermissions("chat-product", DEFAULT_CHAT_PERMISSIONS)).resolves.toBe(false);
+    await expect(store.getState().setChatSlowModeDelay("chat-product", 30)).resolves.toBe(false);
+    await expect(store.getState().setChatMessageAutoDeleteTime("chat-product", 86_400)).resolves.toBe(false);
+    await expect(store.getState().transferChatOwnership("chat-product", "u-mia", "password")).resolves.toBe(false);
+    await expect(store.getState().loadChatEventLog({ chatId: "chat-product" })).resolves.toBeUndefined();
+    await expect(store.getState().getChatInviteLinks({ chatId: "chat-product" })).resolves.toBeUndefined();
+    await expect(store.getState().createChatInviteLink({ chatId: "chat-product", name: "test" })).resolves.toBeUndefined();
+    await expect(store.getState().editChatInviteLink({ chatId: "chat-product", name: "test", inviteLink: "https://t.me/+test" })).resolves.toBeUndefined();
+    await expect(store.getState().revokeChatInviteLink("chat-product", "https://t.me/+test")).resolves.toBe(false);
+    await expect(store.getState().getChatJoinRequests({ chatId: "chat-product" })).resolves.toBeUndefined();
+    await expect(store.getState().processChatJoinRequest("chat-product", "u-mia", true)).resolves.toBe(false);
+    await expect(store.getState().processChatJoinRequests("chat-product", undefined, true)).resolves.toBe(false);
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("allows a limited administrator only their own invite-management scope", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const current = store.getState().chats.get("chat-product")!;
+    const internal = transport as unknown as { listener?: TelegramEventListener };
+    internal.listener?.({
+      type: "chat.upsert",
+      chat: {
+        ...current,
+        management: deriveChatManagementCapabilities("basicGroup", "administrator", {
+          ...DEFAULT_CHAT_ADMIN_RIGHTS,
+          canManageChat: false,
+          canRestrictMembers: false,
+          canPromoteMembers: false,
+          canInviteUsers: true,
+        }),
+      },
+    });
+    const inviteSpy = vi.spyOn(transport, "getChatInviteLinks");
+    const requestsSpy = vi.spyOn(transport, "getChatJoinRequests");
+    const permissionsSpy = vi.spyOn(transport, "setChatPermissions");
+    const auditSpy = vi.spyOn(transport, "getChatEventLog");
+
+    await expect(store.getState().getChatInviteLinks({
+      chatId: "chat-product",
+      creatorUserId: mockSnapshot.currentUserId,
+    })).resolves.toBeDefined();
+    await expect(store.getState().getChatJoinRequests({
+      chatId: "chat-product",
+      inviteLink: "https://t.me/+mock-team",
+    })).resolves.toBeDefined();
+    expect(inviteSpy).toHaveBeenCalledTimes(1);
+    expect(requestsSpy).toHaveBeenCalledTimes(1);
+
+    await expect(store.getState().getChatInviteLinks({
+      chatId: "chat-product",
+      creatorUserId: "u-mia",
+    })).resolves.toBeUndefined();
+    await expect(store.getState().getChatJoinRequests({ chatId: "chat-product" })).resolves.toBeUndefined();
+    await expect(store.getState().processChatJoinRequests("chat-product", undefined, true)).resolves.toBe(false);
+    await expect(store.getState().setChatPermissions("chat-product", DEFAULT_CHAT_PERMISSIONS)).resolves.toBe(false);
+    await expect(store.getState().loadChatEventLog({ chatId: "chat-product" })).resolves.toBeUndefined();
+    expect(inviteSpy).toHaveBeenCalledTimes(1);
+    expect(requestsSpy).toHaveBeenCalledTimes(1);
+    expect(permissionsSpy).not.toHaveBeenCalled();
+    expect(auditSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps member tags behind their dedicated right without blocking role updates", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const current = store.getState().chats.get("chat-product")!;
+    const promotingRights = { ...DEFAULT_CHAT_ADMIN_RIGHTS, canPromoteMembers: true };
+    const internal = transport as unknown as { listener?: TelegramEventListener };
+    internal.listener?.({
+      type: "chat.upsert",
+      chat: {
+        ...current,
+        management: deriveChatManagementCapabilities("basicGroup", "administrator", {
+          ...promotingRights,
+          canManageTags: false,
+        }),
+      },
+    });
+    const statusSpy = vi.spyOn(transport, "setChatMemberStatus");
+    const tagSpy = vi.spyOn(transport, "setChatMemberTag");
+
+    await expect(store.getState().setChatMemberTag("chat-product", "u-mia", "值班")).resolves.toBe(false);
+    expect(tagSpy).not.toHaveBeenCalled();
+
+    await expect(store.getState().setChatMemberStatus("chat-product", "u-mia", {
+      kind: "administrator",
+      rights: promotingRights,
+    })).resolves.toBe(true);
+    expect(statusSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates member tags independently and preserves them across administrator-right changes", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await expect(store.getState().loadChatManagement("chat-product")).resolves.toBeDefined();
+
+    await expect(store.getState().setChatMemberTag("chat-product", "u-mia", "值班")).resolves.toBe(true);
+    await expect(store.getState().setChatMemberStatus("chat-product", "u-mia", {
+      kind: "administrator",
+      rights: DEFAULT_CHAT_ADMIN_RIGHTS,
+    })).resolves.toBe(true);
+    expect(store.getState().groupManagement?.members.find((member) => member.user.id === "u-mia")?.customTitle).toBe("值班");
   });
 
   it("leaves confirmed group chats and rejects non-group chats", async () => {

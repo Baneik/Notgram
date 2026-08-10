@@ -81,6 +81,7 @@ import {
   DEFAULT_CHAT_PERMISSIONS,
   cloneChatAdminRights,
   cloneChatPermissions,
+  chatMemberTagError,
   deriveChatManagementCapabilities,
 } from "./chatManagement";
 
@@ -959,7 +960,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const user = member.user;
     if (status.kind === "administrator") {
       member.status = "administrator"; member.role = "administrator";
-      member.adminRights = cloneChatAdminRights(status.rights); member.customTitle = status.customTitle?.trim() || undefined;
+      member.adminRights = cloneChatAdminRights(status.rights);
       member.canBeEdited = true;
       this.appendChatAudit(chatId, `设置管理员：${user.displayName}`, "memberPromotion");
     } else if (status.kind === "restricted") {
@@ -974,6 +975,17 @@ export class MockTelegramTransport implements TelegramTransport {
       member.status = "member"; member.role = "member"; member.permissions = undefined; member.adminRights = undefined; member.untilDate = undefined;
       this.appendChatAudit(chatId, `恢复成员：${user.displayName}`, "memberJoin");
     }
+  }
+
+  async setChatMemberTag(chatId: string, userId: string, tag: string): Promise<void> {
+    const value = await this.ensureChatManagement(chatId);
+    if (!value.capabilities.canManageTags) throw new Error("当前账号没有修改成员标签的权限");
+    const validationError = chatMemberTagError(tag);
+    if (validationError) throw new Error(validationError);
+    const member = value.members.find((item) => item.user.id === userId);
+    if (!member) throw new Error("找不到群成员");
+    member.customTitle = tag.trim() || undefined;
+    this.appendChatAudit(chatId, `更新成员标签：${member.user.displayName}`, "memberTagChange");
   }
 
   async setChatPermissions(chatId: string, permissions: ChatPermissions): Promise<void> {

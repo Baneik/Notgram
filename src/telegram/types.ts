@@ -147,7 +147,7 @@ export interface ChatManagement {
 
 export type ChatMemberStatusInput =
   | { kind: "member" }
-  | { kind: "administrator"; rights: ChatAdminRights; customTitle?: string }
+  | { kind: "administrator"; rights: ChatAdminRights }
   | { kind: "restricted"; permissions: ChatPermissions; untilDate?: number }
   | { kind: "banned"; untilDate?: number };
 
