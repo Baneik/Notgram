@@ -7,8 +7,8 @@ with prerelease identifiers used for release candidates.
 
 ### Added
 
-- Navigate conversation history with back and forward controls or mouse side buttons,
-  restoring global and in-conversation search results at their previous scroll position.
+- Navigate links opened from conversations with back and forward controls or mouse
+  side buttons, without recording ordinary conversation-list switches as jumps.
 - Reopen forum groups at their last topic and switch topics from a compact horizontal
   strip containing only the topic avatar, name, and unread counter, with mouse-wheel
   horizontal scrolling when the strip overflows.
