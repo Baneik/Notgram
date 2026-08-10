@@ -459,6 +459,10 @@ export function Conversation({
   const selectionMessageRef = useRef<HTMLElement | null>(null);
   const selectionPointerRef = useRef<SelectionPointerPosition | undefined>(undefined);
   const selectionClampActiveRef = useRef(false);
+  const selectedReplyQuoteSnapshotRef = useRef<{
+    messageId: string;
+    quote: MessageReplyQuote;
+  } | undefined>(undefined);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
@@ -596,6 +600,8 @@ export function Conversation({
   const messagesById = useMemo(() => new Map(
     [...displayMessages, ...allPinnedMessages, ...renderedMessages].map((message) => [message.id, message]),
   ), [allPinnedMessages, displayMessages, renderedMessages]);
+  const messagesByIdRef = useRef(messagesById);
+  messagesByIdRef.current = messagesById;
   const audioPlaybackNeighborsByMessage = useMemo(() => {
     const audioMessages = renderedMessages.filter((message) =>
       message.content.kind === "media" && ["audio", "voice"].includes(message.content.mediaType)
@@ -970,6 +976,7 @@ export function Conversation({
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
       clearSelectionSurface();
+      selectedReplyQuoteSnapshotRef.current = undefined;
       const target = event.target instanceof Element ? event.target : null;
       const surface = target?.closest<HTMLElement>(".message-rich-text") ?? null;
       selectionMessageRef.current = surface && conversationRef.current?.contains(surface)
@@ -994,14 +1001,40 @@ export function Conversation({
     };
     const onSelectionChange = () => {
       const selection = globalThis.getSelection();
-      const boundary = selectionMessageRef.current;
+      const selectionSurface = (node: Node | null) => node instanceof Element
+        ? node.closest<HTMLElement>(".message-rich-text")
+        : node?.parentElement?.closest<HTMLElement>(".message-rich-text");
+      const anchorSurface = selectionSurface(selection?.anchorNode ?? null);
+      const focusSurface = selectionSurface(selection?.focusNode ?? null);
+      const selectedSurface = anchorSurface && anchorSurface === focusSurface &&
+        conversationRef.current?.contains(anchorSurface)
+        ? anchorSurface
+        : undefined;
+      const boundary = selectedSurface ?? selectionMessageRef.current;
       if (!selection || selection.isCollapsed || !boundary || selectionClampActiveRef.current) return;
+      selectionMessageRef.current = boundary;
       selectionClampActiveRef.current = true;
       try {
         clampSelectionToMessageText(selection, boundary, selectionPointerRef.current);
       } finally {
         selectionClampActiveRef.current = false;
       }
+      const messageId = boundary.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+      const message = messageId ? messagesByIdRef.current.get(messageId) : undefined;
+      const sourceText = message?.content.kind === "text"
+        ? message.content.text
+        : message?.content.kind === "media" || message?.content.kind === "file"
+          ? message.content.caption
+          : undefined;
+      const sourceEntities = message?.content.kind === "text"
+        ? message.content.entities
+        : message?.content.kind === "media" || message?.content.kind === "file"
+          ? message.content.captionEntities
+          : undefined;
+      const quote = sourceText
+        ? replyQuoteFromSelection(selection, boundary, sourceText, sourceEntities)
+        : undefined;
+      if (messageId && quote) selectedReplyQuoteSnapshotRef.current = { messageId, quote };
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("pointermove", onPointerMove, true);
@@ -1130,6 +1163,7 @@ export function Conversation({
     setComposerTextInsertion(undefined);
     setReplyingTo(undefined);
     setReplyQuote(undefined);
+    selectedReplyQuoteSnapshotRef.current = undefined;
     setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setDeletePending(false);
@@ -1244,7 +1278,9 @@ export function Conversation({
         : undefined;
     const selectedReplyQuote = capturedReplyQuote ?? (sourceText && selectedSurface
       ? replyQuoteFromSelection(selection, selectedSurface, sourceText, sourceEntities)
-      : undefined);
+      : undefined) ?? (selectedReplyQuoteSnapshotRef.current?.messageId === message.id
+        ? selectedReplyQuoteSnapshotRef.current.quote
+        : undefined);
     setActionMenu({
       messageId: message.id,
       left,

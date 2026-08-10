@@ -51,27 +51,149 @@ export const clampSelectionToMessageText = (
   return true;
 };
 
-const sourceOffsetForSelection = (
+const quoteAllowedEntityKinds = new Set<MessageTextEntity["kind"]>([
+  "bold",
+  "italic",
+  "underline",
+  "strikethrough",
+  "spoiler",
+  "customEmoji",
+  "dateTime",
+]);
+
+// TDLib's message_reply_quote_length_max option defaults to 1024 Unicode
+// characters. Keep locally-built quotes within that contract before sending.
+const MAX_REPLY_QUOTE_CHARACTERS = 1_024;
+
+const endAfterCodePoints = (
+  text: string,
+  start: number,
+  end: number,
+  limit: number,
+) => start + Array.from(text.slice(start, end)).slice(0, limit).join("").length;
+
+const sourceRangeForRenderedSelection = (
   sourceText: string,
-  selectedText: string,
-  renderedOffset: number,
+  renderedText: string,
+  renderedStart: number,
+  renderedEnd: number,
 ) => {
-  if (sourceText.slice(renderedOffset, renderedOffset + selectedText.length) === selectedText) {
-    return renderedOffset;
+  if (
+    renderedStart < 0 ||
+    renderedEnd <= renderedStart ||
+    renderedEnd > renderedText.length
+  ) return undefined;
+
+  const selectedText = renderedText.slice(renderedStart, renderedEnd);
+  if (sourceText.slice(renderedStart, renderedStart + selectedText.length) === selectedText) {
+    return { start: renderedStart, end: renderedStart + selectedText.length };
   }
 
-  const candidates: number[] = [];
-  let offset = sourceText.indexOf(selectedText);
-  while (offset >= 0) {
-    candidates.push(offset);
-    offset = sourceText.indexOf(selectedText, offset + 1);
+  // Markdown rendering removes syntax characters from the DOM. Build a
+  // monotonic map from every rendered UTF-16 code unit back to the original
+  // message so a selection can still produce an exact contiguous source
+  // slice that Telegram accepts as an inputTextQuote.
+  const sourceStarts = new Array<number>(renderedEnd);
+  const sourceEnds = new Array<number>(renderedEnd + 1);
+  let sourceCursor = 0;
+  for (let index = 0; index < renderedEnd; index += 1) {
+    const sourceIndex = sourceText.indexOf(renderedText[index], sourceCursor);
+    if (sourceIndex < 0) {
+      const candidates: number[] = [];
+      let offset = sourceText.indexOf(selectedText);
+      while (offset >= 0) {
+        candidates.push(offset);
+        offset = sourceText.indexOf(selectedText, offset + 1);
+      }
+      if (candidates.length === 0) return undefined;
+      const nearest = candidates.reduce((current, candidate) =>
+        Math.abs(candidate - renderedStart) < Math.abs(current - renderedStart)
+          ? candidate
+          : current,
+      );
+      return { start: nearest, end: nearest + selectedText.length };
+    }
+    sourceStarts[index] = sourceIndex;
+    sourceEnds[index + 1] = sourceIndex + 1;
+    sourceCursor = sourceIndex + 1;
   }
-  if (candidates.length === 0) return undefined;
-  return candidates.reduce((nearest, candidate) =>
-    Math.abs(candidate - renderedOffset) < Math.abs(nearest - renderedOffset)
-      ? candidate
-      : nearest,
+
+  const start = sourceStarts[renderedStart];
+  const end = sourceEnds[renderedEnd];
+  return start === undefined || end === undefined || end <= start
+    ? undefined
+    : { start, end };
+};
+
+export const replyQuoteFromRenderedSelection = (
+  sourceText: string,
+  renderedText: string,
+  renderedStart: number,
+  renderedEnd: number,
+  sourceEntities?: MessageTextEntity[],
+): MessageReplyQuote | undefined => {
+  const range = sourceRangeForRenderedSelection(
+    sourceText,
+    renderedText,
+    renderedStart,
+    renderedEnd,
   );
+  if (!range) return undefined;
+
+  let { start, end } = range;
+  for (const entity of sourceEntities ?? []) {
+    if (entity.kind !== "customEmoji" && entity.kind !== "dateTime") continue;
+    const entityEnd = entity.offset + entity.length;
+    if (entity.offset < end && entityEnd > start) {
+      start = Math.min(start, entity.offset);
+      end = Math.max(end, entityEnd);
+    }
+  }
+
+  const limitedEnd = endAfterCodePoints(
+    sourceText,
+    start,
+    end,
+    MAX_REPLY_QUOTE_CHARACTERS,
+  );
+  if (limitedEnd < end) {
+    end = limitedEnd;
+    for (const entity of sourceEntities ?? []) {
+      if (entity.kind !== "customEmoji" && entity.kind !== "dateTime") continue;
+      const entityEnd = entity.offset + entity.length;
+      if (entity.offset < end && entityEnd > end) {
+        if (entity.offset > start) {
+          end = entity.offset;
+        } else {
+          if (Array.from(sourceText.slice(entity.offset, entityEnd)).length >
+            MAX_REPLY_QUOTE_CHARACTERS) return undefined;
+          end = entityEnd;
+        }
+      }
+    }
+  }
+
+  const text = sourceText.slice(start, end);
+  if (!text) return undefined;
+  const entities = sourceEntities?.flatMap((entity) => {
+    if (!quoteAllowedEntityKinds.has(entity.kind)) return [];
+    const entityEnd = entity.offset + entity.length;
+    const overlapStart = Math.max(start, entity.offset);
+    const overlapEnd = Math.min(end, entityEnd);
+    return overlapEnd > overlapStart
+      ? [{
+          ...entity,
+          offset: overlapStart - start,
+          length: overlapEnd - overlapStart,
+        }]
+      : [];
+  });
+
+  return {
+    text,
+    position: start,
+    ...(entities && entities.length > 0 ? { entities } : {}),
+  };
 };
 
 export const replyQuoteFromSelection = (
@@ -90,10 +212,10 @@ export const replyQuoteFromSelection = (
 
   const range = selection.getRangeAt(0);
   const rawText = range.toString();
-  const text = rawText.trim();
-  if (!text) return undefined;
+  if (!rawText.trim()) return undefined;
 
   const leadingWhitespaceLength = rawText.length - rawText.trimStart().length;
+  const trailingWhitespaceLength = rawText.length - rawText.trimEnd().length;
   const prefix = document.createRange();
   prefix.selectNodeContents(surface);
   try {
@@ -101,37 +223,15 @@ export const replyQuoteFromSelection = (
   } catch {
     return undefined;
   }
-  const renderedOffset = prefix.toString().length + leadingWhitespaceLength;
-  const position = sourceOffsetForSelection(sourceText, text, renderedOffset);
-  if (position === undefined) return undefined;
-
-  // The TDLib quote contract only permits a small set of entities, and those
-  // entities must be rebased to the selected slice. Keeping them prevents
-  // QUOTE_TEXT_INVALID for selections that cross formatted text.
-  const end = position + text.length;
-  const entities = sourceEntities?.flatMap((entity) => {
-    if (![
-      "bold",
-      "italic",
-      "underline",
-      "strikethrough",
-      "spoiler",
-    ].includes(entity.kind)) return [];
-    const entityEnd = entity.offset + entity.length;
-    const overlapStart = Math.max(position, entity.offset);
-    const overlapEnd = Math.min(end, entityEnd);
-    return overlapEnd > overlapStart
-      ? [{
-          ...entity,
-          offset: overlapStart - position,
-          length: overlapEnd - overlapStart,
-        }]
-      : [];
-  });
-
-  return {
-    text,
-    position,
-    ...(entities && entities.length > 0 ? { entities } : {}),
-  };
+  const renderedStart = prefix.toString().length + leadingWhitespaceLength;
+  const renderedEnd = renderedStart + rawText.length - leadingWhitespaceLength - trailingWhitespaceLength;
+  const fullRange = document.createRange();
+  fullRange.selectNodeContents(surface);
+  return replyQuoteFromRenderedSelection(
+    sourceText,
+    fullRange.toString(),
+    renderedStart,
+    renderedEnd,
+    sourceEntities,
+  );
 };

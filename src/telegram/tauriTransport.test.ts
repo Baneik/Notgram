@@ -2285,6 +2285,71 @@ describe("TauriTelegramTransport message operations", () => {
     });
   });
 
+  it("keeps custom emoji and date-time metadata required by TDLib quotes", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.sendMessage({
+      chatId: "7",
+      text: "reply",
+      replyToMessageId: "12",
+      replyQuote: {
+        text: "😀 2026",
+        position: 1,
+        entities: [
+          { offset: 0, length: 2, kind: "customEmoji", customEmojiId: "99" },
+          {
+            offset: 3,
+            length: 4,
+            kind: "dateTime",
+            dateTime: {
+              unixTime: 1_800_000_000,
+              mode: "absolute",
+              timePrecision: "short",
+              datePrecision: "long",
+              showDayOfWeek: true,
+            },
+          },
+        ],
+      },
+    });
+
+    expect((requests[0].reply_to as TdObject).quote).toEqual({
+      "@type": "inputTextQuote",
+      text: {
+        "@type": "formattedText",
+        text: "😀 2026",
+        entities: [
+          {
+            offset: 0,
+            length: 2,
+            type: { "@type": "textEntityTypeCustomEmoji", custom_emoji_id: "99" },
+          },
+          {
+            offset: 3,
+            length: 4,
+            type: {
+              "@type": "textEntityTypeDateTime",
+              unix_time: 1_800_000_000,
+              formatting_type: {
+                "@type": "dateTimeFormattingTypeAbsolute",
+                time_precision: { "@type": "dateTimePartPrecisionShort" },
+                date_precision: { "@type": "dateTimePartPrecisionLong" },
+                show_day_of_week: true,
+              },
+            },
+          },
+        ],
+      },
+      position: 1,
+    });
+  });
+
   it("preserves a newer draft while flushing a restored outbox message", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

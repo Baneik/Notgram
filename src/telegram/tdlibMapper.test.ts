@@ -164,6 +164,68 @@ describe("TDLib mapper", () => {
     })).toBeUndefined();
   });
 
+  it("maps custom emoji and date-time entities needed by reply quotes", () => {
+    expect(mapTdChatDraft(7, {
+      "@type": "draftMessage",
+      reply_to: {
+        "@type": "inputMessageReplyToMessage",
+        message_id: 12,
+        quote: {
+          "@type": "inputTextQuote",
+          text: {
+            "@type": "formattedText",
+            text: "😀 2026",
+            entities: [
+              {
+                offset: 0,
+                length: 2,
+                type: { "@type": "textEntityTypeCustomEmoji", custom_emoji_id: "99" },
+              },
+              {
+                offset: 3,
+                length: 4,
+                type: {
+                  "@type": "textEntityTypeDateTime",
+                  unix_time: 1_800_000_000,
+                  formatting_type: {
+                    "@type": "dateTimeFormattingTypeAbsolute",
+                    time_precision: { "@type": "dateTimePartPrecisionShort" },
+                    date_precision: { "@type": "dateTimePartPrecisionLong" },
+                    show_day_of_week: true,
+                  },
+                },
+              },
+            ],
+          },
+          position: 1,
+        },
+      },
+      date: 1_700_000_000,
+      content: {
+        "@type": "draftMessageContentText",
+        text: { "@type": "formattedText", text: "reply", entities: [] },
+      },
+    })?.replyQuote).toEqual({
+      text: "😀 2026",
+      position: 1,
+      entities: [
+        { offset: 0, length: 2, kind: "customEmoji", customEmojiId: "99" },
+        {
+          offset: 3,
+          length: 4,
+          kind: "dateTime",
+          dateTime: {
+            unixTime: 1_800_000_000,
+            mode: "absolute",
+            timePrecision: "short",
+            datePrecision: "long",
+            showDayOfWeek: true,
+          },
+        },
+      ],
+    });
+  });
+
   it("maps a private saved-messages chat", () => {
     const chat = mapTdChat(
       {
@@ -1123,7 +1185,13 @@ describe("TDLib mapper", () => {
       date: 1_700_000_000,
       sending_state: {
         "@type": "messageSendingStateFailed",
+        error: { "@type": "error", code: 400, message: "QUOTE_TEXT_INVALID" },
         can_retry: true,
+        need_another_reply_quote: true,
+        need_drop_reply: false,
+        need_another_sender: false,
+        required_paid_message_star_count: 0,
+        retry_after: 0,
       },
       content: {
         "@type": "messageText",
@@ -1131,7 +1199,19 @@ describe("TDLib mapper", () => {
       },
     });
 
-    expect(message).toMatchObject({ delivery: "failed", canRetry: true });
+    expect(message).toMatchObject({
+      delivery: "failed",
+      canRetry: false,
+      sendFailure: {
+        code: 400,
+        message: "QUOTE_TEXT_INVALID",
+        needAnotherReplyQuote: true,
+        needDropReply: false,
+        needAnotherSender: false,
+        requiredPaidMessageStarCount: "0",
+        retryAfter: 0,
+      },
+    });
   });
 
   it("maps outgoing file upload progress from TDLib remote state", () => {

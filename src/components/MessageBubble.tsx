@@ -581,6 +581,11 @@ function MessageBubbleComponent({
     }
   };
 
+  const sendFailureTitle = message.sendFailure?.needAnotherReplyQuote
+    ? "引用内容已失效，请重新选择引用后发送"
+    : message.sendFailure?.needDropReply
+      ? "原回复目标已失效，请取消回复后重新发送"
+      : message.sendFailure?.message || "发送失败";
   const messageMeta = !isService ? (
     <span className="message-meta">
       {showChannelMetadata && message.interaction && (
@@ -614,7 +619,7 @@ function MessageBubbleComponent({
         message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
           : message.delivery === "sending" ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
             : message.delivery === "failed" ? (
-              <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? "重试发送" : "发送失败"} onClick={() => void onRetry(message.id)}>
+              <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? `重试发送：${sendFailureTitle}` : sendFailureTitle} onClick={() => void onRetry(message.id)}>
                 {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
               </button>
             ) : <Check size={14} strokeWidth={2.2} />

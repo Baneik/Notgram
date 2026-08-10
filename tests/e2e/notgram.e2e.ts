@@ -3515,6 +3515,58 @@ test("replying from selected message text sends only the partial quote", async (
   await expect(sent.locator(".message-reply-preview small")).toHaveText(selectedText);
 });
 
+test("partial replies map rendered Markdown back to an exact source quote", async ({ page }) => {
+  await page.goto("/");
+  await revealVirtualMessage(page, "p-markdown");
+
+  const source = page.locator('[data-message-id="p-markdown"]');
+  const messageText = source.locator(".message-rich-text");
+  const renderedQuote = "Markdown 粗体、斜体";
+  await expect(messageText).toContainText(renderedQuote);
+  await messageText.evaluate((surface, quote) => {
+    const fullText = surface.textContent ?? "";
+    const start = fullText.indexOf(quote);
+    if (start < 0) throw new Error("Markdown quote fixture was not found");
+    const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+    const pointAt = (offset: number) => {
+      let consumed = 0;
+      let node = walker.nextNode();
+      while (node) {
+        const length = node.textContent?.length ?? 0;
+        if (offset <= consumed + length) return { node, offset: offset - consumed };
+        consumed += length;
+        node = walker.nextNode();
+      }
+      throw new Error("Markdown selection point was not found");
+    };
+    const begin = pointAt(start);
+    walker.currentNode = surface;
+    const end = pointAt(start + quote.length);
+    const range = document.createRange();
+    range.setStart(begin.node, begin.offset);
+    range.setEnd(end.node, end.offset);
+    const selection = globalThis.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }, renderedQuote);
+  await messageText.locator("strong").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+
+  const sourceQuote = "Markdown 粗体**、*斜体";
+  await expect(page.locator(".composer-context.is-replying small")).toHaveText(sourceQuote);
+  await expect.poll(() => page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: { getState: () => { drafts: Map<string, { replyQuote?: unknown }> } };
+    };
+    return module.telegramStore.getState().drafts.get("chat-product")?.replyQuote;
+  }, "/src/store/telegramStore.ts")).toEqual({ text: sourceQuote, position: 2 });
+
+  await page.getByRole("textbox", { name: "消息内容" }).fill("回复 Markdown 选区");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const sent = page.locator(".message-row.is-outgoing", { hasText: "回复 Markdown 选区" }).last();
+  await expect(sent.locator(".message-reply-preview small")).toHaveText(sourceQuote);
+});
+
 test("reply context resizes the latest viewport without moving a detached anchor", async ({ page }) => {
   await page.goto("/");
   const messageList = page.locator(".message-list");

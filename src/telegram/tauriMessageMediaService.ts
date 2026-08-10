@@ -33,9 +33,10 @@ import type {
   ForwardMessagesInput,
   ForwardMessagesResult,
   Message,
-  MessageTextEntityKind,
+  MessageDateTimeFormatting,
   MessagePermissions,
   MessageReplyQuote,
+  MessageTextEntity,
   PinMessageInput,
   SendEmojiAssetInput,
   SendFileInput,
@@ -52,13 +53,47 @@ import type {
 
 const MAX_PINNED_MESSAGE_PAGES = 100;
 
-const inputTextQuoteEntityType = (kind: MessageTextEntityKind) => {
-  switch (kind) {
+const dateTimePartPrecisionObject = (
+  precision: MessageDateTimeFormatting["timePrecision"],
+) => {
+  switch (precision) {
+    case "none": return { "@type": "dateTimePartPrecisionNone" };
+    case "short": return { "@type": "dateTimePartPrecisionShort" };
+    case "long": return { "@type": "dateTimePartPrecisionLong" };
+    default: return { "@type": "dateTimePartPrecisionNone" };
+  }
+};
+
+const dateTimeFormattingObject = (dateTime: MessageDateTimeFormatting) => {
+  switch (dateTime.mode) {
+    case "relative": return { "@type": "dateTimeFormattingTypeRelative" };
+    case "absolute": return {
+      "@type": "dateTimeFormattingTypeAbsolute",
+      time_precision: dateTimePartPrecisionObject(dateTime.timePrecision),
+      date_precision: dateTimePartPrecisionObject(dateTime.datePrecision),
+      show_day_of_week: dateTime.showDayOfWeek === true,
+    };
+    case "original": return null;
+  }
+};
+
+const inputTextQuoteEntityType = (entity: MessageTextEntity) => {
+  switch (entity.kind) {
     case "bold": return { "@type": "textEntityTypeBold" };
     case "italic": return { "@type": "textEntityTypeItalic" };
     case "underline": return { "@type": "textEntityTypeUnderline" };
     case "strikethrough": return { "@type": "textEntityTypeStrikethrough" };
     case "spoiler": return { "@type": "textEntityTypeSpoiler" };
+    case "customEmoji": return entity.customEmojiId
+      ? { "@type": "textEntityTypeCustomEmoji", custom_emoji_id: entity.customEmojiId }
+      : undefined;
+    case "dateTime": return entity.dateTime
+      ? {
+          "@type": "textEntityTypeDateTime",
+          unix_time: entity.dateTime.unixTime,
+          formatting_type: dateTimeFormattingObject(entity.dateTime),
+        }
+      : undefined;
     default: return undefined;
   }
 };
@@ -67,7 +102,7 @@ const inputTextQuoteObject = (replyQuote?: MessageReplyQuote): TdObject | null =
   if (!replyQuote || replyQuote.text.length === 0 ||
     !Number.isSafeInteger(replyQuote.position) || replyQuote.position < 0) return null;
   const entities = (replyQuote.entities ?? []).flatMap((entity) => {
-    const type = inputTextQuoteEntityType(entity.kind);
+    const type = inputTextQuoteEntityType(entity);
     return type && entity.offset >= 0 && entity.length > 0 &&
       entity.offset + entity.length <= replyQuote.text.length
       ? [{ offset: entity.offset, length: entity.length, type }]

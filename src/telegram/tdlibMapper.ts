@@ -5,6 +5,7 @@ import type {
   ForumTopic,
   Message,
   MessageContent,
+  MessageDateTimeFormatting,
   MessageForwardInfo,
   MessageInteraction,
   MessageInlineKeyboard,
@@ -83,6 +84,35 @@ const optionalUnixDate = (value: unknown) => {
   return seconds > 0 ? new Date(seconds * 1000).toISOString() : undefined;
 };
 
+const dateTimePartPrecision = (value: unknown) => {
+  switch (asTdObject(value)?.["@type"]) {
+    case "dateTimePartPrecisionNone": return "none" as const;
+    case "dateTimePartPrecisionShort": return "short" as const;
+    case "dateTimePartPrecisionLong": return "long" as const;
+    default: return undefined;
+  }
+};
+
+const dateTimeFormatting = (value: TdObject): MessageDateTimeFormatting | undefined => {
+  const unixTime = tdNumber(value.unix_time);
+  if (unixTime === undefined) return undefined;
+  const formatting = asTdObject(value.formatting_type);
+  if (!formatting) return { unixTime, mode: "original" };
+  if (formatting["@type"] === "dateTimeFormattingTypeRelative") {
+    return { unixTime, mode: "relative" };
+  }
+  if (formatting["@type"] !== "dateTimeFormattingTypeAbsolute") {
+    return { unixTime, mode: "original" };
+  }
+  return {
+    unixTime,
+    mode: "absolute",
+    timePrecision: dateTimePartPrecision(formatting.time_precision),
+    datePrecision: dateTimePartPrecision(formatting.date_precision),
+    showDayOfWeek: formatting.show_day_of_week === true,
+  };
+};
+
 const formattedTextDetails = (value: unknown) => {
   const object = asTdObject(value);
   const text = typeof object?.text === "string" ? object.text : "";
@@ -105,6 +135,8 @@ const formattedTextDetails = (value: unknown) => {
       case "textEntityTypeUnderline": kind = "underline"; break;
       case "textEntityTypeStrikethrough": kind = "strikethrough"; break;
       case "textEntityTypeSpoiler": kind = "spoiler"; break;
+      case "textEntityTypeCustomEmoji": kind = "customEmoji"; break;
+      case "textEntityTypeDateTime": kind = "dateTime"; break;
       case "textEntityTypeCode": kind = "code"; break;
       case "textEntityTypePre": kind = "pre"; break;
       case "textEntityTypePreCode": kind = "pre"; break;
@@ -125,6 +157,10 @@ const formattedTextDetails = (value: unknown) => {
       language: kind === "pre" && typeof type.language === "string"
         ? type.language
         : undefined,
+      customEmojiId: kind === "customEmoji"
+        ? tdId(type.custom_emoji_id) || undefined
+        : undefined,
+      dateTime: kind === "dateTime" ? dateTimeFormatting(type) : undefined,
     }];
   });
   return { text, entities };
@@ -348,33 +384,8 @@ const unsupportedContent = (value: unknown, type: string): MessageContent => ({
 
 type RichTextStyle = Omit<MessageRichTextRun, "text">;
 
-const richDateTime = (richText: TdObject): MessageRichTextRun["dateTime"] => {
-  const unixTime = tdNumber(richText.unix_time);
-  if (unixTime === undefined) return undefined;
-  const formatting = asTdObject(richText.formatting_type);
-  if (!formatting) return { unixTime, mode: "original" };
-  if (formatting["@type"] === "dateTimeFormattingTypeRelative") {
-    return { unixTime, mode: "relative" };
-  }
-  if (formatting["@type"] !== "dateTimeFormattingTypeAbsolute") {
-    return { unixTime, mode: "original" };
-  }
-  const precision = (value: unknown) => {
-    switch (asTdObject(value)?.["@type"]) {
-      case "dateTimePartPrecisionNone": return "none" as const;
-      case "dateTimePartPrecisionShort": return "short" as const;
-      case "dateTimePartPrecisionLong": return "long" as const;
-      default: return undefined;
-    }
-  };
-  return {
-    unixTime,
-    mode: "absolute",
-    timePrecision: precision(formatting.time_precision),
-    datePrecision: precision(formatting.date_precision),
-    showDayOfWeek: formatting.show_day_of_week === true,
-  };
-};
+const richDateTime = (richText: TdObject): MessageRichTextRun["dateTime"] =>
+  dateTimeFormatting(richText);
 
 const richTextRuns = (
   value: unknown,
@@ -1576,6 +1587,10 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const senderId = messageSenderId(raw.sender_id) || "unknown";
   const sendingState = asTdObject(raw.sending_state);
   const failed = sendingState?.["@type"] === "messageSendingStateFailed";
+  const sendError = failed ? asTdObject(sendingState.error) : undefined;
+  const needAnotherReplyQuote = failed && sendingState.need_another_reply_quote === true;
+  const needDropReply = failed && sendingState.need_drop_reply === true;
+  const needAnotherSender = failed && sendingState.need_another_sender === true;
   const mappedContent = mapTdMessageContent(raw.content, raw.is_outgoing === true);
   let content = mappedContent.kind === "unsupported"
     ? { ...mappedContent, raw: serializeTdObject(raw) }
@@ -1603,7 +1618,21 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     outgoing: raw.is_outgoing === true,
     sentAt: unixDate(raw.date),
     delivery: failed ? "failed" : sendingState ? "sending" : "sent",
-    canRetry: failed && sendingState.can_retry === true,
+    canRetry: failed && sendingState.can_retry === true &&
+      !needAnotherReplyQuote && !needDropReply && !needAnotherSender,
+    sendFailure: failed
+      ? {
+          code: tdNumber(sendError?.code),
+          message: typeof sendError?.message === "string" && sendError.message.trim()
+            ? sendError.message.trim()
+            : undefined,
+          needAnotherReplyQuote,
+          needDropReply,
+          needAnotherSender,
+          requiredPaidMessageStarCount: tdId(sendingState.required_paid_message_star_count) || undefined,
+          retryAfter: tdNumber(sendingState.retry_after),
+        }
+      : undefined,
     editedAt: optionalUnixDate(raw.edit_date),
     replyTo: mapTdReplyTarget(raw.reply_to),
     forwardInfo: mapTdForwardInfo(raw.forward_info),

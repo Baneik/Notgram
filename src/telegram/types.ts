@@ -520,6 +520,8 @@ export type MessageTextEntityKind =
   | "underline"
   | "strikethrough"
   | "spoiler"
+  | "customEmoji"
+  | "dateTime"
   | "code"
   | "pre"
   | "blockquote"
@@ -528,12 +530,22 @@ export type MessageTextEntityKind =
   | "email"
   | "phone";
 
+export interface MessageDateTimeFormatting {
+  unixTime: number;
+  mode: "relative" | "absolute" | "original";
+  timePrecision?: "none" | "short" | "long";
+  datePrecision?: "none" | "short" | "long";
+  showDayOfWeek?: boolean;
+}
+
 export interface MessageTextEntity {
   offset: number;
   length: number;
   kind: MessageTextEntityKind;
   href?: string;
   language?: string;
+  customEmojiId?: string;
+  dateTime?: MessageDateTimeFormatting;
 }
 
 export interface MessageRichTextRun {
@@ -553,13 +565,7 @@ export interface MessageRichTextRun {
   semantic?: "hashtag" | "cashtag" | "bankCard" | "botCommand";
   customEmojiId?: string;
   mathematicalExpression?: string;
-  dateTime?: {
-    unixTime: number;
-    mode: "relative" | "absolute" | "original";
-    timePrecision?: "none" | "short" | "long";
-    datePrecision?: "none" | "short" | "long";
-    showDayOfWeek?: boolean;
-  };
+  dateTime?: MessageDateTimeFormatting;
 }
 
 export interface MessageRichListItem {
@@ -794,6 +800,16 @@ export interface MessagePermissions {
   canPin?: boolean;
 }
 
+export interface MessageSendFailure {
+  code?: number;
+  message?: string;
+  needAnotherReplyQuote?: boolean;
+  needDropReply?: boolean;
+  needAnotherSender?: boolean;
+  requiredPaidMessageStarCount?: string;
+  retryAfter?: number;
+}
+
 export interface Message {
   id: string;
   renderKey?: string;
@@ -808,6 +824,7 @@ export interface Message {
   sentAt: string;
   delivery: DeliveryState;
   canRetry?: boolean;
+  sendFailure?: MessageSendFailure;
   editedAt?: string;
   replyTo?: MessageReplyTarget;
   forwardInfo?: MessageForwardInfo;

@@ -32,6 +32,14 @@ const wrapEntity = (
     case "underline": return <u key={key}>{children}</u>;
     case "strikethrough": return <del key={key}>{children}</del>;
     case "spoiler": return <span key={key} className="rich-spoiler" tabIndex={0}>{children}</span>;
+    case "customEmoji": return (
+      <span key={key} className="rich-custom-emoji" data-custom-emoji-id={entity.customEmojiId}>
+        {children}
+      </span>
+    );
+    case "dateTime": return entity.dateTime
+      ? <time key={key} dateTime={new Date(entity.dateTime.unixTime * 1_000).toISOString()}>{children}</time>
+      : <Fragment key={key}>{children}</Fragment>;
     case "code": return <code key={key}>{children}</code>;
     case "pre": return <code key={key} className="rich-pre" data-language={entity.language}>{children}</code>;
     case "blockquote": return <span key={key} className="rich-blockquote">{children}</span>;
