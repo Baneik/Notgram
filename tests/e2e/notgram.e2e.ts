@@ -2454,27 +2454,14 @@ test("search paginates, filters the current conversation by member, and opens ex
 
 test("conversation navigation records only links opened inside a conversation", async ({ page }) => {
   await page.goto("/");
-  const back = page.getByRole("button", { name: "后退" });
-  const forward = page.getByRole("button", { name: "前进" });
-
-  await expect(back).toBeDisabled();
-  await expect(forward).toBeDisabled();
+  await expect(page.getByRole("button", { name: "后退" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "前进" })).toHaveCount(0);
 
   await page.locator('[data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
-  await expect(back).toBeDisabled();
-  await expect(forward).toBeDisabled();
 
   await page.locator('[data-chat-id="chat-product"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
-  await expect(back).toBeDisabled();
-  await expect(forward).toBeDisabled();
-
-  const forwardedMessage = page.locator('[data-message-id="p-channel-reply"]');
-  await forwardedMessage.getByRole("button", { name: "打开频道原消息：Release editor" }).click();
-  await expect(page.locator(".conversation-title strong")).toHaveText("Release Notes");
-  await expect(back).toBeEnabled();
-  await expect(forward).toBeDisabled();
 
   await page.evaluate(() => {
     window.dispatchEvent(new PointerEvent("pointerdown", {
@@ -2484,8 +2471,19 @@ test("conversation navigation records only links opened inside a conversation", 
     }));
   });
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
-  await expect(back).toBeDisabled();
-  await expect(forward).toBeEnabled();
+
+  const forwardedMessage = page.locator('[data-message-id="p-channel-reply"]');
+  await forwardedMessage.getByRole("button", { name: "打开频道原消息：Release editor" }).click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Release Notes");
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent("pointerdown", {
+      button: 3,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
 
   await page.evaluate(() => {
     window.dispatchEvent(new PointerEvent("pointerdown", {
@@ -2495,8 +2493,17 @@ test("conversation navigation records only links opened inside a conversation", 
     }));
   });
   await expect(page.locator(".conversation-title strong")).toHaveText("Release Notes");
-  await expect(back).toBeEnabled();
-  await expect(forward).toBeDisabled();
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent("pointerdown", {
+      button: 3,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
 });
 
 test("chat profiles expose members and shared media with focus restoration", async ({ page }) => {
@@ -4175,10 +4182,10 @@ test("group service messages render as centered notices", async ({ page }) => {
   await expect(profile.getByRole("heading", { name: "Mia Chen" })).toBeVisible();
 });
 
-test("date separators are centered between messages and scrolling exposes the visible day", async ({ page }) => {
+test("date separators are centered and only upward user scrolling exposes the visible day", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
-  const currentDayMessage = await revealVirtualMessage(page, "p-service");
+  const separatorMessage = await revealVirtualMessage(page, "p-service");
   const separator = page.locator(".message-day").filter({ hasText: "8月1日" }).first();
   await expect(separator).toBeVisible();
   const spacing = await separator.evaluate((label) => {
@@ -4198,19 +4205,40 @@ test("date separators are centered between messages and scrolling exposes the vi
   expect(Math.abs(spacing!.before - spacing!.after)).toBeLessThanOrEqual(1);
 
   const indicator = page.locator(".conversation-date-indicator");
-  await currentDayMessage.evaluate((element) => {
+  const messageList = page.locator(".message-list");
+  await messageList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await page.getByRole("textbox", { name: "消息内容" }).fill("日期标签不应被输入触发");
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "表情、贴纸与 GIF" })).toBeVisible();
+  await expect(indicator).toHaveCount(0);
+  await page.getByRole("button", { name: "关闭表情面板" }).click();
+
+  await separatorMessage.evaluate((element) => {
     element.scrollIntoView({ block: "start", behavior: "auto" });
   });
-  await page.locator(".message-list").evaluate((element) => {
-    element.dispatchEvent(new Event("scroll"));
-  });
-  await expect(indicator).toHaveText("8月1日");
-  await expect(indicator).toHaveClass(/is-visible/);
-
-  await revealVirtualMessage(page, "p-old-8");
+  await messageList.hover();
+  await page.mouse.wheel(0, -120);
   await expect(indicator).toHaveText("7月30日");
   await expect(indicator).toHaveClass(/is-visible/);
+
+  await expect(indicator).not.toHaveClass(/is-visible/, { timeout: 2_000 });
+  await messageList.focus();
+  await page.keyboard.press("End");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await messageList.hover();
+  await page.mouse.wheel(0, -160);
+  await expect(indicator).toHaveText("8月1日");
+  await expect(indicator).toHaveClass(/is-visible/);
   await expect(indicator).toHaveCSS("pointer-events", "none");
+
+  await messageList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(indicator).not.toHaveClass(/is-visible/);
 });
 
 test("developer mode copies the complete raw unknown message", async ({ page, context }) => {

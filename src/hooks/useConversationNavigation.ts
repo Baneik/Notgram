@@ -25,6 +25,7 @@ export interface ConversationNavigation {
   getState: () => ConversationNavigationState;
   subscribe: (listener: () => void) => () => void;
   initialize: (location: ConversationNavigationLocation) => void;
+  reset: (location: ConversationNavigationLocation) => void;
   replace: (location: ConversationNavigationLocation) => void;
   push: (location: ConversationNavigationLocation) => void;
   goBack: () => ConversationNavigationLocation | undefined;
@@ -87,6 +88,11 @@ export const createConversationNavigation = (): ConversationNavigation => {
     },
     initialize: (location) => {
       if (index >= 0) return;
+      entries = [location];
+      index = 0;
+      updateState();
+    },
+    reset: (location) => {
       entries = [location];
       index = 0;
       updateState();

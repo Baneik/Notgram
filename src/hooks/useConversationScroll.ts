@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type UIEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
@@ -46,6 +47,12 @@ const BOTTOM_PIN_CONVERGENCE_FRAMES = 24;
 
 type ScrollControlMode = "following" | "detached" | "restoring" | "navigating";
 type UserScrollDirection = "up" | "down";
+
+export interface ConversationUserScroll {
+  element: HTMLDivElement;
+  direction: UserScrollDirection;
+  atBottom: boolean;
+}
 
 interface ScrollControlState {
   identity: string;
@@ -96,6 +103,7 @@ interface ConversationScrollOptions {
   hasOlderMessages: boolean;
   messageCount: number;
   onLoadOlder: () => Promise<void>;
+  onUserScroll?: (scroll: ConversationUserScroll) => void;
 }
 
 export const useConversationScroll = ({
@@ -113,6 +121,7 @@ export const useConversationScroll = ({
   hasOlderMessages,
   messageCount,
   onLoadOlder,
+  onUserScroll,
 }: ConversationScrollOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const messageListRef = useRef<HTMLDivElement>(null);
@@ -146,8 +155,11 @@ export const useConversationScroll = ({
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const smoothScrollUntilRef = useRef(0);
   const userIntentUntilRef = useRef(0);
+  const trustedUserIntentUntilRef = useRef(0);
   const userScrollDirectionRef = useRef<UserScrollDirection | undefined>(undefined);
+  const userScrollTopRef = useRef<number | undefined>(undefined);
   const pointerActiveRef = useRef(false);
+  const trustedPointerActiveRef = useRef(false);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const handledEntryRequestRef = useRef(0);
   const handledLatestRequestRef = useRef(0);
@@ -1612,6 +1624,7 @@ export const useConversationScroll = ({
     if (event.deltaY !== 0) {
       userScrollDirectionRef.current = event.deltaY < 0 ? "up" : "down";
       userIntentUntilRef.current = performance.now() + 320;
+      if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
     }
     if (event.deltaY > 0 && rawDistance <= BOTTOM_EPSILON_PX) {
       event.preventDefault();
@@ -1642,13 +1655,15 @@ export const useConversationScroll = ({
     }
   };
 
-  const onPointerDown = () => {
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (contentAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(contentAnchorFrameRef.current);
       contentAnchorFrameRef.current = undefined;
     }
     pointerActiveRef.current = true;
+    trustedPointerActiveRef.current = event.nativeEvent.isTrusted;
     userScrollDirectionRef.current = undefined;
+    userScrollTopRef.current = event.currentTarget.scrollTop;
     userIntentUntilRef.current = performance.now() + 320;
     const followLatest = currentScrollKey
       ? conversationScrollMemory.get(currentScrollKey)?.followLatest !== false
@@ -1657,22 +1672,29 @@ export const useConversationScroll = ({
   };
 
   const onPointerUp = () => {
+    const trustedPointer = trustedPointerActiveRef.current;
     pointerActiveRef.current = false;
+    trustedPointerActiveRef.current = false;
     userIntentUntilRef.current = performance.now() + 320;
+    if (trustedPointer) trustedUserIntentUntilRef.current = performance.now() + 320;
     if (currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest) {
       scheduleBottomPin();
     }
   };
 
   const onPointerCancel = () => {
+    const trustedPointer = trustedPointerActiveRef.current;
     pointerActiveRef.current = false;
+    trustedPointerActiveRef.current = false;
     userIntentUntilRef.current = performance.now() + 320;
+    if (trustedPointer) trustedUserIntentUntilRef.current = performance.now() + 320;
     if (currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest) {
       scheduleBottomPin();
     }
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
     if (event.key === "End") {
       userScrollDirectionRef.current = "down";
       if (currentScrollKey) {
@@ -1707,7 +1729,19 @@ export const useConversationScroll = ({
     const userInitiated = pointerInitiated || timedIntent;
     if (!userInitiated) return;
     const atBottom = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
-    const direction = timedIntent ? userScrollDirectionRef.current : undefined;
+    const previousScrollTop = userScrollTopRef.current;
+    const measuredDirection = previousScrollTop === undefined
+      ? undefined
+      : element.scrollTop < previousScrollTop - 0.5
+        ? "up"
+        : element.scrollTop > previousScrollTop + 0.5
+          ? "down"
+          : undefined;
+    userScrollTopRef.current = element.scrollTop;
+    const direction = timedIntent ? userScrollDirectionRef.current ?? measuredDirection : measuredDirection;
+    const trustedUserInitiated = trustedPointerActiveRef.current ||
+      performance.now() <= trustedUserIntentUntilRef.current;
+    if (direction && trustedUserInitiated) onUserScroll?.({ element, direction, atBottom });
     let control = scrollControlRef.current;
     if (control.mode === "restoring" || control.mode === "navigating") {
       interruptControlledPositioning(atBottom ? "following" : "detached");

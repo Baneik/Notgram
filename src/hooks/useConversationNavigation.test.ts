@@ -62,4 +62,16 @@ describe("conversation navigation", () => {
     expect(navigation.getState()).toEqual({ canGoBack: false, canGoForward: false });
     expect(navigation.goBack()).toBeUndefined();
   });
+
+  it("clears recorded jumps when navigation is reset by a conversation switch", () => {
+    const navigation = createConversationNavigation();
+    navigation.initialize(location("chat-a"));
+    navigation.push(location("chat-b"));
+
+    navigation.reset(location("chat-c"));
+
+    expect(navigation.getState()).toEqual({ canGoBack: false, canGoForward: false });
+    expect(navigation.goBack()).toBeUndefined();
+    expect(navigation.goForward()).toBeUndefined();
+  });
 });

@@ -406,6 +406,8 @@ export function Conversation({
   );
   const [visibleMessageDay, setVisibleMessageDay] = useState<string>();
   const [dateIndicatorVisible, setDateIndicatorVisible] = useState(false);
+  const dateIndicatorFrameRef = useRef<number | undefined>(undefined);
+  const dateIndicatorHideTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const pinnedMessageIdsKey = useMemo(
     () => allPinnedMessages.map((message) => message.id).join("\n"),
     [allPinnedMessages],
@@ -655,6 +657,58 @@ export function Conversation({
   const pinnedBannerVisible = !pinnedViewOpen && !selectionMode &&
     (chat?.kind === "group" || chat?.kind === "channel") &&
     allPinnedMessages.length > 0;
+  const hideDateIndicator = useCallback(() => {
+    if (dateIndicatorFrameRef.current !== undefined) {
+      cancelAnimationFrame(dateIndicatorFrameRef.current);
+      dateIndicatorFrameRef.current = undefined;
+    }
+    if (dateIndicatorHideTimerRef.current !== undefined) {
+      globalThis.clearTimeout(dateIndicatorHideTimerRef.current);
+      dateIndicatorHideTimerRef.current = undefined;
+    }
+    setDateIndicatorVisible(false);
+  }, []);
+  const handleConversationUserScroll = useCallback(({
+    element,
+    direction,
+    atBottom,
+  }: {
+    element: HTMLDivElement;
+    direction: "up" | "down";
+    atBottom: boolean;
+  }) => {
+    if (pinnedViewOpen || direction !== "up" || atBottom) {
+      hideDateIndicator();
+      return;
+    }
+    if (dateIndicatorFrameRef.current !== undefined) return;
+    dateIndicatorFrameRef.current = requestAnimationFrame(() => {
+      dateIndicatorFrameRef.current = undefined;
+      const listBounds = element.getBoundingClientRect();
+      const firstVisible = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+        .filter((row) => {
+          const bounds = row.getBoundingClientRect();
+          return bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1;
+        })
+        .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0];
+      const message = firstVisible?.dataset.messageId
+        ? messagesById.get(firstVisible.dataset.messageId)
+        : undefined;
+      if (!message) {
+        setDateIndicatorVisible(false);
+        return;
+      }
+      setVisibleMessageDay(formatMessageDay(message.sentAt));
+      setDateIndicatorVisible(true);
+      if (dateIndicatorHideTimerRef.current !== undefined) {
+        globalThis.clearTimeout(dateIndicatorHideTimerRef.current);
+      }
+      dateIndicatorHideTimerRef.current = globalThis.setTimeout(() => {
+        dateIndicatorHideTimerRef.current = undefined;
+        setDateIndicatorVisible(false);
+      }, 1_200);
+    });
+  }, [hideDateIndicator, messagesById, pinnedViewOpen]);
   const {
     messageListRef,
     messageListElement,
@@ -697,7 +751,24 @@ export function Conversation({
     hasOlderMessages: pinnedViewOpen ? false : hasOlderMessages,
     messageCount: pinnedViewOpen ? renderedMessages.length : messages.length,
     onLoadOlder: pinnedViewOpen ? async () => undefined : onLoadOlder,
+    onUserScroll: handleConversationUserScroll,
   });
+  useEffect(() => {
+    setVisibleMessageDay(undefined);
+    hideDateIndicator();
+    return hideDateIndicator;
+  }, [chat?.id, hideDateIndicator, pinnedViewOpen]);
+  useEffect(() => {
+    if (!messageListElement) return;
+    const hideAtBottom = () => {
+      const distance = messageListElement.scrollHeight -
+        messageListElement.clientHeight - messageListElement.scrollTop;
+      if (distance <= 1) hideDateIndicator();
+    };
+    hideAtBottom();
+    messageListElement.addEventListener("scroll", hideAtBottom, { passive: true });
+    return () => messageListElement.removeEventListener("scroll", hideAtBottom);
+  }, [hideDateIndicator, messageListElement]);
   useEffect(() => {
     if (pinnedViewOpen || !messageListElement || !pinnedMessageIdsKey) {
       setVisiblePinnedMessageIds((current) => current.size === 0 ? current : new Set());
@@ -757,57 +828,6 @@ export function Conversation({
       resizeObserver.disconnect();
     };
   }, [messageListElement, pinnedMessageIdsKey, pinnedViewOpen]);
-
-  useEffect(() => {
-    if (pinnedViewOpen || !messageListElement) {
-      setVisibleMessageDay(undefined);
-      setDateIndicatorVisible(false);
-      return;
-    }
-    let frame: number | undefined;
-    let hideTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-    let revealOnPublish = true;
-    const publishVisibleDay = () => {
-      frame = undefined;
-      const listBounds = messageListElement.getBoundingClientRect();
-      const firstVisible = [...messageListElement.querySelectorAll<HTMLElement>("[data-message-id]")]
-        .filter((row) => {
-          const bounds = row.getBoundingClientRect();
-          return bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1;
-        })
-        .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0];
-      const message = firstVisible?.dataset.messageId
-        ? messagesById.get(firstVisible.dataset.messageId)
-        : undefined;
-      if (message) setVisibleMessageDay(formatMessageDay(message.sentAt));
-      if (message && revealOnPublish) {
-        setDateIndicatorVisible(true);
-        if (hideTimer !== undefined) globalThis.clearTimeout(hideTimer);
-        hideTimer = globalThis.setTimeout(() => {
-          hideTimer = undefined;
-          setDateIndicatorVisible(false);
-        }, 1_200);
-      }
-      revealOnPublish = false;
-    };
-    const scheduleVisibleDay = (reveal = false) => {
-      revealOnPublish = revealOnPublish || reveal;
-      if (frame === undefined) frame = requestAnimationFrame(publishVisibleDay);
-    };
-    const onScroll = () => scheduleVisibleDay(true);
-    scheduleVisibleDay(true);
-    messageListElement.addEventListener("scroll", onScroll, { passive: true });
-    globalThis.addEventListener("resize", onScroll);
-    const mutationObserver = new MutationObserver(() => scheduleVisibleDay(false));
-    mutationObserver.observe(messageListElement, { childList: true, subtree: true });
-    return () => {
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      if (hideTimer !== undefined) globalThis.clearTimeout(hideTimer);
-      messageListElement.removeEventListener("scroll", onScroll);
-      globalThis.removeEventListener("resize", onScroll);
-      mutationObserver.disconnect();
-    };
-  }, [messageListElement, messagesById, pinnedViewOpen]);
 
   const pinnedBannerMessage = useMemo(
     () => pinnedMessageForVisibleRange(allPinnedMessages, visiblePinnedMessageIds),

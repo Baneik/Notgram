@@ -281,6 +281,7 @@ export function App() {
   const conversationNavigation = useConversationNavigation();
   const {
     initialize: initializeConversationNavigation,
+    reset: resetConversationNavigation,
     replace: replaceConversationNavigation,
     push: pushConversationNavigation,
     goBack: goBackConversationNavigation,
@@ -457,8 +458,8 @@ export function App() {
   }, [captureConversationLocation, pushConversationNavigation, replaceConversationNavigation]);
 
   const syncConversationNavigation = useCallback((location: ConversationNavigationLocation) => {
-    replaceConversationNavigation(location);
-  }, [replaceConversationNavigation]);
+    resetConversationNavigation(location);
+  }, [resetConversationNavigation]);
 
   const locationForChat = useCallback((chatId: string, topicId?: string): ConversationNavigationLocation => ({
     ...captureConversationLocation(),
@@ -1094,9 +1095,6 @@ export function App() {
             title: folder.title,
           })}
           onOpenSettings={openSettings}
-          conversationNavigation={conversationNavigation}
-          onNavigateBack={navigateBack}
-          onNavigateForward={navigateForward}
         />
         <ChatSidebar
           chats={visibleChats}

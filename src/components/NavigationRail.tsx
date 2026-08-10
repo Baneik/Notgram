@@ -1,14 +1,10 @@
-import { Archive, ArrowLeft, ArrowRight, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, UserRound, Users } from "lucide-react";
+import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, UserRound, Users } from "lucide-react";
 import { useCallback, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { ChatFilter } from "../store/telegramStore";
 import type { Chat, ChatFolder, User } from "../telegram/types";
 import { Avatar } from "./Avatar";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { FolderContextMenu } from "./SidebarContextMenus";
-import {
-  useConversationNavigationState,
-  type ConversationNavigation,
-} from "../hooks/useConversationNavigation";
 
 interface NavigationRailProps {
   filter: ChatFilter;
@@ -22,9 +18,6 @@ interface NavigationRailProps {
   onMarkFolderRead: (folderId: string) => Promise<boolean>;
   onRequestDeleteFolder: (folder: ChatFolder) => void;
   onOpenSettings: () => void;
-  conversationNavigation: ConversationNavigation;
-  onNavigateBack: () => void;
-  onNavigateForward: () => void;
 }
 
 export function NavigationRail({
@@ -39,11 +32,7 @@ export function NavigationRail({
   onMarkFolderRead,
   onRequestDeleteFolder,
   onOpenSettings,
-  conversationNavigation,
-  onNavigateBack,
-  onNavigateForward,
 }: NavigationRailProps) {
-  const { canGoBack, canGoForward } = useConversationNavigationState(conversationNavigation);
   const [contextMenu, setContextMenu] = useState<{
     folderId: string;
     point: ContextMenuPoint;
@@ -89,28 +78,6 @@ export function NavigationRail({
         <Avatar avatar={accountAvatar} size="small" />
         <span>{accountName}</span>
       </button>
-      <div className="rail-navigation" aria-label="会话导航">
-        <button
-          className="rail-navigation-button"
-          type="button"
-          aria-label="后退"
-          title="后退"
-          disabled={!canGoBack}
-          onClick={onNavigateBack}
-        >
-          <ArrowLeft size={18} strokeWidth={1.9} />
-        </button>
-        <button
-          className="rail-navigation-button"
-          type="button"
-          aria-label="前进"
-          title="前进"
-          disabled={!canGoForward}
-          onClick={onNavigateForward}
-        >
-          <ArrowRight size={18} strokeWidth={1.9} />
-        </button>
-      </div>
       <div className="rail-actions">
         {folders.filter((folder) => folder.id !== "archive").map((folder) => (
           <button className={`rail-button ${filter === folder.id ? "is-active" : ""}`} key={folder.id}
