@@ -940,48 +940,6 @@ export function Conversation({
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
-    if (!chat || pinnedViewOpen) return;
-    let focusTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-    const isEditable = (target: Element | null) => target instanceof HTMLTextAreaElement ||
-      (target instanceof HTMLInputElement && !["checkbox", "radio", "range", "file"].includes(target.type)) ||
-      target?.getAttribute("contenteditable") === "true";
-    const isProtectedSurface = (target: Element | null) => Boolean(
-      target?.closest("[role='dialog'], [role='menu'], .context-menu-panel, .chat-action-menu"),
-    );
-    const focusComposerWhenFree = (onlyWhenUnfocused = false) => {
-      if (window.matchMedia("(forced-colors: active)").matches) return;
-      if (focusTimer !== undefined) globalThis.clearTimeout(focusTimer);
-      focusTimer = globalThis.setTimeout(() => {
-        focusTimer = undefined;
-        const active = document.activeElement;
-        if (!document.hasFocus() || isEditable(active) || isProtectedSurface(active)) return;
-        if (onlyWhenUnfocused && active !== document.body && active !== document.documentElement) return;
-        composerInputRef.current?.focus({ preventScroll: true });
-      }, 80);
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (isEditable(target) || isProtectedSurface(target)) return;
-      focusComposerWhenFree();
-    };
-    const onFocusOut = (event: FocusEvent) => {
-      const next = event.relatedTarget instanceof Element ? event.relatedTarget : null;
-      if (next && next !== document.body && next !== document.documentElement) return;
-      focusComposerWhenFree(true);
-    };
-    const onWindowFocus = () => focusComposerWhenFree(true);
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("focusout", onFocusOut);
-    window.addEventListener("focus", onWindowFocus);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("focusout", onFocusOut);
-      window.removeEventListener("focus", onWindowFocus);
-      if (focusTimer !== undefined) globalThis.clearTimeout(focusTimer);
-    };
-  }, [chat?.id, pinnedViewOpen]);
-
-  useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const row = target?.closest<HTMLElement>(".message-row");
@@ -1016,6 +974,8 @@ export function Conversation({
       historyLoading ||
       selectionMode
     ) return;
+    const selection = globalThis.getSelection();
+    if (selection && !selection.isCollapsed) return;
     const active = document.activeElement;
     const activeChatRow = active instanceof Element && Boolean(active.closest(".chat-row"));
     if (active && active !== document.body && active !== document.documentElement &&

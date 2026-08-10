@@ -3391,6 +3391,33 @@ test("chat switching and ordinary message interactions keep typing focus in the 
   await expect(page.getByRole("group", { name: "搜索范围：Mia Chen" })).toBeVisible();
 });
 
+test("selecting message text is not interrupted by composer autofocus", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-mia"]').click();
+
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  const messageText = page.locator('[data-message-id="m-3"] .message-rich-text');
+  await expect(composer).toBeFocused();
+  await expect(messageText).toBeVisible();
+
+  await messageText.dispatchEvent("pointerdown", { pointerType: "mouse", button: 0 });
+  // A real text drag blurs the composer before the document selection settles.
+  await composer.evaluate((element) => element.blur());
+  await messageText.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = globalThis.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  // Keep the selection active longer than the removed 80 ms autofocus delay.
+  await page.waitForTimeout(120);
+
+  await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
+    .toContain("那我们下午三点对一下细节");
+  await expect(composer).not.toBeFocused();
+});
+
 test("reply context resizes the latest viewport without moving a detached anchor", async ({ page }) => {
   await page.goto("/");
   const messageList = page.locator(".message-list");
