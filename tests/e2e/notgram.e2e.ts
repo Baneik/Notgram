@@ -3498,6 +3498,16 @@ test("replying from selected message text sends only the partial quote", async (
     return module.telegramStore.getState().drafts.get("chat-product")?.replyQuote;
   }, "/src/store/telegramStore.ts")).toEqual({ text: selectedText, position: 4 });
 
+  // A native TDLib draft echo can temporarily omit the quote while it is
+  // being normalized. The locally selected quote must remain authoritative.
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: { getState: () => { updateChatDraft: (chatId: string, text: string, replyToMessageId?: string) => void } };
+    };
+    module.telegramStore.getState().updateChatDraft("chat-product", "", "p-2");
+  }, "/src/store/telegramStore.ts");
+  await expect(page.locator(".composer-context.is-replying small")).toHaveText(selectedText);
+
   const composer = page.getByRole("textbox", { name: "消息内容" });
   await composer.fill("只回复选中的这部分");
   await page.getByRole("button", { name: "发送消息" }).click();

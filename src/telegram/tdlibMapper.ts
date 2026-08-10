@@ -1774,7 +1774,8 @@ export const mapTdChatDraft = (
   const quote = reply?.["@type"] === "inputMessageReplyToMessage"
     ? asTdObject(reply.quote)
     : undefined;
-  const quoteText = quote ? formattedText(quote.text) : "";
+  const quoteDetails = quote ? formattedTextDetails(quote.text) : undefined;
+  const quoteText = quoteDetails?.text ?? "";
   const quotePosition = quote ? tdNumber(quote.position) : undefined;
   return {
     chatId,
@@ -1782,7 +1783,13 @@ export const mapTdChatDraft = (
     text: formattedText(content.text),
     replyToMessageId: replyToMessageId || undefined,
     replyQuote: replyToMessageId && quoteText && quotePosition !== undefined && quotePosition >= 0
-      ? { text: quoteText, position: quotePosition }
+      ? {
+          text: quoteText,
+          position: quotePosition,
+          ...(quoteDetails && quoteDetails.entities.length > 0
+            ? { entities: quoteDetails.entities }
+            : {}),
+        }
       : undefined,
     updatedAt: unixDate(draft.date),
   };

@@ -33,6 +33,7 @@ import type {
   ForwardMessagesInput,
   ForwardMessagesResult,
   Message,
+  MessageTextEntityKind,
   MessagePermissions,
   MessageReplyQuote,
   PinMessageInput,
@@ -51,6 +52,34 @@ import type {
 
 const MAX_PINNED_MESSAGE_PAGES = 100;
 
+const inputTextQuoteEntityType = (kind: MessageTextEntityKind) => {
+  switch (kind) {
+    case "bold": return { "@type": "textEntityTypeBold" };
+    case "italic": return { "@type": "textEntityTypeItalic" };
+    case "underline": return { "@type": "textEntityTypeUnderline" };
+    case "strikethrough": return { "@type": "textEntityTypeStrikethrough" };
+    case "spoiler": return { "@type": "textEntityTypeSpoiler" };
+    default: return undefined;
+  }
+};
+
+const inputTextQuoteObject = (replyQuote?: MessageReplyQuote): TdObject | null => {
+  if (!replyQuote || replyQuote.text.length === 0 ||
+    !Number.isSafeInteger(replyQuote.position) || replyQuote.position < 0) return null;
+  const entities = (replyQuote.entities ?? []).flatMap((entity) => {
+    const type = inputTextQuoteEntityType(entity.kind);
+    return type && entity.offset >= 0 && entity.length > 0 &&
+      entity.offset + entity.length <= replyQuote.text.length
+      ? [{ offset: entity.offset, length: entity.length, type }]
+      : [];
+  });
+  return {
+    "@type": "inputTextQuote",
+    text: { "@type": "formattedText", text: replyQuote.text, entities },
+    position: replyQuote.position,
+  };
+};
+
 const inputMessageReplyTarget = (
   replyToMessageId?: string,
   replyQuote?: MessageReplyQuote,
@@ -58,14 +87,9 @@ const inputMessageReplyTarget = (
   ? {
       "@type": "inputMessageReplyToMessage",
       message_id: numericId(replyToMessageId),
-      quote: replyQuote && replyQuote.text.length > 0 && Number.isSafeInteger(replyQuote.position) && replyQuote.position >= 0
-        ? {
-            "@type": "inputTextQuote",
-            text: { "@type": "formattedText", text: replyQuote.text, entities: [] },
-            position: replyQuote.position,
-          }
-        : null,
+      quote: inputTextQuoteObject(replyQuote),
       checklist_task_id: 0,
+      poll_option_id: "",
     }
   : null;
 

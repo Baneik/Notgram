@@ -2237,6 +2237,7 @@ describe("TauriTelegramTransport message operations", () => {
           position: 4,
         },
         checklist_task_id: 0,
+        poll_option_id: "",
       },
       options: null,
       reply_markup: null,
@@ -2247,6 +2248,41 @@ describe("TauriTelegramTransport message operations", () => {
         clear_draft: true,
       },
     }]);
+  });
+
+  it("keeps supported formatting inside a partial quote", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.sendMessage({
+      chatId: "7",
+      text: "reply",
+      replyToMessageId: "12",
+      replyQuote: {
+        text: "selected text",
+        position: 4,
+        entities: [{ offset: 0, length: 8, kind: "bold" }],
+      },
+    });
+
+    expect((requests[0].reply_to as TdObject).quote).toEqual({
+      "@type": "inputTextQuote",
+      text: {
+        "@type": "formattedText",
+        text: "selected text",
+        entities: [{
+          offset: 0,
+          length: 8,
+          type: { "@type": "textEntityTypeBold" },
+        }],
+      },
+      position: 4,
+    });
   });
 
   it("preserves a newer draft while flushing a restored outbox message", async () => {
@@ -2343,6 +2379,7 @@ describe("TauriTelegramTransport message operations", () => {
               position: 7,
             },
             checklist_task_id: 0,
+            poll_option_id: "",
           },
           date: expect.any(Number),
           content: {

@@ -130,7 +130,15 @@ describe("TDLib mapper", () => {
         message_id: 12,
         quote: {
           "@type": "inputTextQuote",
-          text: { "@type": "formattedText", text: "selected draft text", entities: [] },
+          text: {
+            "@type": "formattedText",
+            text: "selected draft text",
+            entities: [{
+              offset: 0,
+              length: 8,
+              type: { "@type": "textEntityTypeBold" },
+            }],
+          },
           position: 3,
         },
       },
@@ -143,7 +151,11 @@ describe("TDLib mapper", () => {
       chatId: "7",
       text: "unfinished text",
       replyToMessageId: "12",
-      replyQuote: { text: "selected draft text", position: 3 },
+      replyQuote: {
+        text: "selected draft text",
+        position: 3,
+        entities: [{ offset: 0, length: 8, kind: "bold" }],
+      },
       updatedAt: "2023-11-14T22:13:20.000Z",
     });
     expect(mapTdChatDraft(7, {
@@ -1179,7 +1191,10 @@ describe("TDLib mapper", () => {
         message_id: 900,
         sender_id: { "@type": "messageSenderUser", user_id: 42 },
         quote: {
+          "@type": "textQuote",
           text: { "@type": "formattedText", text: "quoted text", entities: [] },
+          position: 7,
+          is_manual: true,
         },
         origin: { "@type": "messageOriginHiddenUser", sender_name: "Hidden Sender" },
         origin_send_date: 1_699_999_000,

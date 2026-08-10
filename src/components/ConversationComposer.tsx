@@ -103,7 +103,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   onSendBotStart,
 }: ConversationComposerProps) {
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
-  const activeReplyQuote = replyQuote ?? chatDraft?.replyQuote;
+  const activeReplyQuote = replyingTo ? replyQuote : chatDraft?.replyQuote;
   const [draft, setDraft] = useState(chatDraft?.text ?? "");
   const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);

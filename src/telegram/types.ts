@@ -497,6 +497,11 @@ export interface CreateChatInput {
 export interface MessageReplyQuote {
   text: string;
   position: number;
+  /**
+   * Formatting that belongs to the selected slice of the source message.
+   * Telegram requires the formatting supported by text quotes to be kept.
+   */
+  entities?: MessageTextEntity[];
 }
 
 export interface ChatDraft {

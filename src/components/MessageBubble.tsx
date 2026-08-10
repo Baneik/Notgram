@@ -215,6 +215,11 @@ function MessageBubbleComponent({
       : content.kind === "media" || content.kind === "file"
         ? content.caption
         : undefined;
+    const sourceEntities = content.kind === "text"
+      ? content.entities
+      : content.kind === "media" || content.kind === "file"
+        ? content.captionEntities
+        : undefined;
     const selection = globalThis.getSelection();
     const surface = sourceText
       ? [...shell.querySelectorAll<HTMLElement>(".message-rich-text")]
@@ -229,7 +234,7 @@ function MessageBubbleComponent({
           })
       : undefined;
     return sourceText && surface
-      ? replyQuoteFromSelection(selection, surface, sourceText)
+      ? replyQuoteFromSelection(selection, surface, sourceText, sourceEntities)
       : undefined;
   };
   const isSticker = content.kind === "media" && content.mediaType === "sticker";

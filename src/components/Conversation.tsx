@@ -1145,10 +1145,16 @@ export function Conversation({
     }
     const target = messagesById.get(replyToMessageId);
     if (target) {
-      setReplyingTo((current) => current?.id === target.id ? current : target);
-      setReplyQuote(draftReplyQuote);
+      // Once a reply is opened locally, its selected quote is authoritative.
+      // TDLib may echo a draft without the quote while it is normalizing it;
+      // replacing the local quote with that echo makes the composer fall back
+      // to the complete source message and sends a whole-message reply.
+      if (replyingTo?.id !== target.id) {
+        setReplyingTo(target);
+        setReplyQuote(draftReplyQuote);
+      }
     }
-  }, [conversationIdentity, draftReplyQuote, draftReplyToMessageId, editingMessage, messagesById]);
+  }, [conversationIdentity, draftReplyQuote, draftReplyToMessageId, editingMessage, messagesById, replyingTo?.id]);
 
   useEffect(() => {
     if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
@@ -1231,8 +1237,13 @@ export function Conversation({
             );
           })
       : undefined;
+    const sourceEntities = message.content.kind === "text"
+      ? message.content.entities
+      : message.content.kind === "media" || message.content.kind === "file"
+        ? message.content.captionEntities
+        : undefined;
     const selectedReplyQuote = capturedReplyQuote ?? (sourceText && selectedSurface
-      ? replyQuoteFromSelection(selection, selectedSurface, sourceText)
+      ? replyQuoteFromSelection(selection, selectedSurface, sourceText, sourceEntities)
       : undefined);
     setActionMenu({
       messageId: message.id,

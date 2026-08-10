@@ -1,4 +1,4 @@
-import type { MessageReplyQuote } from "../telegram/types";
+import type { MessageReplyQuote, MessageTextEntity } from "../telegram/types";
 
 export interface SelectionPointerPosition {
   x: number;
@@ -78,6 +78,7 @@ export const replyQuoteFromSelection = (
   selection: Selection | null,
   surface: HTMLElement,
   sourceText: string,
+  sourceEntities?: MessageTextEntity[],
 ): MessageReplyQuote | undefined => {
   if (
     !selection ||
@@ -102,5 +103,35 @@ export const replyQuoteFromSelection = (
   }
   const renderedOffset = prefix.toString().length + leadingWhitespaceLength;
   const position = sourceOffsetForSelection(sourceText, text, renderedOffset);
-  return position === undefined ? undefined : { text, position };
+  if (position === undefined) return undefined;
+
+  // The TDLib quote contract only permits a small set of entities, and those
+  // entities must be rebased to the selected slice. Keeping them prevents
+  // QUOTE_TEXT_INVALID for selections that cross formatted text.
+  const end = position + text.length;
+  const entities = sourceEntities?.flatMap((entity) => {
+    if (![
+      "bold",
+      "italic",
+      "underline",
+      "strikethrough",
+      "spoiler",
+    ].includes(entity.kind)) return [];
+    const entityEnd = entity.offset + entity.length;
+    const overlapStart = Math.max(position, entity.offset);
+    const overlapEnd = Math.min(end, entityEnd);
+    return overlapEnd > overlapStart
+      ? [{
+          ...entity,
+          offset: overlapStart - position,
+          length: overlapEnd - overlapStart,
+        }]
+      : [];
+  });
+
+  return {
+    text,
+    position,
+    ...(entities && entities.length > 0 ? { entities } : {}),
+  };
 };
