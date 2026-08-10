@@ -347,6 +347,12 @@ export const useConversationScroll = ({
       current?.key === key && current.count === count ? current : { key, count });
   }, []);
 
+  const publishJumpHistory = useCallback((key: string, history: ConversationJumpAnchor[]) => {
+    if (history.length > 0) jumpHistoryRef.current.set(key, history);
+    else jumpHistoryRef.current.delete(key);
+    setJumpHistoryState({ key, count: history.length });
+  }, []);
+
   const setMessageListRef = useCallback((ref: HTMLElement | Window | null) => {
     const element = ref instanceof HTMLDivElement ? ref : null;
     messageListRef.current = element;
@@ -570,6 +576,10 @@ export const useConversationScroll = ({
       cancelAnimationFrame(positioningFrameRef.current);
       positioningFrameRef.current = undefined;
     }
+    if (contentAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(contentAnchorFrameRef.current);
+      contentAnchorFrameRef.current = undefined;
+    }
     revealTargetTokenRef.current = undefined;
     positioningIdentityRef.current = undefined;
     const current = scrollControlRef.current;
@@ -620,6 +630,8 @@ export const useConversationScroll = ({
     userIntentUntilRef.current = 0;
     userScrollDirectionRef.current = undefined;
     pointerActiveRef.current = false;
+    preparedJumpRef.current = undefined;
+    publishJumpHistory(currentScrollKey, []);
     writeMemory(currentScrollKey, element, true, 0, false);
     if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);
     if (resolvedBehavior === "smooth") {
@@ -654,6 +666,7 @@ export const useConversationScroll = ({
     initialLocationIdentity,
     interruptControlledPositioning,
     pinToBottom,
+    publishJumpHistory,
     reduceMotion,
     scheduleBottomPin,
     settleBottomPosition,
@@ -926,12 +939,6 @@ export const useConversationScroll = ({
     settleBottomPosition,
   ]);
 
-  const publishJumpHistory = useCallback((key: string, history: ConversationJumpAnchor[]) => {
-    if (history.length > 0) jumpHistoryRef.current.set(key, history);
-    else jumpHistoryRef.current.delete(key);
-    setJumpHistoryState({ key, count: history.length });
-  }, []);
-
   const captureJumpAnchor = useCallback((destinationMessageId: string) => {
     const element = messageListRef.current;
     if (
@@ -962,6 +969,7 @@ export const useConversationScroll = ({
         {
           messageId: anchor.dataset.messageId,
           offset: anchor.getBoundingClientRect().top - bounds.top,
+          followLatest: distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX,
         },
       ),
     );
@@ -1228,6 +1236,10 @@ export const useConversationScroll = ({
     );
     publishJumpHistory(currentScrollKey, result.history);
     if (!result.anchor) return false;
+    if (result.anchor.followLatest) {
+      jumpToLatest("smooth", true);
+      return true;
+    }
     stopFollowingLatest();
     settleContentAnchorPosition(
       element,
@@ -1248,6 +1260,7 @@ export const useConversationScroll = ({
     return true;
   }, [
     currentScrollKey,
+    jumpToLatest,
     publishJumpHistory,
     settleContentAnchorPosition,
     stopFollowingLatest,

@@ -8,9 +8,15 @@ describe("conversation jump history", () => {
   it("keeps distinct anchors in navigation order and caps retained history", () => {
     const first = pushConversationJumpAnchor([], { messageId: "10", offset: 12 });
     const duplicate = pushConversationJumpAnchor(first, { messageId: "10", offset: 12.5 });
-    const capped = pushConversationJumpAnchor(duplicate, { messageId: "20", offset: 24 }, 1);
+    const following = pushConversationJumpAnchor(duplicate, {
+      messageId: "10",
+      offset: 12.5,
+      followLatest: true,
+    });
+    const capped = pushConversationJumpAnchor(following, { messageId: "20", offset: 24 }, 1);
 
     expect(duplicate).toEqual(first);
+    expect(following).toHaveLength(2);
     expect(capped).toEqual([{ messageId: "20", offset: 24 }]);
   });
 

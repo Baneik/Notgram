@@ -4349,6 +4349,63 @@ test("message jumps return through prior reading positions before returning to l
   await expect(page.getByRole("button", { name: /^跳到最新消息/ })).toBeVisible();
 });
 
+test("returning from a reply jump to the latest message clears navigation state", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+
+  const targetMessageId = await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-product") ?? [])];
+    const latest = current.at(-1);
+    const target = current.at(-12);
+    if (!latest || !target || typeof target.id !== "string") return undefined;
+    current.push({
+      ...latest,
+      id: "p-latest-reply-jump",
+      renderKey: undefined,
+      senderId: "u-mia",
+      outgoing: false,
+      sentAt: new Date(Date.now() + 10_000).toISOString(),
+      replyTo: {
+        kind: "message",
+        chatId: "chat-product",
+        messageId: target.id,
+        content: target.content,
+      },
+      content: { kind: "text", text: "最新消息引用了前文" },
+    });
+    messages.set("chat-product", current);
+    module.telegramStore.setState({ messages });
+    return target.id;
+  }, "/src/store/telegramStore.ts");
+  expect(targetMessageId).toBeTruthy();
+
+  const latestReply = page.locator('[data-message-id="p-latest-reply-jump"]');
+  await expect(latestReply).toBeVisible();
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
+  await latestReply.locator(".message-reply-preview").click();
+
+  const target = page.locator(`[data-message-id="${targetMessageId}"]`);
+  await expect(target).toHaveClass(/is-notification-target/);
+  const returnButton = page.getByRole("button", { name: "返回跳转前位置，可回退 1 次" });
+  await expect(returnButton).toBeVisible();
+  await returnButton.click();
+
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
+  await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+  await page.waitForTimeout(700);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
+  await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+});
+
 test("manual bottom navigation and conversation switches clear reply jump history", async ({ page }) => {
   await page.goto("/");
   const source = await revealVirtualMessage(page, "p-channel-reply");

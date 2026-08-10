@@ -1,6 +1,7 @@
 export interface ConversationJumpAnchor {
   messageId: string;
   offset: number;
+  followLatest?: boolean;
 }
 
 export const MAX_CONVERSATION_JUMP_HISTORY = 32;
@@ -13,7 +14,8 @@ export const pushConversationJumpAnchor = (
   const previous = history.at(-1);
   if (
     previous?.messageId === anchor.messageId &&
-    Math.abs(previous.offset - anchor.offset) <= 1
+    Math.abs(previous.offset - anchor.offset) <= 1 &&
+    previous.followLatest === anchor.followLatest
   ) {
     return [...history];
   }
