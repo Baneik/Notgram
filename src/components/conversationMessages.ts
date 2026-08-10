@@ -132,7 +132,7 @@ export const replyPreviewFor = (
   if (target) {
     return {
       author: senderNameForMessage(target, users, chat, chats),
-      text: messageSummary(target.content),
+      text: message.replyTo.quote || messageSummary(target.content),
       chatId: target.chatId,
       messageId: target.id,
       isCurrentUser: target.outgoing,

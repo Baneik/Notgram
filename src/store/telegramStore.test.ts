@@ -822,12 +822,16 @@ describe("telegram store", () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();
 
-    const replied = await store.getState().sendMessage("收到，我会跟进", "p-4");
+    const replied = await store.getState().sendMessage(
+      "收到，我会跟进",
+      "p-4",
+      { text: "交互稿", position: 2 },
+    );
     const reply = store.getState().messages.get("chat-product")?.at(-1);
     expect(replied).toBe(true);
     expect(reply).toMatchObject({
       content: { kind: "text", text: "收到，我会跟进" },
-      replyTo: { kind: "message", messageId: "p-4" },
+      replyTo: { kind: "message", messageId: "p-4", quote: "交互稿" },
     });
 
     const edited = await store.getState().editMessage("p-2", "调整后的消息内容");
@@ -914,10 +918,16 @@ describe("telegram store", () => {
       const store = createTelegramStore(transport);
       await store.getState().initialize();
 
-      store.getState().updateChatDraft("chat-product", "first draft", "p-4");
+      store.getState().updateChatDraft(
+        "chat-product",
+        "first draft",
+        "p-4",
+        { text: "draft quote", position: 2 },
+      );
       expect(store.getState().drafts.get("chat-product")).toMatchObject({
         text: "first draft",
         replyToMessageId: "p-4",
+        replyQuote: { text: "draft quote", position: 2 },
         pending: true,
       });
       await vi.advanceTimersByTimeAsync(449);
@@ -927,6 +937,7 @@ describe("telegram store", () => {
         chatId: "chat-product",
         text: "first draft",
         replyToMessageId: "p-4",
+        replyQuote: { text: "draft quote", position: 2 },
       }]);
       expect(store.getState().drafts.get("chat-product")?.pending).toBe(false);
 

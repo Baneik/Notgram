@@ -30,7 +30,7 @@ import {
   type ReactNode,
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
-import type { Message, MessageReaction } from "../telegram/types";
+import type { Message, MessageReaction, MessageReplyQuote } from "../telegram/types";
 import { formatCompactCount, formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
@@ -53,6 +53,7 @@ import {
   type MessageEntrance,
 } from "../utils/messageEntrance";
 import { isLargeEmojiText } from "../utils/largeEmoji";
+import { replyQuoteFromSelection } from "../utils/messageTextSelection";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { PollMessage } from "./PollMessage";
 import { InlineKeyboard } from "./InlineKeyboard";
@@ -97,6 +98,7 @@ interface MessageBubbleProps {
     left: number,
     top: number,
     returnFocus?: HTMLElement,
+    replyQuote?: MessageReplyQuote,
   ) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancelDownload: (fileId: number) => Promise<void>;
@@ -189,6 +191,7 @@ function MessageBubbleComponent({
     () => new Set(),
   );
   const attemptedMediaRecoveryRef = useRef(new Set<string>());
+  const contextReplyQuoteRef = useRef<MessageReplyQuote | undefined>(undefined);
   const [measuredMedia, setMeasuredMedia] = useState<{
     source: string;
     width: number;
@@ -206,6 +209,29 @@ function MessageBubbleComponent({
   const [collapsedTextHeight, setCollapsedTextHeight] = useState(0);
   const [textExpanded, setTextExpanded] = useState(false);
   const content = message.content;
+  const selectedReplyQuoteFor = (shell: HTMLElement) => {
+    const sourceText = content.kind === "text"
+      ? content.text
+      : content.kind === "media" || content.kind === "file"
+        ? content.caption
+        : undefined;
+    const selection = globalThis.getSelection();
+    const surface = sourceText
+      ? [...shell.querySelectorAll<HTMLElement>(".message-rich-text")]
+          .find((candidate) => {
+            const anchor = selection?.anchorNode;
+            const focus = selection?.focusNode;
+            return Boolean(
+              anchor && focus &&
+              (anchor === candidate || candidate.contains(anchor)) &&
+              (focus === candidate || candidate.contains(focus)),
+            );
+          })
+      : undefined;
+    return sourceText && surface
+      ? replyQuoteFromSelection(selection, surface, sourceText)
+      : undefined;
+  };
   const isSticker = content.kind === "media" && content.mediaType === "sticker";
   const textCollapsible = content.kind === "text" && textLineCount > collapseThresholdLines;
   const isService = content.kind === "service" || content.kind === "unsupported";
@@ -626,11 +652,20 @@ function MessageBubbleComponent({
         className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""}`}
         style={visualShellStyle}
         tabIndex={!selectionMode && !isService ? 0 : undefined}
+        onPointerDown={(event) => {
+          contextReplyQuoteRef.current = event.button === 2
+            ? selectedReplyQuoteFor(event.currentTarget)
+            : undefined;
+        }}
         onContextMenu={(event) => {
           event.preventDefault();
           if (isService) return;
           if (selectionMode) void onToggleSelection(message);
-          else void onOpenActions(message, event.clientX, event.clientY);
+          else {
+            const replyQuote = contextReplyQuoteRef.current ?? selectedReplyQuoteFor(event.currentTarget);
+            contextReplyQuoteRef.current = undefined;
+            void onOpenActions(message, event.clientX, event.clientY, event.currentTarget, replyQuote);
+          }
         }}
         onKeyDown={(event) => {
           if (selectionMode || isService) return;

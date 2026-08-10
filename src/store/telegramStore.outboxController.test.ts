@@ -79,4 +79,20 @@ describe("telegram store outbox controller", () => {
     expect(harness.getState().outbox).toEqual([]);
     expect(harness.flushCachedSnapshot).toHaveBeenCalledTimes(2);
   });
+
+  it("preserves a partial reply quote while draining the queue", async () => {
+    const harness = createHarness();
+    harness.controller.setOutbox([{
+      ...item("quoted"),
+      replyToMessageId: "source-1",
+      replyQuote: { text: "selected", position: 5 },
+    }]);
+
+    await harness.controller.flushOutbox();
+
+    expect(harness.transport.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      replyToMessageId: "source-1",
+      replyQuote: { text: "selected", position: 5 },
+    }));
+  });
 });

@@ -20,7 +20,7 @@ import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
-import type { BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, OutgoingAttachment } from "../telegram/types";
+import type { BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, OutgoingAttachment } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
 import {
   composerInlineQueryForDraft,
@@ -36,6 +36,7 @@ interface ConversationComposerProps {
   draftKey?: string;
   editingMessage?: Message;
   replyingTo?: Message;
+  replyQuote?: MessageReplyQuote;
   contextTitle?: string;
   defaultBotUsername?: string;
   textInsertion?: ComposerTextInsertion;
@@ -47,9 +48,9 @@ interface ConversationComposerProps {
   failedQueuedMessageCount: number;
   queuedAttachmentCount: number;
   failedAttachmentCount: number;
-  onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
+  onSendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
-  onDraftChange: (chatId: string, text: string, replyToMessageId?: string) => void;
+  onDraftChange: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
   onSendFiles: (attachments: OutgoingAttachment[], caption?: string) => Promise<boolean>;
   onCancelEditing: () => void;
@@ -77,6 +78,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   draftKey = chatId,
   editingMessage,
   replyingTo,
+  replyQuote,
   contextTitle,
   defaultBotUsername,
   textInsertion,
@@ -101,6 +103,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   onSendBotStart,
 }: ConversationComposerProps) {
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
+  const activeReplyQuote = replyQuote ?? chatDraft?.replyQuote;
   const [draft, setDraft] = useState(chatDraft?.text ?? "");
   const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);
@@ -125,7 +128,11 @@ export const ConversationComposer = memo(function ConversationComposer({
   const draftRef = useRef(draft);
   const composingRef = useRef(false);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pendingDraftRef = useRef<{ text: string; replyToMessageId?: string } | undefined>(undefined);
+  const pendingDraftRef = useRef<{
+    text: string;
+    replyToMessageId?: string;
+    replyQuote?: MessageReplyQuote;
+  } | undefined>(undefined);
   const localDraftDirtyRef = useRef(false);
   const previousEditingRef = useRef<Message | undefined>(undefined);
   const draftBeforeEditRef = useRef<string | undefined>(undefined);
@@ -133,6 +140,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const typingRefreshRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const typingIdleRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const replyToMessageIdRef = useRef(replyingTo?.id ?? chatDraft?.replyToMessageId);
+  const replyQuoteRef = useRef<MessageReplyQuote | undefined>(activeReplyQuote);
   const emojiOpenTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const emojiOpenedByHoverRef = useRef(false);
@@ -256,12 +264,16 @@ export const ConversationComposer = memo(function ConversationComposer({
     pendingDraftRef.current = undefined;
     if (!pending) return;
     localDraftDirtyRef.current = false;
-    onDraftChange(chatId, pending.text, pending.replyToMessageId);
+    onDraftChange(chatId, pending.text, pending.replyToMessageId, pending.replyQuote);
   }, [chatId, onDraftChange]);
 
-  const scheduleDraft = useCallback((text: string, replyToMessageId?: string) => {
+  const scheduleDraft = useCallback((
+    text: string,
+    replyToMessageId?: string,
+    selectedReplyQuote?: MessageReplyQuote,
+  ) => {
     if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
-    pendingDraftRef.current = { text, replyToMessageId };
+    pendingDraftRef.current = { text, replyToMessageId, replyQuote: selectedReplyQuote };
     localDraftDirtyRef.current = true;
     draftTimerRef.current = globalThis.setTimeout(flushDraft, LOCAL_DRAFT_DELAY_MS);
   }, [flushDraft]);
@@ -275,9 +287,9 @@ export const ConversationComposer = memo(function ConversationComposer({
     const next = `/${suggestion.command}${includeUsername ? `@${suggestion.botUsername}` : ""} `;
     draftRef.current = next;
     setDraft(next);
-    scheduleDraft(next, replyingTo?.id ?? chatDraft?.replyToMessageId);
+    scheduleDraft(next, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
     focusComposer();
-  }, [chatDraft?.replyToMessageId, defaultBotUsername, focusComposer, replyingTo?.id, scheduleDraft]);
+  }, [activeReplyQuote, chatDraft?.replyToMessageId, defaultBotUsername, focusComposer, replyingTo?.id, scheduleDraft]);
 
   const stopTyping = useCallback(() => {
     if (typingRefreshRef.current) globalThis.clearInterval(typingRefreshRef.current);
@@ -307,9 +319,9 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   const commitInputSideEffects = useCallback((value: string) => {
     if (editingMessage) return;
-    scheduleDraft(value, replyingTo?.id ?? chatDraft?.replyToMessageId);
+    scheduleDraft(value, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
     keepTyping(value);
-  }, [chatDraft?.replyToMessageId, editingMessage, keepTyping, replyingTo?.id, scheduleDraft]);
+  }, [activeReplyQuote, chatDraft?.replyToMessageId, editingMessage, keepTyping, replyingTo?.id, scheduleDraft]);
 
   useEffect(() => {
     if (!textInsertion || textInsertion.draftKey !== draftKey || editingMessage || appliedTextInsertionRef.current === textInsertion.id) return;
@@ -382,10 +394,12 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   useEffect(() => {
     const replyToMessageId = replyingTo?.id ?? chatDraft?.replyToMessageId;
-    if (replyToMessageIdRef.current === replyToMessageId) return;
+    const quoteChanged = JSON.stringify(replyQuoteRef.current) !== JSON.stringify(activeReplyQuote);
+    if (replyToMessageIdRef.current === replyToMessageId && !quoteChanged) return;
     replyToMessageIdRef.current = replyToMessageId;
-    if (!editingMessage) scheduleDraft(draftRef.current, replyToMessageId);
-  }, [chatDraft?.replyToMessageId, editingMessage, replyingTo?.id, scheduleDraft]);
+    replyQuoteRef.current = activeReplyQuote;
+    if (!editingMessage) scheduleDraft(draftRef.current, replyToMessageId, activeReplyQuote);
+  }, [activeReplyQuote, chatDraft?.replyToMessageId, editingMessage, replyingTo?.id, scheduleDraft]);
 
   useEffect(() => {
     if (!sendTypingStatus || editingMessage) stopTyping();
@@ -405,6 +419,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       pendingDraftRef.current = {
         text: draftRef.current,
         replyToMessageId: replyToMessageIdRef.current,
+        replyQuote: replyQuoteRef.current,
       };
     }
     flushDraft();
@@ -492,7 +507,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       localDraftDirtyRef.current = false;
       draftRef.current = "";
       setDraft("");
-      onDraftChange(chatId, "", undefined);
+      onDraftChange(chatId, "", undefined, undefined);
       stopTyping();
       focusComposer();
     } finally {
@@ -531,12 +546,12 @@ export const ConversationComposer = memo(function ConversationComposer({
       localDraftDirtyRef.current = false;
       draftRef.current = "";
       setDraft("");
-      onDraftChange(chatId, "", undefined);
+      onDraftChange(chatId, "", undefined, undefined);
       stopTyping();
       setSending(true);
       const sent = await onSendBotStart(startBot.botUserId, startCommand[2]);
       setSending(false);
-      if (!sent) { draftRef.current = submitted; setDraft(submitted); scheduleDraft(submitted, replyingTo?.id ?? chatDraft?.replyToMessageId); }
+      if (!sent) { draftRef.current = submitted; setDraft(submitted); scheduleDraft(submitted, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote); }
       else onCancelReply();
       focusComposer();
       return;
@@ -548,13 +563,14 @@ export const ConversationComposer = memo(function ConversationComposer({
     localDraftDirtyRef.current = false;
     draftRef.current = "";
     setDraft("");
-    onDraftChange(chatId, "", undefined);
+    onDraftChange(chatId, "", undefined, undefined);
     stopTyping();
     focusComposer();
     setSending(true);
     const sent = await onSendMessage(
       submitted,
       replyingTo?.id ?? chatDraft?.replyToMessageId,
+      activeReplyQuote,
     );
     setSending(false);
     if (sent) {
@@ -563,7 +579,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       const restored = draftRef.current ? `${submitted}\n${draftRef.current}` : submitted;
       draftRef.current = restored;
       setDraft(restored);
-      scheduleDraft(restored, replyingTo?.id ?? chatDraft?.replyToMessageId);
+      scheduleDraft(restored, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
     }
     focusComposer();
   };
@@ -574,7 +590,8 @@ export const ConversationComposer = memo(function ConversationComposer({
     pendingDraftRef.current = undefined;
     localDraftDirtyRef.current = false;
     replyToMessageIdRef.current = undefined;
-    onDraftChange(chatId, draftRef.current, undefined);
+    replyQuoteRef.current = undefined;
+    onDraftChange(chatId, draftRef.current, undefined, undefined);
     onCancelReply();
     focusComposer();
   }, [chatId, focusComposer, onCancelReply, onDraftChange]);
@@ -729,7 +746,9 @@ export const ConversationComposer = memo(function ConversationComposer({
           </span>
           <span className="composer-context-copy">
             <strong>{contextTitle}</strong>
-            <small>{messageSummary(composerContextMessage.content)}</small>
+            <small>{editingMessage
+              ? messageSummary(composerContextMessage.content)
+              : activeReplyQuote?.text ?? messageSummary(composerContextMessage.content)}</small>
           </span>
           <button
             className="icon-button"

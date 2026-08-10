@@ -3416,6 +3416,93 @@ test("selecting message text is not interrupted by composer autofocus", async ({
   await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
     .toContain("那我们下午三点对一下细节");
   await expect(composer).not.toBeFocused();
+
+  const dragPoints = await messageText.evaluate((surface) => {
+    const otherSurface = [...document.querySelectorAll<HTMLElement>(".message-rich-text")]
+      .find((candidate) => candidate !== surface && candidate.textContent?.trim());
+    const sourceNode = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT).nextNode();
+    const otherNode = otherSurface
+      ? document.createTreeWalker(otherSurface, NodeFilter.SHOW_TEXT).nextNode()
+      : null;
+    if (!sourceNode || !otherNode) return undefined;
+    const selection = globalThis.getSelection();
+    selection?.setBaseAndExtent(sourceNode, Math.min(4, sourceNode.textContent?.length ?? 0), otherNode, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    return true;
+  });
+  expect(dragPoints).toBe(true);
+  const boundaryResult = await page.evaluate(() => {
+    const selection = globalThis.getSelection();
+    const owner = (node: Node | null) => node instanceof Element
+      ? node.closest<HTMLElement>("[data-message-id]")?.dataset.messageId
+      : node?.parentElement?.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+    return {
+      text: selection?.toString() ?? "",
+      anchorMessageId: owner(selection?.anchorNode ?? null),
+      focusMessageId: owner(selection?.focusNode ?? null),
+    };
+  });
+  expect(boundaryResult?.text.length).toBeGreaterThan(0);
+  expect(boundaryResult?.anchorMessageId).toBe("m-3");
+  expect(boundaryResult?.focusMessageId).toBe("m-3");
+});
+
+test("replying from selected message text sends only the partial quote", async ({ page }) => {
+  await page.goto("/");
+  await revealVirtualMessage(page, "p-2");
+
+  const source = page.locator('[data-message-id="p-2"]');
+  const messageText = source.locator(".message-rich-text");
+  const selectedText = "消息区再留一点呼吸感";
+  await messageText.evaluate((surface, quote) => {
+    const fullText = surface.textContent ?? "";
+    const start = fullText.indexOf(quote);
+    if (start < 0) throw new Error("quote fixture was not found");
+    const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+    const pointAt = (offset: number) => {
+      let consumed = 0;
+      let node = walker.nextNode();
+      while (node) {
+        const length = node.textContent?.length ?? 0;
+        if (offset <= consumed + length) return { node, offset: offset - consumed };
+        consumed += length;
+        node = walker.nextNode();
+      }
+      throw new Error("selection point was not found");
+    };
+    const begin = pointAt(start);
+    walker.currentNode = surface;
+    const end = pointAt(start + quote.length);
+    const range = document.createRange();
+    range.setStart(begin.node, begin.offset);
+    range.setEnd(end.node, end.offset);
+    const selection = globalThis.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }, selectedText);
+  const quoteBounds = await messageText.boundingBox();
+  expect(quoteBounds).toBeTruthy();
+  await page.mouse.click(
+    quoteBounds!.x + quoteBounds!.width / 2,
+    quoteBounds!.y + quoteBounds!.height / 2,
+    { button: "right" },
+  );
+  const menu = page.getByRole("menu", { name: "消息操作" });
+  await expect(menu.getByRole("menuitem").first()).toHaveText("回复");
+  await chooseMessageMenuItem(page, "回复");
+  await expect(page.locator(".composer-context.is-replying small")).toHaveText(selectedText);
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: { getState: () => { drafts: Map<string, { replyQuote?: unknown }> } };
+    };
+    return module.telegramStore.getState().drafts.get("chat-product")?.replyQuote;
+  }, "/src/store/telegramStore.ts")).toEqual({ text: selectedText, position: 4 });
+
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("只回复选中的这部分");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const sent = page.locator(".message-row.is-outgoing", { hasText: "只回复选中的这部分" }).last();
+  await expect(sent.locator(".message-reply-preview small")).toHaveText(selectedText);
 });
 
 test("reply context resizes the latest viewport without moving a detached anchor", async ({ page }) => {

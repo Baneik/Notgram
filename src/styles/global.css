@@ -877,7 +877,9 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-reply-preview.is-current-user strong { color: var(--color-status-success); }
 .message-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--chat-font-size); line-height: 1.48; }
 .message-rich-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--chat-font-size); line-height: 1.48; user-select: text; -webkit-user-select: text; }
-.message-bubble, .message-bubble-shell, .message-text-flow, .message-rich-text, .message-caption { user-select: text; -webkit-user-select: text; }
+.message-rich-text, .message-caption { user-select: text; -webkit-user-select: text; }
+.conversation.is-message-text-selecting .message-rich-text { user-select: none; -webkit-user-select: none; }
+.conversation.is-message-text-selecting .message-rich-text.is-selection-origin { user-select: text; -webkit-user-select: text; }
 .message-bubble button, .message-bubble input, .message-bubble textarea, .message-bubble .message-meta { user-select: none; -webkit-user-select: none; }
 .message-text-flow.is-large-emoji { line-height: 1; }
 .message-text-flow.is-large-emoji > .message-rich-text { font-size: 2.35em; line-height: 1.08; }

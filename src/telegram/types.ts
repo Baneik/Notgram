@@ -494,11 +494,17 @@ export interface CreateChatInput {
   selectPhoto?: boolean;
 }
 
+export interface MessageReplyQuote {
+  text: string;
+  position: number;
+}
+
 export interface ChatDraft {
   chatId: string;
   topicId?: string;
   text: string;
   replyToMessageId?: string;
+  replyQuote?: MessageReplyQuote;
   updatedAt: string;
   pending?: boolean;
 }
@@ -843,6 +849,7 @@ export interface QueuedOutgoingMessage {
   topicId?: string;
   text: string;
   replyToMessageId?: string;
+  replyQuote?: MessageReplyQuote;
   createdAt: string;
   status: "queued" | "failed";
   kind?: "text" | "attachments";
@@ -892,6 +899,7 @@ export interface SendMessageInput {
   topicId?: string;
   text: string;
   replyToMessageId?: string;
+  replyQuote?: MessageReplyQuote;
   clearDraft?: boolean;
 }
 
@@ -931,6 +939,7 @@ export interface SetChatDraftInput {
   topicId?: string;
   text: string;
   replyToMessageId?: string;
+  replyQuote?: MessageReplyQuote;
 }
 
 export interface SetMessageReactionInput {

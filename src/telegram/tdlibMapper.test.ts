@@ -128,6 +128,11 @@ describe("TDLib mapper", () => {
       reply_to: {
         "@type": "inputMessageReplyToMessage",
         message_id: 12,
+        quote: {
+          "@type": "inputTextQuote",
+          text: { "@type": "formattedText", text: "selected draft text", entities: [] },
+          position: 3,
+        },
       },
       date: 1_700_000_000,
       content: {
@@ -138,6 +143,7 @@ describe("TDLib mapper", () => {
       chatId: "7",
       text: "unfinished text",
       replyToMessageId: "12",
+      replyQuote: { text: "selected draft text", position: 3 },
       updatedAt: "2023-11-14T22:13:20.000Z",
     });
     expect(mapTdChatDraft(7, {

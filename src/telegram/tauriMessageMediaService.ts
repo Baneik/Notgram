@@ -34,6 +34,7 @@ import type {
   ForwardMessagesResult,
   Message,
   MessagePermissions,
+  MessageReplyQuote,
   PinMessageInput,
   SendEmojiAssetInput,
   SendFileInput,
@@ -49,6 +50,24 @@ import type {
 } from "./types";
 
 const MAX_PINNED_MESSAGE_PAGES = 100;
+
+const inputMessageReplyTarget = (
+  replyToMessageId?: string,
+  replyQuote?: MessageReplyQuote,
+) => replyToMessageId
+  ? {
+      "@type": "inputMessageReplyToMessage",
+      message_id: numericId(replyToMessageId),
+      quote: replyQuote && replyQuote.text.length > 0 && Number.isSafeInteger(replyQuote.position) && replyQuote.position >= 0
+        ? {
+            "@type": "inputTextQuote",
+            text: { "@type": "formattedText", text: replyQuote.text, entities: [] },
+            position: replyQuote.position,
+          }
+        : null,
+      checklist_task_id: 0,
+    }
+  : null;
 
 const emojiPreviewDataUrl = (value: unknown) => {
   const minithumbnail = asTdObject(value);
@@ -443,14 +462,7 @@ export class TauriMessageMediaService {
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
-      reply_to: input.replyToMessageId
-        ? {
-            "@type": "inputMessageReplyToMessage",
-            message_id: numericId(input.replyToMessageId),
-            quote: null,
-            checklist_task_id: 0,
-          }
-        : null,
+      reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
       options: null,
       reply_markup: null,
       input_message_content: inputMessageText(text, input.clearDraft !== false),
@@ -518,14 +530,7 @@ export class TauriMessageMediaService {
       draft_message: hasDraft
         ? {
             "@type": "draftMessage",
-            reply_to: input.replyToMessageId
-              ? {
-                  "@type": "inputMessageReplyToMessage",
-                  message_id: numericId(input.replyToMessageId),
-                  quote: null,
-                  checklist_task_id: 0,
-                }
-              : null,
+            reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
             date: Math.floor(Date.now() / 1000),
             content: {
               "@type": "draftMessageContentText",

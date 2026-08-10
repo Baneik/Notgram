@@ -43,6 +43,7 @@ import type {
   GetChatJoinRequestsInput,
   Message,
   MessagePermissions,
+  MessageReplyQuote,
   ProxySettings,
   QueuedOutgoingMessage,
   SharedMediaPage,
@@ -244,10 +245,10 @@ export interface TelegramState {
   sendAnimation: (asset: EmojiPickerAsset, replyToMessageId?: string) => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
-  sendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
+  sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote) => Promise<boolean>;
   editMessage: (messageId: string, text: string) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
-  updateChatDraft: (chatId: string, text: string, replyToMessageId?: string) => void;
+  updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote) => void;
   setChatTyping: (chatId: string, typing: boolean) => Promise<void>;
   forwardMessages: (
     fromChatId: string,

@@ -27,6 +27,7 @@ import type {
   ForumTopic,
   Message,
   MessagePermissions,
+  MessageReplyQuote,
   ForwardMessagesResult,
   User,
 } from "../telegram/types";
@@ -78,6 +79,11 @@ import { ChatActionMenu } from "./ChatActionMenu";
 import { MotionPresence } from "./MotionPresence";
 import { ForumTopicStrip } from "./ForumTopicStrip";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
+import {
+  clampSelectionToMessageText,
+  replyQuoteFromSelection,
+  type SelectionPointerPosition,
+} from "../utils/messageTextSelection";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import {
   isConversationSwitchActive,
@@ -171,10 +177,19 @@ interface ConversationProps {
   typingUserIds: string[];
   chatListId: string;
   chatManagementPending: boolean;
-  onSendMessage: (text: string, replyToMessageId?: string) => Promise<boolean>;
+  onSendMessage: (
+    text: string,
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
+  ) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
-  onDraftChange: (chatId: string, text: string, replyToMessageId?: string) => void;
+  onDraftChange: (
+    chatId: string,
+    text: string,
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
+  ) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
   onForwardMessages: (
     fromChatId: string,
@@ -329,6 +344,7 @@ export function Conversation({
     left: number;
     top: number;
     returnFocus?: HTMLElement;
+    replyQuote?: MessageReplyQuote;
   }>();
   const [senderMenu, setSenderMenu] = useState<{
     senderId: string;
@@ -343,6 +359,7 @@ export function Conversation({
   }, []);
   const [actionLoadingId, setActionLoadingId] = useState<string>();
   const [replyingTo, setReplyingTo] = useState<Message>();
+  const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
   const [editingMessage, setEditingMessage] = useState<Message>();
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
@@ -363,6 +380,9 @@ export function Conversation({
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
   const draftReplyToMessageId = useTelegramStore((state) =>
     chat ? state.drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id)?.replyToMessageId : undefined,
+  );
+  const draftReplyQuote = useTelegramStore((state) =>
+    chat ? state.drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id)?.replyQuote : undefined,
   );
   const cacheFile = useTelegramStore((state) => state.cacheFile);
   const autoplayAnimations = usePreferencesStore((state) => autoplayAllowed(
@@ -437,6 +457,8 @@ export function Conversation({
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const conversationRef = useRef<HTMLElement>(null);
   const selectionMessageRef = useRef<HTMLElement | null>(null);
+  const selectionPointerRef = useRef<SelectionPointerPosition | undefined>(undefined);
+  const selectionClampActiveRef = useRef(false);
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
@@ -926,9 +948,10 @@ export function Conversation({
   const sendMessageAndFollowLatest = useCallback(async (
     text: string,
     replyToMessageId?: string,
+    selectedReplyQuote?: MessageReplyQuote,
   ) => {
     jumpToLatest("auto");
-    return onSendMessage(text, replyToMessageId);
+    return onSendMessage(text, replyToMessageId, selectedReplyQuote);
   }, [jumpToLatest, onSendMessage]);
 
   const sendFilesAndFollowLatest = useCallback(async (
@@ -940,29 +963,60 @@ export function Conversation({
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
+    const clearSelectionSurface = () => {
+      conversationRef.current?.classList.remove("is-message-text-selecting");
+      selectionMessageRef.current?.classList.remove("is-selection-origin");
+    };
     const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      clearSelectionSurface();
       const target = event.target instanceof Element ? event.target : null;
-      const row = target?.closest<HTMLElement>(".message-row");
-      selectionMessageRef.current = row?.querySelector(".message-rich-text") ? row : null;
+      const surface = target?.closest<HTMLElement>(".message-rich-text") ?? null;
+      selectionMessageRef.current = surface && conversationRef.current?.contains(surface)
+        ? surface
+        : null;
+      if (selectionMessageRef.current) {
+        conversationRef.current?.classList.add("is-message-text-selecting");
+        selectionMessageRef.current.classList.add("is-selection-origin");
+      }
+      selectionPointerRef.current = { x: event.clientX, y: event.clientY };
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      const boundary = selectionMessageRef.current;
+      if (!boundary || (event.buttons & 1) === 0) return;
+      selectionPointerRef.current = { x: event.clientX, y: event.clientY };
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && (target === boundary || boundary.contains(target))) return;
+      const selection = globalThis.getSelection();
+      if (!selection || selection.isCollapsed) return;
+      event.preventDefault();
+      clampSelectionToMessageText(selection, boundary, selectionPointerRef.current, true);
     };
     const onSelectionChange = () => {
       const selection = globalThis.getSelection();
       const boundary = selectionMessageRef.current;
-      if (!selection || selection.isCollapsed || !boundary) return;
-      const anchorRow = selection.anchorNode instanceof Element
-        ? selection.anchorNode.closest<HTMLElement>(".message-row")
-        : selection.anchorNode?.parentElement?.closest<HTMLElement>(".message-row");
-      const focusRow = selection.focusNode instanceof Element
-        ? selection.focusNode.closest<HTMLElement>(".message-row")
-        : selection.focusNode?.parentElement?.closest<HTMLElement>(".message-row");
-      if (anchorRow !== boundary || focusRow !== boundary) selection.removeAllRanges();
+      if (!selection || selection.isCollapsed || !boundary || selectionClampActiveRef.current) return;
+      selectionClampActiveRef.current = true;
+      try {
+        clampSelectionToMessageText(selection, boundary, selectionPointerRef.current);
+      } finally {
+        selectionClampActiveRef.current = false;
+      }
     };
     document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointerup", clearSelectionSurface, true);
+    document.addEventListener("pointercancel", clearSelectionSurface, true);
     document.addEventListener("selectionchange", onSelectionChange);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointermove", onPointerMove, true);
+      document.removeEventListener("pointerup", clearSelectionSurface, true);
+      document.removeEventListener("pointercancel", clearSelectionSurface, true);
       document.removeEventListener("selectionchange", onSelectionChange);
+      clearSelectionSurface();
       selectionMessageRef.current = null;
+      selectionPointerRef.current = undefined;
     };
   }, []);
 
@@ -1075,6 +1129,7 @@ export function Conversation({
     setActionLoadingId(undefined);
     setComposerTextInsertion(undefined);
     setReplyingTo(undefined);
+    setReplyQuote(undefined);
     setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setDeletePending(false);
@@ -1085,18 +1140,21 @@ export function Conversation({
     const replyToMessageId = draftReplyToMessageId;
     if (!replyToMessageId) {
       setReplyingTo(undefined);
+      setReplyQuote(undefined);
       return;
     }
     const target = messagesById.get(replyToMessageId);
     if (target) {
       setReplyingTo((current) => current?.id === target.id ? current : target);
+      setReplyQuote(draftReplyQuote);
     }
-  }, [conversationIdentity, draftReplyToMessageId, editingMessage, messagesById]);
+  }, [conversationIdentity, draftReplyQuote, draftReplyToMessageId, editingMessage, messagesById]);
 
   useEffect(() => {
     if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
     if (replyingTo && !messagesById.has(replyingTo.id)) {
       setReplyingTo(undefined);
+      setReplyQuote(undefined);
     }
     if (editingMessage && !messagesById.has(editingMessage.id)) {
       setEditingMessage(undefined);
@@ -1153,12 +1211,35 @@ export function Conversation({
     left: number,
     top: number,
     returnFocus?: HTMLElement,
+    capturedReplyQuote?: MessageReplyQuote,
   ) => {
+    const sourceText = message.content.kind === "text"
+      ? message.content.text
+      : message.content.kind === "media" || message.content.kind === "file"
+        ? message.content.caption
+        : undefined;
+    const selection = globalThis.getSelection();
+    const selectedSurface = sourceText && returnFocus
+      ? [...returnFocus.querySelectorAll<HTMLElement>(".message-rich-text")]
+          .find((surface) => {
+            const anchor = selection?.anchorNode;
+            const focus = selection?.focusNode;
+            return Boolean(
+              anchor && focus &&
+              (anchor === surface || surface.contains(anchor)) &&
+              (focus === surface || surface.contains(focus)),
+            );
+          })
+      : undefined;
+    const selectedReplyQuote = capturedReplyQuote ?? (sourceText && selectedSurface
+      ? replyQuoteFromSelection(selection, selectedSurface, sourceText)
+      : undefined);
     setActionMenu({
       messageId: message.id,
       left,
       top,
       returnFocus,
+      replyQuote: selectedReplyQuote,
     });
     if (message.permissions || actionLoadingId === message.id) return;
     setActionLoadingId(message.id);
@@ -1193,14 +1274,15 @@ export function Conversation({
 
   const cancelReply = () => {
     setReplyingTo(undefined);
+    setReplyQuote(undefined);
     const currentDraft = telegramStore.getState().drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id);
     if (currentDraft?.replyToMessageId) {
-      onDraftChange(chat.id, currentDraft.text, undefined);
+      onDraftChange(chat.id, currentDraft.text, undefined, undefined);
     }
     focusComposer();
   };
 
-  const startReply = (message: Message) => {
+  const startReply = (message: Message, selectedReplyQuote?: MessageReplyQuote) => {
     if (editingMessage) {
       setEditingMessage(undefined);
     }
@@ -1210,8 +1292,9 @@ export function Conversation({
     const currentDraft = telegramStore.getState().drafts.get(
       topic ? `${chat.id}:topic:${topic.id}` : chat.id,
     );
-    onDraftChange(chat.id, currentDraft?.text ?? "", message.id);
+    onDraftChange(chat.id, currentDraft?.text ?? "", message.id, selectedReplyQuote);
     setReplyingTo(message);
+    setReplyQuote(selectedReplyQuote);
     setActionMenu(undefined);
     focusComposer();
   };
@@ -1219,6 +1302,7 @@ export function Conversation({
   const startEditing = (message: Message) => {
     if (message.content.kind !== "text") return;
     setReplyingTo(undefined);
+    setReplyQuote(undefined);
     setEditingMessage(message);
     setActionMenu(undefined);
     focusComposer();
@@ -1781,7 +1865,7 @@ export function Conversation({
           position={actionMenu}
           message={actionMessage}
           loading={actionLoadingId === actionMessage.id}
-          onReply={() => startReply(actionMessage)}
+          onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessage)}
           onForward={() => startForwardSelection(actionMessage)}
           onDelete={() => {
@@ -1875,6 +1959,7 @@ export function Conversation({
         draftKey={topic ? `${chat.id}:topic:${topic.id}` : chat.id}
         editingMessage={editingMessage}
         replyingTo={replyingTo}
+        replyQuote={replyQuote}
         contextTitle={composerContextTitle}
         defaultBotUsername={chat.kind === "direct" && chat.peerId && users.get(chat.peerId)?.isBot
           ? users.get(chat.peerId)?.username

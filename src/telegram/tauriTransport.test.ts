@@ -2208,7 +2208,7 @@ describe("TauriTelegramTransport message operations", () => {
       .toHaveLength(1);
   });
 
-  it("sends a text reply with the current TDLib reply object", async () => {
+  it("sends a partial text quote with the current TDLib reply object", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -2217,7 +2217,12 @@ describe("TauriTelegramTransport message operations", () => {
       return { "@type": "ok" };
     };
 
-    await transport.sendMessage({ chatId: "7", text: "reply", replyToMessageId: "12" });
+    await transport.sendMessage({
+      chatId: "7",
+      text: "reply",
+      replyToMessageId: "12",
+      replyQuote: { text: "selected text", position: 4 },
+    });
 
     expect(requests).toEqual([{
       "@type": "sendMessage",
@@ -2226,7 +2231,11 @@ describe("TauriTelegramTransport message operations", () => {
       reply_to: {
         "@type": "inputMessageReplyToMessage",
         message_id: 12,
-        quote: null,
+        quote: {
+          "@type": "inputTextQuote",
+          text: { "@type": "formattedText", text: "selected text", entities: [] },
+          position: 4,
+        },
         checklist_task_id: 0,
       },
       options: null,
@@ -2310,7 +2319,12 @@ describe("TauriTelegramTransport message operations", () => {
     };
     internal.listener = (event) => events.push(event);
 
-    await transport.setChatDraft({ chatId: "7", text: "unfinished", replyToMessageId: "12" });
+    await transport.setChatDraft({
+      chatId: "7",
+      text: "unfinished",
+      replyToMessageId: "12",
+      replyQuote: { text: "draft quote", position: 7 },
+    });
     await transport.setChatDraft({ chatId: "7", text: "" });
 
     expect(requests).toEqual([
@@ -2323,7 +2337,11 @@ describe("TauriTelegramTransport message operations", () => {
           reply_to: {
             "@type": "inputMessageReplyToMessage",
             message_id: 12,
-            quote: null,
+            quote: {
+              "@type": "inputTextQuote",
+              text: { "@type": "formattedText", text: "draft quote", entities: [] },
+              position: 7,
+            },
             checklist_task_id: 0,
           },
           date: expect.any(Number),

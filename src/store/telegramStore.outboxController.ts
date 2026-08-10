@@ -87,6 +87,7 @@ export const createOutboxController = ({
               topicId: item.topicId,
               text: item.text,
               replyToMessageId: item.replyToMessageId,
+              replyQuote: item.replyQuote,
               clearDraft: !get().drafts.has(topicKey(item.chatId, item.topicId)),
             });
           }

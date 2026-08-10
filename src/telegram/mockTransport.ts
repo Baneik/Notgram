@@ -1774,13 +1774,25 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
-  async sendMessage({ chatId, topicId, text, replyToMessageId, clearDraft = true }: SendMessageInput) {
+  async sendMessage({ chatId, topicId, text, replyToMessageId, replyQuote, clearDraft = true }: SendMessageInput) {
     const replyTarget = replyToMessageId
       ? this.snapshot.messages.find(
           (message) => message.chatId === chatId && message.topicId === topicId && message.id === replyToMessageId,
         )
       : undefined;
     if (replyToMessageId && !replyTarget) throw new Error("找不到需要回复的消息");
+    const replySourceText = replyTarget?.content.kind === "text"
+      ? replyTarget.content.text
+      : replyTarget?.content.kind === "media" || replyTarget?.content.kind === "file"
+        ? replyTarget.content.caption
+        : undefined;
+    if (
+      replyQuote &&
+      (!replySourceText || replySourceText.slice(
+        replyQuote.position,
+        replyQuote.position + replyQuote.text.length,
+      ) !== replyQuote.text)
+    ) throw new Error("引用内容与原消息不匹配");
     this.appendMessage({
       id: crypto.randomUUID(),
       chatId,
@@ -1794,6 +1806,7 @@ export class MockTelegramTransport implements TelegramTransport {
             kind: "message",
             chatId,
             messageId: replyTarget.id,
+            quote: replyQuote?.text,
             content: clone(replyTarget.content),
           }
         : undefined,
@@ -1870,7 +1883,7 @@ export class MockTelegramTransport implements TelegramTransport {
     return { forwardedCount: selected.length, failedMessageIds: [] };
   }
 
-  async setChatDraft({ chatId, topicId, text, replyToMessageId }: SetChatDraftInput) {
+  async setChatDraft({ chatId, topicId, text, replyToMessageId, replyQuote }: SetChatDraftInput) {
     if (!this.snapshot.chats.some((chat) => chat.id === chatId)) {
       throw new Error("找不到需要保存草稿的会话");
     }
@@ -1880,6 +1893,7 @@ export class MockTelegramTransport implements TelegramTransport {
           topicId,
           text,
           replyToMessageId,
+          replyQuote: replyToMessageId ? replyQuote : undefined,
           updatedAt: new Date().toISOString(),
         }
       : undefined;

@@ -30,6 +30,7 @@ export const messageFromOutbox = (
           kind: "message",
           chatId: item.chatId,
           messageId: item.replyToMessageId,
+          quote: item.replyQuote?.text,
         }
       : undefined,
     content: firstAttachment

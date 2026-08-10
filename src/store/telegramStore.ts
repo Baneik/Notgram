@@ -290,6 +290,7 @@ export const createTelegramStore = (
         topicId: draft?.topicId,
         text: draft?.text ?? "",
         replyToMessageId: draft?.replyToMessageId,
+        replyQuote: draft?.replyQuote,
       }),
       reportError: (operationError) => set({ operationError }),
       scheduleCacheWrite,
@@ -2430,7 +2431,7 @@ export const createTelegramStore = (
         void loadChats(chatFilter);
       },
 
-      updateChatDraft: (chatId, text, replyToMessageId) => {
+      updateChatDraft: (chatId, text, replyToMessageId, replyQuote) => {
         if (!get().chats.has(chatId)) return;
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         const key = topicKey(chatId, topicId);
@@ -2440,6 +2441,7 @@ export const createTelegramStore = (
           topicId,
           text,
           replyToMessageId,
+          replyQuote: replyToMessageId ? replyQuote : undefined,
           updatedAt: new Date().toISOString(),
           pending: true,
         };
@@ -2460,7 +2462,7 @@ export const createTelegramStore = (
         }
       },
 
-      sendMessage: async (text, replyToMessageId) => {
+      sendMessage: async (text, replyToMessageId, replyQuote) => {
         const chatId = get().activeChatId;
         const topicId = get().activeTopicId;
         const normalizedText = text.trim();
@@ -2477,6 +2479,7 @@ export const createTelegramStore = (
             topicId,
             text: normalizedText,
             replyToMessageId,
+            replyQuote: replyToMessageId ? replyQuote : undefined,
             createdAt: new Date().toISOString(),
             status: "queued",
           };
@@ -2515,7 +2518,13 @@ export const createTelegramStore = (
         await draftSync.flush(draftKey);
         const clearGeneration = draftSync.expect(draftKey, undefined);
         try {
-          await transport.sendMessage({ chatId, topicId, text: normalizedText, replyToMessageId });
+          await transport.sendMessage({
+            chatId,
+            topicId,
+            text: normalizedText,
+            replyToMessageId,
+            replyQuote: replyToMessageId ? replyQuote : undefined,
+          });
           draftSync.markAwaitingAck(draftKey, clearGeneration);
           const currentDraft = get().drafts.get(draftKey);
           if (draftSignature(currentDraft) === draftSignature(previousDraft)) {

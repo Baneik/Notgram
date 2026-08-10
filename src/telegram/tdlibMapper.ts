@@ -1771,11 +1771,19 @@ export const mapTdChatDraft = (
   const replyToMessageId = reply?.["@type"] === "inputMessageReplyToMessage"
     ? tdId(reply.message_id)
     : undefined;
+  const quote = reply?.["@type"] === "inputMessageReplyToMessage"
+    ? asTdObject(reply.quote)
+    : undefined;
+  const quoteText = quote ? formattedText(quote.text) : "";
+  const quotePosition = quote ? tdNumber(quote.position) : undefined;
   return {
     chatId,
     topicId: tdId(topicIdValue) || undefined,
     text: formattedText(content.text),
     replyToMessageId: replyToMessageId || undefined,
+    replyQuote: replyToMessageId && quoteText && quotePosition !== undefined && quotePosition >= 0
+      ? { text: quoteText, position: quotePosition }
+      : undefined,
     updatedAt: unixDate(draft.date),
   };
 };

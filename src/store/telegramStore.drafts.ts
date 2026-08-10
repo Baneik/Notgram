@@ -19,6 +19,8 @@ export const draftForSync = (draft?: ChatDraft) =>
 export const draftSignature = (draft?: ChatDraft) => JSON.stringify([
   draft?.text ?? "",
   draft?.replyToMessageId ?? "",
+  draft?.replyQuote?.text ?? "",
+  draft?.replyQuote?.position ?? -1,
 ]);
 
 const clearDraftSyncTimers = (entry: DraftSyncEntry) => {

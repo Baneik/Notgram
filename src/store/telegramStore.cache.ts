@@ -75,6 +75,13 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
         isRecord(item) &&
         (item.status === "queued" || item.status === "failed") &&
         (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string") &&
+        (item.replyQuote === undefined || (
+          isRecord(item.replyQuote) &&
+          typeof item.replyQuote.text === "string" &&
+          typeof item.replyQuote.position === "number" &&
+          Number.isInteger(item.replyQuote.position) &&
+          item.replyQuote.position >= 0
+        )) &&
         (item.kind === undefined || item.kind === "text" || item.kind === "attachments") &&
         (item.caption === undefined || typeof item.caption === "string") &&
         (item.error === undefined || typeof item.error === "string") &&

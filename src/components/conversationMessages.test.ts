@@ -101,6 +101,20 @@ describe("reply preview authors", () => {
       chat,
     )?.author).toBe("林然");
   });
+
+  it("prefers a partial quote even while the source message is cached", () => {
+    const chat = { id: "chat-product", kind: "group", title: "Product" } as Chat;
+    const source = linkedChannelPost({ id: "source", chatId: chat.id, forwardInfo: undefined });
+    const reply = linkedChannelPost({
+      id: "reply",
+      chatId: chat.id,
+      forwardInfo: undefined,
+      replyTo: { kind: "message", messageId: source.id, quote: "channel" },
+    });
+
+    expect(replyPreviewFor(reply, new Map([[source.id, source]]), new Map(), chat)?.text)
+      .toBe("channel");
+  });
 });
 
 describe("channel message presentation", () => {
