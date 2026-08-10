@@ -5,7 +5,7 @@ import type { Chat, Message } from "../telegram/types";
 const chat: Chat = {
   id: "chat", kind: "group", folderIds: ["main"], title: "项目群",
   avatar: { label: "项", color: "#000" }, preview: "", updatedAt: new Date(0).toISOString(),
-  unreadCount: 0, pinned: false, muted: false,
+  unreadCount: 0, unreadMentionCount: 0, pinned: false, muted: false,
 };
 
 const message = (id: string, content: Message["content"]): Message => ({

@@ -18,6 +18,7 @@ const createHarness = () => {
       preview: "",
       updatedAt: "2026-08-08T10:00:00.000Z",
       unreadCount: 0,
+      unreadMentionCount: 0,
       pinned: false,
       muted: false,
     })),

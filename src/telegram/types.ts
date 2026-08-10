@@ -470,6 +470,7 @@ export interface Chat {
   previewSenderId?: string;
   updatedAt: string;
   unreadCount: number;
+  unreadMentionCount: number;
   lastReadInboxMessageId?: string;
   pinned: boolean;
   pinnedFolderIds?: string[];

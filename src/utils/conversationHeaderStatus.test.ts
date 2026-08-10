@@ -11,6 +11,7 @@ const chat = (kind: Chat["kind"], overrides: Partial<Chat> = {}): Chat => ({
   preview: "",
   updatedAt: new Date(0).toISOString(),
   unreadCount: 0,
+  unreadMentionCount: 0,
   pinned: false,
   muted: false,
   ...overrides,

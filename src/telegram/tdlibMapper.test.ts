@@ -157,6 +157,7 @@ describe("TDLib mapper", () => {
         ],
         chat_lists: [{ "@type": "chatListMain" }],
         unread_count: 2,
+        unread_mention_count: 1,
         last_read_inbox_message_id: "6917529027641081856",
         notification_settings: { mute_for: 0 },
         last_message: {
@@ -178,6 +179,7 @@ describe("TDLib mapper", () => {
       preview: "hello",
       previewSenderId: "7",
       unreadCount: 2,
+      unreadMentionCount: 1,
       lastReadInboxMessageId: "6917529027641081856",
       pinned: true,
       pinnedFolderIds: ["main"],

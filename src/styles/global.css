@@ -283,6 +283,10 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .chat-row.is-active .unread-count { color: var(--color-text-on-accent); background: var(--accent); }
 .unread-count.is-muted,
 .chat-row.is-active .unread-count.is-muted { color: var(--color-text-on-accent); background: var(--color-text-disabled); }
+.unread-count.has-attention,
+.chat-row.is-active .unread-count.has-attention {
+  color: var(--color-attention-badge-text); background: var(--color-attention-badge);
+}
 .unread-count-avatar {
   position: absolute; right: -3px; bottom: -3px;
   min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; font-size: 11px;

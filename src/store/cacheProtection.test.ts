@@ -16,6 +16,7 @@ describe("protectedCachePaths", () => {
         preview: "",
         updatedAt: "2026-08-03T00:00:00Z",
         unreadCount: 0,
+        unreadMentionCount: 0,
         muted: false,
         pinned: false,
       }],

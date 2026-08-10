@@ -101,6 +101,11 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
         unread_count: update.unread_count,
       });
       return;
+    case "updateChatUnreadMentionCount":
+      handlers.patchChat(update.chat_id, {
+        unread_mention_count: update.unread_mention_count,
+      });
+      return;
     case "updateChatIsMarkedAsUnread":
       handlers.patchChat(update.chat_id, {
         is_marked_as_unread: update.is_marked_as_unread,

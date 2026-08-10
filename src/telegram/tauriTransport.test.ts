@@ -51,6 +51,7 @@ const rawChat = (id: number, date: number): TdObject => ({
   }],
   last_message: { ...rawMessage(id), chat_id: id, date },
   unread_count: 0,
+  unread_mention_count: 0,
   notification_settings: { mute_for: 0 },
 });
 
@@ -942,6 +943,28 @@ describe("TauriTelegramTransport startup", () => {
 
     internal.upsertChat(rawChat(7, 1_700_000_009));
     expect(events[2]).toMatchObject({ type: "chat.upsert", chat: { id: "7" } });
+  });
+
+  it("publishes unread mention and reply counts from live chat updates", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat(rawChat(7, 1_700_000_007));
+    internal.finishInitialChatSync();
+    events.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updateChatUnreadMentionCount",
+      chat_id: 7,
+      unread_mention_count: 2,
+    });
+
+    expect(events).toEqual([expect.objectContaining({
+      type: "chat.upsert",
+      chat: expect.objectContaining({ id: "7", unreadMentionCount: 2 }),
+    })]);
   });
 
   it("loads chat lists incrementally and records TDLib exhaustion", async () => {

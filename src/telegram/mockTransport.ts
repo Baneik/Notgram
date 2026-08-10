@@ -772,6 +772,7 @@ export class MockTelegramTransport implements TelegramTransport {
       preview: "暂无消息",
       updatedAt: new Date(0).toISOString(),
       unreadCount: 0,
+      unreadMentionCount: 0,
       pinned: false,
       muted: false,
     };
@@ -809,6 +810,7 @@ export class MockTelegramTransport implements TelegramTransport {
       preview: input.kind === "channel" ? "频道已创建" : "群组已创建",
       updatedAt: new Date().toISOString(),
       unreadCount: 0,
+      unreadMentionCount: 0,
       pinned: false,
       muted: false,
       management: deriveChatManagementCapabilities(
@@ -2015,6 +2017,7 @@ export class MockTelegramTransport implements TelegramTransport {
       .filter((message) => message.chatId === chatId && !message.outgoing)
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt))[0];
     chat.unreadCount = 0;
+    chat.unreadMentionCount = 0;
     chat.lastReadInboxMessageId = latestIncomingMessage?.id ?? chat.lastReadInboxMessageId;
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
@@ -2042,6 +2045,7 @@ export class MockTelegramTransport implements TelegramTransport {
       previewSenderId: message.senderId,
       updatedAt: message.sentAt,
       unreadCount: 0,
+      unreadMentionCount: 0,
     };
     Object.assign(chat, updatedChat);
     this.listener?.({ type: "chat.upsert", chat: clone(updatedChat) });

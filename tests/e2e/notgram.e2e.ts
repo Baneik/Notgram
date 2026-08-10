@@ -3584,6 +3584,24 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
   await expect(page.locator(".chat-row .lucide-volume-x")).toHaveCount(0);
 });
 
+test("mention and reply unread counts use theme-specific attention colors", async ({ page }) => {
+  await page.goto("/");
+  const badge = page.locator('[data-chat-id="chat-forum"] .unread-count');
+
+  await expect(badge).toHaveText("4");
+  await expect(badge).toHaveClass(/has-attention/);
+  await expect(badge).toHaveAttribute("aria-label", "4 条未读消息，其中包含提及或回复");
+  await expect(badge).toHaveCSS("background-color", "rgb(196, 61, 50)");
+  await expect(badge).toHaveCSS("color", "rgb(255, 255, 255)");
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "notgram-dark";
+    document.documentElement.style.colorScheme = "dark";
+  });
+  await expect(badge).toHaveCSS("background-color", "rgb(242, 184, 75)");
+  await expect(badge).toHaveCSS("color", "rgb(35, 23, 0)");
+});
+
 test("chat settings move unread counters onto avatars and persist the choice", async ({ page }) => {
   await page.goto("/");
   const releaseRow = page.locator('.chat-row[data-chat-id="chat-release"]');

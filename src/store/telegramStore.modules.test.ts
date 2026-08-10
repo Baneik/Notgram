@@ -119,6 +119,7 @@ describe("telegram store cache and accounts", () => {
   it("migrates version 1 snapshots and safely rejects damaged cache data", () => {
     const managedLegacyChat = {
       ...mockSnapshot.chats[0],
+      unreadMentionCount: undefined,
       canCreateTopics: true,
       management: deriveChatManagementCapabilities("supergroup", "owner"),
     };
@@ -138,6 +139,7 @@ describe("telegram store cache and accounts", () => {
     });
     expect(migrateCachedSnapshot(legacy).snapshot?.chats[0]).not.toHaveProperty("management");
     expect(migrateCachedSnapshot(legacy).snapshot?.chats[0]).not.toHaveProperty("canCreateTopics");
+    expect(migrateCachedSnapshot(legacy).snapshot?.chats[0]?.unreadMentionCount).toBe(0);
     expect(migrateCachedSnapshot({ ...legacy, version: 99 })).toEqual({ health: "invalid" });
     expect(migrateCachedSnapshot({ ...legacy, chats: [{ title: "missing id" }] }))
       .toEqual({ health: "invalid" });

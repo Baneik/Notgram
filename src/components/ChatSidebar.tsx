@@ -567,6 +567,11 @@ const ChatRow = memo(function ChatRow({
   const visibleDraft = draft && (draft.text.length > 0 || draft.replyToMessageId)
     ? draft
     : undefined;
+  const hasUnreadAttention = chat.unreadMentionCount > 0;
+  const unreadBadgeClassName = `unread-count ${chat.muted ? "is-muted" : ""} ${hasUnreadAttention ? "has-attention" : ""}`;
+  const unreadBadgeLabel = hasUnreadAttention
+    ? `${chat.unreadCount} 条未读消息，其中包含提及或回复`
+    : undefined;
   return (
     <button
       type="button"
@@ -603,7 +608,11 @@ const ChatRow = memo(function ChatRow({
       <span className="chat-avatar-wrap">
         <Avatar avatar={chat.avatar} />
         {unreadBadgePosition === "avatar" && chat.unreadCount > 0 && (
-          <span className={`unread-count unread-count-avatar ${chat.muted ? "is-muted" : ""}`}>
+          <span
+            className={`${unreadBadgeClassName} unread-count-avatar`}
+            aria-label={unreadBadgeLabel}
+            title={hasUnreadAttention ? "包含未读的提及或回复" : undefined}
+          >
             {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
           </span>
         )}
@@ -628,7 +637,13 @@ const ChatRow = memo(function ChatRow({
             {isChatPinnedInFolder(chat, folderId) && <Pin size={13} strokeWidth={2} />}
             {chat.folderIds.includes("archive") && <Archive size={13} strokeWidth={2} />}
             {unreadBadgePosition === "right" && chat.unreadCount > 0 && (
-              <span className={`unread-count ${chat.muted ? "is-muted" : ""}`}>{chat.unreadCount}</span>
+              <span
+                className={unreadBadgeClassName}
+                aria-label={unreadBadgeLabel}
+                title={hasUnreadAttention ? "包含未读的提及或回复" : undefined}
+              >
+                {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
+              </span>
             )}
           </span>
         </span>

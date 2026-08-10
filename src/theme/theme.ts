@@ -38,6 +38,8 @@ export const THEME_COLOR_TOKENS = [
   "--color-status-warning",
   "--color-status-danger",
   "--color-status-info",
+  "--color-attention-badge",
+  "--color-attention-badge-text",
   "--color-text-link",
   "--color-text-code",
   "--color-bg-code",

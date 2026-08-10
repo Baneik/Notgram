@@ -123,7 +123,12 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       version: TELEGRAM_CACHE_VERSION,
       outbox: value.version === 1 ? [] : (value.outbox ?? []),
       chats: (value.chats as unknown as Chat[]).map((chat) => {
-        const result = { ...chat };
+        const result = {
+          ...chat,
+          unreadMentionCount: Number.isFinite(chat.unreadMentionCount)
+            ? Math.max(0, chat.unreadMentionCount)
+            : 0,
+        };
         delete result.management;
         delete result.canCreateTopics;
         return result;
