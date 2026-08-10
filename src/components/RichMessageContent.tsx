@@ -1,6 +1,6 @@
 import { Download, Image as ImageIcon, LoaderCircle, MapPin } from "lucide-react";
 import katex from "katex";
-import { createElement, Fragment, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createElement, Fragment, useState, type CSSProperties, type ReactNode } from "react";
 import "katex/dist/katex.min.css";
 import type {
   MessageRichBlock,
@@ -18,15 +18,12 @@ import { highlightedText } from "../utils/textHighlight";
 import { autoplayAllowed } from "../utils/motionPreference";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { AutoplayVideo } from "./AutoplayVideo";
-import { MessageStreamingStatus } from "./MessageStreamingStatus";
-import { useStreamingRevisionAnimation } from "../hooks/useStreamingRevisionAnimation";
 
 interface RichMessageContentProps {
   blocks: MessageRichBlock[];
   isRtl: boolean;
   isFull: boolean;
   messageId: string;
-  revisionKey: string;
   highlightQuery?: string;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancelDownload: (fileId: number) => Promise<void>;
@@ -34,7 +31,7 @@ interface RichMessageContentProps {
   onSuspendStream: (fileId: number) => Promise<void>;
 }
 
-interface RenderContext extends Omit<RichMessageContentProps, "blocks" | "isRtl" | "isFull" | "revisionKey"> {
+interface RenderContext extends Omit<RichMessageContentProps, "blocks" | "isRtl" | "isFull"> {
   scope: string;
 }
 
@@ -388,20 +385,12 @@ export function RichMessageContent({
   isRtl,
   isFull,
   messageId,
-  revisionKey,
   highlightQuery,
   onDownload,
   onCancelDownload,
   onStream,
   onSuspendStream,
 }: RichMessageContentProps) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  useStreamingRevisionAnimation(
-    contentRef,
-    !isFull,
-    revisionKey,
-    ".rich-streaming-body > :last-child",
-  );
   const context: RenderContext = {
     messageId,
     highlightQuery,
@@ -419,10 +408,12 @@ export function RichMessageContent({
       data-rich-message-full={isFull ? "true" : "false"}
       dir={isRtl ? "rtl" : "auto"}
     >
-      <div ref={contentRef} className="rich-streaming-body">
-        {renderBlocks(blocks, "rich-message", context)}
-      </div>
-      <MessageStreamingStatus active={!isFull} announceCompletion />
+      {renderBlocks(blocks, "rich-message", context)}
+      {!isFull && (
+        <span className="rich-streaming-indicator" role="status" aria-label="正在接收消息">
+          <span />
+        </span>
+      )}
     </div>
   );
 }
