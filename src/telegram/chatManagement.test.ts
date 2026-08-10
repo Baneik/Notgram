@@ -1,8 +1,58 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CHAT_ADMIN_RIGHTS, DEFAULT_CHAT_PERMISSIONS } from "./chatManagement";
+import {
+  DEFAULT_CHAT_ADMIN_RIGHTS,
+  DEFAULT_CHAT_PERMISSIONS,
+  deriveChatManagementCapabilities,
+  mapChatAdminRightsFromTd,
+  mapChatPermissionsFromTd,
+} from "./chatManagement";
 import { MockTelegramTransport } from "./mockTransport";
 
 describe("chat management", () => {
+  it("derives a closed capability set for regular members", () => {
+    const capabilities = deriveChatManagementCapabilities("supergroup", "member");
+    expect(capabilities).toMatchObject({
+      canOpenManagement: false,
+      canAddMembers: false,
+      canPromoteMembers: false,
+      canManageInvites: false,
+      canViewEventLog: false,
+    });
+  });
+
+  it("limits an administrator to the rights returned by TDLib", () => {
+    const capabilities = deriveChatManagementCapabilities("supergroup", "administrator", {
+      ...DEFAULT_CHAT_ADMIN_RIGHTS,
+      canPromoteMembers: false,
+      canRestrictMembers: false,
+      canManageChat: false,
+      canInviteUsers: true,
+    });
+    expect(capabilities).toMatchObject({
+      canOpenManagement: true,
+      canAddMembers: true,
+      canPromoteMembers: false,
+      canRestrictMembers: false,
+      canManagePermissions: false,
+      canManageSlowMode: false,
+      canViewEventLog: false,
+    });
+  });
+
+  it("maps every chat permission and administrator right field", () => {
+    expect(mapChatPermissionsFromTd({ can_react_to_messages: true, can_edit_tag: true })).toMatchObject({
+      canReactToMessages: true,
+      canEditTag: true,
+      canSendBasicMessages: false,
+    });
+    expect(mapChatAdminRightsFromTd({ can_manage_chat: true, can_manage_tags: true, is_anonymous: true })).toMatchObject({
+      canManageChat: true,
+      canManageTags: true,
+      isAnonymous: true,
+      canPromoteMembers: false,
+    });
+  });
+
   it("manages roles, exception permissions, slow mode, ownership, and audit events", async () => {
     const transport = new MockTelegramTransport();
     const chat = await transport.createChat({

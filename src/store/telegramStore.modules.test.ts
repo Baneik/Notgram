@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockSnapshot } from "../telegram/mockData";
 import type { ChatDraft, Message, QueuedOutgoingMessage } from "../telegram/types";
+import { deriveChatManagementCapabilities } from "../telegram/chatManagement";
 import {
   accountStatePatch,
   currentAccountRegistration,
@@ -116,13 +117,18 @@ describe("telegram store message state", () => {
 
 describe("telegram store cache and accounts", () => {
   it("migrates version 1 snapshots and safely rejects damaged cache data", () => {
+    const managedLegacyChat = {
+      ...mockSnapshot.chats[0],
+      canCreateTopics: true,
+      management: deriveChatManagementCapabilities("supergroup", "owner"),
+    };
     const legacy = {
       version: 1,
       savedAt: "2026-08-01T10:00:00Z",
       currentUserId: mockSnapshot.currentUserId,
       users: mockSnapshot.users,
       folders: mockSnapshot.folders,
-      chats: mockSnapshot.chats,
+      chats: [managedLegacyChat, ...mockSnapshot.chats.slice(1)],
       messages: mockSnapshot.messages.slice(0, 2),
     };
 
@@ -130,6 +136,8 @@ describe("telegram store cache and accounts", () => {
       health: "migrated",
       snapshot: { version: 3, currentUserId: mockSnapshot.currentUserId },
     });
+    expect(migrateCachedSnapshot(legacy).snapshot?.chats[0]).not.toHaveProperty("management");
+    expect(migrateCachedSnapshot(legacy).snapshot?.chats[0]).not.toHaveProperty("canCreateTopics");
     expect(migrateCachedSnapshot({ ...legacy, version: 99 })).toEqual({ health: "invalid" });
     expect(migrateCachedSnapshot({ ...legacy, chats: [{ title: "missing id" }] }))
       .toEqual({ health: "invalid" });
@@ -155,11 +163,16 @@ describe("telegram store cache and accounts", () => {
       },
     };
     const chat = mockSnapshot.chats.find(({ id }) => id === media.chatId)!;
+    const managedChat = {
+      ...chat,
+      canCreateTopics: true,
+      management: deriveChatManagementCapabilities("supergroup", "owner"),
+    };
     const snapshot = cachedSnapshotFrom({
       currentUserId: mockSnapshot.currentUserId,
       users: new Map(mockSnapshot.users.map((user) => [user.id, user])),
       folders: mockSnapshot.folders,
-      chats: new Map([[chat.id, chat]]),
+      chats: new Map([[managedChat.id, managedChat]]),
       messages: new Map([[chat.id, [media]]]),
       drafts: new Map(),
       activeChatId: chat.id,

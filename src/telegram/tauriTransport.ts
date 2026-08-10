@@ -119,7 +119,16 @@ import type {
   UpdateCurrentUserProfileInput,
   User,
 } from "./types";
-import { DEFAULT_CHAT_PERMISSIONS, DEFAULT_CHAT_ADMIN_RIGHTS } from "./chatManagement";
+import {
+  CHAT_ADMIN_FIELDS,
+  CHAT_PERMISSION_FIELDS,
+  DEFAULT_CHAT_ADMIN_RIGHTS,
+  DEFAULT_CHAT_PERMISSIONS,
+  deriveChatManagementCapabilities,
+  managedMemberStatusFromTd,
+  mapChatAdminRightsFromTd,
+  mapChatPermissionsFromTd,
+} from "./chatManagement";
 import {
   knownUnsupportedTelegramLink,
   unsupportedTelegramLink,
@@ -162,56 +171,15 @@ const chatPermissionsForTemplate = (template: CreateChatInput["permissionTemplat
 };
 
 
-const CHAT_PERMISSION_FIELDS = [
-  ["canSendBasicMessages", "can_send_basic_messages"], ["canSendAudios", "can_send_audios"],
-  ["canSendDocuments", "can_send_documents"], ["canSendPhotos", "can_send_photos"],
-  ["canSendVideos", "can_send_videos"], ["canSendVideoNotes", "can_send_video_notes"],
-  ["canSendVoiceNotes", "can_send_voice_notes"], ["canSendPolls", "can_send_polls"],
-  ["canSendOtherMessages", "can_send_other_messages"], ["canAddLinkPreviews", "can_add_link_previews"],
-  ["canEditTag", "can_edit_tag"], ["canChangeInfo", "can_change_info"],
-  ["canInviteUsers", "can_invite_users"], ["canPinMessages", "can_pin_messages"],
-  ["canCreateTopics", "can_create_topics"],
-] as const;
-
-const CHAT_ADMIN_FIELDS = [
-  ["canManageChat", "can_manage_chat"], ["canChangeInfo", "can_change_info"], ["canPostMessages", "can_post_messages"],
-  ["canEditMessages", "can_edit_messages"], ["canDeleteMessages", "can_delete_messages"], ["canInviteUsers", "can_invite_users"],
-  ["canRestrictMembers", "can_restrict_members"], ["canPinMessages", "can_pin_messages"], ["canManageTopics", "can_manage_topics"],
-  ["canPromoteMembers", "can_promote_members"], ["canManageVideoChats", "can_manage_video_chats"], ["canPostStories", "can_post_stories"],
-  ["canEditStories", "can_edit_stories"], ["canDeleteStories", "can_delete_stories"], ["canManageDirectMessages", "can_manage_direct_messages"],
-  ["canManageTags", "can_manage_tags"],
-] as const;
-
-const mapChatPermissions = (value: unknown): ChatPermissions => {
-  const raw = asTdObject(value);
-  return Object.fromEntries(CHAT_PERMISSION_FIELDS.map(([key, field]) => [key, raw?.[field] === true])) as ChatPermissions;
-};
-
 const chatPermissionsObject = (value: ChatPermissions): TdObject => Object.fromEntries([
   ["@type", "chatPermissions"],
   ...CHAT_PERMISSION_FIELDS.map(([key, field]) => [field, value[key]]),
 ]);
 
-const mapChatAdminRights = (value: unknown): ChatAdminRights => {
-  const raw = asTdObject(value);
-  return Object.fromEntries(CHAT_ADMIN_FIELDS.map(([key, field]) => [key, raw?.[field] === true])) as ChatAdminRights;
-};
-
 const chatAdminRightsObject = (value: ChatAdminRights): TdObject => Object.fromEntries([
   ["@type", "chatAdministratorRights"],
   ...CHAT_ADMIN_FIELDS.map(([key, field]) => [field, value[key]]),
 ]);
-
-const managedStatus = (value: unknown): ManagedChatMember["status"] => {
-  switch (asTdObject(value)?.["@type"]) {
-    case "chatMemberStatusCreator": return "owner";
-    case "chatMemberStatusAdministrator": return "administrator";
-    case "chatMemberStatusRestricted": return "restricted";
-    case "chatMemberStatusBanned": return "banned";
-    case "chatMemberStatusLeft": return "left";
-    default: return "member";
-  }
-};
 
 const unixDate = (value: unknown) => {
   const seconds = tdNumber(value);
@@ -340,6 +308,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     emitMessages: (rawMessages) => this.emitMessages(rawMessages),
     emitForumTopicsChanged: (chatId) => this.emitForumTopicsChanged(chatId),
   });
+  private rawBasicGroups = new Map<string, TdObject>();
   private rawSupergroups = new Map<string, TdObject>();
   private rawUsers = new Map<string, TdObject>();
   private profileService = new TauriProfileService({
@@ -397,6 +366,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     authorization: (update) => this.handleAuthorizationUpdate(update),
     connection: (update) => this.handleConnectionUpdate(update),
     upsertUser: (user) => this.upsertUser(user),
+    upsertBasicGroup: (basicGroup) => this.upsertBasicGroup(basicGroup),
     upsertSupergroup: (supergroup) => this.upsertSupergroup(supergroup),
     updateUserStatus: (update) => this.updateUserStatus(update),
     updateChatFolders: (update) => this.updateChatFolders(update),
@@ -803,6 +773,22 @@ export class TauriTelegramTransport implements TelegramTransport {
       throw new Error("只有群组和频道支持成员管理");
     }
     const isBasic = type["@type"] === "chatTypeBasicGroup";
+    const chatType = isBasic
+      ? "basicGroup" as const
+      : type.is_channel === true ? "channel" as const : "supergroup" as const;
+    const groupId = tdId(isBasic ? type.basic_group_id : type.supergroup_id);
+    if (!groupId) throw new Error("群组标识无效");
+    const group = isBasic
+      ? await this.request({ "@type": "getBasicGroup", basic_group_id: numericId(groupId) })
+      : await this.request({ "@type": "getSupergroup", supergroup_id: numericId(groupId) });
+    if (isBasic) this.upsertBasicGroup(group); else this.upsertSupergroup(group);
+    const statusObject = asTdObject(group.status);
+    const status = managedMemberStatusFromTd(statusObject);
+    const adminRights = status === "administrator"
+      ? mapChatAdminRightsFromTd(statusObject?.rights)
+      : undefined;
+    const capabilities = deriveChatManagementCapabilities(chatType, status, adminRights);
+    if (!capabilities.canOpenManagement) throw new Error("当前账号没有群组管理权限");
     const offset = Math.max(0, memberOffset);
     let administratorLabels: Record<string, string> = {};
     try {
@@ -821,37 +807,44 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
     let full: TdObject;
     let values: TdObject[];
-    let supergroupId: string | undefined;
     if (isBasic) {
-      full = await this.request({ "@type": "getBasicGroupFullInfo", basic_group_id: numericId(tdId(type.basic_group_id)) });
+      full = await this.request({ "@type": "getBasicGroupFullInfo", basic_group_id: numericId(groupId) });
       values = asTdObjects(full.members).slice(offset, offset + 50);
     } else {
-      supergroupId = tdId(type.supergroup_id);
-      full = await this.request({ "@type": "getSupergroupFullInfo", supergroup_id: numericId(supergroupId) });
+      full = await this.request({ "@type": "getSupergroupFullInfo", supergroup_id: numericId(groupId) });
       const result = await this.request({
         "@type": "getSupergroupMembers",
-        supergroup_id: numericId(supergroupId), filter: null, offset, limit: 50,
+        supergroup_id: numericId(groupId), filter: null, offset, limit: 50,
       });
       values = asTdObjects(result.members);
     }
     const members = await this.loadManagedMembers(values);
-    const status = asTdObject(full.status);
-    const statusType = status?.["@type"];
-    const canManageMembers = statusType === "chatMemberStatusCreator" || statusType === "chatMemberStatusAdministrator";
-    const permissions = rawChat.permissions ? mapChatPermissions(rawChat.permissions) : { ...DEFAULT_CHAT_PERMISSIONS };
-    const adminRights = statusType === "chatMemberStatusAdministrator" ? mapChatAdminRights(status?.rights) : DEFAULT_CHAT_ADMIN_RIGHTS;
-    const canManagePermissions = canManageMembers && (statusType === "chatMemberStatusCreator" || adminRights.canManageChat === true);
+    const permissions = rawChat.permissions ? mapChatPermissionsFromTd(rawChat.permissions) : { ...DEFAULT_CHAT_PERMISSIONS };
     const slowModeDelay = tdNumber(full.slow_mode_delay) ?? 0;
-    const memberCount = tdNumber(full.member_count);
+    const memberCount = tdNumber(group.member_count) ?? tdNumber(full.member_count);
+    let ownershipTransfer;
+    if (capabilities.canTransferOwnership) {
+      const transferResult = await this.request({ "@type": "canTransferOwnership" });
+      const transferType = transferResult["@type"];
+      ownershipTransfer = transferType === "canTransferOwnershipResultOk"
+        ? { available: true }
+        : {
+            available: false,
+            ...(transferType === "canTransferOwnershipResultPasswordNeeded" ? { reason: "passwordNeeded" as const } : {}),
+            ...(transferType === "canTransferOwnershipResultPasswordTooFresh" ? { reason: "passwordTooFresh" as const } : {}),
+            ...(transferType === "canTransferOwnershipResultSessionTooFresh" ? { reason: "sessionTooFresh" as const } : {}),
+            ...(tdNumber(transferResult.retry_after) !== undefined ? { retryAfter: tdNumber(transferResult.retry_after) } : {}),
+          };
+      capabilities.canTransferOwnership = ownershipTransfer.available;
+    }
     return {
       chatId,
       members,
       administratorLabels,
       permissions,
       slowModeDelay,
-      canManageMembers,
-      canManagePermissions,
-      canTransferOwnership: statusType === "chatMemberStatusCreator",
+      capabilities,
+      ownershipTransfer,
       memberCount,
       memberOffset: offset,
       memberHasMore: values.length === 50 || (memberCount !== undefined && offset + values.length < memberCount),
@@ -859,13 +852,27 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async addChatMembers(chatId: string, userIds: string[]): Promise<void> {
-    await this.request({ "@type": "addChatMembers", chat_id: numericId(chatId), user_ids: [...new Set(userIds)].map(numericId) });
+    const rawChat = this.rawChats.get(chatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
+    const type = asTdObject(rawChat.type);
+    const uniqueIds = [...new Set(userIds)].map(numericId);
+    if (type?.["@type"] === "chatTypeBasicGroup") {
+      for (const userId of uniqueIds) {
+        await this.request({
+          "@type": "setChatMemberStatus",
+          chat_id: numericId(chatId),
+          member_id: { "@type": "messageSenderUser", user_id: userId },
+          status: { "@type": "chatMemberStatusMember", member_until_date: 0 },
+        });
+      }
+      return;
+    }
+    await this.request({ "@type": "addChatMembers", chat_id: numericId(chatId), user_ids: uniqueIds });
   }
 
   async setChatMemberStatus({ chatId, userId, status }: { chatId: string; userId: string; status: ChatMemberStatusInput }): Promise<void> {
     let statusObject: TdObject;
     if (status.kind === "administrator") {
-      statusObject = { "@type": "chatMemberStatusAdministrator", can_be_edited: true, rights: chatAdminRightsObject(status.rights), custom_title: status.customTitle?.trim() ?? "" };
+      statusObject = { "@type": "chatMemberStatusAdministrator", can_be_edited: false, rights: chatAdminRightsObject(status.rights) };
     } else if (status.kind === "restricted") {
       statusObject = { "@type": "chatMemberStatusRestricted", is_member: true, restricted_until_date: status.untilDate ?? 0, permissions: chatPermissionsObject(status.permissions) };
     } else if (status.kind === "banned") {
@@ -874,6 +881,9 @@ export class TauriTelegramTransport implements TelegramTransport {
       statusObject = { "@type": "chatMemberStatusMember", member_until_date: 0 };
     }
     await this.request({ "@type": "setChatMemberStatus", chat_id: numericId(chatId), member_id: { "@type": "messageSenderUser", user_id: numericId(userId) }, status: statusObject });
+    if (status.kind === "administrator" && status.customTitle !== undefined) {
+      await this.request({ "@type": "setChatMemberTag", chat_id: numericId(chatId), user_id: numericId(userId), tag: status.customTitle.trim() });
+    }
   }
 
   async setChatPermissions(chatId: string, permissions: ChatPermissions): Promise<void> {
@@ -884,7 +894,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const rawChat = this.rawChats.get(chatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
     const type = asTdObject(rawChat.type);
     const supergroupId = tdId(type?.supergroup_id);
-    if (!supergroupId || type?.["@type"] !== "chatTypeSupergroup") throw new Error("慢速模式只适用于超级群组");
+    if (!supergroupId || type?.["@type"] !== "chatTypeSupergroup" || type.is_channel === true) throw new Error("慢速模式只适用于超级群组");
     await this.request({ "@type": "setChatSlowModeDelay", chat_id: numericId(chatId), slow_mode_delay: delaySeconds });
   }
 
@@ -913,19 +923,22 @@ export class TauriTelegramTransport implements TelegramTransport {
     } : null;
     const result = await this.request({ "@type": "getChatEventLog", chat_id: numericId(chatId), query: query.trim(), from_event_id: fromEventId ? numericId(fromEventId) : "0", limit: Math.max(1, Math.min(limit, 100)), filters: mappedFilters, user_ids: [] });
     const events = await Promise.all(asTdObjects(result.events).map(async (event) => {
-      const actorId = tdId(asTdObject(event.user_id)?.id ?? event.user_id);
+      const actorSender = asTdObject(event.member_id);
+      const actorId = actorSender?.["@type"] === "messageSenderUser" ? tdId(actorSender.user_id) : "";
       const actor = actorId ? await this.loadUser(actorId) : undefined;
       const action = asTdObject(event.action);
       const kind = typeof action?.["@type"] === "string" ? action["@type"] : "event";
       const summary = kind.replace(/^chatEventAction/, "").replace(/([A-Z])/g, " $1").trim() || "群组设置更新";
       return { id: tdId(event.id) || `${event.date ?? 0}`, date: new Date((tdNumber(event.date) ?? 0) * 1000).toISOString(), actor, summary, kind };
     }));
-    const nextEventId = tdId(result.next_from_event_id);
-    return { events, nextEventId, hasMore: Boolean(nextEventId) && events.length > 0 };
+    const nextEventId = events.at(-1)?.id;
+    return { events, nextEventId, hasMore: events.length >= Math.max(1, Math.min(limit, 100)) };
   }
 
   async getChatInviteLinks({ chatId, creatorUserId, revoked = false, offsetDate = 0, offsetLink = "", limit = 30 }: GetChatInviteLinksInput): Promise<ChatInviteLinkPage> {
-    const result = await this.request({ "@type": "getChatInviteLinks", chat_id: numericId(chatId), creator_user_id: creatorUserId ? numericId(creatorUserId) : 0, is_revoked: revoked, offset_date: offsetDate, offset_invite_link: offsetLink, limit: Math.max(1, Math.min(limit, 100)) });
+    const creatorId = creatorUserId || this.currentUserId;
+    if (!creatorId) throw new Error("无法确定邀请链接创建者");
+    const result = await this.request({ "@type": "getChatInviteLinks", chat_id: numericId(chatId), creator_user_id: numericId(creatorId), is_revoked: revoked, offset_date: offsetDate, offset_invite_link: offsetLink, limit: Math.max(1, Math.min(limit, 100)) });
     const links = asTdObjects(result.invite_links).map(mapChatInviteLink).filter((link): link is ChatInviteLink => Boolean(link));
     const last = links.at(-1);
     return { links, hasMore: links.length >= Math.max(1, Math.min(limit, 100)), nextOffsetDate: last ? Math.floor(Date.parse(last.createdAt) / 1000) : undefined, nextOffsetLink: last?.inviteLink };
@@ -1985,21 +1998,31 @@ export class TauriTelegramTransport implements TelegramTransport {
       const userId = sender?.["@type"] === "messageSenderUser" ? tdId(sender.user_id) : "";
       if (!userId) return [];
       const status = asTdObject(member.status);
-      const statusKind = managedStatus(member.status);
+      const statusKind = managedMemberStatusFromTd(member.status);
       return [{
         userId,
         status: statusKind,
         role: (statusKind === "owner" ? "owner" : statusKind === "administrator" ? "administrator" : "member") as ChatProfile["members"][number]["role"],
-        adminRights: statusKind === "administrator" ? mapChatAdminRights(status?.rights) : undefined,
-        permissions: statusKind === "restricted" ? mapChatPermissions(status?.permissions) : undefined,
+        adminRights: statusKind === "administrator" ? mapChatAdminRightsFromTd(status?.rights) : undefined,
+        permissions: statusKind === "restricted" ? mapChatPermissionsFromTd(status?.permissions) : undefined,
         untilDate: tdNumber(status?.restricted_until_date ?? status?.banned_until_date ?? status?.member_until_date),
-        customTitle: typeof status?.custom_title === "string" ? status.custom_title : undefined,
+        customTitle: typeof member.tag === "string" && member.tag.trim() ? member.tag.trim() : undefined,
+        canBeEdited: statusKind === "administrator" ? status?.can_be_edited === true : true,
       }];
     });
     const users = await Promise.all(details.map((detail) => this.loadUser(detail.userId)));
     return details.flatMap((detail, index) => {
       const user = users[index];
-      return user ? [{ user, role: detail.role, status: detail.status, adminRights: detail.adminRights, permissions: detail.permissions, untilDate: detail.untilDate, customTitle: detail.customTitle }] : [];
+      return user ? [{
+        user,
+        role: detail.role,
+        status: detail.status,
+        adminRights: detail.adminRights,
+        permissions: detail.permissions,
+        untilDate: detail.untilDate,
+        customTitle: detail.customTitle,
+        canBeEdited: detail.canBeEdited,
+      }] : [];
     });
   }
 
@@ -2010,6 +2033,19 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!id || !user) return;
     this.rawUsers.set(id, raw);
     this.listener?.({ type: "user.upsert", user });
+  }
+
+  private upsertBasicGroup(raw?: TdObject) {
+    if (!raw) return;
+    const id = tdId(raw.id);
+    if (!id) return;
+    this.rawBasicGroups.set(id, raw);
+    for (const chat of this.rawChats.values()) {
+      const type = asTdObject(chat.type);
+      if (type?.["@type"] === "chatTypeBasicGroup" && tdId(type.basic_group_id) === id) {
+        this.emitChat(chat);
+      }
+    }
   }
 
   private upsertSupergroup(raw?: TdObject) {
@@ -2102,6 +2138,9 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private mapChat(raw: TdObject) {
     const type = asTdObject(raw.type);
+    const basicGroupId = type?.["@type"] === "chatTypeBasicGroup"
+      ? tdId(type.basic_group_id)
+      : undefined;
     const supergroupId = type?.["@type"] === "chatTypeSupergroup"
       ? tdId(type.supergroup_id)
       : undefined;
@@ -2109,6 +2148,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       raw,
       this.currentUserId,
       supergroupId ? this.rawSupergroups.get(supergroupId) : undefined,
+      basicGroupId ? this.rawBasicGroups.get(basicGroupId) : undefined,
     );
   }
 
@@ -2698,6 +2738,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.networkOnlineHandler = undefined;
     this.connectionStatus = undefined;
     this.rawChats.clear();
+    this.rawBasicGroups.clear();
     this.rawSupergroups.clear();
     this.rawUsers.clear();
     this.rawMessages.clear();

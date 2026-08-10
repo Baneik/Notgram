@@ -1859,8 +1859,19 @@ export const createTelegramStore = (
           set({ groupManagementLoading: true, groupManagementError: undefined });
           try {
             const value = await transport.getChatManagement(chatId, memberOffset);
-            set({ groupManagement: value, groupManagementLoading: false });
-            return value;
+            const current = get().groupManagement;
+            const merged = memberOffset > 0 && current?.chatId === chatId
+              ? {
+                  ...value,
+                  members: [
+                    ...current.members,
+                    ...value.members.filter((member) => !current.members.some((item) => item.user.id === member.user.id)),
+                  ],
+                  memberOffset: 0,
+                }
+              : value;
+            set({ groupManagement: merged, groupManagementLoading: false });
+            return merged;
           } catch (error) {
             set({ groupManagementLoading: false, groupManagementError: errorMessage(error, "无法读取群组管理资料") });
             return undefined;
@@ -1875,7 +1886,7 @@ export const createTelegramStore = (
       addChatMembers: async (chatId, userIds) => {
         try {
           await transport.addChatMembers(chatId, userIds);
-          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
@@ -1887,7 +1898,7 @@ export const createTelegramStore = (
       setChatMemberStatus: async (chatId, userId, status) => {
         try {
           await transport.setChatMemberStatus({ chatId, userId, status });
-          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
@@ -1899,7 +1910,7 @@ export const createTelegramStore = (
       setChatPermissions: async (chatId, permissions) => {
         try {
           await transport.setChatPermissions(chatId, permissions);
-          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
@@ -1911,7 +1922,7 @@ export const createTelegramStore = (
       setChatSlowModeDelay: async (chatId, delaySeconds) => {
         try {
           await transport.setChatSlowModeDelay(chatId, delaySeconds);
-          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
@@ -1923,7 +1934,7 @@ export const createTelegramStore = (
       transferChatOwnership: async (chatId, userId, password) => {
         try {
           await transport.transferChatOwnership(chatId, userId, password);
-          await get().loadChatManagement(chatId, get().groupManagement?.memberOffset ?? 0);
+          await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {

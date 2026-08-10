@@ -4,7 +4,9 @@ use std::path::Path;
 const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "addChatToList",
     "addChatMembers",
+    "canTransferOwnership",
     "setChatMemberStatus",
+    "setChatMemberTag",
     "addMessageReaction",
     "addProxy",
     "checkAuthenticationCode",
@@ -47,6 +49,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChatPinnedMessage",
     "getChats",
     "getBasicGroupFullInfo",
+    "getBasicGroup",
     "getContacts",
     "getAuthorizationState",
     "getFile",
@@ -63,6 +66,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getRepliedMessage",
     "getSecretChat",
     "getSupergroupFullInfo",
+    "getSupergroup",
     "getSupergroupMembers",
     "getUser",
     "getUserFullInfo",
@@ -217,6 +221,11 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
             validate_user_ids(request, "user_ids", 200)?;
         }
         "setChatMemberStatus" => validate_chat_member_status(request)?,
+        "setChatMemberTag" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            validate_nonzero_identifier(request, "user_id")?;
+            validate_profile_text(request, "tag", 16, true, false)?;
+        }
         "setChatSlowModeDelay" => {
             validate_nonzero_identifier(request, "chat_id")?;
             let delay = request
@@ -1012,6 +1021,7 @@ fn validate_chat_permissions(request: &Value) -> Result<(), String> {
         "can_send_polls",
         "can_send_other_messages",
         "can_add_link_previews",
+        "can_react_to_messages",
         "can_edit_tag",
         "can_change_info",
         "can_invite_users",
@@ -2037,6 +2047,7 @@ mod tests {
                 "can_send_polls": false,
                 "can_send_other_messages": false,
                 "can_add_link_previews": false,
+                "can_react_to_messages": false,
                 "can_edit_tag": false,
                 "can_change_info": false,
                 "can_invite_users": false,

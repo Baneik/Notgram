@@ -30,6 +30,7 @@ interface ProfileDrawerProps {
   onOpenMessage: (chatId: string, messageId: string) => void;
   onStartPrivateChat: (userId: string) => Promise<void>;
   onManageChat: (chatId: string) => void;
+  canManageChat?: boolean;
   isBlocked?: boolean;
   onToggleBlock: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
   onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportOptions | undefined>;
@@ -56,6 +57,7 @@ export function ProfileDrawer({
   onOpenMessage,
   onStartPrivateChat,
   onManageChat,
+  canManageChat,
   isBlocked,
   onToggleBlock,
   onGetReportOptions,
@@ -122,7 +124,7 @@ export function ProfileDrawer({
                     <Image size={18} /><span>共享媒体</span>
                   </button>
                 )}
-                {profile.chatId && (profile.kind === "group" || profile.kind === "channel") && (
+                {canManageChat && profile.chatId && (profile.kind === "group" || profile.kind === "channel") && (
                   <button type="button" onClick={() => onManageChat(profile.chatId!)}>
                     <Shield size={18} /><span>管理</span>
                   </button>

@@ -1,4 +1,4 @@
-import type { CachedTelegramSnapshot, ChatProfile, ForumTopic, Message } from "../telegram/types";
+import type { CachedTelegramSnapshot, Chat, ChatProfile, ForumTopic, Message } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
 import type { QueuedOutgoingAttachment } from "../telegram/types";
 
@@ -122,6 +122,12 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       ...(value as unknown as CachedTelegramSnapshot),
       version: TELEGRAM_CACHE_VERSION,
       outbox: value.version === 1 ? [] : (value.outbox ?? []),
+      chats: (value.chats as unknown as Chat[]).map((chat) => {
+        const result = { ...chat };
+        delete result.management;
+        delete result.canCreateTopics;
+        return result;
+      }),
       forumTopics: value.version === 3 ? (value.forumTopics ?? []) : [],
       lastForumTopicIds: value.version === 3 ? (value.lastForumTopicIds ?? []) : [],
     },
@@ -142,6 +148,13 @@ const cacheableMessage = (message: Message): Message => {
     ...result,
     content: { ...result.content, previewDataUrl: undefined },
   };
+};
+
+const cacheableChat = (chat: Chat): Chat => {
+  const result = { ...chat };
+  delete result.management;
+  delete result.canCreateTopics;
+  return result;
 };
 
 const forumTopicsForCache = (state: TelegramState) => {
@@ -229,7 +242,7 @@ export const cachedSnapshotFrom = (
   currentUserId: state.currentUserId ?? "",
   users: [...state.users.values()],
   folders: state.folders,
-  chats: [...state.chats.values()],
+  chats: [...state.chats.values()].map(cacheableChat),
   messages: recentMessagesForCache(state),
   drafts: [...state.drafts.values()],
   outbox: state.outbox ?? [],

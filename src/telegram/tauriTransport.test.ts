@@ -378,6 +378,18 @@ describe("TauriTelegramTransport startup", () => {
           ],
         };
       }
+      if (request["@type"] === "getSupergroup") {
+        return {
+          "@type": "supergroup",
+          id: 91,
+          status: {
+            "@type": "chatMemberStatusAdministrator",
+            can_be_edited: true,
+            rights: { can_manage_chat: true, can_invite_users: true, can_restrict_members: true },
+          },
+          member_count: 200,
+        };
+      }
       if (request["@type"] === "getSupergroupFullInfo") {
         return {
           "@type": "supergroupFullInfo",
@@ -406,7 +418,7 @@ describe("TauriTelegramTransport startup", () => {
     await transport.setChatMemberStatus({
       chatId: "72",
       userId: "11",
-      status: { kind: "administrator", rights: { ...DEFAULT_CHAT_ADMIN_RIGHTS, canPromoteMembers: true } },
+      status: { kind: "administrator", rights: { ...DEFAULT_CHAT_ADMIN_RIGHTS, canPromoteMembers: true }, customTitle: "值班" },
     });
     await transport.setChatMemberStatus({
       chatId: "72",
@@ -418,11 +430,12 @@ describe("TauriTelegramTransport startup", () => {
     await transport.transferChatOwnership("72", "11", "password");
 
     expect(requests.map((request) => request["@type"])).toEqual([
-      "addChatMembers", "setChatMemberStatus", "setChatMemberStatus", "setChatPermissions", "setChatSlowModeDelay", "transferChatOwnership",
+      "addChatMembers", "setChatMemberStatus", "setChatMemberTag", "setChatMemberStatus", "setChatPermissions", "setChatSlowModeDelay", "transferChatOwnership",
     ]);
     expect(requests[1].status).toMatchObject({ "@type": "chatMemberStatusAdministrator", rights: { can_promote_members: true } });
-    expect(requests[2].status).toMatchObject({ "@type": "chatMemberStatusRestricted", permissions: { can_send_videos: false } });
-    expect(requests[4]).toMatchObject({ chat_id: 72, slow_mode_delay: 30 });
+    expect(requests[2]).toMatchObject({ chat_id: 72, user_id: 11, tag: "值班" });
+    expect(requests[3].status).toMatchObject({ "@type": "chatMemberStatusRestricted", permissions: { can_send_videos: false } });
+    expect(requests[5]).toMatchObject({ chat_id: 72, slow_mode_delay: 30 });
   });
 
   it("creates a public supergroup and applies members, history, and permissions", async () => {
