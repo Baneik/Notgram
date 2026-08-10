@@ -48,9 +48,10 @@ export const useSidebarSearch = ({
       onClearSearch();
       return;
     }
+    if (stateMatchesInput && chatMessageSearch.input) return;
     const timer = globalThis.setTimeout(() => void onSearchMessages(input), 250);
     return () => globalThis.clearTimeout(timer);
-  }, [active, chatId, input, onClearSearch, onSearchMessages]);
+  }, [active, chatId, chatMessageSearch.input, input, onClearSearch, onSearchMessages, stateMatchesInput]);
 
   const enterChat = useCallback((nextChatId: string, nextSenderId?: string) => {
     onClearSearch();
@@ -58,6 +59,12 @@ export const useSidebarSearch = ({
     setSenderId(nextSenderId);
     onQueryChange("");
   }, [onClearSearch, onQueryChange]);
+
+  const restoreScope = useCallback((nextScope: SidebarSearchScope, nextSenderId?: string) => {
+    onClearSearch();
+    setScope(nextScope);
+    setSenderId(nextScope.type === "chat" ? nextSenderId : undefined);
+  }, [onClearSearch]);
 
   const exitScope = useCallback((preserveQuery = false) => {
     onClearSearch();
@@ -72,6 +79,7 @@ export const useSidebarSearch = ({
     senderId,
     stateMatchesInput,
     enterChat,
+    restoreScope,
     exitScope,
     setSenderId,
   };

@@ -57,6 +57,10 @@ import {
   captureConversationSwitchSnapshot,
   removeConversationSwitchSnapshot,
 } from "../utils/conversationSwitchSnapshot";
+import {
+  useConversationNavigation,
+  type ConversationNavigationLocation,
+} from "../hooks/useConversationNavigation";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -230,8 +234,17 @@ export function App() {
     stateMatchesInput: chatSearchStateMatchesInput,
     enterChat: enterChatSearch,
     exitScope: exitSidebarSearchScope,
+    restoreScope: restoreSidebarSearchScope,
     setSenderId: setChatSearchSenderId,
   } = sidebarSearch;
+  const conversationNavigation = useConversationNavigation();
+  const {
+    initialize: initializeConversationNavigation,
+    replace: replaceConversationNavigation,
+    push: pushConversationNavigation,
+    goBack: goBackConversationNavigation,
+    goForward: goForwardConversationNavigation,
+  } = conversationNavigation;
   useEffect(() => {
     if (phase !== "ready" || cacheRetentionDays <= 0) return;
     const key = `notgram:cache-cleanup:${activeAccountId}`;
@@ -355,10 +368,10 @@ export function App() {
       .catch(() => setSettingsOpen(true));
   }, []);
 
-  const closeSearch = useCallback((restoreFocus = false) => {
+  const closeSearch = useCallback((restoreFocus = false, preserveGlobalResults = false) => {
     exitSidebarSearchScope(false);
     cancelGlobalSearch();
-    clearGlobalSearch();
+    if (!preserveGlobalResults) clearGlobalSearch();
     if (restoreFocus) {
       globalThis.setTimeout(() => searchInputRef.current?.focus(), 0);
     }
@@ -377,6 +390,110 @@ export function App() {
     }
     setSearchQuery(value);
   }, [cancelGlobalSearch, clearGlobalSearch, setSearchQuery]);
+
+  const captureConversationLocation = useCallback((): ConversationNavigationLocation => {
+    return {
+      chatId: telegramStore.getState().activeChatId,
+      topicId: telegramStore.getState().activeTopicId,
+      chatFilter,
+      searchQuery,
+      searchScope: sidebarSearchScope,
+      searchSenderId: chatSearchSenderId,
+      globalSearchFilter: globalSearch.filter,
+      globalSearchPending: globalSearch.loading,
+      searchScrollTop: document.querySelector<HTMLElement>(
+        ".global-search-results-panel .global-search-results",
+      )?.scrollTop ?? 0,
+      mobileChatOpen,
+    };
+  }, [chatFilter, chatSearchSenderId, globalSearch.filter, globalSearch.loading, mobileChatOpen, searchQuery, sidebarSearchScope]);
+
+  const recordConversationNavigation = useCallback((location: ConversationNavigationLocation) => {
+    replaceConversationNavigation(captureConversationLocation());
+    pushConversationNavigation(location);
+  }, [captureConversationLocation, pushConversationNavigation, replaceConversationNavigation]);
+
+  const locationForChat = useCallback((chatId: string, topicId?: string): ConversationNavigationLocation => ({
+    ...captureConversationLocation(),
+    chatId,
+    topicId,
+    searchQuery: "",
+    searchScope: { type: "global" },
+    searchSenderId: undefined,
+    globalSearchPending: false,
+    searchScrollTop: 0,
+    mobileChatOpen: true,
+  }), [captureConversationLocation]);
+
+  const restoreConversationLocation = useCallback(async (location: ConversationNavigationLocation) => {
+    setChatFilter(location.chatFilter);
+    setMobileChatOpen(location.mobileChatOpen);
+    restoreSidebarSearchScope(location.searchScope, location.searchSenderId);
+    setSearchQuery(location.searchQuery);
+    let searchRestore: Promise<void> | undefined;
+    if (location.searchScope.type === "global" && location.searchQuery.trim()) {
+      const currentSearch = telegramStore.getState().globalSearch;
+      if (
+        location.globalSearchPending ||
+        currentSearch.query !== location.searchQuery.trim() ||
+        currentSearch.filter !== location.globalSearchFilter
+      ) {
+        searchRestore = searchGlobal(location.searchQuery, location.globalSearchFilter);
+      }
+    } else if (location.searchScope.type === "chat" && (
+      location.searchQuery.trim() || location.searchSenderId
+    )) {
+      searchRestore = searchChatMessages({
+        chatId: location.searchScope.chatId,
+        query: location.searchQuery,
+        senderId: location.searchSenderId,
+        filter: "all",
+      });
+    } else {
+      cancelGlobalSearch();
+      clearGlobalSearch();
+    }
+    const restoreSearchScroll = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+      const results = document.querySelector<HTMLElement>(
+        ".global-search-results-panel .global-search-results",
+      );
+      if (results) results.scrollTop = location.searchScrollTop;
+    }));
+    const chatRestore = location.chatId
+      ? telegramStore.getState().selectChat(location.chatId, {
+        forumTopicId: location.topicId,
+      })
+      : Promise.resolve();
+    await Promise.all([searchRestore ?? Promise.resolve(), chatRestore]);
+    restoreSearchScroll();
+  }, [cancelGlobalSearch, clearGlobalSearch, restoreSidebarSearchScope, searchChatMessages, searchGlobal, setChatFilter, setSearchQuery]);
+
+  const navigateBack = useCallback(() => {
+    const location = goBackConversationNavigation();
+    if (location) void restoreConversationLocation(location);
+  }, [goBackConversationNavigation, restoreConversationLocation]);
+
+  const navigateForward = useCallback(() => {
+    const location = goForwardConversationNavigation();
+    if (location) void restoreConversationLocation(location);
+  }, [goForwardConversationNavigation, restoreConversationLocation]);
+
+  useEffect(() => {
+    if (!chatListReady || authorization.kind !== "ready") return;
+    initializeConversationNavigation(captureConversationLocation());
+  }, [authorization.kind, captureConversationLocation, chatListReady, initializeConversationNavigation]);
+
+  useEffect(() => {
+    const routePointerButton = (event: PointerEvent) => {
+      if (event.button !== 3 && event.button !== 4) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.button === 3) navigateBack();
+      else navigateForward();
+    };
+    window.addEventListener("pointerdown", routePointerButton, true);
+    return () => window.removeEventListener("pointerdown", routePointerButton, true);
+  }, [navigateBack, navigateForward]);
 
   const openChatSearch = useCallback((chatId: string, senderId?: string) => {
     if (!chatId) return;
@@ -416,9 +533,10 @@ export function App() {
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
+    recordConversationNavigation(locationForChat(chatId, targetTopicId));
     beginConversationSnapshot(chatId);
     await selectChat(chatId);
-    closeSearch();
+    closeSearch(false, true);
     setMobileChatOpen(true);
     setEntryScrollRequest(undefined);
     setMessageScrollRequest(undefined);
@@ -431,7 +549,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
-  }, [beginConversationSnapshot, closeSearch, selectChat]);
+  }, [beginConversationSnapshot, closeSearch, locationForChat, recordConversationNavigation, selectChat]);
 
   const openGlobalSearchMessage = useCallback(async (
     chatId: string,
@@ -458,6 +576,7 @@ export function App() {
     const targetTopicId = loadedState.chats.get(chatId)?.isForum
       ? loadedState.messages.get(chatId)?.find((message) => message.id === messageId)?.topicId
       : undefined;
+    recordConversationNavigation(locationForChat(chatId, targetTopicId));
     const destinationAlreadyActive = loadedState.activeChatId === chatId && (
       !loadedState.chats.get(chatId)?.isForum ||
       !targetTopicId ||
@@ -466,7 +585,7 @@ export function App() {
     if (!destinationAlreadyActive) {
       await loadedState.selectChat(chatId, { forumTopicId: targetTopicId });
     }
-    closeSearch();
+    closeSearch(false, true);
     setMobileChatOpen(true);
     messageScrollRequestIdRef.current += 1;
     flushSync(() => {
@@ -484,7 +603,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
-  }, [beginConversationSnapshot, closeSearch, loadMessage]);
+  }, [beginConversationSnapshot, closeSearch, loadMessage, locationForChat, recordConversationNavigation]);
 
   const openProfileMessage = useCallback((chatId: string, messageId: string) => {
     clearProfile();
@@ -509,10 +628,11 @@ export function App() {
     const chatId = await startPrivateChat(userId);
     if (!chatId) return;
     clearProfile();
+    recordConversationNavigation(locationForChat(chatId));
     beginConversationSnapshot(chatId);
     await selectChat(chatId);
     setMobileChatOpen(true);
-  }, [beginConversationSnapshot, clearProfile, selectChat, startPrivateChat]);
+  }, [beginConversationSnapshot, clearProfile, locationForChat, recordConversationNavigation, selectChat, startPrivateChat]);
 
   useEffect(() => {
     void initialize();
@@ -579,6 +699,7 @@ export function App() {
     exitSidebarSearchScope(false);
     state.clearGlobalSearch();
     state.clearProfile();
+    recordConversationNavigation(locationForChat(route.chatId));
     beginConversationSnapshot(route.chatId);
     await telegramStore.getState().loadMessage(route.chatId, route.messageId);
     const loadedState = telegramStore.getState();
@@ -596,7 +717,7 @@ export function App() {
       messageId: route.messageId,
       requestId: messageScrollRequestIdRef.current,
     });
-  }, [beginConversationSnapshot, exitSidebarSearchScope]);
+  }, [beginConversationSnapshot, exitSidebarSearchScope, locationForChat, recordConversationNavigation]);
 
   useEffect(() => {
     let disposed = false;
@@ -791,6 +912,7 @@ export function App() {
       viewTransition: false,
       navigationKind: 4,
     });
+    recordConversationNavigation(locationForChat(chatId, topicId));
     markConversationSwitch(performanceTraceId, "transitionStarted");
     entryScrollRequestIdRef.current += 1;
     flushSync(() => {
@@ -904,6 +1026,9 @@ export function App() {
             title: folder.title,
           })}
           onOpenSettings={openSettings}
+          conversationNavigation={conversationNavigation}
+          onNavigateBack={navigateBack}
+          onNavigateForward={navigateForward}
         />
         <ChatSidebar
           chats={visibleChats}
@@ -957,6 +1082,7 @@ export function App() {
               const restoredTopic = restoredTopicId
                 ? state.forumTopics.get(chatId)?.find((topic) => topic.id === restoredTopicId)
                 : undefined;
+              recordConversationNavigation(locationForChat(chatId, restoredTopicId));
               const forumTopicReady = !targetChat?.isForum || Boolean(
                 restoredTopicId && state.forumTopics.get(chatId)?.some(
                   (topic) => topic.id === restoredTopicId,
