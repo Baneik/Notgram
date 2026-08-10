@@ -802,7 +802,71 @@ test("downward wheel input at the exact bottom never rebounds", async ({ page })
     .filter((direction, index) => direction !== directions[index]);
   expect(reversals, JSON.stringify(samples)).toHaveLength(0);
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(13);
+    .toBeLessThanOrEqual(1);
+});
+
+test("delayed row measurement during downward wheel input stays pinned", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+  await page.waitForTimeout(400);
+
+  await messageList.hover();
+  await messageList.evaluate((element) => {
+    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 2);
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    element.dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 120,
+    }));
+  });
+  await page.waitForTimeout(32);
+
+  const samplesPromise = page.evaluate(() => new Promise<Array<{
+    scrollTop: number;
+    distanceBottom: number;
+  }>>((resolve) => {
+    const samples: Array<{ scrollTop: number; distanceBottom: number }> = [];
+    let frames = 0;
+    const sample = () => {
+      const list = document.querySelector<HTMLElement>(".message-list");
+      if (list) {
+        samples.push({
+          scrollTop: list.scrollTop,
+          distanceBottom: list.scrollHeight - list.clientHeight - list.scrollTop,
+        });
+      }
+      frames += 1;
+      if (frames < 45) requestAnimationFrame(sample);
+      else resolve(samples);
+    };
+    requestAnimationFrame(sample);
+  }));
+  await messageList.evaluate((element) => {
+    const lastItem = element.querySelector<HTMLElement>("[data-index]:last-child");
+    if (!lastItem) throw new Error("Latest virtual item is not mounted");
+    const spacer = document.createElement("div");
+    spacer.dataset.delayedMeasurement = "true";
+    spacer.style.height = "64px";
+    lastItem.appendChild(spacer);
+  });
+
+  const samples = await samplesPromise;
+  const rebounds = samples.slice(1).filter((sample, index) =>
+    sample.scrollTop < samples[index].scrollTop - 1 && sample.distanceBottom > 1
+  );
+  expect(rebounds, JSON.stringify(samples)).toHaveLength(0);
+  expect(samples.at(-1)?.distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => page.evaluate(async () => {
+    const state = await (0, eval)('import("/src/hooks/conversationScrollState.ts")') as {
+      conversationScrollMemory: Map<string, { followLatest: boolean }>;
+    };
+    return [...state.conversationScrollMemory.values()].at(-1)?.followLatest;
+  })).toBe(true);
 });
 
 test("history loading hides transient scrollbar geometry until anchoring settles", async ({ page }) => {

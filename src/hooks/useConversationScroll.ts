@@ -42,13 +42,21 @@ const BOTTOM_PROXIMITY_PX = 32;
 const BOTTOM_EPSILON_PX = 1;
 const HISTORY_TRIGGER_PX = 64;
 const SMOOTH_SCROLL_DURATION_MS = 480;
+const BOTTOM_PIN_CONVERGENCE_FRAMES = 24;
 
 type ScrollControlMode = "following" | "detached" | "restoring" | "navigating";
+type UserScrollDirection = "up" | "down";
 
 interface ScrollControlState {
   identity: string;
   generation: number;
   mode: ScrollControlMode;
+}
+
+interface BottomPinRequest {
+  identity: string;
+  generation: number;
+  remainingFrames: number;
 }
 
 export interface LatestConversationScrollRequest {
@@ -127,6 +135,7 @@ export const useConversationScroll = ({
   const historyLoadFrameRef = useRef<number | undefined>(undefined);
   const historyRestoreFrameRef = useRef<number | undefined>(undefined);
   const bottomFrameRef = useRef<number | undefined>(undefined);
+  const bottomPinRequestRef = useRef<BottomPinRequest | undefined>(undefined);
   const bottomSettleFrameRef = useRef<number | undefined>(undefined);
   const viewportResizeFrameRef = useRef<number | undefined>(undefined);
   const anchorFrameRef = useRef<number | undefined>(undefined);
@@ -137,6 +146,7 @@ export const useConversationScroll = ({
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const smoothScrollUntilRef = useRef(0);
   const userIntentUntilRef = useRef(0);
+  const userScrollDirectionRef = useRef<UserScrollDirection | undefined>(undefined);
   const pointerActiveRef = useRef(false);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const handledEntryRequestRef = useRef(0);
@@ -209,6 +219,9 @@ export const useConversationScroll = ({
   useEffect(() => {
     jumpHistoryRef.current.clear();
     preparedJumpRef.current = undefined;
+    userIntentUntilRef.current = 0;
+    userScrollDirectionRef.current = undefined;
+    pointerActiveRef.current = false;
     setJumpHistoryState(currentScrollKey ? { key: currentScrollKey, count: 0 } : undefined);
   }, [currentScrollKey]);
   const dataPhase = virtualItemCount > 0 ? "ready" : historyLoading ? "loading" : "empty";
@@ -433,21 +446,59 @@ export const useConversationScroll = ({
     };
   }, [currentScrollKey, initialLocationIdentity, messageListElement, pinToBottom]);
 
-  const scheduleBottomPin = useCallback(() => {
+  const scheduleBottomPin = useCallback((frameCount = 1) => {
     if (!currentScrollKey || searchActive) return;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return;
     if (performance.now() < smoothScrollUntilRef.current) return;
-    if (pointerActiveRef.current || performance.now() <= userIntentUntilRef.current) return;
+    if (
+      pointerActiveRef.current ||
+      (performance.now() <= userIntentUntilRef.current &&
+        userScrollDirectionRef.current === "up")
+    ) return;
+    const control = scrollControlRef.current;
+    const pendingRequest = bottomPinRequestRef.current;
+    // Delayed Virtuoso measurements can overlap wheel input, so stronger requests extend the active guard.
+    if (
+      pendingRequest?.identity === control.identity &&
+      pendingRequest.generation === control.generation
+    ) {
+      pendingRequest.remainingFrames = Math.max(pendingRequest.remainingFrames, frameCount);
+    } else {
+      if (bottomFrameRef.current !== undefined) {
+        cancelAnimationFrame(bottomFrameRef.current);
+        bottomFrameRef.current = undefined;
+      }
+      bottomPinRequestRef.current = {
+        identity: control.identity,
+        generation: control.generation,
+        remainingFrames: frameCount,
+      };
+    }
     if (bottomFrameRef.current !== undefined) return;
-    const expectedControl = scrollControlRef.current;
-    bottomFrameRef.current = requestAnimationFrame(() => {
+    const converge = () => {
       bottomFrameRef.current = undefined;
+      const request = bottomPinRequestRef.current;
       if (
-        scrollControlRef.current.identity !== expectedControl.identity ||
-        scrollControlRef.current.generation !== expectedControl.generation
-      ) return;
+        !request ||
+        scrollControlRef.current.identity !== request.identity ||
+        scrollControlRef.current.generation !== request.generation ||
+        conversationScrollMemory.get(currentScrollKey)?.followLatest === false ||
+        pointerActiveRef.current ||
+        (performance.now() <= userIntentUntilRef.current &&
+          userScrollDirectionRef.current === "up")
+      ) {
+        bottomPinRequestRef.current = undefined;
+        return;
+      }
       pinToBottom();
-    });
+      request.remainingFrames -= 1;
+      if (request.remainingFrames > 0) {
+        bottomFrameRef.current = requestAnimationFrame(converge);
+      } else {
+        bottomPinRequestRef.current = undefined;
+      }
+    };
+    bottomFrameRef.current = requestAnimationFrame(converge);
   }, [currentScrollKey, pinToBottom, searchActive]);
 
   const settleBottomPosition = useCallback((
@@ -521,6 +572,12 @@ export const useConversationScroll = ({
     }
   }, [initialLocationIdentity]);
 
+  const adoptUserScrollMode = useCallback((mode: "following" | "detached") => {
+    const current = scrollControlRef.current;
+    if (current.identity === initialLocationIdentity && current.mode === mode) return;
+    interruptControlledPositioning(mode);
+  }, [initialLocationIdentity, interruptControlledPositioning]);
+
   const stopFollowingLatest = useCallback(() => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
@@ -549,6 +606,7 @@ export const useConversationScroll = ({
     interruptControlledPositioning("following");
     const generation = scrollControlRef.current.generation;
     userIntentUntilRef.current = 0;
+    userScrollDirectionRef.current = undefined;
     pointerActiveRef.current = false;
     writeMemory(currentScrollKey, element, true, 0, false);
     if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);
@@ -1446,6 +1504,7 @@ export const useConversationScroll = ({
     if (historyLoadFrameRef.current !== undefined) cancelAnimationFrame(historyLoadFrameRef.current);
     if (historyRestoreFrameRef.current !== undefined) cancelAnimationFrame(historyRestoreFrameRef.current);
     if (bottomFrameRef.current !== undefined) cancelAnimationFrame(bottomFrameRef.current);
+    bottomPinRequestRef.current = undefined;
     if (bottomSettleFrameRef.current !== undefined) cancelAnimationFrame(bottomSettleFrameRef.current);
     if (viewportResizeFrameRef.current !== undefined) {
       cancelAnimationFrame(viewportResizeFrameRef.current);
@@ -1550,14 +1609,19 @@ export const useConversationScroll = ({
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
     const rawDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
+    if (event.deltaY !== 0) {
+      userScrollDirectionRef.current = event.deltaY < 0 ? "up" : "down";
+      userIntentUntilRef.current = performance.now() + 320;
+    }
     if (event.deltaY > 0 && rawDistance <= BOTTOM_EPSILON_PX) {
       event.preventDefault();
       if (currentScrollKey) {
-        interruptControlledPositioning("following");
+        adoptUserScrollMode("following");
         const memory = conversationScrollMemory.get(currentScrollKey);
         if (memory?.followLatest !== true || memory.pendingNewCount !== 0) {
           writeMemory(currentScrollKey, element, true, 0, false);
         }
+        scheduleBottomPin(BOTTOM_PIN_CONVERGENCE_FRAMES);
         publishJumpHistory(currentScrollKey, []);
       }
       return;
@@ -1567,13 +1631,13 @@ export const useConversationScroll = ({
         cancelAnimationFrame(contentAnchorFrameRef.current);
         contentAnchorFrameRef.current = undefined;
       }
-      userIntentUntilRef.current = performance.now() + 320;
       if (event.deltaY < 0) stopFollowingLatest();
       else {
         const followLatest = currentScrollKey
           ? conversationScrollMemory.get(currentScrollKey)?.followLatest !== false
           : false;
-        interruptControlledPositioning(followLatest ? "following" : "detached");
+        adoptUserScrollMode(followLatest ? "following" : "detached");
+        if (followLatest) scheduleBottomPin(BOTTOM_PIN_CONVERGENCE_FRAMES);
       }
     }
   };
@@ -1584,42 +1648,53 @@ export const useConversationScroll = ({
       contentAnchorFrameRef.current = undefined;
     }
     pointerActiveRef.current = true;
+    userScrollDirectionRef.current = undefined;
     userIntentUntilRef.current = performance.now() + 320;
     const followLatest = currentScrollKey
       ? conversationScrollMemory.get(currentScrollKey)?.followLatest !== false
       : false;
-    interruptControlledPositioning(followLatest ? "following" : "detached");
+    adoptUserScrollMode(followLatest ? "following" : "detached");
   };
 
   const onPointerUp = () => {
     pointerActiveRef.current = false;
     userIntentUntilRef.current = performance.now() + 320;
+    if (currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest) {
+      scheduleBottomPin();
+    }
   };
 
   const onPointerCancel = () => {
     pointerActiveRef.current = false;
     userIntentUntilRef.current = performance.now() + 320;
+    if (currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest) {
+      scheduleBottomPin();
+    }
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === "End") {
+      userScrollDirectionRef.current = "down";
       if (currentScrollKey) {
-        interruptControlledPositioning("following");
+        adoptUserScrollMode("following");
         writeMemory(currentScrollKey, event.currentTarget, true, 0, false);
+        scheduleBottomPin();
         publishJumpHistory(currentScrollKey, []);
       }
       userIntentUntilRef.current = performance.now() + 320;
       return;
     }
     if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
+      userScrollDirectionRef.current = "up";
       userIntentUntilRef.current = performance.now() + 320;
       stopFollowingLatest();
     } else if (["ArrowDown", "PageDown", " "].includes(event.key)) {
+      userScrollDirectionRef.current = "down";
       userIntentUntilRef.current = performance.now() + 320;
       const followLatest = currentScrollKey
         ? conversationScrollMemory.get(currentScrollKey)?.followLatest !== false
         : false;
-      interruptControlledPositioning(followLatest ? "following" : "detached");
+      adoptUserScrollMode(followLatest ? "following" : "detached");
     }
   };
 
@@ -1627,16 +1702,19 @@ export const useConversationScroll = ({
     const element = event.currentTarget;
     if (!currentScrollKey || searchActive) return;
     const current = conversationScrollMemory.get(currentScrollKey);
-    const userInitiated = pointerActiveRef.current ||
-      performance.now() <= userIntentUntilRef.current;
+    const pointerInitiated = pointerActiveRef.current;
+    const timedIntent = !pointerInitiated && performance.now() <= userIntentUntilRef.current;
+    const userInitiated = pointerInitiated || timedIntent;
     if (!userInitiated) return;
     const atBottom = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
+    const direction = timedIntent ? userScrollDirectionRef.current : undefined;
     let control = scrollControlRef.current;
     if (control.mode === "restoring" || control.mode === "navigating") {
       interruptControlledPositioning(atBottom ? "following" : "detached");
       control = scrollControlRef.current;
     }
-    const followLatest = atBottom;
+    const followLatest = atBottom ||
+      (direction === "down" && current?.followLatest === true);
     control.mode = followLatest ? "following" : "detached";
     writeMemory(
       currentScrollKey,
@@ -1645,6 +1723,7 @@ export const useConversationScroll = ({
       current?.pendingNewCount ?? 0,
       !followLatest,
     );
+    if (followLatest && !atBottom) scheduleBottomPin();
     if (atBottom) publishJumpHistory(currentScrollKey, []);
     if (
       element.scrollTop <= HISTORY_TRIGGER_PX &&
