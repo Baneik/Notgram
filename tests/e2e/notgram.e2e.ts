@@ -3950,6 +3950,144 @@ test("Markdown and TDLib rich text render as structured message content", async 
   expect(senderGeometry.fontSize).toBeGreaterThanOrEqual(11);
 });
 
+test("bot rich messages animate streaming revisions and announce completion", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath);
+    const state = telegramStore.getState() as {
+      messages: Map<string, Array<Record<string, unknown>>>;
+    };
+    const messages = new Map(state.messages);
+    messages.set("chat-product", [
+      ...(messages.get("chat-product") ?? []),
+      {
+        id: "p-rich-streaming",
+        chatId: "chat-product",
+        senderId: "u-mia",
+        outgoing: false,
+        sentAt: new Date(Date.now() + 60_000).toISOString(),
+        delivery: "sent",
+        content: {
+          kind: "rich",
+          isRtl: false,
+          isFull: false,
+          text: "正在整理回答",
+          blocks: [{ kind: "paragraph", text: [{ text: "正在整理回答" }] }],
+        },
+      },
+    ]);
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const row = page.locator('[data-message-id="p-rich-streaming"]');
+  await row.scrollIntoViewIfNeeded();
+  const rich = row.locator(".rich-message-content");
+  await expect(rich).toHaveAttribute("data-rich-message-full", "false");
+  await expect(row.getByRole("status", { name: "机器人仍在生成消息" })).toContainText("正在生成");
+
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath);
+    const state = telegramStore.getState() as {
+      messages: Map<string, Array<Record<string, unknown>>>;
+    };
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) =>
+      message.id === "p-rich-streaming"
+        ? {
+            ...message,
+            content: {
+              kind: "rich",
+              isRtl: false,
+              isFull: false,
+              text: "正在整理回答，第一段已经完成",
+              blocks: [{ kind: "paragraph", text: [{ text: "正在整理回答，第一段已经完成" }] }],
+            },
+          }
+        : message));
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  await expect(rich.locator("p")).toHaveText("正在整理回答，第一段已经完成");
+  await expect.poll(
+    () => rich.locator(".rich-streaming-body > p").evaluate((element) =>
+      element.getAnimations().some((animation) => animation.id === "notgram-stream-revision")),
+    { intervals: [10, 20, 40], timeout: 500 },
+  ).toBe(true);
+
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath);
+    const state = telegramStore.getState() as {
+      messages: Map<string, Array<Record<string, unknown>>>;
+    };
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) => {
+      if (message.id !== "p-rich-streaming") return message;
+      const content = message.content as Record<string, unknown>;
+      return { ...message, content: { ...content, isFull: true } };
+    }));
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  await expect(rich).toHaveAttribute("data-rich-message-full", "true");
+  await expect(row.getByRole("status", { name: "消息生成完成" })).toContainText("生成完成");
+  await expect(row.getByRole("status")).toHaveCount(0, { timeout: 2_000 });
+});
+
+test("pending bot text animates in place and keeps a visible generation state", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath);
+    const state = telegramStore.getState() as {
+      messages: Map<string, Array<Record<string, unknown>>>;
+    };
+    const messages = new Map(state.messages);
+    messages.set("chat-product", [
+      ...(messages.get("chat-product") ?? []),
+      {
+        id: "pending:chat-product:0:stream-test",
+        chatId: "chat-product",
+        senderId: "u-mia",
+        outgoing: false,
+        isPending: true,
+        sentAt: new Date(Date.now() + 60_000).toISOString(),
+        delivery: "sent",
+        content: { kind: "text", text: "正在查询" },
+      },
+    ]);
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const row = page.locator('[data-message-id="pending:chat-product:0:stream-test"]');
+  await row.scrollIntoViewIfNeeded();
+  await expect(row.getByRole("status", { name: "机器人仍在生成消息" })).toContainText("正在生成");
+
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath);
+    const state = telegramStore.getState() as {
+      messages: Map<string, Array<Record<string, unknown>>>;
+    };
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) =>
+      message.id === "pending:chat-product:0:stream-test"
+        ? { ...message, content: { kind: "text", text: "正在查询，已经找到相关结果" } }
+        : message));
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  await expect(row.locator(".message-rich-text")).toHaveText("正在查询，已经找到相关结果");
+  await expect.poll(
+    () => row.locator(".message-rich-text").evaluate((element) =>
+      element.getAnimations().some((animation) => animation.id === "notgram-stream-revision")),
+    { intervals: [10, 20, 40], timeout: 500 },
+  ).toBe(true);
+});
+
 test("image documents use the photo media renderer", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");

@@ -61,6 +61,8 @@ import type { CallbackQueryAnswer } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { formatFileSize, isExecutableFile } from "../utils/fileTransfer";
 import { localMediaSource } from "../media/localMediaSource";
+import { MessageStreamingStatus } from "./MessageStreamingStatus";
+import { useStreamingRevisionAnimation } from "../hooks/useStreamingRevisionAnimation";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 const INLINE_META_LOWERING_PX = 2.5;
@@ -209,6 +211,12 @@ function MessageBubbleComponent({
   const [collapsedTextHeight, setCollapsedTextHeight] = useState(0);
   const [textExpanded, setTextExpanded] = useState(false);
   const content = message.content;
+  useStreamingRevisionAnimation(
+    textFlowRef,
+    message.isPending === true && content.kind === "text",
+    content.kind === "text" ? content.text : "",
+    ".message-rich-text",
+  );
   const selectedReplyQuoteFor = (shell: HTMLElement) => {
     const sourceText = content.kind === "text"
       ? content.text
@@ -750,14 +758,7 @@ function MessageBubbleComponent({
                 highlightQuery={searchQuery}
               />
               {message.isPending && (
-                content.text ? (
-                  <span className="pending-message-caret" aria-label="机器人仍在生成"><span /></span>
-                ) : (
-                  <span className="pending-message-thinking" role="status">
-                    <LoaderCircle className="spin" size={14} />
-                    正在生成
-                  </span>
-                )
+                <MessageStreamingStatus active />
               )}
               {textCollapsible && !textExpanded && (
                 <button
@@ -780,6 +781,7 @@ function MessageBubbleComponent({
               isRtl={content.isRtl}
               isFull={content.isFull}
               messageId={message.id}
+              revisionKey={content.text}
               highlightQuery={searchQuery}
               onDownload={onDownload}
               onCancelDownload={onCancelDownload}
