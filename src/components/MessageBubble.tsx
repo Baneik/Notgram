@@ -317,13 +317,28 @@ function MessageBubbleComponent({
       const text = flow.querySelector<HTMLElement>(".message-rich-text");
       const meta = flow.querySelector<HTMLElement>(".message-meta");
       if (!text || !meta) return;
-      const range = document.createRange();
-      range.selectNodeContents(text);
-      const lastLine = [...range.getClientRects()].filter((rect) => rect.width > 0).at(-1);
-      if (!lastLine) return;
-      const metaBounds = meta.getBoundingClientRect();
-      const transform = getComputedStyle(meta).transform;
-      const translatedY = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
+      const isWrappedLayout = flow.classList.contains("is-meta-wrapped");
+      const inspectLayout = () => {
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        const lastLine = [...range.getClientRects()].filter((rect) => rect.width > 0).at(-1);
+        if (!lastLine) return undefined;
+        const metaBounds = meta.getBoundingClientRect();
+        const transform = getComputedStyle(meta).transform;
+        const translatedY = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
+        return { lastLine, metaBounds, translatedY };
+      };
+      const layout = (() => {
+        if (!isWrappedLayout) return inspectLayout();
+        flow.classList.remove("is-meta-wrapped");
+        try {
+          return inspectLayout();
+        } finally {
+          flow.classList.add("is-meta-wrapped");
+        }
+      })();
+      if (!layout) return;
+      const { lastLine, metaBounds, translatedY } = layout;
       const wrapped = metaBounds.top - translatedY > lastLine.top + 4;
       setMetaWrapped((current) => current === wrapped ? current : wrapped);
       const inlineOffset = wrapped
@@ -337,6 +352,8 @@ function MessageBubbleComponent({
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(flow);
+    const layoutContainer = flow.closest<HTMLElement>(".message-group-stack");
+    if (layoutContainer) observer.observe(layoutContainer);
     return () => observer.disconnect();
   }, [content, hasCaption, isVisual, message.delivery, message.editedAt, message.sentAt, textCollapsible]);
   const visualShellStyle = mediaLayout

@@ -2785,7 +2785,7 @@ test("forward source labels open the original message", async ({ page }) => {
   await expect(originalMessage).toHaveClass(/is-notification-target/);
 });
 
-test("text message time stays on the last line when it fits and wraps without widening the bubble", async ({ page }) => {
+test("text message time releases reserved inline space when it wraps", async ({ page }) => {
   await page.goto("/");
   const shortMessage = page.locator('[data-message-id="p-rich-entities"]');
   await expect(shortMessage.locator('.message-rich-text[data-rich-text="entities"]')).toBeVisible();
@@ -2820,41 +2820,104 @@ test("text message time stays on the last line when it fits and wraps without wi
   expect(Math.abs(shortGeometry!.metaRight - (shortGeometry!.bubbleRight - 10))).toBeLessThanOrEqual(1);
   expect(shortGeometry!.shellWidth).toBeLessThanOrEqual(Math.min(shortGeometry!.stackWidth * 0.74, 720) + 1);
 
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath);
+    const state = telegramStore.getState() as {
+      messages: Map<string, Array<Record<string, unknown>>>;
+    };
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) => (
+      message.id === "p-rich-entities"
+        ? {
+            ...message,
+            senderId: "self",
+            outgoing: true,
+            editedAt: "2026-08-01T09:49:00+08:00",
+            delivery: "read",
+            content: {
+              kind: "text",
+              text: "而且现在服务端已有自动重试的能力了，加一个异常匹配的事情",
+            },
+          }
+        : message
+    )));
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
   const longMessage = shortMessage;
-  const wrappedGeometry = await longMessage.locator(".message-bubble-shell").evaluate((shell) => {
-    const element = shell as HTMLElement;
-    const text = element.querySelector<HTMLElement>(".message-rich-text");
-    const meta = element.querySelector<HTMLElement>(".message-meta");
-    const bubble = element.querySelector<HTMLElement>(".message-bubble");
-    if (!text || !meta || !bubble) return undefined;
-    for (let width = 140; width <= 360; width += 1) {
-      element.style.width = `${width}px`;
-      element.style.maxWidth = `${width}px`;
-      const range = document.createRange();
-      range.selectNodeContents(text);
-      const lastLine = [...range.getClientRects()].at(-1);
-      const metaBounds = meta.getBoundingClientRect();
-      if (lastLine && metaBounds.top > lastLine.top + 4) {
-        const bubbleBounds = bubble.getBoundingClientRect();
-        return {
-          width,
-          metaRight: metaBounds.right,
-          bubbleRight: bubbleBounds.right,
-          metaTop: metaBounds.top,
-          lastLineBottom: lastLine.bottom,
-          lineHeight: Number.parseFloat(getComputedStyle(text).lineHeight),
-        };
-      }
-    }
-    return undefined;
+  await longMessage.evaluate((element) => {
+    const group = element.closest<HTMLElement>(".message-group");
+    if (group) group.style.width = "648px";
   });
-  expect(wrappedGeometry).toBeTruthy();
   await expect(longMessage.locator(".message-bubble")).toHaveClass(/has-wrapped-meta/);
   await expect(longMessage.locator(".message-bubble")).toHaveCSS("padding-bottom", "2px");
-  expect(wrappedGeometry!.metaRight).toBeLessThanOrEqual(wrappedGeometry!.bubbleRight - 9);
-  const wrappedGap = wrappedGeometry!.metaTop - wrappedGeometry!.lastLineBottom;
+  await expect(longMessage.locator(".message-meta")).toHaveCSS("float", "none");
+  const releasedGeometry = await longMessage.locator(".message-bubble-shell").evaluate((shell) => {
+    const text = shell.querySelector<HTMLElement>(".message-rich-text");
+    const meta = shell.querySelector<HTMLElement>(".message-meta");
+    const bubble = shell.querySelector<HTMLElement>(".message-bubble");
+    const flow = shell.querySelector<HTMLElement>(".message-text-flow");
+    if (!text || !meta || !bubble || !flow) return undefined;
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const lastLine = [...range.getClientRects()].filter((rect) => rect.width > 0).at(-1);
+    if (!lastLine) return undefined;
+    const flowBounds = flow.getBoundingClientRect();
+    const flowStyle = getComputedStyle(flow);
+    const metaBounds = meta.getBoundingClientRect();
+    return {
+      availableInlineSpace: flowBounds.right - Number.parseFloat(flowStyle.paddingRight) - lastLine.right,
+      textWidth: lastLine.width,
+      metaWidth: metaBounds.width,
+      metaRight: metaBounds.right,
+      bubbleWidth: bubble.getBoundingClientRect().width,
+      bubbleRight: bubble.getBoundingClientRect().right,
+      metaTop: metaBounds.top,
+      lastLineBottom: lastLine.bottom,
+      lineHeight: Number.parseFloat(getComputedStyle(text).lineHeight),
+    };
+  });
+  expect(releasedGeometry).toBeTruthy();
+  expect(Math.abs(releasedGeometry!.bubbleWidth - releasedGeometry!.textWidth - 20)).toBeLessThanOrEqual(1);
+  expect(releasedGeometry!.availableInlineSpace).toBeLessThan(releasedGeometry!.metaWidth + 8);
+  expect(Math.abs(releasedGeometry!.metaRight - (releasedGeometry!.bubbleRight - 10))).toBeLessThanOrEqual(1);
+  const wrappedGap = releasedGeometry!.metaTop - releasedGeometry!.lastLineBottom;
   expect(wrappedGap).toBeGreaterThanOrEqual(1);
-  expect(wrappedGap).toBeLessThan(wrappedGeometry!.lineHeight * 0.4);
+  expect(wrappedGap).toBeLessThan(releasedGeometry!.lineHeight * 0.4);
+
+  await longMessage.evaluate((element) => {
+    const group = element.closest<HTMLElement>(".message-group");
+    if (group) group.style.width = "900px";
+  });
+  await expect(longMessage.locator(".message-text-flow")).not.toHaveClass(/is-meta-wrapped/);
+  await expect(longMessage.locator(".message-meta")).toHaveCSS("float", "right");
+});
+
+test("collapsed long text keeps metadata on its own right-aligned row", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /收藏夹/ }).click();
+  const row = page.locator('[data-message-id="p-long-text"]');
+  await expect(row).toBeVisible();
+  await page.evaluate(async (storePath) => {
+    const { preferencesStore } = await import(storePath);
+    preferencesStore.setState({ messageCollapseThresholdLines: 20, messageCollapsedLines: 10 });
+  }, "/src/store/preferencesStore.ts");
+
+  const flow = row.locator(".message-text-flow");
+  await expect(flow).toHaveClass(/is-text-collapsible/);
+  await expect(flow).toHaveClass(/is-meta-wrapped/);
+  await expect(flow.locator(".message-meta")).toHaveCSS("float", "none");
+  const geometry = await row.evaluate((element) => {
+    const bubble = element.querySelector<HTMLElement>(".message-bubble");
+    const meta = element.querySelector<HTMLElement>(".message-meta");
+    if (!bubble || !meta) return undefined;
+    return {
+      metaRight: meta.getBoundingClientRect().right,
+      bubbleRight: bubble.getBoundingClientRect().right,
+    };
+  });
+  expect(geometry).toBeTruthy();
+  expect(Math.abs(geometry!.metaRight - (geometry!.bubbleRight - 10))).toBeLessThanOrEqual(1);
 });
 
 test("media cards preserve media width while giving captions a stable reading width", async ({ page }) => {
@@ -2943,6 +3006,11 @@ test("media cards preserve media width while giving captions a stable reading wi
         senderId: "self",
         outgoing: true,
         sentAt: "2026-08-01T09:27:00+08:00",
+        editedAt: "2026-08-01T09:28:00+08:00",
+        content: {
+          ...(source.content as Record<string, unknown>),
+          caption: "媒体说明".repeat(15),
+        },
       },
     ]);
     telegramStore.setState({ messages });
@@ -2952,6 +3020,9 @@ test("media cards preserve media width while giving captions a stable reading wi
   expect(outgoingTall).toBeDefined();
   expect(Math.abs(outgoingTall!.shellWidth - tall!.shellWidth)).toBeLessThanOrEqual(1);
   expect(Math.abs(outgoingTall!.previewHeight - tall!.previewHeight)).toBeLessThanOrEqual(1);
+  const outgoingCaption = page.locator('[data-message-id="m-tall-caption-outgoing"] .photo-caption-flow');
+  await expect(outgoingCaption).toHaveClass(/is-meta-wrapped/);
+  await expect(outgoingCaption.locator(".message-meta")).toHaveCSS("float", "none");
 
   await page.setViewportSize({ width: 360, height: 760 });
   const narrowTall = await geometryFor("m-tall-caption");

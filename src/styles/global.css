@@ -915,8 +915,10 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-text-flow:not(.is-meta-wrapped) > .message-rich-text + .message-meta {
   transform: translateY(var(--message-meta-inline-offset, 0px));
 }
-.message-text-flow.is-meta-wrapped > .message-rich-text + .message-meta {
-  margin-top: 2px; align-items: flex-start; transform: none;
+.message-bubble .message-text-flow.is-meta-wrapped > .message-rich-text + .message-meta,
+.message-bubble .message-text-flow.is-meta-wrapped > .message-meta {
+  width: max-content; max-width: 100%; margin: 2px 0 0 auto !important; float: none !important;
+  align-items: flex-start; transform: none;
 }
 .message-text-flow.is-large-emoji {
   display: grid; grid-template-columns: max-content max-content; align-items: end; gap: 8px;
