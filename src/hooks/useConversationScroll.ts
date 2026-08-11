@@ -49,7 +49,10 @@ const BOTTOM_EPSILON_PX = 1;
 const HISTORY_TRIGGER_PX = 64;
 const SMOOTH_SCROLL_DURATION_MS = 480;
 const BOTTOM_RECONCILE_MAX_FRAMES = 12;
-const LATEST_MESSAGE_BOTTOM_GAP_PX = 0;
+// The end sentinel is part of the virtual list and reserves the message-to-
+// composer breathing room. Keep bottom reconciliation aligned with that
+// rendered spacer so idle resizes can settle instead of re-pinning forever.
+const LATEST_MESSAGE_BOTTOM_GAP_PX = 12;
 // Virtuoso can apply its measured-item correction a few frames after the DOM
 // resize. Require a short quiet window before exposing an appended row.
 const BOTTOM_RECONCILE_STABLE_FRAMES = 5;

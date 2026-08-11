@@ -1348,7 +1348,8 @@ export function App() {
             }}
           >
             <Conversation
-          chat={activeChat}
+              key={activeTopicId ? `${activeChatId}:topic:${activeTopicId}` : activeChatId ?? "empty-conversation"}
+              chat={activeChat}
           topic={activeTopic}
           topics={activeTopics}
           onSelectTopic={openForumTopic}
