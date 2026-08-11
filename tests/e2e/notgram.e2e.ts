@@ -1259,20 +1259,29 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
     .toBe(idle.clientWidth);
 });
 
-test("latest message keeps a fixed gap above the composer", async ({ page }) => {
+test("message viewport reaches the composer and keeps a scrollable bottom gap", async ({ page }) => {
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
-  const gap = await page.evaluate(() => {
+  const geometry = await page.evaluate(() => {
     const latest = document.querySelector<HTMLElement>('[data-message-id="p-video"]');
+    const list = latest?.closest<HTMLElement>(".message-list");
     const composer = document.querySelector<HTMLElement>(".composer");
-    if (!latest || !composer) return -1;
-    return composer.getBoundingClientRect().top - latest.getBoundingClientRect().bottom;
+    const sentinel = list?.querySelector<HTMLElement>(".message-list-end-sentinel");
+    if (!latest || !list || !composer || !sentinel) return null;
+    return {
+      latestGap: composer.getBoundingClientRect().top - latest.getBoundingClientRect().bottom,
+      viewportGap: composer.getBoundingClientRect().top - list.getBoundingClientRect().bottom,
+      bottomSpacer: sentinel.getBoundingClientRect().height,
+    };
   });
-  expect(gap).toBeGreaterThanOrEqual(11);
-  expect(gap).toBeLessThanOrEqual(13);
+  expect(geometry).not.toBeNull();
+  expect(geometry!.viewportGap).toBeCloseTo(0, 1);
+  expect(geometry!.bottomSpacer).toBeCloseTo(12, 1);
+  expect(geometry!.latestGap).toBeGreaterThanOrEqual(11);
+  expect(geometry!.latestGap).toBeLessThanOrEqual(13);
 });
 
 test("single-click entry restores the server read marker without exposing intermediate jumps", async ({ page }) => {

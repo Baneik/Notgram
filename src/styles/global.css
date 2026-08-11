@@ -647,7 +647,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list-content {
   position: relative;
   width: calc(100% - var(--message-list-inline-padding) - var(--message-list-inline-padding));
-  min-width: 0; max-width: 100%; min-height: 100%; overflow-x: clip;
+  min-width: 0; max-width: 100%; overflow-x: clip;
 }
 .message-list-end-sentinel { height: 12px; }
 .conversation-jump-button {
@@ -1423,7 +1423,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .media-progress button .media-progress-cancel { position: relative; z-index: 1; }
 .media-progress button:hover { background: color-mix(in srgb, var(--color-on-media) 16%, transparent); }
 .messages-empty { width: fit-content; margin: 42px auto; padding: 5px 10px; color: var(--color-on-media); background: var(--color-message-service); border-radius: 12px; font-size: 11px; }
-.composer-wrap { position: relative; min-width: 0; min-height: 62px; padding: 12px 0 0; display: grid; align-content: end; background: var(--chat-canvas); }
+.composer-wrap { position: relative; min-width: 0; min-height: 50px; padding: 0; display: grid; align-content: end; background: var(--chat-canvas); }
 .bot-suggestion-panel, .inline-query-panel { position: absolute; z-index: 8; right: 12px; bottom: calc(100% - 2px); width: min(460px, calc(100vw - 24px)); max-height: 300px; overflow-y: auto; display: grid; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px var(--color-shadow); }
 .bot-suggestion-panel { left: 6px; right: 6px; width: auto; max-height: min(360px, 48vh); border-radius: 6px; }
 .bot-suggestion-panel button, .inline-query-result, .inline-query-more { min-width: 0; padding: 9px 11px; display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; font: inherit; }
@@ -2315,7 +2315,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .pinned-message-entry { min-width: 62px; padding: 0 8px; }
   .video-controls { gap: 2px; }
   .video-volume { display: none; }
-  .composer-wrap { min-height: 62px; padding: 12px 0 0; }
+  .composer-wrap { min-height: 50px; padding: 0; }
   .composer-attachment-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .message-selection-bar { min-height: 67px; padding: 7px 10px 9px; }
   .auth-shell { min-height: 520px; padding: 24px 18px 46px; }
