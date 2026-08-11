@@ -61,6 +61,7 @@ import type { CallbackQueryAnswer } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { formatFileSize, isExecutableFile } from "../utils/fileTransfer";
 import { localMediaSource } from "../media/localMediaSource";
+import { observeLayout } from "../utils/layoutObservation";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 const INLINE_META_LOWERING_PX = 2.5;
@@ -114,7 +115,7 @@ interface MessageBubbleProps {
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
   onExpandLongText: (messageId: string) => void;
-  onMount?: () => void;
+  onMount?: (onPinned?: () => void) => void;
   deferUntilPinned?: boolean;
   previousAudioPlaybackId?: string;
   nextAudioPlaybackId?: string;
@@ -183,7 +184,7 @@ function MessageBubbleComponent({
   developerMode,
 }: MessageBubbleProps) {
   const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
-  const entranceFrameRef = useRef<number | undefined>(undefined);
+  const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
   const [reactionPending, setReactionPending] = useState<string>();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
@@ -292,55 +293,12 @@ function MessageBubbleComponent({
 
   useLayoutEffect(() => {
     const flow = textFlowRef.current;
-    if (content.kind !== "text" || !flow) {
-      setTextLineCount(0);
-      setCollapsedTextHeight(0);
-      return;
-    }
-    const measure = () => {
-      const text = flow.querySelector<HTMLElement>(".message-rich-text");
-      if (!text) return;
-      const computed = getComputedStyle(text);
-      const parsedLineHeight = Number.parseFloat(computed.lineHeight);
-      const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
-        ? parsedLineHeight
-        : Number.parseFloat(computed.fontSize) * 1.48;
-      const range = document.createRange();
-      range.selectNodeContents(text);
-      const rects = [...range.getClientRects()]
-        .filter((rect) => rect.width > 0 && rect.height > 0)
-        .sort((left, right) => left.top - right.top || left.left - right.left);
-      const lineTops: number[] = [];
-      for (const rect of rects) {
-        if (!lineTops.some((top) => Math.abs(top - rect.top) < 1.5)) lineTops.push(rect.top);
-      }
-      const rectHeight = rects.length > 0
-        ? Math.max(...rects.map((rect) => rect.bottom)) - Math.min(...rects.map((rect) => rect.top))
-        : 0;
-      const lineCount = Math.max(
-        lineTops.length,
-        Math.ceil(rectHeight / lineHeight),
-        Math.ceil(text.scrollHeight / lineHeight),
-      );
-      setTextLineCount((current) => current === lineCount ? current : lineCount);
-      const nextHeight = lineHeight * collapsedLines;
-      setCollapsedTextHeight((current) => Math.abs(current - nextHeight) < 0.25
-        ? current
-        : nextHeight);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(flow);
-    return () => observer.disconnect();
-  }, [collapsedLines, content]);
-
-  useLayoutEffect(() => {
-    const flow = textFlowRef.current;
     const hasInlineCaption = isVisual && hasCaption;
-    if ((content.kind !== "text" && !hasInlineCaption) || !flow) return;
-    if (textCollapsible) {
-      setMetaWrapped(true);
-      setMetaInlineOffset(0);
+    if ((content.kind !== "text" && !hasInlineCaption) || !flow) {
+      if (content.kind !== "text") {
+        setTextLineCount(0);
+        setCollapsedTextHeight(0);
+      }
       return;
     }
 
@@ -349,44 +307,82 @@ function MessageBubbleComponent({
       const meta = flow.querySelector<HTMLElement>(".message-meta");
       if (!text || !meta) return;
       const isWrappedLayout = flow.classList.contains("is-meta-wrapped");
-      const inspectLayout = () => {
+      if (isWrappedLayout) flow.classList.remove("is-meta-wrapped");
+      try {
         const range = document.createRange();
         range.selectNodeContents(text);
-        const lastLine = [...range.getClientRects()].filter((rect) => rect.width > 0).at(-1);
-        if (!lastLine) return undefined;
+        const rects = [...range.getClientRects()]
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+          .sort((left, right) => left.top - right.top || left.left - right.left);
+        const computed = getComputedStyle(text);
+        const parsedLineHeight = Number.parseFloat(computed.lineHeight);
+        const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
+          ? parsedLineHeight
+          : Number.parseFloat(computed.fontSize) * 1.48;
+
+        if (content.kind === "text") {
+          const lineTops: number[] = [];
+          for (const rect of rects) {
+            if (!lineTops.some((top) => Math.abs(top - rect.top) < 1.5)) lineTops.push(rect.top);
+          }
+          const rectHeight = rects.length > 0
+            ? Math.max(...rects.map((rect) => rect.bottom)) - Math.min(...rects.map((rect) => rect.top))
+            : 0;
+          const lineCount = Math.max(
+            lineTops.length,
+            Math.ceil(rectHeight / lineHeight),
+            Math.ceil(text.scrollHeight / lineHeight),
+          );
+          setTextLineCount((current) => current === lineCount ? current : lineCount);
+          const nextHeight = lineHeight * collapsedLines;
+          setCollapsedTextHeight((current) => Math.abs(current - nextHeight) < 0.25
+            ? current
+            : nextHeight);
+        }
+
+        if (textCollapsible) {
+          setMetaWrapped(true);
+          setMetaInlineOffset(0);
+          return;
+        }
+        const lastLine = rects.at(-1);
+        if (!lastLine) return;
         const metaBounds = meta.getBoundingClientRect();
         const transform = getComputedStyle(meta).transform;
         const translatedY = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
-        return { lastLine, metaBounds, translatedY };
-      };
-      const layout = (() => {
-        if (!isWrappedLayout) return inspectLayout();
-        flow.classList.remove("is-meta-wrapped");
-        try {
-          return inspectLayout();
-        } finally {
-          flow.classList.add("is-meta-wrapped");
-        }
-      })();
-      if (!layout) return;
-      const { lastLine, metaBounds, translatedY } = layout;
-      const wrapped = metaBounds.top - translatedY > lastLine.top + 4;
-      setMetaWrapped((current) => current === wrapped ? current : wrapped);
-      const inlineOffset = wrapped
-        ? 0
-        : lastLine.bottom - (metaBounds.bottom - translatedY) + INLINE_META_LOWERING_PX;
-      setMetaInlineOffset((current) => Math.abs(current - inlineOffset) < 0.25
-        ? current
-        : inlineOffset);
+        const wrapped = metaBounds.top - translatedY > lastLine.top + 4;
+        setMetaWrapped((current) => current === wrapped ? current : wrapped);
+        const inlineOffset = wrapped
+          ? 0
+          : lastLine.bottom - (metaBounds.bottom - translatedY) + INLINE_META_LOWERING_PX;
+        setMetaInlineOffset((current) => Math.abs(current - inlineOffset) < 0.25
+          ? current
+          : inlineOffset);
+      } finally {
+        if (isWrappedLayout) flow.classList.add("is-meta-wrapped");
+      }
     };
 
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(flow);
+    const stopObservingFlow = observeLayout(flow, measure);
     const layoutContainer = flow.closest<HTMLElement>(".message-group-stack");
-    if (layoutContainer) observer.observe(layoutContainer);
-    return () => observer.disconnect();
-  }, [content, hasCaption, isVisual, message.delivery, message.editedAt, message.sentAt, textCollapsible]);
+    const stopObservingContainer = layoutContainer
+      ? observeLayout(layoutContainer, measure)
+      : undefined;
+    return () => {
+      stopObservingFlow();
+      stopObservingContainer?.();
+    };
+  }, [
+    collapsedLines,
+    content,
+    hasCaption,
+    isVisual,
+    message.delivery,
+    message.editedAt,
+    message.sentAt,
+    textCollapsible,
+  ]);
   const visualShellStyle = mediaLayout
     ? {
         "--visual-card-width": `${mediaLayout.width}px`,
@@ -495,33 +491,38 @@ function MessageBubbleComponent({
         "is-preparing-entrance-outgoing",
       );
     }
-    if (entranceFrameRef.current !== undefined) {
-      cancelAnimationFrame(entranceFrameRef.current);
-      entranceFrameRef.current = undefined;
-    }
+    entranceCleanupRef.current?.();
+    entranceCleanupRef.current = undefined;
     rowRef.current = element;
     lazyMediaRef.current = element;
     if (!element) return;
-    onMount?.();
     const preparedEntrance = entrance ?? (deferUntilPinned
       ? message.outgoing ? "outgoing" : "incoming"
       : undefined);
-    if (!preparedEntrance) return;
+    if (!preparedEntrance) {
+      onMount?.();
+      return;
+    }
     const list = element.closest<HTMLElement>(".message-list");
     if (!list) return;
     // Virtuoso can mount a new block one frame before the bottom pin. Preserve
     // the keyframe's initial pose, but do not spend the animation offscreen.
     const preparingClass = `is-preparing-entrance-${preparedEntrance}`;
     element.classList.add(preparingClass);
-    const visibilityDeadline = performance.now() + MESSAGE_ENTRANCE_LIFETIME_MS;
-    const startEntranceWhenVisible = () => {
-      if (!element.isConnected || !list.isConnected) return true;
-      const rowBounds = element.getBoundingClientRect();
-      const listBounds = list.getBoundingClientRect();
-      const visibleAtPinnedEdge = rowBounds.height >= listBounds.height
-        ? rowBounds.top < listBounds.bottom && rowBounds.bottom <= listBounds.bottom + 1
-        : rowBounds.top >= listBounds.top - 1 && rowBounds.bottom <= listBounds.bottom + 1;
-      if (!visibleAtPinnedEdge) return false;
+    let observer: IntersectionObserver | undefined;
+    let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+    let visibleAtPinnedEdge = false;
+    let bottomPinned = !deferUntilPinned || !onMount;
+    const clearEntranceWait = () => {
+      observer?.disconnect();
+      if (timeout !== undefined) globalThis.clearTimeout(timeout);
+      if (entranceCleanupRef.current === clearEntranceWait) {
+        entranceCleanupRef.current = undefined;
+      }
+    };
+    const startEntrance = () => {
+      if (!element.isConnected || !list.isConnected) return;
+      clearEntranceWait();
       const claimedEntrance = consumeMessageEntrance(message);
       element.classList.remove(preparingClass);
       if (claimedEntrance) {
@@ -533,19 +534,35 @@ function MessageBubbleComponent({
           element.classList.add(`is-entering-${claimedEntrance}`);
         }
       }
-      return true;
     };
-    const waitForPinnedVisibility = () => {
-      entranceFrameRef.current = undefined;
-      if (startEntranceWhenVisible()) return;
-      if (performance.now() >= visibilityDeadline) {
-        element.classList.remove(preparingClass);
-        consumeMessageEntrance(message);
+    const startWhenReady = () => {
+      if (visibleAtPinnedEdge && bottomPinned) startEntrance();
+    };
+    observer = new IntersectionObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === element);
+      const rootBounds = entry?.rootBounds;
+      if (!entry?.isIntersecting || !rootBounds) {
+        visibleAtPinnedEdge = false;
         return;
       }
-      entranceFrameRef.current = requestAnimationFrame(waitForPinnedVisibility);
-    };
-    entranceFrameRef.current = requestAnimationFrame(waitForPinnedVisibility);
+      const rowBounds = entry.boundingClientRect;
+      visibleAtPinnedEdge = rowBounds.height >= rootBounds.height
+        ? rowBounds.top < rootBounds.bottom && rowBounds.bottom <= rootBounds.bottom + 1
+        : entry.intersectionRect.height >= rowBounds.height - 1 &&
+          rowBounds.top >= rootBounds.top - 1 && rowBounds.bottom <= rootBounds.bottom + 1;
+      startWhenReady();
+    }, { root: list, threshold: [0, 0.99, 1] });
+    observer.observe(element);
+    onMount?.(() => {
+      bottomPinned = true;
+      startWhenReady();
+    });
+    timeout = globalThis.setTimeout(() => {
+      clearEntranceWait();
+      element.classList.remove(preparingClass);
+      consumeMessageEntrance(message);
+    }, MESSAGE_ENTRANCE_LIFETIME_MS);
+    entranceCleanupRef.current = clearEntranceWait;
   }, [
     deferUntilPinned,
     entrance,

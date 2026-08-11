@@ -7,7 +7,9 @@ import {
 } from "./messageGrouping";
 import { segmentMediaAlbums, type MediaAlbumSegment } from "./mediaAlbums";
 
-export const MAX_MESSAGES_PER_VIRTUAL_BLOCK = 4;
+// One stable message per virtual item keeps existing DOM nodes intact when
+// history is prepended or live messages are appended. Albums remain atomic.
+export const MAX_MESSAGES_PER_VIRTUAL_BLOCK = 1;
 
 export interface VirtualMessageBlock {
   id: string;

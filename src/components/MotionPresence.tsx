@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { usePreferencesStore } from "../store/preferencesStore";
 
 const DEFAULT_EXIT_DURATION = 180;
@@ -24,7 +24,7 @@ export function MotionPresence({
 
   if (present && children) lastChildRef.current = children;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let frame: number | undefined;
     let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
     if (present) {
@@ -42,8 +42,14 @@ export function MotionPresence({
   }, [exitDuration, present, reduceMotion, rendered]);
 
   if (!rendered || !lastChildRef.current) return null;
+  const renderedMotionState = present ? motionState : "exiting";
   return (
-    <div className="motion-presence" data-motion-state={motionState}>
+    <div
+      className="motion-presence"
+      data-motion-state={renderedMotionState}
+      inert={!present || undefined}
+      aria-hidden={!present || undefined}
+    >
       {lastChildRef.current}
     </div>
   );

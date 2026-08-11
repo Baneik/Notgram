@@ -141,14 +141,16 @@ VirtualMessageListContent.displayName = "VirtualMessageListContent";
 
 const EmptyMessageList = () => <div className="messages-empty">没有匹配的消息</div>;
 const EmptyPinnedMessageList = () => <div className="messages-empty">当前没有置顶消息</div>;
-
+const MessageListFooter = () => <div className="message-list-end-sentinel" aria-hidden="true" />;
 const messageListComponents: Components<VirtualMessageBlock> = {
   EmptyPlaceholder: EmptyMessageList,
+  Footer: MessageListFooter,
   List: VirtualMessageListContent,
 };
 
 const pinnedMessageListComponents: Components<VirtualMessageBlock> = {
   EmptyPlaceholder: EmptyPinnedMessageList,
+  Footer: MessageListFooter,
   List: VirtualMessageListContent,
 };
 
@@ -1717,6 +1719,9 @@ export function Conversation({
                   ).map((segment) => {
                     const renderBubble = (message: Message, albumItem = false) => {
                       const entrance = messageEntranceFor(message);
+                      const gateEntranceAtBottom = message.id === appendMountMessageId || Boolean(
+                        entrance && message.id === renderedMessages.at(-1)?.id,
+                      );
                       const forwardSource = forwardSourceFor(message, users, forwardTargetsById);
                       const forwardNavigation = forwardSource?.navigation;
                       return <RichMessageBubble
@@ -1775,10 +1780,10 @@ export function Conversation({
                         onPollAnswer={onSetPollAnswer}
                         onBotCallback={onBotCallback}
                         onExpandLongText={revealMessageStart}
-                        onMount={message.id === appendMountMessageId
+                        onMount={gateEntranceAtBottom
                           ? pinFollowingMessageMount
                           : undefined}
-                        deferUntilPinned={message.id === appendMountMessageId}
+                        deferUntilPinned={gateEntranceAtBottom}
                         previousAudioPlaybackId={audioPlaybackNeighborsByMessage.get(message.id)?.previousId}
                         nextAudioPlaybackId={audioPlaybackNeighborsByMessage.get(message.id)?.nextId}
                         onOpenReply={openMessageInHistory}

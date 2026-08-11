@@ -121,4 +121,25 @@ describe("message virtualization", () => {
     expect(confirmed[0]?.id).toBe("send-1");
     expect(confirmed[0]?.messages[0]?.id).toBe("100");
   });
+
+  it("keeps existing virtual item identities stable across history and live inserts", () => {
+    const current = virtualizeMessageGroups([
+      message("2"),
+      message("3"),
+    ]);
+    const withHistory = virtualizeMessageGroups([
+      message("1"),
+      message("2"),
+      message("3"),
+    ]);
+    const withLiveMessage = virtualizeMessageGroups([
+      message("2"),
+      message("3"),
+      message("4"),
+    ]);
+
+    expect(current.map(({ id }) => id)).toEqual(["2", "3"]);
+    expect(withHistory.slice(1).map(({ id }) => id)).toEqual(["2", "3"]);
+    expect(withLiveMessage.slice(0, 2).map(({ id }) => id)).toEqual(["2", "3"]);
+  });
 });

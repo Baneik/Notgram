@@ -264,15 +264,14 @@ function RichMediaBlock({ media, context, blockKey }: {
 
 const renderCell = (cell: MessageRichTableCell, key: string, context: RenderContext) => {
   const props = {
-    key,
     colSpan: cell.colspan,
     rowSpan: cell.rowspan,
     className: cell.visible ? undefined : "rich-table-cell-hidden",
     style: { textAlign: cell.align, verticalAlign: cell.valign } as CSSProperties,
   };
   return cell.header
-    ? <th {...props}>{renderRuns(cell.text, key, context)}</th>
-    : <td {...props}>{renderRuns(cell.text, key, context)}</td>;
+    ? <th key={key} {...props}>{renderRuns(cell.text, key, context)}</th>
+    : <td key={key} {...props}>{renderRuns(cell.text, key, context)}</td>;
 };
 
 const renderBlocks = (blocks: MessageRichBlock[], parentKey: string, context: RenderContext): ReactNode =>

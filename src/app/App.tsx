@@ -26,7 +26,7 @@ import { AudioPlaybackHost } from "../components/AudioPlaybackHost";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
-import type { TelegramLinkTarget } from "../telegram/types";
+import type { Message, TelegramLinkTarget } from "../telegram/types";
 import { isTelegramUserLink } from "../telegram/telegramLinks";
 import { connectionPresentation } from "../telegram/connectionState";
 import {
@@ -74,6 +74,7 @@ const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
 const CONVERSATION_SNAPSHOT_MAX_MS = 600;
 const CONVERSATION_SNAPSHOT_SETTLE_MS = 80;
+const EMPTY_MESSAGES: Message[] = [];
 
 type PendingConfirmation =
   | { kind: "leaveGroup"; chatId: string; title: string }
@@ -1015,6 +1016,31 @@ export function App() {
     }
   };
 
+  const activeChatMessages = activeChatId ? messages.get(activeChatId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES;
+  const activeRemovingSource = activeChatId
+    ? removingMessages.get(activeChatId) ?? EMPTY_MESSAGES
+    : EMPTY_MESSAGES;
+  const activeMessages = useMemo(
+    () => activeTopicId
+      ? activeChatMessages.filter((message) => message.topicId === activeTopicId)
+      : activeChatMessages,
+    [activeChatMessages, activeTopicId],
+  );
+  const activeRemovingMessages = useMemo(
+    () => activeTopicId
+      ? activeRemovingSource.filter((message) => message.topicId === activeTopicId)
+      : activeRemovingSource,
+    [activeRemovingSource, activeTopicId],
+  );
+  const activeDisplayMessages = useMemo(
+    () => activeRemovingMessages.length > 0
+      ? [...activeMessages, ...activeRemovingMessages].sort((left, right) =>
+          Date.parse(left.sentAt) - Date.parse(right.sentAt),
+        )
+      : activeMessages,
+    [activeMessages, activeRemovingMessages],
+  );
+
   if (!chatListReady && (authorization.kind === "preparing" || authorization.kind === "ready")) {
     return phase === "error" ? (
       <div className="startup-screen startup-error" role="alert">
@@ -1050,18 +1076,6 @@ export function App() {
   const activeChat = activeChatId ? chats.get(activeChatId) : undefined;
   const activeTopics = activeChatId ? forumTopics.get(activeChatId) ?? [] : [];
   const activeTopic = activeTopicId ? activeTopics.find((topic) => topic.id === activeTopicId) : undefined;
-  const activeMessages = activeChatId
-    ? (messages.get(activeChatId) ?? []).filter((message) => !activeTopicId || message.topicId === activeTopicId)
-    : [];
-  const activeChatMessages = activeChatId ? messages.get(activeChatId) ?? [] : [];
-  const activeRemovingMessages = activeChatId
-    ? (removingMessages.get(activeChatId) ?? []).filter((message) => !activeTopicId || message.topicId === activeTopicId)
-    : [];
-  const activeDisplayMessages = activeRemovingMessages.length > 0
-    ? [...activeMessages, ...activeRemovingMessages].sort((left, right) =>
-        Date.parse(left.sentAt) - Date.parse(right.sentAt),
-      )
-    : activeMessages;
   const activeHistory = activeChatId
     ? (activeTopicId
       ? topicHistories.get(`${activeChatId}:topic:${activeTopicId}`)

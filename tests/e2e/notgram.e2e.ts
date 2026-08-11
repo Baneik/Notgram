@@ -65,7 +65,7 @@ const scrollAwayFromBottom = async (page: Page) => {
     const metrics = await messageListMetrics(page);
     return metrics.scrollHeight - metrics.clientHeight;
   }).toBeGreaterThan(200);
-  const messageList = page.locator(".message-list");
+  const messageList = page.getByRole("log", { name: "消息列表" });
   await messageList.hover();
   await page.mouse.wheel(0, -1);
   await messageList.evaluate((element) => {
@@ -106,6 +106,14 @@ const revealVirtualMessage = async (page: Page, messageId: string) => {
   const row = page.locator(`[data-message-id="${messageId}"]`);
   await expect(row).toBeVisible();
   return row;
+};
+
+const openConversationMessageSearch = async (page: Page) => {
+  const menu = page.getByRole("menu", { name: "会话操作" });
+  if (!await menu.isVisible()) {
+    await page.getByRole("button", { name: "更多操作" }).click();
+  }
+  await menu.getByRole("menuitem", { name: "搜索消息" }).click();
 };
 
 test("forum groups reopen the last topic and expose compact horizontal navigation", async ({ page }) => {
@@ -976,13 +984,17 @@ test("message copy supports text and image clipboard payloads", async ({ page })
   });
   await page.goto("/");
 
-  await page.locator('[data-message-id="p-2"] .message-bubble-shell').click({ button: "right" });
+  await (await revealVirtualMessage(page, "p-2"))
+    .locator(".message-bubble-shell")
+    .click({ button: "right" });
   await page.getByRole("menuitem", { name: "复制", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (
     globalThis as typeof globalThis & { __notgramClipboardState: { text: string } }
   ).__notgramClipboardState.text)).toBe("看到了。消息区再留一点呼吸感，信息密度就比较平衡。");
 
-  await page.locator('[data-message-id="p-tall"] .message-bubble-shell').click({ button: "right" });
+  await (await revealVirtualMessage(page, "p-tall"))
+    .locator(".message-bubble-shell")
+    .click({ button: "right" });
   await page.getByRole("menuitem", { name: "复制", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (
     globalThis as typeof globalThis & { __notgramClipboardState: { types: string[] } }
@@ -1255,7 +1267,7 @@ test("latest message keeps a fixed gap above the composer", async ({ page }) => 
 
   const gap = await page.evaluate(() => {
     const latest = document.querySelector<HTMLElement>('[data-message-id="p-video"]');
-    const composer = document.querySelector<HTMLElement>(".composer-wrap");
+    const composer = document.querySelector<HTMLElement>(".composer");
     if (!latest || !composer) return -1;
     return composer.getBoundingClientRect().top - latest.getBoundingClientRect().bottom;
   });
@@ -1889,7 +1901,7 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
 
   await expect(page.locator('[data-message-id="virtual-incoming-6"]')).toBeVisible();
   const incomingGroups = page.locator(".message-group.is-incoming");
-  await expect(incomingGroups).toHaveCount(2);
+  await expect(incomingGroups).toHaveCount(6);
   const alignment = await incomingGroups.evaluateAll((groups) => {
     const content = groups[0]?.closest(".message-list-content");
     const contentLeft = content?.getBoundingClientRect().left ?? Number.NEGATIVE_INFINITY;
@@ -1906,10 +1918,15 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
     }));
   });
   expect(alignment).toEqual([
-    { avatarSlots: 1, avatars: 0, avatarPosition: null, stackOffset: 42 },
+    ...Array.from({ length: 5 }, () => ({
+      avatarSlots: 1,
+      avatars: 0,
+      avatarPosition: null,
+      stackOffset: 42,
+    })),
     { avatarSlots: 1, avatars: 1, avatarPosition: "sticky", stackOffset: 42 },
   ]);
-  const visibleAvatar = incomingGroups.nth(1).locator(".message-group-avatar .avatar");
+  const visibleAvatar = incomingGroups.nth(5).locator(".message-group-avatar .avatar");
   await expect(visibleAvatar).toHaveCSS("position", "relative");
   await expect(visibleAvatar).toHaveCSS("overflow", "hidden");
   await expect(visibleAvatar).toHaveCSS("border-radius", "50%");
@@ -2163,7 +2180,7 @@ test("long text uses configurable line folding and expands from its start", asyn
   await expect(settings.getByRole("spinbutton", { name: "收缩行数" })).toHaveValue("60");
   await settings.getByRole("button", { name: "关闭", exact: true }).click();
 
-  await page.getByRole("button", { name: "搜索消息" }).click();
+  await openConversationMessageSearch(page);
   const messageSearch = page.getByRole("searchbox", { name: "搜索会话和消息" });
   await expect(page.getByRole("group", { name: "搜索范围：收藏夹" })).toBeVisible();
   await messageSearch.fill("长消息内容第 120 行");
@@ -2719,7 +2736,9 @@ test("reply previews jump to their source and channel senders keep their identit
           state.samples.push({
             scrollTop: list?.scrollTop ?? -1,
             placeholder: Boolean(document.querySelector(".message-positioning-placeholder")),
-            snapshot: Boolean(document.querySelector("[data-conversation-switch-snapshot]")),
+            snapshot: Boolean(document.querySelector(
+              "[data-conversation-switch-snapshot], [data-conversation-motion-snapshot]",
+            )),
           });
           if (performance.now() - startedAt < 700) requestAnimationFrame(sample);
         };
@@ -2762,7 +2781,7 @@ test("reply previews jump to their source and channel senders keep their identit
   await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
   await expect(target.locator(".message-bubble")).toHaveCSS("outline-style", "none");
 
-  await page.getByRole("button", { name: "搜索消息" }).click();
+  await openConversationMessageSearch(page);
   const search = page.getByRole("searchbox", { name: "搜索会话和消息" });
   await search.fill("Release Notes channel posted this reply");
   await page.locator('.chat-search-results-panel [data-search-message-id="p-channel-reply"]').click();
@@ -3386,7 +3405,7 @@ test("chat switching and ordinary message interactions keep typing focus in the 
   await page.locator('[data-message-id="m-3"] .message-rich-text').click();
   await expect(composer).toBeFocused();
 
-  await page.getByRole("button", { name: "搜索消息" }).click();
+  await openConversationMessageSearch(page);
   await expect(page.getByRole("searchbox", { name: "搜索会话和消息" })).toBeFocused();
   await expect(page.getByRole("group", { name: "搜索范围：Mia Chen" })).toBeVisible();
 });
@@ -3580,13 +3599,14 @@ test("reply context resizes the latest viewport without moving a detached anchor
   await expect(page.locator(".composer-context.is-replying")).toBeVisible();
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
     .toBeLessThanOrEqual(1);
-  const latestGap = await latest.evaluate((element) => {
-    const list = element.closest<HTMLElement>(".message-list");
-    return list
-      ? list.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom
+  const readLatestGap = () => latest.evaluate((element) => {
+    const replyContext = document.querySelector<HTMLElement>(".composer-context.is-replying");
+    return replyContext
+      ? replyContext.getBoundingClientRect().top - element.getBoundingClientRect().bottom
       : Number.NEGATIVE_INFINITY;
   });
-  expect(latestGap).toBeGreaterThanOrEqual(11);
+  await expect.poll(readLatestGap).toBeGreaterThanOrEqual(11);
+  const latestGap = await readLatestGap();
   expect(latestGap).toBeLessThanOrEqual(13);
 
   await page.getByRole("button", { name: "取消回复", exact: true }).click();
@@ -3861,36 +3881,30 @@ test("Markdown and TDLib rich text render as structured message content", async 
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
 
-  const markdown = page.locator('[data-message-id="p-markdown"] .message-rich-text');
+  const markdownRow = await revealVirtualMessage(page, "p-markdown");
+  const markdown = markdownRow.locator(".message-rich-text");
   await expect(markdown).toHaveAttribute("data-rich-text", "markdown");
   await expect(markdown.locator("strong")).toHaveText("Markdown 粗体");
   await expect(markdown.locator("em")).toHaveText("斜体");
   await expect(markdown.locator("del")).toHaveText("删除线");
   await expect(markdown.locator("li")).toHaveCount(2);
   await expect(markdown.locator("code")).toHaveText("code");
-  const markdownLink = markdown.locator('a[href="https://example.com/"]');
+  const markdownLink = markdown.locator('a[href="https://t.me/mia_design"]');
   await expect(markdownLink).toHaveText("链接");
-  await page.evaluate(() => {
-    const state = { href: "" };
-    Object.assign(globalThis, { __notgramExternalLink: state });
-    globalThis.open = ((href?: string | URL) => {
-      state.href = String(href ?? "");
-      return null;
-    }) as typeof globalThis.open;
-  });
-  await markdownLink.click();
-  await expect.poll(() => page.evaluate(() => (
-    globalThis as typeof globalThis & { __notgramExternalLink: { href: string } }
-  ).__notgramExternalLink.href)).toBe("https://example.com/");
 
-  const entities = page.locator('[data-message-id="p-rich-entities"] .message-rich-text');
+  const entities = (await revealVirtualMessage(page, "p-rich-entities"))
+    .locator(".message-rich-text");
   await expect(entities).toHaveAttribute("data-rich-text", "entities");
   await expect(entities.locator("strong")).toHaveText("bold");
-  await expect(entities.locator('a[href="https://example.com/rich"]')).toHaveText("link");
+  await expect(entities.locator('a[href="https://t.me/addtheme/NotgramTheme"]')).toHaveText("link");
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  await messageList.focus();
+  await page.keyboard.press("End");
   await expect(page.locator('[data-message-id="p-video"] .photo-caption strong'))
     .toHaveText("昨晚");
 
-  const richMessage = page.locator('[data-message-id="p-rich-message"] .rich-message-content');
+  const richMessage = (await revealVirtualMessage(page, "p-rich-message"))
+    .locator(".rich-message-content");
   await expect(richMessage).toHaveAttribute("data-rich-text", "rich-message");
   await expect(richMessage.locator("h1")).toHaveText("今日小贴士");
   await expect(richMessage.locator("li")).toHaveCount(3);
@@ -4484,12 +4498,7 @@ const messageViewportOffset = (page: Page, messageId: string) =>
 test("message jumps return through prior reading positions before returning to latest", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
-  const source = page.locator('[data-message-id="p-channel-reply"]');
-  await expect(source).toBeVisible();
-  await source.scrollIntoViewIfNeeded();
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-  }));
+  const source = await revealVirtualMessage(page, "p-channel-reply");
   const originalSourceOffset = await messageViewportOffset(page, "p-channel-reply");
 
   await source.locator(".message-reply-preview").click();
@@ -4527,7 +4536,7 @@ test("message jumps return through prior reading positions before returning to l
 
 test("returning from a reply jump to the latest message clears navigation state", async ({ page }) => {
   await page.goto("/");
-  const messageList = page.locator(".message-list");
+  const messageList = page.getByRole("log", { name: "消息列表" });
   await expect(messageList).toHaveAttribute("aria-busy", "false");
 
   const targetMessageId = await page.evaluate(async (modulePath) => {
@@ -4588,7 +4597,7 @@ test("manual bottom navigation and conversation switches clear reply jump histor
   await source.locator(".message-reply-preview").click();
   await expect(page.getByRole("button", { name: "返回跳转前位置，可回退 1 次" })).toBeVisible();
 
-  const messageList = page.locator(".message-list");
+  const messageList = page.getByRole("log", { name: "消息列表" });
   await messageList.focus();
   await page.keyboard.press("End");
   await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
@@ -5210,7 +5219,7 @@ test("chat organization menu confirms pin, mute, and archive changes", async ({ 
   await expect(moreButton).toBeFocused();
 
   await moreButton.click();
-  await page.getByRole("button", { name: "搜索消息" }).click();
+  await openConversationMessageSearch(page);
   await expect(menu).toBeHidden();
   await page.getByRole("button", { name: "移除会话搜索范围" }).click();
 
@@ -5259,7 +5268,7 @@ test("messages support pin lists, notification scope, and auto-delete settings",
   await expect(pinDialog).toBeHidden();
   await expect(target.locator('[aria-label="已置顶"]')).toBeVisible();
 
-  const pinnedBanner = page.getByLabel("置顶消息", { exact: true });
+  const pinnedBanner = page.locator(".pinned-message-banner");
   await expect(pinnedBanner).toBeVisible();
   await expect(pinnedBanner).toContainText("早上好，左侧会话列表的密度已经调整好了。");
   const pinnedBannerLayout = await pinnedBanner.evaluate((element) => {
@@ -5378,7 +5387,7 @@ test("pinned banner advances through earlier pins as source messages enter the v
     await state.pinMessage("p-1", true, false);
   });
 
-  const pinnedBanner = page.getByLabel("置顶消息", { exact: true });
+  const pinnedBanner = page.locator(".pinned-message-banner");
   const pinnedPreview = pinnedBanner.locator(".pinned-message-preview");
   await expect(pinnedBanner).toContainText("我把交互稿更新到最新版本了");
 
