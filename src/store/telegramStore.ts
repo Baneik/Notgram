@@ -2657,6 +2657,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
         } catch (error) {
           set({ operationError: error instanceof Error ? error.message : "文件下载失败" });
+          throw error;
         }
       },
 
@@ -2669,12 +2670,23 @@ export const createTelegramStore = (
         }
       },
 
-      openFile: async (sourcePath) => {
+      openFile: async (sourcePath, fileId) => {
         try {
           await transport.openFile(sourcePath);
           set({ operationError: undefined });
+          return true;
         } catch (error) {
+          if (fileId !== undefined) {
+            try {
+              await transport.recoverFile(fileId, 32);
+              set({ operationError: "文件缓存已失效并已重新下载，请再次打开" });
+              return false;
+            } catch {
+              // Preserve the original open error when recovery also fails.
+            }
+          }
           set({ operationError: error instanceof Error ? error.message : "无法打开文件" });
+          return false;
         }
       },
 

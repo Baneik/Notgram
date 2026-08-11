@@ -21,6 +21,7 @@ interface AudioPlayerProps {
   nextPlaybackId?: string;
   downloadProgress?: number;
   onRequestStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
+  onRecoverFile?: (fileId: number) => Promise<boolean>;
   onSuspendStream?: () => void;
   onDownload?: () => void;
   onCancelDownload?: () => void;
@@ -38,6 +39,7 @@ export function AudioPlayer({
   nextPlaybackId,
   downloadProgress,
   onRequestStream,
+  onRecoverFile,
   onSuspendStream,
   onDownload,
   onCancelDownload,
@@ -55,6 +57,7 @@ export function AudioPlayer({
     nextId: nextPlaybackId,
     downloadProgress,
     onRequestStream,
+    onRecoverFile,
     onSuspendStream,
     onDownload,
     onCancelDownload,
@@ -67,6 +70,7 @@ export function AudioPlayer({
     nextPlaybackId,
     onCancelDownload,
     onDownload,
+    onRecoverFile,
     onRequestStream,
     onSuspendStream,
     playbackId,

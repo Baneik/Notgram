@@ -5,8 +5,8 @@ pub(crate) mod file_actions;
 
 use account::{account_cache_directory, account_database_directory, active_account_id};
 use cache::{
-    cache_files, cache_usage, cached_asset_paths, canonical_paths_within_root, clear_cache_files,
-    protected_cache_paths,
+    cache_paths_modified_after, cache_usage, cached_asset_paths, canonical_paths_within_root,
+    clear_cache_files, protected_cache_paths,
 };
 pub use database_key::database_encryption_key;
 pub use file_actions::prepare_upload_file;
@@ -88,8 +88,11 @@ pub struct CacheCleanupResult {
     pub removed_bytes: u64,
     pub removed_files: u64,
     pub skipped_protected_files: u64,
+    pub failed_files: u64,
     pub usage: CacheUsage,
 }
+
+const SENT_MEDIA_PROTECTION_DURATION: Duration = Duration::from_secs(7 * 86_400);
 
 #[tauri::command]
 pub fn telegram_storage_settings(app: AppHandle) -> Result<StorageSettings, String> {
@@ -137,19 +140,42 @@ pub fn telegram_clear_media_cache(
         &root,
         registry.protected_paths().into_iter(),
     ));
-    protected.extend(canonical_paths_within_root(
-        &root,
-        cache_files(&sent_media_directory(&app)?)?.into_iter(),
-    ));
+    let sent_media = sent_media_directory(&app)?;
+    let sent_media_cutoff = SystemTime::now().checked_sub(SENT_MEDIA_PROTECTION_DURATION);
+    if let Some(cutoff) = sent_media_cutoff {
+        protected.extend(cache_paths_modified_after(&sent_media, cutoff)?);
+    }
     let modified_before = request.older_than_days.and_then(|days| {
         SystemTime::now().checked_sub(Duration::from_secs(u64::from(days) * 86_400))
     });
-    clear_cache_files(
+    let result = clear_cache_files(
         &root,
         &request.categories.into_iter().collect(),
         modified_before,
         &protected,
-    )
+    )?;
+    if let Some(cutoff) = sent_media_cutoff {
+        remove_empty_sent_media_directories(&sent_media, cutoff);
+    }
+    Ok(result)
+}
+
+fn remove_empty_sent_media_directories(root: &Path, modified_before: SystemTime) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let old_enough = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .is_ok_and(|modified| modified <= modified_before);
+        if file_type.is_dir() && !file_type.is_symlink() && old_enough {
+            let _ = fs::remove_dir(entry.path());
+        }
+    }
 }
 
 #[tauri::command]
@@ -644,6 +670,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(removed.removed_files, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn protects_only_recent_sent_media_cache_files() {
+        let root = unique_test_directory("sent-media-retention");
+        fs::create_dir_all(&root).unwrap();
+        let upload = root.join("upload.jpg");
+        fs::write(&upload, b"upload").unwrap();
+        let root = root.canonicalize().unwrap();
+        let upload = upload.canonicalize().unwrap();
+
+        let recent = cache_paths_modified_after(
+            &root,
+            SystemTime::now()
+                .checked_sub(Duration::from_secs(60))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(recent.contains(&upload));
+
+        let expired = cache_paths_modified_after(
+            &root,
+            SystemTime::now()
+                .checked_add(Duration::from_secs(60))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(expired.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn saves_concurrent_downloads_without_overwriting_existing_files() {
+        let root = unique_test_directory("download-copy");
+        let downloads = root.join("downloads");
+        fs::create_dir_all(&downloads).unwrap();
+        let source = root.join("source.bin");
+        fs::write(&source, b"download-content").unwrap();
+
+        let workers = (0..8)
+            .map(|_| {
+                let source = source.clone();
+                let downloads = downloads.clone();
+                std::thread::spawn(move || {
+                    file_actions::copy_to_available_download(&source, &downloads, "archive.bin")
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let paths = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<HashSet<_>>();
+
+        assert_eq!(paths.len(), 8);
+        for path in paths {
+            assert_eq!(fs::read(path).unwrap(), b"download-content");
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

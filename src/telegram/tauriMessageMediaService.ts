@@ -217,7 +217,7 @@ export interface TauriMessageMediaServiceContext {
   patchMessage: (chatId: string, messageId: string, patch: TdObject) => void;
   refreshChat: (chatId: string) => Promise<TdObject>;
   fileDownloads: FileDownloadQueue;
-  pendingDownloads: Map<number, string>;
+  pendingDownloads: Map<number, PendingDownload>;
   updateFile: (file?: TdObject) => void;
   requestPreparedFile: (chatId: string, topicId?: string) => Promise<boolean>;
   requestPreparedPastedFiles: (
@@ -226,6 +226,13 @@ export interface TauriMessageMediaServiceContext {
     caption?: string,
     topicId?: string,
   ) => Promise<boolean>;
+}
+
+export interface PendingDownload {
+  fileName: string;
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: Error) => void;
 }
 
 export class TauriMessageMediaService {
@@ -614,33 +621,38 @@ export class TauriMessageMediaService {
   }
 
   async downloadFile(fileId: number, fileName: string) {
-    this.context.pendingDownloads.set(fileId, fileName);
-    try {
-      const cachedDownload = this.context.fileDownloads.get(fileId);
-      if (cachedDownload) {
-        this.context.fileDownloads.promote(fileId);
-        await cachedDownload;
-        return;
-      }
-      const file = await this.context.request({
-        "@type": "downloadFile",
-        file_id: fileId,
-        priority: 24,
-        offset: 0,
-        limit: 0,
-        synchronous: false,
-      });
-      this.context.updateFile(file);
-    } catch (error) {
-      const cancelled = !this.context.pendingDownloads.has(fileId);
+    const existing = this.context.pendingDownloads.get(fileId);
+    if (existing) return existing.promise;
+    let resolveDownload!: () => void;
+    let rejectDownload!: (error: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      resolveDownload = resolve;
+      rejectDownload = reject;
+    });
+    this.context.pendingDownloads.set(fileId, {
+      fileName,
+      promise,
+      resolve: resolveDownload,
+      reject: rejectDownload,
+    });
+    const cachedDownload = this.context.fileDownloads.get(fileId);
+    if (cachedDownload) this.context.fileDownloads.promote(fileId);
+    const download = cachedDownload ?? this.context.fileDownloads.cache(fileId, 24);
+    void download.catch((error: unknown) => {
+      const pending = this.context.pendingDownloads.get(fileId);
+      if (!pending) return;
       this.context.pendingDownloads.delete(fileId);
-      if (cancelled) return;
-      throw error;
-    }
+      pending.reject(error instanceof Error ? error : new Error(String(error)));
+    });
+    return promise;
   }
 
   async cancelFileDownload(fileId: number) {
-    this.context.pendingDownloads.delete(fileId);
+    const pending = this.context.pendingDownloads.get(fileId);
+    if (pending) {
+      this.context.pendingDownloads.delete(fileId);
+      pending.reject(new Error("文件下载已取消"));
+    }
     this.context.fileDownloads.cancel(fileId);
     await this.context.request({
       "@type": "cancelDownloadFile",

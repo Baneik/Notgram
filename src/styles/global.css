@@ -1819,7 +1819,8 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .download-progress-track { position: relative; width: 100%; height: 4px; overflow: hidden; background: var(--color-bg-control); border-radius: 2px; }
 .download-progress-track > span { height: 100%; display: block; background: var(--accent); border-radius: inherit; transition: width 140ms linear; }
 .download-item-status { display: flex; justify-content: space-between; color: var(--muted); font-variant-numeric: tabular-nums; }
-.download-item-status small { font-size: 9px; }
+.download-item-status small { min-width: 0; font-size: 9px; }
+.download-item-status small:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .download-item-action button { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; color: var(--accent); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
 .download-item-action button:hover { background: var(--color-accent-soft); }
 .download-manager-footer { padding: 0 14px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); border-top: 1px solid var(--line); font-size: 10px; }

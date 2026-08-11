@@ -1,6 +1,8 @@
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
+import { useRef, useState } from "react";
 import type { Avatar as AvatarModel } from "../telegram/types";
 import { useVisibleFile } from "../hooks/useVisibleFile";
+import { useTelegramStore } from "../store/telegramStore";
 
 interface AvatarProps {
   avatar: AvatarModel;
@@ -8,6 +10,9 @@ interface AvatarProps {
 }
 
 export function Avatar({ avatar, size = "medium" }: AvatarProps) {
+  const recoverFile = useTelegramStore((state) => state.recoverFile);
+  const attemptedRecovery = useRef(new Set<string>());
+  const [failedSource, setFailedSource] = useState<string>();
   const targetRef = useVisibleFile<HTMLSpanElement>(
     avatar.fileId,
     !avatar.imagePath && avatar.canDownload === true && avatar.isDownloading !== true,
@@ -25,14 +30,21 @@ export function Avatar({ avatar, size = "medium" }: AvatarProps) {
       aria-hidden="true"
     >
       <span>{avatar.label}</span>
-      {imageSource && (
+      {imageSource && imageSource !== failedSource && (
         <img
           key={imageSource}
           src={imageSource}
           alt=""
           loading="lazy"
           decoding="async"
-          onError={(event) => { event.currentTarget.hidden = true; }}
+          onError={() => {
+            setFailedSource(imageSource);
+            if (avatar.fileId === undefined || attemptedRecovery.current.has(imageSource)) return;
+            attemptedRecovery.current.add(imageSource);
+            void recoverFile(avatar.fileId, 24).then((recovered) => {
+              if (recovered) setFailedSource(undefined);
+            });
+          }}
         />
       )}
     </span>

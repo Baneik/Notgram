@@ -1209,6 +1209,7 @@ export interface CacheCleanupResult {
   removedBytes: number;
   removedFiles: number;
   skippedProtectedFiles: number;
+  failedFiles: number;
   usage: CacheUsage;
 }
 

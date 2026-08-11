@@ -1,6 +1,7 @@
 use super::{UploadFileInfo, download_directory, trusted_tdlib_files_directory};
 use std::{
-    fs,
+    fs::{self, OpenOptions},
+    io,
     path::{Path, PathBuf},
 };
 use tauri::AppHandle;
@@ -26,13 +27,7 @@ pub fn telegram_save_downloaded_file(
         return Err("Downloaded file is outside the active TDLib files directory".to_string());
     }
     let directory = download_directory(&app)?;
-    let destination = available_download_path(&directory, &safe_file_name(&file_name));
-    fs::copy(&source, &destination).map_err(|error| {
-        format!(
-            "Unable to save downloaded file to {}: {error}",
-            destination.display()
-        )
-    })?;
+    let destination = copy_to_available_download(&source, &directory, &safe_file_name(&file_name))?;
     Ok(destination.display().to_string())
 }
 
@@ -178,10 +173,9 @@ pub(super) fn safe_file_name(value: &str) -> String {
     }
 }
 
-pub(super) fn available_download_path(directory: &Path, file_name: &str) -> PathBuf {
-    let original = directory.join(file_name);
-    if !original.exists() {
-        return original;
+fn numbered_download_path(directory: &Path, file_name: &str, index: usize) -> PathBuf {
+    if index == 0 {
+        return directory.join(file_name);
     }
     let path = Path::new(file_name);
     let stem = path
@@ -189,16 +183,47 @@ pub(super) fn available_download_path(directory: &Path, file_name: &str) -> Path
         .and_then(|value| value.to_str())
         .unwrap_or("download");
     let extension = path.extension().and_then(|value| value.to_str());
-    for index in 1..10_000 {
-        let candidate = match extension {
-            Some(extension) => directory.join(format!("{stem} ({index}).{extension}")),
-            None => directory.join(format!("{stem} ({index})")),
-        };
-        if !candidate.exists() {
-            return candidate;
-        }
+    match extension {
+        Some(extension) => directory.join(format!("{stem} ({index}).{extension}")),
+        None => directory.join(format!("{stem} ({index})")),
     }
-    directory.join(format!("{stem}-{}", std::process::id()))
+}
+
+pub(super) fn copy_to_available_download(
+    source: &Path,
+    directory: &Path,
+    file_name: &str,
+) -> Result<PathBuf, String> {
+    for index in 0..10_000 {
+        let destination = numbered_download_path(directory, file_name, index);
+        let mut output = match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination)
+        {
+            Ok(output) => output,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Unable to reserve downloaded file {}: {error}",
+                    destination.display()
+                ));
+            }
+        };
+        let result = fs::File::open(source)
+            .and_then(|mut input| io::copy(&mut input, &mut output))
+            .and_then(|_| output.sync_all());
+        if let Err(error) = result {
+            drop(output);
+            let _ = fs::remove_file(&destination);
+            return Err(format!(
+                "Unable to save downloaded file to {}: {error}",
+                destination.display()
+            ));
+        }
+        return Ok(destination);
+    }
+    Err("Unable to choose an available download file name".to_string())
 }
 
 pub fn prepare_upload_file(path: &Path) -> Result<UploadFileInfo, String> {

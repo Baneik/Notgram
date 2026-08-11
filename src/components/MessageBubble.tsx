@@ -104,7 +104,7 @@ interface MessageBubbleProps {
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancelDownload: (fileId: number) => Promise<void>;
   onRecoverFile: (fileId: number, priority?: number) => Promise<boolean>;
-  onOpenFile: (sourcePath: string) => Promise<void>;
+  onOpenFile: (sourcePath: string, fileId?: number) => Promise<boolean>;
   onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
   onOpenDownloadDirectory: () => Promise<void>;
   onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
@@ -453,7 +453,7 @@ function MessageBubbleComponent({
   const openOrDownloadFile = () => {
     if (canOpenFile) {
       if (executableFile) void onOpenDownloadDirectory();
-      else void onOpenFile(localFilePath!);
+      else void onOpenFile(localFilePath!, downloadFileId);
     } else if (canDownload) {
       void onDownload(downloadFileId!, downloadFileName);
     }
@@ -800,6 +800,7 @@ function MessageBubbleComponent({
               highlightQuery={searchQuery}
               onDownload={onDownload}
               onCancelDownload={onCancelDownload}
+              onRecoverFile={onRecoverFile}
               onStream={onStream}
               onSuspendStream={onSuspendStream}
             />
@@ -1060,6 +1061,9 @@ function MessageBubbleComponent({
                   nextPlaybackId={nextAudioPlaybackId}
                   downloadProgress={content.progress}
                   onRequestStream={onStream}
+                  onRecoverFile={content.fileId !== undefined
+                    ? () => onRecoverFile(content.fileId!, 32)
+                    : undefined}
                   onSuspendStream={content.fileId !== undefined
                     ? () => { void onSuspendStream(content.fileId!); }
                     : undefined}
@@ -1108,7 +1112,7 @@ function MessageBubbleComponent({
                   </span>
                 </button>
                 <span className="file-actions">
-                  {canOpenFile && !executableFile && <button type="button" aria-label={`打开 ${content.fileName}`} title="打开文件" onClick={() => void onOpenFile(localFilePath!)}><ExternalLink size={15} /></button>}
+                  {canOpenFile && !executableFile && <button type="button" aria-label={`打开 ${content.fileName}`} title="打开文件" onClick={() => void onOpenFile(localFilePath!, downloadFileId)}><ExternalLink size={15} /></button>}
                   {canOpenFile && <button type="button" aria-label={`另存为 ${content.fileName}`} title="另存为" onClick={() => void onSaveFileAs(localFilePath!, content.fileName)}><Save size={15} /></button>}
                   {canOpenFile && <button type="button" aria-label="打开下载目录" title="打开下载目录" onClick={() => void onOpenDownloadDirectory()}><FolderOpen size={15} /></button>}
                   {(canCancelUpload || canCancelDownload) && (

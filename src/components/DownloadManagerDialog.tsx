@@ -30,7 +30,10 @@ type DownloadFilter = "all" | "active" | "completed";
 const statusLabel: Record<ManagedDownloadStatus, string> = {
   pending: "等待下载",
   downloading: "下载中",
+  saving: "保存中",
   completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
 };
 
 const DownloadKindIcon = ({ item }: { item: ManagedDownloadItem }) => {
@@ -53,13 +56,15 @@ export function DownloadManagerDialog({
   const dialogRef = useModalFocus<HTMLDivElement>(onClose);
   const filteredItems = useMemo(() => items.filter((item) =>
     filter === "all" ||
-    (filter === "completed" ? item.status === "completed" : item.status !== "completed"),
+    (filter === "completed"
+      ? item.status === "completed"
+      : item.status === "pending" || item.status === "downloading" || item.status === "saving"),
   ), [filter, items]);
-  const activeCount = items.filter((item) => item.status === "downloading").length;
+  const activeCount = items.filter((item) => item.status === "downloading" || item.status === "saving").length;
   const selectedItems = filteredItems.filter((item) => selectedFileIds.has(item.fileId));
-  const startableItems = selectedItems.filter((item) => item.status === "pending");
+  const startableItems = selectedItems.filter((item) => item.status === "pending" || item.status === "failed" || item.status === "cancelled");
   const cancellableItems = selectedItems.filter((item) => item.status === "downloading");
-  const removableItems = selectedItems.filter((item) => item.status !== "downloading");
+  const removableItems = selectedItems.filter((item) => item.status !== "downloading" && item.status !== "saving");
   const completedItems = items.filter((item) => item.status === "completed");
   const allFilteredSelected = filteredItems.length > 0 &&
     filteredItems.every((item) => selectedFileIds.has(item.fileId));
@@ -192,14 +197,14 @@ export function DownloadManagerDialog({
                   <span style={{ width: `${item.progress * 100}%` }} />
                 </span>
                 <span className="download-item-status">
-                  <small>{statusLabel[item.status]}</small>
+                  <small title={item.error}>{item.error || statusLabel[item.status]}</small>
                   <small>{Math.round(item.progress * 100)}%</small>
                 </span>
               </span>
               <span className="download-item-action">
                 {item.status === "downloading" ? (
                   <button type="button" aria-label={`取消下载 ${item.fileName}`} title="取消下载" onClick={() => void onCancel(item.fileId)}><X size={17} /></button>
-                ) : item.status === "pending" ? (
+                ) : item.status === "pending" || item.status === "failed" || item.status === "cancelled" ? (
                   <button type="button" aria-label={`下载 ${item.fileName}`} title="开始下载" onClick={() => void onDownload(item.fileId, item.fileName)}><Download size={17} /></button>
                 ) : (
                   <button type="button" aria-label={`在下载目录中查看 ${item.fileName}`} title="打开下载目录" onClick={() => void onOpenDirectory()}><FolderOpen size={17} /></button>

@@ -63,7 +63,10 @@ import {
 } from "../utils/conversationSwitchSnapshot";
 import {
   collectManagedDownloads,
+  createManagedDownloadRequest,
+  readManagedDownloadRequests,
   type ManagedDownloadRequest,
+  writeManagedDownloadRequests,
 } from "../utils/downloadManager";
 import {
   useConversationNavigation,
@@ -226,7 +229,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
   const [managedDownloadRequests, setManagedDownloadRequests] = useState<ReadonlyMap<string, ManagedDownloadRequest>>(
-    () => new Map(),
+    readManagedDownloadRequests,
   );
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -241,20 +244,68 @@ export function App() {
     () => collectManagedDownloads(messages, chats, requestedDownloadsForAccount),
     [chats, messages, requestedDownloadsForAccount],
   );
+  useEffect(() => {
+    writeManagedDownloadRequests(managedDownloadRequests.values());
+  }, [managedDownloadRequests]);
   const requestDownload = useCallback((fileId: number, fileName: string) => {
     const key = `${activeAccountId}:${fileId}`;
     setManagedDownloadRequests((current) => {
       const next = new Map(current);
-      next.set(key, {
-        accountId: activeAccountId,
+      next.set(key, createManagedDownloadRequest(
+        activeAccountId,
         fileId,
         fileName,
-        requestedAt: current.get(key)?.requestedAt ?? new Date().toISOString(),
+        messages,
+        chats,
+        current.get(key),
+      ));
+      return next;
+    });
+    return downloadFile(fileId, fileName).then(() => {
+      setManagedDownloadRequests((current) => {
+        const record = current.get(key);
+        if (!record) return current;
+        const next = new Map(current);
+        next.set(key, {
+          ...record,
+          status: "completed",
+          error: undefined,
+          updatedAt: new Date().toISOString(),
+        });
+        return next;
+      });
+    }).catch((error: unknown) => {
+      setManagedDownloadRequests((current) => {
+        const record = current.get(key);
+        if (!record || record.status === "cancelled") return current;
+        const message = error instanceof Error ? error.message : "文件下载失败";
+        const next = new Map(current);
+        next.set(key, {
+          ...record,
+          status: message.includes("取消") ? "cancelled" : "failed",
+          error: message,
+          updatedAt: new Date().toISOString(),
+        });
+        return next;
+      });
+    });
+  }, [activeAccountId, chats, downloadFile, messages]);
+  const cancelManagedDownload = useCallback((fileId: number) => {
+    const key = `${activeAccountId}:${fileId}`;
+    setManagedDownloadRequests((current) => {
+      const record = current.get(key);
+      if (!record) return current;
+      const next = new Map(current);
+      next.set(key, {
+        ...record,
+        status: "cancelled",
+        error: undefined,
+        updatedAt: new Date().toISOString(),
       });
       return next;
     });
-    return downloadFile(fileId, fileName);
-  }, [activeAccountId, downloadFile]);
+    return cancelFileDownload(fileId);
+  }, [activeAccountId, cancelFileDownload]);
   const removeDownloadRecords = useCallback((fileIds: number[]) => {
     setManagedDownloadRequests((current) => {
       const next = new Map(current);
@@ -293,8 +344,10 @@ export function App() {
     const key = `notgram:cache-cleanup:${activeAccountId}`;
     const lastRun = Number(globalThis.localStorage?.getItem(key) ?? 0);
     if (Date.now() - lastRun < 86_400_000) return;
-    globalThis.localStorage?.setItem(key, String(Date.now()));
-    void clearMediaCache(["image", "video", "audio", "document", "other"], cacheRetentionDays);
+    void clearMediaCache(["image", "video", "audio", "document", "other"], cacheRetentionDays)
+      .then((succeeded) => {
+        if (succeeded) globalThis.localStorage?.setItem(key, String(Date.now()));
+      });
   }, [activeAccountId, cacheRetentionDays, clearMediaCache, phase]);
   const openChatManagement = useCallback((chatId: string) => {
     if (chats.get(chatId)?.management?.canOpenManagement !== true) return;
@@ -1344,7 +1397,7 @@ export function App() {
           onUnpinMessage={unpinMessage}
           onSetChatMessageAutoDeleteTime={setChatMessageAutoDeleteTime}
           onDownloadFile={requestDownload}
-          onCancelFileDownload={cancelFileDownload}
+          onCancelFileDownload={cancelManagedDownload}
           onRecoverFile={recoverFile}
           onOpenFile={openFile}
           onSaveFileAs={saveFileAs}
@@ -1423,7 +1476,7 @@ export function App() {
         {downloadManagerOpen ? <DownloadManagerDialog
           items={managedDownloads}
           onDownload={requestDownload}
-          onCancel={cancelFileDownload}
+          onCancel={cancelManagedDownload}
           onRemove={removeDownloadRecords}
           onOpenDirectory={openDownloadDirectory}
           onClose={() => setDownloadManagerOpen(false)}

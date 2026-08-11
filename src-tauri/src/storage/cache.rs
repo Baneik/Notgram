@@ -26,31 +26,27 @@ pub(super) fn cache_category(path: &Path) -> CacheCategory {
 }
 
 pub(super) fn cache_files(root: &Path) -> Result<Vec<PathBuf>, String> {
-    fn visit(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-        let entries = fs::read_dir(directory).map_err(|error| {
-            format!(
-                "Unable to read cache directory {}: {error}",
-                directory.display()
-            )
-        })?;
-        for entry in entries {
-            let entry = entry.map_err(|error| {
-                format!(
-                    "Unable to read cache entry in {}: {error}",
+    fn visit(directory: &Path, files: &mut Vec<PathBuf>, root: bool) -> Result<(), String> {
+        let entries = match fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if root => {
+                return Err(format!(
+                    "Unable to read cache directory {}: {error}",
                     directory.display()
-                )
-            })?;
-            let file_type = entry.file_type().map_err(|error| {
-                format!(
-                    "Unable to inspect cache entry {}: {error}",
-                    entry.path().display()
-                )
-            })?;
+                ));
+            }
+            Err(_) => return Ok(()),
+        };
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
             if file_type.is_symlink() {
                 continue;
             }
             if file_type.is_dir() {
-                visit(&entry.path(), files)?;
+                visit(&entry.path(), files, false)?;
             } else if file_type.is_file() {
                 files.push(entry.path());
             }
@@ -59,7 +55,7 @@ pub(super) fn cache_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     }
 
     let mut files = Vec::new();
-    visit(root, &mut files)?;
+    visit(root, &mut files, true)?;
     Ok(files)
 }
 
@@ -84,9 +80,9 @@ fn add_usage(usage: &mut CacheUsage, category: CacheCategory, bytes: u64) {
 pub(super) fn cache_usage(root: &Path) -> Result<CacheUsage, String> {
     let mut usage = CacheUsage::default();
     for path in cache_files(root)? {
-        let metadata = path.metadata().map_err(|error| {
-            format!("Unable to inspect cached file {}: {error}", path.display())
-        })?;
+        let Ok(metadata) = path.metadata() else {
+            continue;
+        };
         add_usage(&mut usage, cache_category(&path), metadata.len());
     }
     Ok(usage)
@@ -106,6 +102,22 @@ pub(super) fn protected_cache_paths(root: &Path, paths: &[String]) -> HashSet<Pa
     canonical_paths_within_root(root, paths.iter().map(PathBuf::from))
 }
 
+pub(super) fn cache_paths_modified_after(
+    root: &Path,
+    cutoff: SystemTime,
+) -> Result<HashSet<PathBuf>, String> {
+    Ok(cache_files(root)?
+        .into_iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .filter(|path| path.starts_with(root) && path.is_file())
+        .filter(|path| {
+            path.metadata()
+                .and_then(|metadata| metadata.modified())
+                .is_ok_and(|modified| modified > cutoff)
+        })
+        .collect())
+}
+
 pub(super) fn clear_cache_files(
     root: &Path,
     categories: &HashSet<CacheCategory>,
@@ -116,15 +128,20 @@ pub(super) fn clear_cache_files(
         removed_bytes: 0,
         removed_files: 0,
         skipped_protected_files: 0,
+        failed_files: 0,
         usage: CacheUsage::default(),
     };
     for path in cache_files(root)? {
         if !categories.contains(&cache_category(&path)) {
             continue;
         }
-        let canonical = path.canonicalize().map_err(|error| {
-            format!("Unable to resolve cached file {}: {error}", path.display())
-        })?;
+        let canonical = match path.canonicalize() {
+            Ok(canonical) => canonical,
+            Err(_) => {
+                result.failed_files = result.failed_files.saturating_add(1);
+                continue;
+            }
+        };
         if !canonical.starts_with(root) || !canonical.is_file() {
             continue;
         }
@@ -132,25 +149,27 @@ pub(super) fn clear_cache_files(
             result.skipped_protected_files = result.skipped_protected_files.saturating_add(1);
             continue;
         }
-        let metadata = canonical.metadata().map_err(|error| {
-            format!(
-                "Unable to inspect cached file {}: {error}",
-                canonical.display()
-            )
-        })?;
-        if modified_before.is_some_and(|cutoff| {
-            metadata
-                .modified()
-                .map_or(true, |modified| modified > cutoff)
-        }) {
+        let metadata = match canonical.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                result.failed_files = result.failed_files.saturating_add(1);
+                continue;
+            }
+        };
+        if let Some(cutoff) = modified_before {
+            match metadata.modified() {
+                Ok(modified) if modified > cutoff => continue,
+                Err(_) => {
+                    result.failed_files = result.failed_files.saturating_add(1);
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        if fs::remove_file(&canonical).is_err() {
+            result.failed_files = result.failed_files.saturating_add(1);
             continue;
         }
-        fs::remove_file(&canonical).map_err(|error| {
-            format!(
-                "Unable to remove cached file {}: {error}",
-                canonical.display()
-            )
-        })?;
         result.removed_bytes = result.removed_bytes.saturating_add(metadata.len());
         result.removed_files = result.removed_files.saturating_add(1);
     }

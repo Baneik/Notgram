@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { collectManagedDownloads, formatDownloadSize } from "./downloadManager";
+import { describe, expect, it, vi } from "vitest";
+import {
+  collectManagedDownloads,
+  createManagedDownloadRequest,
+  formatDownloadSize,
+  readManagedDownloadRequests,
+  writeManagedDownloadRequests,
+} from "./downloadManager";
 import type { Chat, Message } from "../telegram/types";
 
 const chat: Chat = {
@@ -34,5 +40,89 @@ describe("download manager", () => {
   it("formats transfer sizes", () => {
     expect(formatDownloadSize(1536)).toBe("1.5 KB");
     expect(formatDownloadSize()).toBe("大小未知");
+  });
+
+  it("keeps persisted task records visible when their messages are not loaded", () => {
+    const items = collectManagedDownloads(new Map(), new Map(), [{
+      accountId: "account",
+      fileId: 12,
+      fileName: "archive.zip",
+      requestedAt: "2026-08-09T03:00:00.000Z",
+      chatId: "chat",
+      chatTitle: "项目群",
+      messageId: "12",
+      sentAt: "2026-08-09T00:00:00.000Z",
+      kind: "file",
+      size: 4_096,
+      status: "completed",
+    }]);
+
+    expect(items).toEqual([expect.objectContaining({
+      fileId: 12,
+      status: "completed",
+      chatTitle: "项目群",
+      progress: 1,
+      transferredSize: 4_096,
+    })]);
+  });
+
+  it("captures source metadata when creating a managed task", () => {
+    const source = message("7", {
+      kind: "media",
+      mediaType: "audio",
+      fileName: "episode.mp3",
+      sizeLabel: "8 MB",
+      fileId: 18,
+      size: 8_000_000,
+      canDownload: true,
+    });
+    const record = createManagedDownloadRequest(
+      "account",
+      18,
+      "episode.mp3",
+      new Map([["chat", [source]]]),
+      new Map([["chat", chat]]),
+    );
+
+    expect(record).toMatchObject({
+      accountId: "account",
+      chatId: "chat",
+      chatTitle: "项目群",
+      messageId: "7",
+      kind: "audio",
+      size: 8_000_000,
+      status: "pending",
+    });
+  });
+
+  it("persists completed history but requeues interrupted work after restart", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+    });
+    try {
+      writeManagedDownloadRequests([
+        {
+          accountId: "account",
+          fileId: 20,
+          fileName: "active.zip",
+          requestedAt: "2026-08-09T04:00:00.000Z",
+          status: "downloading",
+        },
+        {
+          accountId: "account",
+          fileId: 21,
+          fileName: "done.zip",
+          requestedAt: "2026-08-09T05:00:00.000Z",
+          status: "completed",
+        },
+      ]);
+      const restored = readManagedDownloadRequests();
+      expect(restored.get("account:20")?.status).toBe("pending");
+      expect(restored.get("account:21")?.status).toBe("completed");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

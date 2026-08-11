@@ -1770,6 +1770,7 @@ export class MockTelegramTransport implements TelegramTransport {
       removedBytes,
       removedFiles,
       skippedProtectedFiles: input.protectedPaths.length > 0 ? 1 : 0,
+      failedFiles: 0,
       usage: clone(this.cacheUsage),
     };
   }
@@ -1907,10 +1908,10 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async downloadFile(fileId: number, _fileName: string) {
     this.updateFileTransfer(fileId, {
-      isDownloading: true,
-      isDownloaded: false,
-      canDownload: true,
-      progress: 0,
+      isDownloading: false,
+      isDownloaded: true,
+      canDownload: false,
+      progress: 1,
     });
   }
 

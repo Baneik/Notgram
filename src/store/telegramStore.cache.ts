@@ -146,8 +146,26 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
   };
 };
 
+const TRANSFER_STATE_KEYS = [
+  "isDownloading",
+  "isUploading",
+  "uploadedSize",
+  "progress",
+  "thumbnailIsDownloading",
+] as const;
+
+const stripTransferState = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stripTransferState);
+  if (!value || typeof value !== "object") return value;
+  const copy = { ...(value as Record<string, unknown>) };
+  for (const key of TRANSFER_STATE_KEYS) delete copy[key];
+  for (const [key, child] of Object.entries(copy)) copy[key] = stripTransferState(child);
+  return copy;
+};
+
 const cacheableMessage = (message: Message): Message => {
   const result = { ...message };
+  result.content = stripTransferState(result.content) as Message["content"];
   delete result.renderKey;
   delete result.permissions;
   delete result.isRemoving;

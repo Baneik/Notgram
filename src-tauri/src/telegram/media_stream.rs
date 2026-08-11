@@ -216,6 +216,7 @@ impl MediaStreamRegistry {
                 inner
                     .files
                     .values()
+                    .filter(|media| media.playback.active)
                     .filter_map(|media| media.progress.as_ref().map(|progress| &progress.path)),
             )
             .cloned()
@@ -623,6 +624,13 @@ mod tests {
         let protected = registry.protected_paths();
         assert!(protected.contains(&PathBuf::from("stream.mp4")));
         assert!(protected.contains(&PathBuf::from("download.jpg")));
+
+        registry.suspend(7);
+        assert!(
+            !registry
+                .protected_paths()
+                .contains(&PathBuf::from("stream.mp4"))
+        );
 
         registry.observe_update(&serde_json::json!({
             "@type": "updateFile",

@@ -1,6 +1,6 @@
 import { Download, Image as ImageIcon, LoaderCircle, MapPin } from "lucide-react";
 import katex from "katex";
-import { createElement, Fragment, useState, type CSSProperties, type ReactNode } from "react";
+import { createElement, Fragment, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "katex/dist/katex.min.css";
 import type {
   MessageRichBlock,
@@ -27,6 +27,7 @@ interface RichMessageContentProps {
   highlightQuery?: string;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancelDownload: (fileId: number) => Promise<void>;
+  onRecoverFile: (fileId: number, priority?: number) => Promise<boolean>;
   onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onSuspendStream: (fileId: number) => Promise<void>;
 }
@@ -163,12 +164,28 @@ function RichMediaBlock({ media, context, blockKey }: {
   blockKey: string;
 }) {
   const [revealed, setRevealed] = useState(!media.hasSpoiler);
+  const [failedSource, setFailedSource] = useState<string>();
+  const attemptedRecoveryRef = useRef(new Set<string>());
   const autoplay = usePreferencesStore((state) => autoplayAllowed(
     media.autoplay,
     state,
   ));
   const source = localMediaSource(media.localPath);
   const poster = localMediaSource(media.thumbnailPath) ?? media.previewDataUrl;
+  const fileIdForSource = (candidate: string | undefined) => candidate === poster
+    ? media.thumbnailFileId ?? media.fileId
+    : media.fileId;
+  const usableSource = source && failedSource !== source ? source : undefined;
+  const usablePoster = poster && failedSource !== poster ? poster : undefined;
+  const markSourceFailed = (failed: string | undefined, fileId?: number) => {
+    if (!failed) return;
+    setFailedSource(failed);
+    if (fileId === undefined || attemptedRecoveryRef.current.has(failed)) return;
+    attemptedRecoveryRef.current.add(failed);
+    void context.onRecoverFile(fileId, 32).then((recovered) => {
+      if (recovered) setFailedSource(undefined);
+    });
+  };
   const canDownload = media.fileId !== undefined && media.canDownload !== false && !media.isDownloaded;
   const style = media.width && media.height
     ? { "--rich-media-ratio": `${media.width} / ${media.height}` } as CSSProperties
@@ -181,7 +198,7 @@ function RichMediaBlock({ media, context, blockKey }: {
   if (media.mediaType === "audio" || media.mediaType === "voice") {
     content = (
       <AudioPlayer
-        source={source}
+        source={usableSource}
         playbackId={`${context.messageId}:${blockKey}`}
         label={media.fileName}
         fileId={media.fileId}
@@ -189,6 +206,9 @@ function RichMediaBlock({ media, context, blockKey }: {
         mimeType={media.mimeType}
         downloadProgress={media.progress}
         onRequestStream={context.onStream}
+        onRecoverFile={media.fileId !== undefined
+          ? () => context.onRecoverFile(media.fileId!, 32)
+          : undefined}
         onSuspendStream={media.fileId !== undefined
           ? () => { void context.onSuspendStream(media.fileId!); }
           : undefined}
@@ -201,8 +221,8 @@ function RichMediaBlock({ media, context, blockKey }: {
   } else if (media.mediaType === "video") {
     content = (
       <VideoPlayer
-        source={source}
-        poster={poster}
+        source={usableSource}
+        poster={usablePoster}
         playbackId={`${context.messageId}:${blockKey}`}
         label={media.fileName}
         fileId={media.fileId}
@@ -217,14 +237,27 @@ function RichMediaBlock({ media, context, blockKey }: {
         onRequestStream={context.onStream}
         onSuspendStream={context.onSuspendStream}
         onLoadedMetadata={() => undefined}
-        onError={() => undefined}
+        onError={(failed) => markSourceFailed(failed, fileIdForSource(failed))}
       />
     );
-  } else if (source || poster) {
-    const mediaSource = source ?? poster;
+  } else if (usableSource || usablePoster) {
+    const mediaSource = usableSource ?? usablePoster;
     content = media.mediaType === "animation" && /^video\//i.test(media.mimeType ?? "")
-      ? <AutoplayVideo src={mediaSource} poster={poster} autoplay={autoplay} loop={media.loop} muted playsInline />
-      : <img src={mediaSource} alt={media.fileName} loading="lazy" />;
+      ? <AutoplayVideo
+        src={mediaSource}
+        poster={usablePoster}
+        autoplay={autoplay}
+        loop={media.loop}
+        muted
+        playsInline
+        onError={() => markSourceFailed(mediaSource, fileIdForSource(mediaSource))}
+      />
+      : <img
+        src={mediaSource}
+        alt={media.fileName}
+        loading="lazy"
+        onError={() => markSourceFailed(mediaSource, fileIdForSource(mediaSource))}
+      />;
   } else {
     content = (
       <button
@@ -387,6 +420,7 @@ export function RichMessageContent({
   highlightQuery,
   onDownload,
   onCancelDownload,
+  onRecoverFile,
   onStream,
   onSuspendStream,
 }: RichMessageContentProps) {
@@ -396,6 +430,7 @@ export function RichMessageContent({
     scope: `rich-message-${encodeURIComponent(messageId)}`,
     onDownload,
     onCancelDownload,
+    onRecoverFile,
     onStream,
     onSuspendStream,
   };

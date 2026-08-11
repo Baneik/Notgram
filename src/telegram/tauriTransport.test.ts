@@ -3051,7 +3051,8 @@ describe("TauriTelegramTransport media", () => {
     };
 
     await transport.suspendFileStream(70);
-    await transport.downloadFile(71, "video.mp4");
+    const download = transport.downloadFile(71, "video.mp4").catch((error: unknown) => error);
+    await Promise.resolve();
     await transport.suspendFileStream(71);
 
     expect(requests).toHaveLength(2);
@@ -3065,6 +3066,8 @@ describe("TauriTelegramTransport media", () => {
       file_id: 71,
       limit: 0,
     });
+    await transport.cancelFileDownload(71);
+    await expect(download).resolves.toMatchObject({ message: "文件下载已取消" });
   });
 
   it("caches photo media only after a visible-file request", async () => {

@@ -161,6 +161,10 @@ describe("telegram store cache and accounts", () => {
         mediaType: "photo",
         fileName: "large.jpg",
         sizeLabel: "1 MB",
+        isDownloading: true,
+        isDownloaded: true,
+        downloadedSize: 512,
+        progress: 0.5,
         previewDataUrl: `data:image/jpeg;base64,${"a".repeat(40_000)}`,
       },
     };
@@ -183,6 +187,10 @@ describe("telegram store cache and accounts", () => {
 
     expect(snapshot.messages[0]).not.toHaveProperty("permissions");
     expect(snapshot.messages[0]).not.toHaveProperty("renderKey");
+    expect(snapshot.messages[0].content).not.toHaveProperty("isDownloading");
+    expect(snapshot.messages[0].content).toHaveProperty("isDownloaded", true);
+    expect(snapshot.messages[0].content).toHaveProperty("downloadedSize", 512);
+    expect(snapshot.messages[0].content).not.toHaveProperty("progress");
     expect(
       snapshot.messages[0].content.kind === "media"
         ? snapshot.messages[0].content.previewDataUrl

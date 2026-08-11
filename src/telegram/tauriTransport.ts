@@ -46,7 +46,10 @@ import {
   TauriProfileService,
   profileField,
 } from "./tauriProfileService";
-import { TauriMessageMediaService } from "./tauriMessageMediaService";
+import {
+  TauriMessageMediaService,
+  type PendingDownload,
+} from "./tauriMessageMediaService";
 import {
   getActiveConversationTraceId,
   logPerformance,
@@ -324,7 +327,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     requestPreparedProfilePhoto: () => this.requestPreparedProfilePhoto(),
   });
   private rawMessages = new Map<string, Map<string, TdObject>>();
-  private pendingDownloads = new Map<number, string>();
+  private pendingDownloads = new Map<number, PendingDownload>();
   private rawMessageFileIds = new Map<string, Set<number>>();
   private fileMessageReferences = new Map<number, Set<string>>();
   private exhaustedHistories = new Set<string>();
@@ -346,6 +349,13 @@ export class TauriTelegramTransport implements TelegramTransport {
   private fileDownloads = new FileDownloadQueue(
     (request) => this.request(request),
     (file) => this.updateFile(file),
+    (fileId) => {
+      void this.request({
+        "@type": "cancelDownloadFile",
+        file_id: fileId,
+        only_if_pending: false,
+      }).catch(() => undefined);
+    },
   );
   private messageMediaService = new TauriMessageMediaService({
     request: (request) => this.request(request),
@@ -2316,6 +2326,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       fileId,
       local?.is_downloading_completed === true,
       local?.is_downloading_active === true,
+      tdNumber(local?.downloaded_size),
     );
 
     for (const raw of [...this.rawChats.values()]) {
@@ -2346,22 +2357,18 @@ export class TauriTelegramTransport implements TelegramTransport {
       if (replaced.changed) this.emitMessage(asTdObject(replaced.value));
     }
 
-    const fileName = this.pendingDownloads.get(fileId);
-    if (
-      fileName &&
-      local?.is_downloading_completed === true &&
-      typeof local.path === "string" &&
-      local.path
-    ) {
+    const pending = this.pendingDownloads.get(fileId);
+    if (pending && local?.is_downloading_completed === true) {
       this.pendingDownloads.delete(fileId);
+      if (typeof local.path !== "string" || !local.path) {
+        pending.reject(new Error("TDLib 下载完成但未提供本地文件路径"));
+        return;
+      }
       void invoke<string>("telegram_save_downloaded_file", {
         sourcePath: local.path,
-        fileName,
-      }).catch((error) => {
-        this.listener?.({
-          type: "sync.error",
-          message: error instanceof Error ? error.message : "无法保存下载文件",
-        });
+        fileName: pending.fileName,
+      }).then(() => pending.resolve()).catch((error: unknown) => {
+        pending.reject(error instanceof Error ? error : new Error("无法保存下载文件"));
       });
     }
   }
@@ -2783,6 +2790,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.chatListIds.clear();
     this.exhaustedChatLists.clear();
     this.fileDownloads.reset();
+    for (const pending of this.pendingDownloads.values()) {
+      pending.reject(new Error("TDLib 会话已重置，下载未完成"));
+    }
     this.pendingDownloads.clear();
     this.rawFolderInfos = [];
     this.mainChatListPosition = 0;

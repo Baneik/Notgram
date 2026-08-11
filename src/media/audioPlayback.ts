@@ -13,6 +13,7 @@ export interface AudioTrackDescriptor {
   nextId?: string;
   downloadProgress?: number;
   onRequestStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
+  onRecoverFile?: (fileId: number) => Promise<boolean>;
   onSuspendStream?: () => void;
   onDownload?: () => void;
   onCancelDownload?: () => void;

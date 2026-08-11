@@ -29,6 +29,7 @@ function PersistentAudioEngine() {
   const lastRememberedSecondRef = useRef(0);
   const playbackRateRef = useRef(1);
   const streamingTrackIdRef = useRef<string | undefined>(undefined);
+  const recoveryAttemptsRef = useRef(new Set<string>());
   const audioContextRef = useRef<AudioContext | undefined>(undefined);
   const mediaSourceRef = useRef<MediaElementAudioSourceNode | undefined>(undefined);
   const analyserRef = useRef<AnalyserNode | undefined>(undefined);
@@ -285,9 +286,26 @@ function PersistentAudioEngine() {
         next();
       }}
       onError={(event) => {
-        if (!event.currentTarget.getAttribute("src")) return;
-        const id = event.currentTarget.dataset.playbackId;
+        const audio = event.currentTarget;
+        if (!audio.getAttribute("src")) return;
+        const id = audio.dataset.playbackId;
         if (!id) return;
+        const track = trackRef.current;
+        const recoveryKey = `${id}:${audio.currentSrc}`;
+        if (
+          track?.id === id && track.fileId !== undefined && track.onRecoverFile &&
+          !recoveryAttemptsRef.current.has(recoveryKey)
+        ) {
+          recoveryAttemptsRef.current.add(recoveryKey);
+          void track.onRecoverFile(track.fileId).then((recovered) => {
+            if (!recovered || trackRef.current?.id !== id) return;
+            const refreshed = audioPlaybackController.track(id);
+            if (refreshed) trackRef.current = refreshed;
+            audio.removeAttribute("src");
+            audio.load();
+            audioPlaybackController.update(id, { failed: false, loading: false, playing: false });
+          });
+        }
         audioPlaybackController.update(id, {
           failed: true,
           loading: false,

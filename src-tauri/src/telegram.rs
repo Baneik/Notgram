@@ -1147,6 +1147,29 @@ fn decode_pasted_upload(
     Ok(bytes)
 }
 
+struct SentMediaCacheGuard {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl SentMediaCacheGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, keep: false }
+    }
+
+    fn keep(&mut self) {
+        self.keep = true;
+    }
+}
+
+impl Drop for SentMediaCacheGuard {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn telegram_send_pasted_files(
     app: AppHandle,
@@ -1176,6 +1199,7 @@ pub async fn telegram_send_pasted_files(
     ));
     fs::create_dir_all(&cache_root)
         .map_err(|error| format!("Unable to create upload cache: {error}"))?;
+    let mut cache_guard = SentMediaCacheGuard::new(cache_root.clone());
 
     let mut prepared = Vec::with_capacity(files.len());
     for (index, file) in files.into_iter().enumerate() {
@@ -1231,6 +1255,7 @@ pub async fn telegram_send_pasted_files(
         )?
     };
     runtime.send(&request)?;
+    cache_guard.keep();
     Ok(true)
 }
 

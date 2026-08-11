@@ -70,4 +70,33 @@ describe("FileDownloadQueue cancellation", () => {
       priority: 28,
     });
   });
+
+  it("treats the stall limit as an idle timeout and refreshes it on byte progress", async () => {
+    vi.useFakeTimers();
+    try {
+      const request = vi.fn(async () => ({
+        "@type": "file",
+        local: { is_downloading_active: true, is_downloading_completed: false },
+      }));
+      const onStall = vi.fn();
+      const queue = new FileDownloadQueue(request, () => undefined, onStall);
+      const download = queue.cache(30).catch((error: unknown) => error);
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(44_000);
+      queue.handleFile(30, false, true, 1_024);
+      await vi.advanceTimersByTimeAsync(44_000);
+      expect(onStall).not.toHaveBeenCalled();
+      expect(queue.get(30)).toBeDefined();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(download).resolves.toMatchObject({
+        message: "TDLib preview download stalled without progress",
+      });
+      expect(onStall).toHaveBeenCalledWith(30);
+      expect(queue.get(30)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

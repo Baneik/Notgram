@@ -6,6 +6,7 @@ type QueuedDownload = {
   resolve: () => void;
   reject: (reason: Error) => void;
   stallTimer?: ReturnType<typeof globalThis.setTimeout>;
+  lastDownloadedSize: number;
 };
 
 type RequestFile = (request: TdObject) => Promise<TdObject>;
@@ -25,6 +26,7 @@ export class FileDownloadQueue {
   constructor(
     private readonly request: RequestFile,
     private readonly onFile: (file: TdObject) => void,
+    private readonly onStall?: (fileId: number) => void,
   ) {}
 
   cache(fileId: number, priority = 16) {
@@ -46,6 +48,7 @@ export class FileDownloadQueue {
       priority: clampPriority(priority),
       resolve: resolveDownload,
       reject: rejectDownload,
+      lastDownloadedSize: 0,
     });
     this.sortQueue();
     this.pump();
@@ -94,10 +97,19 @@ export class FileDownloadQueue {
     return true;
   }
 
-  handleFile(fileId: number, completed: boolean, active: boolean) {
+  handleFile(fileId: number, completed: boolean, active: boolean, downloadedSize?: number) {
     if (completed) this.finish(fileId);
-    else if (this.active.has(fileId) && !active) {
-      this.finish(fileId, new Error("TDLib preview download stopped"));
+    else {
+      const download = this.active.get(fileId);
+      if (!download) return;
+      if (!active) {
+        this.finish(fileId, new Error("TDLib preview download stopped"));
+        return;
+      }
+      if (downloadedSize !== undefined && downloadedSize > download.lastDownloadedSize) {
+        download.lastDownloadedSize = downloadedSize;
+        this.armStallTimer(download);
+      }
     }
   }
 
@@ -125,9 +137,7 @@ export class FileDownloadQueue {
       const [download] = this.queue.splice(nextIndex, 1);
       this.active.set(download.fileId, download);
       if (download.priority < INTERACTIVE_PRIORITY) backgroundActive += 1;
-      download.stallTimer = globalThis.setTimeout(() => {
-        this.finish(download.fileId, new Error("TDLib preview download stalled"));
-      }, DOWNLOAD_STALL_MS);
+      this.armStallTimer(download);
       void this.requestFile(download);
     }
   }
@@ -173,5 +183,14 @@ export class FileDownloadQueue {
     if (error) download.reject(error);
     else download.resolve();
     this.pump();
+  }
+
+  private armStallTimer(download: QueuedDownload) {
+    if (download.stallTimer !== undefined) globalThis.clearTimeout(download.stallTimer);
+    download.stallTimer = globalThis.setTimeout(() => {
+      if (this.active.get(download.fileId) !== download) return;
+      this.onStall?.(download.fileId);
+      this.finish(download.fileId, new Error("TDLib preview download stalled without progress"));
+    }, DOWNLOAD_STALL_MS);
   }
 }

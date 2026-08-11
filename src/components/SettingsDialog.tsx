@@ -1337,6 +1337,9 @@ function AdvancedSettings({
               {cacheCleanupResult.skippedProtectedFiles > 0
                 ? `；已保护 ${cacheCleanupResult.skippedProtectedFiles} 个正在使用的文件`
                 : ""}
+              {cacheCleanupResult.failedFiles > 0
+                ? `；${cacheCleanupResult.failedFiles} 个文件清理失败`
+                : ""}
             </p>
           )}
         </section>

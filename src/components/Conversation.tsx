@@ -215,7 +215,7 @@ interface ConversationProps {
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onCancelFileDownload: (fileId: number) => Promise<void>;
   onRecoverFile: (fileId: number, priority?: number) => Promise<boolean>;
-  onOpenFile: (sourcePath: string) => Promise<void>;
+  onOpenFile: (sourcePath: string, fileId?: number) => Promise<boolean>;
   onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
   onOpenDownloadDirectory: () => Promise<void>;
   onStreamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;

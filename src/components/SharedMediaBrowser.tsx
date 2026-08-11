@@ -21,6 +21,7 @@ import type {
 } from "../telegram/types";
 import { messageContentText } from "../telegram/messageContent";
 import { formatChatTime } from "../utils/formatters";
+import { useTelegramStore } from "../store/telegramStore";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 
 const CATEGORIES: { id: SharedMediaCategory; label: string; icon: typeof ImageIcon }[] = [
@@ -47,6 +48,13 @@ const mediaSource = (message: Message) => {
   return convertFileSrc(source);
 };
 
+const mediaSourceFileId = (message: Message) => {
+  if (message.content.kind !== "media") return undefined;
+  return message.content.localPath
+    ? message.content.fileId
+    : message.content.thumbnailPath ? message.content.thumbnailFileId : undefined;
+};
+
 const messageFile = (message: Message) => {
   const content = message.content;
   if (content.kind !== "media" && content.kind !== "file") return undefined;
@@ -63,7 +71,9 @@ export function SharedMediaBrowser({
   onDelete,
   onForward,
 }: SharedMediaBrowserProps) {
+  const recoverFile = useTelegramStore((state) => state.recoverFile);
   const generationRef = useRef(0);
+  const attemptedRecoveryRef = useRef(new Set<string>());
   const [category, setCategory] = useState<SharedMediaCategory>("media");
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
@@ -76,6 +86,7 @@ export function SharedMediaBrowser({
   const [forwardTargetId, setForwardTargetId] = useState("");
   const [actionPending, setActionPending] = useState(false);
   const [deleteScope, setDeleteScope] = useState<"self" | "all">();
+  const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(() => new Set());
 
   const loadFirstPage = async (force = false, nextQuery = appliedQuery) => {
     const generation = ++generationRef.current;
@@ -192,11 +203,29 @@ export function SharedMediaBrowser({
           <div className="shared-media-empty">没有匹配的内容</div>
         ) : visibleMessages.map((message) => {
           const source = mediaSource(message);
+          const usableSource = source && !failedMediaSources.has(source) ? source : undefined;
           return (
             <div className={`shared-media-item ${selected.has(message.id) ? "is-selected" : ""}`} key={message.id}>
               <label className="shared-media-check"><input type="checkbox" aria-label={`选择 ${message.id}`} checked={selected.has(message.id)} onChange={() => toggleSelected(message.id)} /></label>
               <button className="shared-media-open" type="button" onClick={() => onOpenMessage(message.chatId, message.id)}>
-                {category === "media" ? source ? <img src={source} alt="" /> : <span className="shared-media-fallback"><ImageIcon size={22} /></span> : (
+                {category === "media" ? usableSource ? <img
+                  src={usableSource}
+                  alt=""
+                  onError={() => {
+                    setFailedMediaSources((current) => new Set(current).add(usableSource));
+                    const fileId = mediaSourceFileId(message);
+                    if (fileId === undefined || attemptedRecoveryRef.current.has(usableSource)) return;
+                    attemptedRecoveryRef.current.add(usableSource);
+                    void recoverFile(fileId, 24).then((recovered) => {
+                      if (!recovered) return;
+                      setFailedMediaSources((current) => {
+                        const next = new Set(current);
+                        next.delete(usableSource);
+                        return next;
+                      });
+                    });
+                  }}
+                /> : <span className="shared-media-fallback"><ImageIcon size={22} /></span> : (
                   <span className="shared-media-type-icon">{category === "file" ? <FileText size={19} /> : category === "link" ? <Link2 size={19} /> : <Headphones size={19} />}</span>
                 )}
                 <span className="shared-media-copy"><strong>{messageContentText(message.content) || "媒体消息"}</strong><time dateTime={message.sentAt}>{formatChatTime(message.sentAt)}</time></span>
