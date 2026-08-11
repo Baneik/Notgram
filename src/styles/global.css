@@ -679,6 +679,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-group-avatar { width: 36px; display: flex; align-items: flex-end; flex: 0 0 36px; }
 .message-group-avatar .message-sender-avatar { position: sticky; bottom: 4px; align-self: flex-end; }
 .message-group-avatar .avatar { position: relative; }
+.message-group.is-floating-avatar-source .message-sender-avatar { visibility: hidden; }
+.message-sender-avatar-floating {
+  position: absolute; left: 10px; bottom: 4px; z-index: 18;
+}
 .message-row { position: relative; isolation: isolate; width: 100%; display: flex; align-items: flex-end; justify-content: flex-start; margin: var(--message-row-spacing) 0; user-select: none; -webkit-user-select: none; }
 .message-source-locate {
   position: absolute; z-index: 4; top: 5px; right: 5px;

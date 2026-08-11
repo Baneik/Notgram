@@ -32,6 +32,7 @@ describe("message virtualization", () => {
       continuesBefore,
       continuesAfter,
     ])).toEqual([[false, true], [true, true], [true, false]]);
+    expect(new Set(blocks.map(({ groupId }) => groupId))).toEqual(new Set(["1"]));
     expect(blocks[0]?.positions.get("1")).toBe("first");
     expect(blocks[1]?.positions.get("6")).toBe("middle");
     expect(blocks[2]?.positions.get("11")).toBe("last");
@@ -141,5 +142,21 @@ describe("message virtualization", () => {
     expect(current.map(({ id }) => id)).toEqual(["2", "3"]);
     expect(withHistory.slice(1).map(({ id }) => id)).toEqual(["2", "3"]);
     expect(withLiveMessage.slice(0, 2).map(({ id }) => id)).toEqual(["2", "3"]);
+  });
+
+  it("assigns consecutive sender groups distinct stable identities", () => {
+    const blocks = virtualizeMessageGroups([
+      message("alice-1"),
+      message("alice-2"),
+      message("bob-1", { senderId: "bob" }),
+      message("bob-2", { senderId: "bob" }),
+    ]);
+
+    expect(blocks.map(({ groupId }) => groupId)).toEqual([
+      "alice-1",
+      "alice-1",
+      "bob-1",
+      "bob-1",
+    ]);
   });
 });

@@ -113,6 +113,11 @@ type MessageNavigationOptions = Pick<
   "behavior" | "highlight"
 > & { loadContext?: boolean };
 
+interface FloatingSenderAvatar {
+  groupId: string;
+  senderId: string;
+}
+
 const MessageSourceLocateButton = ({
   message,
   onLocate,
@@ -468,6 +473,7 @@ export function Conversation({
   const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
+  const [floatingSenderAvatar, setFloatingSenderAvatar] = useState<FloatingSenderAvatar>();
   const [historyScrollbarSettling, setHistoryScrollbarSettling] = useState(false);
   const performanceTraceId = chat && messageScrollRequest?.chatId === chat.id
     ? messageScrollRequest.performanceTraceId
@@ -799,6 +805,75 @@ export function Conversation({
     messageListElement.addEventListener("scroll", hideAtBottom, { passive: true });
     return () => messageListElement.removeEventListener("scroll", hideAtBottom);
   }, [hideDateIndicator, messageListElement]);
+  useLayoutEffect(() => {
+    if (!messageListElement || positioning || chat?.kind === "direct") {
+      setFloatingSenderAvatar(undefined);
+      return;
+    }
+
+    let frame: number | undefined;
+    let hiddenSource: HTMLElement | undefined;
+    const revealInlineAvatar = () => {
+      hiddenSource?.classList.remove("is-floating-avatar-source");
+      hiddenSource = undefined;
+    };
+    const publishFloatingAvatar = () => {
+      frame = undefined;
+      const listBounds = messageListElement.getBoundingClientRect();
+      const avatarAnchorY = listBounds.bottom - 20;
+      const atBottom = messageListElement.scrollHeight -
+        messageListElement.clientHeight - messageListElement.scrollTop <= 1;
+      let source: HTMLElement | undefined;
+      if (!atBottom) {
+        for (const group of messageListElement.querySelectorAll<HTMLElement>(
+          ".message-group[data-avatar-group-id]",
+        )) {
+          const bounds = group.getBoundingClientRect();
+          if (bounds.top <= avatarAnchorY && bounds.bottom >= avatarAnchorY) {
+            source = group;
+            break;
+          }
+        }
+      }
+
+      const groupId = source?.dataset.avatarGroupId;
+      const senderId = source?.dataset.avatarSenderId;
+      const nextSource = groupId && senderId ? source : undefined;
+      if (hiddenSource !== nextSource) {
+        revealInlineAvatar();
+        hiddenSource = nextSource;
+        hiddenSource?.classList.add("is-floating-avatar-source");
+      }
+      setFloatingSenderAvatar((current) => {
+        if (!groupId || !senderId) return current ? undefined : current;
+        if (current?.groupId === groupId && current.senderId === senderId) return current;
+        return { groupId, senderId };
+      });
+    };
+    const scheduleFloatingAvatar = () => {
+      if (frame !== undefined) return;
+      frame = requestAnimationFrame(publishFloatingAvatar);
+    };
+
+    scheduleFloatingAvatar();
+    messageListElement.addEventListener("scroll", scheduleFloatingAvatar, { passive: true });
+    globalThis.addEventListener("resize", scheduleFloatingAvatar);
+    const mutationObserver = new MutationObserver(scheduleFloatingAvatar);
+    mutationObserver.observe(messageListElement, { childList: true, subtree: true });
+    const resizeObserver = new ResizeObserver(scheduleFloatingAvatar);
+    resizeObserver.observe(messageListElement);
+    const content = messageListElement.querySelector(".message-list-content");
+    if (content) resizeObserver.observe(content);
+
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      revealInlineAvatar();
+      messageListElement.removeEventListener("scroll", scheduleFloatingAvatar);
+      globalThis.removeEventListener("resize", scheduleFloatingAvatar);
+      mutationObserver.disconnect();
+      resizeObserver.disconnect();
+    };
+  }, [chat?.kind, messageListElement, positioning]);
   useEffect(() => {
     if (pinnedViewOpen || !messageListElement || !pinnedMessageIdsKey) {
       setVisiblePinnedMessageIds((current) => current.size === 0 ? current : new Set());
@@ -863,6 +938,20 @@ export function Conversation({
     () => pinnedMessageForVisibleRange(allPinnedMessages, visiblePinnedMessageIds),
     [allPinnedMessages, visiblePinnedMessageIds],
   );
+
+  const floatingSender = floatingSenderAvatar
+    ? users.get(floatingSenderAvatar.senderId)
+    : undefined;
+  const floatingSenderChatId = floatingSenderAvatar
+    ? senderChatId(floatingSenderAvatar.senderId)
+    : undefined;
+  const floatingSenderChat = floatingSenderChatId
+    ? forwardTargetsById.get(floatingSenderChatId)
+    : undefined;
+  const floatingSenderName = floatingSenderAvatar
+    ? floatingSender?.displayName ?? floatingSenderChat?.title ?? "Telegram 用户"
+    : undefined;
+  const floatingSenderAvatarModel = floatingSender?.avatar ?? floatingSenderChat?.avatar;
 
   const openPinnedBannerMessage = useCallback((chatId: string, messageId: string) => {
     const element = messageListRef.current;
@@ -1670,6 +1759,8 @@ export function Conversation({
               )}
               <div
                 className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${groupModel.continuesBefore ? "continues-before" : ""} ${groupModel.continuesAfter ? "continues-after" : ""} ${groupModel.id === visibleMessageBlocks.at(-1)?.id ? "is-last-visible" : ""}`}
+                data-avatar-group-id={groupModel.groupId}
+                data-avatar-sender-id={reserveSenderAvatar ? firstMessage.senderId : undefined}
               >
                 {reserveSenderAvatar && (
                   <span className="message-group-avatar">
@@ -1868,6 +1959,43 @@ export function Conversation({
             );
           }}
         />
+        {floatingSenderAvatar && floatingSenderName && (
+          <button
+            className="message-sender-avatar message-sender-avatar-floating"
+            type="button"
+            aria-label={`查看 ${floatingSenderName} 资料`}
+            onClick={() => onOpenSenderProfile(floatingSenderAvatar.senderId)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setSenderMenu({
+                senderId: floatingSenderAvatar.senderId,
+                senderName: floatingSenderName,
+                x: event.clientX,
+                y: event.clientY,
+              });
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+              event.preventDefault();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              setSenderMenu({
+                senderId: floatingSenderAvatar.senderId,
+                senderName: floatingSenderName,
+                x: bounds.left + bounds.width / 2,
+                y: bounds.top + bounds.height / 2,
+              });
+            }}
+          >
+            <Avatar
+              avatar={floatingSenderAvatarModel ?? {
+                label: Array.from(floatingSenderName.trim())[0] ?? "?",
+                color: "#73828c",
+              }}
+              size="small"
+            />
+          </button>
+        )}
         {!pinnedViewOpen && currentScrollKey && attentionMessageIds.length > 0 && (
           <button
             className={`conversation-jump-button jump-to-attention ${awayFromLatest || jumpHistoryCount > 0 ? "is-stacked" : ""}`}
