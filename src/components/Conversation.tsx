@@ -33,8 +33,7 @@ import type {
 } from "../telegram/types";
 import {
   useConversationScroll,
-  type EntryConversationScrollRequest,
-  type LatestConversationScrollRequest,
+  type ConversationScrollRequest,
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
@@ -160,9 +159,7 @@ interface ConversationProps {
   topics: ForumTopic[];
   onSelectTopic: (topicId: string) => void;
   scrollScope: string;
-  entryScrollRequest?: EntryConversationScrollRequest;
-  latestScrollRequest?: LatestConversationScrollRequest;
-  messageScrollRequest?: MessageConversationScrollRequest;
+  scrollRequest?: ConversationScrollRequest;
   messages: Message[];
   chatMessages: Message[];
   forwardTargets: Chat[];
@@ -225,7 +222,6 @@ interface ConversationProps {
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
-  onPositioned?: (chatId: string) => void;
   onOpenMessage: (
     chatId: string,
     messageId: string,
@@ -254,9 +250,7 @@ export function Conversation({
   topics,
   onSelectTopic,
   scrollScope,
-  entryScrollRequest,
-  latestScrollRequest,
-  messageScrollRequest,
+  scrollRequest,
   messages,
   chatMessages,
   forwardTargets,
@@ -302,7 +296,6 @@ export function Conversation({
   onCancelFileUpload,
   onLoadOlder,
   onOpenProfile,
-  onPositioned,
   onOpenMessage,
   onOpenMessageSearch,
   onOpenChat,
@@ -469,13 +462,9 @@ export function Conversation({
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
   const [historyScrollbarSettling, setHistoryScrollbarSettling] = useState(false);
-  const performanceTraceId = chat && messageScrollRequest?.chatId === chat.id
-    ? messageScrollRequest.performanceTraceId
-    : chat && latestScrollRequest?.chatId === chat.id
-      ? latestScrollRequest.performanceTraceId
-      : chat && entryScrollRequest?.chatId === chat.id
-        ? entryScrollRequest.performanceTraceId
-        : undefined;
+  const performanceTraceId = chat && scrollRequest?.chatId === chat.id
+    ? scrollRequest.performanceTraceId
+    : undefined;
 
   const displayMessages = useMemo(
     () => chat?.kind === "saved"
@@ -769,9 +758,7 @@ export function Conversation({
   } = useConversationScroll({
     scope: pinnedViewOpen ? `${scrollScope}:pinned` : scrollScope,
     chatId: chat?.id,
-    entryRequest: pinnedViewOpen ? undefined : entryScrollRequest,
-    latestRequest: pinnedViewOpen ? undefined : latestScrollRequest,
-    messageRequest: pinnedViewOpen ? undefined : messageScrollRequest,
+    request: pinnedViewOpen ? undefined : scrollRequest,
     visibleMessages: renderedMessages,
     messageItemIndexes,
     virtualItemCount: visibleMessageBlocks.length,
@@ -947,9 +934,7 @@ export function Conversation({
     messageListRef.current?.dataset.conversationVirtuosoKey === virtuosoKey &&
     Boolean(messageListRef.current?.querySelector("[data-message-id]")) &&
     (
-      entryScrollRequest?.chatId === chat?.id ||
-      latestScrollRequest?.chatId === chat?.id ||
-      messageScrollRequest?.chatId === chat?.id
+      scrollRequest?.chatId === chat?.id
     )
   );
 
@@ -1072,21 +1057,6 @@ export function Conversation({
       (!activeChatRow || window.matchMedia("(forced-colors: active)").matches)) return;
     composerInputRef.current?.focus({ preventScroll: true });
   }, [conversationIdentity, historyLoading, pinnedViewOpen, positioning, selectionMode]);
-
-  useLayoutEffect(() => {
-    if (
-      pinnedViewOpen || !chat || positioning ||
-      (historyLoading && renderedMessages.length === 0)
-    ) return;
-    onPositioned?.(chat.id);
-  }, [
-    chat?.id,
-    historyLoading,
-    onPositioned,
-    pinnedViewOpen,
-    positioning,
-    renderedMessages.length,
-  ]);
 
   useLayoutEffect(() => {
     const anchor = pinnedReturnAnchorRef.current;

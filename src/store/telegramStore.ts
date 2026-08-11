@@ -1146,7 +1146,7 @@ export const createTelegramStore = (
       const currentTopicId = get().activeTopicId;
       if (currentTopicId && page.topics.some((topic) => topic.id === currentTopicId)) return;
       const nextTopicId = restorableForumTopicId(chatId, page.topics);
-      if (nextTopicId) await get().selectForumTopic(nextTopicId);
+      if (nextTopicId) get().selectForumTopic(nextTopicId);
       else set({ activeTopicId: undefined });
     };
     const sessionController = createSessionController({
@@ -1508,7 +1508,7 @@ export const createTelegramStore = (
         }
       },
 
-      selectChat: async (chatId, options) => {
+      selectChat: (chatId, options) => {
         const previousChatId = get().activeChatId;
         const previousTopicId = get().activeTopicId;
         if (previousChatId && previousChatId !== chatId) {
@@ -1537,7 +1537,7 @@ export const createTelegramStore = (
         }
       },
 
-      selectForumTopic: async (topicId) => {
+      selectForumTopic: (topicId) => {
         const chatId = get().activeChatId;
         if (!chatId || !get().chats.get(chatId)?.isForum) return;
         const previousTopicId = get().activeTopicId;
@@ -1677,7 +1677,7 @@ export const createTelegramStore = (
         const lastForumTopicIds = new Map(get().lastForumTopicIds);
         lastForumTopicIds.delete(chatId);
         set({ lastForumTopicIds });
-        if (nextChat) await get().selectChat(nextChat.id);
+        if (nextChat) get().selectChat(nextChat.id);
         else {
           set({ activeChatId: undefined, activeTopicId: undefined });
           scheduleCacheWrite();

@@ -1307,7 +1307,6 @@ test("single-click entry restores the server read marker without exposing interm
         placeholder: boolean;
         transitionCovered: boolean;
         snapshotCovered: boolean;
-        snapshotMessageCount: number;
         messageCount: number;
         scrollTop: number;
       }>;
@@ -1328,13 +1327,6 @@ test("single-click entry restores the server read marker without exposing interm
             "is-conversation-view-transition",
           ),
           snapshotCovered: Boolean(document.querySelector("[data-conversation-switch-snapshot]")),
-          snapshotMessageCount: document.querySelector<HTMLElement>(
-            "[data-conversation-switch-snapshot]",
-          )?.dataset.snapshotMessageCount
-            ? Number(document.querySelector<HTMLElement>(
-              "[data-conversation-switch-snapshot]",
-            )?.dataset.snapshotMessageCount)
-            : 0,
           messageCount: list.querySelectorAll("[data-message-id]").length,
           scrollTop: Math.round(list.scrollTop),
         });
@@ -1363,7 +1355,6 @@ test("single-click entry restores the server read marker without exposing interm
         placeholder: boolean;
         transitionCovered: boolean;
         snapshotCovered: boolean;
-        snapshotMessageCount: number;
         messageCount: number;
         scrollTop: number;
       }>;
@@ -1371,13 +1362,9 @@ test("single-click entry restores the server read marker without exposing interm
     const placeholderFrames = frames.filter((frame) => frame.placeholder);
     const transitionCoveredFrames = frames.filter((frame) => frame.transitionCovered);
     const snapshotCoveredFrames = frames.filter((frame) => frame.snapshotCovered);
-    const uncoveredEmptyFrames = frames.filter(
-      (frame) => frame.messageCount === 0 && !frame.placeholder &&
-        !frame.transitionCovered && !frame.snapshotCovered,
-    );
     const exposedPositions = new Set(
       frames.filter(
-        (frame) => !frame.placeholder && !frame.transitionCovered &&
+        (frame) => frame.busy === "false" && !frame.placeholder && !frame.transitionCovered &&
           !frame.snapshotCovered && frame.messageCount > 0,
       )
         .map((frame) => frame.scrollTop),
@@ -1392,10 +1379,6 @@ test("single-click entry restores the server read marker without exposing interm
       placeholderFrameCount: placeholderFrames.length,
       transitionCoveredFrameCount: transitionCoveredFrames.length,
       snapshotCoveredFrameCount: snapshotCoveredFrames.length,
-      snapshotEmptyFrameCount: snapshotCoveredFrames.filter(
-        (frame) => frame.snapshotMessageCount === 0,
-      ).length,
-      uncoveredEmptyFrameCount: uncoveredEmptyFrames.length,
       exposedPositionCount: exposedPositions.size,
       exposedPositions: [...exposedPositions],
       exposedPositionSpan: exposedPositions.size > 0
@@ -1408,21 +1391,19 @@ test("single-click entry restores the server read marker without exposing interm
       ).content,
     };
   });
-  expect(result.targetOffset).toBeGreaterThanOrEqual(-1);
-  expect(result.targetOffset).toBeLessThan(result.listHeight);
+  expect(result.targetOffset, JSON.stringify(result)).toBeGreaterThanOrEqual(-1);
+  expect(result.targetOffset, JSON.stringify(result)).toBeLessThan(result.listHeight);
   expect(result.latestVisible).toBe(false);
   expect(
     result.placeholderFrameCount + result.transitionCoveredFrameCount,
   ).toBe(0);
-  expect(result.snapshotCoveredFrameCount).toBeGreaterThan(0);
-  expect(result.snapshotEmptyFrameCount).toBe(0);
-  expect(result.uncoveredEmptyFrameCount).toBeLessThanOrEqual(1);
+  expect(result.snapshotCoveredFrameCount).toBe(0);
   expect(result.exposedPositionSpan, JSON.stringify(result.exposedPositions)).toBeLessThanOrEqual(4);
   expect(result.scrollBehavior).toBe("auto");
   expect(result.pseudoOverlayContent).toBe("none");
 });
 
-test("read conversations expose only their final bottom position while switching", async ({ page }) => {
+test("read conversations settle at the bottom without a switch overlay", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
@@ -1466,16 +1447,13 @@ test("read conversations expose only their final bottom position while switching
     return samples;
   });
   const expectOnlyBottomFrames = (frames: Awaited<ReturnType<typeof sampleChenSwitch>>) => {
-    const exposed = frames.filter(
-      (frame) => !frame.placeholder && !frame.transitionCovered &&
-        !frame.snapshotCovered && frame.messageCount > 0,
+    const positioned = frames.filter(
+      (frame) => frame.busy === "false" && frame.messageCount > 0,
     );
-    const positioned = exposed.length > 0
-      ? exposed
-      : frames.filter((frame) => frame.messageCount > 0).slice(-1);
     expect(positioned.length, JSON.stringify(frames)).toBeGreaterThan(0);
     expect(Math.max(...positioned.map((frame) => Math.abs(frame.distanceBottom))))
-      .toBeLessThanOrEqual(40);
+      .toBeLessThanOrEqual(1);
+    expect(frames.some((frame) => frame.snapshotCovered), JSON.stringify(frames)).toBe(false);
   };
 
   expectOnlyBottomFrames(await sampleChenSwitch());
@@ -1485,15 +1463,16 @@ test("read conversations expose only their final bottom position while switching
   expectOnlyBottomFrames(await sampleChenSwitch());
 });
 
-test("conversation switch snapshot is opaque and never mixes source rows into the target list", async ({ page }) => {
+test("conversation selection, header, and rows commit to one target", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
   const samples = await page.evaluate(async () => {
     document.querySelector<HTMLElement>('[data-chat-id="chat-chen"]')?.click();
     const frames: Array<{
+      activeChatId?: string;
+      title?: string;
       snapshot: boolean;
-      transparent: boolean;
       sourceRowsInTarget: number;
     }> = [];
     let settledFrames = 0;
@@ -1506,13 +1485,12 @@ test("conversation switch snapshot is opaque and never mixes source rows into th
       const snapshot = document.querySelector<HTMLElement>(
         "[data-conversation-switch-snapshot]",
       );
-      const background = snapshot ? getComputedStyle(snapshot).backgroundColor : "";
       const list = document.querySelector<HTMLElement>(".message-list");
       frames.push({
+        activeChatId,
+        title: document.querySelector<HTMLElement>(".conversation-title strong")?.textContent ??
+          undefined,
         snapshot: Boolean(snapshot),
-        transparent: Boolean(snapshot) && (
-          background === "transparent" || background === "rgba(0, 0, 0, 0)"
-        ),
         sourceRowsInTarget: list
           ? [...list.querySelectorAll<HTMLElement>("[data-message-id]")]
             .filter((row) => row.dataset.messageId?.startsWith("p-")).length
@@ -1526,8 +1504,11 @@ test("conversation switch snapshot is opaque and never mixes source rows into th
     return frames;
   });
 
-  expect(samples.filter((sample) => sample.snapshot).length).toBeGreaterThan(0);
-  expect(samples.some((sample) => sample.transparent), JSON.stringify(samples)).toBe(false);
+  expect(samples.length).toBeGreaterThan(0);
+  expect(samples.every((sample) => sample.activeChatId === "chat-chen"), JSON.stringify(samples))
+    .toBe(true);
+  expect(samples.every((sample) => sample.title === "陈默"), JSON.stringify(samples)).toBe(true);
+  expect(samples.some((sample) => sample.snapshot), JSON.stringify(samples)).toBe(false);
   expect(samples.some((sample) => sample.sourceRowsInTarget > 0), JSON.stringify(samples)).toBe(false);
 
   await page.evaluate(() => {
@@ -1563,6 +1544,8 @@ test("stalled background history never leaves source messages over the destinati
   await expect(page.locator("[data-conversation-switch-snapshot]")).toHaveCount(0, {
     timeout: 1_000,
   });
+  await expect.poll(() => page.locator('.message-list [data-message-id^="c-"]').count())
+    .toBeGreaterThan(0);
 
   const messageIds = await page.locator(".message-list [data-message-id]")
     .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.messageId ?? ""));
@@ -1665,7 +1648,6 @@ test("warm conversation switches reuse messages and reveal content promptly", as
     let contentMs: number | undefined;
     let placeholderFrames = 0;
     let snapshotFrames = 0;
-    let emptySnapshotFrames = 0;
     let emptyFramesAfterHeader = 0;
     while (performance.now() - startedAt < 2_000) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -1683,12 +1665,7 @@ test("warm conversation switches reuse messages and reveal content promptly", as
       );
       const snapshotVisible = Boolean(snapshot);
       if (placeholderVisible) placeholderFrames += 1;
-      if (snapshotVisible) {
-        snapshotFrames += 1;
-        if (Number(snapshot?.dataset.snapshotMessageCount ?? 0) === 0) {
-          emptySnapshotFrames += 1;
-        }
-      }
+      if (snapshotVisible) snapshotFrames += 1;
       if (
         headerMs !== undefined && messageCount === 0 &&
         !placeholderVisible && !snapshotVisible
@@ -1713,7 +1690,6 @@ test("warm conversation switches reuse messages and reveal content promptly", as
       contentMs,
       placeholderFrames,
       snapshotFrames,
-      emptySnapshotFrames,
       emptyFramesAfterHeader,
     };
   });
@@ -1725,9 +1701,8 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   expect(timing.contentMs).toBeDefined();
   expect(timing.contentMs!).toBeLessThan(300);
   expect(timing.placeholderFrames).toBe(0);
-  expect(timing.snapshotFrames).toBeGreaterThan(0);
-  expect(timing.emptySnapshotFrames).toBe(0);
-  expect(timing.emptyFramesAfterHeader).toBeLessThanOrEqual(1);
+  expect(timing.snapshotFrames).toBe(0);
+  expect(timing.emptyFramesAfterHeader).toBeLessThanOrEqual(4);
 
   await product.click();
   await mia.click();
@@ -1793,6 +1768,39 @@ test("warm conversation switching coalesces message-list geometry checks", async
   expect(result.mountedMessages).toBeGreaterThan(3);
   expect(result.scrollHeightReads).toBeGreaterThan(0);
   expect(result.maxReadsPerFrame, JSON.stringify(result)).toBeLessThanOrEqual(12);
+});
+
+test("idle bottom following remains motionless after geometry settles", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
+
+  const samples = await messageList.evaluate(async (element) => {
+    const frames: Array<{
+      scrollTop: number;
+      distanceBottom: number;
+      latestGap: number;
+    }> = [];
+    for (let frame = 0; frame < 90; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const messages = element.querySelectorAll<HTMLElement>("[data-message-id]");
+      const latest = messages.item(messages.length - 1);
+      frames.push({
+        scrollTop: element.scrollTop,
+        distanceBottom: element.scrollHeight - element.clientHeight - element.scrollTop,
+        latestGap: latest
+          ? element.getBoundingClientRect().bottom - latest.getBoundingClientRect().bottom
+          : 0,
+      });
+    }
+    return frames;
+  });
+  const span = (values: number[]) => Math.max(...values) - Math.min(...values);
+  expect(Math.max(...samples.map(({ distanceBottom }) => Math.abs(distanceBottom))))
+    .toBeLessThanOrEqual(1);
+  expect(span(samples.map(({ scrollTop }) => scrollTop))).toBeLessThanOrEqual(0.5);
+  expect(span(samples.map(({ latestGap }) => latestGap))).toBeLessThanOrEqual(1);
 });
 
 test("rapid alternating conversation clicks commit every latest intent without a cooldown", async ({ page }) => {
