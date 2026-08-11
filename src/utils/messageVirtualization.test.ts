@@ -126,17 +126,17 @@ describe("message virtualization", () => {
     const current = virtualizeMessageGroups([
       message("2"),
       message("3"),
-    ]);
+    ], 1);
     const withHistory = virtualizeMessageGroups([
       message("1"),
       message("2"),
       message("3"),
-    ]);
+    ], 1);
     const withLiveMessage = virtualizeMessageGroups([
       message("2"),
       message("3"),
       message("4"),
-    ]);
+    ], 1);
 
     expect(current.map(({ id }) => id)).toEqual(["2", "3"]);
     expect(withHistory.slice(1).map(({ id }) => id)).toEqual(["2", "3"]);

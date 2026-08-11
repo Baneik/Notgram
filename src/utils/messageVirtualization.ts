@@ -7,9 +7,9 @@ import {
 } from "./messageGrouping";
 import { segmentMediaAlbums, type MediaAlbumSegment } from "./mediaAlbums";
 
-// One stable message per virtual item keeps existing DOM nodes intact when
-// history is prepended or live messages are appended. Albums remain atomic.
-export const MAX_MESSAGES_PER_VIRTUAL_BLOCK = 1;
+// Bound consecutive groups while keeping albums atomic. The group wrapper is
+// also the sticky boundary used by incoming sender avatars.
+export const MAX_MESSAGES_PER_VIRTUAL_BLOCK = 4;
 
 export interface VirtualMessageBlock {
   id: string;

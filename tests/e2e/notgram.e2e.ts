@@ -1910,7 +1910,7 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
 
   await expect(page.locator('[data-message-id="virtual-incoming-6"]')).toBeVisible();
   const incomingGroups = page.locator(".message-group.is-incoming");
-  await expect(incomingGroups).toHaveCount(6);
+  await expect(incomingGroups).toHaveCount(2);
   const alignment = await incomingGroups.evaluateAll((groups) => {
     const content = groups[0]?.closest(".message-list-content");
     const contentLeft = content?.getBoundingClientRect().left ?? Number.NEGATIVE_INFINITY;
@@ -1927,15 +1927,10 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
     }));
   });
   expect(alignment).toEqual([
-    ...Array.from({ length: 5 }, () => ({
-      avatarSlots: 1,
-      avatars: 0,
-      avatarPosition: null,
-      stackOffset: 42,
-    })),
+    { avatarSlots: 1, avatars: 0, avatarPosition: null, stackOffset: 42 },
     { avatarSlots: 1, avatars: 1, avatarPosition: "sticky", stackOffset: 42 },
   ]);
-  const visibleAvatar = incomingGroups.nth(5).locator(".message-group-avatar .avatar");
+  const visibleAvatar = incomingGroups.nth(1).locator(".message-group-avatar .avatar");
   await expect(visibleAvatar).toHaveCSS("position", "relative");
   await expect(visibleAvatar).toHaveCSS("overflow", "hidden");
   await expect(visibleAvatar).toHaveCSS("border-radius", "50%");
