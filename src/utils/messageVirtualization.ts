@@ -13,7 +13,6 @@ export const MAX_MESSAGES_PER_VIRTUAL_BLOCK = 1;
 
 export interface VirtualMessageBlock {
   id: string;
-  groupId: string;
   firstMessage: Message;
   messages: Message[];
   segments: MediaAlbumSegment[];
@@ -58,7 +57,6 @@ export const virtualizeMessageGroups = (
     ? groupConsecutiveMessages(messages)
     : messages.map((message) => [message]);
   return groups.flatMap((group, groupIndex) => {
-    const groupId = group[0]!.renderKey ?? group[0]!.id;
     const positions = new Map(group.map((message, messageIndex) => [
       message.id,
       messageGroupPosition(group, messageIndex),
@@ -79,7 +77,6 @@ export const virtualizeMessageGroups = (
       const firstMessage = chunkMessages[0]!;
       return {
         id: firstMessage.renderKey ?? firstMessage.id,
-        groupId,
         firstMessage,
         messages: chunkMessages,
         segments,
