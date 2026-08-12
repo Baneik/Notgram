@@ -1214,6 +1214,49 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("preserves UTF-16 mention entities for users and bots", () => {
+    expect(mapTdMessageContent({
+      "@type": "messageText",
+      text: {
+        "@type": "formattedText",
+        text: "@i00pro  把 @RyougiShikiBot 拉进来",
+        entities: [
+          {
+            offset: 0,
+            length: 7,
+            type: { "@type": "textEntityTypeMention" },
+          },
+          {
+            offset: 11,
+            length: 15,
+            type: { "@type": "textEntityTypeMention" },
+          },
+        ],
+      },
+    })).toEqual({
+      kind: "text",
+      text: "@i00pro  把 @RyougiShikiBot 拉进来",
+      entities: [
+        { offset: 0, length: 7, kind: "mention" },
+        { offset: 11, length: 15, kind: "mention" },
+      ],
+    });
+
+    expect(mapTdMessageContent({
+      "@type": "messageText",
+      text: {
+        text: "Telegram 用户",
+        entities: [{
+          offset: 0,
+          length: 11,
+          type: { "@type": "textEntityTypeMentionName", user_id: 5348619655 },
+        }],
+      },
+    })).toMatchObject({
+      entities: [{ kind: "mentionName", userId: "5348619655" }],
+    });
+  });
+
   it("maps the TDLib messageVideo cover photo when video.thumbnail is absent", () => {
     const content = mapTdMessageContent({
       "@type": "messageVideo",

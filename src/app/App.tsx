@@ -681,6 +681,20 @@ export function App() {
     openGlobalSearchChat(chatId);
   }, [clearProfile, openGlobalSearchChat, startPrivateChat]);
 
+  const openMentionProfile = useCallback(async (username?: string, userId?: string) => {
+    const link = userId
+      ? `tg://user?id=${encodeURIComponent(userId)}`
+      : username ? `https://t.me/${encodeURIComponent(username)}` : undefined;
+    if (!link) return;
+    const target = await telegramStore.getState().resolveTelegramLink(link);
+    if (!target || ("kind" in target && target.kind === "unsupported")) return;
+    if (isTelegramUserLink(target)) {
+      void loadUserProfile(target.userId);
+    } else {
+      void loadChatProfile(target.chatId);
+    }
+  }, [loadChatProfile, loadUserProfile]);
+
   useEffect(() => {
     void initialize();
   }, [initialize]);
@@ -1331,6 +1345,7 @@ export function App() {
             if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
             else void loadUserProfile(senderId);
           }}
+          onOpenMention={openMentionProfile}
           onStartPrivateChat={(senderId) => { void openProfilePrivateChat(senderId); }}
           onSetChatPinned={(pinned) => activeChatId
             ? setChatPinned(

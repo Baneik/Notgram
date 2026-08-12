@@ -230,6 +230,7 @@ interface ConversationProps {
   onOpenMessageSearch: (senderId?: string) => void;
   onOpenChat: (chatId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
+  onOpenMention: (username?: string, userId?: string) => void;
   onStartPrivateChat: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
@@ -300,6 +301,7 @@ export function Conversation({
   onOpenMessageSearch,
   onOpenChat,
   onOpenSenderProfile,
+  onOpenMention,
   onStartPrivateChat,
   onSetChatPinned,
   onSetChatMuted,
@@ -1758,6 +1760,7 @@ export function Conversation({
                         nextAudioPlaybackId={audioPlaybackNeighborsByMessage.get(message.id)?.nextId}
                         onOpenReply={openMessageInHistory}
                         onOpenSenderProfile={onOpenSenderProfile}
+                        onOpenMention={onOpenMention}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}
                         cornerAction={!selectionMode && pinnedViewOpen ? (
                           <MessageSourceLocateButton
@@ -1823,6 +1826,7 @@ export function Conversation({
                                     className="media-album-caption"
                                     text={content.caption}
                                     entities={content.captionEntities}
+                                    onOpenMention={onOpenMention}
                                   />
                                 </div>
                               ) : null;

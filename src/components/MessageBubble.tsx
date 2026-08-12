@@ -121,6 +121,7 @@ interface MessageBubbleProps {
   nextAudioPlaybackId?: string;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
+  onOpenMention: (username?: string, userId?: string) => void;
   onOpenMedia?: (messageId: string) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
@@ -176,6 +177,7 @@ function MessageBubbleComponent({
   nextAudioPlaybackId,
   onOpenReply,
   onOpenSenderProfile,
+  onOpenMention,
   onOpenMedia,
   cornerAction,
   albumItem = false,
@@ -765,6 +767,7 @@ function MessageBubbleComponent({
                 text={content.text}
                 entities={content.entities}
                 highlightQuery={searchQuery}
+                onOpenMention={onOpenMention}
               />
               {message.isPending && (
                 content.text ? (
@@ -1029,6 +1032,7 @@ function MessageBubbleComponent({
                     text={content.caption}
                     entities={content.captionEntities}
                     highlightQuery={searchQuery}
+                    onOpenMention={onOpenMention}
                   />
                   {messageMeta}
                 </div>
@@ -1081,6 +1085,7 @@ function MessageBubbleComponent({
                   text={content.caption}
                   entities={content.captionEntities}
                   highlightQuery={searchQuery}
+                  onOpenMention={onOpenMention}
                 />
               )}
             </div>
@@ -1133,6 +1138,7 @@ function MessageBubbleComponent({
                   text={content.caption}
                   entities={content.captionEntities}
                   highlightQuery={searchQuery}
+                  onOpenMention={onOpenMention}
                 />
               )}
             </div>

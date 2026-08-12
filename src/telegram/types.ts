@@ -525,6 +525,8 @@ export type MessageTextEntityKind =
   | "code"
   | "pre"
   | "blockquote"
+  | "mention"
+  | "mentionName"
   | "url"
   | "textUrl"
   | "email"
@@ -545,6 +547,7 @@ export interface MessageTextEntity {
   href?: string;
   language?: string;
   customEmojiId?: string;
+  userId?: string;
   dateTime?: MessageDateTimeFormatting;
 }
 

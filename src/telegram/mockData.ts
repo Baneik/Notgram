@@ -63,6 +63,14 @@ const users: User[] = [
     avatar: { label: "J", color: "#3f6e9d" },
     presence: "typing",
   },
+  {
+    id: "u-notgram-bot",
+    displayName: "Notgram Bot",
+    username: "notgram_bot",
+    avatar: { label: "NB", color: "#4675a8" },
+    presence: "online",
+    isBot: true,
+  },
 ];
 
 const chats: Chat[] = [
@@ -475,10 +483,12 @@ const messages: Message[] = [
     delivery: "read",
     content: {
       kind: "text",
-      text: "TDLib bold link",
+      text: "TDLib bold link @mia_design @notgram_bot",
       entities: [
         { offset: 6, length: 4, kind: "bold" },
         { offset: 11, length: 4, kind: "textUrl", href: "https://t.me/addtheme/NotgramTheme" },
+        { offset: 16, length: 11, kind: "mention" },
+        { offset: 28, length: 12, kind: "mention" },
       ],
     },
   },

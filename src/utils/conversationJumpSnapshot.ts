@@ -32,6 +32,8 @@ export const captureConversationJumpSnapshot = (
   clone.removeAttribute("tabindex");
   clone.removeAttribute("aria-label");
   clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+  clone.querySelectorAll("[data-message-id]")
+    .forEach((node) => node.removeAttribute("data-message-id"));
   clone.querySelectorAll("button, a, input, textarea, select, [contenteditable='true']")
     .forEach((node) => node.setAttribute("tabindex", "-1"));
   Object.assign(clone.style, {

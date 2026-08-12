@@ -142,6 +142,8 @@ const formattedTextDetails = (value: unknown) => {
       case "textEntityTypePreCode": kind = "pre"; break;
       case "textEntityTypeBlockQuote":
       case "textEntityTypeExpandableBlockQuote": kind = "blockquote"; break;
+      case "textEntityTypeMention": kind = "mention"; break;
+      case "textEntityTypeMentionName": kind = "mentionName"; break;
       case "textEntityTypeUrl": kind = "url"; break;
       case "textEntityTypeTextUrl": kind = "textUrl"; break;
       case "textEntityTypeEmailAddress": kind = "email"; break;
@@ -160,6 +162,7 @@ const formattedTextDetails = (value: unknown) => {
       customEmojiId: kind === "customEmoji"
         ? tdId(type.custom_emoji_id) || undefined
         : undefined,
+      userId: kind === "mentionName" ? tdId(type.user_id) || undefined : undefined,
       dateTime: kind === "dateTime" ? dateTimeFormatting(type) : undefined,
     }];
   });

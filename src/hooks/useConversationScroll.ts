@@ -184,6 +184,7 @@ export const useConversationScroll = ({
   const positioningFrameRef = useRef<number | undefined>(undefined);
   const positioningIdentityRef = useRef<string | undefined>(undefined);
   const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const smoothScrollCleanupRef = useRef<(() => void) | undefined>(undefined);
   const smoothScrollUntilRef = useRef(0);
   const userIntentUntilRef = useRef(0);
   const trustedUserIntentUntilRef = useRef(0);
@@ -590,6 +591,13 @@ export const useConversationScroll = ({
       bottomFrameRef.current = undefined;
     }
     bottomPinRequestRef.current = undefined;
+    if (smoothScrollTimerRef.current) {
+      globalThis.clearTimeout(smoothScrollTimerRef.current);
+      smoothScrollTimerRef.current = undefined;
+    }
+    smoothScrollCleanupRef.current?.();
+    smoothScrollCleanupRef.current = undefined;
+    smoothScrollUntilRef.current = 0;
     if (positioningAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(positioningAnchorFrameRef.current);
       positioningAnchorFrameRef.current = undefined;
@@ -656,19 +664,41 @@ export const useConversationScroll = ({
     preparedJumpRef.current = undefined;
     publishJumpHistory(currentScrollKey, []);
     writeMemory(currentScrollKey, element, true, 0, false);
-    if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);
+    if (smoothScrollTimerRef.current) {
+      globalThis.clearTimeout(smoothScrollTimerRef.current);
+      smoothScrollTimerRef.current = undefined;
+    }
+    smoothScrollCleanupRef.current?.();
+    smoothScrollCleanupRef.current = undefined;
     if (resolvedBehavior === "smooth") {
-      smoothScrollUntilRef.current = performance.now() + SMOOTH_SCROLL_DURATION_MS;
+      smoothScrollUntilRef.current = performance.now() + SMOOTH_SCROLL_DURATION_MS * 3;
+      const finishSmoothScroll = () => {
+        if (smoothScrollTimerRef.current) {
+          globalThis.clearTimeout(smoothScrollTimerRef.current);
+          smoothScrollTimerRef.current = undefined;
+        }
+        smoothScrollCleanupRef.current?.();
+        smoothScrollCleanupRef.current = undefined;
+        smoothScrollUntilRef.current = 0;
+        if (
+          messageListRef.current === element &&
+          scrollControlRef.current.generation === generation &&
+          conversationScrollMemory.get(currentScrollKey)?.followLatest === true
+        ) scheduleBottomPin();
+      };
+      element.addEventListener("scrollend", finishSmoothScroll, { once: true });
+      smoothScrollCleanupRef.current = () => {
+        element.removeEventListener("scrollend", finishSmoothScroll);
+      };
       virtuosoRef.current?.scrollToIndex({
         index: "LAST",
         align: "end",
         behavior: "smooth",
       });
-      smoothScrollTimerRef.current = globalThis.setTimeout(() => {
-        smoothScrollTimerRef.current = undefined;
-        smoothScrollUntilRef.current = 0;
-        scheduleBottomPin();
-      }, SMOOTH_SCROLL_DURATION_MS);
+      smoothScrollTimerRef.current = globalThis.setTimeout(
+        finishSmoothScroll,
+        SMOOTH_SCROLL_DURATION_MS * 3,
+      );
     } else {
       smoothScrollUntilRef.current = 0;
       if (needsConvergence) {
@@ -1143,7 +1173,12 @@ export const useConversationScroll = ({
       settleScheduled = true;
       settleMountedTarget();
     };
-    if (mounted) {
+    const mountedTargetIsVisible = mounted ? (() => {
+      const listBounds = element.getBoundingClientRect();
+      const targetBounds = mounted.getBoundingClientRect();
+      return targetBounds.bottom > listBounds.top + 1 && targetBounds.top < listBounds.bottom - 1;
+    })() : false;
+    if (mountedTargetIsVisible && mounted) {
       centerMountedTarget(mounted);
       scheduleTargetSettlement();
     } else if (resolvedBehavior === "smooth" && typeof element.animate === "function") {
@@ -1279,7 +1314,10 @@ export const useConversationScroll = ({
     publishJumpHistory(currentScrollKey, result.history);
     if (!result.anchor) return false;
     if (result.anchor.followLatest) {
-      jumpToLatest("smooth", true);
+      // Returning to a bottom-origin jump must settle in one synchronous
+      // viewport commit. A second smooth animation races the virtual list's
+      // measurement correction and briefly rebounds above the bottom.
+      jumpToLatest("auto", true);
       return true;
     }
     stopFollowingLatest();
@@ -1585,6 +1623,7 @@ export const useConversationScroll = ({
     removeConversationJumpSnapshot(jumpSnapshotRef.current?.snapshot);
     jumpSnapshotRef.current = undefined;
     if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);
+    smoothScrollCleanupRef.current?.();
     if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
   }, []);
 

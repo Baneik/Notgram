@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, type MouseEvent, type ReactNode } from "react";
 import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
@@ -10,6 +10,7 @@ interface MessageRichTextProps {
   entities?: MessageTextEntity[];
   className?: string;
   highlightQuery?: string;
+  onOpenMention?: (username?: string, userId?: string) => void;
 }
 
 const entityHref = (entity: MessageTextEntity, value: string) => {
@@ -17,6 +18,12 @@ const entityHref = (entity: MessageTextEntity, value: string) => {
   if (entity.kind === "url") return safeHref(value);
   if (entity.kind === "email") return safeHref(`mailto:${value}`);
   if (entity.kind === "phone") return safeHref(`tel:${value}`);
+  if (entity.kind === "mention" && /^@[A-Za-z0-9_]{5,32}$/.test(value)) {
+    return safeHref(`https://t.me/${value.slice(1)}`);
+  }
+  if (entity.kind === "mentionName" && entity.userId && /^-?\d+$/.test(entity.userId)) {
+    return safeHref(`tg://user?id=${encodeURIComponent(entity.userId)}`);
+  }
   return undefined;
 };
 
@@ -25,6 +32,7 @@ const wrapEntity = (
   value: string,
   children: ReactNode,
   key: string,
+  onOpenMention?: (username?: string, userId?: string) => void,
 ) => {
   switch (entity.kind) {
     case "bold": return <strong key={key}>{children}</strong>;
@@ -52,6 +60,26 @@ const wrapEntity = (
         ? <a key={key} href={href} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>{children}</a>
         : <Fragment key={key}>{children}</Fragment>;
     }
+    case "mention":
+    case "mentionName": {
+      const href = entityHref(entity, value);
+      if (!href) return <Fragment key={key}>{children}</Fragment>;
+      const username = entity.kind === "mention" ? value.slice(1) : undefined;
+      const openMention = (event: MouseEvent<HTMLAnchorElement>) => {
+        if (!onOpenMention) {
+          handleExternalLinkClick(event);
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenMention(username, entity.userId);
+      };
+      return (
+        <a key={key} href={href} onClick={openMention}>
+          {children}
+        </a>
+      );
+    }
   }
 };
 
@@ -62,6 +90,7 @@ const renderInlineRange = (
   endOffset: number,
   keyPrefix: string,
   highlightRanges: ReturnType<typeof textHighlightRanges>,
+  onOpenMention?: (username?: string, userId?: string) => void,
 ) => {
   const overlapping = entities.filter((entity) =>
     entity.offset < endOffset && entity.offset + entity.length > startOffset,
@@ -94,6 +123,7 @@ const renderInlineRange = (
         text.slice(entity.offset, entity.offset + entity.length),
         children,
         `${keyPrefix}:${start}:${end}:${entityIndex}`,
+        onOpenMention,
       ),
       value,
     );
@@ -104,7 +134,12 @@ const renderInlineRange = (
   });
 };
 
-const renderEntities = (text: string, entities: MessageTextEntity[], highlightQuery?: string) => {
+const renderEntities = (
+  text: string,
+  entities: MessageTextEntity[],
+  highlightQuery?: string,
+  onOpenMention?: (username?: string, userId?: string) => void,
+) => {
   const highlightRanges = textHighlightRanges(text, highlightQuery);
   const valid = entities.filter((entity) =>
     entity.offset >= 0 && entity.length > 0 && entity.offset + entity.length <= text.length,
@@ -114,7 +149,15 @@ const renderEntities = (text: string, entities: MessageTextEntity[], highlightQu
     .sort((left, right) => left.offset - right.offset || right.length - left.length);
   const inlineEntities = valid.filter((entity) => entity.kind !== "blockquote");
   if (blockquotes.length === 0) {
-    return renderInlineRange(text, inlineEntities, 0, text.length, "inline", highlightRanges);
+    return renderInlineRange(
+      text,
+      inlineEntities,
+      0,
+      text.length,
+      "inline",
+      highlightRanges,
+      onOpenMention,
+    );
   }
 
   const nodes: ReactNode[] = [];
@@ -124,17 +167,41 @@ const renderEntities = (text: string, entities: MessageTextEntity[], highlightQu
     const quoteEnd = quote.offset + quote.length;
     if (quoteEnd <= cursor) continue;
     if (quoteStart > cursor) {
-      nodes.push(...renderInlineRange(text, inlineEntities, cursor, quoteStart, `plain:${cursor}`, highlightRanges));
+      nodes.push(...renderInlineRange(
+        text,
+        inlineEntities,
+        cursor,
+        quoteStart,
+        `plain:${cursor}`,
+        highlightRanges,
+        onOpenMention,
+      ));
     }
     nodes.push(
       <span className="rich-blockquote" key={`quote:${quote.offset}:${quote.length}`}>
-        {renderInlineRange(text, inlineEntities, quoteStart, quoteEnd, `quote:${quote.offset}`, highlightRanges)}
+        {renderInlineRange(
+          text,
+          inlineEntities,
+          quoteStart,
+          quoteEnd,
+          `quote:${quote.offset}`,
+          highlightRanges,
+          onOpenMention,
+        )}
       </span>,
     );
     cursor = quoteEnd;
   }
   if (cursor < text.length) {
-    nodes.push(...renderInlineRange(text, inlineEntities, cursor, text.length, `plain:${cursor}`, highlightRanges));
+    nodes.push(...renderInlineRange(
+      text,
+      inlineEntities,
+      cursor,
+      text.length,
+      `plain:${cursor}`,
+      highlightRanges,
+      onOpenMention,
+    ));
   }
   return nodes;
 };
@@ -144,11 +211,12 @@ export function MessageRichText({
   entities,
   className = "",
   highlightQuery,
+  onOpenMention,
 }: MessageRichTextProps) {
   if (entities && entities.length > 0) {
     return (
       <div className={`message-rich-text ${className}`} data-rich-text="entities">
-        {renderEntities(text, entities, highlightQuery)}
+        {renderEntities(text, entities, highlightQuery, onOpenMention)}
       </div>
     );
   }

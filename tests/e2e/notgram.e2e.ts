@@ -79,7 +79,7 @@ const scrollAwayFromBottom = async (page: Page) => {
 };
 
 const revealVirtualMessage = async (page: Page, messageId: string) => {
-  const messageList = page.locator(".message-list");
+  const messageList = page.getByRole("log", { name: "消息列表" });
   await expect(messageList).toHaveAttribute("aria-busy", "false");
   await messageList.evaluate((element) => {
     element.dispatchEvent(new WheelEvent("wheel", {
@@ -2831,6 +2831,36 @@ test("Telegram links navigate internally and incompatible routes stay in Notgram
   expect(context.pages()).toHaveLength(initialPageCount);
 });
 
+test("TDLib mentions open user and bot profiles without leaving the conversation", async ({ page, context }) => {
+  await page.goto("/");
+  const initialPageCount = context.pages().length;
+  const row = await revealVirtualMessage(page, "p-rich-entities");
+
+  const userMention = row.getByRole("link", { name: "@mia_design" });
+  await expect(userMention).toHaveAttribute("href", "https://t.me/mia_design");
+  await userMention.click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await expect(profile.getByRole("heading", { name: "Mia Chen" })).toBeVisible();
+  await profile.getByRole("button", { name: "关闭资料" }).click();
+
+  const botRow = await revealVirtualMessage(page, "p-rich-entities");
+  await botRow.getByRole("link", { name: "@notgram_bot" }).click();
+  await expect(profile.getByRole("heading", { name: "Notgram Bot" })).toBeVisible();
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+  expect(context.pages()).toHaveLength(initialPageCount);
+});
+
+test("chat list hides its scrollbar and the conversation title has no hover highlight", async ({ page }) => {
+  await page.goto("/");
+  const chatList = page.locator(".chat-list");
+  await expect(chatList).toHaveCSS("scrollbar-width", "none");
+
+  const title = page.locator(".conversation-profile-trigger");
+  const backgroundBeforeHover = await title.evaluate((element) => getComputedStyle(element).backgroundColor);
+  await title.hover();
+  await expect(title).toHaveCSS("background-color", backgroundBeforeHover);
+});
+
 test("distant message jumps use a directional exit and entrance transition", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
@@ -4625,6 +4655,7 @@ test("returning from a reply jump to the latest message clears navigation state"
   await page.goto("/");
   const messageList = page.getByRole("log", { name: "消息列表" });
   await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect(messageList.locator("[data-message-id]")).not.toHaveCount(0);
 
   const targetMessageId = await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
@@ -4637,8 +4668,8 @@ test("returning from a reply jump to the latest message clears navigation state"
     const messages = new Map(state.messages);
     const current = [...(messages.get("chat-product") ?? [])];
     const latest = current.at(-1);
-    const target = current.at(-12);
-    if (!latest || !target || typeof target.id !== "string") return undefined;
+    const target = current.at(-Math.min(12, Math.max(2, current.length)));
+    if (!latest || !target || target === latest || typeof target.id !== "string") return undefined;
     current.push({
       ...latest,
       id: "p-latest-reply-jump",
@@ -4665,11 +4696,27 @@ test("returning from a reply jump to the latest message clears navigation state"
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await latestReply.locator(".message-reply-preview").click();
 
-  const target = page.locator(`[data-message-id="${targetMessageId}"]`);
+  const target = messageList.locator(`[data-message-id="${targetMessageId}"]`);
   await expect(target).toHaveClass(/is-notification-target/);
   const returnButton = page.getByRole("button", { name: "返回跳转前位置，可回退 1 次" });
   await expect(returnButton).toBeVisible();
-  await returnButton.click();
+  const returnTrace = await returnButton.evaluate((button) => {
+    const list = document.querySelector<HTMLElement>(".message-list");
+    const samples: number[] = [];
+    const started = performance.now();
+    const record = () => {
+      if (list) samples.push(list.scrollTop);
+      if (performance.now() - started < 900) requestAnimationFrame(record);
+    };
+    requestAnimationFrame(record);
+    (button as HTMLElement).click();
+    return new Promise<number[]>((resolve) => globalThis.setTimeout(() => resolve(samples), 950));
+  });
+
+  const upwardRebounds = returnTrace.slice(1).filter((scrollTop, index) =>
+    scrollTop < returnTrace[index] - 1
+  );
+  expect(upwardRebounds, JSON.stringify(returnTrace)).toHaveLength(0);
 
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
