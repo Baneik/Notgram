@@ -1214,6 +1214,50 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("maps the TDLib messageVideo cover photo when video.thumbnail is absent", () => {
+    const content = mapTdMessageContent({
+      "@type": "messageVideo",
+      cover: {
+        "@type": "photo",
+        minithumbnail: { data: "Y292ZXI=" },
+        sizes: [{
+          "@type": "photoSize",
+          width: 320,
+          height: 180,
+          photo: {
+            "@type": "file",
+            id: 41,
+            local: {
+              can_be_downloaded: true,
+              is_downloading_active: false,
+              is_downloading_completed: false,
+            },
+          },
+        }],
+      },
+      video: {
+        file_name: "cover-field.mp4",
+        mime_type: "video/mp4",
+        width: 1280,
+        height: 720,
+        video: {
+          id: 42,
+          size: 8_000_000,
+          local: { can_be_downloaded: true, is_downloading_completed: false },
+        },
+      },
+    });
+
+    expect(content).toMatchObject({
+      mediaType: "video",
+      fileId: 42,
+      thumbnailFileId: 41,
+      thumbnailCanDownload: true,
+      thumbnailIsDownloading: false,
+      previewDataUrl: "data:image/jpeg;base64,Y292ZXI=",
+    });
+  });
+
   it("maps outgoing file upload progress from TDLib remote state", () => {
     const message = mapTdMessage({
       id: -11,

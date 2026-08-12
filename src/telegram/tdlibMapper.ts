@@ -259,6 +259,28 @@ const thumbnailFileDetails = (value: unknown) => {
 const thumbnailDetails = (value: unknown) =>
   thumbnailFileDetails(asTdObject(value)?.file);
 
+const photoPreviewDetails = (value: unknown): {
+  thumbnailPath?: string;
+  thumbnailFileId?: number;
+  thumbnailCanDownload?: boolean;
+  thumbnailIsDownloading?: boolean;
+  previewDataUrl?: string;
+} => {
+  const photo = asTdObject(value);
+  if (!photo) return {};
+  const sizes = asTdObjects(photo?.sizes);
+  const smallest = sizes.reduce<TdObject | undefined>((best, candidate) => {
+    const area = (tdNumber(candidate.width) ?? 0) * (tdNumber(candidate.height) ?? 0);
+    const bestArea = (tdNumber(best?.width) ?? Number.POSITIVE_INFINITY) *
+      (tdNumber(best?.height) ?? Number.POSITIVE_INFINITY);
+    return area <= bestArea ? candidate : best;
+  }, undefined);
+  return {
+    ...(smallest?.photo ? thumbnailFileDetails(asTdObject(smallest.photo)) : {}),
+    previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
+  };
+};
+
 export const tdStickerMimeType = (value: unknown) => {
   switch (asTdObject(value)?.["@type"]) {
     case "stickerFormatWebm":
@@ -984,6 +1006,8 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
     }
     case "messageVideo": {
       const video = asTdObject(content.video);
+      const cover = photoPreviewDetails(content.cover);
+      const thumbnail = thumbnailDetails(video?.thumbnail);
       return mediaContent(
         "video",
         typeof video?.file_name === "string" && video.file_name ? video.file_name : "视频",
@@ -991,8 +1015,11 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         {
           ...formattedCaption(content.caption),
           mimeType: typeof video?.mime_type === "string" ? video.mime_type : undefined,
-          ...thumbnailDetails(video?.thumbnail),
-          previewDataUrl: minithumbnailDataUrl(video?.minithumbnail),
+          thumbnailPath: cover.thumbnailPath ?? thumbnail.thumbnailPath,
+          thumbnailFileId: cover.thumbnailFileId ?? thumbnail.thumbnailFileId,
+          thumbnailCanDownload: cover.thumbnailCanDownload ?? thumbnail.thumbnailCanDownload,
+          thumbnailIsDownloading: cover.thumbnailIsDownloading ?? thumbnail.thumbnailIsDownloading,
+          previewDataUrl: cover.previewDataUrl ?? minithumbnailDataUrl(video?.minithumbnail),
           width: tdNumber(video?.width),
           height: tdNumber(video?.height),
           includePendingUpload,
