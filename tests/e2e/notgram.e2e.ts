@@ -403,7 +403,7 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   const lightTheme = page.getByRole("button", { name: "浅色", exact: true });
   const darkTheme = page.getByRole("button", { name: "深色", exact: true });
   await expect(lightTheme).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(243, 246, 245)");
+  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(232, 239, 237)");
   await darkTheme.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "notgram-dark");
   await expect(page.locator("html")).not.toHaveClass(/theme-dark/);
@@ -441,7 +441,7 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await expect(page.locator('[data-chat-id="chat-product"] .chat-preview'))
     .toContainText("Jules: 我把交互稿更新到最新版本了");
   await expect(previewSender).toHaveText("Jules:");
-  await expect(previewSender).toHaveCSS("color", "rgb(77, 131, 178)");
+  await expect(previewSender).toHaveCSS("color", "rgb(66, 120, 165)");
   await expect(page.locator('[data-chat-id="chat-mia"] .chat-preview-sender')).toHaveCount(0);
   await page.evaluate(() => {
     document.documentElement.dataset.theme = "notgram-dark";
@@ -3862,8 +3862,8 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
   const regularBadge = regularRow.locator(".unread-count");
 
   await expect(mutedBadge).toHaveClass(/is-muted/);
-  await expect(mutedBadge).toHaveCSS("background-color", "rgb(178, 187, 191)");
-  await expect(regularBadge).not.toHaveCSS("background-color", "rgb(178, 187, 191)");
+  await expect(mutedBadge).toHaveCSS("background-color", "rgb(167, 178, 183)");
+  await expect(regularBadge).not.toHaveCSS("background-color", "rgb(167, 178, 183)");
   await expect(page.locator(".chat-row .lucide-volume-x")).toHaveCount(0);
 });
 
@@ -3874,7 +3874,7 @@ test("mention and reply unread counts use theme-specific attention colors", asyn
   await expect(badge).toHaveText("4");
   await expect(badge).toHaveClass(/has-attention/);
   await expect(badge).toHaveAttribute("aria-label", "4 条未读消息，其中包含提及或回复");
-  await expect(badge).toHaveCSS("background-color", "rgb(197, 107, 96)");
+  await expect(badge).toHaveCSS("background-color", "rgb(190, 98, 88)");
   await expect(badge).toHaveCSS("color", "rgb(255, 255, 255)");
 
   await page.evaluate(() => {
@@ -4298,7 +4298,7 @@ test("photo albums preserve order, captions, clipping, and tile geometry", async
   await expect(tallRow).toHaveClass(/group-first/);
   await expect(squareRow).toHaveClass(/group-last/);
   await expect(album.locator(".media-album-grid")).toHaveCSS("gap", "2px");
-  await expect(album.locator(".media-album-grid")).toHaveCSS("background-color", "rgb(228, 233, 234)");
+  await expect(album.locator(".media-album-grid")).toHaveCSS("background-color", "rgb(211, 221, 223)");
   const albumTime = squareRow.locator(".message-meta");
   await expect(albumTime).toHaveCSS("opacity", "0");
   await page.locator(".message-list").evaluate((element) => {
