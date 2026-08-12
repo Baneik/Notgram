@@ -1851,7 +1851,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     ) {
       this.proxyRecoveryAttempt = 0;
     }
-    this.emitConnectionStatus(status);
+    this.emitConnectionStatus(
+      status === "online" && this.initialChatSyncPending ? "syncing" : status,
+    );
 
     if (this.connectingThroughProxy) this.scheduleProxyRecovery();
   }

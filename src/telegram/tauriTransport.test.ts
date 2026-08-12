@@ -25,6 +25,7 @@ type TestableTransport = {
   upsertSupergroup: (supergroup: TdObject) => void;
   upsertUser: (user: TdObject) => void;
   finishInitialChatSync: () => void;
+  startBootstrap: () => void;
 };
 
 const rawMessage = (id: number): TdObject => ({
@@ -877,6 +878,7 @@ describe("TauriTelegramTransport startup", () => {
       const internal = transport as unknown as TestableTransport;
       const events: Parameters<TelegramEventListener>[0][] = [];
       const requests: TdObject[] = [];
+      internal.finishInitialChatSync();
       internal.listener = (event) => events.push(event);
       internal.request = async (request) => {
         requests.push(request);
@@ -916,6 +918,30 @@ describe("TauriTelegramTransport startup", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps a ready connection syncing until the initial chat refresh completes", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.bootstrap = async () => undefined;
+
+    internal.handleUpdate({
+      "@type": "updateConnectionState",
+      state: { "@type": "connectionStateReady" },
+    });
+    expect(events.filter((event) => event.type === "connection.changed")).toEqual([
+      { type: "connection.changed", status: "syncing" },
+    ]);
+
+    internal.startBootstrap();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(events.filter((event) => event.type === "connection.changed")).toEqual([
+      { type: "connection.changed", status: "syncing" },
+      { type: "connection.changed", status: "online" },
+    ]);
   });
 
   it("publishes the initial chat refresh as one atomic event", () => {

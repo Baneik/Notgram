@@ -524,6 +524,59 @@ describe("telegram store", () => {
     expect(transport.historyRequests).toBe(1);
   });
 
+  it("waits for the initial connection sync before fixing the history cursor", async () => {
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 1,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: [],
+      activeChatId: "chat-product",
+      chatFilter: "main",
+    };
+
+    class InitialSyncTransport extends MockTelegramTransport {
+      historyRequests = 0;
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        const snapshot = await super.connect(listener);
+        return { ...snapshot, authorization: { kind: "preparing" as const } };
+      }
+
+      override async loadChatHistory(chatId: string, limit = 30) {
+        this.historyRequests += 1;
+        return super.loadChatHistory(chatId, limit);
+      }
+
+      authorize() {
+        this.eventListener?.({
+          type: "authorization.changed",
+          state: { kind: "ready" },
+        });
+      }
+    }
+
+    const transport = new InitialSyncTransport({
+      cachedSnapshot,
+      connectionStatus: "syncing",
+    });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    transport.authorize();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    expect(transport.historyRequests).toBe(0);
+
+    transport.setConnectionStatus("online");
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    expect(transport.historyRequests).toBe(1);
+    expect(store.getState().histories.get("chat-product")?.initialized).toBe(true);
+  });
+
   it("preserves cached messages absent from a history window until an explicit delete", async () => {
     const missingMessage: Message = {
       id: "75",

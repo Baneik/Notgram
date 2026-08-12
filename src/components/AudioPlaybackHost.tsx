@@ -59,10 +59,22 @@ function PersistentAudioEngine() {
         analyserRef.current = analyser;
         audioPlaybackController.setAnalyser(analyser);
       }
-      if (audioContextRef.current.state === "suspended") await audioContextRef.current.resume();
+      if (
+        audioContextRef.current.state !== "running" &&
+        audioContextRef.current.state !== "closed"
+      ) {
+        await audioContextRef.current.resume();
+      }
     } catch {
       audioPlaybackController.setAnalyser(undefined);
     }
+  };
+
+  const ensureAudioOutput = (audio: HTMLAudioElement) => {
+    audio.defaultMuted = false;
+    audio.muted = false;
+    if (audio.volume === 0) audio.volume = 1;
+    return ensureAudioGraph(audio);
   };
 
   const setSourceAndPlay = async (
@@ -77,7 +89,7 @@ function PersistentAudioEngine() {
     audio.src = source;
     audio.playbackRate = playbackRateRef.current;
     audio.load();
-    await ensureAudioGraph(audio);
+    await ensureAudioOutput(audio);
     if (requestGenerationRef.current !== generation || trackRef.current?.id !== track.id) return;
     await audio.play().catch(() => audioPlaybackController.update(track.id, {
       failed: true,
@@ -89,11 +101,14 @@ function PersistentAudioEngine() {
   const play = async (track: AudioTrackDescriptor) => {
     const audio = audioRef.current;
     if (!audio) return;
+    // Start Web Audio recovery inside the click call stack, before a remote
+    // stream request can consume the browser's transient user activation.
+    const audioOutputReady = ensureAudioOutput(audio);
     const current = trackRef.current;
     if (current?.id === track.id && audio.getAttribute("src")) {
       trackRef.current = track;
       audioPlaybackController.registerTrack(track);
-      await ensureAudioGraph(audio);
+      await audioOutputReady;
       await audio.play().catch(() => audioPlaybackController.update(track.id, { failed: true }));
       return;
     }
@@ -133,6 +148,7 @@ function PersistentAudioEngine() {
       audioPlaybackController.update(track.id, { failed: true });
       return;
     }
+    await audioOutputReady;
     await setSourceAndPlay(track, source, generation);
   };
 
@@ -216,6 +232,22 @@ function PersistentAudioEngine() {
     void audioContextRef.current?.close().catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    const resumeActiveOutput = () => {
+      const audio = audioRef.current;
+      if (audio && !audio.paused && !audio.ended) void ensureAudioOutput(audio);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") resumeActiveOutput();
+    };
+    window.addEventListener("focus", resumeActiveOutput);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", resumeActiveOutput);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
   return (
     <audio
       ref={audioRef}
@@ -232,6 +264,7 @@ function PersistentAudioEngine() {
         audioPlaybackController.update(id, { duration, currentTime: resume });
       }}
       onPlay={(event) => {
+        void ensureAudioOutput(event.currentTarget);
         const id = event.currentTarget.dataset.playbackId;
         if (!id) return;
         mediaPlaybackCoordinator.activate(id, event.currentTarget);
@@ -239,6 +272,7 @@ function PersistentAudioEngine() {
         audioPlaybackController.update(id, { playing: true, loading: false, failed: false });
       }}
       onPlaying={(event) => {
+        void ensureAudioOutput(event.currentTarget);
         const id = event.currentTarget.dataset.playbackId;
         if (id) audioPlaybackController.update(id, {
           playing: true,

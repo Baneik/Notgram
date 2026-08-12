@@ -625,11 +625,16 @@ const ChatRow = memo(function ChatRow({
         <span className="chat-row-bottomline">
           <span className={`chat-preview ${visibleDraft ? "is-draft" : ""}`}>
             {visibleDraft ? (
-              <>草稿：{visibleDraft.text || "回复消息"}</>
+              <span className="chat-preview-message">草稿：{visibleDraft.text || "回复消息"}</span>
             ) : (
               <>
                 {chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}
-                {previewSenderName && chat.kind !== "saved" ? `${previewSenderName}: ${chat.preview}` : chat.preview}
+                <span className="chat-preview-message">
+                  {previewSenderName && chat.kind === "group" && (
+                    <span className="chat-preview-sender">{`${previewSenderName}: `}</span>
+                  )}
+                  {chat.preview}
+                </span>
               </>
             )}
           </span>

@@ -436,9 +436,17 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await page.goto("/?typing=group");
 
   const composer = page.getByRole("textbox", { name: "消息内容" });
-  await expect(page.locator(".conversation-typing-status")).toHaveText("Jules 正在输入...");
+  const previewSender = page.locator('[data-chat-id="chat-product"] .chat-preview-sender');
+  await expect(page.locator(".conversation-header-status")).toHaveText("Jules 正在输入...");
   await expect(page.locator('[data-chat-id="chat-product"] .chat-preview'))
     .toContainText("Jules: 我把交互稿更新到最新版本了");
+  await expect(previewSender).toHaveText("Jules:");
+  await expect(previewSender).toHaveCSS("color", "rgb(25, 118, 189)");
+  await expect(page.locator('[data-chat-id="chat-mia"] .chat-preview-sender')).toHaveCount(0);
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "notgram-dark";
+  });
+  await expect(previewSender).toHaveCSS("color", "rgb(120, 167, 200)");
 
   await composer.fill("发送后继续输入");
   await page.keyboard.press("Enter");
@@ -3217,17 +3225,68 @@ test("poll messages support voting, results, and revoking an answer", async ({ p
 });
 
 test("audio messages continue to the next item in the same conversation", async ({ page }) => {
+  await page.addInitScript(() => {
+    const scope = window as unknown as {
+      __notgramAudioContext?: { state: string };
+      __notgramAudioLifecycle: string[];
+    };
+    scope.__notgramAudioLifecycle = [];
+    class TestAudioContext {
+      state = "suspended";
+      destination = {};
+
+      createAnalyser() {
+        return {
+          fftSize: 0,
+          smoothingTimeConstant: 0,
+          frequencyBinCount: 128,
+          connect: () => undefined,
+          getByteFrequencyData: (values: Uint8Array) => values.fill(0),
+        };
+      }
+
+      createMediaElementSource() {
+        return { connect: () => undefined };
+      }
+
+      resume() {
+        scope.__notgramAudioLifecycle.push("resume");
+        this.state = "running";
+        return Promise.resolve();
+      }
+
+      close() {
+        this.state = "closed";
+        return Promise.resolve();
+      }
+    }
+    Object.defineProperty(window, "AudioContext", {
+      configurable: true,
+      value: class extends TestAudioContext {
+        constructor() {
+          super();
+          scope.__notgramAudioContext = this;
+        }
+      },
+    });
+  });
   await page.goto("/");
   await expect(page.locator('[data-message-id="p-audio"] audio')).toHaveCount(0);
   const audioEngine = page.locator(".persistent-audio-engine");
   await expect(audioEngine).toHaveCount(1);
   await expect(audioEngine).toHaveAttribute("crossorigin", "anonymous");
   await page.evaluate(() => {
-    const scope = window as unknown as { __notgramAudioPlayCalls: string[] };
+    const scope = window as unknown as {
+      __notgramAudioLifecycle: string[];
+      __notgramAudioPlayCalls: string[];
+    };
     scope.__notgramAudioPlayCalls = [];
     HTMLMediaElement.prototype.play = function play() {
       const playbackId = this.dataset.playbackId;
-      if (playbackId) scope.__notgramAudioPlayCalls.push(playbackId);
+      if (playbackId) {
+        scope.__notgramAudioLifecycle.push("play");
+        scope.__notgramAudioPlayCalls.push(playbackId);
+      }
       return Promise.resolve();
     };
   });
@@ -3236,6 +3295,22 @@ test("audio messages continue to the next item in the same conversation", async 
     window as unknown as { __notgramAudioPlayCalls: string[] }
   ).__notgramAudioPlayCalls)).toContain("chat-product:p-audio");
   await expect(audioEngine).toHaveAttribute("src", /mock-video\.mp4/);
+  await expect(audioEngine).toHaveJSProperty("muted", false);
+  await expect(audioEngine).toHaveJSProperty("volume", 1);
+  expect(await page.evaluate(() => (
+    window as unknown as { __notgramAudioLifecycle: string[] }
+  ).__notgramAudioLifecycle.slice(0, 2))).toEqual(["resume", "play"]);
+  await page.evaluate(() => {
+    const scope = window as unknown as {
+      __notgramAudioContext?: { state: string };
+    };
+    if (scope.__notgramAudioContext) scope.__notgramAudioContext.state = "suspended";
+    document.querySelector<HTMLAudioElement>(".persistent-audio-engine")
+      ?.dispatchEvent(new Event("playing"));
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramAudioLifecycle: string[] }
+  ).__notgramAudioLifecycle.filter((event) => event === "resume").length)).toBe(2);
   await audioEngine.evaluate((audio) => audio.dispatchEvent(new Event("ended")));
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __notgramAudioPlayCalls: string[] }

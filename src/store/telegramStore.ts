@@ -471,7 +471,10 @@ export const createTelegramStore = (
     };
 
     const loadHistory = async (chatId: string, mode: "ensure" | "older") => {
-      if (get().authorization.kind !== "ready") return;
+      if (
+        get().authorization.kind !== "ready" ||
+        get().connectionStatus !== "online"
+      ) return;
       const current = get().histories.get(chatId);
       if (
         current?.loading ||
@@ -561,7 +564,10 @@ export const createTelegramStore = (
       topicId: string,
       mode: "ensure" | "older",
     ) => {
-      if (get().authorization.kind !== "ready") return;
+      if (
+        get().authorization.kind !== "ready" ||
+        get().connectionStatus !== "online"
+      ) return;
       const key = topicKey(chatId, topicId);
       const current = get().topicHistories.get(key);
       if (current?.loading || current?.hasMore === false || (mode === "ensure" && current?.initialized)) return;
@@ -717,7 +723,7 @@ export const createTelegramStore = (
           draftSync.resumePending();
           void flushOutbox();
           const activeChatId = get().activeChatId;
-          if (activeChatId) {
+          if (activeChatId && get().connectionStatus === "online") {
             const activeTopicId = get().activeTopicId;
             if (get().chats.get(activeChatId)?.isForum) {
               if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
@@ -737,7 +743,19 @@ export const createTelegramStore = (
 
       if (event.type === "connection.changed") {
         set({ connectionStatus: event.status });
-        if (event.status === "online") void flushOutbox();
+        if (event.status === "online") {
+          void flushOutbox();
+          const activeChatId = get().activeChatId;
+          if (get().authorization.kind === "ready" && activeChatId) {
+            const activeTopicId = get().activeTopicId;
+            if (get().chats.get(activeChatId)?.isForum) {
+              if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
+              void refreshForumConversation(activeChatId);
+            } else {
+              void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
+            }
+          }
+        }
         return;
       }
 
@@ -1286,7 +1304,11 @@ export const createTelegramStore = (
           void registerCurrentAccount();
           if (settingsOnly) return;
           const refreshChatId = get().activeChatId ?? firstChat?.id;
-          if (authorization.kind === "ready" && refreshChatId) {
+          if (
+            authorization.kind === "ready" &&
+            get().connectionStatus === "online" &&
+            refreshChatId
+          ) {
             if (get().chats.get(refreshChatId)?.isForum) {
               const activeTopicId = get().activeTopicId;
               if (activeTopicId) loadActiveForumTopic(refreshChatId, activeTopicId);

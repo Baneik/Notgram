@@ -277,6 +277,8 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .chat-preview { min-width: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .chat-preview.is-draft { color: var(--color-status-danger); }
 .chat-preview svg { flex: 0 0 auto; color: var(--accent); }
+.chat-preview-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-preview-sender { color: var(--color-text-link); font-weight: 650; }
 .chat-row-meta { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; color: var(--subtle); }
 .chat-row.is-active .chat-row-topline time, .chat-row.is-active .chat-preview, .chat-row.is-active .chat-row-meta { color: var(--muted); }
 .chat-row.is-active .chat-preview svg { color: var(--color-text-link); }
