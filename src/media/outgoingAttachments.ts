@@ -9,6 +9,8 @@ const VIDEO_EXTENSIONS = /\.(?:mp4|m4v|mov|webm|mkv)$/i;
 const AUDIO_EXTENSIONS = /\.(?:mp3|m4a|aac|ogg|oga|opus|flac|wav)$/i;
 const PROBE_TIMEOUT_MS = 8_000;
 const THUMBNAIL_MAX_EDGE = 320;
+const HAVE_METADATA = 1;
+const HAVE_CURRENT_DATA = 2;
 
 export const classifyOutgoingAttachment = (file: Pick<File, "name" | "type" | "size">): OutgoingAttachmentKind => {
   if ((file.type === "image/jpeg" || file.type === "image/png" || PHOTO_EXTENSIONS.test(file.name)) &&
@@ -19,10 +21,16 @@ export const classifyOutgoingAttachment = (file: Pick<File, "name" | "type" | "s
   return "document";
 };
 
-const waitForMedia = (
+const waitForMediaState = (
   element: HTMLMediaElement,
   eventName: "loadedmetadata" | "loadeddata" | "seeked",
+  ready: () => boolean,
+  start?: () => void,
 ) => new Promise<void>((resolve, reject) => {
+  if (!start && ready()) {
+    resolve();
+    return;
+  }
   const timer = globalThis.setTimeout(() => {
     cleanup();
     reject(new Error("媒体元数据读取超时"));
@@ -42,7 +50,30 @@ const waitForMedia = (
   };
   element.addEventListener(eventName, onReady, { once: true });
   element.addEventListener("error", onError, { once: true });
+  try {
+    start?.();
+    if (ready()) onReady();
+  } catch (error) {
+    cleanup();
+    reject(error);
+  }
 });
+
+const waitForVideoMetadata = (video: HTMLVideoElement) => waitForMediaState(
+  video,
+  "loadedmetadata",
+  () => video.readyState >= HAVE_METADATA,
+);
+
+const waitForVideoFrame = (video: HTMLVideoElement, currentTime?: number) => waitForMediaState(
+  video,
+  currentTime === undefined ? "loadeddata" : "seeked",
+  () => video.readyState >= HAVE_CURRENT_DATA && !video.seeking &&
+    (currentTime === undefined || Math.abs(video.currentTime - currentTime) < 0.01),
+  currentTime === undefined ? undefined : () => {
+    video.currentTime = currentTime;
+  },
+);
 
 const finiteInteger = (value: number) => Number.isFinite(value) && value > 0
   ? Math.round(value)
@@ -70,19 +101,21 @@ const probeVideo = async (file: File): Promise<Partial<OutgoingAttachment>> => {
   video.preload = "metadata";
   video.src = source;
   try {
-    await waitForMedia(video, "loadedmetadata");
+    await waitForVideoMetadata(video);
     const duration = finiteInteger(video.duration);
     if (duration && duration > 1) {
-      video.currentTime = Math.min(1, duration / 3);
-      await waitForMedia(video, "seeked").catch(() => undefined);
-    } else if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      await waitForMedia(video, "loadeddata").catch(() => undefined);
+      await waitForVideoFrame(video, Math.min(1, duration / 3)).catch(async () => {
+        await waitForVideoFrame(video).catch(() => undefined);
+      });
+    } else if (video.readyState < HAVE_CURRENT_DATA) {
+      await waitForVideoFrame(video).catch(() => undefined);
     }
+    const thumbnail = await thumbnailFromVideo(video, file.name).catch(() => undefined);
     return {
       width: finiteInteger(video.videoWidth),
       height: finiteInteger(video.videoHeight),
       duration,
-      thumbnail: await thumbnailFromVideo(video, file.name),
+      thumbnail,
     };
   } finally {
     video.removeAttribute("src");
@@ -97,7 +130,7 @@ const probeAudio = async (file: File): Promise<Partial<OutgoingAttachment>> => {
   audio.preload = "metadata";
   audio.src = source;
   try {
-    await waitForMedia(audio, "loadedmetadata");
+    await waitForMediaState(audio, "loadedmetadata", () => audio.readyState >= HAVE_METADATA);
     return {
       duration: finiteInteger(audio.duration),
       title: file.name.replace(/\.[^.]+$/, ""),
