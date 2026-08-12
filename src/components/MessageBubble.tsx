@@ -308,6 +308,17 @@ function MessageBubbleComponent({
       const text = flow.querySelector<HTMLElement>(".message-rich-text");
       const meta = flow.querySelector<HTMLElement>(".message-meta");
       if (!text || !meta) return;
+      const selection = globalThis.getSelection();
+      const selectionOwnsText = Boolean(
+        selection && !selection.isCollapsed &&
+        selection.anchorNode && selection.focusNode &&
+        (text.contains(selection.anchorNode) || text === selection.anchorNode) &&
+        (text.contains(selection.focusNode) || text === selection.focusNode),
+      );
+      // ResizeObserver callbacks can arrive while the browser is painting a
+      // text drag. Avoid changing this subtree until the selection settles;
+      // replacing its inline/meta nodes otherwise clears the native range.
+      if (selectionOwnsText) return;
       const isWrappedLayout = flow.classList.contains("is-meta-wrapped");
       if (isWrappedLayout) flow.classList.remove("is-meta-wrapped");
       try {
@@ -371,7 +382,13 @@ function MessageBubbleComponent({
     const stopObservingContainer = layoutContainer
       ? observeLayout(layoutContainer, measure)
       : undefined;
+    const onSelectionChange = () => {
+      if (!globalThis.getSelection()?.isCollapsed) return;
+      measure();
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
     return () => {
+      document.removeEventListener("selectionchange", onSelectionChange);
       stopObservingFlow();
       stopObservingContainer?.();
     };

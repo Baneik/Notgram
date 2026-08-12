@@ -226,6 +226,63 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("maps animated emoji to its downloadable sticker media", () => {
+    expect(mapTdMessageContent({
+      "@type": "messageAnimatedEmoji",
+      emoji: "😡",
+      animated_emoji: {
+        "@type": "animatedEmoji",
+        emoji: "😡",
+        sticker: {
+          "@type": "sticker",
+          emoji: "😡",
+          format: { "@type": "stickerFormatTgs" },
+          width: 512,
+          height: 512,
+          sticker: {
+            "@type": "file",
+            id: 45,
+            expected_size: 8_308,
+            local: {
+              "@type": "localFile",
+              can_be_downloaded: true,
+              is_downloading_active: false,
+              is_downloading_completed: false,
+              path: "",
+            },
+          },
+          thumbnail: {
+            "@type": "thumbnail",
+            file: {
+              "@type": "file",
+              id: 44,
+              local: {
+                "@type": "localFile",
+                can_be_downloaded: true,
+                is_downloading_active: false,
+                is_downloading_completed: false,
+                path: "",
+              },
+            },
+          },
+        },
+      },
+    })).toMatchObject({
+      kind: "media",
+      mediaType: "sticker",
+      fileName: "😡",
+      mimeType: "application/x-tgsticker",
+      fileId: 45,
+      size: 8_308,
+      canDownload: true,
+      isDownloaded: false,
+      thumbnailFileId: 44,
+      thumbnailCanDownload: true,
+      width: 512,
+      height: 512,
+    });
+  });
+
   it("maps a private saved-messages chat", () => {
     const chat = mapTdChat(
       {

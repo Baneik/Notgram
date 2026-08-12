@@ -1023,15 +1023,22 @@ export function Conversation({
         : undefined;
       if (messageId && quote) selectedReplyQuoteSnapshotRef.current = { messageId, quote };
     };
+    const onPointerUp = () => {
+      // Keep the origin's selectable surface while a native Range is still
+      // active. Removing the class synchronously at pointerup changes
+      // user-select on the subtree and can make Chromium clear a valid drag
+      // selection, especially for a single-line message.
+      if (globalThis.getSelection()?.isCollapsed !== false) clearSelectionSurface();
+    };
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("pointermove", onPointerMove, true);
-    document.addEventListener("pointerup", clearSelectionSurface, true);
+    document.addEventListener("pointerup", onPointerUp, true);
     document.addEventListener("pointercancel", clearSelectionSurface, true);
     document.addEventListener("selectionchange", onSelectionChange);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("pointermove", onPointerMove, true);
-      document.removeEventListener("pointerup", clearSelectionSurface, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
       document.removeEventListener("pointercancel", clearSelectionSurface, true);
       document.removeEventListener("selectionchange", onSelectionChange);
       clearSelectionSurface();

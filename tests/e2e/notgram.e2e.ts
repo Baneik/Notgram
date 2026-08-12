@@ -3683,8 +3683,9 @@ test("selecting message text is not interrupted by composer autofocus", async ({
     selection?.removeAllRanges();
     selection?.addRange(range);
   });
-  // Keep the selection active longer than the removed 80 ms autofocus delay.
-  await page.waitForTimeout(120);
+  await page.evaluate(() => document.dispatchEvent(new PointerEvent("pointerup", { button: 0 })));
+  // Keep the selection active across delayed layout/media and message updates.
+  await page.waitForTimeout(2_000);
 
   await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
     .toContain("那我们下午三点对一下细节");

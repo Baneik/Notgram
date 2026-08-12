@@ -1163,7 +1163,19 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const emoji = typeof animatedEmoji?.emoji === "string"
         ? animatedEmoji.emoji
         : typeof content.emoji === "string" ? content.emoji : "动态表情";
-      return { kind: "text", text: emoji };
+      const sticker = asTdObject(animatedEmoji?.sticker);
+      if (!sticker?.sticker) return { kind: "text", text: emoji };
+      const format = sticker?.format;
+      // TDLib includes the full animated sticker here. Keep it as media so
+      // the normal TGS/WebM download and renderer can play the large emoji.
+      return mediaContent("sticker", emoji, sticker?.sticker, {
+        mimeType: tdStickerMimeType(format),
+        ...thumbnailDetails(sticker?.thumbnail),
+        previewDataUrl: minithumbnailDataUrl(sticker?.minithumbnail),
+        width: tdNumber(sticker?.width),
+        height: tdNumber(sticker?.height),
+        includePendingUpload,
+      });
     }
     case "messageGame": {
       const game = asTdObject(content.game);
