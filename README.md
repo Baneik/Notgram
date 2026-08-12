@@ -49,20 +49,26 @@ the current Windows user. `NOTGRAM_DATABASE_KEY_BASE64` is only an explicit
 override for existing development databases and is not copied into portable
 releases.
 
-## Portable Windows release
+## Portable Windows builds
 
-Build a release executable and copy the complete runnable directory without an
-installer:
+For a local portable build, run one command from the repository root:
 
 ```powershell
-npm run publish:portable
+npm run build:portable
 ```
 
-The default destination is `artifacts/`; pass `-DestinationRoot` to
-`scripts/publish-portable.ps1` to override it. Publishing requires a clean
-worktree and reads API credentials only from the process environment. It never
-copies `.env`. The versioned ZIP contains `Notgram.exe`, TDLib and its runtime
-licenses, dependency inventory, build metadata, and per-file SHA-256 hashes.
+The command loads build variables from the root `.env`, skips the full test and
+lint suite, and writes each run to a unique timestamp-and-commit directory under
+`artifacts/portable/`. Existing artifacts are never replaced. `.env` is injected
+only into the build process and is never copied into the portable directory or
+ZIP.
+
+Use `npm run publish:portable` for a strict release build. That command requires
+a clean worktree, runs the full repository checks, and reads API credentials
+only from the process environment. Pass `-DestinationRoot` directly to
+`scripts/publish-portable.ps1` when a release needs a custom destination. The
+versioned ZIP contains `Notgram.exe`, TDLib and its runtime licenses, dependency
+inventory, build metadata, and per-file SHA-256 hashes.
 Portable builds retain account data across ZIP replacement and do not run the
 NSIS auto-updater; installed builds use the signed channel configured at build
 time.
@@ -98,6 +104,7 @@ npm run test:native-smoke -- -Profile Clean # Prepare an isolated native smoke r
 npm run check     # Frontend plus Rust formatting, lint, and tests
 npm run check:release # Full check plus a native release build
 npm run tauri dev # Native desktop shell
+npm run build:portable # Fast local portable build using .env; never replaces artifacts
 npm run publish:portable # Build a traceable portable ZIP in artifacts/
 npm run version:check # Verify version.json matches npm, Cargo, and Tauri
 npm run version:sync # Synchronize all manifests from version.json
