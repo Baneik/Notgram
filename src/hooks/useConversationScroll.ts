@@ -191,7 +191,12 @@ export const useConversationScroll = ({
   const userScrollDirectionRef = useRef<UserScrollDirection | undefined>(undefined);
   const userScrollTopRef = useRef<number | undefined>(undefined);
   const pointerActiveRef = useRef(false);
+  const pointerScrolledRef = useRef(false);
+  const resumeBottomPinOnReleaseRef = useRef(false);
   const trustedPointerActiveRef = useRef(false);
+  // Chromium keeps middle-button autoscroll active after pointerup.
+  const middleAutoScrollRef = useRef(false);
+  const trustedMiddleAutoScrollRef = useRef(false);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const handledEntryRequestRef = useRef(0);
   const handledLatestRequestRef = useRef(0);
@@ -271,6 +276,11 @@ export const useConversationScroll = ({
     userIntentUntilRef.current = 0;
     userScrollDirectionRef.current = undefined;
     pointerActiveRef.current = false;
+    pointerScrolledRef.current = false;
+    resumeBottomPinOnReleaseRef.current = false;
+    trustedPointerActiveRef.current = false;
+    middleAutoScrollRef.current = false;
+    trustedMiddleAutoScrollRef.current = false;
     setJumpHistoryState(currentScrollKey ? { key: currentScrollKey, count: 0 } : undefined);
   }, [currentScrollKey]);
   const dataPhase = virtualItemCount > 0 ? "ready" : historyLoading ? "loading" : "empty";
@@ -455,10 +465,14 @@ export const useConversationScroll = ({
     if (!currentScrollKey || searchActive) return;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return;
     if (performance.now() < smoothScrollUntilRef.current) return;
+    if (middleAutoScrollRef.current) return;
+    if (pointerActiveRef.current) {
+      resumeBottomPinOnReleaseRef.current = true;
+      return;
+    }
     if (
-      pointerActiveRef.current ||
-      (performance.now() <= userIntentUntilRef.current &&
-        userScrollDirectionRef.current === "up")
+      performance.now() <= userIntentUntilRef.current &&
+      userScrollDirectionRef.current === "up"
     ) return;
     const control = scrollControlRef.current;
     const pendingRequest = bottomPinRequestRef.current;
@@ -500,6 +514,7 @@ export const useConversationScroll = ({
         scrollControlRef.current.generation !== request.generation ||
         conversationScrollMemory.get(currentScrollKey)?.followLatest === false ||
         pointerActiveRef.current ||
+        middleAutoScrollRef.current ||
         (performance.now() <= userIntentUntilRef.current &&
           userScrollDirectionRef.current === "up")
       ) {
@@ -1715,6 +1730,8 @@ export const useConversationScroll = ({
     const element = event.currentTarget;
     const rawDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
     if (event.deltaY !== 0) {
+      middleAutoScrollRef.current = false;
+      trustedMiddleAutoScrollRef.current = false;
       userScrollDirectionRef.current = event.deltaY < 0 ? "up" : "down";
       userIntentUntilRef.current = performance.now() + 320;
       if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
@@ -1749,50 +1766,93 @@ export const useConversationScroll = ({
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (contentAnchorFrameRef.current !== undefined) {
-      cancelAnimationFrame(contentAnchorFrameRef.current);
-      contentAnchorFrameRef.current = undefined;
+    const wasMiddleAutoScrolling = middleAutoScrollRef.current;
+    middleAutoScrollRef.current = false;
+    trustedMiddleAutoScrollRef.current = false;
+    if (event.pointerType === "mouse" && event.button > 1) return;
+    const interactiveTarget = event.target instanceof Element && event.target.closest(
+      "a, button, input, textarea, select, video, audio, [role='button']",
+    );
+    if (
+      event.pointerType === "mouse" &&
+      event.button === 1 &&
+      !wasMiddleAutoScrolling &&
+      !interactiveTarget
+    ) {
+      middleAutoScrollRef.current = true;
+      trustedMiddleAutoScrollRef.current = event.nativeEvent.isTrusted;
     }
     pointerActiveRef.current = true;
+    pointerScrolledRef.current = false;
+    resumeBottomPinOnReleaseRef.current = wasMiddleAutoScrolling ||
+      bottomPinRequestRef.current !== undefined;
     trustedPointerActiveRef.current = event.nativeEvent.isTrusted;
     userScrollDirectionRef.current = undefined;
     userScrollTopRef.current = event.currentTarget.scrollTop;
     userIntentUntilRef.current = performance.now() + 320;
-    const followLatest = currentScrollKey
-      ? conversationScrollMemory.get(currentScrollKey)?.followLatest !== false
-      : false;
-    adoptUserScrollMode(followLatest ? "following" : "detached");
   };
 
   const releasePointerControl = useCallback(() => {
     if (!pointerActiveRef.current) return;
     const trustedPointer = trustedPointerActiveRef.current;
+    const pointerScrolled = pointerScrolledRef.current;
+    const resumeBottomPin = resumeBottomPinOnReleaseRef.current;
     pointerActiveRef.current = false;
+    pointerScrolledRef.current = false;
+    resumeBottomPinOnReleaseRef.current = false;
     trustedPointerActiveRef.current = false;
     userIntentUntilRef.current = performance.now() + 320;
     if (trustedPointer) trustedUserIntentUntilRef.current = performance.now() + 320;
-    if (currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest) {
+    if (
+      !middleAutoScrollRef.current &&
+      (pointerScrolled || resumeBottomPin) &&
+      currentScrollKey &&
+      conversationScrollMemory.get(currentScrollKey)?.followLatest
+    ) {
       scheduleBottomPin();
     }
   }, [currentScrollKey, scheduleBottomPin]);
 
   useEffect(() => {
+    const stopMiddleAutoScrollOutside = (event: PointerEvent) => {
+      if (!middleAutoScrollRef.current) return;
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && messageListRef.current?.contains(target)) return;
+      middleAutoScrollRef.current = false;
+      trustedMiddleAutoScrollRef.current = false;
+      if (currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest) {
+        scheduleBottomPin();
+      }
+    };
+    globalThis.addEventListener("pointerdown", stopMiddleAutoScrollOutside, true);
     globalThis.addEventListener("pointerup", releasePointerControl, true);
     globalThis.addEventListener("pointercancel", releasePointerControl, true);
     globalThis.addEventListener("mouseup", releasePointerControl, true);
-    globalThis.addEventListener("blur", releasePointerControl);
+    const releaseWindowControl = () => {
+      middleAutoScrollRef.current = false;
+      trustedMiddleAutoScrollRef.current = false;
+      releasePointerControl();
+    };
+    globalThis.addEventListener("blur", releaseWindowControl);
     return () => {
+      globalThis.removeEventListener("pointerdown", stopMiddleAutoScrollOutside, true);
       globalThis.removeEventListener("pointerup", releasePointerControl, true);
       globalThis.removeEventListener("pointercancel", releasePointerControl, true);
       globalThis.removeEventListener("mouseup", releasePointerControl, true);
-      globalThis.removeEventListener("blur", releasePointerControl);
+      globalThis.removeEventListener("blur", releaseWindowControl);
     };
-  }, [releasePointerControl]);
+  }, [currentScrollKey, releasePointerControl, scheduleBottomPin]);
 
   const onPointerUp = releasePointerControl;
-  const onPointerCancel = releasePointerControl;
+  const onPointerCancel = useCallback(() => {
+    middleAutoScrollRef.current = false;
+    trustedMiddleAutoScrollRef.current = false;
+    releasePointerControl();
+  }, [releasePointerControl]);
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    middleAutoScrollRef.current = false;
+    trustedMiddleAutoScrollRef.current = false;
     if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
     if (event.key === "End") {
       userScrollDirectionRef.current = "down";
@@ -1823,7 +1883,8 @@ export const useConversationScroll = ({
     const element = event.currentTarget;
     if (!currentScrollKey || searchActive) return;
     const current = conversationScrollMemory.get(currentScrollKey);
-    const pointerInitiated = pointerActiveRef.current;
+    const middleAutoScroll = middleAutoScrollRef.current;
+    const pointerInitiated = pointerActiveRef.current || middleAutoScroll;
     const timedIntent = !pointerInitiated &&
       userScrollDirectionRef.current !== undefined &&
       performance.now() <= userIntentUntilRef.current;
@@ -1856,7 +1917,15 @@ export const useConversationScroll = ({
           : undefined;
     userScrollTopRef.current = element.scrollTop;
     const direction = timedIntent ? userScrollDirectionRef.current ?? measuredDirection : measuredDirection;
+    if (pointerInitiated && measuredDirection) {
+      if (pointerActiveRef.current) pointerScrolledRef.current = true;
+      if (contentAnchorFrameRef.current !== undefined) {
+        cancelAnimationFrame(contentAnchorFrameRef.current);
+        contentAnchorFrameRef.current = undefined;
+      }
+    }
     const trustedUserInitiated = trustedPointerActiveRef.current ||
+      (middleAutoScroll && trustedMiddleAutoScrollRef.current) ||
       performance.now() <= trustedUserIntentUntilRef.current;
     if (direction && trustedUserInitiated) onUserScroll?.({ element, direction, atBottom });
     let control = scrollControlRef.current;
@@ -1864,8 +1933,11 @@ export const useConversationScroll = ({
       interruptControlledPositioning(atBottom ? "following" : "detached");
       control = scrollControlRef.current;
     }
-    const followLatest = atBottom ||
-      (direction === "down" && current?.followLatest === true);
+    const followLatest = atBottom || (
+      !pointerInitiated &&
+      direction === "down" &&
+      current?.followLatest === true
+    );
     control.mode = followLatest ? "following" : "detached";
     writeMemory(
       currentScrollKey,

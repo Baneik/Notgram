@@ -821,6 +821,98 @@ test("downward wheel input at the exact bottom never rebounds", async ({ page })
     .toBeLessThanOrEqual(1);
 });
 
+test("blank message viewport clicks never force a bottom correction", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+  await page.waitForTimeout(400);
+
+  const before = await messageList.evaluate((element) => {
+    const maximum = element.scrollHeight - element.clientHeight;
+    element.scrollTop = Math.max(0, maximum - 26);
+    return element.scrollTop;
+  });
+  const bounds = await messageList.boundingBox();
+  if (!bounds) throw new Error("Message viewport is not visible");
+  await page.mouse.click(bounds.x + 3, bounds.y + bounds.height * 0.45);
+  await page.waitForTimeout(120);
+
+  await expect.poll(() => messageList.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(before, 0);
+});
+
+test("middle mouse scrolling detaches instead of fighting bottom following", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+  await page.waitForTimeout(400);
+  await messageList.evaluate((element) => {
+    const maximum = element.scrollHeight - element.clientHeight;
+    element.scrollTop = Math.max(0, maximum - 420);
+  });
+  await page.waitForTimeout(32);
+  const bounds = await messageList.boundingBox();
+  if (!bounds) throw new Error("Message viewport is not visible");
+
+  await page.mouse.click(bounds.x + 3, bounds.y + bounds.height * 0.45, {
+    button: "middle",
+  });
+  await messageList.evaluate((element) => {
+    element.scrollTop = Math.min(
+      element.scrollHeight - element.clientHeight,
+      element.scrollTop + 180,
+    );
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeGreaterThan(160);
+  await page.waitForTimeout(120);
+
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeGreaterThan(160);
+  await expect.poll(() => page.evaluate(async () => {
+    const state = await (0, eval)('import("/src/hooks/conversationScrollState.ts")') as {
+      conversationScrollMemory: Map<string, { followLatest: boolean }>;
+    };
+    return [...state.conversationScrollMemory.values()].at(-1)?.followLatest;
+  })).toBe(false);
+});
+
+test("primary pointer scrolling still detaches from latest messages", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+  const bounds = await messageList.boundingBox();
+  if (!bounds) throw new Error("Message viewport is not visible");
+
+  await page.mouse.move(bounds.x + 3, bounds.y + bounds.height * 0.45);
+  await page.mouse.down();
+  await messageList.evaluate((element) => {
+    element.scrollTop = Math.max(0, element.scrollTop - 240);
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeGreaterThan(32);
+  await expect.poll(() => page.evaluate(async () => {
+    const state = await (0, eval)('import("/src/hooks/conversationScrollState.ts")') as {
+      conversationScrollMemory: Map<string, { followLatest: boolean }>;
+    };
+    return [...state.conversationScrollMemory.values()].at(-1)?.followLatest;
+  })).toBe(false);
+  await page.mouse.up();
+  await page.waitForTimeout(120);
+
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeGreaterThan(32);
+  await expect(page.getByRole("button", { name: /跳到最新消息/ })).toBeVisible();
+});
+
 test("delayed row measurement during downward wheel input stays pinned", async ({ page }) => {
   await page.goto("/");
   const messageList = page.locator(".message-list");
