@@ -29,8 +29,10 @@ pub fn run() {
         std::process::exit(2);
     }
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            desktop_lifecycle::show_main_window(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !desktop_lifecycle::arguments_include_startup(args) {
+                desktop_lifecycle::show_main_window(app);
+            }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -38,6 +40,7 @@ pub fn run() {
         .setup(|app| {
             webview_security::setup(app)?;
             app.manage(diagnostics::setup(app.handle())?);
+            window_placement::setup(app)?;
             if distribution::supports_native_updater() {
                 app.handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -60,6 +63,8 @@ pub fn run() {
             automation::notgram_automation_settings,
             automation::notgram_save_automation_settings,
             distribution::notgram_distribution_kind,
+            desktop_lifecycle::notgram_desktop_settings,
+            desktop_lifecycle::notgram_set_launch_on_startup,
             desktop_notification::notgram_show_notification,
             context_menu_window::notgram_close_context_menu_window,
             context_menu_window::notgram_open_context_menu_window,

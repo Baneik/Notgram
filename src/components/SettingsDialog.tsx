@@ -65,6 +65,7 @@ import type {
 } from "../telegram/types";
 import { Avatar } from "./Avatar";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
+import { DesktopStartupSettings } from "./DesktopStartupSettings";
 import { DeveloperAutomationSettings } from "./DeveloperAutomationSettings";
 import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
@@ -510,6 +511,7 @@ function PreferenceSettings({
 
   return (
     <div className="settings-detail-scroll preference-settings">
+      {category === "notgram" && <DesktopStartupSettings />}
       {category === "chats" && (
         <section className="settings-section" aria-labelledby="chat-display-heading">
           <div className="settings-section-heading">

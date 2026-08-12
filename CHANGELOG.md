@@ -5,8 +5,14 @@ with prerelease identifiers used for release candidates.
 
 ## [Unreleased]
 
+## [0.5.0-rc.3] - 2026-08-12
+
 ### Added
 
+- Start Notgram automatically after Windows sign-in through an explicit desktop
+  setting, keeping automatic launches quietly available from the system tray.
+- Restore the main window's last normal position, size, and maximized state on the
+  next launch, while moving stale off-screen placements into an available work area.
 - Navigate links opened from conversations with back and forward controls or mouse
   side buttons, without recording ordinary conversation-list switches as jumps.
 - Reopen forum groups at their last topic and switch topics from a compact horizontal
