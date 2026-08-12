@@ -3672,24 +3672,41 @@ test("selecting message text is not interrupted by composer autofocus", async ({
   const messageText = page.locator('[data-message-id="m-3"] .message-rich-text');
   await expect(composer).toBeFocused();
   await expect(messageText).toBeVisible();
-
-  await messageText.dispatchEvent("pointerdown", { pointerType: "mouse", button: 0 });
-  // A real text drag blurs the composer before the document selection settles.
-  await composer.evaluate((element) => element.blur());
-  await messageText.evaluate((element) => {
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    const selection = globalThis.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+  await messageText.scrollIntoViewIfNeeded();
+  const drag = await messageText.evaluate((surface) => {
+    const text = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT).nextNode();
+    if (!text) return undefined;
+    const pointAt = (offset: number) => {
+      const range = document.createRange();
+      range.setStart(text, offset);
+      range.setEnd(text, offset + 1);
+      const bounds = range.getBoundingClientRect();
+      return { x: bounds.left + 1, y: bounds.top + bounds.height / 2 };
+    };
+    return {
+      start: pointAt(0),
+      end: pointAt(Math.min(8, (text.textContent?.length ?? 1) - 1)),
+    };
   });
-  await page.evaluate(() => document.dispatchEvent(new PointerEvent("pointerup", { button: 0 })));
-  // Keep the selection active across delayed layout/media and message updates.
-  await page.waitForTimeout(2_000);
+  expect(drag).toBeTruthy();
+  await page.mouse.move(drag!.start.x, drag!.start.y);
+  await page.mouse.down();
+  await page.mouse.move(drag!.end.x, drag!.end.y, { steps: 12 });
+  await page.mouse.up();
 
-  await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
-    .toContain("那我们下午三点对一下细节");
+  const selectedText = await page.evaluate(() => globalThis.getSelection()?.toString() ?? "");
+  expect(selectedText.length).toBeGreaterThan(0);
   await expect(composer).not.toBeFocused();
+
+  // Conversation state changes must not replace the selected native text nodes.
+  await page.evaluate(async (storePath) => {
+    const { preferencesStore } = await import(storePath);
+    const developerMode = preferencesStore.getState().developerMode;
+    preferencesStore.setState({ developerMode: !developerMode });
+  }, "/src/store/preferencesStore.ts");
+  await page.waitForTimeout(2_000);
+  await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
+    .toBe(selectedText);
 
   const dragPoints = await messageText.evaluate((surface) => {
     const otherSurface = [...document.querySelectorAll<HTMLElement>(".message-rich-text")]

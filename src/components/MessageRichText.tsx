@@ -1,8 +1,9 @@
-import { Fragment, type MouseEvent, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, type MouseEvent, type ReactNode } from "react";
 import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
-import { textHighlightRanges } from "../utils/textHighlight";
-import MarkdownText from "./MarkdownText";
+import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
+
+const MarkdownText = lazy(() => import("./MarkdownText"));
 
 interface MessageRichTextProps {
   text: string;
@@ -220,5 +221,13 @@ export function MessageRichText({
     );
   }
 
-  return <MarkdownText text={text} className={className} highlightQuery={highlightQuery} />;
+  return (
+    <Suspense fallback={(
+      <div className={`message-rich-text is-loading ${className}`} data-rich-text="loading">
+        {highlightedText(text, highlightQuery)}
+      </div>
+    )}>
+      <MarkdownText text={text} className={className} highlightQuery={highlightQuery} />
+    </Suspense>
+  );
 }
