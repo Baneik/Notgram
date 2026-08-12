@@ -1596,14 +1596,32 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   position: fixed; inset: 0; z-index: 100; padding: 20px; display: grid; place-items: center; background: var(--color-overlay);
 }
 .message-delete-dialog {
-  width: min(420px, calc(100vw - 40px)); padding: 20px; display: grid; gap: 20px;
-  color: var(--ink); background: var(--color-bg-elevated); border-radius: 8px; box-shadow: 0 16px 48px var(--color-shadow);
+  width: min(420px, calc(100vw - 40px)); padding: 18px; display: grid; gap: 16px;
+  color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-strong); border-radius: 8px; box-shadow: 0 16px 48px var(--color-shadow);
 }
 .message-delete-heading { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 12px; }
-.message-delete-heading > span { width: 36px; height: 36px; display: grid; place-items: center; color: var(--color-status-danger); background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-elevated)); border-radius: 50%; }
+.message-delete-heading > span { width: 36px; height: 36px; display: grid; place-items: center; color: var(--color-status-danger); background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-elevated)); border-radius: 7px; }
 .message-delete-heading h3 { margin: 0 0 5px; font-size: 17px; font-weight: 650; }
 .message-delete-heading p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
 .confirm-action-dialog .message-delete-heading p { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.5; }
+.message-delete-preview {
+  margin: 0; padding: 10px 12px; overflow: hidden; color: var(--color-text-secondary); background: var(--color-bg-control-hover);
+  border-left: 3px solid var(--color-border-strong); border-radius: 0 6px 6px 0; text-overflow: ellipsis; white-space: nowrap; font-size: 12px;
+}
+.message-delete-options { display: grid; gap: 8px; }
+.message-delete-option {
+  width: 100%; min-height: 58px; padding: 9px 11px; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 10px;
+  color: var(--ink); text-align: left; background: var(--color-bg-control); border: 1px solid var(--color-border-default); border-radius: 7px; cursor: pointer;
+}
+.message-delete-option:hover:not(:disabled), .message-delete-option:focus-visible { background: var(--color-bg-control-hover); border-color: var(--color-border-strong); }
+.message-delete-option.is-for-everyone { border-color: color-mix(in srgb, var(--color-status-danger) 38%, var(--color-border-default)); }
+.message-delete-option.is-for-everyone:hover:not(:disabled), .message-delete-option.is-for-everyone:focus-visible { background: color-mix(in srgb, var(--color-status-danger) 7%, var(--color-bg-control)); border-color: var(--color-status-danger); }
+.message-delete-option:disabled { cursor: default; opacity: 0.58; }
+.message-delete-option-icon { width: 34px; height: 34px; display: grid; place-items: center; color: var(--color-text-secondary); background: var(--color-bg-surface-hover); border-radius: 6px; }
+.message-delete-option.is-for-everyone .message-delete-option-icon { color: var(--color-status-danger); background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-control)); }
+.message-delete-option > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.message-delete-option strong { font-size: 13px; font-weight: 650; }
+.message-delete-option small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .message-delete-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .message-forward-dialog {
   width: min(440px, calc(100vw - 40px)); max-height: min(640px, calc(100vh - 40px)); min-height: 0;

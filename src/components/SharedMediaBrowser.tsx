@@ -15,6 +15,7 @@ import type {
   Chat,
   ForwardMessagesResult,
   Message,
+  MessagePermissions,
   SharedMediaCategory,
   SharedMediaPage,
   SharedMediaSearchInput,
@@ -22,7 +23,7 @@ import type {
 import { messageContentText } from "../telegram/messageContent";
 import { formatChatTime } from "../utils/formatters";
 import { useTelegramStore } from "../store/telegramStore";
-import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { DeleteMessagesDialog } from "./ConversationOverlays";
 
 const CATEGORIES: { id: SharedMediaCategory; label: string; icon: typeof ImageIcon }[] = [
   { id: "media", label: "图片与视频", icon: ImageIcon },
@@ -37,6 +38,7 @@ interface SharedMediaBrowserProps {
   onLoad: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
   onOpenMessage: (chatId: string, messageId: string) => void;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
+  onLoadMessageProperties: (chatId: string, messageId: string) => Promise<MessagePermissions | undefined>;
   onDelete: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
   onForward: (fromChatId: string, messageIds: string[], toChatId: string) => Promise<ForwardMessagesResult | undefined>;
 }
@@ -68,6 +70,7 @@ export function SharedMediaBrowser({
   onLoad,
   onOpenMessage,
   onDownload,
+  onLoadMessageProperties,
   onDelete,
   onForward,
 }: SharedMediaBrowserProps) {
@@ -85,7 +88,8 @@ export function SharedMediaBrowser({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [forwardTargetId, setForwardTargetId] = useState("");
   const [actionPending, setActionPending] = useState(false);
-  const [deleteScope, setDeleteScope] = useState<"self" | "all">();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [permissionLoadingIds, setPermissionLoadingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(() => new Set());
 
   const loadFirstPage = async (force = false, nextQuery = appliedQuery) => {
@@ -108,6 +112,9 @@ export function SharedMediaBrowser({
     return (!fromDate || date >= fromDate) && (!toDate || date <= toDate);
   }), [fromDate, page.messages, toDate]);
   const selectedMessages = page.messages.filter((message) => selected.has(message.id));
+  const permissionsReady = selectedMessages.length > 0 && selectedMessages.every((message) => Boolean(message.permissions));
+  const canDeleteOnlyForSelf = permissionsReady && selectedMessages.every((message) => message.permissions?.canDeleteOnlyForSelf === true);
+  const canDeleteForAllUsers = permissionsReady && selectedMessages.every((message) => message.permissions?.canDeleteForAllUsers === true);
 
   const toggleSelected = (messageId: string) => {
     setSelected((current) => {
@@ -115,6 +122,25 @@ export function SharedMediaBrowser({
       if (next.has(messageId)) next.delete(messageId);
       else if (next.size < 100) next.add(messageId);
       return next;
+    });
+    const message = page.messages.find((candidate) => candidate.id === messageId);
+    if (!message || selected.has(messageId) || message.permissions || permissionLoadingIds.has(messageId)) return;
+    setPermissionLoadingIds((current) => new Set(current).add(messageId));
+    void onLoadMessageProperties(chatId, messageId).then((permissions) => {
+      if (permissions) {
+        setPage((current) => ({
+          ...current,
+          messages: current.messages.map((candidate) => candidate.id === messageId
+            ? { ...candidate, permissions }
+            : candidate),
+        }));
+      }
+    }).finally(() => {
+      setPermissionLoadingIds((current) => {
+        const next = new Set(current);
+        next.delete(messageId);
+        return next;
+      });
     });
   };
 
@@ -160,6 +186,7 @@ export function SharedMediaBrowser({
         totalCount: current.totalCount === undefined ? undefined : Math.max(0, current.totalCount - ids.length),
       }));
       setSelected(new Set());
+      setDeleteDialogOpen(false);
     }
     return succeeded;
   };
@@ -194,8 +221,17 @@ export function SharedMediaBrowser({
             {forwardTargets.map((chat) => <option key={chat.id} value={chat.id}>{chat.title}</option>)}
           </select>
           <button type="button" disabled={actionPending || !forwardTargetId} onClick={() => void forwardSelected()}><Forward size={15} />转发</button>
-          <button className="is-danger" type="button" disabled={actionPending} onClick={() => setDeleteScope("self")}><Trash2 size={15} />仅对我删除</button>
-          <button className="is-danger" type="button" disabled={actionPending} onClick={() => setDeleteScope("all")}><Trash2 size={15} />为所有人删除</button>
+          <button
+            className="is-danger"
+            type="button"
+            disabled={actionPending || !permissionsReady || (!canDeleteOnlyForSelf && !canDeleteForAllUsers)}
+            title={!permissionsReady
+              ? "正在读取删除权限"
+              : !canDeleteOnlyForSelf && !canDeleteForAllUsers
+                ? "所选消息没有共同的删除范围"
+                : "删除所选消息"}
+            onClick={() => setDeleteDialogOpen(true)}
+          ><Trash2 size={15} />删除</button>
         </div>
       )}
       <div className={`shared-media-results ${category === "media" ? "is-grid" : ""}`} aria-busy={loading}>
@@ -236,13 +272,18 @@ export function SharedMediaBrowser({
       </div>
       {!loading && page.hasMore && <button className="shared-media-more" type="button" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore && <LoaderCircle className="spin" size={15} />}{loadingMore ? "正在加载" : "加载更多"}</button>}
       <div className="shared-media-count">{page.totalCount ?? page.messages.length} 项</div>
-      {deleteScope && (
-        <ConfirmActionDialog
-          title={`删除 ${selected.size} 条消息`}
-          description={deleteScope === "all" ? "这些消息将为所有人删除。" : "这些消息只会从你的聊天记录中删除。"}
-          confirmLabel={deleteScope === "all" ? "为所有人删除" : "仅对我删除"}
-          onConfirm={() => deleteSelected(deleteScope === "all")}
-          onClose={() => setDeleteScope(undefined)}
+      {deleteDialogOpen && (
+        <DeleteMessagesDialog
+          count={selectedMessages.length}
+          batch
+          canDeleteOnlyForSelf={canDeleteOnlyForSelf}
+          canDeleteForAllUsers={canDeleteForAllUsers}
+          pending={actionPending}
+          onConfirm={(revoke) => {
+            setActionPending(true);
+            void deleteSelected(revoke).finally(() => setActionPending(false));
+          }}
+          onClose={() => setDeleteDialogOpen(false)}
         />
       )}
     </div>

@@ -18,6 +18,8 @@ import {
   MessageCircle,
   Search,
   Trash2,
+  UserRoundX,
+  UsersRound,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -267,26 +269,41 @@ export function MessageActionMenu({
   );
 }
 
-interface DeleteMessageDialogProps {
-  message: Message;
+interface DeleteMessagesDialogProps {
+  count: number;
+  batch?: boolean;
+  preview?: string;
+  canDeleteOnlyForSelf: boolean;
+  canDeleteForAllUsers: boolean;
   pending: boolean;
   onConfirm: (revoke: boolean) => void;
-  onFuckOff: () => void;
   onClose: () => void;
 }
 
-export function DeleteMessageDialog({
-  message,
+export function DeleteMessagesDialog({
+  count,
+  batch = false,
+  preview,
+  canDeleteOnlyForSelf,
+  canDeleteForAllUsers,
   pending,
   onConfirm,
-  onFuckOff,
   onClose,
-}: DeleteMessageDialogProps) {
-  const permissions = message.permissions;
+}: DeleteMessagesDialogProps) {
+  const [pendingScope, setPendingScope] = useState<"self" | "all">();
   const dialogRef = useModalFocus<HTMLElement>(onClose, pending);
-  if (!permissions) return null;
+  useEffect(() => {
+    if (!pending) setPendingScope(undefined);
+  }, [pending]);
+  const confirm = (scope: "self" | "all") => {
+    setPendingScope(scope);
+    onConfirm(scope === "all");
+  };
+  if (!canDeleteOnlyForSelf && !canDeleteForAllUsers) return null;
   return (
-    <div className="message-delete-backdrop" role="presentation">
+    <div className="message-delete-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !pending) onClose();
+    }}>
       <section
         ref={dialogRef}
         className="message-delete-dialog"
@@ -298,36 +315,42 @@ export function DeleteMessageDialog({
         <div className="message-delete-heading">
           <span><Trash2 size={18} strokeWidth={1.9} /></span>
           <div>
-            <h3 id="message-delete-title">删除消息</h3>
-            <p>{messageSummary(message.content)}</p>
+            <h3 id="message-delete-title">{batch || count > 1 ? `删除 ${count} 条消息` : "删除消息"}</h3>
+            <p>选择这次删除对谁生效</p>
           </div>
         </div>
+        {preview && <p className="message-delete-preview">{preview}</p>}
+        <div className="message-delete-options">
+          {canDeleteOnlyForSelf && (
+            <button
+              className="message-delete-option"
+              type="button"
+              aria-label="仅对我删除"
+              disabled={pending}
+              onClick={() => confirm("self")}
+            >
+              <span className="message-delete-option-icon">
+                {pending && pendingScope === "self" ? <LoaderCircle className="spin" size={18} /> : <UserRoundX size={18} />}
+              </span>
+              <span><strong>仅对我删除</strong><small>其他成员仍能看到{count > 1 ? "这些消息" : "这条消息"}</small></span>
+            </button>
+          )}
+          {canDeleteForAllUsers && (
+            <button
+              className="message-delete-option is-for-everyone"
+              type="button"
+              aria-label="为所有人删除"
+              disabled={pending}
+              onClick={() => confirm("all")}
+            >
+              <span className="message-delete-option-icon">
+                {pending && pendingScope === "all" ? <LoaderCircle className="spin" size={18} /> : <UsersRound size={18} />}
+              </span>
+              <span><strong>为所有人删除</strong><small>从所有成员的聊天记录中移除</small></span>
+            </button>
+          )}
+        </div>
         <div className="message-delete-actions">
-          <button className="dialog-danger" type="button" disabled={pending} onClick={onFuckOff}>
-            {pending ? <LoaderCircle className="spin" size={16} /> : <Flag size={16} />}
-            Fuck Off
-          </button>
-          {permissions.canDeleteOnlyForSelf && (
-            <button
-              className="dialog-secondary"
-              type="button"
-              disabled={pending}
-              onClick={() => onConfirm(false)}
-            >
-              仅对我删除
-            </button>
-          )}
-          {permissions.canDeleteForAllUsers && (
-            <button
-              className="dialog-danger"
-              type="button"
-              disabled={pending}
-              onClick={() => onConfirm(true)}
-            >
-              {pending ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
-              为所有人删除
-            </button>
-          )}
           <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>
             取消
           </button>

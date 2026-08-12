@@ -1178,6 +1178,31 @@ describe("telegram store", () => {
     ).toBe(true);
   });
 
+  it("rejects delete scopes that are not allowed by current message properties", async () => {
+    class TrackingDeleteTransport extends MockTelegramTransport {
+      readonly deletes: Array<{ chatId: string; messageId: string; revoke: boolean }> = [];
+
+      override async deleteMessage(input: { chatId: string; messageId: string; revoke: boolean }) {
+        this.deletes.push(input);
+        return super.deleteMessage(input);
+      }
+    }
+
+    const transport = new TrackingDeleteTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-product");
+
+    await expect(store.getState().deleteMessage("p-4", true)).resolves.toBe(false);
+    expect(store.getState().operationError).toBe("部分消息当前不能为所有人删除");
+    expect(transport.deletes).toEqual([]);
+
+    await expect(store.getState().deleteMessagesFromChat("chat-product", ["p-2", "p-3"], false))
+      .resolves.toBe(false);
+    expect(store.getState().operationError).toBe("部分消息当前不能仅对你删除");
+    expect(transport.deletes).toEqual([]);
+  });
+
   it("applies repeated message metadata updates idempotently", async () => {
     class MetadataTransport extends MockTelegramTransport {
       private eventListener?: TelegramEventListener;

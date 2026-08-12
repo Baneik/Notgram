@@ -10,6 +10,7 @@ import type {
   ChatManagementCapabilities,
   ChatDraft,
   Message,
+  MessagePermissions,
   QueuedOutgoingMessage,
   TelegramEvent,
   TelegramAccountState,
@@ -142,6 +143,21 @@ export const createTelegramStore = (
     ) => {
       if (managementCapabilitiesFor(chatId)?.[capability] === true) return true;
       set({ operationError: message });
+      return false;
+    };
+    const deleteScopeAllowed = (permissions: MessagePermissions, revoke: boolean) => revoke
+      ? permissions.canDeleteForAllUsers
+      : permissions.canDeleteOnlyForSelf;
+    const verifyDeleteScope = async (chatId: string, messageIds: string[], revoke: boolean) => {
+      const permissions = await Promise.all(
+        messageIds.map((messageId) => transport.getMessageProperties(chatId, messageId)),
+      );
+      if (permissions.every((value) => deleteScopeAllowed(value, revoke))) return true;
+      set({
+        operationError: revoke
+          ? "部分消息当前不能为所有人删除"
+          : "部分消息当前不能仅对你删除",
+      });
       return false;
     };
     const messageEventKey = (message: Message) => `${message.chatId}:${message.id}`;
@@ -2332,6 +2348,12 @@ export const createTelegramStore = (
         if (!get().chats.has(chatId) || uniqueIds.length === 0 || uniqueIds.length > 100) {
           return false;
         }
+        try {
+          if (!await verifyDeleteScope(chatId, uniqueIds, revoke)) return false;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法确认消息删除权限") });
+          return false;
+        }
         const deletedIds: string[] = [];
         let failure: unknown;
         for (const messageId of uniqueIds) {
@@ -2603,6 +2625,7 @@ export const createTelegramStore = (
           return true;
         }
         try {
+          if (!await verifyDeleteScope(chatId, [messageId], revoke)) return false;
           await transport.deleteMessage({ chatId, messageId, revoke });
           markMessageRemoving(chatId, messageId);
           set({ operationError: undefined });

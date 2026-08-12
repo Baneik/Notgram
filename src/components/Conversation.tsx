@@ -40,7 +40,7 @@ import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { formatMessageDay } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 import {
-  DeleteMessageDialog,
+  DeleteMessagesDialog,
   ForwardMessagesDialog,
   MessageActionMenu,
   AutoDeleteDialog,
@@ -242,7 +242,6 @@ interface ConversationProps {
   onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
   onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<import("../telegram/types").ChatReportOptions | undefined>;
   onReportChat: (input: import("../telegram/types").ReportChatInput) => Promise<boolean>;
-  onBlockSender: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
 }
 
 export function Conversation({
@@ -313,7 +312,6 @@ export function Conversation({
   onSendBotStart,
   onGetReportOptions,
   onReportChat,
-  onBlockSender,
 }: ConversationProps) {
   const conversationIdentity = chat
     ? topic ? `${chat.id}:topic:${topic.id}` : chat.id
@@ -1337,23 +1335,6 @@ export function Conversation({
     if (deleted) setDeleteTarget(undefined);
   };
 
-  const fuckOff = async () => {
-    if (!deleteTarget || deletePending) return;
-    setDeletePending(true);
-    const target = deleteTarget;
-    const options = await onGetReportOptions(chat.id, [target.id]);
-    const option = options?.options.find((item) => /spam|scam|垃圾|诈骗/i.test(item.title)) ?? options?.options[0];
-    const chatSenderId = senderChatId(target.senderId);
-    const operations: Promise<boolean>[] = [onDeleteMessage(target.id, target.permissions?.canDeleteForAllUsers === true)];
-    if (!target.outgoing && target.senderId !== "unknown") {
-      operations.push(onBlockSender(chatSenderId ?? target.senderId, chatSenderId ? "chat" : "user", true));
-    }
-    if (option) operations.push(onReportChat({ chatId: chat.id, messageIds: [target.id], optionId: option.id }));
-    const results = await Promise.all(operations);
-    setDeletePending(false);
-    if (results.every(Boolean)) setDeleteTarget(undefined);
-  };
-
   const capturePinnedReturnAnchor = () => {
     if (!chat || !messageListRef.current) return;
     const element = messageListRef.current;
@@ -2014,11 +1995,13 @@ export function Conversation({
       )}
 
       <MotionPresence present={Boolean(deleteTarget)}>
-        {deleteTarget ? <DeleteMessageDialog
-          message={deleteTarget}
+        {deleteTarget?.permissions ? <DeleteMessagesDialog
+          count={1}
+          preview={messageSummary(deleteTarget.content)}
+          canDeleteOnlyForSelf={deleteTarget.permissions.canDeleteOnlyForSelf}
+          canDeleteForAllUsers={deleteTarget.permissions.canDeleteForAllUsers}
           pending={deletePending}
           onConfirm={(revoke) => void confirmDelete(revoke)}
-          onFuckOff={() => void fuckOff()}
           onClose={() => setDeleteTarget(undefined)}
         /> : null}
       </MotionPresence>

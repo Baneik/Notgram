@@ -1368,7 +1368,6 @@ export function App() {
           onSendBotStart={sendComposerBotStart}
           onGetReportOptions={getChatReportOptions}
           onReportChat={reportChat}
-          onBlockSender={setMessageSenderBlocked}
           onBack={() => setMobileChatOpen(false)}
             />
           </Profiler>
@@ -1471,6 +1470,7 @@ export function App() {
           onLoadMoreMembers={(chatId) => loadMoreChatProfileMembers(chatId)}
           onLoadSharedMedia={loadSharedMedia}
           onDownloadFile={requestDownload}
+          onLoadMessageProperties={loadMessageProperties}
           onDeleteMessages={deleteMessagesFromChat}
           onForwardMessages={forwardMessages}
         /> : null}

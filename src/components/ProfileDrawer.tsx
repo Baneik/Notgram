@@ -41,6 +41,7 @@ interface ProfileDrawerProps {
   onLoadMoreMembers: (chatId: string) => Promise<boolean>;
   onLoadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
+  onLoadMessageProperties: (chatId: string, messageId: string) => Promise<import("../telegram/types").MessagePermissions | undefined>;
   onDeleteMessages: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
   onForwardMessages: (fromChatId: string, messageIds: string[], toChatId: string) => Promise<ForwardMessagesResult | undefined>;
 }
@@ -68,6 +69,7 @@ export function ProfileDrawer({
   onLoadMoreMembers,
   onLoadSharedMedia,
   onDownloadFile,
+  onLoadMessageProperties,
   onDeleteMessages,
   onForwardMessages,
 }: ProfileDrawerProps) {
@@ -174,6 +176,7 @@ export function ProfileDrawer({
                     onLoad={onLoadSharedMedia}
                     onOpenMessage={onOpenMessage}
                     onDownload={onDownloadFile}
+                    onLoadMessageProperties={onLoadMessageProperties}
                     onDelete={onDeleteMessages}
                     onForward={onForwardMessages}
                   />

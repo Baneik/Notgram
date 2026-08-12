@@ -2606,10 +2606,55 @@ test("shared media supports server categories, filters, forwarding, and batch de
   await expect(toolbar).toBeHidden();
 
   await profile.getByLabel("选择 p-3").check();
-  await toolbar.getByRole("button", { name: "仅对我删除" }).click();
+  const deleteSelected = toolbar.getByRole("button", { name: "删除", exact: true });
+  await expect(deleteSelected).toBeEnabled();
+  await deleteSelected.click();
   const deleteDialog = page.getByRole("dialog", { name: "删除 1 条消息" });
+  await expect(deleteDialog.getByRole("button", { name: /为所有人删除/ })).toHaveCount(0);
   await deleteDialog.getByRole("button", { name: "仅对我删除" }).click();
   await expect(profile.getByText("desktop-layout-review.pdf", { exact: true })).toHaveCount(0);
+  expect(await horizontalOverflow(page)).toBe(false);
+});
+
+test("message deletion keeps safety actions separate and exposes only allowed scopes", async ({ page }) => {
+  await page.goto("/");
+
+  const incoming = await revealVirtualMessage(page, "p-4");
+  await incoming.locator(".message-bubble-shell").click({ button: "right" });
+  let menu = page.getByRole("menu", { name: "消息操作" });
+  await expect(menu.getByRole("menuitem", { name: "举报" })).toBeVisible();
+  await menu.getByRole("menuitem", { name: "删除" }).click();
+
+  let dialog = page.getByRole("dialog", { name: "删除消息" });
+  await expect(dialog).toContainText("我把交互稿更新到最新版本了");
+  await expect(dialog.getByRole("button", { name: "仅对我删除" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /为所有人删除/ })).toHaveCount(0);
+  await expect(dialog.getByText("Fuck Off", { exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "取消" }).click();
+
+  const outgoing = await revealVirtualMessage(page, "p-2");
+  await outgoing.locator(".message-bubble-shell").click({ button: "right" });
+  menu = page.getByRole("menu", { name: "消息操作" });
+  await menu.getByRole("menuitem", { name: "删除" }).click();
+
+  dialog = page.getByRole("dialog", { name: "删除消息" });
+  await expect(dialog.getByRole("button", { name: /仅对我删除/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "为所有人删除" })).toBeVisible();
+  await dialog.getByRole("button", { name: "取消" }).click();
+
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.locator('[data-chat-id="chat-product"]').click();
+  const mobileIncoming = await revealVirtualMessage(page, "p-4");
+  await mobileIncoming.locator(".message-bubble-shell").click({ button: "right" });
+  await page.getByRole("menu", { name: "消息操作" }).getByRole("menuitem", { name: "删除" }).click();
+  dialog = page.getByRole("dialog", { name: "删除消息" });
+  await expect(dialog).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(16);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(374);
+  expect(bounds!.y).toBeGreaterThanOrEqual(16);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(684);
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
