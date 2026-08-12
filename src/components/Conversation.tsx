@@ -956,16 +956,31 @@ export function Conversation({
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
+    const selectionSurface = (node: Node | null) => node instanceof Element
+      ? node.closest<HTMLElement>(".message-rich-text")
+      : node?.parentElement?.closest<HTMLElement>(".message-rich-text");
+    const selectedMessageSurface = (selection: Selection | null) => {
+      if (!selection || selection.isCollapsed) return undefined;
+      const anchorSurface = selectionSurface(selection.anchorNode);
+      const focusSurface = selectionSurface(selection.focusNode);
+      return anchorSurface && anchorSurface === focusSurface &&
+        conversationRef.current?.contains(anchorSurface)
+        ? anchorSurface
+        : undefined;
+    };
     const clearSelectionSurface = () => {
       conversationRef.current?.classList.remove("is-message-text-selecting");
       selectionMessageRef.current?.classList.remove("is-selection-origin");
     };
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
-      clearSelectionSurface();
-      selectedReplyQuoteSnapshotRef.current = undefined;
       const target = event.target instanceof Element ? event.target : null;
       const surface = target?.closest<HTMLElement>(".message-rich-text") ?? null;
+      const selection = globalThis.getSelection();
+      const selectedSurface = selectedMessageSurface(selection);
+      if (selectedSurface && selectedSurface !== surface) selection?.removeAllRanges();
+      clearSelectionSurface();
+      selectedReplyQuoteSnapshotRef.current = undefined;
       selectionMessageRef.current = surface && conversationRef.current?.contains(surface)
         ? surface
         : null;
@@ -988,15 +1003,7 @@ export function Conversation({
     };
     const onSelectionChange = () => {
       const selection = globalThis.getSelection();
-      const selectionSurface = (node: Node | null) => node instanceof Element
-        ? node.closest<HTMLElement>(".message-rich-text")
-        : node?.parentElement?.closest<HTMLElement>(".message-rich-text");
-      const anchorSurface = selectionSurface(selection?.anchorNode ?? null);
-      const focusSurface = selectionSurface(selection?.focusNode ?? null);
-      const selectedSurface = anchorSurface && anchorSurface === focusSurface &&
-        conversationRef.current?.contains(anchorSurface)
-        ? anchorSurface
-        : undefined;
+      const selectedSurface = selectedMessageSurface(selection);
       const boundary = selectedSurface ?? selectionMessageRef.current;
       if (!selection || selection.isCollapsed || !boundary || selectionClampActiveRef.current) return;
       selectionMessageRef.current = boundary;

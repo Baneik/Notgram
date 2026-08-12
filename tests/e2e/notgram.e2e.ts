@@ -3736,6 +3736,65 @@ test("selecting message text is not interrupted by composer autofocus", async ({
   expect(boundaryResult?.text.length).toBeGreaterThan(0);
   expect(boundaryResult?.anchorMessageId).toBe("m-3");
   expect(boundaryResult?.focusMessageId).toBe("m-3");
+
+  await page.locator(".message-list").click({ position: { x: 8, y: 8 } });
+  await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
+    .toBe("");
+  await expect(page.locator(".conversation")).not.toHaveClass(/is-message-text-selecting/);
+});
+
+test("primary clicks outside selected message text clear the native selection", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-mia"]').click();
+
+  const messageText = page.locator('[data-message-id="m-3"] .message-rich-text');
+  await expect(messageText).toBeVisible();
+  const selectText = async () => {
+    await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+    await expect(messageText).toHaveAttribute("data-rich-text", "markdown");
+    await messageText.scrollIntoViewIfNeeded();
+    const drag = await messageText.evaluate((surface) => {
+      const text = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT).nextNode();
+      if (!text) return undefined;
+      const pointAt = (offset: number) => {
+        const range = document.createRange();
+        range.setStart(text, offset);
+        range.setEnd(text, offset + 1);
+        const bounds = range.getBoundingClientRect();
+        return { x: bounds.left + 1, y: bounds.top + bounds.height / 2 };
+      };
+      return {
+        start: pointAt(0),
+        end: pointAt(Math.min(8, (text.textContent?.length ?? 1) - 1)),
+      };
+    });
+    expect(drag).toBeTruthy();
+    await page.mouse.move(drag!.start.x, drag!.start.y);
+    await page.mouse.down();
+    await page.mouse.move(drag!.end.x, drag!.end.y, { steps: 12 });
+    await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
+      .not.toBe("");
+  };
+  const expectSelectionCleared = async () => {
+    await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
+      .toBe("");
+    await expect(page.locator(".conversation")).not.toHaveClass(/is-message-text-selecting/);
+  };
+
+  await selectText();
+  await page.locator(".message-list").click({ position: { x: 8, y: 8 } });
+  await expectSelectionCleared();
+
+  await selectText();
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expectSelectionCleared();
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(messageText).toBeVisible();
+  await selectText();
+  await page.getByRole("textbox", { name: "消息内容" }).click();
+  await expectSelectionCleared();
 });
 
 test("replying from selected message text sends only the partial quote", async ({ page }) => {
