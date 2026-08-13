@@ -488,7 +488,7 @@ fn program_directory() -> Result<PathBuf, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::file_actions::{canonical_file_within_roots, safe_file_name};
+    use super::file_actions::{canonical_file_within_roots, download_file_name, safe_file_name};
     use super::*;
     use std::collections::HashSet;
 
@@ -515,6 +515,14 @@ mod tests {
     #[test]
     fn sanitizes_download_file_names() {
         assert_eq!(safe_file_name(r#"..\report?.pdf"#), "report_.pdf");
+        assert_eq!(
+            download_file_name("视频", Path::new(r#"C:\cache\video.mp4"#)),
+            "视频.mp4"
+        );
+        assert_eq!(
+            download_file_name("review.webm", Path::new(r#"C:\cache\video.mp4"#)),
+            "review.webm"
+        );
     }
 
     #[test]

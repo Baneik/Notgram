@@ -84,6 +84,15 @@ const requestStatus = (
   return "pending";
 };
 
+const hasFileExtension = (value: string) => /(?:^|[\\/])?[^\\/]+\.[^\\/.]+$/.test(value.trim());
+
+const currentDownloadFileName = (requestFileName: string, contentFileName: string) => {
+  if (!requestFileName.trim()) return contentFileName;
+  return !hasFileExtension(requestFileName) && hasFileExtension(contentFileName)
+    ? contentFileName
+    : requestFileName;
+};
+
 export const createManagedDownloadRequest = (
   accountId: string,
   fileId: number,
@@ -190,14 +199,14 @@ export const collectManagedDownloads = (
         : undefined;
       const progress = status === "completed" || status === "saving"
         ? 1
-        : Math.max(0, Math.min(1, sizeProgress ?? content.progress ?? 0));
+        : Math.max(0, Math.min(status === "downloading" ? 0.99 : 1, sizeProgress ?? content.progress ?? 0));
       const transferredSize = Math.max(
         0,
         content.downloadedSize ?? (content.size ? Math.round(content.size * progress) : 0),
       );
       const item: ManagedDownloadItem = {
         fileId: content.fileId,
-        fileName: request.fileName || content.fileName,
+        fileName: currentDownloadFileName(request.fileName, content.fileName),
         chatId,
         chatTitle: chats.get(chatId)?.title ?? "未知会话",
         messageId: message.id,

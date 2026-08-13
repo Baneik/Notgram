@@ -3497,7 +3497,10 @@ test("download manager lists only explicit downloads and supports batch manageme
     const storeModule = await import(storePath) as {
       telegramStore: {
         getState: () => { messages: Map<string, TestMessage[]> };
-        setState: (partial: { messages: Map<string, TestMessage[]> }) => void;
+        setState: (partial: {
+          messages: Map<string, TestMessage[]>;
+          downloadFile: (fileId: number, fileName: string) => Promise<void>;
+        }) => void;
       };
     };
     const state = storeModule.telegramStore.getState();
@@ -3516,12 +3519,38 @@ test("download manager lists only explicit downloads and supports batch manageme
           }
         : message
     ));
-    storeModule.telegramStore.setState({ messages });
+    storeModule.telegramStore.setState({
+      messages,
+      downloadFile: async () => new Promise<void>(() => undefined),
+    });
   }, "/src/store/telegramStore.ts");
 
   const fileMessage = await revealVirtualMessage(page, "p-file-downloading");
   await expect(fileMessage.getByRole("button", { name: "下载 research-notes.zip" })).toHaveCount(1);
   await fileMessage.getByRole("button", { name: "下载 research-notes.zip" }).click();
+  await page.evaluate(async (storePath) => {
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) =>
+      message.id === "p-file-downloading"
+        ? {
+            ...message,
+            content: {
+              ...(message.content as Record<string, unknown>),
+              isDownloading: true,
+              progress: 0,
+            },
+          }
+        : message
+    ));
+    storeModule.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
   await page.keyboard.press("Control+j");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("research-notes.zip", { exact: true })).toBeVisible();
@@ -3530,7 +3559,7 @@ test("download manager lists only explicit downloads and supports batch manageme
   await expect.poll(() => dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await dialog.getByRole("checkbox", { name: "选择 research-notes.zip" }).check();
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
-  await expect(dialog.getByText("等待下载", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("已取消", { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "移除", exact: true }).click();
   await expect(dialog.getByText("暂无下载")).toBeVisible();
 });
@@ -4185,6 +4214,59 @@ test("media transfers expose their exact circular progress", async ({ page }) =>
   const dashOffset = Number(await ring.getAttribute("stroke-dashoffset"));
   expect(dashOffset).toBeGreaterThan(47);
   expect(dashOffset).toBeLessThan(48);
+});
+
+test("video downloads share real progress and a usable file name across both views", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("notgram:managed-downloads:v1", JSON.stringify([{
+      accountId: "default",
+      fileId: 93,
+      fileName: "视频",
+      requestedAt: "2026-08-13T12:00:00.000Z",
+    }]));
+  });
+  await page.goto("/");
+  await page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: {
+          messages: Map<string, Array<Record<string, unknown>>>;
+          downloadFile: (fileId: number, fileName: string) => Promise<void>;
+        }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const chatMessages = [...(messages.get("chat-product") ?? [])];
+    const index = chatMessages.findIndex((message) => message.id === "p-video");
+    if (index < 0) return;
+    chatMessages[index] = {
+      ...chatMessages[index],
+      content: {
+        ...(chatMessages[index].content as Record<string, unknown>),
+        fileName: "视频_93.mp4",
+        size: 10_000_000,
+        downloadedSize: 2_500_000,
+        isDownloaded: false,
+        isDownloading: true,
+        progress: 0.25,
+      },
+    };
+    messages.set("chat-product", chatMessages);
+    storeModule.telegramStore.setState({
+      messages,
+      downloadFile: async () => new Promise<void>(() => undefined),
+    });
+  }, "/src/store/telegramStore.ts");
+
+  await expect(page.locator('[data-message-id="p-video"] [role="progressbar"]'))
+    .toHaveAttribute("aria-valuenow", "25");
+  await page.keyboard.press("Control+j");
+  const dialog = page.getByRole("dialog", { name: "下载" });
+  await expect(dialog.getByText("视频_93.mp4", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("progressbar", { name: "视频_93.mp4 下载进度" }))
+    .toHaveAttribute("aria-valuenow", "25");
 });
 
 test("pinned chats can be dragged into a fixed order", async ({ page }) => {

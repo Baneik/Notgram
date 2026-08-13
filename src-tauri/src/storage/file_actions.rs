@@ -27,7 +27,11 @@ pub fn telegram_save_downloaded_file(
         return Err("Downloaded file is outside the active TDLib files directory".to_string());
     }
     let directory = download_directory(&app)?;
-    let destination = copy_to_available_download(&source, &directory, &safe_file_name(&file_name))?;
+    let destination = copy_to_available_download(
+        &source,
+        &directory,
+        &download_file_name(&file_name, &source),
+    )?;
     Ok(destination.display().to_string())
 }
 
@@ -170,6 +174,21 @@ pub(super) fn safe_file_name(value: &str) -> String {
         "download".to_string()
     } else {
         sanitized
+    }
+}
+
+pub(super) fn download_file_name(value: &str, source: &Path) -> String {
+    let safe_name = safe_file_name(value);
+    if Path::new(&safe_name).extension().is_some() {
+        return safe_name;
+    }
+    let Some(extension) = source.extension().and_then(|value| value.to_str()) else {
+        return safe_name;
+    };
+    if extension.is_empty() {
+        safe_name
+    } else {
+        format!("{safe_name}.{extension}")
     }
 }
 

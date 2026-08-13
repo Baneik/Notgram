@@ -222,10 +222,14 @@ const fileDetails = (value: unknown, includePendingUpload = false) => {
   const file = asTdObject(value);
   const local = asTdObject(file?.local);
   const remote = asTdObject(file?.remote);
-  const size = tdNumber(file?.size) ?? tdNumber(file?.expected_size) ?? 0;
+  const exactSize = tdNumber(file?.size) ?? 0;
+  const expectedSize = tdNumber(file?.expected_size) ?? 0;
+  const downloadCompleted = local?.is_downloading_completed === true;
+  const size = exactSize > 0 ? exactSize : expectedSize;
   const downloadedSize = tdNumber(local?.downloaded_size) ?? 0;
   const uploadedSize = tdNumber(remote?.uploaded_size) ?? 0;
-  const transferredSize = Math.max(downloadedSize, uploadedSize);
+  const isUploading = remote?.is_uploading_active === true;
+  const transferredSize = isUploading ? uploadedSize : downloadedSize;
   return {
     fileId: tdNumber(file?.id),
     size,
@@ -233,12 +237,12 @@ const fileDetails = (value: unknown, includePendingUpload = false) => {
     localPath: tdLocalFilePath(file, includePendingUpload),
     canDownload: local?.can_be_downloaded === true,
     isDownloading: local?.is_downloading_active === true,
-    isDownloaded: local?.is_downloading_completed === true || Boolean(tdLocalFilePath(file, includePendingUpload)),
-    isUploading: remote?.is_uploading_active === true,
+    isDownloaded: downloadCompleted || Boolean(tdLocalFilePath(file, includePendingUpload)),
+    isUploading,
     downloadedSize,
     uploadedSize,
     progress: size > 0 && transferredSize > 0
-      ? Math.min(1, transferredSize / size)
+      ? Math.min(downloadCompleted || (!local?.is_downloading_active && !isUploading) ? 1 : 0.99, transferredSize / size)
       : undefined,
   };
 };
@@ -282,6 +286,35 @@ const photoPreviewDetails = (value: unknown): {
     ...(smallest?.photo ? thumbnailFileDetails(asTdObject(smallest.photo)) : {}),
     previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
   };
+};
+
+const mediaFileExtension = (mimeType: string | undefined, fallback: string) => {
+  switch (mimeType?.split(";", 1)[0].trim().toLocaleLowerCase()) {
+    case "video/webm": return "webm";
+    case "video/quicktime": return "mov";
+    case "video/x-matroska": return "mkv";
+    case "video/x-msvideo": return "avi";
+    case "video/mp4": return "mp4";
+    default: return fallback;
+  }
+};
+
+const downloadableMediaFileName = (
+  value: unknown,
+  fallbackLabel: string,
+  file: unknown,
+  mimeType: string | undefined,
+  fallbackExtension: string,
+) => {
+  if (typeof value === "string" && value.trim()) {
+    const fileName = value.trim();
+    return /\.[^./\\]+$/.test(fileName)
+      ? fileName
+      : `${fileName}.${mediaFileExtension(mimeType, fallbackExtension)}`;
+  }
+  const fileId = tdNumber(asTdObject(file)?.id);
+  const suffix = fileId === undefined ? "" : `_${fileId}`;
+  return `${fallbackLabel}${suffix}.${mediaFileExtension(mimeType, fallbackExtension)}`;
 };
 
 export const tdStickerMimeType = (value: unknown) => {
@@ -1011,13 +1044,14 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const video = asTdObject(content.video);
       const cover = photoPreviewDetails(content.cover);
       const thumbnail = thumbnailDetails(video?.thumbnail);
+      const mimeType = typeof video?.mime_type === "string" ? video.mime_type : undefined;
       return mediaContent(
         "video",
-        typeof video?.file_name === "string" && video.file_name ? video.file_name : "视频",
+        downloadableMediaFileName(video?.file_name, "视频", video?.video, mimeType, "mp4"),
         video?.video,
         {
           ...formattedCaption(content.caption),
-          mimeType: typeof video?.mime_type === "string" ? video.mime_type : undefined,
+          mimeType,
           thumbnailPath: cover.thumbnailPath ?? thumbnail.thumbnailPath,
           thumbnailFileId: cover.thumbnailFileId ?? thumbnail.thumbnailFileId,
           thumbnailCanDownload: cover.thumbnailCanDownload ?? thumbnail.thumbnailCanDownload,
@@ -1073,7 +1107,13 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
     case "messageVideoNote": {
       const videoNote = asTdObject(content.video_note);
       const length = tdNumber(videoNote?.length);
-      return mediaContent("videoNote", "视频消息", videoNote?.video, {
+      return mediaContent("videoNote", downloadableMediaFileName(
+        undefined,
+        "视频消息",
+        videoNote?.video,
+        "video/mp4",
+        "mp4",
+      ), videoNote?.video, {
         ...thumbnailDetails(videoNote?.thumbnail),
         previewDataUrl: minithumbnailDataUrl(videoNote?.minithumbnail),
         width: length,

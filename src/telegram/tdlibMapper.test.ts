@@ -484,7 +484,7 @@ describe("TDLib mapper", () => {
                   is_downloading_completed: false,
                   downloaded_size: 1000,
                 },
-                remote: {},
+                remote: { uploaded_size: 4000 },
               },
             },
           ],
@@ -506,6 +506,58 @@ describe("TDLib mapper", () => {
       previewDataUrl: "data:image/jpeg;base64,aGVsbG8=",
       width: 1280,
       height: 720,
+    });
+
+    expect(mapTdMessageContent({
+      "@type": "messageVideo",
+      video: {
+        mime_type: "video/mp4",
+        video: {
+          id: 33,
+          size: 2_000_000,
+          local: { can_be_downloaded: true, is_downloading_completed: false },
+        },
+      },
+    })).toMatchObject({
+      kind: "media",
+      mediaType: "video",
+      fileName: "视频_33.mp4",
+    });
+
+    expect(mapTdMessageContent({
+      "@type": "messageVideo",
+      video: {
+        file_name: "录像",
+        mime_type: "video/webm",
+        video: { id: 35 },
+      },
+    })).toMatchObject({ fileName: "录像.webm" });
+  });
+
+  it("uses local downloaded bytes instead of the completed remote upload", () => {
+    expect(mapTdMessageContent({
+      "@type": "messageVideo",
+      video: {
+        file_name: "large-video.mp4",
+        mime_type: "video/mp4",
+        video: {
+          id: 34,
+          size: 10_000_000,
+          expected_size: 10_000_000,
+          local: {
+            can_be_downloaded: true,
+            is_downloading_active: true,
+            is_downloading_completed: false,
+            downloaded_size: 2_500_000,
+          },
+          remote: { uploaded_size: 10_000_000 },
+        },
+      },
+    })).toMatchObject({
+      fileName: "large-video.mp4",
+      size: 10_000_000,
+      downloadedSize: 2_500_000,
+      progress: 0.25,
     });
   });
 
