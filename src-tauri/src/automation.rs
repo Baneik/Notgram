@@ -111,8 +111,7 @@ fn webview2_arguments(existing: Option<&str>, port: u16) -> Result<String, Strin
         ));
     }
 
-    let automation =
-        format!("--remote-debugging-address=127.0.0.1 --remote-debugging-port={port} --mute-audio");
+    let automation = format!("--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}");
     Ok(match existing {
         Some(value) => format!("{value} {automation}"),
         None => automation,
@@ -284,12 +283,19 @@ mod tests {
     }
 
     #[test]
-    fn webview2_automation_is_loopback_only_and_muted() {
+    fn webview2_automation_is_loopback_only_and_does_not_implicitly_mute() {
         let arguments = webview2_arguments(Some("--disable-features=Example"), 9333).unwrap();
         assert!(arguments.contains("--disable-features=Example"));
         assert!(arguments.contains("--remote-debugging-address=127.0.0.1"));
         assert!(arguments.contains("--remote-debugging-port=9333"));
-        assert!(arguments.contains("--mute-audio"));
+        assert!(!arguments.contains("--mute-audio"));
+    }
+
+    #[test]
+    fn webview2_automation_preserves_an_explicit_mute_argument() {
+        let arguments = webview2_arguments(Some("--mute-audio"), 9333).unwrap();
+        assert!(arguments.starts_with("--mute-audio "));
+        assert!(arguments.contains("--remote-debugging-port=9333"));
     }
 
     #[test]
