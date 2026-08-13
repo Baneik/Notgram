@@ -3512,10 +3512,10 @@ test("audio controls remember volume and keep the collapsible player inside the 
   await expect(audioEngine).toHaveJSProperty("volume", 0.55);
 
   const conversation = page.locator(".conversation");
-  const dragHandle = controller.getByRole("button", { name: "拖动播放器：产品语音.m4a" });
-  const handleBounds = await dragHandle.boundingBox();
-  expect(handleBounds).not.toBeNull();
-  await page.mouse.move(handleBounds!.x + 12, handleBounds!.y + handleBounds!.height / 2);
+  await expect(controller.getByRole("button", { name: /拖动播放器/ })).toHaveCount(0);
+  const controllerBounds = await controller.boundingBox();
+  expect(controllerBounds).not.toBeNull();
+  await page.mouse.move(controllerBounds!.x + 12, controllerBounds!.y + controllerBounds!.height / 2);
   await page.mouse.down();
   await page.mouse.move(0, 0, { steps: 3 });
   await page.mouse.up();
@@ -3527,10 +3527,10 @@ test("audio controls remember volume and keep the collapsible player inside the 
   expect(topLeft!.x).toBeGreaterThanOrEqual(conversationBounds!.x + 11);
   expect(topLeft!.y).toBeGreaterThanOrEqual(conversationBounds!.y + 11);
 
-  const movedHandleBounds = await dragHandle.boundingBox();
+  const movedControllerBounds = await controller.boundingBox();
   await page.mouse.move(
-    movedHandleBounds!.x + 12,
-    movedHandleBounds!.y + movedHandleBounds!.height / 2,
+    movedControllerBounds!.x + 12,
+    movedControllerBounds!.y + movedControllerBounds!.height / 2,
   );
   await page.mouse.down();
   await page.mouse.move(2_000, 2_000, { steps: 3 });
@@ -3541,6 +3541,21 @@ test("audio controls remember volume and keep the collapsible player inside the 
   expect(bottomRight!.y + bottomRight!.height)
     .toBeLessThanOrEqual(conversationBounds!.y + conversationBounds!.height - 11);
 
+  const movedPlay = controller.getByRole("button", { name: "暂停" });
+  const movedPlayBounds = await movedPlay.boundingBox();
+  await page.mouse.move(
+    movedPlayBounds!.x + movedPlayBounds!.width / 2,
+    movedPlayBounds!.y + movedPlayBounds!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    movedPlayBounds!.x - 80,
+    movedPlayBounds!.y - 60,
+    { steps: 3 },
+  );
+  await page.mouse.up();
+  await expect(movedPlay).toBeVisible();
+
   await controller.getByRole("button", { name: "缩小播放器" }).click();
   await expect(controller).toHaveClass(/is-compact/);
   await expect(controller.locator(".audio-floating-progress")).toHaveCount(0);
@@ -3549,6 +3564,27 @@ test("audio controls remember volume and keep the collapsible player inside the 
   await expect(controller.getByRole("button", { name: "展开播放器" })).toBeVisible();
   const compactBounds = await controller.boundingBox();
   expect(compactBounds!.width).toBeLessThan(expandedBounds!.width);
+});
+
+test("audio message controls remain inside their bubble at narrow conversation widths", async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 720 });
+  await page.goto("/");
+  const audio = page.getByRole("group", { name: "产品语音.m4a" });
+  const bubble = audio.locator("xpath=ancestor::*[contains(@class, 'message-bubble')][1]");
+  await expect(audio).toBeVisible();
+  const geometry = await audio.evaluate((element) => {
+    const bubbleElement = element.closest<HTMLElement>(".message-bubble");
+    const player = element.getBoundingClientRect();
+    const parent = bubbleElement?.getBoundingClientRect();
+    return { player, parent };
+  });
+  expect(geometry.parent).toBeTruthy();
+  expect(geometry.player.left).toBeGreaterThanOrEqual(geometry.parent!.left - 0.5);
+  expect(geometry.player.right).toBeLessThanOrEqual(geometry.parent!.right + 0.5);
+  expect(geometry.player.top).toBeGreaterThanOrEqual(geometry.parent!.top - 0.5);
+  expect(geometry.player.bottom).toBeLessThanOrEqual(geometry.parent!.bottom + 0.5);
+  expect(geometry.player.width).toBeLessThanOrEqual(geometry.parent!.width);
+  await expect(bubble).toHaveCount(1);
 });
 
 test("download manager lists only explicit downloads and supports batch management", async ({ page }) => {

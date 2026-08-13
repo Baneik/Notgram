@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import {
   type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -391,7 +390,11 @@ function AudioFloatingController() {
     pointerId: number;
     offsetX: number;
     offsetY: number;
+    startX: number;
+    startY: number;
+    dragging: boolean;
   } | undefined>(undefined);
+  const suppressClickRef = useRef(false);
   const [position, setPosition] = useState<FloatingPosition>();
   const [compact, setCompact] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -456,48 +459,47 @@ function AudioFloatingController() {
   const hasNext = audioPlaybackController.hasTrack(track.nextId);
   const muted = playback.muted || playback.volume <= 0;
 
-  const beginDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const beginDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || !position) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("input")) return;
     dragRef.current = {
       pointerId: event.pointerId,
       offsetX: event.clientX - position.x,
       offsetY: event.clientY - position.y,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setDragging(true);
   };
 
-  const drag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const drag = (event: ReactPointerEvent<HTMLElement>) => {
     const gesture = dragRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (!gesture.dragging) {
+      if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < 4) return;
+      gesture.dragging = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDragging(true);
+    }
     moveInsideConversation({
       x: event.clientX - gesture.offsetX,
       y: event.clientY - gesture.offsetY,
     });
   };
 
-  const finishDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (dragRef.current?.pointerId !== event.pointerId) return;
+  const finishDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const gesture = dragRef.current;
+    if (gesture?.pointerId !== event.pointerId) return;
     dragRef.current = undefined;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    if (gesture.dragging) {
+      suppressClickRef.current = true;
+      globalThis.setTimeout(() => { suppressClickRef.current = false; }, 0);
+    }
     setDragging(false);
-  };
-
-  const moveWithKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    const movement = {
-      ArrowLeft: [-12, 0],
-      ArrowRight: [12, 0],
-      ArrowUp: [0, -12],
-      ArrowDown: [0, 12],
-    }[event.key];
-    if (!movement || !position) return;
-    event.preventDefault();
-    moveInsideConversation({
-      x: position.x + movement[0],
-      y: position.y + movement[1],
-    });
   };
 
   const playButton = (
@@ -539,20 +541,18 @@ function AudioFloatingController() {
       className={`audio-floating-controller ${compact ? "is-compact" : ""} ${dragging ? "is-dragging" : ""}`}
       style={position ? { left: position.x, top: position.y } as CSSProperties : undefined}
       aria-label={`正在播放 ${track.label}`}
+      onPointerDown={beginDrag}
+      onPointerMove={drag}
+      onPointerUp={finishDrag}
+      onPointerCancel={finishDrag}
+      onClickCapture={(event) => {
+        if (!suppressClickRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
     >
       {compact ? (
         <div className="audio-floating-compact-controls">
-          <button
-            className="audio-floating-drag is-compact"
-            type="button"
-            aria-label="拖动播放器"
-            title="拖动播放器（方向键可微调）"
-            onPointerDown={beginDrag}
-            onPointerMove={drag}
-            onPointerUp={finishDrag}
-            onPointerCancel={finishDrag}
-            onKeyDown={moveWithKeyboard}
-          />
           {previousButton}
           {playButton}
           {nextButton}
@@ -567,20 +567,7 @@ function AudioFloatingController() {
       ) : (
         <>
           <header>
-            <button
-              className="audio-floating-drag"
-              type="button"
-              aria-label={`拖动播放器：${track.label}`}
-              title="拖动播放器（方向键可微调）"
-              onPointerDown={beginDrag}
-              onPointerMove={drag}
-              onPointerUp={finishDrag}
-              onPointerCancel={finishDrag}
-              onKeyDown={moveWithKeyboard}
-            >
-              <span className="audio-floating-grip" aria-hidden="true" />
-              <strong>{track.label}</strong>
-            </button>
+            <strong title={track.label}>{track.label}</strong>
             <button type="button" aria-label="缩小播放器" title="缩小播放器" onClick={() => setCompact(true)}>
               <ChevronDown size={17} />
             </button>

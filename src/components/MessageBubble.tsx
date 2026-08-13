@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  AudioLines,
   Check,
   CheckCheck,
   ChevronDown,
@@ -678,7 +677,7 @@ function MessageBubbleComponent({
         </button>
       )}
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""}`}
         style={visualShellStyle}
         tabIndex={!selectionMode && !isService ? 0 : undefined}
         onPointerDown={(event) => {
@@ -1048,15 +1047,12 @@ function MessageBubbleComponent({
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
             <div className="attachment-message">
               <div className="audio-message">
-                <span className="file-icon"><AudioLines size={19} strokeWidth={1.8} /></span>
-                <span className="file-copy">
-                  <strong>{highlightedText(content.fileName, searchQuery)}</strong>
-                  <small>{content.sizeLabel}</small>
-                </span>
                 <AudioPlayer
                   source={fullMediaSource}
                   playbackId={`${message.chatId}:${message.id}`}
                   label={content.fileName}
+                  displayLabel={highlightedText(content.fileName, searchQuery)}
+                  subtitle={content.sizeLabel}
                   fileId={content.fileId}
                   size={content.size}
                   mimeType={content.mimeType}
