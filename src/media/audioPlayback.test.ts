@@ -22,6 +22,7 @@ describe("audio playback controller", () => {
     const controller = new AudioPlaybackController();
     const host: AudioPlaybackHostControls = {
       play: vi.fn(), toggle: vi.fn(), seek: vi.fn(), setPlaybackRate: vi.fn(),
+      setAudioOutput: vi.fn(),
       previous: vi.fn(), next: vi.fn(), close: vi.fn(),
     };
     controller.attachHost(host);
@@ -31,12 +32,16 @@ describe("audio playback controller", () => {
     controller.toggle(item);
     controller.seek(12);
     controller.cyclePlaybackRate();
+    controller.setVolume(0.35);
+    controller.toggleMuted();
     controller.close();
 
     expect(host.play).toHaveBeenCalledWith(item);
     expect(host.toggle).toHaveBeenCalledOnce();
     expect(host.seek).toHaveBeenCalledWith(12);
     expect(host.setPlaybackRate).toHaveBeenCalledWith(1.25);
+    expect(host.setAudioOutput).toHaveBeenNthCalledWith(1, 0.35, false);
+    expect(host.setAudioOutput).toHaveBeenNthCalledWith(2, 0.35, true);
     expect(host.close).toHaveBeenCalledOnce();
   });
 });

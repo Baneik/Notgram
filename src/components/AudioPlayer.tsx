@@ -1,4 +1,13 @@
-import { AlertCircle, Download, LoaderCircle, Pause, Play, X } from "lucide-react";
+import {
+  AlertCircle,
+  Download,
+  LoaderCircle,
+  Pause,
+  Play,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo } from "react";
 import {
   audioPlaybackController,
@@ -88,6 +97,7 @@ export function AudioPlayer({
   const currentTime = active ? playback.currentTime : 0;
   const duration = active ? playback.duration : durationHint ?? 0;
   const playbackRate = active ? playback.playbackRate : 1;
+  const muted = playback.muted || playback.volume <= 0;
   const canPlay = Boolean(source || (fileId !== undefined && size && size > 0));
   const playbackLabel = canPlay
     ? playing ? `暂停 ${label}` : `播放 ${label}`
@@ -133,6 +143,27 @@ export function AudioPlayer({
       >
         {playbackRate}x
       </button>
+      <div className="audio-inline-volume">
+        <button
+          type="button"
+          aria-label={muted ? "取消静音" : "静音"}
+          title={muted ? "取消静音" : "静音"}
+          disabled={!active}
+          onClick={() => audioPlaybackController.toggleMuted()}
+        >
+          {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={playback.muted ? 0 : playback.volume}
+          aria-label="音量"
+          disabled={!active}
+          onChange={(event) => audioPlaybackController.setVolume(Number(event.currentTarget.value))}
+        />
+      </div>
       {onCancelDownload ? (
         <button className="audio-download" type="button" aria-label={`取消下载 ${label}`} title="取消下载" onClick={onCancelDownload}>
           <span

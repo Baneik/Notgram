@@ -1,20 +1,39 @@
 import {
   AlertCircle,
+  ChevronDown,
+  ChevronUp,
   Download,
   LoaderCircle,
   Pause,
   Play,
   SkipBack,
   SkipForward,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   audioPlaybackController,
   type AudioPlaybackHostControls,
   type AudioTrackDescriptor,
   useAudioPlayback,
 } from "../media/audioPlayback";
+import {
+  clampAudioFloatingPosition,
+  defaultAudioFloatingPosition,
+  type FloatingBounds,
+  type FloatingPosition,
+} from "../media/audioFloatingPosition";
 import {
   formatPlaybackTime,
   mediaPlaybackCoordinator,
@@ -28,6 +47,8 @@ function PersistentAudioEngine() {
   const requestGenerationRef = useRef(0);
   const lastRememberedSecondRef = useRef(0);
   const playbackRateRef = useRef(1);
+  const volumeRef = useRef(audioPlaybackController.getSnapshot().volume);
+  const mutedRef = useRef(audioPlaybackController.getSnapshot().muted);
   const streamingTrackIdRef = useRef<string | undefined>(undefined);
   const recoveryAttemptsRef = useRef(new Set<string>());
   const audioContextRef = useRef<AudioContext | undefined>(undefined);
@@ -71,9 +92,9 @@ function PersistentAudioEngine() {
   };
 
   const ensureAudioOutput = (audio: HTMLAudioElement) => {
-    audio.defaultMuted = false;
-    audio.muted = false;
-    if (audio.volume === 0) audio.volume = 1;
+    audio.defaultMuted = mutedRef.current;
+    audio.muted = mutedRef.current;
+    audio.volume = volumeRef.current;
     return ensureAudioGraph(audio);
   };
 
@@ -176,6 +197,16 @@ function PersistentAudioEngine() {
     if (track) audioPlaybackController.update(track.id, { playbackRate: rate });
   };
 
+  const setAudioOutput = (volume: number, muted: boolean) => {
+    volumeRef.current = volume;
+    mutedRef.current = muted;
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.volume = volume;
+    audio.defaultMuted = muted;
+    audio.muted = muted;
+  };
+
   const previous = () => {
     const audio = audioRef.current;
     const current = trackRef.current;
@@ -219,6 +250,7 @@ function PersistentAudioEngine() {
       toggle,
       seek,
       setPlaybackRate,
+      setAudioOutput,
       previous,
       next,
       close,
@@ -353,60 +385,262 @@ function PersistentAudioEngine() {
 function AudioFloatingController() {
   const playback = useAudioPlayback();
   const track = playback.track;
+  const controllerRef = useRef<HTMLElement>(null);
+  const boundaryRef = useRef<HTMLElement | undefined>(undefined);
+  const dragRef = useRef<{
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+  } | undefined>(undefined);
+  const [position, setPosition] = useState<FloatingPosition>();
+  const [compact, setCompact] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  const readBounds = useCallback((): FloatingBounds | undefined => {
+    const controller = controllerRef.current;
+    if (!controller) return undefined;
+    const app = document.querySelector<HTMLElement>(".app-shell");
+    const boundary = app?.querySelector<HTMLElement>(
+      ".conversation, .forum-topics-view",
+    );
+    if (!boundary) return undefined;
+    boundaryRef.current = boundary;
+    const bounds = boundary.getBoundingClientRect();
+    return {
+      left: bounds.left,
+      top: bounds.top,
+      right: bounds.right,
+      bottom: bounds.bottom,
+    };
+  }, []);
+
+  const moveInsideConversation = useCallback((requested?: FloatingPosition) => {
+    const controller = controllerRef.current;
+    const bounds = readBounds();
+    if (!controller || !bounds) return;
+    const rect = controller.getBoundingClientRect();
+    const size = { width: rect.width, height: rect.height };
+    setPosition((current) => {
+      const next = requested
+        ? clampAudioFloatingPosition(requested, bounds, size)
+        : current
+          ? clampAudioFloatingPosition(current, bounds, size)
+          : defaultAudioFloatingPosition(bounds, size);
+      return current && current.x === next.x && current.y === next.y ? current : next;
+    });
+  }, [readBounds]);
+
+  useLayoutEffect(() => {
+    if (!track) return;
+    moveInsideConversation();
+  }, [compact, moveInsideConversation, track?.id]);
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    readBounds();
+    const boundary = boundaryRef.current;
+    if (!controller || !boundary) return;
+    const onResize = () => moveInsideConversation();
+    const observer = new ResizeObserver(onResize);
+    observer.observe(boundary);
+    observer.observe(controller);
+    globalThis.addEventListener("resize", onResize);
+    return () => {
+      observer.disconnect();
+      globalThis.removeEventListener("resize", onResize);
+    };
+  }, [compact, moveInsideConversation, readBounds, track?.id]);
+
   if (!track) return null;
   const hasPrevious = audioPlaybackController.hasTrack(track.previousId);
   const hasNext = audioPlaybackController.hasTrack(track.nextId);
+  const muted = playback.muted || playback.volume <= 0;
+
+  const beginDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !position) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - position.x,
+      offsetY: event.clientY - position.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  };
+
+  const drag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const gesture = dragRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    moveInsideConversation({
+      x: event.clientX - gesture.offsetX,
+      y: event.clientY - gesture.offsetY,
+    });
+  };
+
+  const finishDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = undefined;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDragging(false);
+  };
+
+  const moveWithKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const movement = {
+      ArrowLeft: [-12, 0],
+      ArrowRight: [12, 0],
+      ArrowUp: [0, -12],
+      ArrowDown: [0, 12],
+    }[event.key];
+    if (!movement || !position) return;
+    event.preventDefault();
+    moveInsideConversation({
+      x: position.x + movement[0],
+      y: position.y + movement[1],
+    });
+  };
+
+  const playButton = (
+    <button
+      className="audio-floating-play"
+      type="button"
+      aria-label={playback.playing ? "暂停" : "播放"}
+      title={playback.playing ? "暂停" : "播放"}
+      onClick={() => audioPlaybackController.toggle()}
+    >
+      {playback.loading
+        ? <LoaderCircle className="spin" size={20} />
+        : playback.failed ? <AlertCircle size={20} />
+          : playback.playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+    </button>
+  );
+
+  const previousButton = (
+    <button type="button" disabled={!hasPrevious && playback.currentTime <= 0} aria-label="上一条音频" title="上一条音频" onClick={() => audioPlaybackController.previous()}>
+      <SkipBack size={17} fill="currentColor" />
+    </button>
+  );
+
+  const nextButton = (
+    <button type="button" disabled={!hasNext} aria-label="下一条音频" title="下一条音频" onClick={() => audioPlaybackController.next()}>
+      <SkipForward size={17} fill="currentColor" />
+    </button>
+  );
+
+  const volumeButton = (
+    <button type="button" aria-label={muted ? "取消静音" : "静音"} title={muted ? "取消静音" : "静音"} onClick={() => audioPlaybackController.toggleMuted()}>
+      {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
+    </button>
+  );
 
   return (
-    <aside className="audio-floating-controller" aria-label={`正在播放 ${track.label}`}>
-      <header>
-        <strong title={track.label}>{track.label}</strong>
-        <button className="playback-rate" type="button" aria-label={`播放速度 ${playback.playbackRate} 倍`} title="切换播放速度" onClick={() => audioPlaybackController.cyclePlaybackRate()}>
-          {playback.playbackRate}x
-        </button>
-        <button type="button" aria-label="关闭播放" title="关闭播放" onClick={() => audioPlaybackController.close()}>
-          <X size={15} />
-        </button>
-      </header>
-      <AudioSpectrum playbackId={track.id} playing={playback.playing} bars={40} className="is-floating" />
-      <div className="audio-floating-progress">
-        <input
-          type="range"
-          min={0}
-          max={playback.duration || 0}
-          step={0.1}
-          value={Math.min(playback.currentTime, playback.duration || 0)}
-          aria-label="播放进度"
-          onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
-        />
-        <span>{formatPlaybackTime(playback.currentTime)} / {formatPlaybackTime(playback.duration)}</span>
-      </div>
-      <footer>
-        <button type="button" disabled={!hasPrevious && playback.currentTime <= 0} aria-label="上一条音频" title="上一条音频" onClick={() => audioPlaybackController.previous()}>
-          <SkipBack size={17} fill="currentColor" />
-        </button>
-        <button className="audio-floating-play" type="button" aria-label={playback.playing ? "暂停" : "播放"} title={playback.playing ? "暂停" : "播放"} onClick={() => audioPlaybackController.toggle()}>
-          {playback.loading
-            ? <LoaderCircle className="spin" size={20} />
-            : playback.failed ? <AlertCircle size={20} />
-              : playback.playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
-        </button>
-        <button type="button" disabled={!hasNext} aria-label="下一条音频" title="下一条音频" onClick={() => audioPlaybackController.next()}>
-          <SkipForward size={17} fill="currentColor" />
-        </button>
-        {track.onCancelDownload ? (
-          <button type="button" aria-label={`取消下载 ${track.label}`} title="取消下载" onClick={track.onCancelDownload}>
-            <span className="audio-floating-transfer">
-              <MediaProgressRing progress={track.downloadProgress} size={22} />
-              <X size={11} />
-            </span>
+    <aside
+      ref={controllerRef}
+      className={`audio-floating-controller ${compact ? "is-compact" : ""} ${dragging ? "is-dragging" : ""}`}
+      style={position ? { left: position.x, top: position.y } as CSSProperties : undefined}
+      aria-label={`正在播放 ${track.label}`}
+    >
+      {compact ? (
+        <div className="audio-floating-compact-controls">
+          <button
+            className="audio-floating-drag is-compact"
+            type="button"
+            aria-label="拖动播放器"
+            title="拖动播放器（方向键可微调）"
+            onPointerDown={beginDrag}
+            onPointerMove={drag}
+            onPointerUp={finishDrag}
+            onPointerCancel={finishDrag}
+            onKeyDown={moveWithKeyboard}
+          />
+          {previousButton}
+          {playButton}
+          {nextButton}
+          {volumeButton}
+          <button type="button" aria-label="展开播放器" title="展开播放器" onClick={() => setCompact(false)}>
+            <ChevronUp size={17} />
           </button>
-        ) : (
-          <button type="button" disabled={!track.onDownload} aria-label={`下载 ${track.label}`} title="下载音频" onClick={track.onDownload}>
-            <Download size={16} />
+          <button type="button" aria-label="关闭播放" title="关闭播放" onClick={() => audioPlaybackController.close()}>
+            <X size={16} />
           </button>
-        )}
-      </footer>
+        </div>
+      ) : (
+        <>
+          <header>
+            <button
+              className="audio-floating-drag"
+              type="button"
+              aria-label={`拖动播放器：${track.label}`}
+              title="拖动播放器（方向键可微调）"
+              onPointerDown={beginDrag}
+              onPointerMove={drag}
+              onPointerUp={finishDrag}
+              onPointerCancel={finishDrag}
+              onKeyDown={moveWithKeyboard}
+            >
+              <span className="audio-floating-grip" aria-hidden="true" />
+              <strong>{track.label}</strong>
+            </button>
+            <button type="button" aria-label="缩小播放器" title="缩小播放器" onClick={() => setCompact(true)}>
+              <ChevronDown size={17} />
+            </button>
+            <button type="button" aria-label="关闭播放" title="关闭播放" onClick={() => audioPlaybackController.close()}>
+              <X size={16} />
+            </button>
+          </header>
+          <div className="audio-floating-visual">
+            <AudioSpectrum playbackId={track.id} playing={playback.playing} bars={40} className="is-floating" />
+            <div className="audio-floating-progress">
+              <input
+                type="range"
+                min={0}
+                max={playback.duration || 0}
+                step={0.1}
+                value={Math.min(playback.currentTime, playback.duration || 0)}
+                aria-label="播放进度"
+                onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
+              />
+              <span>{formatPlaybackTime(playback.currentTime)} / {formatPlaybackTime(playback.duration)}</span>
+            </div>
+          </div>
+          <footer>
+            <div className="audio-floating-transport">
+              {previousButton}
+              {playButton}
+              {nextButton}
+            </div>
+            <div className="audio-floating-utilities">
+              <div className="audio-volume-control">
+                {volumeButton}
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={playback.muted ? 0 : playback.volume}
+                  aria-label="音量"
+                  onChange={(event) => audioPlaybackController.setVolume(Number(event.currentTarget.value))}
+                />
+              </div>
+              <button className="playback-rate" type="button" aria-label={`播放速度 ${playback.playbackRate} 倍`} title="切换播放速度" onClick={() => audioPlaybackController.cyclePlaybackRate()}>
+                {playback.playbackRate}x
+              </button>
+              {track.onCancelDownload ? (
+                <button type="button" aria-label={`取消下载 ${track.label}`} title="取消下载" onClick={track.onCancelDownload}>
+                  <span className="audio-floating-transfer">
+                    <MediaProgressRing progress={track.downloadProgress} size={22} />
+                    <X size={11} />
+                  </span>
+                </button>
+              ) : (
+                <button type="button" disabled={!track.onDownload} aria-label={`下载 ${track.label}`} title="下载音频" onClick={track.onDownload}>
+                  <Download size={16} />
+                </button>
+              )}
+            </div>
+          </footer>
+        </>
+      )}
     </aside>
   );
 }

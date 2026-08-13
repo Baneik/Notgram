@@ -1,5 +1,11 @@
 import { useSyncExternalStore } from "react";
-import { nextPlaybackRate } from "./mediaPlayback";
+import {
+  nextPlaybackRate,
+  normalizeAudioVolume,
+  readRememberedAudioMuted,
+  readRememberedAudioVolume,
+  rememberAudioOutput,
+} from "./mediaPlayback";
 
 export interface AudioTrackDescriptor {
   id: string;
@@ -27,6 +33,8 @@ export interface AudioPlaybackSnapshot {
   currentTime: number;
   duration: number;
   playbackRate: number;
+  volume: number;
+  muted: boolean;
 }
 
 export interface AudioPlaybackHostControls {
@@ -34,28 +42,32 @@ export interface AudioPlaybackHostControls {
   toggle: () => void;
   seek: (time: number) => void;
   setPlaybackRate: (rate: number) => void;
+  setAudioOutput: (volume: number, muted: boolean) => void;
   previous: () => void;
   next: () => void;
   close: () => void;
 }
 
-const EMPTY_SNAPSHOT: AudioPlaybackSnapshot = {
+const createEmptySnapshot = (): AudioPlaybackSnapshot => ({
   playing: false,
   loading: false,
   failed: false,
   currentTime: 0,
   duration: 0,
   playbackRate: 1,
-};
+  volume: readRememberedAudioVolume(),
+  muted: readRememberedAudioMuted(),
+});
 
 const MAX_TRACKS = 500;
 
 export class AudioPlaybackController {
-  private snapshot: AudioPlaybackSnapshot = EMPTY_SNAPSHOT;
+  private snapshot: AudioPlaybackSnapshot = createEmptySnapshot();
   private readonly listeners = new Set<() => void>();
   private readonly tracks = new Map<string, AudioTrackDescriptor>();
   private host?: AudioPlaybackHostControls;
   private analyser?: AnalyserNode;
+  private lastAudibleVolume = this.snapshot.volume > 0 ? this.snapshot.volume : 1;
 
   readonly getSnapshot = () => this.snapshot;
 
@@ -116,6 +128,24 @@ export class AudioPlaybackController {
     this.host?.setPlaybackRate(rate);
   }
 
+  setVolume(volume: number) {
+    const normalized = normalizeAudioVolume(volume);
+    if (normalized > 0) this.lastAudibleVolume = normalized;
+    const output = rememberAudioOutput(normalized, false);
+    this.patch(output);
+    this.host?.setAudioOutput(output.volume, output.muted);
+  }
+
+  toggleMuted() {
+    if (this.snapshot.volume <= 0) {
+      this.setVolume(this.lastAudibleVolume);
+      return;
+    }
+    const output = rememberAudioOutput(this.snapshot.volume, !this.snapshot.muted);
+    this.patch(output);
+    this.host?.setAudioOutput(output.volume, output.muted);
+  }
+
   previous() {
     this.host?.previous();
   }
@@ -147,7 +177,12 @@ export class AudioPlaybackController {
 
   clear(trackId?: string) {
     if (trackId && this.snapshot.track?.id !== trackId) return;
-    this.snapshot = { ...EMPTY_SNAPSHOT, playbackRate: this.snapshot.playbackRate };
+    this.snapshot = {
+      ...createEmptySnapshot(),
+      playbackRate: this.snapshot.playbackRate,
+      volume: this.snapshot.volume,
+      muted: this.snapshot.muted,
+    };
     this.emit();
   }
 

@@ -5,11 +5,48 @@ export interface CoordinatedMedia {
 const MAX_RESUME_ENTRIES = 200;
 const MIN_RESUME_SECONDS = 2;
 const END_THRESHOLD_SECONDS = 5;
+const AUDIO_VOLUME_STORAGE_KEY = "notgram.audio.volume";
+const AUDIO_MUTED_STORAGE_KEY = "notgram.audio.muted";
 const VIDEO_VOLUME_STORAGE_KEY = "notgram.video.volume";
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const;
 export const STREAM_PAUSE_BUFFER_SECONDS = 10;
 export const STREAM_RESUME_BUFFER_SECONDS = 5;
+export const DEFAULT_AUDIO_VOLUME = 1;
 export const DEFAULT_VIDEO_VOLUME = 0.2;
+
+export const normalizeAudioVolume = (volume: number) => (
+  Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : DEFAULT_AUDIO_VOLUME
+);
+
+export const readRememberedAudioVolume = () => {
+  try {
+    const stored = globalThis.localStorage?.getItem(AUDIO_VOLUME_STORAGE_KEY);
+    return stored === null || stored === undefined
+      ? DEFAULT_AUDIO_VOLUME
+      : normalizeAudioVolume(Number(stored));
+  } catch {
+    return DEFAULT_AUDIO_VOLUME;
+  }
+};
+
+export const readRememberedAudioMuted = () => {
+  try {
+    return globalThis.localStorage?.getItem(AUDIO_MUTED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+};
+
+export const rememberAudioOutput = (volume: number, muted: boolean) => {
+  const normalized = normalizeAudioVolume(volume);
+  try {
+    globalThis.localStorage?.setItem(AUDIO_VOLUME_STORAGE_KEY, String(normalized));
+    globalThis.localStorage?.setItem(AUDIO_MUTED_STORAGE_KEY, String(muted));
+  } catch {
+    // A blocked preference store should not affect audio playback.
+  }
+  return { volume: normalized, muted };
+};
 
 export const normalizeVideoVolume = (volume: number) => (
   Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : DEFAULT_VIDEO_VOLUME

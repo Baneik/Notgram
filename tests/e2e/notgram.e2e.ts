@@ -3484,6 +3484,73 @@ test("audio messages continue to the next item in the same conversation", async 
   ).__notgramAudioPlayCalls)).toContain("chat-product:p-audio-next");
 });
 
+test("audio controls remember volume and keep the collapsible player inside the conversation", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    HTMLMediaElement.prototype.play = function play() {
+      this.dispatchEvent(new Event("play"));
+      return Promise.resolve();
+    };
+  });
+
+  await page.getByRole("button", { name: "播放 产品语音.m4a" }).click();
+  const audioEngine = page.locator(".persistent-audio-engine");
+  const controller = page.getByRole("complementary", { name: "正在播放 产品语音.m4a" });
+  await expect(controller).toBeVisible();
+  const expandedBounds = await controller.boundingBox();
+
+  const volume = controller.getByRole("slider", { name: "音量" });
+  await volume.fill("0.35");
+  await expect(audioEngine).toHaveJSProperty("volume", 0.35);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("notgram.audio.volume")))
+    .toBe("0.35");
+  await controller.getByRole("button", { name: "静音" }).click();
+  await expect(audioEngine).toHaveJSProperty("muted", true);
+  await expect(controller.getByRole("button", { name: "取消静音" })).toBeVisible();
+  await volume.fill("0.55");
+  await expect(audioEngine).toHaveJSProperty("muted", false);
+  await expect(audioEngine).toHaveJSProperty("volume", 0.55);
+
+  const conversation = page.locator(".conversation");
+  const dragHandle = controller.getByRole("button", { name: "拖动播放器：产品语音.m4a" });
+  const handleBounds = await dragHandle.boundingBox();
+  expect(handleBounds).not.toBeNull();
+  await page.mouse.move(handleBounds!.x + 12, handleBounds!.y + handleBounds!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(0, 0, { steps: 3 });
+  await page.mouse.up();
+
+  const topLeft = await controller.boundingBox();
+  const conversationBounds = await conversation.boundingBox();
+  expect(topLeft).not.toBeNull();
+  expect(conversationBounds).not.toBeNull();
+  expect(topLeft!.x).toBeGreaterThanOrEqual(conversationBounds!.x + 11);
+  expect(topLeft!.y).toBeGreaterThanOrEqual(conversationBounds!.y + 11);
+
+  const movedHandleBounds = await dragHandle.boundingBox();
+  await page.mouse.move(
+    movedHandleBounds!.x + 12,
+    movedHandleBounds!.y + movedHandleBounds!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(2_000, 2_000, { steps: 3 });
+  await page.mouse.up();
+  const bottomRight = await controller.boundingBox();
+  expect(bottomRight!.x + bottomRight!.width)
+    .toBeLessThanOrEqual(conversationBounds!.x + conversationBounds!.width - 11);
+  expect(bottomRight!.y + bottomRight!.height)
+    .toBeLessThanOrEqual(conversationBounds!.y + conversationBounds!.height - 11);
+
+  await controller.getByRole("button", { name: "缩小播放器" }).click();
+  await expect(controller).toHaveClass(/is-compact/);
+  await expect(controller.locator(".audio-floating-progress")).toHaveCount(0);
+  await expect(controller.locator(".audio-spectrum")).toHaveCount(0);
+  await expect(controller.getByRole("button", { name: "暂停" })).toBeVisible();
+  await expect(controller.getByRole("button", { name: "展开播放器" })).toBeVisible();
+  const compactBounds = await controller.boundingBox();
+  expect(compactBounds!.width).toBeLessThan(expandedBounds!.width);
+});
+
 test("download manager lists only explicit downloads and supports batch management", async ({ page }) => {
   await page.goto("/");
   await page.keyboard.press("Control+j");
