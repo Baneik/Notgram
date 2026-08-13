@@ -4658,6 +4658,94 @@ test("photo albums preserve order, captions, clipping, and tile geometry", async
   expect(failedState.overflow).toBe("hidden");
 });
 
+test("mixed media albums justify every row across the bubble", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async (storePath) => {
+    type TestMessage = {
+      id: string;
+      renderKey?: string;
+      mediaAlbumId?: string;
+      sentAt: string;
+      content: { kind: string; [key: string]: unknown };
+      [key: string]: unknown;
+    };
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, TestMessage[]> };
+        setState: (partial: { messages: Map<string, TestMessage[]> }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const source = (messages.get("chat-product") ?? []).find((message) => message.id === "p-5");
+    if (!source || source.content.kind !== "media") throw new Error("Album source is unavailable");
+    const dimensions = [
+      [900, 1_600],
+      [1_600, 900],
+      [1_000, 1_000],
+      [1_400, 1_000],
+      [800, 1_200],
+      [1_000, 1_000],
+      [1_600, 900],
+    ];
+    const album = dimensions.map(([width, height], index) => ({
+      ...source,
+      id: `album-fill-${index}`,
+      renderKey: `album-fill-${index}`,
+      mediaAlbumId: "album-fill-regression",
+      sentAt: `2026-08-13T17:00:${String(index).padStart(2, "0")}+08:00`,
+      content: {
+        ...source.content,
+        width,
+        height,
+        caption: undefined,
+        captionEntities: undefined,
+        isDownloading: false,
+        progress: undefined,
+      },
+    }));
+    messages.set("chat-product", [...(messages.get("chat-product") ?? []), ...album]);
+    storeModule.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const album = page.locator('[data-media-album-id="album-fill-regression"]');
+  await page.keyboard.press("End");
+  await expect(album).toBeVisible();
+  await album.scrollIntoViewIfNeeded();
+  await expect(album.locator(".media-album-tile")).toHaveCount(7);
+  const geometry = await album.evaluate((element) => {
+    const albumBounds = element.getBoundingClientRect();
+    const gridBounds = element.querySelector<HTMLElement>(".media-album-grid")?.getBoundingClientRect();
+    const rows = [...element.querySelectorAll<HTMLElement>(".media-album-row")].map((row) => {
+      const rowBounds = row.getBoundingClientRect();
+      const tiles = [...row.querySelectorAll<HTMLElement>(".media-album-tile")];
+      return {
+        count: tiles.length,
+        leftGap: Math.abs((tiles[0]?.getBoundingClientRect().left ?? 0) - rowBounds.left),
+        rightGap: Math.abs((tiles.at(-1)?.getBoundingClientRect().right ?? 0) - rowBounds.right),
+        tilesHaveArea: tiles.every((tile) => {
+          const bounds = tile.getBoundingClientRect();
+          return bounds.width > 0 && bounds.height > 0;
+        }),
+      };
+    });
+    return {
+      albumWidth: albumBounds.width,
+      gridWidth: gridBounds?.width ?? 0,
+      rows,
+    };
+  });
+  expect(Math.abs(geometry.albumWidth - geometry.gridWidth)).toBeLessThanOrEqual(1);
+  expect(geometry.rows.reduce((total, row) => total + row.count, 0)).toBe(7);
+  expect(geometry.rows.every((row) =>
+    row.count >= 2 && row.count <= 3 &&
+    row.leftGap <= 1 && row.rightGap <= 1 && row.tilesHaveArea,
+  )).toBe(true);
+  expect(await horizontalOverflow(page)).toBe(false);
+});
+
 test("saved and direct messages align to the conversation edges", async ({ page }) => {
   await page.goto("/");
 

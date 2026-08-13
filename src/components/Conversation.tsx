@@ -18,6 +18,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { Virtuoso, type Components, type ListProps } from "react-virtuoso";
 import type {
@@ -105,6 +106,7 @@ import {
   mentionTextForUser,
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
+import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 type MessageNavigationOptions = Pick<
@@ -1782,6 +1784,7 @@ export function Conversation({
                       forwardTargetsById,
                       currentUserId,
                     )).find(Boolean);
+                    const albumRows = layoutMediaAlbum(segment.messages);
                     return (
                       <div
                         className={`media-album ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
@@ -1807,9 +1810,31 @@ export function Conversation({
                         )}
                         <div
                           className="media-album-grid"
-                          data-count={Math.min(segment.messages.length, 5)}
+                          data-count={segment.messages.length}
+                          data-row-count={albumRows.length}
                         >
-                          {segment.messages.map((message) => renderBubble(message, true))}
+                          {albumRows.map((row, rowIndex) => (
+                            <div
+                              className="media-album-row"
+                              data-row-index={rowIndex}
+                              key={`row:${row.items[0]?.message.id ?? rowIndex}`}
+                              style={{
+                                "--media-album-row-ratio": row.aspectRatio,
+                              } as CSSProperties}
+                            >
+                              {row.items.map((item) => (
+                                <div
+                                  className="media-album-tile"
+                                  key={item.message.renderKey ?? item.message.id}
+                                  style={{
+                                    "--media-album-tile-weight": item.weight,
+                                  } as CSSProperties}
+                                >
+                                  {renderBubble(item.message, true)}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
                         </div>
                         {captionMessages.length > 0 && (
                           <div className="media-album-captions">

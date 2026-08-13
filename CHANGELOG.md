@@ -5,6 +5,12 @@ with prerelease identifiers used for release candidates.
 
 ## [Unreleased]
 
+### Fixed
+
+- Justify received photo and video albums across the complete message bubble,
+  selecting compact rows from item count and source proportions so mixed albums
+  no longer leave an empty grid cell.
+
 ## [0.5.0-rc.3] - 2026-08-12
 
 ### Added
