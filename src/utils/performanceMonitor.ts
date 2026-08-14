@@ -66,6 +66,7 @@ const FRAME_DROP_LOG_INTERVAL_MS = 1_000;
 const HISTORY_CONTEXT_MS = 5_000;
 const NATIVE_BATCH_SIZE = 20;
 const NATIVE_FLUSH_DELAY_MS = 250;
+const LAYOUT_SHIFT_AGGREGATION_MS = 250;
 const MAX_DETAIL_FIELDS = 24;
 const CONVERSATION_TRACE_TIMEOUT_MS = 8_000;
 
@@ -94,6 +95,7 @@ const eventMetadata: Record<string, EventMetadata> = {
   ui_react_commit: { label: "React 提交", category: "render", warningMs: 16, criticalMs: 50 },
   ui_message_projection: { label: "消息投影", category: "render", warningMs: 8, criticalMs: 16 },
   ui_tdlib_update_batch: { label: "TDLib 更新处理", category: "data", warningMs: 16, criticalMs: 50 },
+  ui_cache_snapshot: { label: "界面缓存快照", category: "data", warningMs: 16, criticalMs: 50 },
   ui_performance_log_drop: { label: "性能日志丢失", category: "data", warningMs: 0, criticalMs: 1 },
   video_window_open_started: { label: "视频窗口打开", category: "media", warningMs: 250, criticalMs: 1_000 },
   video_window_descriptor_received: { label: "视频描述读取", category: "media", warningMs: 250, criticalMs: 1_000 },
@@ -114,9 +116,12 @@ const listeners = new Set<() => void>();
 const pendingInteractions = new Map<number, EventTimingEntry>();
 let interactionFlushTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
-const windowKind = () => {
-  if (typeof window === "undefined") return 0;
-  return window.location.pathname.includes("video-window") ? 2 : 1;
+export const performanceWindowKind = (search?: string) => {
+  const resolvedSearch = search ?? (
+    typeof window === "undefined" ? undefined : window.location.search
+  );
+  if (resolvedSearch === undefined) return 0;
+  return new URLSearchParams(resolvedSearch).has("videoWindow") ? 2 : 1;
 };
 
 const performanceWindowId = (() => {
@@ -164,10 +169,13 @@ const roundedDetails = (details: PerformanceDetails) => Object.fromEntries(
   Object.entries(details)
     .filter((entry): entry is [string, number | boolean] => entry[1] !== undefined)
     .slice(0, MAX_DETAIL_FIELDS)
-    .map(([key, value]) => [
-      key,
-      typeof value === "number" ? Math.round(value * 10) / 10 : value,
-    ]),
+    .map(([key, value]) => {
+      const precision = key === "shiftScore" || key === "maxShiftScore" ? 10_000 : 10;
+      return [
+        key,
+        typeof value === "number" ? Math.round(value * precision) / precision : value,
+      ];
+    }),
 );
 
 const hasTauriRuntime = () =>
@@ -344,7 +352,7 @@ export const logPerformance = (event: string, details: PerformanceDetails) => {
   const normalized = roundedDetails({
     ...details,
     observedAtMs: Date.now(),
-    windowKind: windowKind(),
+    windowKind: performanceWindowKind(),
     windowId: performanceWindowId,
   });
   appendRecord(event, normalized);
@@ -639,53 +647,82 @@ const installInteractionObserver = () => observe((entries) => {
   }
 }, { type: "event", buffered: true, durationThreshold: 40 } as PerformanceObserverInit);
 
-const installLayoutShiftObserver = () => observe((entries) => {
-  for (const entry of entries as LayoutShiftEntry[]) {
-    if (entry.hadRecentInput || entry.value < 0.02) continue;
-    const sources = entry.sources ?? [];
-    const largestSource = sources.reduce<LayoutShiftAttribution | undefined>((largest, source) => {
-      const sourceArea = Math.max(
-        source.previousRect.width * source.previousRect.height,
-        source.currentRect.width * source.currentRect.height,
-      );
-      if (!largest) return source;
-      const largestArea = Math.max(
-        largest.previousRect.width * largest.previousRect.height,
-        largest.currentRect.width * largest.currentRect.height,
-      );
-      return sourceArea > largestArea ? source : largest;
-    }, undefined);
-    const previousCenterX = largestSource
-      ? largestSource.previousRect.left + largestSource.previousRect.width / 2
-      : 0;
-    const previousCenterY = largestSource
-      ? largestSource.previousRect.top + largestSource.previousRect.height / 2
-      : 0;
-    const currentCenterX = largestSource
-      ? largestSource.currentRect.left + largestSource.currentRect.width / 2
-      : 0;
-    const currentCenterY = largestSource
-      ? largestSource.currentRect.top + largestSource.currentRect.height / 2
-      : 0;
-    logPerformance("ui_layout_shift", {
-      startTimeMs: entry.startTime,
-      shiftScore: entry.value,
-      duringHistoryLoad: duringHistoryLoad(entry.startTime),
-      sourceCount: sources.length,
-      targetKind: targetKind(largestSource?.node),
-      movedDistancePx: largestSource
+const installLayoutShiftObserver = () => {
+  let aggregate: PerformanceDetails | undefined;
+  let flushTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const flush = () => {
+    flushTimer = undefined;
+    if (!aggregate) return;
+    logPerformance("ui_layout_shift", aggregate);
+    aggregate = undefined;
+  };
+
+  return observe((entries) => {
+    for (const entry of entries as LayoutShiftEntry[]) {
+      if (entry.hadRecentInput || entry.value < 0.02) continue;
+      const sources = entry.sources ?? [];
+      const largestSource = sources.reduce<LayoutShiftAttribution | undefined>((largest, source) => {
+        const sourceArea = Math.max(
+          source.previousRect.width * source.previousRect.height,
+          source.currentRect.width * source.currentRect.height,
+        );
+        if (!largest) return source;
+        const largestArea = Math.max(
+          largest.previousRect.width * largest.previousRect.height,
+          largest.currentRect.width * largest.currentRect.height,
+        );
+        return sourceArea > largestArea ? source : largest;
+      }, undefined);
+      const previousCenterX = largestSource
+        ? largestSource.previousRect.left + largestSource.previousRect.width / 2
+        : 0;
+      const previousCenterY = largestSource
+        ? largestSource.previousRect.top + largestSource.previousRect.height / 2
+        : 0;
+      const currentCenterX = largestSource
+        ? largestSource.currentRect.left + largestSource.currentRect.width / 2
+        : 0;
+      const currentCenterY = largestSource
+        ? largestSource.currentRect.top + largestSource.currentRect.height / 2
+        : 0;
+      const movedDistancePx = largestSource
         ? Math.hypot(currentCenterX - previousCenterX, currentCenterY - previousCenterY)
-        : 0,
-      impactedAreaPx: largestSource
-        ? Math.max(
-            largestSource.previousRect.width * largestSource.previousRect.height,
-            largestSource.currentRect.width * largestSource.currentRect.height,
-          )
-        : 0,
-      traceId: conversationTraceIdAt(entry.startTime),
-    });
-  }
-}, { type: "layout-shift", buffered: true });
+        : 0;
+      const previousMovedDistance = typeof aggregate?.movedDistancePx === "number"
+        ? aggregate.movedDistancePx
+        : -1;
+      const traceId = conversationTraceIdAt(entry.startTime);
+      aggregate = {
+        ...aggregate,
+        startTimeMs: typeof aggregate?.startTimeMs === "number"
+          ? Math.min(aggregate.startTimeMs, entry.startTime)
+          : entry.startTime,
+        shiftScore: (typeof aggregate?.shiftScore === "number" ? aggregate.shiftScore : 0) + entry.value,
+        maxShiftScore: Math.max(
+          typeof aggregate?.maxShiftScore === "number" ? aggregate.maxShiftScore : 0,
+          entry.value,
+        ),
+        shiftCount: (typeof aggregate?.shiftCount === "number" ? aggregate.shiftCount : 0) + 1,
+        duringHistoryLoad: aggregate?.duringHistoryLoad === true || duringHistoryLoad(entry.startTime),
+        sourceCount: (typeof aggregate?.sourceCount === "number" ? aggregate.sourceCount : 0) + sources.length,
+        traceId: traceId ?? aggregate?.traceId,
+        ...(movedDistancePx >= previousMovedDistance ? {
+          targetKind: targetKind(largestSource?.node),
+          movedDistancePx,
+          impactedAreaPx: largestSource
+            ? Math.max(
+                largestSource.previousRect.width * largestSource.previousRect.height,
+                largestSource.currentRect.width * largestSource.currentRect.height,
+              )
+            : 0,
+        } : {}),
+      };
+      if (flushTimer === undefined) {
+        flushTimer = globalThis.setTimeout(flush, LAYOUT_SHIFT_AGGREGATION_MS);
+      }
+    }
+  }, { type: "layout-shift", buffered: true });
+};
 
 const startFrameGapMonitor = () => {
   let previousFrameAt = performance.now();

@@ -1,4 +1,5 @@
 import type { CachedTelegramSnapshot, Chat, ChatProfile, ForumTopic, Message } from "../telegram/types";
+import { logPerformance } from "../utils/performanceMonitor";
 import type { TelegramState } from "./telegramStore.types";
 import type { QueuedOutgoingAttachment } from "../telegram/types";
 
@@ -9,6 +10,7 @@ const MAX_CACHED_FORUM_CHATS = 20;
 const MAX_CACHED_TOPICS_PER_FORUM = 100;
 const MAX_CACHED_FORUM_TOPIC_BYTES = 256 * 1_024;
 const MAX_CACHED_FORUM_SELECTIONS = 100;
+const CACHE_SNAPSHOT_LOG_THRESHOLD_MS = 8;
 
 export type CacheHealth = "empty" | "healthy" | "migrated" | "invalid" | "rebuilt";
 
@@ -165,7 +167,13 @@ const stripTransferState = (value: unknown): unknown => {
 
 const cacheableMessage = (message: Message): Message => {
   const result = { ...message };
-  result.content = stripTransferState(result.content) as Message["content"];
+  if (
+    result.content.kind === "file" ||
+    result.content.kind === "media" ||
+    result.content.kind === "rich"
+  ) {
+    result.content = stripTransferState(result.content) as Message["content"];
+  }
   delete result.renderKey;
   delete result.permissions;
   delete result.isRemoving;
@@ -266,19 +274,33 @@ export const recentMessagesForCache = (state: TelegramState) => {
 export const cachedSnapshotFrom = (
   state: TelegramState,
   profiles: ChatProfile[] = [],
-): CachedTelegramSnapshot => ({
-  version: TELEGRAM_CACHE_VERSION,
-  savedAt: new Date().toISOString(),
-  currentUserId: state.currentUserId ?? "",
-  users: [...state.users.values()],
-  folders: state.folders,
-  chats: [...state.chats.values()].map(cacheableChat),
-  messages: recentMessagesForCache(state),
-  drafts: [...state.drafts.values()],
-  outbox: state.outbox ?? [],
-  activeChatId: state.activeChatId,
-  chatFilter: state.chatFilter,
-  profiles,
-  forumTopics: forumTopicsForCache(state),
-  lastForumTopicIds: lastForumTopicIdsForCache(state),
-});
+): CachedTelegramSnapshot => {
+  const startedAt = performance.now();
+  const snapshot: CachedTelegramSnapshot = {
+    version: TELEGRAM_CACHE_VERSION,
+    savedAt: new Date().toISOString(),
+    currentUserId: state.currentUserId ?? "",
+    users: [...state.users.values()],
+    folders: state.folders,
+    chats: [...state.chats.values()].map(cacheableChat),
+    messages: recentMessagesForCache(state),
+    drafts: [...state.drafts.values()],
+    outbox: state.outbox ?? [],
+    activeChatId: state.activeChatId,
+    chatFilter: state.chatFilter,
+    profiles,
+    forumTopics: forumTopicsForCache(state),
+    lastForumTopicIds: lastForumTopicIdsForCache(state),
+  };
+  const durationMs = performance.now() - startedAt;
+  if (durationMs >= CACHE_SNAPSHOT_LOG_THRESHOLD_MS) {
+    logPerformance("ui_cache_snapshot", {
+      startTimeMs: startedAt,
+      durationMs,
+      messageCount: snapshot.messages.length,
+      chatCount: snapshot.chats.length,
+      forumCount: snapshot.forumTopics?.length ?? 0,
+    });
+  }
+  return snapshot;
+};

@@ -366,12 +366,25 @@ function MessageBubbleComponent({
 
     measure();
     const stopObservingFlow = observeLayout(flow, measure);
-    const layoutContainer = flow.closest<HTMLElement>(".message-group-stack");
+    const bubbleShell = flow.closest<HTMLElement>(".message-bubble-shell");
+    const stopObservingBubbleShell = bubbleShell
+      ? observeLayout(bubbleShell, measure)
+      : undefined;
+    const layoutContainer = flow.closest<HTMLElement>(".message-group");
+    let containerWidth = layoutContainer?.getBoundingClientRect().width;
+    const measureWhenContainerWidthChanges = () => {
+      if (!layoutContainer) return;
+      const nextWidth = layoutContainer.getBoundingClientRect().width;
+      if (containerWidth !== undefined && Math.abs(nextWidth - containerWidth) <= 0.5) return;
+      containerWidth = nextWidth;
+      measure();
+    };
     const stopObservingContainer = layoutContainer
-      ? observeLayout(layoutContainer, measure)
+      ? observeLayout(layoutContainer, measureWhenContainerWidthChanges)
       : undefined;
     return () => {
       stopObservingFlow();
+      stopObservingBubbleShell?.();
       stopObservingContainer?.();
     };
   }, [

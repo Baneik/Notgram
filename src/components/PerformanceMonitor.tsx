@@ -39,6 +39,8 @@ const detailLabels: Record<string, string> = {
   frameGapMs: "帧间隔",
   missedFrames: "预估丢帧",
   shiftScore: "偏移分数",
+  maxShiftScore: "单次最大偏移",
+  shiftCount: "合并偏移次数",
   anchorShiftPx: "锚点偏移",
   addedCount: "新增消息",
   loadedCount: "加载消息",
@@ -82,6 +84,8 @@ const detailLabels: Record<string, string> = {
   chatUpdateCount: "会话更新",
   fileUpdateCount: "文件更新",
   otherUpdateCount: "其他更新",
+  chatCount: "会话数量",
+  forumCount: "论坛数量",
 };
 
 const targetLabels: Record<number, string> = {

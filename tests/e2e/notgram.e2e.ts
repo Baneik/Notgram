@@ -477,6 +477,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
     rowBottom: number;
     listBottom: number;
     composerTop: number;
+    opacity: number;
   }>((resolve) => {
     let awaitingEntranceObserved = false;
     const observer = new MutationObserver(() => {
@@ -494,6 +495,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
         rowBottom: entering.getBoundingClientRect().bottom,
         listBottom: list?.getBoundingClientRect().bottom ?? Number.NEGATIVE_INFINITY,
         composerTop: composer?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
+        opacity: Number.parseFloat(getComputedStyle(entering).opacity),
       });
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true });
@@ -505,6 +507,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
         rowBottom: Number.POSITIVE_INFINITY,
         listBottom: Number.NEGATIVE_INFINITY,
         composerTop: Number.NEGATIVE_INFINITY,
+        opacity: 0,
       });
     }, 2_000);
   }));
@@ -516,6 +519,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
   expect(report.awaitingEntranceObserved).toBe(false);
   expect(report.rowBottom).toBeLessThanOrEqual(report.listBottom + 1);
   expect(report.listBottom).toBeLessThanOrEqual(report.composerTop + 1);
+  expect(report.opacity).toBeGreaterThanOrEqual(0.99);
   await expect(page.getByText("动画消息测试", { exact: true })).toBeVisible();
   await expect(page.locator(".message-row.is-entering-outgoing")).toHaveCount(0);
 });
@@ -647,6 +651,7 @@ test("incoming animated messages remain visible while following latest", async (
     rowBottom: number;
     listBottom: number;
     rowVisible: boolean;
+    opacity: number;
   }>>((resolve) => {
     const samples: Array<{
       animationName: string;
@@ -654,6 +659,7 @@ test("incoming animated messages remain visible while following latest", async (
       rowBottom: number;
       listBottom: number;
       rowVisible: boolean;
+      opacity: number;
     }> = [];
     let frames = 0;
     const sample = () => {
@@ -670,6 +676,7 @@ test("incoming animated messages remain visible while following latest", async (
         rowBottom: row.getBoundingClientRect().bottom,
         listBottom: list.getBoundingClientRect().bottom,
         rowVisible: style.visibility !== "hidden",
+        opacity: Number.parseFloat(style.opacity),
       });
       frames += 1;
       if (frames < 24) requestAnimationFrame(sample);
@@ -696,6 +703,10 @@ test("incoming animated messages remain visible while following latest", async (
   ).toBe(true);
   expect(
     animatedSamples.every((sample) => sample.distanceBottom <= 1),
+    JSON.stringify(samples),
+  ).toBe(true);
+  expect(
+    animatedSamples.every((sample) => sample.opacity >= 0.99),
     JSON.stringify(samples),
   ).toBe(true);
   expect(samples.at(-1)?.distanceBottom).toBeLessThanOrEqual(1);
@@ -913,7 +924,7 @@ test("primary pointer scrolling still detaches from latest messages", async ({ p
   await expect(page.getByRole("button", { name: /跳到最新消息/ })).toBeVisible();
 });
 
-test("delayed row measurement during downward wheel input stays pinned", async ({ page }) => {
+test("appended mixed-height row growth during downward wheel input stays pinned", async ({ page }) => {
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
@@ -923,16 +934,13 @@ test("delayed row measurement during downward wheel input stays pinned", async (
 
   await messageList.hover();
   await messageList.evaluate((element) => {
-    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 2);
-    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
     element.dispatchEvent(new WheelEvent("wheel", {
       bubbles: true,
       cancelable: true,
       deltaY: 120,
     }));
   });
-  await page.waitForTimeout(32);
 
   const samplesPromise = page.evaluate(() => new Promise<Array<{
     scrollTop: number;
@@ -949,19 +957,36 @@ test("delayed row measurement during downward wheel input stays pinned", async (
         });
       }
       frames += 1;
-      if (frames < 45) requestAnimationFrame(sample);
+      if (frames < 90) requestAnimationFrame(sample);
       else resolve(samples);
     };
     requestAnimationFrame(sample);
   }));
-  await messageList.evaluate((element) => {
-    const lastItem = element.querySelector<HTMLElement>("[data-index]:last-child");
-    if (!lastItem) throw new Error("Latest virtual item is not mounted");
+
+  const growingMessage = "组合高度变化滚动稳定性测试";
+  await page.getByRole("textbox", { name: "消息内容" }).fill(growingMessage);
+  await page.getByRole("button", { name: "发送消息" }).click();
+  await expect(page.getByText(growingMessage, { exact: true })).toBeVisible();
+  await page.evaluate(async (messageText) => {
+    const list = document.querySelector<HTMLElement>(".message-list");
+    const row = [...document.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((candidate) => candidate.textContent?.includes(messageText));
+    const lastItem = row?.closest<HTMLElement>("[data-index]");
+    if (!list || !lastItem) throw new Error("Growing latest virtual item is not mounted");
     const spacer = document.createElement("div");
     spacer.dataset.delayedMeasurement = "true";
-    spacer.style.height = "64px";
+    spacer.style.height = "0px";
     lastItem.appendChild(spacer);
-  });
+    for (let frame = 1; frame <= 16; frame += 1) {
+      list.dispatchEvent(new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: 120,
+      }));
+      spacer.style.height = `${frame * 6}px`;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+  }, growingMessage);
 
   const samples = await samplesPromise;
   const rebounds = samples.slice(1).filter((sample, index) =>
@@ -1875,6 +1900,8 @@ test("idle bottom following remains motionless after geometry settles", async ({
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
 
   const samples = await messageList.evaluate(async (element) => {
     const frames: Array<{
@@ -1897,7 +1924,10 @@ test("idle bottom following remains motionless after geometry settles", async ({
     return frames;
   });
   const span = (values: number[]) => Math.max(...values) - Math.min(...values);
-  expect(Math.max(...samples.map(({ distanceBottom }) => Math.abs(distanceBottom))))
+  expect(
+    Math.max(...samples.map(({ distanceBottom }) => Math.abs(distanceBottom))),
+    JSON.stringify(samples),
+  )
     .toBeLessThanOrEqual(1);
   expect(span(samples.map(({ scrollTop }) => scrollTop))).toBeLessThanOrEqual(0.5);
   expect(span(samples.map(({ latestGap }) => latestGap))).toBeLessThanOrEqual(1);

@@ -6,6 +6,7 @@ import {
   logPerformance,
   markConversationSwitch,
   mergePersistedPerformanceRecords,
+  performanceWindowKind,
   subscribePerformanceRecords,
 } from "./performanceMonitor";
 
@@ -67,6 +68,29 @@ describe("performance monitor", () => {
       durationMs: 12,
       severity: "normal",
     }));
+  });
+
+  it("detects query-routed video windows", () => {
+    expect(performanceWindowKind("?videoWindow=preview-1")).toBe(2);
+    expect(performanceWindowKind("?mediaViewerWindow=preview-1")).toBe(1);
+    expect(performanceWindowKind("")).toBe(1);
+  });
+
+  it("preserves layout-shift precision for useful diagnostics", () => {
+    logPerformance("ui_layout_shift", {
+      shiftScore: 0.02456,
+      maxShiftScore: 0.02004,
+      shiftCount: 2,
+    });
+
+    expect(getPerformanceRecords()[0]).toMatchObject({
+      severity: "warning",
+      details: {
+        shiftScore: 0.0246,
+        maxShiftScore: 0.02,
+        shiftCount: 2,
+      },
+    });
   });
 
   it("bounds the in-memory timeline", () => {

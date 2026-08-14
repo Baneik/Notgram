@@ -81,6 +81,11 @@ interface BottomPinRequest {
   onSettled: Set<() => void>;
 }
 
+interface JumpToLatestOptions {
+  onSettled?: () => void;
+  publishPositioned?: boolean;
+}
+
 export interface LatestConversationScrollRequest {
   chatId: string;
   requestId: number;
@@ -375,7 +380,7 @@ export const useConversationScroll = ({
     ? conversationVirtuosoSnapshots.get(currentScrollKey)
     : undefined;
   const restoreStateFrom = !searchActive && !pendingLatestRequest && !requestedTargetId &&
-      storedMemory?.followLatest === false && storedSnapshot &&
+      storedMemory && storedSnapshot &&
       storedSnapshot.firstMessageId === firstVisibleMessageId &&
       storedSnapshot.lastMessageId === lastVisibleMessageId &&
       storedSnapshot.virtualItemCount === virtualItemCount
@@ -663,6 +668,7 @@ export const useConversationScroll = ({
   const jumpToLatest = useCallback((
     behavior: "auto" | "smooth" = "smooth",
     converge = false,
+    options?: JumpToLatestOptions,
   ) => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
@@ -671,7 +677,7 @@ export const useConversationScroll = ({
       systemReduceMotion: false,
     });
     const needsConvergence = converge || distanceFromBottom(element) > BOTTOM_PROXIMITY_PX;
-    interruptControlledPositioning("following");
+    interruptControlledPositioning("following", options?.publishPositioned !== false);
     const generation = scrollControlRef.current.generation;
     userIntentUntilRef.current = 0;
     userScrollDirectionRef.current = undefined;
@@ -699,7 +705,7 @@ export const useConversationScroll = ({
           messageListRef.current === element &&
           scrollControlRef.current.generation === generation &&
           conversationScrollMemory.get(currentScrollKey)?.followLatest === true
-        ) scheduleBottomPin();
+        ) scheduleBottomPin(options?.onSettled);
       };
       element.addEventListener("scrollend", finishSmoothScroll, { once: true });
       smoothScrollCleanupRef.current = () => {
@@ -724,9 +730,13 @@ export const useConversationScroll = ({
         });
       }
       pinToBottom();
-      if (needsConvergence) {
-        scheduleBottomPin();
-        settleBottomPosition(initialLocationIdentity, virtuosoKey, generation);
+      if (needsConvergence || options?.onSettled) {
+        settleBottomPosition(
+          initialLocationIdentity,
+          virtuosoKey,
+          generation,
+          options?.onSettled,
+        );
       }
     }
   }, [
@@ -913,7 +923,7 @@ export const useConversationScroll = ({
     });
   }, [loadOlder]);
 
-  const completePositioning = useCallback(() => {
+  const completePositioning = useCallback((bottomAlreadySettled = false) => {
     if (!currentScrollKey) return;
     if (positionedIdentityRef.current === initialLocationIdentity) return;
     const identity = initialLocationIdentity;
@@ -976,7 +986,8 @@ export const useConversationScroll = ({
         }
         if (initialLocationRef.current.mode === "bottom") {
           pinToBottom();
-          settleBottomPosition(identity, expectedVirtuosoKey, generation, finishPositioning);
+          if (bottomAlreadySettled) finishPositioning();
+          else settleBottomPosition(identity, expectedVirtuosoKey, generation, finishPositioning);
         } else if (
           initialLocationRef.current.mode === "anchor" &&
           initialLocationRef.current.targetMessageId &&
@@ -1498,8 +1509,11 @@ export const useConversationScroll = ({
       !messageListElement
     ) return;
     handledLatestRequestRef.current = matchingLatestRequest.requestId;
-    jumpToLatest("auto", true);
-  }, [jumpToLatest, matchingLatestRequest, messageListElement]);
+    jumpToLatest("auto", true, {
+      publishPositioned: false,
+      onSettled: () => completePositioning(true),
+    });
+  }, [completePositioning, jumpToLatest, matchingLatestRequest, messageListElement]);
 
   useLayoutEffect(() => {
     if (
@@ -1582,16 +1596,14 @@ export const useConversationScroll = ({
         anchorMessageId: anchor?.messageId,
         anchorOffset: anchor?.offset,
       });
-      if (!followLatest) {
-        handle?.getState((state) => {
-          conversationVirtuosoSnapshots.set(key, {
-            state,
-            firstMessageId: layout?.firstMessageId,
-            lastMessageId: layout?.lastMessageId,
-            virtualItemCount: layout?.virtualItemCount ?? 0,
-          });
+      handle?.getState((state) => {
+        conversationVirtuosoSnapshots.set(key, {
+          state,
+          firstMessageId: layout?.firstMessageId,
+          lastMessageId: layout?.lastMessageId,
+          virtualItemCount: layout?.virtualItemCount ?? 0,
         });
-      }
+      });
     };
   }, [currentScrollKey, searchActive]);
 
@@ -1642,17 +1654,6 @@ export const useConversationScroll = ({
     if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
   }, []);
 
-  const followOutput = useCallback(() => {
-    if (!currentScrollKey || searchActive) return false;
-    const control = scrollControlRef.current;
-    if (
-      control.identity === initialLocationIdentity &&
-      control.mode === "following" &&
-      conversationScrollMemory.get(currentScrollKey)?.followLatest === true
-    ) return "auto" as const;
-    return false;
-  }, [currentScrollKey, initialLocationIdentity, searchActive]);
-
   const onTotalListHeightChanged = useCallback(() => {
     if (!currentScrollKey || searchActive) return;
     const memory = conversationScrollMemory.get(currentScrollKey);
@@ -1662,6 +1663,7 @@ export const useConversationScroll = ({
       (control.mode === "following" ||
         (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom"))
     ) {
+      pinToBottom();
       scheduleBottomPin();
       return;
     }
@@ -1686,7 +1688,7 @@ export const useConversationScroll = ({
       ) return;
       restoreAnchor(element, latestMemory.anchorMessageId, latestMemory.anchorOffset);
     });
-  }, [currentScrollKey, restoreAnchor, scheduleBottomPin, searchActive]);
+  }, [currentScrollKey, pinToBottom, restoreAnchor, scheduleBottomPin, searchActive]);
 
   const onInitialRangeChanged = useCallback(() => {
     markConversationSwitch(
@@ -1744,7 +1746,6 @@ export const useConversationScroll = ({
         if (memory?.followLatest !== true || memory.pendingNewCount !== 0) {
           writeMemory(currentScrollKey, element, true, 0, false);
         }
-        scheduleBottomPin();
         publishJumpHistory(currentScrollKey, []);
       }
       return;
@@ -1760,7 +1761,6 @@ export const useConversationScroll = ({
           ? conversationScrollMemory.get(currentScrollKey)?.followLatest !== false
           : false;
         adoptUserScrollMode(followLatest ? "following" : "detached");
-        if (followLatest) scheduleBottomPin();
       }
     }
   };
@@ -1889,23 +1889,7 @@ export const useConversationScroll = ({
       userScrollDirectionRef.current !== undefined &&
       performance.now() <= userIntentUntilRef.current;
     const userInitiated = pointerInitiated || timedIntent;
-    if (!userInitiated) {
-      const control = scrollControlRef.current;
-      const pendingPin = bottomPinRequestRef.current;
-      const followsLatest = current?.followLatest !== false && (
-        control.mode === "following" ||
-        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom")
-      );
-      if (
-        followsLatest &&
-        pendingPin?.identity === control.identity &&
-        pendingPin.generation === control.generation &&
-        distanceFromBottom(element) > BOTTOM_EPSILON_PX
-      ) {
-        pinToBottom();
-      }
-      return;
-    }
+    if (!userInitiated) return;
     const atBottom = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
     const previousScrollTop = userScrollTopRef.current;
     const measuredDirection = previousScrollTop === undefined
@@ -2003,7 +1987,6 @@ export const useConversationScroll = ({
     appendMountMessageId,
     revealAttentionMessage,
     revealMessageStart,
-    followOutput,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,

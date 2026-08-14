@@ -752,7 +752,6 @@ export function Conversation({
     appendMountMessageId,
     revealAttentionMessage,
     revealMessageStart,
-    followOutput,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,
@@ -1606,7 +1605,6 @@ export function Conversation({
           computeItemKey={(_, block) => block.id}
           data={visibleMessageBlocks}
           defaultItemHeight={52}
-          followOutput={followOutput}
           rangeChanged={onInitialRangeChanged}
           atBottomThreshold={0}
           atBottomStateChange={onInitialAtBottomStateChange}

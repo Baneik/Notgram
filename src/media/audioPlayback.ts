@@ -67,6 +67,7 @@ export class AudioPlaybackController {
   private readonly tracks = new Map<string, AudioTrackDescriptor>();
   private host?: AudioPlaybackHostControls;
   private analyser?: AnalyserNode;
+  private spectrumBuffer?: Uint8Array<ArrayBuffer>;
   private lastAudibleVolume = this.snapshot.volume > 0 ? this.snapshot.volume : 1;
 
   readonly getSnapshot = () => this.snapshot;
@@ -188,6 +189,7 @@ export class AudioPlaybackController {
 
   setAnalyser(analyser?: AnalyserNode) {
     this.analyser = analyser;
+    this.spectrumBuffer = undefined;
   }
 
   readSpectrum(target: Uint8Array<ArrayBuffer>) {
@@ -195,7 +197,10 @@ export class AudioPlaybackController {
       target.fill(0);
       return false;
     }
-    const raw = new Uint8Array(this.analyser.frequencyBinCount);
+    if (!this.spectrumBuffer || this.spectrumBuffer.length !== this.analyser.frequencyBinCount) {
+      this.spectrumBuffer = new Uint8Array(this.analyser.frequencyBinCount);
+    }
+    const raw = this.spectrumBuffer;
     this.analyser.getByteFrequencyData(raw);
     const usefulBins = Math.max(target.length, Math.floor(raw.length * 0.38));
     for (let index = 0; index < target.length; index += 1) {
