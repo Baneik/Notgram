@@ -721,7 +721,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           </footer>
         </section>
       )}
-      {connectionStatus !== "online" && (
+      {connectionStatus !== "online" && connectionStatus !== "syncing" && (
         <ConnectionStatusIndicator
           className="composer-connection-status"
           status={connectionStatus}

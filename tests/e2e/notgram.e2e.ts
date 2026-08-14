@@ -2131,6 +2131,16 @@ const chooseMessageMenuItem = async (page: Page, name: string) => {
   await page.keyboard.press("Enter");
 };
 
+test("background syncing does not show a composer status banner", async ({ page }) => {
+  await page.goto("/?connection=syncing");
+  await expect(page.getByRole("textbox", { name: "消息内容" })).toBeVisible();
+  await expect(page.locator(".composer-connection-status")).toHaveCount(0);
+
+  await page.goto("/?connection=waitingForNetwork");
+  await expect(page.locator(".composer-connection-status"))
+    .toContainText("正在等待网络");
+});
+
 test("offline text messages survive a restart in the snapshot model", async ({ page }) => {
   await page.goto("/?connection=waitingForNetwork");
   const composer = page.getByRole("textbox", { name: "消息内容" });
