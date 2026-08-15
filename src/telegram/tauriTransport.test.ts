@@ -409,6 +409,53 @@ describe("TauriTelegramTransport startup", () => {
     expect(management.administratorLabels).toEqual({ "901": "值班", "902": "群主" });
   });
 
+  it("starts independent group management requests in parallel", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as {
+      request: (request: TdObject) => Promise<TdObject>;
+      rawChats: Map<string, TdObject>;
+    };
+    const requests: string[] = [];
+    const pending = new Map<string, (value: TdObject) => void>();
+    internal.rawChats.set("72", {
+      "@type": "chat",
+      id: 72,
+      permissions: {},
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+    internal.request = async (request) => {
+      const type = String(request["@type"]);
+      requests.push(type);
+      if (type === "getSupergroup") {
+        return {
+          "@type": "supergroup",
+          id: 91,
+          status: { "@type": "chatMemberStatusCreator" },
+          member_count: 0,
+        };
+      }
+      return new Promise((resolve) => pending.set(type, resolve));
+    };
+
+    const managementPromise = transport.getChatManagement("72");
+    await vi.waitFor(() => expect(requests).toEqual([
+      "getSupergroup",
+      "getChatAdministrators",
+      "getSupergroupFullInfo",
+      "getSupergroupMembers",
+      "canTransferOwnership",
+    ]));
+
+    pending.get("getChatAdministrators")?.({ "@type": "chatAdministrators", administrators: [] });
+    pending.get("getSupergroupFullInfo")?.({ "@type": "supergroupFullInfo", member_count: 0 });
+    pending.get("getSupergroupMembers")?.({ "@type": "chatMembers", members: [] });
+    pending.get("canTransferOwnership")?.({ "@type": "canTransferOwnershipResultOk" });
+    await expect(managementPromise).resolves.toMatchObject({
+      members: [],
+      ownershipTransfer: { available: true },
+    });
+  });
+
   it("maps the complete member, permission, slow mode, and ownership requests", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawChats: Map<string, TdObject> };

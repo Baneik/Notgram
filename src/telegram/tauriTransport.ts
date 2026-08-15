@@ -815,41 +815,43 @@ export class TauriTelegramTransport implements TelegramTransport {
     const capabilities = deriveChatManagementCapabilities(chatType, status, adminRights);
     if (!capabilities.canOpenManagement) throw new Error("当前账号没有群组管理权限");
     const offset = Math.max(0, memberOffset);
-    let administratorLabels: Record<string, string> = {};
-    try {
-      const result = await this.request({
-        "@type": "getChatAdministrators",
-        chat_id: numericId(chatId),
-      });
-      administratorLabels = Object.fromEntries(asTdObjects(result.administrators).flatMap((raw) => {
-        const userId = tdId(raw.user_id);
-        if (!userId) return [];
-        const customTitle = typeof raw.custom_title === "string" ? raw.custom_title.trim() : "";
-        return [[userId, customTitle || (raw.is_owner === true ? "群主" : "管理员")]];
-      }));
-    } catch {
+    const administratorLabelsPromise = this.request({
+      "@type": "getChatAdministrators",
+      chat_id: numericId(chatId),
+    }).then((result) => Object.fromEntries(asTdObjects(result.administrators).flatMap((raw) => {
+      const userId = tdId(raw.user_id);
+      if (!userId) return [];
+      const customTitle = typeof raw.custom_title === "string" ? raw.custom_title.trim() : "";
+      return [[userId, customTitle || (raw.is_owner === true ? "群主" : "管理员")]];
+    }))).catch((): Record<string, string> => {
       // Member data remains usable on chats where the administrator list is unavailable.
-    }
-    let full: TdObject;
-    let values: TdObject[];
-    if (isBasic) {
-      full = await this.request({ "@type": "getBasicGroupFullInfo", basic_group_id: numericId(groupId) });
-      values = asTdObjects(full.members).slice(offset, offset + 50);
-    } else {
-      full = await this.request({ "@type": "getSupergroupFullInfo", supergroup_id: numericId(groupId) });
-      const result = await this.request({
-        "@type": "getSupergroupMembers",
-        supergroup_id: numericId(groupId), filter: null, offset, limit: 50,
-      });
-      values = asTdObjects(result.members);
-    }
-    const members = await this.loadManagedMembers(values);
+      return {};
+    });
+    const fullInfoPromise = isBasic
+      ? this.request({ "@type": "getBasicGroupFullInfo", basic_group_id: numericId(groupId) })
+      : this.request({ "@type": "getSupergroupFullInfo", supergroup_id: numericId(groupId) });
+    const memberValuesPromise = isBasic
+      ? fullInfoPromise.then((full) => asTdObjects(full.members).slice(offset, offset + 50))
+      : this.request({
+          "@type": "getSupergroupMembers",
+          supergroup_id: numericId(groupId), filter: null, offset, limit: 50,
+        }).then((result) => asTdObjects(result.members));
+    const membersPromise = memberValuesPromise.then((values) => this.loadManagedMembers(values));
+    const ownershipTransferPromise = capabilities.canTransferOwnership
+      ? this.request({ "@type": "canTransferOwnership" })
+      : Promise.resolve(undefined);
+    const [administratorLabels, full, values, members, transferResult] = await Promise.all([
+      administratorLabelsPromise,
+      fullInfoPromise,
+      memberValuesPromise,
+      membersPromise,
+      ownershipTransferPromise,
+    ]);
     const permissions = rawChat.permissions ? mapChatPermissionsFromTd(rawChat.permissions) : { ...DEFAULT_CHAT_PERMISSIONS };
     const slowModeDelay = tdNumber(full.slow_mode_delay) ?? 0;
     const memberCount = tdNumber(group.member_count) ?? tdNumber(full.member_count);
     let ownershipTransfer;
-    if (capabilities.canTransferOwnership) {
-      const transferResult = await this.request({ "@type": "canTransferOwnership" });
+    if (transferResult) {
       const transferType = transferResult["@type"];
       ownershipTransfer = transferType === "canTransferOwnershipResultOk"
         ? { available: true }
