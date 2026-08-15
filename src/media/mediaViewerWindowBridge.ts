@@ -38,7 +38,7 @@ export const createMediaViewerWindowId = () => {
 };
 
 export const mediaViewerWindowRoute = (id: string) => (
-  `/?mediaViewerWindow=${encodeURIComponent(id)}`
+  `/media-viewer-window.html?id=${encodeURIComponent(id)}`
 );
 
 export const createMediaViewerWindow = async (id: string) => {

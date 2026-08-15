@@ -49,7 +49,7 @@ pub async fn notgram_open_context_menu_window(
         existing.close().map_err(|error| error.to_string())?;
     }
     let (width, height) = menu_size(width, height)?;
-    let url = WebviewUrl::App(format!("index.html?contextMenuWindow={id}").into());
+    let url = WebviewUrl::App(format!("context-menu-window.html?id={id}").into());
     let window_x = x;
     let window_y = y;
     let builder = WebviewWindowBuilder::new(&app, label, url)

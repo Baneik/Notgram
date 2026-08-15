@@ -12,6 +12,6 @@ describe("media viewer window routing", () => {
   });
 
   it("routes descriptors to the standalone media viewer entry", () => {
-    expect(mediaViewerWindowRoute("viewer123")).toBe("/?mediaViewerWindow=viewer123");
+    expect(mediaViewerWindowRoute("viewer123")).toBe("/media-viewer-window.html?id=viewer123");
   });
 });

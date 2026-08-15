@@ -197,12 +197,16 @@ const listeners = new Set<() => void>();
 const pendingInteractions = new Map<number, EventTimingEntry>();
 let interactionFlushTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
-export const performanceWindowKind = (search?: string) => {
+export const performanceWindowKind = (search?: string, pathname?: string) => {
   const resolvedSearch = search ?? (
     typeof window === "undefined" ? undefined : window.location.search
   );
-  if (resolvedSearch === undefined) return 0;
-  return new URLSearchParams(resolvedSearch).has("videoWindow") ? 2 : 1;
+  const resolvedPathname = pathname ?? (
+    typeof window === "undefined" ? undefined : window.location.pathname
+  );
+  if (resolvedSearch === undefined && resolvedPathname === undefined) return 0;
+  const legacyVideoRoute = new URLSearchParams(resolvedSearch).has("videoWindow");
+  return legacyVideoRoute || resolvedPathname?.endsWith("/video-window.html") ? 2 : 1;
 };
 
 const performanceWindowId = (() => {

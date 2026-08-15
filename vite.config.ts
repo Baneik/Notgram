@@ -1,5 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+
+const htmlEntry = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
@@ -17,5 +20,14 @@ export default defineConfig({
     target: "es2020",
     minify: process.env.TAURI_ENV_DEBUG ? false : "oxc",
     sourcemap: Boolean(process.env.TAURI_ENV_DEBUG),
+    rolldownOptions: {
+      input: {
+        main: htmlEntry("./index.html"),
+        settingsWindow: htmlEntry("./settings-window.html"),
+        videoWindow: htmlEntry("./video-window.html"),
+        mediaViewerWindow: htmlEntry("./media-viewer-window.html"),
+        contextMenuWindow: htmlEntry("./context-menu-window.html"),
+      },
+    },
   },
 });

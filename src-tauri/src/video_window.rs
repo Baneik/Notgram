@@ -33,7 +33,7 @@ pub async fn notgram_open_video_window(
 
     let width = width.clamp(MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH);
     let height = height.clamp(MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT);
-    let url = WebviewUrl::App(format!("index.html?videoWindow={id}").into());
+    let url = WebviewUrl::App(format!("video-window.html?id={id}").into());
     let show_fullscreen = fullscreen;
     let mut builder = WebviewWindowBuilder::new(&app, label, url)
         .title("Notgram 视频")

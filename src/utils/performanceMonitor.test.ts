@@ -77,10 +77,11 @@ describe("performance monitor", () => {
     }));
   });
 
-  it("detects query-routed video windows", () => {
-    expect(performanceWindowKind("?videoWindow=preview-1")).toBe(2);
-    expect(performanceWindowKind("?mediaViewerWindow=preview-1")).toBe(1);
-    expect(performanceWindowKind("")).toBe(1);
+  it("detects isolated and legacy video window routes", () => {
+    expect(performanceWindowKind("?id=preview-1", "/video-window.html")).toBe(2);
+    expect(performanceWindowKind("?videoWindow=preview-1", "/")).toBe(2);
+    expect(performanceWindowKind("?id=preview-1", "/media-viewer-window.html")).toBe(1);
+    expect(performanceWindowKind("", "/")).toBe(1);
   });
 
   it("calculates missed frames from the active display refresh rate", () => {

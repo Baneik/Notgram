@@ -11,7 +11,7 @@ pub async fn notgram_open_settings_window(app: AppHandle) -> Result<(), String> 
         return Ok(());
     }
 
-    let url = WebviewUrl::App("index.html?settingsWindow=1".into());
+    let url = WebviewUrl::App("settings-window.html".into());
     let mut builder = WebviewWindowBuilder::new(&app, "settings", url)
         .title("")
         .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)

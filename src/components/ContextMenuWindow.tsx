@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
@@ -62,7 +62,8 @@ export function ContextMenuWindow({ id }: { id: string }) {
     if (closingRef.current) return;
     closingRef.current = true;
     channelRef.current?.postMessage({ type: "closed", id } satisfies NativeContextMenuMessage);
-    await getCurrentWindow().close().catch(() => undefined);
+    if (isTauri()) await getCurrentWindow().close().catch(() => undefined);
+    else globalThis.close();
   };
 
   useEffect(() => {
@@ -79,15 +80,19 @@ export function ContextMenuWindow({ id }: { id: string }) {
       readyTimer = undefined;
       setDescriptor(message.descriptor);
       applyThemeToDocument(themeIdForColorTheme(message.descriptor.colorTheme));
-      void getCurrentWindow().setTheme(message.descriptor.colorTheme).catch(() => undefined);
+      if (isTauri()) {
+        void getCurrentWindow().setTheme(message.descriptor.colorTheme).catch(() => undefined);
+      }
       globalThis.setTimeout(() => { blurArmedRef.current = true; }, 100);
     };
     ready();
     readyTimer = globalThis.setInterval(ready, 200);
     let unlisten: (() => void) | undefined;
-    void getCurrentWindow().onFocusChanged(({ payload }) => {
-      if (!payload && blurArmedRef.current) void close();
-    }).then((listener) => { unlisten = listener; });
+    if (isTauri()) {
+      void getCurrentWindow().onFocusChanged(({ payload }) => {
+        if (!payload && blurArmedRef.current) void close();
+      }).then((listener) => { unlisten = listener; });
+    }
     return () => {
       if (readyTimer !== undefined) globalThis.clearInterval(readyTimer);
       unlisten?.();
@@ -114,11 +119,13 @@ export function ContextMenuWindow({ id }: { id: string }) {
       expandedId,
       measureNativeContextMenuLabel,
     );
-    void invoke("notgram_resize_context_menu_window", {
-      id,
-      width: expandedId ? geometry.expandedWidth : geometry.width,
-      height: geometry.height,
-    }).catch(() => { void close(); });
+    if (isTauri()) {
+      void invoke("notgram_resize_context_menu_window", {
+        id,
+        width: expandedId ? geometry.expandedWidth : geometry.width,
+        height: geometry.height,
+      }).catch(() => { void close(); });
+    }
   }, [descriptor, expandedId, id]);
 
   if (!descriptor) return null;

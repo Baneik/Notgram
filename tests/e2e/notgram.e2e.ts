@@ -249,7 +249,7 @@ test("settings isolate wheel input from the covered conversation list", async ({
 test("standalone settings update the still-interactive main window", async ({ page, context }) => {
   await page.goto("/");
   const settings = await context.newPage();
-  await settings.goto("/?settingsWindow");
+  await settings.goto("/settings-window.html");
   await expect(settings.locator(".settings-window-shell")).toBeVisible();
   await expect(settings.locator(".app-shell")).toHaveCount(0);
   await expect(settings.locator(".window-chrome")).toBeVisible();
@@ -276,7 +276,7 @@ test("standalone settings update the still-interactive main window", async ({ pa
 });
 
 test("account settings only show and edit the current profile", async ({ page }) => {
-  await page.goto("/?settingsWindow");
+  await page.goto("/settings-window.html");
   const accountCategory = page.getByRole("button", { name: "我的账号", exact: true });
   await expect(accountCategory).toHaveText("我的账号");
   await expect(accountCategory.locator("small")).toHaveCount(0);
