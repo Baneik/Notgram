@@ -5,6 +5,15 @@ with prerelease identifiers used for release candidates.
 
 ## [Unreleased]
 
+### Changed
+
+- Rework Settings into a more compact and consistent layout, keep the account page
+  focused on the current account, constrain long blocked-sender lists, and remove
+  the former developer tools and remote-debugging controls.
+- Store cache and download locations as environment-variable paths, defaulting to
+  `%LOCALAPPDATA%\dev.notgram.desktop\tdlib` and
+  `%USERPROFILE%\Downloads\downloads` on Windows.
+
 ### Fixed
 
 - Justify received photo and video albums across the complete message bubble,

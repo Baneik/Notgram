@@ -65,7 +65,7 @@ export function DiagnosticsSettings() {
   })();
 
   return (
-    <div className="settings-detail-scroll diagnostics-settings">
+    <div className="settings-group diagnostics-settings">
       <section className="settings-section" aria-labelledby="diagnostics-export-heading">
         <div className="settings-section-heading">
           <FileArchive size={18} strokeWidth={1.8} />

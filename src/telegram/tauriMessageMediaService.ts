@@ -8,7 +8,6 @@ import {
   asTdObject,
   asTdObjects,
   mapTdMessageProperties,
-  serializeTdObject,
   tdId,
   tdLocalFilePath,
   tdNumber,
@@ -269,25 +268,6 @@ export class TauriMessageMediaService {
     this.context.rawMessages.set(chatId, chatMessages);
     this.context.ensureReplyContent(raw);
     return message;
-  }
-
-  async getRawMessage(chatId: string, messageId: string) {
-    let raw = this.context.rawMessages.get(chatId)?.get(messageId);
-    if (!raw) {
-      const requested = await this.context.request({
-        "@type": "getMessage",
-        chat_id: numericId(chatId),
-        message_id: numericId(messageId),
-      });
-      if (tdId(requested.chat_id) !== chatId || tdId(requested.id) !== messageId) {
-        return undefined;
-      }
-      const chatMessages = this.context.rawMessages.get(chatId) ?? new Map<string, TdObject>();
-      chatMessages.set(messageId, requested);
-      this.context.rawMessages.set(chatId, chatMessages);
-      raw = requested;
-    }
-    return serializeTdObject(raw);
   }
 
   async getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions> {

@@ -1560,10 +1560,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.getMessage(chatId, messageId);
   }
 
-  async getRawMessage(chatId: string, messageId: string) {
-    return this.messageMediaService.getRawMessage(chatId, messageId);
-  }
-
   async getMessageProperties(
     chatId: string,
     messageId: string,

@@ -3,7 +3,6 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
-  Copy,
   Download,
   Eye,
   ExternalLink,
@@ -33,7 +32,6 @@ import type { Message, MessageReaction, MessageReplyQuote } from "../telegram/ty
 import { formatCompactCount, formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
-import { writeClipboardText } from "../utils/clipboard";
 import { TgsSticker } from "./TgsSticker";
 import { AutoplayVideo } from "./AutoplayVideo";
 import { VideoPlayer } from "./VideoPlayer";
@@ -126,7 +124,6 @@ interface MessageBubbleProps {
   albumItem?: boolean;
   autoplayAnimations: boolean;
   autoDownloadPolicy: AutoDownloadPolicy;
-  developerMode: boolean;
 }
 
 const reactionLabel = (reaction: MessageReaction) => {
@@ -182,13 +179,11 @@ function MessageBubbleComponent({
   albumItem = false,
   autoplayAnimations,
   autoDownloadPolicy,
-  developerMode,
 }: MessageBubbleProps) {
   const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
   const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
   const [reactionPending, setReactionPending] = useState<string>();
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -608,16 +603,6 @@ function MessageBubbleComponent({
     }
   };
 
-  const copyUnsupportedMessage = async () => {
-    if (content.kind !== "unsupported") return;
-    try {
-      await writeClipboardText(content.raw);
-      setCopyState("copied");
-    } catch {
-      setCopyState("error");
-    }
-  };
-
   const sendFailureTitle = message.sendFailure?.needAnotherReplyQuote
     ? "引用内容已失效，请重新选择引用后发送"
     : message.sendFailure?.needDropReply
@@ -848,24 +833,7 @@ function MessageBubbleComponent({
               ) : highlightedText(content.text, searchQuery)}
             </p>
           ) : content.kind === "unsupported" ? (
-            developerMode ? (
-              <button
-                className="unknown-message-copy"
-                type="button"
-                aria-label={`复制 ${content.type} 原始消息`}
-                title="复制原始消息"
-                onClick={() => void copyUnsupportedMessage()}
-              >
-                {copyState === "copied"
-                  ? <Check size={13} strokeWidth={2.3} />
-                  : copyState === "error"
-                    ? <AlertCircle size={13} strokeWidth={2.1} />
-                    : <Copy size={13} strokeWidth={2} />}
-                <span>{copyState === "copied"
-                  ? "已复制原始消息"
-                  : copyState === "error" ? "复制失败，请重试" : content.text}</span>
-              </button>
-            ) : <p>{highlightedText(content.text, searchQuery)}</p>
+            <p>{highlightedText(content.text, searchQuery)}</p>
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
               <div

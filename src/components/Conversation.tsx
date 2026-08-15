@@ -203,7 +203,6 @@ interface ConversationProps {
     chatId: string,
     messageId: string,
   ) => Promise<MessagePermissions | undefined>;
-  onLoadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onSetPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<import("../telegram/types").CallbackQueryAnswer | undefined>;
@@ -277,7 +276,6 @@ export function Conversation({
   onForwardMessages,
   onLoadForumTopics,
   onLoadMessageProperties,
-  onLoadRawMessage,
   onSetMessageReaction,
   onSetPollAnswer,
   onBotCallback,
@@ -386,7 +384,6 @@ export function Conversation({
     state.autoplayAnimations,
     state,
   ));
-  const developerMode = usePreferencesStore((state) => state.developerMode);
   const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
   const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
@@ -1281,17 +1278,6 @@ export function Conversation({
     setActionLoadingId((current) => current === message.id ? undefined : current);
   }, [actionLoadingId, onLoadMessageProperties]);
 
-  const copyRawMessage = async (message: Message) => {
-    const raw = await onLoadRawMessage(message.chatId, message.id);
-    if (!raw) return;
-    try {
-      await writeClipboardText(raw);
-      closeActionMenu(false);
-    } catch {
-      // Keep the menu open so the user can retry after clipboard access is restored.
-    }
-  };
-
   const copyMessage = async (message: Message) => {
     try {
       await copyMessageContent(message);
@@ -1766,7 +1752,6 @@ export function Conversation({
                         albumItem={albumItem}
                         autoplayAnimations={autoplayAnimations}
                         autoDownloadPolicy={autoDownloadPolicy}
-                        developerMode={developerMode}
                       />;
                     };
                     if (segment.kind === "message") return renderBubble(segment.message);
@@ -1946,7 +1931,6 @@ export function Conversation({
               }
             : undefined}
           onCopy={() => void copyMessage(actionMessage)}
-          onCopyRaw={developerMode ? () => void copyRawMessage(actionMessage) : undefined}
           onReport={() => { setReportTarget(actionMessage); setActionMenu(undefined); }}
           onDismiss={() => closeActionMenu(false)}
           onClose={() => closeActionMenu(true)}

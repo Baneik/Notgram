@@ -263,7 +263,7 @@ mod tests {
         assert!(arguments_include_startup(["Notgram.exe", "--autostart"]));
         assert!(!arguments_include_startup([
             "Notgram.exe",
-            "--automation-port=9333"
+            "--open-settings"
         ]));
     }
 

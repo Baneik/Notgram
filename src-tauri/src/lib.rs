@@ -1,4 +1,3 @@
-mod automation;
 mod context_menu_window;
 mod desktop_lifecycle;
 mod desktop_notification;
@@ -24,10 +23,6 @@ pub fn run() {
     }
     development::load_environment();
     let context = tauri::generate_context!();
-    if let Err(error) = automation::configure(&context.config().identifier) {
-        eprintln!("{error}");
-        std::process::exit(2);
-    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if !desktop_lifecycle::arguments_include_startup(args) {
@@ -60,8 +55,6 @@ pub fn run() {
             diagnostics::notgram_diagnostics_settings,
             diagnostics::notgram_export_diagnostics,
             diagnostics::notgram_set_crash_reporting_enabled,
-            automation::notgram_automation_settings,
-            automation::notgram_save_automation_settings,
             distribution::notgram_distribution_kind,
             desktop_lifecycle::notgram_desktop_settings,
             desktop_lifecycle::notgram_set_launch_on_startup,

@@ -24,6 +24,15 @@ const mockInitialTyping = () => {
   return undefined;
 };
 
+const mockBlockedSenderCount = () => {
+  if (typeof window === "undefined") return undefined;
+  const value = Number.parseInt(
+    new URLSearchParams(window.location.search).get("blockedSenders") ?? "",
+    10,
+  );
+  return Number.isFinite(value) && value > 0 ? Math.min(value, 50) : undefined;
+};
+
 export const createTelegramTransport = (): TelegramTransport => {
   if (import.meta.env.VITE_TELEGRAM_TRANSPORT === "tauri") {
     return new TauriTelegramTransport();
@@ -36,5 +45,6 @@ export const createTelegramTransport = (): TelegramTransport => {
         : undefined,
     connectionStatus: mockConnectionStatus(),
     initialTyping: mockInitialTyping(),
+    blockedSenderCount: mockBlockedSenderCount(),
   });
 };

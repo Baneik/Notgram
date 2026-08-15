@@ -275,16 +275,11 @@ test("standalone settings update the still-interactive main window", async ({ pa
   await settings.close();
 });
 
-test("account settings show horizontal accounts and edit the current profile", async ({ page }) => {
+test("account settings only show and edit the current profile", async ({ page }) => {
   await page.goto("/?settingsWindow");
-  const accountRows = page.locator(".account-list .account-row");
-  await expect(accountRows).toHaveCount(2);
-  const rowBoxes = await accountRows.evaluateAll((elements) => elements.map((element) => {
-    const box = element.getBoundingClientRect();
-    return { left: box.left, top: box.top, width: box.width };
-  }));
-  expect(Math.abs(rowBoxes[0]!.top - rowBoxes[1]!.top)).toBeLessThanOrEqual(1);
-  expect(rowBoxes[1]!.left).toBeGreaterThan(rowBoxes[0]!.left + rowBoxes[0]!.width - 1);
+  await expect(page.getByText("已登录账号", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "添加账号" })).toHaveCount(0);
+  await expect(page.getByText("切换到此账号", { exact: true })).toHaveCount(0);
 
   const card = page.locator(".account-profile-card");
   await expect(card).toBeVisible();
@@ -370,10 +365,10 @@ test("performance monitor attributes a conversation switch to its slowest stage"
 });
 
 test("desktop messaging, context actions, and preferences remain usable", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?blockedSenders=8");
   await expect(page.locator(".app-shell")).toBeVisible();
   await expect(page.locator(".chat-row")).not.toHaveCount(0);
-  await expect(page.locator(".message-day")).not.toHaveCount(0);
+  await expect(page.locator(".message-bubble-shell")).not.toHaveCount(0);
 
   const visibleBubble = page.locator(".message-bubble-shell").last();
   await visibleBubble.click({ button: "right" });
@@ -416,16 +411,35 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   await expect(page.locator(".message-row.is-outgoing:has(.message-rich-text) .message-bubble").first())
     .toHaveCSS("background-color", "rgb(51, 69, 83)");
   await page.getByRole("button", { name: /高级设置/ }).click();
+  await expect(page.getByLabel("缓存路径")).toHaveValue(
+    "%LOCALAPPDATA%\\dev.notgram.desktop\\tdlib",
+  );
+  await expect(page.getByLabel("下载路径")).toHaveValue(
+    "%USERPROFILE%\\Downloads\\downloads",
+  );
+  const cachePathHeight = await page.getByLabel("缓存路径")
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).height));
+  expect(cachePathHeight).toBeGreaterThanOrEqual(35);
+  expect(cachePathHeight).toBeLessThanOrEqual(37);
   await page.getByRole("button", { name: "重建界面缓存" }).click();
   await expect(page.locator(".settings-dialog .cache-health"))
     .toContainText("缓存状态：刚刚重建");
   await page.getByRole("button", { name: /软件更新/ }).click();
-  await expect(page.getByRole("heading", { name: /Notgram 0\.5\.0-rc\.2/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Notgram 0\.5\.0-rc\.3/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "检查更新" })).toBeDisabled();
   await page.getByRole("button", { name: /诊断与隐私/ }).click();
   await expect(page.getByRole("button", { name: "导出诊断包" })).toBeDisabled();
   await expect(page.getByRole("switch", { name: "保留脱敏崩溃报告" })).toBeDisabled();
   await expect(page.getByText("浏览器预览不生成诊断包")).toBeVisible();
+  const blockedList = page.locator(".blocked-sender-list");
+  await expect(blockedList).toHaveAttribute("aria-busy", "false");
+  await expect(blockedList.locator(".blocked-sender-row")).toHaveCount(8);
+  const blockedListHeight = await blockedList
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).height));
+  expect(blockedListHeight).toBeGreaterThanOrEqual(183);
+  expect(blockedListHeight).toBeLessThanOrEqual(185);
+  await expect.poll(() => blockedList.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true);
   expect(await horizontalOverflow(page)).toBe(false);
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "notgram-dark");
@@ -3942,8 +3956,8 @@ test("selecting message text is not interrupted by composer autofocus", async ({
   // Conversation state changes must not replace the selected native text nodes.
   await page.evaluate(async (storePath) => {
     const { preferencesStore } = await import(storePath);
-    const developerMode = preferencesStore.getState().developerMode;
-    preferencesStore.setState({ developerMode: !developerMode });
+    const notificationSound = preferencesStore.getState().notificationSound;
+    preferencesStore.setState({ notificationSound: !notificationSound });
   }, "/src/store/preferencesStore.ts");
   await page.waitForTimeout(2_000);
   await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
@@ -5162,43 +5176,23 @@ test("date separators are centered and only upward user scrolling exposes the vi
   await expect(indicator).not.toHaveClass(/is-visible/);
 });
 
-test("developer mode copies the complete raw unknown message", async ({ page, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: "http://127.0.0.1:1422",
-  });
+test("developer tooling is absent from settings and message actions", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
 
   const notice = await revealVirtualMessage(page, "p-unknown");
   await expect(notice).toContainText("收到新类型消息（messageFutureType）");
-  await expect(notice.locator(".unknown-message-copy")).toHaveCount(0);
+  await expect(notice.getByRole("button")).toHaveCount(0);
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /高级设置/ }).click();
-  await page.getByRole("switch", { name: "开发者模式" }).check();
+  await expect(page.getByText("开发者选项", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "开发者模式" })).toHaveCount(0);
   await page.getByRole("dialog").getByRole("button", { name: "关闭" }).click();
-
-  const copyButton = notice.getByRole("button", { name: "复制 messageFutureType 原始消息" });
-  await copyButton.click();
-  await expect(copyButton).toContainText("已复制原始消息");
-  const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
-  expect(copied).toMatchObject({
-    "@type": "message",
-    id: "p-unknown",
-    content: { "@type": "messageFutureType" },
-  });
 
   const regularMessage = await revealVirtualMessage(page, "p-2");
   await regularMessage.locator(".message-bubble-shell").click({ button: "right" });
-  const rawMenuItem = page.getByRole("menuitem", { name: "复制原始消息" });
-  await expect(rawMenuItem).toBeVisible();
-  await rawMenuItem.click();
-  const regularRaw = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
-  expect(regularRaw).toMatchObject({
-    "@type": "message",
-    id: "p-2",
-    chat_id: "chat-product",
-  });
+  await expect(page.getByRole("menuitem", { name: "复制原始消息" })).toHaveCount(0);
 });
 
 const messageViewportOffset = (page: Page, messageId: string) =>

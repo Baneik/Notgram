@@ -261,10 +261,10 @@ export class MockTelegramTransport implements TelegramTransport {
   private connectionStatus: ConnectionStatus;
   private initialTyping?: { chatId: string; senderId: string };
   private storageSettings: StorageSettings = {
-    cachePath: "Windows 应用缓存\\Notgram\\tdlib",
-    downloadPath: "Notgram\\downloads",
-    defaultCachePath: "Windows 应用缓存\\Notgram\\tdlib",
-    defaultDownloadPath: "Notgram\\downloads",
+    cachePath: "%LOCALAPPDATA%\\dev.notgram.desktop\\tdlib",
+    downloadPath: "%USERPROFILE%\\Downloads\\downloads",
+    defaultCachePath: "%LOCALAPPDATA%\\dev.notgram.desktop\\tdlib",
+    defaultDownloadPath: "%USERPROFILE%\\Downloads\\downloads",
   };
   private cacheUsage: CacheUsage = {
     total: { bytes: 48_758_784, files: 18 },
@@ -318,6 +318,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   constructor(options: {
     authFlow?: boolean;
+    blockedSenderCount?: number;
     cachedSnapshot?: CachedTelegramSnapshot;
     connectionStatus?: ConnectionStatus;
     initialTyping?: { chatId: string; senderId: string };
@@ -341,6 +342,16 @@ export class MockTelegramTransport implements TelegramTransport {
     this.authFlow = options.authFlow ?? !activeAccountExists;
     this.connectionStatus = options.connectionStatus ?? "online";
     this.initialTyping = options.initialTyping;
+    for (let index = 0; index < (options.blockedSenderCount ?? 0); index += 1) {
+      const sender: BlockedSender = {
+        id: `blocked-${index}`,
+        kind: "user",
+        title: `屏蔽用户 ${index + 1}`,
+        avatar: { label: `${index + 1}`, color: "#73808c" },
+        blockedAt: new Date(Date.now() - index * 60_000).toISOString(),
+      };
+      this.blockedSenders.set(`${sender.kind}:${sender.id}`, sender);
+    }
     this.cachedSnapshot = options.cachedSnapshot
       ? clone(options.cachedSnapshot)
       : undefined;
@@ -1552,23 +1563,6 @@ export class MockTelegramTransport implements TelegramTransport {
       (item) => item.chatId === chatId && item.id === messageId,
     );
     return message ? clone(message) : undefined;
-  }
-
-  async getRawMessage(chatId: string, messageId: string) {
-    const message = this.snapshot.messages.find(
-      (item) => item.chatId === chatId && item.id === messageId,
-    );
-    if (!message) return undefined;
-    if (message.content.kind === "unsupported") return message.content.raw;
-    return JSON.stringify({
-      "@type": "message",
-      id: message.id,
-      chat_id: message.chatId,
-      sender_id: message.senderId,
-      is_outgoing: message.outgoing,
-      date: Math.floor(Date.parse(message.sentAt) / 1_000),
-      content: message.content,
-    }, null, 2);
   }
 
   async getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions> {

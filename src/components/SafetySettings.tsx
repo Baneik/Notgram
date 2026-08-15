@@ -96,5 +96,138 @@ export function SafetySettings() {
       setPrivacyPending(undefined);
     }
   };
-  return <div className="settings-detail-scroll safety-settings"><section className="settings-section" aria-labelledby="blocked-senders-heading"><div className="settings-section-heading"><Ban size={18} /><div><h4 id="blocked-senders-heading">黑名单</h4><span>屏蔽对象不会再出现在消息通知中</span></div></div>{loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} /></div> : blockedSenders.length === 0 ? <p className="settings-empty">暂无屏蔽对象</p> : <div className="blocked-sender-list">{blockedSenders.map((sender) => <div className="blocked-sender-row" key={`${sender.kind}:${sender.id}`}><Avatar avatar={sender.avatar} size="small" /><span><strong>{sender.title}</strong><small>{sender.kind === "user" ? "用户" : "频道"}</small></span><button className="dialog-secondary" type="button" disabled={pending === sender.id} onClick={async () => { setPending(sender.id); await setBlocked(sender.id, sender.kind, false); setPending(undefined); }}>{pending === sender.id ? <LoaderCircle className="spin" size={14} /> : <UserRoundX size={14} />}解除屏蔽</button></div>)}</div>}</section><section className="settings-section" aria-labelledby="sessions-heading"><div className="settings-section-heading"><MonitorSmartphone size={18} /><div><h4 id="sessions-heading">设备会话</h4><span>可以随时终止陌生设备</span></div></div><div className="session-list">{sessions.map((session) => <div className="session-row" key={session.id}><div><strong>{session.applicationName} · {session.deviceModel}</strong><small>{session.platform} {session.systemVersion} · {session.location || session.ipAddress || "未知位置"} · 最近活动 {new Date(session.lastActiveAt).toLocaleString("zh-CN")}</small></div>{session.isCurrent ? <span className="session-current">当前设备</span> : <button className="dialog-secondary" type="button" onClick={async () => { if (await terminateSession(session.id)) await refreshSessions(); }}><LogOut size={14} />终止</button>}</div>)}</div><button className="dialog-danger" type="button" disabled={sessions.filter((session) => !session.isCurrent).length === 0} onClick={async () => { if (await terminateAllOtherSessions()) await refreshSessions(); }}>终止其他所有会话</button></section><section className="settings-section" aria-labelledby="privacy-rules-heading"><div className="settings-section-heading"><ShieldAlert size={18} /><div><h4 id="privacy-rules-heading">Telegram 隐私规则</h4><span>设置状态、手机号、头像、来电和新聊天默认范围</span></div></div><div className="privacy-rule-list">{privacySettings.map(({ key, label }) => { const selected = privacyRules[key]?.[0]?.kind ?? "allowContacts"; return <label className="privacy-rule-row" key={key}><span>{label}</span><select aria-label={label} disabled={privacyPending !== undefined} value={selected} onChange={(event) => void updatePrivacy(key, event.target.value as PrivacyRule["kind"])}><option value="allowAll">所有人</option><option value="allowContacts">我的联系人</option><option value="restrictAll">没人</option></select></label>; })}</div>{privacyError && <p className="settings-error" role="alert">{privacyError}</p>}</section><section className="settings-section"><div className="settings-section-heading"><Check size={18} /><div><h4>举报与恢复</h4><span>举报后仍可在聊天资料中恢复屏蔽或重新加入会话</span></div></div><p className="settings-help">举报会包含你选择的消息范围和原因；提交前可选择同时删除会话。</p></section></div>;
+  return (
+    <div className="settings-group safety-settings">
+      <section className="settings-section" aria-labelledby="blocked-senders-heading">
+        <div className="settings-section-heading">
+          <Ban size={18} />
+          <div>
+            <h4 id="blocked-senders-heading">黑名单</h4>
+            <span>屏蔽对象不会再出现在消息通知中</span>
+          </div>
+        </div>
+        <div className="blocked-sender-list" aria-busy={loading}>
+          {loading ? (
+            <div className="settings-loading"><LoaderCircle className="spin" size={18} /></div>
+          ) : blockedSenders.length === 0 ? (
+            <p className="settings-empty">暂无屏蔽对象</p>
+          ) : blockedSenders.map((sender) => (
+            <div className="blocked-sender-row" key={`${sender.kind}:${sender.id}`}>
+              <Avatar avatar={sender.avatar} size="small" />
+              <span>
+                <strong>{sender.title}</strong>
+                <small>{sender.kind === "user" ? "用户" : "频道"}</small>
+              </span>
+              <button
+                className="dialog-secondary"
+                type="button"
+                disabled={pending === sender.id}
+                onClick={async () => {
+                  setPending(sender.id);
+                  await setBlocked(sender.id, sender.kind, false);
+                  setPending(undefined);
+                }}
+              >
+                {pending === sender.id
+                  ? <LoaderCircle className="spin" size={14} />
+                  : <UserRoundX size={14} />}
+                解除屏蔽
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="settings-section" aria-labelledby="sessions-heading">
+        <div className="settings-section-heading">
+          <MonitorSmartphone size={18} />
+          <div>
+            <h4 id="sessions-heading">设备会话</h4>
+            <span>可以随时终止陌生设备</span>
+          </div>
+        </div>
+        <div className="session-list">
+          {sessions.map((session) => (
+            <div className="session-row" key={session.id}>
+              <div>
+                <strong>{session.applicationName} · {session.deviceModel}</strong>
+                <small>
+                  {session.platform} {session.systemVersion} · {session.location || session.ipAddress || "未知位置"} · 最近活动 {new Date(session.lastActiveAt).toLocaleString("zh-CN")}
+                </small>
+              </div>
+              {session.isCurrent ? (
+                <span className="session-current">当前设备</span>
+              ) : (
+                <button
+                  className="dialog-secondary"
+                  type="button"
+                  onClick={async () => {
+                    if (await terminateSession(session.id)) await refreshSessions();
+                  }}
+                >
+                  <LogOut size={14} />
+                  终止
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <button
+          className="dialog-danger"
+          type="button"
+          disabled={sessions.filter((session) => !session.isCurrent).length === 0}
+          onClick={async () => {
+            if (await terminateAllOtherSessions()) await refreshSessions();
+          }}
+        >
+          终止其他所有会话
+        </button>
+      </section>
+
+      <section className="settings-section" aria-labelledby="privacy-rules-heading">
+        <div className="settings-section-heading">
+          <ShieldAlert size={18} />
+          <div>
+            <h4 id="privacy-rules-heading">Telegram 隐私规则</h4>
+            <span>设置状态、手机号、头像、来电和新聊天默认范围</span>
+          </div>
+        </div>
+        <div className="privacy-rule-list">
+          {privacySettings.map(({ key, label }) => {
+            const selected = privacyRules[key]?.[0]?.kind ?? "allowContacts";
+            return (
+              <label className="privacy-rule-row" key={key}>
+                <span>{label}</span>
+                <select
+                  aria-label={label}
+                  disabled={privacyPending !== undefined}
+                  value={selected}
+                  onChange={(event) => void updatePrivacy(
+                    key,
+                    event.target.value as PrivacyRule["kind"],
+                  )}
+                >
+                  <option value="allowAll">所有人</option>
+                  <option value="allowContacts">我的联系人</option>
+                  <option value="restrictAll">没人</option>
+                </select>
+              </label>
+            );
+          })}
+        </div>
+        {privacyError && <p className="settings-error" role="alert">{privacyError}</p>}
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading">
+          <Check size={18} />
+          <div>
+            <h4>举报与恢复</h4>
+            <span>举报后仍可在聊天资料中恢复屏蔽或重新加入会话</span>
+          </div>
+        </div>
+        <p className="settings-help">举报会包含你选择的消息范围和原因；提交前可选择同时删除会话。</p>
+      </section>
+    </div>
+  );
 }

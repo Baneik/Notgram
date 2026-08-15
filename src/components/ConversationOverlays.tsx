@@ -98,7 +98,6 @@ interface MessageActionMenuProps {
   onPlayInWindow?: () => void;
   onDownload?: () => void;
   onCopy: () => void;
-  onCopyRaw?: () => void;
   onDismiss: () => void;
   onClose: () => void;
   onReport?: () => void;
@@ -117,7 +116,6 @@ export function MessageActionMenu({
   onPlayInWindow,
   onDownload,
   onCopy,
-  onCopyRaw,
   onDismiss,
   onClose,
   onReport,
@@ -143,7 +141,6 @@ export function MessageActionMenu({
     ...(message.isPinned ? (onUnpin ? [{ id: "unpin", label: "取消置顶", icon: "pin" as const }] : [])
       : (onPin ? [{ id: "pin-message", label: "置顶消息", icon: "pin" as const }] : [])),
     ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
-    ...(onCopyRaw ? [{ id: "copy-raw", label: "复制原始消息", icon: "copy" as const }] : []),
     ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true }] : []),
   ] : [];
   const nativeMenu = useNativeContextMenu({
@@ -160,7 +157,6 @@ export function MessageActionMenu({
     else if (actionId === "unpin") onUnpin?.();
     else if (actionId === "play-window") onPlayInWindow?.();
     else if (actionId === "download") onDownload?.();
-    else if (actionId === "copy-raw") onCopyRaw?.();
     else if (actionId === "report") onReport?.();
   }, onDismiss, { enabled: Boolean(permissions) });
   useContextMenuDismiss(menuRef, onDismiss);
@@ -254,12 +250,6 @@ export function MessageActionMenu({
             <button type="button" role="menuitem" onClick={onPlayInWindow}>
               <PictureInPicture2 size={16} strokeWidth={1.9} />
               <span>以小窗播放</span>
-            </button>
-          )}
-          {onCopyRaw && (
-            <button type="button" role="menuitem" onClick={onCopyRaw}>
-              <Copy size={16} strokeWidth={1.9} />
-              <span>复制原始消息</span>
             </button>
           )}
           {onReport && <button className="is-danger" type="button" role="menuitem" onClick={onReport}><Flag size={16} strokeWidth={1.9} /><span>举报</span></button>}

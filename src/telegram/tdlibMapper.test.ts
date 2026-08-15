@@ -1259,12 +1259,11 @@ describe("TDLib mapper", () => {
     ]));
   });
 
-  it("keeps future TDLib message types diagnosable", () => {
+  it("renders a stable fallback for future TDLib message types", () => {
     expect(mapTdMessageContent({ "@type": "messageFutureType" })).toEqual({
       kind: "unsupported",
       type: "messageFutureType",
       text: "收到新类型消息（messageFutureType）",
-      raw: "{\n  \"@type\": \"messageFutureType\"\n}",
     });
 
     const rawMessage = {
@@ -1280,9 +1279,6 @@ describe("TDLib mapper", () => {
       kind: "unsupported",
       type: "messageFutureType",
     });
-    if (mapped?.content.kind === "unsupported") {
-      expect(JSON.parse(mapped.content.raw)).toEqual(rawMessage);
-    }
   });
 
   it("keeps retry information for failed outgoing messages", () => {

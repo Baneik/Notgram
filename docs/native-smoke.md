@@ -49,49 +49,6 @@ unredacted sensitive fields. The generated evidence is intentionally ignored by
 Git; summarize the two verified run names and commit hash in the release record,
 not the private runtime artifacts themselves.
 
-## Playwright against the real Tauri account
-
-Notgram can expose its authenticated WebView2 target to Playwright for focused
-native debugging. The endpoint is disabled by default, binds only to
-`127.0.0.1`, and must be enabled before the process starts. Fully exit an
-existing Notgram instance first because the single-instance process cannot gain
-an automation endpoint after startup.
-
-The formal release exposes the same option under **Settings → Advanced →
-Developer options**. Enable developer mode, choose a local port, save the
-debugging setting, then fully exit and reopen Notgram. The command-line form
-below remains available for one-off and CI runs without changing the saved
-preference.
-
-```powershell
-.\Notgram.exe --notgram-automation-port=9333
-```
-
-The equivalent environment variable is `NOTGRAM_AUTOMATION_PORT=9333`. This mode
-enables WebView2 DevTools so Playwright can attach to the real DOM and TDLib
-session. Enabling the endpoint does not mute normal media playback.
-
-For a test run that must remain silent, pass `--mute-audio` explicitly through
-WebView2's process-local arguments before starting Notgram:
-
-```powershell
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--mute-audio"
-.\Notgram.exe --notgram-automation-port=9333
-Remove-Item Env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
-```
-
-Then connect Playwright to the endpoint:
-
-```javascript
-const { chromium } = require("playwright");
-const browser = await chromium.connectOverCDP("http://127.0.0.1:9333");
-const page = browser.contexts().flatMap((context) => context.pages())[0];
-```
-
-Do not bind or proxy this endpoint to a LAN or public interface. A client that
-can connect to it can read and operate the authenticated Notgram UI. Close the
-automation-enabled instance as soon as the focused test is complete.
-
 ## Failure handling
 
 For each real failure:

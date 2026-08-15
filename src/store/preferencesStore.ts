@@ -29,7 +29,6 @@ export interface AppPreferences {
   autoDownloadLimitMb: number;
   cacheRetentionDays: number;
   reduceMotion: boolean;
-  developerMode: boolean;
   chatFontSize: number;
   interfaceScale: number;
   chatListRowHeight: number;
@@ -66,7 +65,6 @@ const defaults: AppPreferences = {
   autoDownloadLimitMb: 10,
   cacheRetentionDays: 7,
   reduceMotion: false,
-  developerMode: false,
   chatFontSize: 14,
   interfaceScale: 100,
   chatListRowHeight: 74,
@@ -127,7 +125,6 @@ const readPreferences = (): AppPreferences => {
         365,
       ),
       reduceMotion: stored.reduceMotion ?? defaults.reduceMotion,
-      developerMode: stored.developerMode ?? defaults.developerMode,
       chatFontSize: boundedInteger(stored.chatFontSize, defaults.chatFontSize, 12, 20),
       interfaceScale: boundedInteger(stored.interfaceScale, defaults.interfaceScale, 80, 150),
       chatListRowHeight: boundedInteger(
@@ -259,7 +256,6 @@ preferencesStore.subscribe((state) => {
     autoDownloadLimitMb: state.autoDownloadLimitMb,
     cacheRetentionDays: state.cacheRetentionDays,
     reduceMotion: state.reduceMotion,
-    developerMode: state.developerMode,
     chatFontSize: state.chatFontSize,
     interfaceScale: state.interfaceScale,
     chatListRowHeight: state.chatListRowHeight,

@@ -4,11 +4,9 @@ import {
   AtSign,
   BatteryCharging,
   Bell,
-  Check,
   Camera,
   ChevronRight,
   CloudDownload,
-  Code2,
   Gauge,
   FileText,
   Fingerprint,
@@ -29,7 +27,6 @@ import {
   Sun,
   Trash2,
   UserCircle,
-  UserPlus,
   Plus,
   X,
   type LucideIcon,
@@ -59,14 +56,12 @@ import type {
   ProxySettings,
   ProxyType,
   StorageSettings,
-  TelegramAccount,
   UpdateCurrentUserProfileInput,
   User,
 } from "../telegram/types";
 import { Avatar } from "./Avatar";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { DesktopStartupSettings } from "./DesktopStartupSettings";
-import { DeveloperAutomationSettings } from "./DeveloperAutomationSettings";
 import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
 import { SafetySettings } from "./SafetySettings";
@@ -176,8 +171,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const cacheHealth = useTelegramStore((state) => state.cacheHealth);
   const cacheUsage = useTelegramStore((state) => state.cacheUsage);
   const cacheCleanupResult = useTelegramStore((state) => state.cacheCleanupResult);
-  const accounts = useTelegramStore((state) => state.accounts);
-  const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const accountPending = useTelegramStore((state) => state.accountPending);
   const accountError = useTelegramStore((state) => state.accountError);
   const authorization = useTelegramStore((state) => state.authorization);
@@ -195,8 +188,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const rebuildCache = useTelegramStore((state) => state.rebuildCachedSnapshot);
   const loadCacheUsage = useTelegramStore((state) => state.loadCacheUsage);
   const clearMediaCache = useTelegramStore((state) => state.clearMediaCache);
-  const addAccount = useTelegramStore((state) => state.addAccount);
-  const switchAccount = useTelegramStore((state) => state.switchAccount);
   const logOutCurrentAccount = useTelegramStore((state) => state.logOutCurrentAccount);
   const loadCurrentUserProfile = useTelegramStore((state) => state.loadCurrentUserProfile);
   const updateCurrentUserProfile = useTelegramStore((state) => state.updateCurrentUserProfile);
@@ -214,7 +205,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const autoDownloadLimitMb = usePreferencesStore((state) => state.autoDownloadLimitMb);
   const cacheRetentionDays = usePreferencesStore((state) => state.cacheRetentionDays);
   const reduceMotion = usePreferencesStore((state) => state.reduceMotion);
-  const developerMode = usePreferencesStore((state) => state.developerMode);
   const chatFontSize = usePreferencesStore((state) => state.chatFontSize);
   const interfaceScale = usePreferencesStore((state) => state.interfaceScale);
   const chatListRowHeight = usePreferencesStore((state) => state.chatListRowHeight);
@@ -239,7 +229,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     autoDownloadLimitMb,
     cacheRetentionDays,
     reduceMotion,
-    developerMode,
     chatFontSize,
     interfaceScale,
     chatListRowHeight,
@@ -403,15 +392,11 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
 
           {activeCategory === "account" ? (
             <AccountSettings
-              accounts={accounts}
-              activeAccountId={activeAccountId}
               currentUser={currentUser}
               profileState={accountProfile}
               transportKind={transportKind}
               pending={accountPending}
               error={accountError}
-              onAdd={() => void addAccount()}
-              onSwitch={(accountId) => void switchAccount(accountId)}
               onLogOut={() => void logOutCurrentAccount()}
               onUpdate={updateCurrentUserProfile}
               onChangeAvatar={changeCurrentUserAvatar}
@@ -445,15 +430,16 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               }}
               onAutoDownloadToggle={(key, enabled) => setPreference(key, enabled)}
               onAutoDownloadLimitChange={(limitMb) => setPreference("autoDownloadLimitMb", limitMb)}
-              developerMode={developerMode}
-              onDeveloperModeChange={(enabled) => setPreference("developerMode", enabled)}
             />
           ) : activeCategory === "updates" ? (
             <UpdateSettings />
           ) : activeCategory === "performance" ? (
             <PerformanceMonitor />
           ) : activeCategory === "diagnostics" ? (
-            <><DiagnosticsSettings /><SafetySettings /></>
+            <div className="settings-detail-scroll">
+              <DiagnosticsSettings />
+              <SafetySettings />
+            </div>
           ) : (
             <PreferenceSettings
               category={activeCategory}
@@ -801,30 +787,22 @@ function NumericStepper({
 }
 
 interface AccountSettingsProps {
-  accounts: TelegramAccount[];
-  activeAccountId: string;
   currentUser?: User;
   profileState: ProfileState;
   transportKind: "mock" | "tauri";
   pending: boolean;
   error?: string;
-  onAdd: () => void;
-  onSwitch: (accountId: string) => void;
   onLogOut: () => void;
   onUpdate: (input: UpdateCurrentUserProfileInput) => Promise<boolean>;
   onChangeAvatar: (file?: File) => Promise<boolean>;
 }
 
 function AccountSettings({
-  accounts,
-  activeAccountId,
   currentUser,
   profileState,
   transportKind,
   pending,
   error,
-  onAdd,
-  onSwitch,
   onLogOut,
   onUpdate,
   onChangeAvatar,
@@ -839,24 +817,6 @@ function AccountSettings({
   });
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const profile = profileState.target?.kind === "current" ? profileState.value : undefined;
-  const baseAccounts = accounts.some((account) => account.id === activeAccountId) || !currentUser
-    ? accounts
-    : [
-        ...accounts,
-        {
-          id: activeAccountId,
-          userId: currentUser.id,
-          displayName: currentUser.displayName,
-          avatar: currentUser.avatar,
-        },
-      ];
-  const visibleAccounts = baseAccounts.map((account) => account.id === activeAccountId && currentUser
-    ? {
-        ...account,
-        displayName: currentUser.displayName,
-        avatar: profile?.avatar ?? currentUser.avatar,
-      }
-    : account);
   const profilePending = profileState.updating === true;
   const usernameInvalid = Boolean(
     draft.username && !/^[A-Za-z0-9_]{5,32}$/.test(draft.username),
@@ -887,43 +847,6 @@ function AccountSettings({
 
   return (
     <div className="settings-detail-scroll account-settings">
-      <section className="settings-section" aria-labelledby="accounts-heading">
-        <div className="settings-section-heading">
-          <UserCircle size={18} strokeWidth={1.8} />
-          <div>
-            <h4 id="accounts-heading">已登录账号</h4>
-            <span>账号数据分别存储，切换时会重新连接 Telegram</span>
-          </div>
-        </div>
-        <div className="account-list" role="list" aria-label="已登录账号">
-          {visibleAccounts.map((account) => {
-            const active = account.id === activeAccountId;
-            return (
-              <button
-                className={`account-row ${active ? "is-active" : ""}`}
-                type="button"
-                key={account.id}
-                role="listitem"
-                disabled={pending || active}
-                aria-current={active ? "true" : undefined}
-                onClick={() => onSwitch(account.id)}
-              >
-                <Avatar avatar={account.avatar} size="medium" />
-                <span className="account-row-copy">
-                  <strong>{account.displayName}</strong>
-                  <small>{active ? "当前账号" : "切换到此账号"}</small>
-                </span>
-                {active && <span className="account-active-mark"><Check size={13} strokeWidth={2.4} /></span>}
-              </button>
-            );
-          })}
-          <button className="account-row account-add" type="button" role="listitem" disabled={pending} onClick={onAdd}>
-            {pending ? <LoaderCircle className="spin" size={22} /> : <UserPlus size={22} />}
-            <span className="account-row-copy"><strong>添加账号</strong><small>登录另一个账号</small></span>
-          </button>
-        </div>
-      </section>
-
       {currentUser && profileState.loading && !profile ? (
         <div className="settings-empty" role="status"><LoaderCircle className="spin" size={20} /><span>正在读取账号资料</span></div>
       ) : currentUser && profile ? (
@@ -1032,7 +955,6 @@ interface AdvancedSettingsProps {
   cacheCleanupResult?: CacheCleanupResult;
   latency?: number;
   activeEndpoint?: ProxySettings["custom"];
-  developerMode: boolean;
   setDraft: Dispatch<SetStateAction<ProxySettings>>;
   setStorageDraft: Dispatch<SetStateAction<StorageSettings>>;
   updateCustom: <K extends keyof ProxySettings["custom"]>(
@@ -1055,7 +977,6 @@ interface AdvancedSettingsProps {
     enabled: boolean,
   ) => void;
   onAutoDownloadLimitChange: (limitMb: number) => void;
-  onDeveloperModeChange: (enabled: boolean) => void;
 }
 
 function AdvancedSettings({
@@ -1070,7 +991,6 @@ function AdvancedSettings({
   cacheCleanupResult,
   latency,
   activeEndpoint,
-  developerMode,
   setDraft,
   setStorageDraft,
   updateCustom,
@@ -1081,7 +1001,6 @@ function AdvancedSettings({
   autoDownload,
   onAutoDownloadToggle,
   onAutoDownloadLimitChange,
-  onDeveloperModeChange,
 }: AdvancedSettingsProps) {
   const [selectedCacheCategories, setSelectedCacheCategories] = useState<CacheCategory[]>(
     cacheCategories.map((category) => category.id),
@@ -1387,28 +1306,6 @@ function AdvancedSettings({
               <small>MB</small>
             </span>
           </label>
-        </section>
-
-        <section className="settings-section" aria-labelledby="developer-heading">
-          <div className="settings-section-heading">
-            <Code2 size={18} strokeWidth={1.8} />
-            <div>
-              <h4 id="developer-heading">开发者选项</h4>
-              <span>消息诊断工具</span>
-            </div>
-          </div>
-          <div className="preference-list">
-            <label className="preference-row">
-              <span>开发者模式</span>
-              <input
-                type="checkbox"
-                role="switch"
-                checked={developerMode}
-                onChange={(event) => onDeveloperModeChange(event.target.checked)}
-              />
-            </label>
-          </div>
-          <DeveloperAutomationSettings developerMode={developerMode} />
         </section>
 
         {error && <div className="auth-error settings-error" role="alert">{error}</div>}

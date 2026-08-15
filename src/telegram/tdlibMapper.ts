@@ -425,19 +425,10 @@ const serviceContent = (text: string, memberUserIds?: string[]): MessageContent 
   ...(memberUserIds ? { memberUserIds } : {}),
 });
 
-export const serializeTdObject = (value: unknown) => {
-  try {
-    return JSON.stringify(value, null, 2) ?? String(value);
-  } catch {
-    return String(value);
-  }
-};
-
-const unsupportedContent = (value: unknown, type: string): MessageContent => ({
+const unsupportedContent = (_value: unknown, type: string): MessageContent => ({
   kind: "unsupported",
   type,
   text: `收到新类型消息（${type}）`,
-  raw: serializeTdObject(value),
 });
 
 type RichTextStyle = Omit<MessageRichTextRun, "text">;
@@ -1673,10 +1664,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const needAnotherReplyQuote = failed && sendingState.need_another_reply_quote === true;
   const needDropReply = failed && sendingState.need_drop_reply === true;
   const needAnotherSender = failed && sendingState.need_another_sender === true;
-  const mappedContent = mapTdMessageContent(raw.content, raw.is_outgoing === true);
-  let content = mappedContent.kind === "unsupported"
-    ? { ...mappedContent, raw: serializeTdObject(raw) }
-    : mappedContent;
+  let content = mapTdMessageContent(raw.content, raw.is_outgoing === true);
   if (
     content.kind === "service" && content.memberUserIds?.length === 0 &&
     senderId !== "unknown" && !senderId.startsWith("chat:")

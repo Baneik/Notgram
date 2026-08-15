@@ -1,4 +1,3 @@
-use crate::automation;
 use tauri::{App, Manager};
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -27,7 +26,7 @@ fn configure_windows_webview(webview: tauri::webview::PlatformWebview) -> window
         let core_webview = webview.controller().CoreWebView2()?;
         let settings = core_webview.Settings()?;
         settings.SetAreDefaultContextMenusEnabled(false)?;
-        settings.SetAreDevToolsEnabled(automation::enabled())?;
+        settings.SetAreDevToolsEnabled(false)?;
 
         if let Ok(settings3) = settings.cast::<ICoreWebView2Settings3>() {
             settings3.SetAreBrowserAcceleratorKeysEnabled(false)?;

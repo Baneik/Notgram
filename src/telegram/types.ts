@@ -731,7 +731,7 @@ export type MessageContent =
     }
   | { kind: "service"; text: string; memberUserIds?: string[] }
   | MessagePollContent
-  | { kind: "unsupported"; type: string; text: string; raw: string }
+  | { kind: "unsupported"; type: string; text: string }
   | ({ kind: "file" } & TransferableMessageContent)
   | ({
       kind: "media";

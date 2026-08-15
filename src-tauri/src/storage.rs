@@ -104,10 +104,11 @@ pub fn telegram_save_storage_settings(
     app: AppHandle,
     preferences: StoragePreferences,
 ) -> Result<StorageSettings, String> {
-    let resolved = resolve_preferences(&app, preferences)?;
+    let configured = configured_preferences(&app, preferences)?;
+    let resolved = resolve_preferences(&app, configured.clone())?;
     create_storage_directories(&resolved)?;
-    save_preferences(&app, &resolved)?;
-    settings_from_preferences(&app, resolved)
+    save_preferences(&app, &configured)?;
+    settings_from_preferences(&app, configured)
 }
 
 #[tauri::command]
@@ -358,10 +359,10 @@ fn authorize_snapshot_assets(app: &AppHandle, snapshot: &Value) -> Result<(), St
 }
 
 fn storage_settings(app: &AppHandle) -> Result<StorageSettings, String> {
-    let preferences = load_preferences(app)?;
-    let resolved = resolve_preferences(app, preferences)?;
+    let preferences = configured_preferences(app, load_preferences(app)?)?;
+    let resolved = resolve_preferences(app, preferences.clone())?;
     create_storage_directories(&resolved)?;
-    settings_from_preferences(app, resolved)
+    settings_from_preferences(app, preferences)
 }
 
 fn settings_from_preferences(
@@ -371,9 +372,62 @@ fn settings_from_preferences(
     Ok(StorageSettings {
         cache_path: preferences.cache_path,
         download_path: preferences.download_path,
-        default_cache_path: default_cache_path(app)?.display().to_string(),
-        default_download_path: default_download_path()?.display().to_string(),
+        default_cache_path: default_cache_path_template(app),
+        default_download_path: default_download_path_template(),
     })
+}
+
+fn configured_preferences(
+    app: &AppHandle,
+    preferences: StoragePreferences,
+) -> Result<StoragePreferences, String> {
+    let default_cache_template = default_cache_path_template(app);
+    let default_download_template = default_download_path_template();
+    let cache_path = configured_path(
+        &preferences.cache_path,
+        &default_cache_template,
+        &[default_cache_path(app)?],
+    )?;
+    let download_path = configured_path(
+        &preferences.download_path,
+        &default_download_template,
+        &[
+            default_download_path()?,
+            program_directory()?.join("downloads"),
+        ],
+    )?;
+    Ok(StoragePreferences {
+        cache_path,
+        download_path,
+    })
+}
+
+fn configured_path(
+    value: &str,
+    default_template: &str,
+    legacy_defaults: &[PathBuf],
+) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(default_template.to_string());
+    }
+    let expanded = normalize_path(trimmed, PathBuf::new())?;
+    if legacy_defaults
+        .iter()
+        .any(|legacy| paths_equal(Path::new(&expanded), legacy))
+    {
+        return Ok(default_template.to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+fn paths_equal(left: &Path, right: &Path) -> bool {
+    if cfg!(windows) {
+        left.to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy())
+    } else {
+        left == right
+    }
 }
 
 fn resolve_preferences(
@@ -388,10 +442,15 @@ fn resolve_preferences(
 
 fn normalize_path(value: &str, default_path: PathBuf) -> Result<String, String> {
     let trimmed = value.trim();
-    let path = if trimmed.is_empty() {
+    let expanded = if trimmed.is_empty() {
+        default_path.display().to_string()
+    } else {
+        expand_environment_variables(trimmed)?
+    };
+    let path = if expanded.is_empty() {
         default_path
     } else {
-        let configured = PathBuf::from(trimmed);
+        let configured = PathBuf::from(expanded);
         if configured.is_absolute() {
             configured
         } else {
@@ -399,6 +458,42 @@ fn normalize_path(value: &str, default_path: PathBuf) -> Result<String, String> 
         }
     };
     Ok(path.display().to_string())
+}
+
+fn expand_environment_variables(value: &str) -> Result<String, String> {
+    expand_environment_variables_from(value, |name| env::var(name).ok())
+}
+
+fn expand_environment_variables_from(
+    value: &str,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<String, String> {
+    let mut expanded = String::with_capacity(value.len());
+    let mut remaining = value;
+    while let Some(start) = remaining.find('%') {
+        expanded.push_str(&remaining[..start]);
+        let after_start = &remaining[start + 1..];
+        let Some(end) = after_start.find('%') else {
+            expanded.push_str(&remaining[start..]);
+            return Ok(expanded);
+        };
+        let name = &after_start[..end];
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        {
+            expanded.push('%');
+            remaining = after_start;
+            continue;
+        }
+        let replacement =
+            lookup(name).ok_or_else(|| format!("Environment variable %{name}% is unavailable"))?;
+        expanded.push_str(&replacement);
+        remaining = &after_start[end + 1..];
+    }
+    expanded.push_str(remaining);
+    Ok(expanded)
 }
 
 fn create_storage_directories(preferences: &StoragePreferences) -> Result<(), String> {
@@ -467,15 +562,31 @@ fn save_preferences(app: &AppHandle, preferences: &StoragePreferences) -> Result
 }
 
 fn default_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("Unable to resolve Windows app cache directory: {error}"))?
-        .join("tdlib"))
+    Ok(PathBuf::from(expand_environment_variables(
+        &default_cache_path_template(app),
+    )?))
 }
 
 fn default_download_path() -> Result<PathBuf, String> {
-    Ok(program_directory()?.join("downloads"))
+    Ok(PathBuf::from(expand_environment_variables(
+        &default_download_path_template(),
+    )?))
+}
+
+fn default_cache_path_template(app: &AppHandle) -> String {
+    Path::new("%LOCALAPPDATA%")
+        .join(&app.config().identifier)
+        .join("tdlib")
+        .display()
+        .to_string()
+}
+
+fn default_download_path_template() -> String {
+    Path::new("%USERPROFILE%")
+        .join("Downloads")
+        .join("downloads")
+        .display()
+        .to_string()
 }
 
 fn program_directory() -> Result<PathBuf, String> {
@@ -509,6 +620,33 @@ mod tests {
         assert_eq!(
             normalize_path("downloads", PathBuf::from("ignored")).unwrap(),
             expected.display().to_string()
+        );
+    }
+
+    #[test]
+    fn expands_windows_environment_variables_without_persisting_machine_paths() {
+        let expanded =
+            expand_environment_variables_from(r#"%USERPROFILE%\Downloads\downloads"#, |name| {
+                (name == "USERPROFILE").then(|| r#"C:\Users\Example"#.to_string())
+            })
+            .unwrap();
+        assert_eq!(expanded, r#"C:\Users\Example\Downloads\downloads"#);
+        assert_eq!(
+            default_download_path_template(),
+            Path::new("%USERPROFILE%")
+                .join("Downloads")
+                .join("downloads")
+                .display()
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn rejects_unavailable_environment_variables_in_storage_paths() {
+        assert!(
+            expand_environment_variables_from(r#"%MISSING%\cache"#, |_| None)
+                .unwrap_err()
+                .contains("%MISSING%")
         );
     }
 

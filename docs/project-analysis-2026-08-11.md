@@ -174,9 +174,9 @@ TelegramTransport
 
 ### 4.10 诊断、性能和发布
 
-实现：结构化日志、递归脱敏、性能时间线、长任务/布局/交互采样、诊断 ZIP、可选本地崩溃记录、WebView 压力和隐私 smoke、统一版本源、便携 ZIP、NSIS、签名、更新通道和生命周期脚本。
+实现：结构化日志、递归脱敏、性能时间线、长任务/布局/交互采样、诊断 ZIP、可选本地崩溃记录、统一版本源、便携 ZIP、NSIS、签名、更新通道和生命周期脚本。
 
-代码边界：`src/utils/performanceMonitor.ts`、`src/release/diagnostics.ts`、`src/release/appUpdater.ts`、`src/release/automation.ts`、`src-tauri/src/diagnostics.rs`、`scripts/check.ps1`、`scripts/native-smoke.ps1`、`scripts/webview-stress.mjs`、`scripts/test-release-lifecycle.ps1`、`.github/workflows/release.yml`。
+代码边界：`src/utils/performanceMonitor.ts`、`src/release/diagnostics.ts`、`src/release/appUpdater.ts`、`src-tauri/src/diagnostics.rs`、`scripts/check.ps1`、`scripts/native-smoke.ps1`、`scripts/test-release-lifecycle.ps1`、`.github/workflows/release.yml`。
 
 评价：发布能力已经工程化，但当前本地制品仍是未签名便携版；稳定/候选通道的真实部署、签名更新清单和生命周期证据尚未闭合。
 
@@ -269,7 +269,7 @@ TelegramTransport
 ### 5.7 脚本、文档和测试模块
 
 - `scripts/check.ps1` 统一执行版本、发布策略、主题、Vitest、构建、E2E 类型、Rust fmt/Clippy/test；`-Release` 追加 Tauri release build。
-- `scripts/native-smoke.ps1` 生成 clean/existing profile 的脱敏清单；`scripts/webview-stress.mjs` 和 `webview-privacy-smoke.mjs` 面向真实 WebView2。
+- `scripts/native-smoke.ps1` 生成 clean/existing profile 的脱敏清单。
 - `scripts/publish-*.ps1`、`sign-windows-files.ps1`、`publish-update-channel.ps1` 和 `.github/workflows/release.yml` 组成签名发布链路。
 - `tests/e2e/notgram.e2e.ts` 是主要 Mock E2E；`accessibility.e2e.ts` 覆盖窄屏、DPI、强制色、键盘和语义树。
 - `docs/conversation-state-model.md` 和 `docs/forum-topics.md` 是行为契约，不只是说明文档；后续改动应先更新不变量再改代码。
@@ -351,7 +351,7 @@ npm run check           全部通过
 ### 阶段 B：原生和安全证据
 
 1. 在同一冻结 commit 跑 Clean/Existing 原生冒烟，特别覆盖一次点击切换、话题路由、搜索/置顶/回复定位、缓存水合、离线队列和代理恢复。
-2. 运行 WebView stress/privacy smoke，建立启动、交互、历史加载和内存阈值；审查 automation 端口、日志和诊断导出。
+2. 通过原生冒烟和 Chromium E2E 建立启动、交互、历史加载和内存阈值，并审查日志和诊断导出。
 3. 运行已签名候选的 DPI、强制色、Narrator、键盘、通知、托盘、子窗口和休眠/唤醒清单。
 
 ### 阶段 C：发布冻结

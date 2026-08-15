@@ -360,15 +360,6 @@ const messages: Message[] = [
       kind: "unsupported",
       type: "messageFutureType",
       text: "收到新类型消息（messageFutureType）",
-      raw: JSON.stringify({
-        "@type": "message",
-        id: "p-unknown",
-        chat_id: "chat-product",
-        content: {
-          "@type": "messageFutureType",
-          payload: { example: true },
-        },
-      }, null, 2),
     },
   },
   {
