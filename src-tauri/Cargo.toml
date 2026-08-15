@@ -32,6 +32,7 @@ webview2-com = "0.38.2"
 windows-core = "0.61"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Security_Cryptography",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

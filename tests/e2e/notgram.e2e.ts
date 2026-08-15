@@ -344,7 +344,13 @@ test("performance monitor captures and inspects a WebView main-thread stall", as
     .first();
   await expect(stall).toBeVisible();
   await stall.getByRole("button").click();
-  await expect(stall.locator(".performance-entry-details")).toContainText("总耗时");
+  const stallDetails = stall.locator(".performance-entry-details");
+  await expect(stallDetails).toContainText("总耗时");
+  await expect(stallDetails).toContainText("耗时归属");
+  await expect(stallDetails).toContainText("判断证据");
+  await expect(stallDetails).toContainText("当前刷新率");
+  await expect(stallDetails).toContainText("当前帧预算");
+  await expect(stallDetails).toContainText("真实界面卡顿");
 
   const pause = page.getByRole("button", { name: "暂停刷新" });
   await pause.click();
@@ -375,6 +381,9 @@ test("performance monitor attributes a conversation switch to its slowest stage"
   await expect(details).toContainText("瓶颈耗时");
   await expect(details).toContainText("React 提交");
   await expect(details).toContainText("滚动定位");
+  await expect(details).toContainText("耗时归属");
+  await expect(details).toContainText("界面响应");
+  await expect(details).toContainText("缺失阶段");
   await expect(details).not.toContainText("链路超时");
 });
 

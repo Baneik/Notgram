@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   beginConversationSwitch,
+  calculateFrameStats,
   clearPerformanceRecords,
   getPerformanceRecords,
   logPerformance,
@@ -39,6 +40,12 @@ describe("performance monitor", () => {
           observedAtMs: expect.any(Number),
           windowKind: 0,
           windowId: expect.any(Number),
+          causeDomain: 1,
+          causeKind: 1,
+          evidenceKind: 0,
+          uiStall: true,
+          refreshRateHz: 60,
+          frameBudgetMs: 16.7,
         }),
       }),
     ]);
@@ -74,6 +81,38 @@ describe("performance monitor", () => {
     expect(performanceWindowKind("?videoWindow=preview-1")).toBe(2);
     expect(performanceWindowKind("?mediaViewerWindow=preview-1")).toBe(1);
     expect(performanceWindowKind("")).toBe(1);
+  });
+
+  it("calculates missed frames from the active display refresh rate", () => {
+    expect(calculateFrameStats(50, 60)).toEqual({
+      frameBudgetMs: 1_000 / 60,
+      expectedFrames: 3,
+      missedFrames: 2,
+    });
+    expect(calculateFrameStats(25, 120)).toEqual({
+      frameBudgetMs: 1_000 / 120,
+      expectedFrames: 3,
+      missedFrames: 2,
+    });
+    expect(calculateFrameStats(100, 30)).toEqual({
+      frameBudgetMs: 1_000 / 30,
+      expectedFrames: 3,
+      missedFrames: 2,
+    });
+  });
+
+  it("classifies asynchronous history loading separately from UI stalls", () => {
+    logPerformance("ui_history_data", { durationMs: 2_400, failed: false });
+
+    expect(getPerformanceRecords()[0]).toMatchObject({
+      severity: "critical",
+      details: {
+        causeDomain: 3,
+        causeKind: 6,
+        uiStall: false,
+        mainThreadBlocked: false,
+      },
+    });
   });
 
   it("preserves layout-shift precision for useful diagnostics", () => {
@@ -165,5 +204,158 @@ describe("performance monitor", () => {
         }),
       }),
     ]);
+  });
+
+  it("reports an incomplete trace without treating its eight-second timer as a UI stall", async () => {
+    vi.useFakeTimers();
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      const traceId = beginConversationSwitch({
+        cached: true,
+        messageCount: 20,
+        viewTransition: false,
+        navigationKind: 1,
+      });
+      markConversationSwitch(traceId, "transitionStarted");
+      markConversationSwitch(traceId, "selectionCommitted");
+      now = 4;
+      markConversationSwitch(traceId, "dataReady");
+      now = 16;
+      markConversationSwitch(traceId, "transitionFinished");
+
+      now = 8_000;
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      expect(getPerformanceRecords()).toEqual([
+        expect.objectContaining({
+          event: "ui_conversation_switch",
+          durationMs: 8_000,
+          severity: "warning",
+          details: expect.objectContaining({
+            timedOut: true,
+            visualResponseDurationMs: 16,
+            traceWaitDurationMs: 7_984,
+            missingStageMask: 32,
+            causeDomain: 4,
+            causeKind: 9,
+            uiStall: false,
+            mainThreadBlocked: false,
+          }),
+        }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("attributes an eight-second trace to async work when the wait is still in flight", async () => {
+    vi.useFakeTimers();
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      const traceId = beginConversationSwitch({
+        cached: false,
+        messageCount: 0,
+        viewTransition: false,
+        navigationKind: 3,
+      });
+      markConversationSwitch(traceId, "asyncWaitStarted");
+
+      now = 8_000;
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      expect(getPerformanceRecords()[0]).toMatchObject({
+        event: "ui_conversation_switch",
+        durationMs: 8_000,
+        severity: "critical",
+        details: {
+          asyncWaitDurationMs: 8_000,
+          asyncWaitCount: 1,
+          asyncWaitInFlight: true,
+          causeDomain: 3,
+          causeKind: 6,
+          uiStall: false,
+          mainThreadBlocked: false,
+        },
+      });
+      expect(getPerformanceRecords()[0]?.details).not.toHaveProperty("traceWaitDurationMs");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps completed async waiting out of selection work and visual response timing", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const traceId = beginConversationSwitch({
+      cached: false,
+      messageCount: 0,
+      viewTransition: false,
+      navigationKind: 3,
+    });
+    markConversationSwitch(traceId, "asyncWaitStarted");
+    now = 500;
+    markConversationSwitch(traceId, "asyncWaitFinished", { failed: false });
+    now = 502;
+    markConversationSwitch(traceId, "transitionStarted");
+    markConversationSwitch(traceId, "selectionCommitted");
+    now = 504;
+    markConversationSwitch(traceId, "dataReady");
+    now = 505;
+    markConversationSwitch(traceId, "virtuosoRange");
+    now = 510;
+    markConversationSwitch(traceId, "positioned");
+    now = 518;
+    markConversationSwitch(traceId, "transitionFinished");
+
+    expect(getPerformanceRecords()[0]).toMatchObject({
+      event: "ui_conversation_switch",
+      durationMs: 518,
+      severity: "critical",
+      details: {
+        selectionDurationMs: 2,
+        asyncWaitDurationMs: 500,
+        visualResponseDurationMs: 16,
+        bottleneckStage: 2,
+        causeDomain: 3,
+        causeKind: 6,
+        uiStall: false,
+      },
+    });
+  });
+
+  it("keeps a superseded trace as informational instead of reporting a UI stall", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const firstTraceId = beginConversationSwitch({
+      cached: true,
+      messageCount: 20,
+      viewTransition: false,
+      navigationKind: 1,
+    });
+    markConversationSwitch(firstTraceId, "transitionStarted");
+    markConversationSwitch(firstTraceId, "selectionCommitted");
+
+    now = 500;
+    beginConversationSwitch({
+      cached: true,
+      messageCount: 10,
+      viewTransition: false,
+      navigationKind: 1,
+    });
+
+    expect(getPerformanceRecords()[0]).toMatchObject({
+      event: "ui_conversation_switch",
+      durationMs: 500,
+      severity: "normal",
+      details: {
+        cancelled: true,
+        causeDomain: 4,
+        causeKind: 9,
+        uiStall: false,
+      },
+    });
+    clearPerformanceRecords();
   });
 });

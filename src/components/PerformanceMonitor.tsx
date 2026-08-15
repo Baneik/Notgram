@@ -3,10 +3,16 @@ import { useEffect, useMemo, useState } from "react";
 import {
   clearPerformanceRecords,
   clearPersistedPerformanceRecords,
+  getDisplayTiming,
   getPerformanceRecords,
+  performanceCauseDomains,
+  performanceCauseKinds,
+  performanceEvidenceKinds,
   refreshPersistedPerformanceRecords,
+  subscribeDisplayTiming,
   subscribePerformanceRecords,
   conversationBottleneckStages,
+  conversationStageMaskLabels,
   type PerformanceCategory,
   type PerformanceRecord,
 } from "../utils/performanceMonitor";
@@ -37,6 +43,10 @@ const detailLabels: Record<string, string> = {
   loadEventMs: "页面加载",
   firstContentfulPaintMs: "首次内容绘制",
   frameGapMs: "帧间隔",
+  frameBudgetMs: "当前帧预算",
+  refreshRateHz: "当前刷新率",
+  refreshRateSource: "刷新率来源",
+  expectedFrames: "预期帧数",
   missedFrames: "预估丢帧",
   shiftScore: "偏移分数",
   maxShiftScore: "单次最大偏移",
@@ -54,7 +64,16 @@ const detailLabels: Record<string, string> = {
   duringHistoryLoad: "历史加载期间",
   duringConversationSwitch: "会话切换期间",
   targetKind: "目标类型",
+  regionKind: "界面区域",
   interactionKind: "交互类型",
+  causeDomain: "耗时归属",
+  causeKind: "可能原因",
+  evidenceKind: "判断证据",
+  uiStall: "真实界面卡顿",
+  mainThreadBlocked: "主线程阻塞",
+  pageVisible: "页面可见",
+  windowFocused: "窗口聚焦",
+  networkOnline: "系统网络在线",
   traceId: "链路编号",
   windowKind: "窗口类型",
   navigationKind: "导航类型",
@@ -62,10 +81,20 @@ const detailLabels: Record<string, string> = {
   blockCount: "虚拟块数量",
   cached: "缓存命中",
   viewTransition: "视图过渡",
-  selectionDurationMs: "选择提交",
-  dataDurationMs: "数据等待",
+  selectionDurationMs: "选择提交工作",
+  dataDurationMs: "数据就绪等待",
   projectionDurationMs: "消息投影",
   reactDurationMs: "React 提交",
+  frontendWorkDurationMs: "已测前端工作",
+  visualResponseDurationMs: "界面响应",
+  asyncWaitDurationMs: "异步等待",
+  asyncWaitCount: "异步等待次数",
+  asyncWaitInFlight: "异步仍在进行",
+  asyncWaitFailed: "异步等待失败",
+  traceWaitDurationMs: "追踪器等待",
+  mainThreadBlockedDurationMs: "主线程阻塞证据",
+  longestMainThreadStallMs: "最长主线程停顿",
+  mainThreadStallCount: "主线程停顿次数",
   baseDurationMs: "React 基准耗时",
   virtualListDurationMs: "虚拟列表首帧",
   positionDurationMs: "滚动定位",
@@ -74,11 +103,22 @@ const detailLabels: Record<string, string> = {
   bottleneckDurationMs: "瓶颈耗时",
   timedOut: "链路超时",
   cancelled: "链路被替代",
+  completedStageMask: "已完成阶段",
+  missingStageMask: "缺失阶段",
   phaseKind: "React 阶段",
   componentKind: "组件区域",
   sourceCount: "偏移元素数量",
   movedDistancePx: "最大移动距离",
   impactedAreaPx: "最大影响面积",
+  scriptCount: "脚本数量",
+  longestScriptDurationMs: "最长脚本",
+  forcedStyleLayoutDurationMs: "强制样式与布局",
+  pauseDurationMs: "脚本暂停",
+  scriptSourceKind: "脚本来源",
+  scriptInvokerKind: "脚本触发方式",
+  sourceCharPosition: "源码字符位置",
+  attributionCount: "任务归因数量",
+  containerKind: "任务容器",
   droppedCount: "丢失记录",
   messageUpdateCount: "消息更新",
   chatUpdateCount: "会话更新",
@@ -129,6 +169,53 @@ const componentLabels: Record<number, string> = {
   1: "会话视图",
 };
 
+const regionLabels: Record<number, string> = {
+  0: "未知区域",
+  1: "会话侧栏",
+  2: "消息时间线",
+  3: "消息输入区",
+  4: "设置",
+  5: "媒体",
+  6: "窗口导航",
+  7: "其他页面区域",
+};
+
+const refreshRateSourceLabels: Record<number, string> = {
+  0: "60 Hz 回退值",
+  1: "Windows 当前显示器",
+  2: "动画帧校准",
+};
+
+const scriptSourceLabels: Record<number, string> = {
+  0: "未知",
+  1: "应用脚本",
+  2: "外部脚本",
+  3: "浏览器扩展",
+};
+
+const scriptInvokerLabels: Record<number, string> = {
+  0: "未知",
+  1: "事件监听器",
+  2: "Promise 回调",
+  3: "脚本执行",
+  4: "用户回调",
+};
+
+const containerLabels: Record<number, string> = {
+  0: "未知",
+  1: "当前窗口",
+  2: "内嵌框架",
+  3: "嵌入内容",
+};
+
+const formatStageMask = (mask: number) => {
+  if (mask === 0) return "无";
+  return Object.entries(conversationStageMaskLabels)
+    .filter(([bit]) => (mask & Number(bit)) !== 0)
+    .map(([, label]) => label)
+    .join("、");
+};
+
 const formatDuration = (durationMs?: number) => {
   if (durationMs === undefined) return "--";
   if (durationMs < 1) return `${durationMs.toFixed(1)} ms`;
@@ -149,7 +236,17 @@ const formatDetail = (key: string, value: number | boolean) => {
   if (key === "navigationKind") return navigationLabels[value] ?? "其他";
   if (key === "phaseKind") return phaseLabels[value] ?? "其他";
   if (key === "componentKind") return componentLabels[value] ?? "其他";
+  if (key === "regionKind") return regionLabels[value] ?? "其他";
+  if (key === "refreshRateSource") return refreshRateSourceLabels[value] ?? "未知";
+  if (key === "scriptSourceKind") return scriptSourceLabels[value] ?? "未知";
+  if (key === "scriptInvokerKind") return scriptInvokerLabels[value] ?? "未知";
+  if (key === "containerKind") return containerLabels[value] ?? "未知";
+  if (key === "causeDomain") return performanceCauseDomains[value] ?? "未分类";
+  if (key === "causeKind") return performanceCauseKinds[value] ?? "证据不足";
+  if (key === "evidenceKind") return performanceEvidenceKinds[value] ?? "应用计时";
   if (key === "bottleneckStage") return conversationBottleneckStages[value] ?? "未确定";
+  if (key === "completedStageMask" || key === "missingStageMask") return formatStageMask(value);
+  if (key === "refreshRateHz") return `${value.toFixed(1)} Hz`;
   if (key.endsWith("Ms")) return formatDuration(value);
   if (key.endsWith("Px")) return `${value.toFixed(1)} px`;
   if (key === "shiftScore") return value.toFixed(3);
@@ -160,9 +257,12 @@ const visibleDetails = (record: PerformanceRecord) => Object.entries(record.deta
   .filter(([key]) => !["startTimeMs", "observedAtMs", "windowId"].includes(key) && key in detailLabels);
 
 const performanceLabel = (record: PerformanceRecord) => {
-  if (record.event !== "ui_conversation_switch") return record.label;
-  const stage = Number(record.details.bottleneckStage ?? 0);
-  return `${record.label} · ${conversationBottleneckStages[stage] ?? "未确定"}`;
+  const causeDomain = Number(record.details.causeDomain ?? 0);
+  const causeKind = Number(record.details.causeKind ?? 0);
+  const cause = record.event === "ui_conversation_switch" && causeKind === 9
+    ? performanceCauseKinds[causeKind]
+    : performanceCauseDomains[causeDomain];
+  return cause ? `${record.label} · ${cause}` : record.label;
 };
 
 const formatRecordMetric = (record: PerformanceRecord) => record.event === "ui_layout_shift"
@@ -175,6 +275,9 @@ export function PerformanceMonitor() {
   const [filter, setFilter] = useState<CategoryFilter>("all");
   const [expandedId, setExpandedId] = useState<number>();
   const [clearing, setClearing] = useState(false);
+  const [displayTiming, setDisplayTiming] = useState(getDisplayTiming);
+
+  useEffect(() => subscribeDisplayTiming(() => setDisplayTiming(getDisplayTiming())), []);
 
   useEffect(() => {
     if (!live || clearing) return;
@@ -200,12 +303,11 @@ export function PerformanceMonitor() {
     () => records.filter((record) => filter === "all" || record.category === filter).reverse(),
     [filter, records],
   );
-  const issues = records.filter((record) => record.severity !== "normal");
-  const slowest = records.reduce<PerformanceRecord | undefined>(
-    (current, record) => !current || (record.durationMs ?? 0) > (current.durationMs ?? 0)
-      ? record
-      : current,
-    undefined,
+  const uiIssues = records.filter(
+    (record) => record.severity !== "normal" && record.details.uiStall === true,
+  );
+  const asyncIssues = records.filter(
+    (record) => record.severity !== "normal" && record.details.causeDomain === 3,
   );
   const blockingMs = records
     .filter((record) => record.event === "ui_long_frame" || record.event === "ui_long_task")
@@ -231,7 +333,9 @@ export function PerformanceMonitor() {
           <Gauge size={18} strokeWidth={1.8} />
           <div>
             <h4 id="performance-overview-heading">实时会话</h4>
-            <span>{live ? "正在刷新" : "已暂停刷新"}</span>
+            <span>
+              {live ? "正在刷新" : "已暂停刷新"} · {displayTiming.refreshRateHz.toFixed(1)} Hz
+            </span>
           </div>
         </div>
         <div className="performance-summary">
@@ -240,18 +344,16 @@ export function PerformanceMonitor() {
             <strong>{records.length}</strong>
           </div>
           <div>
-            <span>慢点</span>
-            <strong>{issues.length}</strong>
+            <span>界面卡顿</span>
+            <strong>{uiIssues.length}</strong>
           </div>
           <div>
             <span>主线程阻塞</span>
             <strong>{formatDuration(blockingMs)}</strong>
           </div>
           <div>
-            <span>最慢阶段</span>
-            <strong title={slowest ? performanceLabel(slowest) : undefined}>
-              {slowest ? performanceLabel(slowest) : "--"}
-            </strong>
+            <span>异步慢项</span>
+            <strong>{asyncIssues.length}</strong>
           </div>
         </div>
         <div className="performance-toolbar">

@@ -85,6 +85,11 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "addedCount",
     "afterCount",
     "anchorShiftPx",
+    "asyncWaitDurationMs",
+    "asyncWaitCount",
+    "asyncWaitFailed",
+    "asyncWaitInFlight",
+    "attributionCount",
     "baseDurationMs",
     "batchCount",
     "beforeCount",
@@ -94,7 +99,12 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "bottleneckStage",
     "cached",
     "cancelled",
+    "causeDomain",
+    "causeKind",
+    "chatCount",
+    "completedStageMask",
     "componentKind",
+    "containerKind",
     "dataDurationMs",
     "domContentLoadedMs",
     "domInteractiveMs",
@@ -102,45 +112,74 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "duringConversationSwitch",
     "duringHistoryLoad",
     "droppedCount",
+    "evidenceKind",
+    "expectedFrames",
     "failed",
     "firstContentfulPaintMs",
+    "forcedStyleLayoutDurationMs",
+    "forumCount",
+    "frameBudgetMs",
+    "frameGapMs",
+    "frontendWorkDurationMs",
     "fullscreen",
     "hasMore",
     "inputDelayMs",
     "interactionKind",
     "loadEventMs",
     "loadedCount",
+    "longestMainThreadStallMs",
+    "longestScriptDurationMs",
+    "mainThreadBlocked",
+    "mainThreadBlockedDurationMs",
+    "mainThreadStallCount",
+    "maxShiftScore",
     "messageUpdateCount",
     "chatUpdateCount",
     "fileUpdateCount",
     "otherUpdateCount",
     "messageCount",
     "missedFrames",
+    "missingStageMask",
     "movedDistancePx",
     "navigationKind",
+    "networkOnline",
     "observedAtMs",
+    "pageVisible",
+    "pauseDurationMs",
     "phaseKind",
     "presentationDelayMs",
     "positionDurationMs",
     "processingDurationMs",
     "projectionDurationMs",
     "reactDurationMs",
+    "refreshRateHz",
+    "refreshRateSource",
+    "regionKind",
     "renderDurationMs",
     "restoreDurationMs",
     "scriptDurationMs",
+    "scriptCount",
+    "scriptInvokerKind",
+    "scriptSourceKind",
     "scrollHeight",
     "scrollTop",
     "shiftScore",
+    "shiftCount",
     "sourceCount",
+    "sourceCharPosition",
     "startTimeMs",
     "styleLayoutDurationMs",
     "targetKind",
     "timedOut",
     "traceId",
+    "traceWaitDurationMs",
     "transitionDurationMs",
+    "uiStall",
     "viewTransition",
     "virtualListDurationMs",
+    "visualResponseDurationMs",
     "windowId",
+    "windowFocused",
     "windowKind",
     "impactedAreaPx",
     "selectionDurationMs",
@@ -177,7 +216,7 @@ fn validate_performance_record(event: &str, details: &Value) -> Result<&'static 
     let Value::Object(fields) = details else {
         return Err("性能日志详情必须是对象".to_string());
     };
-    if fields.len() > 24
+    if fields.len() > 48
         || fields
             .keys()
             .any(|key| !ALLOWED_PERFORMANCE_DETAIL_FIELDS.contains(&key.as_str()))
@@ -186,6 +225,24 @@ fn validate_performance_record(event: &str, details: &Value) -> Result<&'static 
             .any(|value| !matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null))
     {
         return Err("性能日志详情格式无效".to_string());
+    }
+
+    if event == "ui_conversation_switch"
+        && fields.get("causeDomain").and_then(Value::as_f64) == Some(4.0)
+    {
+        if fields.get("cancelled").and_then(Value::as_bool) == Some(true) {
+            return Ok("info");
+        }
+        if fields.get("timedOut").and_then(Value::as_bool) == Some(true) {
+            return Ok("warn");
+        }
+    }
+    if event == "ui_frame_drop" {
+        return Ok(match fields.get("missedFrames").and_then(Value::as_f64) {
+            Some(value) if value >= 6.0 => "error",
+            Some(value) if value >= 2.0 => "warn",
+            _ => "info",
+        });
     }
 
     let measurement = if event == "ui_layout_shift" {
@@ -1005,6 +1062,51 @@ mod tests {
         assert_eq!(
             validate_performance_record("ui_layout_shift", &json!({ "shiftScore": 0.1 })),
             Ok("error")
+        );
+        assert_eq!(
+            validate_performance_record(
+                "ui_frame_drop",
+                &json!({ "durationMs": 25, "missedFrames": 2, "refreshRateHz": 120 }),
+            ),
+            Ok("warn")
+        );
+        assert_eq!(
+            validate_performance_record(
+                "ui_conversation_switch",
+                &json!({
+                    "durationMs": 8_000,
+                    "timedOut": true,
+                    "uiStall": false,
+                    "causeDomain": 4,
+                    "missingStageMask": 32,
+                }),
+            ),
+            Ok("warn")
+        );
+        assert_eq!(
+            validate_performance_record(
+                "ui_conversation_switch",
+                &json!({
+                    "durationMs": 8_000,
+                    "timedOut": true,
+                    "uiStall": false,
+                    "causeDomain": 3,
+                    "asyncWaitInFlight": true,
+                }),
+            ),
+            Ok("error")
+        );
+        assert_eq!(
+            validate_performance_record(
+                "ui_conversation_switch",
+                &json!({
+                    "durationMs": 500,
+                    "cancelled": true,
+                    "uiStall": false,
+                    "causeDomain": 4,
+                }),
+            ),
+            Ok("info")
         );
     }
 }

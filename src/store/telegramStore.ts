@@ -46,6 +46,7 @@ import type { TelegramState } from "./telegramStore.types";
 import {
   getActiveConversationTraceId,
   logPerformance,
+  markConversationSwitch,
 } from "../utils/performanceMonitor";
 import { markMessageEntrance, transferMessageEntrance } from "../utils/messageEntrance";
 import { protectedCachePaths } from "./cacheProtection";
@@ -507,6 +508,8 @@ export const createTelegramStore = (
       set({ histories });
       const startedAt = performance.now();
       const beforeCount = get().messages.get(chatId)?.length ?? 0;
+      const performanceTraceId = getActiveConversationTraceId();
+      markConversationSwitch(performanceTraceId, "asyncWaitStarted");
       try {
         let page = await transport.loadChatHistory(chatId, 30);
         const pendingCachedIds = cachedMessageIds.get(chatId);
@@ -542,6 +545,7 @@ export const createTelegramStore = (
           initialized: true,
         });
         set({ histories: nextHistories });
+        markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: false });
         logPerformance("ui_history_data", {
           durationMs: performance.now() - startedAt,
           beforeCount,
@@ -549,8 +553,8 @@ export const createTelegramStore = (
           loadedCount: page.loadedCount,
           hasMore: page.hasMore,
           failed: false,
-          traceId: getActiveConversationTraceId(),
-          duringConversationSwitch: getActiveConversationTraceId() !== undefined,
+          traceId: performanceTraceId,
+          duringConversationSwitch: performanceTraceId !== undefined,
         });
         scheduleCacheWrite();
       } catch (error) {
@@ -564,13 +568,14 @@ export const createTelegramStore = (
           histories: nextHistories,
           operationError: error instanceof Error ? error.message : "无法加载历史消息",
         });
+        markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: true });
         logPerformance("ui_history_data", {
           durationMs: performance.now() - startedAt,
           beforeCount,
           afterCount: get().messages.get(chatId)?.length ?? 0,
           failed: true,
-          traceId: getActiveConversationTraceId(),
-          duringConversationSwitch: getActiveConversationTraceId() !== undefined,
+          traceId: performanceTraceId,
+          duringConversationSwitch: performanceTraceId !== undefined,
         });
       }
     };

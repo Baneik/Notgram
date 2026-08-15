@@ -610,10 +610,18 @@ export function App() {
       viewTransition: false,
       navigationKind: 3,
     });
-    markConversationSwitch(performanceTraceId, "transitionStarted");
-    markConversationSwitch(performanceTraceId, "selectionCommitted");
     if (!cachedTarget || options?.loadContext) {
-      await loadMessage(chatId, messageId, { forceContext: Boolean(options?.loadContext) });
+      markConversationSwitch(performanceTraceId, "asyncWaitStarted");
+      let loadFailed = true;
+      try {
+        loadFailed = !(await loadMessage(
+          chatId,
+          messageId,
+          { forceContext: Boolean(options?.loadContext) },
+        ));
+      } finally {
+        markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: loadFailed });
+      }
       if (chatOpenGenerationRef.current !== generation) return;
     }
     if (chatOpenGenerationRef.current !== generation) return;
@@ -630,6 +638,8 @@ export function App() {
       loadedState.activeTopicId === targetTopicId
     );
     closeSearch(false, true);
+    markConversationSwitch(performanceTraceId, "transitionStarted");
+    markConversationSwitch(performanceTraceId, "selectionCommitted");
     flushSync(() => {
       setMobileChatOpen(true);
       issueConversationScrollRequest({
@@ -993,7 +1003,13 @@ export function App() {
     });
     if (serverMessageId && !serverMessageLoaded) {
       void (async () => {
-        const loaded = await telegramStore.getState().loadMessage(chatId, serverMessageId);
+        markConversationSwitch(performanceTraceId, "asyncWaitStarted");
+        let loaded = false;
+        try {
+          loaded = await telegramStore.getState().loadMessage(chatId, serverMessageId);
+        } finally {
+          markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: !loaded });
+        }
         if (loaded || chatOpenGenerationRef.current !== generation) return;
         flushSync(() => {
           issueConversationScrollRequest({
@@ -1195,10 +1211,16 @@ export function App() {
               });
               if (serverMessageId && !serverMessageLoaded && !restoreLocally) {
                 void (async () => {
-                  const loaded = await telegramStore.getState().loadMessage(
-                    chatId,
-                    serverMessageId,
-                  );
+                  markConversationSwitch(performanceTraceId, "asyncWaitStarted");
+                  let loaded = false;
+                  try {
+                    loaded = await telegramStore.getState().loadMessage(
+                      chatId,
+                      serverMessageId,
+                    );
+                  } finally {
+                    markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: !loaded });
+                  }
                   if (loaded || chatOpenGenerationRef.current !== generation) return;
                   flushSync(() => {
                     issueConversationScrollRequest({

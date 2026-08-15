@@ -7,6 +7,9 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Calibrate frame-drop estimates against the current window's active display refresh
+  rate and attach bounded evidence, focus, frame-budget, script, and region context to
+  performance records.
 - Rework Settings into a more compact and consistent layout, keep the account page
   focused on the current account, constrain long blocked-sender lists, and remove
   the former developer tools and remote-debugging controls.
@@ -16,6 +19,9 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Separate measured UI stalls from asynchronous backend waits and incomplete tracing,
+  so an eight-second conversation trace timeout no longer implies an eight-second
+  frozen interface.
 - Justify received photo and video albums across the complete message bubble,
   selecting compact rows from item count and source proportions so mixed albums
   no longer leave an empty grid cell.

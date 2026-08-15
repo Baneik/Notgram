@@ -3,6 +3,7 @@ mod desktop_lifecycle;
 mod desktop_notification;
 mod development;
 mod diagnostics;
+mod display_metrics;
 mod distribution;
 mod external_links;
 mod media_viewer_window;
@@ -55,6 +56,7 @@ pub fn run() {
             diagnostics::notgram_diagnostics_settings,
             diagnostics::notgram_export_diagnostics,
             diagnostics::notgram_set_crash_reporting_enabled,
+            display_metrics::notgram_display_timing,
             distribution::notgram_distribution_kind,
             desktop_lifecycle::notgram_desktop_settings,
             desktop_lifecycle::notgram_set_launch_on_startup,
