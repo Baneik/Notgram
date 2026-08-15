@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { tdNumber, type TdObject } from "./tdlibMapper";
 import { numericId } from "./tdlibRequests";
+import type { MessageTextEntity } from "./types";
 
 type PendingRequest = {
   resolve: (value: TdObject) => void;
@@ -75,6 +76,7 @@ export class TdRequestBroker {
     caption: string | undefined,
     onError: (error: Error) => void,
     topicId?: string,
+    captionEntities?: MessageTextEntity[],
   ) {
     const extra = crypto.randomUUID();
     this.preparedFiles.set(extra, onError);
@@ -84,7 +86,15 @@ export class TdRequestBroker {
         topicId: topicId ? numericId(topicId) : undefined,
         extra,
         files,
-        caption,
+        caption: caption ? {
+          text: caption,
+          entities: captionEntities?.flatMap((entity) => {
+            const userId = Number(entity.userId);
+            return entity.kind === "mentionName" && Number.isSafeInteger(userId) && userId > 0
+              ? [{ offset: entity.offset, length: entity.length, userId }]
+              : [];
+          }) ?? [],
+        } : undefined,
       });
       if (!sent) {
         this.preparedFiles.delete(extra);

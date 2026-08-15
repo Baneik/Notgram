@@ -1,4 +1,5 @@
 import { Fragment, lazy, Suspense, type MouseEvent, type ReactNode } from "react";
+import { useTelegramStore } from "../store/telegramStore";
 import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
@@ -26,6 +27,54 @@ const entityHref = (entity: MessageTextEntity, value: string) => {
   }
   return undefined;
 };
+
+function MentionLink({
+  entity,
+  value,
+  children,
+  onOpenMention,
+}: {
+  entity: MessageTextEntity;
+  value: string;
+  children: ReactNode;
+  onOpenMention?: (username?: string, userId?: string) => void;
+}) {
+  const username = entity.kind === "mention" && /^@[A-Za-z0-9_]{5,32}$/.test(value)
+    ? value.slice(1)
+    : undefined;
+  const resolved = useTelegramStore((state) => {
+    const userId = entity.userId ?? (username
+      ? state.userIdsByUsername.get(username.toLocaleLowerCase())
+      : undefined);
+    const user = userId ? state.users.get(userId) : undefined;
+    return user
+      ? `${user.id}\u0000${user.displayName}\u0000${user.username ?? ""}`
+      : "";
+  });
+  const [resolvedUserId, displayName, resolvedUsername] = resolved
+    ? resolved.split("\u0000")
+    : [];
+  const targetUsername = (username ?? resolvedUsername) || undefined;
+  const href = resolvedUserId && /^-?\d+$/.test(resolvedUserId)
+    ? `tg://user?id=${encodeURIComponent(resolvedUserId)}`
+    : targetUsername
+      ? `https://t.me/${encodeURIComponent(targetUsername)}`
+      : "#";
+  const openMention = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!onOpenMention) {
+      handleExternalLinkClick(event);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenMention(targetUsername, resolvedUserId || entity.userId);
+  };
+  return (
+    <a href={href} onClick={openMention}>
+      {displayName ? `@${displayName}` : children}
+    </a>
+  );
+}
 
 const wrapEntity = (
   entity: MessageTextEntity,
@@ -62,22 +111,15 @@ const wrapEntity = (
     }
     case "mention":
     case "mentionName": {
-      const href = entityHref(entity, value);
-      if (!href) return <Fragment key={key}>{children}</Fragment>;
-      const username = entity.kind === "mention" ? value.slice(1) : undefined;
-      const openMention = (event: MouseEvent<HTMLAnchorElement>) => {
-        if (!onOpenMention) {
-          handleExternalLinkClick(event);
-          return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        onOpenMention(username, entity.userId);
-      };
       return (
-        <a key={key} href={href} onClick={openMention}>
+        <MentionLink
+          key={key}
+          entity={entity}
+          value={value}
+          onOpenMention={onOpenMention}
+        >
           {children}
-        </a>
+        </MentionLink>
       );
     }
   }
@@ -95,6 +137,9 @@ const renderInlineRange = (
   const overlapping = entities.filter((entity) =>
     entity.offset < endOffset && entity.offset + entity.length > startOffset,
   );
+  const mentionRanges = overlapping.filter((entity) =>
+    entity.kind === "mention" || entity.kind === "mentionName"
+  );
   const boundaries = [...new Set([
     startOffset,
     endOffset,
@@ -108,7 +153,9 @@ const renderInlineRange = (
         Math.max(startOffset, range.start),
         Math.min(endOffset, range.end),
       ]),
-  ])].sort((left, right) => left - right);
+  ])].filter((boundary) => !mentionRanges.some((entity) =>
+    boundary > entity.offset && boundary < entity.offset + entity.length
+  )).sort((left, right) => left - right);
 
   return boundaries.slice(0, -1).map((start, index) => {
     const end = boundaries[index + 1];

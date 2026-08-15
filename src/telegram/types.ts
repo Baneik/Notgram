@@ -508,6 +508,7 @@ export interface ChatDraft {
   chatId: string;
   topicId?: string;
   text: string;
+  entities?: MessageTextEntity[];
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
   updatedAt: string;
@@ -873,6 +874,7 @@ export interface QueuedOutgoingMessage {
   chatId: string;
   topicId?: string;
   text: string;
+  entities?: MessageTextEntity[];
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
   createdAt: string;
@@ -923,6 +925,7 @@ export interface SendMessageInput {
   chatId: string;
   topicId?: string;
   text: string;
+  entities?: MessageTextEntity[];
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
   clearDraft?: boolean;
@@ -939,6 +942,7 @@ export interface EditMessageInput {
   chatId: string;
   messageId: string;
   text: string;
+  entities?: MessageTextEntity[];
 }
 
 export interface DeleteMessageInput {
@@ -963,6 +967,7 @@ export interface SetChatDraftInput {
   chatId: string;
   topicId?: string;
   text: string;
+  entities?: MessageTextEntity[];
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
 }
@@ -1018,6 +1023,7 @@ export interface SendFilesInput {
   topicId?: string;
   attachments: OutgoingAttachment[];
   caption?: string;
+  captionEntities?: MessageTextEntity[];
 }
 
 export const TELEGRAM_ALBUM_MAX_ITEMS = 10;

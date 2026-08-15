@@ -14,6 +14,7 @@ import type {
   QueuedOutgoingMessage,
   TelegramEvent,
   TelegramAccountState,
+  User,
 } from "../telegram/types";
 import { connectionPresentation } from "../telegram/connectionState";
 import {
@@ -49,6 +50,7 @@ import {
   markConversationSwitch,
 } from "../utils/performanceMonitor";
 import { markMessageEntrance, transferMessageEntrance } from "../utils/messageEntrance";
+import { trimComposerFormattedText } from "../utils/composerMentions";
 import { protectedCachePaths } from "./cacheProtection";
 import { emptyGlobalSearch } from "./globalSearchState";
 import { emptyChatMessageSearch } from "./chatMessageSearchState";
@@ -77,6 +79,18 @@ export { filterAndSortChats, selectVisibleChats } from "./telegramStore.selector
 const CACHE_WRITE_DELAY_MS = 10_000;
 const CACHE_WRITE_MAX_DELAY_MS = 60_000;
 const CACHE_WRITE_IDLE_TIMEOUT_MS = 1_500;
+
+const normalizedUsername = (user?: Pick<User, "username">) =>
+  user?.username?.trim().replace(/^@/, "").toLocaleLowerCase() || undefined;
+
+const usernameIndexForUsers = (users: Iterable<User>) => {
+  const index = new Map<string, string>();
+  for (const user of users) {
+    const username = normalizedUsername(user);
+    if (username) index.set(username, user.id);
+  }
+  return index;
+};
 
 type ChatManagementCapabilityKey = keyof Pick<ChatManagementCapabilities,
   | "canOpenManagement"
@@ -310,6 +324,7 @@ export const createTelegramStore = (
         chatId: draft?.chatId ?? draftKey.split(":topic:")[0],
         topicId: draft?.topicId,
         text: draft?.text ?? "",
+        entities: draft?.entities,
         replyToMessageId: draft?.replyToMessageId,
         replyQuote: draft?.replyQuote,
       }),
@@ -332,6 +347,7 @@ export const createTelegramStore = (
       set({
         currentUserId: undefined,
         users: new Map(),
+        userIdsByUsername: new Map(),
         folders: [],
         chats: new Map(),
         chatListReady: false,
@@ -476,6 +492,7 @@ export const createTelegramStore = (
       set({
         currentUserId: current.currentUserId ?? snapshot.currentUserId,
         users,
+        userIdsByUsername: usernameIndexForUsers(users.values()),
         folders,
         chats,
         chatListReady: true,
@@ -864,9 +881,20 @@ export const createTelegramStore = (
       }
 
       if (event.type === "user.upsert") {
-        const users = new Map(get().users);
+        const current = get();
+        const users = new Map(current.users);
+        const previous = users.get(event.user.id);
         users.set(event.user.id, event.user);
-        set({ users });
+        // Mention selectors return primitive display keys, so this derived index can
+        // update in place without forcing an O(n) clone on frequent presence updates.
+        const userIdsByUsername = current.userIdsByUsername;
+        const previousUsername = normalizedUsername(previous);
+        const nextUsername = normalizedUsername(event.user);
+        if (previousUsername && userIdsByUsername.get(previousUsername) === event.user.id) {
+          userIdsByUsername.delete(previousUsername);
+        }
+        if (nextUsername) userIdsByUsername.set(nextUsername, event.user.id);
+        set({ users, userIdsByUsername });
         if (event.cacheRelevant !== false) scheduleCacheWrite();
         if (event.user.id === get().currentUserId) void registerCurrentAccount();
         return;
@@ -1216,6 +1244,7 @@ export const createTelegramStore = (
       cacheCleanupResult: undefined,
       cacheHealth: "empty",
       users: new Map(),
+      userIdsByUsername: new Map(),
       folders: [],
       chats: new Map(),
       chatListReady: false,
@@ -1317,6 +1346,7 @@ export const createTelegramStore = (
             chats,
             chatListReady: current.chatListReady || snapshot.chats.length > 0,
             users,
+            userIdsByUsername: usernameIndexForUsers(users.values()),
             folders: current.folders.length > 0 ? current.folders : folders,
             messages,
             drafts,
@@ -2472,7 +2502,7 @@ export const createTelegramStore = (
         void loadChats(chatFilter);
       },
 
-      updateChatDraft: (chatId, text, replyToMessageId, replyQuote) => {
+      updateChatDraft: (chatId, text, replyToMessageId, replyQuote, entities) => {
         if (!get().chats.has(chatId)) return;
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         const key = topicKey(chatId, topicId);
@@ -2481,6 +2511,7 @@ export const createTelegramStore = (
           chatId,
           topicId,
           text,
+          ...(entities?.length ? { entities } : {}),
           replyToMessageId,
           replyQuote: replyToMessageId ? replyQuote : undefined,
           updatedAt: new Date().toISOString(),
@@ -2503,10 +2534,11 @@ export const createTelegramStore = (
         }
       },
 
-      sendMessage: async (text, replyToMessageId, replyQuote) => {
+      sendMessage: async (text, replyToMessageId, replyQuote, entities) => {
         const chatId = get().activeChatId;
         const topicId = get().activeTopicId;
-        const normalizedText = text.trim();
+        const formatted = trimComposerFormattedText(text, entities ?? []);
+        const normalizedText = formatted.text;
         if (!chatId || !normalizedText) return false;
         const draftKey = topicKey(chatId, topicId);
         const previousDraft = get().drafts.get(draftKey);
@@ -2519,6 +2551,7 @@ export const createTelegramStore = (
             chatId,
             topicId,
             text: normalizedText,
+            ...(formatted.entities.length ? { entities: formatted.entities } : {}),
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
             createdAt: new Date().toISOString(),
@@ -2563,6 +2596,7 @@ export const createTelegramStore = (
             chatId,
             topicId,
             text: normalizedText,
+            entities: formatted.entities,
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
           });
@@ -2592,12 +2626,18 @@ export const createTelegramStore = (
         }
       },
 
-      editMessage: async (messageId, text) => {
+      editMessage: async (messageId, text, entities) => {
         const chatId = get().activeChatId;
-        const normalizedText = text.trim();
+        const formatted = trimComposerFormattedText(text, entities ?? []);
+        const normalizedText = formatted.text;
         if (!chatId || !normalizedText) return false;
         try {
-          await transport.editMessage({ chatId, messageId, text: normalizedText });
+          await transport.editMessage({
+            chatId,
+            messageId,
+            text: normalizedText,
+            entities: formatted.entities,
+          });
           set({ operationError: undefined });
           return true;
         } catch (error) {
@@ -2801,10 +2841,11 @@ export const createTelegramStore = (
         }
       },
 
-      sendFiles: async (attachments, caption) => {
+      sendFiles: async (attachments, caption, captionEntities) => {
         const chatId = get().activeChatId;
         const topicId = get().activeTopicId;
         if (!chatId || attachments.length === 0) return false;
+        const formattedCaption = trimComposerFormattedText(caption ?? "", captionEntities ?? []);
         if (!connectionPresentation(get().connectionStatus).operational) {
           const id = globalThis.crypto.randomUUID();
           const createdAt = new Date().toISOString();
@@ -2817,8 +2858,9 @@ export const createTelegramStore = (
               id,
               chatId,
               topicId,
-              text: caption?.trim() || metadata.map(({ name }) => name).join("、"),
-              caption: caption?.trim() || undefined,
+              text: formattedCaption.text || metadata.map(({ name }) => name).join("、"),
+              caption: formattedCaption.text || undefined,
+              ...(formattedCaption.entities.length ? { entities: formattedCaption.entities } : {}),
               kind: "attachments",
               attachments: metadata,
               createdAt,
@@ -2839,7 +2881,13 @@ export const createTelegramStore = (
           }
         }
         try {
-          const sent = await transport.sendFiles({ chatId, topicId, attachments, caption });
+          const sent = await transport.sendFiles({
+            chatId,
+            topicId,
+            attachments,
+            caption: formattedCaption.text || undefined,
+            captionEntities: formattedCaption.entities,
+          });
           if (sent) set({ operationError: undefined });
           return sent;
         } catch (error) {

@@ -2435,6 +2435,36 @@ describe("TauriTelegramTransport message operations", () => {
     });
   });
 
+  it("sends nickname text as a stable mention-name entity", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.sendMessage({
+      chatId: "7",
+      text: "@Mia hello",
+      entities: [{ offset: 0, length: 4, kind: "mentionName", userId: "11" }],
+    });
+
+    expect(requests[0]).toMatchObject({
+      "@type": "sendMessage",
+      input_message_content: {
+        text: {
+          text: "@Mia hello",
+          entities: [{
+            offset: 0,
+            length: 4,
+            type: { "@type": "textEntityTypeMentionName", user_id: 11 },
+          }],
+        },
+      },
+    });
+  });
+
   it("writes, clears, and publishes chat drafts through the current TDLib schema", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
@@ -2448,7 +2478,8 @@ describe("TauriTelegramTransport message operations", () => {
 
     await transport.setChatDraft({
       chatId: "7",
-      text: "unfinished",
+      text: "@Mia unfinished",
+      entities: [{ offset: 0, length: 4, kind: "mentionName", userId: "11" }],
       replyToMessageId: "12",
       replyQuote: { text: "draft quote", position: 7 },
     });
@@ -2475,7 +2506,15 @@ describe("TauriTelegramTransport message operations", () => {
           date: expect.any(Number),
           content: {
             "@type": "draftMessageContentText",
-            text: { "@type": "formattedText", text: "unfinished", entities: [] },
+            text: {
+              "@type": "formattedText",
+              text: "@Mia unfinished",
+              entities: [{
+                offset: 0,
+                length: 4,
+                type: { "@type": "textEntityTypeMentionName", user_id: 11 },
+              }],
+            },
             link_preview_options: null,
           },
           effect_id: 0,
@@ -2499,7 +2538,15 @@ describe("TauriTelegramTransport message operations", () => {
         date: 1_700_000_000,
         content: {
           "@type": "draftMessageContentText",
-          text: { "@type": "formattedText", text: "remote draft", entities: [] },
+          text: {
+            "@type": "formattedText",
+            text: "@Mia remote draft",
+            entities: [{
+              offset: 0,
+              length: 4,
+              type: { "@type": "textEntityTypeMentionName", user_id: 11 },
+            }],
+          },
         },
       },
       positions: [],
@@ -2514,7 +2561,10 @@ describe("TauriTelegramTransport message operations", () => {
     expect(events).toContainEqual({
       type: "chat.draftChanged",
       chatId: "7",
-      draft: expect.objectContaining({ text: "remote draft" }),
+      draft: expect.objectContaining({
+        text: "@Mia remote draft",
+        entities: [{ offset: 0, length: 4, kind: "mentionName", userId: "11" }],
+      }),
     });
     expect(events.at(-1)).toEqual({
       type: "chat.draftChanged",

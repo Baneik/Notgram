@@ -223,6 +223,7 @@ export interface TauriMessageMediaServiceContext {
     chatId: string,
     files: PreparedPastedAttachment[],
     caption?: string,
+    captionEntities?: MessageTextEntity[],
     topicId?: string,
   ) => Promise<boolean>;
 }
@@ -503,7 +504,7 @@ export class TauriMessageMediaService {
   }
 
   async sendMessage(input: SendMessageInput) {
-    const text = await this.formattedTextInput(input.text);
+    const text = await this.formattedTextInput(input.text, input.entities);
     const response = await this.context.request({
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
@@ -517,7 +518,7 @@ export class TauriMessageMediaService {
   }
 
   async editMessage(input: EditMessageInput) {
-    const text = await this.formattedTextInput(input.text);
+    const text = await this.formattedTextInput(input.text, input.entities);
     const response = await this.context.request({
       "@type": "editMessageText",
       chat_id: numericId(input.chatId),
@@ -580,7 +581,7 @@ export class TauriMessageMediaService {
             date: Math.floor(Date.now() / 1000),
             content: {
               "@type": "draftMessageContentText",
-              text: { "@type": "formattedText", text: input.text, entities: [] },
+              text: formattedTextObject(input.text, input.entities),
               link_preview_options: null,
             },
             effect_id: 0,
@@ -722,16 +723,19 @@ export class TauriMessageMediaService {
       return result;
     }, []);
     let captionPending = input.caption;
+    let captionEntitiesPending = input.captionEntities;
     for (const group of groups) {
       const files = await Promise.all(group.map(this.preparePastedAttachment));
       const sent = await this.context.requestPreparedPastedFiles(
         input.chatId,
         files,
         captionPending,
+        captionEntitiesPending,
         input.topicId,
       );
       if (!sent) return false;
       captionPending = undefined;
+      captionEntitiesPending = undefined;
     }
     return true;
   }
@@ -756,8 +760,8 @@ export class TauriMessageMediaService {
       : null;
   }
 
-  private async formattedTextInput(text: string) {
-    const fallback = formattedTextObject(text);
+  private async formattedTextInput(text: string, entities?: MessageTextEntity[]) {
+    const fallback = formattedTextObject(text, entities);
     const hasMarkdown = /(?:\*\*[^*]+\*\*|\*[^*\n]+\*|__[^_]+__|_[^_\n]+_|~~[^~]+~~|\|\|[^|]+\|\||`[^`]+`|^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+\.\s)|\[[^\]]+\]\([^)]+\)|\|[^\n]+\|)/m.test(text);
     if (!hasMarkdown) return fallback;
     try {

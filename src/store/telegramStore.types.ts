@@ -44,6 +44,7 @@ import type {
   Message,
   MessagePermissions,
   MessageReplyQuote,
+  MessageTextEntity,
   ProxySettings,
   QueuedOutgoingMessage,
   SharedMediaPage,
@@ -95,6 +96,7 @@ export interface TelegramState {
   accountPending: boolean;
   accountError?: string;
   users: Map<string, User>;
+  userIdsByUsername: Map<string, string>;
   folders: ChatFolder[];
   chats: Map<string, Chat>;
   chatListReady: boolean;
@@ -245,10 +247,10 @@ export interface TelegramState {
   sendAnimation: (asset: EmojiPickerAsset, replyToMessageId?: string) => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
-  sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote) => Promise<boolean>;
-  editMessage: (messageId: string, text: string) => Promise<boolean>;
+  sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => Promise<boolean>;
+  editMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
-  updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote) => void;
+  updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
   setChatTyping: (chatId: string, typing: boolean) => Promise<void>;
   forwardMessages: (
     fromChatId: string,
@@ -267,7 +269,7 @@ export interface TelegramState {
   openDownloadDirectory: () => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   sendFile: (file?: File) => Promise<boolean>;
-  sendFiles: (attachments: import("../telegram/types").OutgoingAttachment[], caption?: string) => Promise<boolean>;
+  sendFiles: (attachments: import("../telegram/types").OutgoingAttachment[], caption?: string, captionEntities?: MessageTextEntity[]) => Promise<boolean>;
   cancelFileUpload: (messageId: string) => Promise<void>;
   clearError: () => void;
   clearOperationError: () => void;

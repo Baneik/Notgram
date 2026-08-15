@@ -20,13 +20,19 @@ import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
-import type { BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, OutgoingAttachment } from "../telegram/types";
+import type { BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
 import {
   composerInlineQueryForDraft,
+  insertComposerMention,
   insertComposerText,
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
+import {
+  prependComposerFormattedText,
+  reconcileComposerMentionEntities,
+  trimComposerFormattedText,
+} from "../utils/composerMentions";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { EmojiPicker } from "./EmojiPicker";
@@ -48,11 +54,11 @@ interface ConversationComposerProps {
   failedQueuedMessageCount: number;
   queuedAttachmentCount: number;
   failedAttachmentCount: number;
-  onSendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote) => Promise<boolean>;
-  onEditMessage: (messageId: string, text: string) => Promise<boolean>;
-  onDraftChange: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote) => void;
+  onSendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => Promise<boolean>;
+  onEditMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
+  onDraftChange: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
-  onSendFiles: (attachments: OutgoingAttachment[], caption?: string) => Promise<boolean>;
+  onSendFiles: (attachments: OutgoingAttachment[], caption?: string, captionEntities?: MessageTextEntity[]) => Promise<boolean>;
   onCancelEditing: () => void;
   onCancelReply: () => void;
   onGetBotCommands: (query?: string, botUsername?: string) => Promise<BotCommandSuggestion[]>;
@@ -126,16 +132,19 @@ export const ConversationComposer = memo(function ConversationComposer({
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(draft);
+  const mentionEntitiesRef = useRef<MessageTextEntity[]>(chatDraft?.entities ?? []);
   const composingRef = useRef(false);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pendingDraftRef = useRef<{
     text: string;
+    entities?: MessageTextEntity[];
     replyToMessageId?: string;
     replyQuote?: MessageReplyQuote;
   } | undefined>(undefined);
   const localDraftDirtyRef = useRef(false);
   const previousEditingRef = useRef<Message | undefined>(undefined);
   const draftBeforeEditRef = useRef<string | undefined>(undefined);
+  const entitiesBeforeEditRef = useRef<MessageTextEntity[] | undefined>(undefined);
   const typingActiveRef = useRef(false);
   const typingRefreshRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const typingIdleRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -264,16 +273,28 @@ export const ConversationComposer = memo(function ConversationComposer({
     pendingDraftRef.current = undefined;
     if (!pending) return;
     localDraftDirtyRef.current = false;
-    onDraftChange(chatId, pending.text, pending.replyToMessageId, pending.replyQuote);
+    onDraftChange(
+      chatId,
+      pending.text,
+      pending.replyToMessageId,
+      pending.replyQuote,
+      pending.entities,
+    );
   }, [chatId, onDraftChange]);
 
   const scheduleDraft = useCallback((
     text: string,
     replyToMessageId?: string,
     selectedReplyQuote?: MessageReplyQuote,
+    entities: MessageTextEntity[] = mentionEntitiesRef.current,
   ) => {
     if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
-    pendingDraftRef.current = { text, replyToMessageId, replyQuote: selectedReplyQuote };
+    pendingDraftRef.current = {
+      text,
+      replyToMessageId,
+      replyQuote: selectedReplyQuote,
+      ...(entities.length ? { entities: [...entities] } : {}),
+    };
     localDraftDirtyRef.current = true;
     draftTimerRef.current = globalThis.setTimeout(flushDraft, LOCAL_DRAFT_DELAY_MS);
   }, [flushDraft]);
@@ -285,6 +306,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       suggestion.botUsername.toLocaleLowerCase() !== defaultBotUsername?.toLocaleLowerCase()
     );
     const next = `/${suggestion.command}${includeUsername ? `@${suggestion.botUsername}` : ""} `;
+    mentionEntitiesRef.current = [];
     draftRef.current = next;
     setDraft(next);
     scheduleDraft(next, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
@@ -327,12 +349,35 @@ export const ConversationComposer = memo(function ConversationComposer({
     if (!textInsertion || textInsertion.draftKey !== draftKey || editingMessage || appliedTextInsertionRef.current === textInsertion.id) return;
     appliedTextInsertionRef.current = textInsertion.id;
     const input = inputRef.current;
-    const result = insertComposerText(
-      draftRef.current,
+    const previousText = draftRef.current;
+    const selectionStart = input?.selectionStart ?? previousText.length;
+    const selectionEnd = input?.selectionEnd ?? previousText.length;
+    let insertedMention: MessageTextEntity | undefined;
+    let result = insertComposerText(
+      previousText,
       textInsertion.text,
-      input?.selectionStart ?? draftRef.current.length,
-      input?.selectionEnd ?? draftRef.current.length,
+      selectionStart,
+      selectionEnd,
     );
+    if (textInsertion.userId) {
+      const mentionResult = insertComposerMention(
+        previousText,
+        textInsertion.text,
+        textInsertion.userId,
+        selectionStart,
+        selectionEnd,
+      );
+      insertedMention = mentionResult.entity;
+      result = mentionResult;
+    }
+    mentionEntitiesRef.current = [
+      ...reconcileComposerMentionEntities(
+        previousText,
+        result.value,
+        mentionEntitiesRef.current,
+      ),
+      ...(insertedMention ? [insertedMention] : []),
+    ].sort((left, right) => left.offset - right.offset);
     draftRef.current = result.value;
     setDraft(result.value);
     commitInputSideEffects(result.value);
@@ -357,6 +402,11 @@ export const ConversationComposer = memo(function ConversationComposer({
     const start = input?.selectionStart ?? draftRef.current.length;
     const end = input?.selectionEnd ?? start;
     const value = `${draftRef.current.slice(0, start)}${emoji}${draftRef.current.slice(end)}`;
+    mentionEntitiesRef.current = reconcileComposerMentionEntities(
+      draftRef.current,
+      value,
+      mentionEntitiesRef.current,
+    );
     draftRef.current = value;
     setDraft(value);
     commitInputSideEffects(value);
@@ -370,27 +420,34 @@ export const ConversationComposer = memo(function ConversationComposer({
     const previous = previousEditingRef.current;
     if (editingMessage && previous?.id !== editingMessage.id) {
       if (!previous) draftBeforeEditRef.current = draftRef.current;
+      if (!previous) entitiesBeforeEditRef.current = mentionEntitiesRef.current;
       if (draftTimerRef.current) flushDraft();
       draftRef.current = editingMessage.content.kind === "text" ? editingMessage.content.text : "";
+      mentionEntitiesRef.current = editingMessage.content.kind === "text"
+        ? editingMessage.content.entities ?? []
+        : [];
       setDraft(draftRef.current);
       stopTyping();
       focusComposer();
     } else if (!editingMessage && previous) {
       draftRef.current = draftBeforeEditRef.current ?? chatDraft?.text ?? "";
+      mentionEntitiesRef.current = entitiesBeforeEditRef.current ?? chatDraft?.entities ?? [];
       draftBeforeEditRef.current = undefined;
+      entitiesBeforeEditRef.current = undefined;
       setDraft(draftRef.current);
       focusComposer();
     }
     previousEditingRef.current = editingMessage;
-  }, [chatDraft?.text, editingMessage, flushDraft, focusComposer, stopTyping]);
+  }, [chatDraft?.entities, chatDraft?.text, editingMessage, flushDraft, focusComposer, stopTyping]);
 
   useEffect(() => {
     if (editingMessage || localDraftDirtyRef.current) return;
     const incoming = chatDraft?.text ?? "";
+    mentionEntitiesRef.current = chatDraft?.entities ?? [];
     if (incoming === draftRef.current) return;
     draftRef.current = incoming;
     setDraft(incoming);
-  }, [chatDraft?.text, editingMessage]);
+  }, [chatDraft?.entities, chatDraft?.text, editingMessage]);
 
   useEffect(() => {
     const replyToMessageId = replyingTo?.id ?? chatDraft?.replyToMessageId;
@@ -418,6 +475,9 @@ export const ConversationComposer = memo(function ConversationComposer({
     if (composingRef.current && !editingMessage) {
       pendingDraftRef.current = {
         text: draftRef.current,
+        ...(mentionEntitiesRef.current.length
+          ? { entities: [...mentionEntitiesRef.current] }
+          : {}),
         replyToMessageId: replyToMessageIdRef.current,
         replyQuote: replyQuoteRef.current,
       };
@@ -472,7 +532,7 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   const sendPendingAttachments = async () => {
     if (attachmentPending || pendingAttachments.length === 0) return;
-    const caption = draftRef.current.trim();
+    const caption = trimComposerFormattedText(draftRef.current, mentionEntitiesRef.current);
     setAttachmentPending(true);
     try {
       const inspectedAttachments = await Promise.all(
@@ -489,7 +549,8 @@ export const ConversationComposer = memo(function ConversationComposer({
           hasSpoiler: attachmentMode === "media" && attachmentSpoiler,
           showCaptionAboveMedia: attachmentMode === "media" && attachmentCaptionAbove,
         })),
-        caption || undefined,
+        caption.text || undefined,
+        caption.entities,
       );
       if (!sent) return;
       for (const attachment of pendingAttachments) {
@@ -506,6 +567,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       pendingDraftRef.current = undefined;
       localDraftDirtyRef.current = false;
       draftRef.current = "";
+      mentionEntitiesRef.current = [];
       setDraft("");
       onDraftChange(chatId, "", undefined, undefined);
       stopTyping();
@@ -521,19 +583,19 @@ export const ConversationComposer = memo(function ConversationComposer({
       await sendPendingAttachments();
       return;
     }
-    const submitted = draftRef.current.trim();
-    if (!submitted || sending) return;
+    const submitted = trimComposerFormattedText(draftRef.current, mentionEntitiesRef.current);
+    if (!submitted.text || sending) return;
     closeEmojiPicker();
     if (editingMessage) {
       setSending(true);
-      const edited = await onEditMessage(editingMessage.id, submitted);
+      const edited = await onEditMessage(editingMessage.id, submitted.text, submitted.entities);
       setSending(false);
       if (edited) onCancelEditing();
       focusComposer();
       return;
     }
 
-    const startCommand = submitted.match(/^\/start(?:@([A-Za-z0-9_]{5,32}))?(?:\s+(.+))?$/);
+    const startCommand = submitted.text.match(/^\/start(?:@([A-Za-z0-9_]{5,32}))?(?:\s+(.+))?$/);
     const startBot = selectedBotRef.current;
     const requestedBotUsername = startCommand?.[1] ?? defaultBotUsername;
     const canUseBotStartApi = startCommand && startBot && startBot.command === "start" &&
@@ -545,13 +607,19 @@ export const ConversationComposer = memo(function ConversationComposer({
       pendingDraftRef.current = undefined;
       localDraftDirtyRef.current = false;
       draftRef.current = "";
+      mentionEntitiesRef.current = [];
       setDraft("");
       onDraftChange(chatId, "", undefined, undefined);
       stopTyping();
       setSending(true);
       const sent = await onSendBotStart(startBot.botUserId, startCommand[2]);
       setSending(false);
-      if (!sent) { draftRef.current = submitted; setDraft(submitted); scheduleDraft(submitted, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote); }
+      if (!sent) {
+        draftRef.current = submitted.text;
+        mentionEntitiesRef.current = submitted.entities;
+        setDraft(submitted.text);
+        scheduleDraft(submitted.text, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
+      }
       else onCancelReply();
       focusComposer();
       return;
@@ -562,24 +630,31 @@ export const ConversationComposer = memo(function ConversationComposer({
     pendingDraftRef.current = undefined;
     localDraftDirtyRef.current = false;
     draftRef.current = "";
+    mentionEntitiesRef.current = [];
     setDraft("");
     onDraftChange(chatId, "", undefined, undefined);
     stopTyping();
     focusComposer();
     setSending(true);
     const sent = await onSendMessage(
-      submitted,
+      submitted.text,
       replyingTo?.id ?? chatDraft?.replyToMessageId,
       activeReplyQuote,
+      submitted.entities,
     );
     setSending(false);
     if (sent) {
       onCancelReply();
     } else {
-      const restored = draftRef.current ? `${submitted}\n${draftRef.current}` : submitted;
-      draftRef.current = restored;
-      setDraft(restored);
-      scheduleDraft(restored, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
+      const restored = prependComposerFormattedText(
+        submitted,
+        draftRef.current,
+        mentionEntitiesRef.current,
+      );
+      draftRef.current = restored.text;
+      mentionEntitiesRef.current = restored.entities;
+      setDraft(restored.text);
+      scheduleDraft(restored.text, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
     }
     focusComposer();
   };
@@ -591,7 +666,13 @@ export const ConversationComposer = memo(function ConversationComposer({
     localDraftDirtyRef.current = false;
     replyToMessageIdRef.current = undefined;
     replyQuoteRef.current = undefined;
-    onDraftChange(chatId, draftRef.current, undefined, undefined);
+    onDraftChange(
+      chatId,
+      draftRef.current,
+      undefined,
+      undefined,
+      mentionEntitiesRef.current,
+    );
     onCancelReply();
     focusComposer();
   }, [chatId, focusComposer, onCancelReply, onDraftChange]);
@@ -784,7 +865,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       )}
       {(inlineLoading || inlineResults) && (
         <section className="inline-query-panel" aria-label="Inline 查询结果">
-          {inlineLoading ? <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div> : inlineResults?.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>)}
+          {inlineLoading ? <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div> : inlineResults?.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; mentionEntitiesRef.current = []; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>)}
           {inlineResults?.hasMore && <button type="button" className="inline-query-more" onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>加载更多结果</button>}
         </section>
       )}
@@ -808,6 +889,11 @@ export const ConversationComposer = memo(function ConversationComposer({
           value={draft}
           onChange={(event) => {
             const value = event.target.value;
+            mentionEntitiesRef.current = reconcileComposerMentionEntities(
+              draftRef.current,
+              value,
+              mentionEntitiesRef.current,
+            );
             draftRef.current = value;
             setDraft(value);
             if (!composingRef.current) commitInputSideEffects(value);

@@ -1,9 +1,10 @@
-import type { User } from "../telegram/types";
+import type { MessageTextEntity, User } from "../telegram/types";
 
 export interface ComposerTextInsertion {
   id: string;
   text: string;
   draftKey: string;
+  userId?: string;
 }
 
 export interface ComposerInlineQuery {
@@ -16,12 +17,13 @@ export interface ComposerInsertionResult {
   cursor: number;
 }
 
+export interface ComposerMentionInsertionResult extends ComposerInsertionResult {
+  entity: MessageTextEntity;
+}
+
 export const mentionTextForUser = (
   user: Pick<User, "displayName" | "username">,
-) => {
-  const username = user.username?.trim().replace(/^@/, "");
-  return username ? `@${username}` : `@${user.displayName.trim()}`;
-};
+) => `@${user.displayName.trim()}`;
 
 export const insertComposerText = (
   value: string,
@@ -39,6 +41,29 @@ export const insertComposerText = (
   return {
     value: `${prefix}${inserted}${suffix}`,
     cursor: prefix.length + inserted.length,
+  };
+};
+
+export const insertComposerMention = (
+  value: string,
+  text: string,
+  userId: string,
+  selectionStart: number,
+  selectionEnd = selectionStart,
+): ComposerMentionInsertionResult => {
+  const start = Math.max(0, Math.min(value.length, selectionStart));
+  const end = Math.max(start, Math.min(value.length, selectionEnd));
+  const prefix = value.slice(0, start);
+  const leadingSpace = prefix && !/\s$/.test(prefix) && !/^\s/.test(text) ? " " : "";
+  const result = insertComposerText(value, text, start, end);
+  return {
+    ...result,
+    entity: {
+      offset: prefix.length + leadingSpace.length,
+      length: text.length,
+      kind: "mentionName",
+      userId,
+    },
   };
 };
 

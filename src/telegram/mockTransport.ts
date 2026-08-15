@@ -1769,7 +1769,7 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
-  async sendMessage({ chatId, topicId, text, replyToMessageId, replyQuote, clearDraft = true }: SendMessageInput) {
+  async sendMessage({ chatId, topicId, text, entities, replyToMessageId, replyQuote, clearDraft = true }: SendMessageInput) {
     const replyTarget = replyToMessageId
       ? this.snapshot.messages.find(
           (message) => message.chatId === chatId && message.topicId === topicId && message.id === replyToMessageId,
@@ -1805,18 +1805,18 @@ export class MockTelegramTransport implements TelegramTransport {
             content: clone(replyTarget.content),
           }
         : undefined,
-      content: { kind: "text", text },
+      content: { kind: "text", text, ...(entities?.length ? { entities } : {}) },
     });
     if (clearDraft) await this.setChatDraft({ chatId, topicId, text: "" });
   }
 
-  async editMessage({ chatId, messageId, text }: EditMessageInput) {
+  async editMessage({ chatId, messageId, text, entities }: EditMessageInput) {
     const message = this.snapshot.messages.find(
       (item) => item.chatId === chatId && item.id === messageId,
     );
     if (!message) throw new Error("找不到需要编辑的消息");
     if (message.content.kind !== "text") throw new Error("只能编辑文本消息");
-    message.content = { kind: "text", text };
+    message.content = { kind: "text", text, ...(entities?.length ? { entities } : {}) };
     message.editedAt = new Date().toISOString();
     delete message.permissions;
     this.listener?.({ type: "message.upsert", message: clone(message) });
@@ -1878,7 +1878,7 @@ export class MockTelegramTransport implements TelegramTransport {
     return { forwardedCount: selected.length, failedMessageIds: [] };
   }
 
-  async setChatDraft({ chatId, topicId, text, replyToMessageId, replyQuote }: SetChatDraftInput) {
+  async setChatDraft({ chatId, topicId, text, entities, replyToMessageId, replyQuote }: SetChatDraftInput) {
     if (!this.snapshot.chats.some((chat) => chat.id === chatId)) {
       throw new Error("找不到需要保存草稿的会话");
     }
@@ -1887,6 +1887,7 @@ export class MockTelegramTransport implements TelegramTransport {
           chatId,
           topicId,
           text,
+          ...(entities?.length ? { entities } : {}),
           replyToMessageId,
           replyQuote: replyToMessageId ? replyQuote : undefined,
           updatedAt: new Date().toISOString(),
@@ -1973,7 +1974,7 @@ export class MockTelegramTransport implements TelegramTransport {
     });
   }
 
-  async sendFiles({ chatId, topicId, attachments, caption }: SendFilesInput) {
+  async sendFiles({ chatId, topicId, attachments, caption, captionEntities }: SendFilesInput) {
     if (attachments.length === 0) return false;
     const allVisual = attachments.length > 1 && attachments.every(
       (attachment) => attachment.kind === "photo" || attachment.kind === "video",
@@ -2003,12 +2004,14 @@ export class MockTelegramTransport implements TelegramTransport {
               height: attachment.height,
               duration: attachment.duration,
               caption: index === 0 ? caption : undefined,
+              captionEntities: index === 0 ? captionEntities : undefined,
             }
           : {
               kind: "file",
               fileName: file.name,
               sizeLabel: readableFileSize(file.size),
               caption: index === 0 ? caption : undefined,
+              captionEntities: index === 0 ? captionEntities : undefined,
             },
       });
     }

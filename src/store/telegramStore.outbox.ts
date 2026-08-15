@@ -43,13 +43,18 @@ export const messageFromOutbox = (
             ? `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`
             : `${Math.max(1, Math.ceil(totalBytes / 1024))} KB`,
           caption: item.caption,
+          captionEntities: item.entities,
           mimeType: firstAttachment.mimeType,
           size: totalBytes,
           isUploading: item.status === "queued",
           canDownload: false,
           progress: 0,
         }
-      : { kind: "text", text: item.text },
+      : {
+          kind: "text",
+          text: item.text,
+          ...(item.entities?.length ? { entities: item.entities } : {}),
+        },
   };
 };
 

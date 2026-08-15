@@ -79,6 +79,7 @@ export const createOutboxController = ({
               topicId: item.topicId,
               attachments: stored.attachments,
               caption: item.caption,
+              captionEntities: item.entities,
             });
             if (!sent) throw new Error("附件上传未完成");
           } else {
@@ -86,6 +87,7 @@ export const createOutboxController = ({
               chatId: item.chatId,
               topicId: item.topicId,
               text: item.text,
+              entities: item.entities,
               replyToMessageId: item.replyToMessageId,
               replyQuote: item.replyQuote,
               clearDraft: !get().drafts.has(topicKey(item.chatId, item.topicId)),

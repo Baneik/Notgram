@@ -1,6 +1,14 @@
 use serde_json::{Value, json};
 use std::path::Path;
 
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedTextMention {
+    pub offset: i32,
+    pub length: i32,
+    pub user_id: i64,
+}
+
 const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "addChatToList",
     "addChatMembers",
@@ -1201,7 +1209,45 @@ fn input_thumbnail(upload: &PreparedUpload) -> Result<Value, String> {
     }))
 }
 
-fn input_message_upload(upload: &PreparedUpload, caption_text: &str) -> Result<Value, String> {
+fn formatted_caption(
+    caption_text: &str,
+    mentions: &[PreparedTextMention],
+) -> Result<Value, String> {
+    if mentions.len() > 100 {
+        return Err("Telegram captions support at most 100 member mentions".to_string());
+    }
+    let utf16_len = caption_text.encode_utf16().count();
+    let mut previous_end = 0usize;
+    let mut entities = Vec::with_capacity(mentions.len());
+    for mention in mentions {
+        let offset = usize::try_from(mention.offset)
+            .map_err(|_| "Invalid Telegram mention offset".to_string())?;
+        let length = usize::try_from(mention.length)
+            .map_err(|_| "Invalid Telegram mention length".to_string())?;
+        let end = offset
+            .checked_add(length)
+            .ok_or_else(|| "Invalid Telegram mention range".to_string())?;
+        if length == 0 || mention.user_id <= 0 || offset < previous_end || end > utf16_len {
+            return Err("Invalid Telegram caption mention".to_string());
+        }
+        previous_end = end;
+        entities.push(json!({
+            "offset": mention.offset,
+            "length": mention.length,
+            "type": {
+                "@type": "textEntityTypeMentionName",
+                "user_id": mention.user_id
+            }
+        }));
+    }
+    Ok(json!({ "@type": "formattedText", "text": caption_text, "entities": entities }))
+}
+
+fn input_message_upload(
+    upload: &PreparedUpload,
+    caption_text: &str,
+    caption_mentions: &[PreparedTextMention],
+) -> Result<Value, String> {
     let extension = Path::new(&upload.file.path)
         .extension()
         .and_then(|value| value.to_str())
@@ -1236,7 +1282,7 @@ fn input_message_upload(upload: &PreparedUpload, caption_text: &str) -> Result<V
         ));
     }
     let input_file = json!({ "@type": "inputFileLocal", "path": upload.file.path });
-    let caption = json!({ "@type": "formattedText", "text": caption_text, "entities": [] });
+    let caption = formatted_caption(caption_text, caption_mentions)?;
     let width = bounded_metadata(upload.width, 10_000, "width")?;
     let height = bounded_metadata(upload.height, 10_000, "height")?;
     let duration = bounded_metadata(upload.duration, 86_400, "duration")?;
@@ -1358,6 +1404,7 @@ pub(super) fn prepared_file_request_with_topic(
         extra,
         &PreparedUpload::automatic(file),
         "",
+        &[],
         topic_id,
     )
 }
@@ -1369,7 +1416,7 @@ pub(super) fn prepared_upload_request_with_caption(
     upload: &PreparedUpload,
     caption: &str,
 ) -> Result<Value, String> {
-    prepared_upload_request_with_caption_and_topic(chat_id, extra, upload, caption, None)
+    prepared_upload_request_with_caption_and_topic(chat_id, extra, upload, caption, &[], None)
 }
 
 pub(super) fn prepared_upload_request_with_caption_and_topic(
@@ -1377,6 +1424,7 @@ pub(super) fn prepared_upload_request_with_caption_and_topic(
     extra: &str,
     upload: &PreparedUpload,
     caption: &str,
+    caption_mentions: &[PreparedTextMention],
     topic_id: Option<i64>,
 ) -> Result<Value, String> {
     if chat_id == 0 {
@@ -1391,7 +1439,7 @@ pub(super) fn prepared_upload_request_with_caption_and_topic(
         "reply_to": null,
         "options": null,
         "reply_markup": null,
-        "input_message_content": input_message_upload(upload, caption)?,
+        "input_message_content": input_message_upload(upload, caption, caption_mentions)?,
         "@extra": extra
     }))
 }
@@ -1417,7 +1465,14 @@ pub(super) fn prepared_upload_album_request_with_caption(
     uploads: &[PreparedUpload],
     caption: &str,
 ) -> Result<Value, String> {
-    prepared_upload_album_request_with_caption_and_topic(chat_id, extra, uploads, caption, None)
+    prepared_upload_album_request_with_caption_and_topic(
+        chat_id,
+        extra,
+        uploads,
+        caption,
+        &[],
+        None,
+    )
 }
 
 pub(super) fn prepared_upload_album_request_with_caption_and_topic(
@@ -1425,6 +1480,7 @@ pub(super) fn prepared_upload_album_request_with_caption_and_topic(
     extra: &str,
     uploads: &[PreparedUpload],
     caption: &str,
+    caption_mentions: &[PreparedTextMention],
     topic_id: Option<i64>,
 ) -> Result<Value, String> {
     if chat_id == 0 {
@@ -1462,7 +1518,11 @@ pub(super) fn prepared_upload_album_request_with_caption_and_topic(
         "reply_to": null,
         "options": null,
         "input_message_contents": uploads.iter().enumerate().map(|(index, upload)| {
-            input_message_upload(upload, if index == 0 { caption } else { "" })
+            input_message_upload(
+                upload,
+                if index == 0 { caption } else { "" },
+                if index == 0 { caption_mentions } else { &[] },
+            )
         }).collect::<Result<Vec<_>, _>>()?,
         "@extra": extra
     }))
@@ -1935,6 +1995,43 @@ mod tests {
         assert_eq!(video_content["video"]["cover"]["path"], cover.path);
         assert_eq!(video_content["show_caption_above_media"], true);
         assert_eq!(video_content["has_spoiler"], true);
+
+        let mention_request = prepared_upload_request_with_caption_and_topic(
+            7,
+            EXTRA,
+            &video,
+            "@Mia 视频说明",
+            &[PreparedTextMention {
+                offset: 0,
+                length: 4,
+                user_id: 11,
+            }],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            mention_request["input_message_content"]["caption"]["entities"][0]["type"]["@type"],
+            "textEntityTypeMentionName"
+        );
+        assert_eq!(
+            mention_request["input_message_content"]["caption"]["entities"][0]["type"]["user_id"],
+            11
+        );
+        assert!(
+            prepared_upload_request_with_caption_and_topic(
+                7,
+                EXTRA,
+                &video,
+                "short",
+                &[PreparedTextMention {
+                    offset: 4,
+                    length: 10,
+                    user_id: 11,
+                }],
+                None,
+            )
+            .is_err()
+        );
 
         let audio = PreparedUpload {
             file: crate::storage::UploadFileInfo {

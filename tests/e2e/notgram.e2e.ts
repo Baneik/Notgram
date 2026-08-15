@@ -1293,9 +1293,11 @@ test("member mentions stay in their chat and the resulting draft can be cleared"
   await expect(senderAvatar).toBeVisible();
   await senderAvatar.click({ button: "right" });
   const senderMenu = page.getByRole("menu", { name: "成员操作" });
-  await senderMenu.getByRole("menuitem", { name: /^@/ }).click();
+  const mentionAction = senderMenu.getByRole("menuitem", { name: /^@/ });
+  const mentionLabel = (await mentionAction.innerText()).trim();
+  await mentionAction.click();
 
-  await expect(composer).toHaveValue(/^@[A-Za-z0-9_]{5,32} $/);
+  await expect(composer).toHaveValue(`${mentionLabel} `);
   const mentionDraft = await composer.inputValue();
   await page.waitForTimeout(250);
   await expect(page.locator(".inline-query-panel")).toHaveCount(0);
@@ -1305,6 +1307,14 @@ test("member mentions stay in their chat and the resulting draft can be cleared"
   await expect(composer).toHaveValue("");
   await page.locator('[data-chat-id="chat-product"]').click();
   await expect(composer).toHaveValue(mentionDraft);
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, { entities?: Array<{ kind: string; userId?: string }> }> };
+      };
+    };
+    return storeModule.telegramStore.getState().drafts.get("chat-product")?.entities?.[0];
+  }, "/src/store/telegramStore.ts")).toMatchObject({ kind: "mentionName", userId: expect.any(String) });
 
   await composer.fill("");
   await page.locator('[data-chat-id="chat-mia"]').click();
@@ -1319,6 +1329,27 @@ test("member mentions stay in their chat and the resulting draft can be cleared"
     };
     return storeModule.telegramStore.getState().drafts.has("chat-product");
   }, "/src/store/telegramStore.ts")).toBe(false);
+});
+
+test("nickname mentions keep their stable profile click after sending", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  const senderAvatar = page.locator(".message-sender-avatar").last();
+  await expect(senderAvatar).toBeVisible();
+  await senderAvatar.click({ button: "right" });
+  const mentionAction = page.getByRole("menu", { name: "成员操作" })
+    .getByRole("menuitem", { name: /^@/ });
+  const mentionLabel = (await mentionAction.innerText()).trim();
+  await mentionAction.click();
+  await expect(composer).toHaveValue(`${mentionLabel} `);
+  await page.getByRole("button", { name: "发送消息" }).click();
+
+  const sentMention = page.locator(".message-row.is-outgoing .message-rich-text a")
+    .filter({ hasText: mentionLabel })
+    .last();
+  await expect(sentMention).toHaveText(mentionLabel);
+  await sentMention.click();
+  await expect(page.getByRole("dialog", { name: "资料" })).toBeVisible();
 });
 
 test("IME composition defers draft persistence and layout work until commit", async ({ page }) => {
@@ -3244,7 +3275,7 @@ test("TDLib mentions open user and bot profiles without leaving the conversation
   const initialPageCount = context.pages().length;
   const row = await revealVirtualMessage(page, "p-rich-entities");
 
-  const userMention = row.getByRole("link", { name: "@mia_design" });
+  const userMention = row.getByRole("link", { name: "@Mia Chen" });
   await expect(userMention).toHaveAttribute("href", "https://t.me/mia_design");
   await userMention.click();
   const profile = page.getByRole("dialog", { name: "资料" });
@@ -3252,10 +3283,35 @@ test("TDLib mentions open user and bot profiles without leaving the conversation
   await profile.getByRole("button", { name: "关闭资料" }).click();
 
   const botRow = await revealVirtualMessage(page, "p-rich-entities");
-  await botRow.getByRole("link", { name: "@notgram_bot" }).click();
+  await botRow.getByRole("link", { name: "@Notgram Bot" }).click();
   await expect(profile.getByRole("heading", { name: "Notgram Bot" })).toBeVisible();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   expect(context.pages()).toHaveLength(initialPageCount);
+});
+
+test("visible mentions follow nickname changes without changing their user target", async ({ page }) => {
+  await page.goto("/");
+  const row = await revealVirtualMessage(page, "p-rich-entities");
+  await expect(row.getByRole("link", { name: "@Mia Chen" })).toBeVisible();
+
+  await page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { users: Map<string, { id: string; displayName: string }> };
+        setState: (patch: { users: Map<string, unknown> }) => void;
+      };
+    };
+    const users = new Map(storeModule.telegramStore.getState().users);
+    const mia = users.get("u-mia");
+    if (!mia) throw new Error("Mock member is missing");
+    users.set("u-mia", { ...mia, displayName: "Mia Zhou" });
+    storeModule.telegramStore.setState({ users });
+  }, "/src/store/telegramStore.ts");
+
+  const renamedMention = row.getByRole("link", { name: "@Mia Zhou" });
+  await expect(renamedMention).toHaveAttribute("href", "https://t.me/mia_design");
+  await renamedMention.click();
+  await expect(page.getByRole("dialog", { name: "资料" })).toBeVisible();
 });
 
 test("chat list hides its scrollbar and the conversation title has no hover highlight", async ({ page }) => {

@@ -1,5 +1,10 @@
 import { asTdObject, tdChatListId, tdNumber, type TdObject } from "./tdlibMapper";
-import type { AuthorizationState, ProxyEndpoint, ProxySettings } from "./types";
+import type {
+  AuthorizationState,
+  MessageTextEntity,
+  ProxyEndpoint,
+  ProxySettings,
+} from "./types";
 
 export const numericId = (id: string) => {
   const value = Number(id);
@@ -11,10 +16,28 @@ export const forumTopicObject = (topicId?: string): TdObject | null => topicId
   ? { "@type": "messageTopicForum", forum_topic_id: numericId(topicId) }
   : null;
 
-export const formattedTextObject = (text: string): TdObject => ({
+export const formattedTextObject = (
+  text: string,
+  entities: readonly MessageTextEntity[] = [],
+): TdObject => ({
   "@type": "formattedText",
   text,
-  entities: [],
+  entities: entities.flatMap((entity) => {
+    if (
+      entity.kind !== "mentionName" ||
+      !entity.userId ||
+      !Number.isSafeInteger(Number(entity.userId)) ||
+      Number(entity.userId) <= 0 ||
+      entity.offset < 0 ||
+      entity.length <= 0 ||
+      entity.offset + entity.length > text.length
+    ) return [];
+    return [{
+      offset: entity.offset,
+      length: entity.length,
+      type: { "@type": "textEntityTypeMentionName", user_id: Number(entity.userId) },
+    }];
+  }),
 });
 
 export const inputMessageText = (text: string | TdObject, clearDraft: boolean): TdObject => ({

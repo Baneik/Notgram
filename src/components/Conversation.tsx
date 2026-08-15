@@ -29,6 +29,7 @@ import type {
   Message,
   MessagePermissions,
   MessageReplyQuote,
+  MessageTextEntity,
   ForwardMessagesResult,
   User,
 } from "../telegram/types";
@@ -181,14 +182,16 @@ interface ConversationProps {
     text: string,
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
+    entities?: MessageTextEntity[],
   ) => Promise<boolean>;
-  onEditMessage: (messageId: string, text: string) => Promise<boolean>;
+  onEditMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
   onDraftChange: (
     chatId: string,
     text: string,
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
+    entities?: MessageTextEntity[],
   ) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
   onForwardMessages: (
@@ -218,7 +221,7 @@ interface ConversationProps {
   onStreamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onSuspendFileStream: (fileId: number) => Promise<void>;
   onRetryMessage: (messageId: string) => Promise<void>;
-  onSendFiles: (attachments: import("../telegram/types").OutgoingAttachment[], caption?: string) => Promise<boolean>;
+  onSendFiles: (attachments: import("../telegram/types").OutgoingAttachment[], caption?: string, captionEntities?: MessageTextEntity[]) => Promise<boolean>;
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
@@ -323,8 +326,6 @@ export function Conversation({
       if (user.isBot === true) continue;
       const username = user.username?.trim().replace(/^@/, "");
       if (username) usernames.add(username.toLocaleLowerCase());
-      const mentionToken = mentionTextForUser(user).match(/^@([A-Za-z0-9_]{5,32})(?:\s|$)/)?.[1];
-      if (mentionToken) usernames.add(mentionToken.toLocaleLowerCase());
     }
     return usernames;
   }, [users]);
@@ -946,17 +947,19 @@ export function Conversation({
     text: string,
     replyToMessageId?: string,
     selectedReplyQuote?: MessageReplyQuote,
+    entities?: MessageTextEntity[],
   ) => {
     jumpToLatest("auto");
-    return onSendMessage(text, replyToMessageId, selectedReplyQuote);
+    return onSendMessage(text, replyToMessageId, selectedReplyQuote, entities);
   }, [jumpToLatest, onSendMessage]);
 
   const sendFilesAndFollowLatest = useCallback(async (
     attachments: import("../telegram/types").OutgoingAttachment[],
     caption?: string,
+    captionEntities?: MessageTextEntity[],
   ) => {
     jumpToLatest("auto");
-    return onSendFiles(attachments, caption);
+    return onSendFiles(attachments, caption, captionEntities);
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {
@@ -1936,6 +1939,7 @@ export function Conversation({
                   id: `${sender.id}:${composerTextInsertionIdRef.current}`,
                   text: mentionTextForUser(sender),
                   draftKey: conversationIdentity ?? chat.id,
+                  userId: sender.id,
                 });
               }
             : undefined}

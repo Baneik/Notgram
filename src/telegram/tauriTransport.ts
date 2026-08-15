@@ -370,8 +370,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     pendingDownloads: this.pendingDownloads,
     updateFile: (file) => this.updateFile(file),
     requestPreparedFile: (chatId, topicId) => this.requestPreparedFile(chatId, topicId),
-    requestPreparedPastedFiles: (chatId, files, caption, topicId) =>
-      this.requestPreparedPastedFiles(chatId, files, caption, topicId),
+    requestPreparedPastedFiles: (chatId, files, caption, captionEntities, topicId) =>
+      this.requestPreparedPastedFiles(chatId, files, caption, captionEntities, topicId),
   });
   private updateHandlers: TdUpdateHandlers = {
     authorization: (update) => this.handleAuthorizationUpdate(update),
@@ -1774,11 +1774,12 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatId: string,
     files: PreparedPastedAttachment[],
     caption?: string,
+    captionEntities?: import("./types").MessageTextEntity[],
     topicId?: string,
   ) {
     return this.requestBroker.requestPreparedPastedFiles(chatId, files, caption, (error) => {
       this.listener?.({ type: "sync.error", message: error.message, fatal: false });
-    }, topicId);
+    }, topicId, captionEntities);
   }
 
 

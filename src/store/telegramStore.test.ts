@@ -32,6 +32,33 @@ import {
 } from "../telegram/chatManagement";
 
 describe("telegram store", () => {
+  it("updates the username index incrementally with user changes", async () => {
+    class UserUpdateTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      dispatchUser(user: typeof mockSnapshot.users[number]) {
+        this.eventListener?.({ type: "user.upsert", user });
+      }
+    }
+
+    const transport = new UserUpdateTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    expect(store.getState().userIdsByUsername.get("mia_design")).toBe("u-mia");
+
+    const mia = store.getState().users.get("u-mia")!;
+    transport.dispatchUser({ ...mia, displayName: "Mia Zhou", username: "mia_zhou" });
+
+    expect(store.getState().userIdsByUsername.get("mia_design")).toBeUndefined();
+    expect(store.getState().userIdsByUsername.get("mia_zhou")).toBe("u-mia");
+    expect(store.getState().users.get("u-mia")?.displayName).toBe("Mia Zhou");
+  });
+
   it.each([
     "connecting",
     "syncing",
@@ -147,12 +174,24 @@ describe("telegram store", () => {
     const offlineStore = createTelegramStore(offlineTransport);
     await offlineStore.getState().initialize();
 
-    await expect(offlineStore.getState().sendMessage("queued while offline"))
+    const mentionEntities = [{
+      offset: 0,
+      length: 4,
+      kind: "mentionName" as const,
+      userId: "u-mia",
+    }];
+    await expect(offlineStore.getState().sendMessage(
+      "@Mia queued while offline",
+      undefined,
+      undefined,
+      mentionEntities,
+    ))
       .resolves.toBe(true);
     expect(offlineTransport.sends).toHaveLength(0);
     expect(offlineStore.getState().outbox).toMatchObject([{
       chatId: "chat-product",
-      text: "queued while offline",
+      text: "@Mia queued while offline",
+      entities: mentionEntities,
       status: "queued",
     }]);
     const persisted = await offlineTransport.loadCachedSnapshot();
@@ -171,11 +210,13 @@ describe("telegram store", () => {
     await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
 
     expect(restoredTransport.sends).toHaveLength(1);
+    expect(restoredTransport.sends[0].entities).toEqual(mentionEntities);
     expect(restoredStore.getState().outbox).toHaveLength(0);
     expect(
       restoredStore.getState().messages.get("chat-product")
         ?.filter((message) => message.content.kind === "text" &&
-          message.content.text === "queued while offline"),
+          message.content.text === "@Mia queued while offline" &&
+          message.content.entities?.[0]?.userId === "u-mia"),
     ).toHaveLength(1);
   });
 
@@ -230,14 +271,21 @@ describe("telegram store", () => {
       lastModified: 1_775_000_000_000,
     });
 
+    const captionEntities = [{
+      offset: 0,
+      length: 4,
+      kind: "mentionName" as const,
+      userId: "u-mia",
+    }];
     await expect(offlineStore.getState().sendFiles([{
       file,
       kind: "document",
-    }], "offline caption")).resolves.toBe(true);
+    }], "@Mia offline caption", captionEntities)).resolves.toBe(true);
     expect(offlineTransport.uploads).toHaveLength(0);
     expect(offlineStore.getState().outbox).toMatchObject([{
       kind: "attachments",
-      caption: "offline caption",
+      caption: "@Mia offline caption",
+      entities: captionEntities,
       status: "queued",
       attachments: [{ name: "offline.txt", size: file.size }],
     }]);
@@ -262,7 +310,8 @@ describe("telegram store", () => {
     expect(restoredTransport.uploads).toHaveLength(1);
     expect(restoredTransport.uploads[0]).toMatchObject({
       chatId: "chat-product",
-      caption: "offline caption",
+      caption: "@Mia offline caption",
+      captionEntities,
       attachments: [{ kind: "document", file: { name: "offline.txt", type: "text/plain" } }],
     });
     expect(restoredStore.getState().outbox).toHaveLength(0);

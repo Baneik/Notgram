@@ -1874,12 +1874,14 @@ export const mapTdChatDraft = (
     ? asTdObject(reply.quote)
     : undefined;
   const quoteDetails = quote ? formattedTextDetails(quote.text) : undefined;
+  const contentDetails = formattedTextDetails(content.text);
   const quoteText = quoteDetails?.text ?? "";
   const quotePosition = quote ? tdNumber(quote.position) : undefined;
   return {
     chatId,
     topicId: tdId(topicIdValue) || undefined,
-    text: formattedText(content.text),
+    text: contentDetails.text,
+    ...(contentDetails.entities.length > 0 ? { entities: contentDetails.entities } : {}),
     replyToMessageId: replyToMessageId || undefined,
     replyQuote: replyToMessageId && quoteText && quotePosition !== undefined && quotePosition >= 0
       ? {

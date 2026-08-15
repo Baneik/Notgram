@@ -8,8 +8,9 @@ use assets::{allow_tdlib_assets, trusted_asset_roots};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use runtime_log::RuntimeLogger;
 use security::{
-    PreparedUpload, prepared_chat_photo_request, prepared_file_request_with_topic,
-    prepared_profile_photo_request, prepared_upload_album_request_with_caption_and_topic,
+    PreparedTextMention, PreparedUpload, prepared_chat_photo_request,
+    prepared_file_request_with_topic, prepared_profile_photo_request,
+    prepared_upload_album_request_with_caption_and_topic,
     prepared_upload_request_with_caption_and_topic, request_type_from_extra,
     validate_webview_extra, validate_webview_tdlib_request,
 };
@@ -60,6 +61,14 @@ pub struct PastedUploadThumbnail {
     name: String,
     mime_type: String,
     data_base64: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PastedUploadCaption {
+    text: String,
+    #[serde(default)]
+    entities: Vec<PreparedTextMention>,
 }
 const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_history_data",
@@ -1279,7 +1288,7 @@ pub async fn telegram_send_pasted_files(
     topic_id: Option<i64>,
     extra: String,
     files: Vec<PastedUploadFile>,
-    caption: Option<String>,
+    caption: Option<PastedUploadCaption>,
     runtime: State<'_, TelegramRuntime>,
 ) -> Result<bool, String> {
     validate_webview_extra(&extra)?;
@@ -1348,12 +1357,18 @@ pub async fn telegram_send_pasted_files(
             chat_id,
             &extra,
             &prepared[0],
-            &caption,
+            &caption.text,
+            &caption.entities,
             topic_id,
         )?
     } else {
         prepared_upload_album_request_with_caption_and_topic(
-            chat_id, &extra, &prepared, &caption, topic_id,
+            chat_id,
+            &extra,
+            &prepared,
+            &caption.text,
+            &caption.entities,
+            topic_id,
         )?
     };
     runtime.send(&request)?;

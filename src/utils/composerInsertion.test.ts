@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   composerInlineQueryForDraft,
+  insertComposerMention,
   insertComposerText,
   mentionTextForUser,
 } from "./composerInsertion";
 
 describe("composer insertion", () => {
-  it("uses a Telegram username when one is available", () => {
+  it("always displays the member nickname", () => {
     expect(mentionTextForUser({ displayName: "Ada Lovelace", username: "@ada" }))
-      .toBe("@ada");
+      .toBe("@Ada Lovelace");
   });
 
   it("falls back to the member display name", () => {
@@ -23,6 +24,14 @@ describe("composer insertion", () => {
     expect(insertComposerText("hello", "@ada", 5)).toEqual({
       value: "hello @ada ",
       cursor: 11,
+    });
+  });
+
+  it("records a stable user mention over the visible nickname", () => {
+    expect(insertComposerMention("hello", "@Ada Lovelace", "42", 5)).toEqual({
+      value: "hello @Ada Lovelace ",
+      cursor: 20,
+      entity: { offset: 6, length: 13, kind: "mentionName", userId: "42" },
     });
   });
 
