@@ -1,7 +1,14 @@
 import { Download, Image as ImageIcon, LoaderCircle, MapPin } from "lucide-react";
-import katex from "katex";
-import { createElement, Fragment, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import "katex/dist/katex.min.css";
+import {
+  createElement,
+  Fragment,
+  lazy,
+  Suspense,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import type {
   MessageRichBlock,
   MessageRichCaption,
@@ -82,20 +89,16 @@ const richDateTimeText = (run: MessageRichTextRun) => {
   return absoluteDateTime(run);
 };
 
-const MathExpression = ({ expression, displayMode }: { expression: string; displayMode: boolean }) => (
-  <span
-    className={displayMode ? "rich-math-block" : "rich-math-inline"}
-    data-expression={expression}
-    dangerouslySetInnerHTML={{
-      __html: katex.renderToString(expression, {
-        displayMode,
-        throwOnError: false,
-        strict: "ignore",
-        trust: false,
-      }),
-    }}
-  />
-);
+const RichMathExpression = lazy(() => import("./RichMathExpression"));
+
+const MathExpression = ({ expression, displayMode }: { expression: string; displayMode: boolean }) => {
+  const className = displayMode ? "rich-math-block" : "rich-math-inline";
+  return (
+    <Suspense fallback={<span className={className} data-expression={expression}>{expression}</span>}>
+      <RichMathExpression expression={expression} displayMode={displayMode} />
+    </Suspense>
+  );
+};
 
 const renderRun = (run: MessageRichTextRun, key: string, context: RenderContext) => {
   let node: ReactNode = run.mathematicalExpression

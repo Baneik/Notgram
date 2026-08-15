@@ -4764,8 +4764,17 @@ test("pinned chats can be dragged into a fixed order", async ({ page }) => {
 });
 
 test("Markdown and TDLib rich text render as structured message content", async ({ page }) => {
+  const mathAssetRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/RichMathExpression|katex/i.test(request.url())) {
+      mathAssetRequests.push(request.url());
+    }
+  });
   await page.goto("/");
-  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  const productChat = page.getByRole("button", { name: /产品讨论/ }).first();
+  await expect(productChat).toBeVisible();
+  expect(mathAssetRequests).toEqual([]);
+  await productChat.click();
 
   const markdownRow = await revealVirtualMessage(page, "p-markdown");
   const markdown = markdownRow.locator(".message-rich-text");
@@ -4799,6 +4808,8 @@ test("Markdown and TDLib rich text render as structured message content", async 
   await expect(richMessage.locator("blockquote")).toHaveCount(2);
   await expect(richMessage.locator("code").first()).toHaveText("5,709 tokens");
   await expect(richMessage.locator(".katex")).toContainText("E");
+  expect(mathAssetRequests.some((url) => url.includes("/src/components/RichMathExpression.tsx"))).toBe(true);
+  expect(mathAssetRequests.some((url) => /katex(?:\.min)?\.css/i.test(url))).toBe(true);
   await expect(richMessage.locator("table caption")).toHaveText("Status");
   await expect(richMessage.locator("table th")).toHaveText("Metric");
   await expect(richMessage.locator("table td")).toHaveText("Ready");
