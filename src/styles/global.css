@@ -630,12 +630,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list.is-history-adjusting::-webkit-scrollbar-thumb { background-color: transparent; }
 .message-list.is-jump-transitioning { pointer-events: none; }
 .message-list.is-jump-transitioning .message-list-content { visibility: hidden; }
-.conversation-jump-snapshot {
-  background: var(--chat-canvas); scrollbar-width: none;
-}
+.conversation-jump-snapshot { background: var(--chat-canvas); }
 .conversation-jump-snapshot * { animation-play-state: paused !important; }
-.conversation-jump-snapshot .message-list { scrollbar-width: none; }
-.conversation-jump-snapshot .message-list::-webkit-scrollbar { display: none; }
 .conversation-switch-snapshot {
   opacity: 1; transition: opacity 80ms ease-out;
 }

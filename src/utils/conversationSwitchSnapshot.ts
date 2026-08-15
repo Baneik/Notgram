@@ -1,3 +1,5 @@
+import { copyCanvasContents } from "./copyCanvasContents";
+
 export interface ConversationSwitchSnapshot {
   element: HTMLElement;
   content: HTMLElement;
@@ -52,16 +54,8 @@ export const captureConversationSwitchSnapshot = (
   });
 
   const clone = source.cloneNode(true) as HTMLElement;
+  copyCanvasContents(source, clone);
   clone.removeAttribute("id");
-  clone.classList.remove("has-pinned-message-banner", "pinned-message-view");
-  clone.querySelectorAll([
-    ".pinned-message-banner",
-    ".pinned-messages-loading",
-    ".message-positioning-placeholder",
-    ".history-loading",
-    ".conversation-date-indicator",
-    ".conversation-jump-button",
-  ].join(", ")).forEach((node) => node.remove());
   clone.querySelector<HTMLElement>(".message-list-content")?.style.removeProperty("visibility");
   clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
   clone.querySelectorAll("button, a, input, textarea, select, [contenteditable='true']")

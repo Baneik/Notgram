@@ -1,3 +1,5 @@
+import { copyCanvasContents } from "./copyCanvasContents";
+
 export interface ConversationJumpSnapshot {
   element: HTMLElement;
   content: HTMLElement;
@@ -27,6 +29,7 @@ export const captureConversationJumpSnapshot = (
   });
 
   const clone = scroller.cloneNode(true) as HTMLElement;
+  copyCanvasContents(scroller, clone);
   clone.removeAttribute("id");
   clone.removeAttribute("role");
   clone.removeAttribute("tabindex");
@@ -41,7 +44,6 @@ export const captureConversationJumpSnapshot = (
     height: "100%",
     margin: "0",
     pointerEvents: "none",
-    scrollbarWidth: "none",
   });
   element.append(clone);
   document.body.append(element);

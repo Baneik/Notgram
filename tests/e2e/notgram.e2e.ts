@@ -1648,6 +1648,106 @@ test("single-click entry restores the server read marker without exposing interm
   expect(result.pseudoOverlayContent).toBe("none");
 });
 
+test("conversation switch snapshot preserves the source message geometry", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const geometry = await page.evaluate(async () => {
+    const snapshotModule = await (0, eval)(
+      'import("/src/utils/conversationSwitchSnapshot.ts")',
+    ) as {
+      captureConversationSwitchSnapshot: (targetIdentity: string) => {
+        element: HTMLElement;
+        content: HTMLElement;
+      } | undefined;
+      removeConversationSwitchSnapshot: (
+        snapshot: { element: HTMLElement; content: HTMLElement } | undefined,
+      ) => void;
+    };
+    const sourceList = document.querySelector<HTMLElement>(
+      ".conversation .message-list",
+    );
+    const sourceContent = sourceList?.querySelector<HTMLElement>(".message-list-content");
+    if (!sourceList || !sourceContent) throw new Error("Source message list is unavailable");
+
+    const readRows = (list: HTMLElement) => {
+      const listBounds = list.getBoundingClientRect();
+      return new Map(
+        [...list.querySelectorAll<HTMLElement>("[data-message-id]")].flatMap((row) => {
+          const bubble = row.querySelector<HTMLElement>(".message-bubble-shell");
+          if (!row.dataset.messageId || !bubble) return [];
+          const bubbleBounds = bubble.getBoundingClientRect();
+          const textBounds = row.querySelector<HTMLElement>(".message-rich-text")
+            ?.getBoundingClientRect();
+          return [[row.dataset.messageId, {
+            left: bubbleBounds.left - listBounds.left,
+            right: listBounds.right - bubbleBounds.right,
+            top: bubbleBounds.top - listBounds.top,
+            bottom: listBounds.bottom - bubbleBounds.bottom,
+            width: bubbleBounds.width,
+            textWidth: textBounds?.width ?? 0,
+            textHeight: textBounds?.height ?? 0,
+          }] as const];
+        }),
+      );
+    };
+    const readList = (list: HTMLElement, content: HTMLElement) => ({
+      clientWidth: list.clientWidth,
+      clientHeight: list.clientHeight,
+      contentWidth: content.getBoundingClientRect().width,
+      scrollTop: list.scrollTop,
+      scrollbarWidth: getComputedStyle(list).scrollbarWidth,
+      hasPinnedBanner: Boolean(list.parentElement?.querySelector(".pinned-message-banner")),
+    });
+
+    const sourceRows = readRows(sourceList);
+    const source = readList(sourceList, sourceContent);
+    const sourceCanvases = [...sourceList.querySelectorAll<HTMLCanvasElement>("canvas")]
+      .map((canvas) => canvas.toDataURL());
+    const snapshot = snapshotModule.captureConversationSwitchSnapshot("geometry-test");
+    if (!snapshot) throw new Error("Conversation switch snapshot was not captured");
+    try {
+      const cloneList = snapshot.content.closest<HTMLElement>(".message-list");
+      if (!cloneList) throw new Error("Snapshot message list is unavailable");
+      const cloneRows = readRows(cloneList);
+      const cloneCanvases = [...cloneList.querySelectorAll<HTMLCanvasElement>("canvas")]
+        .map((canvas) => canvas.toDataURL());
+      const differences = [...sourceRows].flatMap(([id, sourceRow]) => {
+        const cloneRow = cloneRows.get(id);
+        if (!cloneRow) return [];
+        return Object.keys(sourceRow).map((key) =>
+          Math.abs(
+            sourceRow[key as keyof typeof sourceRow] - cloneRow[key as keyof typeof cloneRow],
+          )
+        );
+      });
+      return {
+        source,
+        clone: readList(cloneList, snapshot.content),
+        sharedRows: [...sourceRows.keys()].filter((id) => cloneRows.has(id)).length,
+        maxRowDifference: Math.max(0, ...differences),
+        canvasCount: sourceCanvases.length,
+        canvasPixelsMatch: cloneCanvases.length === sourceCanvases.length &&
+          cloneCanvases.every((canvas, index) => canvas === sourceCanvases[index]),
+      };
+    } finally {
+      snapshotModule.removeConversationSwitchSnapshot(snapshot);
+    }
+  });
+
+  expect(geometry.source.hasPinnedBanner).toBe(true);
+  expect(geometry.clone.hasPinnedBanner).toBe(true);
+  expect(geometry.clone.scrollbarWidth).toBe(geometry.source.scrollbarWidth);
+  expect(geometry.clone.clientWidth).toBe(geometry.source.clientWidth);
+  expect(geometry.clone.clientHeight).toBe(geometry.source.clientHeight);
+  expect(geometry.clone.contentWidth).toBeCloseTo(geometry.source.contentWidth, 1);
+  expect(geometry.clone.scrollTop).toBeCloseTo(geometry.source.scrollTop, 1);
+  expect(geometry.sharedRows).toBeGreaterThan(0);
+  expect(geometry.maxRowDifference).toBeLessThanOrEqual(0.1);
+  expect(geometry.canvasCount).toBeGreaterThan(0);
+  expect(geometry.canvasPixelsMatch).toBe(true);
+});
+
 test("read conversations settle behind a non-empty switch snapshot", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
