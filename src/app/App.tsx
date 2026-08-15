@@ -24,7 +24,7 @@ import { NewChatDialog } from "../components/NewChatDialog";
 import { ChatManagementDialog } from "../components/ChatManagementDialog";
 import { AudioPlaybackHost } from "../components/AudioPlaybackHost";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
-import { usePreferencesStore } from "../store/preferencesStore";
+import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
 import type { Message, TelegramLinkTarget } from "../telegram/types";
 import { isTelegramUserLink } from "../telegram/telegramLinks";
@@ -60,8 +60,7 @@ import {
 } from "../utils/performanceMonitor";
 import { openSettingsWindow } from "../windows/settingsWindow";
 import {
-  collectManagedDownloads,
-  createManagedDownloadRequest,
+  ManagedDownloadIndex,
   readManagedDownloadRequests,
   type ManagedDownloadRequest,
   writeManagedDownloadRequests,
@@ -105,6 +104,12 @@ export function App() {
   const chatFilter = useTelegramStore((state) => state.chatFilter);
   const searchQuery = useTelegramStore((state) => state.searchQuery);
   const activeChatId = useTelegramStore((state) => state.activeChatId);
+  const activeChatMessages = useTelegramStore((state) =>
+    activeChatId ? state.messages.get(activeChatId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES
+  );
+  const activeRemovingSource = useTelegramStore((state) =>
+    activeChatId ? state.removingMessages.get(activeChatId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES
+  );
   const activeTopicId = useTelegramStore((state) => state.activeTopicId);
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const chats = useTelegramStore((state) => state.chats);
@@ -115,11 +120,10 @@ export function App() {
   const contacts = useTelegramStore((state) => state.contacts);
   const contactsLoading = useTelegramStore((state) => state.contactsLoading);
   const contactsError = useTelegramStore((state) => state.contactsError);
-  const messages = useTelegramStore((state) => state.messages);
+  const subscribeMessageChanges = useTelegramStore((state) => state.subscribeMessageChanges);
   const forumTopics = useTelegramStore((state) => state.forumTopics);
   const forumTopicsLoading = useTelegramStore((state) => state.forumTopicsLoading);
   const topicHistories = useTelegramStore((state) => state.topicHistories);
-  const removingMessages = useTelegramStore((state) => state.removingMessages);
   const typingUserIds = useTelegramStore((state) => state.typingUserIds);
   const outbox = useTelegramStore((state) => state.outbox);
   const histories = useTelegramStore((state) => state.histories);
@@ -235,6 +239,12 @@ export function App() {
   const [managedDownloadRequests, setManagedDownloadRequests] = useState<ReadonlyMap<string, ManagedDownloadRequest>>(
     readManagedDownloadRequests,
   );
+  const managedDownloadRequestsRef = useRef(managedDownloadRequests);
+  managedDownloadRequestsRef.current = managedDownloadRequests;
+  const [managedDownloadIndex] = useState(
+    () => new ManagedDownloadIndex(telegramStore.getState().messages),
+  );
+  const [downloadIndexRevision, setDownloadIndexRevision] = useState(0);
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [managementChatId, setManagementChatId] = useState<string>();
@@ -245,9 +255,54 @@ export function App() {
   const requestedDownloadsForAccount = useMemo(() => [...managedDownloadRequests.values()]
     .filter((request) => request.accountId === activeAccountId), [activeAccountId, managedDownloadRequests]);
   const managedDownloads = useMemo(
-    () => collectManagedDownloads(messages, chats, requestedDownloadsForAccount),
-    [chats, messages, requestedDownloadsForAccount],
+    () => managedDownloadIndex.collect(chats, requestedDownloadsForAccount),
+    [chats, downloadIndexRevision, managedDownloadIndex, requestedDownloadsForAccount],
   );
+  useEffect(() => subscribeMessageChanges((event) => {
+    const changedFileIds = event.type === "reset"
+      ? managedDownloadIndex.rebuild(event.messages)
+      : event.type === "upsert"
+        ? managedDownloadIndex.upsert(event.messages)
+        : event.type === "replace"
+          ? managedDownloadIndex.replace(event.oldMessageId, event.message)
+          : managedDownloadIndex.remove(event.chatId, event.messageIds);
+    if (changedFileIds.size === 0) return;
+    const accountId = telegramStore.getState().activeAccountId;
+    for (const fileId of changedFileIds) {
+      if (!managedDownloadRequestsRef.current.has(`${accountId}:${fileId}`)) continue;
+      setDownloadIndexRevision((revision) => revision + 1);
+      break;
+    }
+  }), [managedDownloadIndex, subscribeMessageChanges]);
+  useEffect(() => subscribeMessageChanges((event) => {
+    if (event.type !== "upsert" || event.liveMessages.length === 0) return;
+    const state = telegramStore.getState();
+    const preferences = preferencesStore.getState();
+    for (const message of event.liveMessages) {
+      const chat = state.chats.get(message.chatId);
+      if (!shouldNotifyMessage({
+        outgoing: message.outgoing,
+        notificationsEnabled: preferences.notificationsEnabled,
+        muted: chat?.muted ?? false,
+        activeChat: message.chatId === state.activeChatId,
+        appVisible: document.visibilityState === "visible",
+      })) continue;
+      const presentation = notificationPresentation({
+        showPreview: preferences.notificationPreview,
+        chatTitle: chat?.title,
+        messageText: messageContentText(message.content),
+      });
+      void showDesktopNotification({
+        ...presentation,
+        sound: preferences.notificationSound,
+        route: {
+          accountId: state.activeAccountId,
+          chatId: message.chatId,
+          messageId: message.id,
+        },
+      });
+    }
+  }), [subscribeMessageChanges]);
   useEffect(() => {
     writeManagedDownloadRequests(managedDownloadRequests.values());
   }, [managedDownloadRequests]);
@@ -255,11 +310,10 @@ export function App() {
     const key = `${activeAccountId}:${fileId}`;
     setManagedDownloadRequests((current) => {
       const next = new Map(current);
-      next.set(key, createManagedDownloadRequest(
+      next.set(key, managedDownloadIndex.createRequest(
         activeAccountId,
         fileId,
         fileName,
-        messages,
         chats,
         current.get(key),
       ));
@@ -293,7 +347,7 @@ export function App() {
         return next;
       });
     });
-  }, [activeAccountId, chats, downloadFile, messages]);
+  }, [activeAccountId, chats, downloadFile, managedDownloadIndex]);
   const cancelManagedDownload = useCallback((fileId: number) => {
     const key = `${activeAccountId}:${fileId}`;
     setManagedDownloadRequests((current) => {
@@ -334,6 +388,9 @@ export function App() {
     restoreScope: restoreSidebarSearchScope,
     setSenderId: setChatSearchSenderId,
   } = sidebarSearch;
+  const sidebarSearchMessages = useTelegramStore((state) =>
+    sidebarSearchChatId ? state.messages.get(sidebarSearchChatId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES
+  );
   const conversationNavigation = useConversationNavigation();
   const {
     initialize: initializeConversationNavigation,
@@ -477,10 +534,6 @@ export function App() {
       discardConversationSnapshot();
     };
   }, [discardConversationSnapshot]);
-  const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
-  const notificationSound = usePreferencesStore((state) => state.notificationSound);
-  const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
-  const knownLatestMessagesRef = useRef<Set<string> | undefined>(undefined);
   const openSettings = useCallback(() => {
     void openSettingsWindow()
       .then((opened) => { if (!opened) setSettingsOpen(true); })
@@ -943,53 +996,6 @@ export function App() {
   }, [markActiveChatRead]);
 
   useEffect(() => {
-    const latestMessages = [...messages.values()]
-      .map((chatMessages) => chatMessages.at(-1))
-      .filter((message) => message !== undefined);
-    if (!knownLatestMessagesRef.current) {
-      knownLatestMessagesRef.current = new Set(
-        latestMessages.map((message) => `${message.chatId}:${message.id}`),
-      );
-      return;
-    }
-
-    for (const message of latestMessages) {
-      const key = `${message.chatId}:${message.id}`;
-      if (knownLatestMessagesRef.current.has(key)) continue;
-      knownLatestMessagesRef.current.add(key);
-      const chat = chats.get(message.chatId);
-      if (!shouldNotifyMessage({
-        outgoing: message.outgoing,
-        notificationsEnabled,
-        muted: chat?.muted ?? false,
-        activeChat: message.chatId === activeChatId,
-        appVisible: document.visibilityState === "visible",
-      })) continue;
-      const presentation = notificationPresentation({
-        showPreview: notificationPreview,
-        chatTitle: chat?.title,
-        messageText: messageContentText(message.content),
-      });
-      void showDesktopNotification({
-        ...presentation,
-        sound: notificationSound,
-        route: {
-          accountId: activeAccountId,
-          chatId: message.chatId,
-          messageId: message.id,
-        },
-      });
-    }
-  }, [
-    activeChatId,
-    chats,
-    messages,
-    notificationPreview,
-    notificationSound,
-    notificationsEnabled,
-  ]);
-
-  useEffect(() => {
     try {
       window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
     } catch {
@@ -1026,7 +1032,7 @@ export function App() {
     };
     const management = groupManagement?.chatId === sidebarSearchChatId ? groupManagement : undefined;
     for (const member of management?.members ?? []) add(member.user.id, member.user.displayName);
-    for (const message of messages.get(sidebarSearchChatId) ?? []) {
+    for (const message of sidebarSearchMessages) {
       if (message.senderId === "self") add(message.senderId, "我");
       else if (message.senderId.startsWith("chat:")) {
         const senderChat = chats.get(message.senderId.slice("chat:".length));
@@ -1036,7 +1042,7 @@ export function App() {
       }
     }
     return options.sort((left, right) => left.label.localeCompare(right.label, "zh-Hans"));
-  }, [chats, groupManagement, messages, sidebarSearchChatId, users]);
+  }, [chats, groupManagement, sidebarSearchChatId, sidebarSearchMessages, users]);
   const activeOutbox = activeChatId
     ? outbox.filter((item) => item.chatId === activeChatId && item.topicId === activeTopicId)
     : [];
@@ -1138,10 +1144,6 @@ export function App() {
     }
   };
 
-  const activeChatMessages = activeChatId ? messages.get(activeChatId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES;
-  const activeRemovingSource = activeChatId
-    ? removingMessages.get(activeChatId) ?? EMPTY_MESSAGES
-    : EMPTY_MESSAGES;
   const activeMessages = useMemo(
     () => activeTopicId
       ? activeChatMessages.filter((message) => message.topicId === activeTopicId)

@@ -23,7 +23,11 @@ import type {
   TelegramEvent,
   ChatMessageSearchInput,
 } from "../telegram/types";
-import { createTelegramStore, filterAndSortChats } from "./telegramStore";
+import {
+  createTelegramStore,
+  filterAndSortChats,
+  type MessageChangeEvent,
+} from "./telegramStore";
 import { cachedSnapshotFrom } from "./telegramStore.cache";
 import {
   DEFAULT_CHAT_ADMIN_RIGHTS,
@@ -32,6 +36,55 @@ import {
 } from "../telegram/chatManagement";
 
 describe("telegram store", () => {
+  it("publishes incremental message changes and marks only first live arrivals", async () => {
+    class MessageChangeTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      publish(event: TelegramEvent) {
+        this.eventListener?.(event);
+      }
+    }
+
+    const transport = new MessageChangeTransport();
+    const store = createTelegramStore(transport);
+    const changes: MessageChangeEvent[] = [];
+    store.getState().subscribeMessageChanges((event) => changes.push(event));
+    await store.getState().initialize();
+    changes.length = 0;
+
+    const existing = store.getState().messages.get("chat-product")![0];
+    const live = { ...existing, id: "live-message", renderKey: "live-message" };
+    transport.publish({ type: "messages.upserted", messages: [{ ...existing, renderKey: "history" }] });
+    transport.publish({ type: "message.upsert", message: existing, animateEntrance: true });
+    transport.publish({ type: "message.upsert", message: live, animateEntrance: true });
+    transport.publish({ type: "message.upsert", message: live, animateEntrance: true });
+    transport.publish({
+      type: "message.remove",
+      chatId: live.chatId,
+      messageId: live.id,
+      immediate: true,
+    });
+
+    expect(changes).toHaveLength(5);
+    expect(changes[0]).toMatchObject({ type: "upsert", liveMessages: [] });
+    expect(changes[1]).toMatchObject({ type: "upsert", liveMessages: [] });
+    expect(changes[2]).toMatchObject({
+      type: "upsert",
+      liveMessages: [{ id: "live-message" }],
+    });
+    expect(changes[3]).toMatchObject({ type: "upsert", liveMessages: [] });
+    expect(changes[4]).toEqual({
+      type: "remove",
+      chatId: live.chatId,
+      messageIds: [live.id],
+    });
+  });
+
   it("updates the username index incrementally with user changes", async () => {
     class UserUpdateTransport extends MockTelegramTransport {
       private eventListener?: TelegramEventListener;

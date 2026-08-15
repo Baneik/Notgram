@@ -43,7 +43,11 @@ import {
   filterAndSortChats,
   isChatPinnedInFolder,
 } from "./telegramStore.selectors";
-import type { TelegramState } from "./telegramStore.types";
+import type {
+  MessageChangeEvent,
+  MessageChangeListener,
+  TelegramState,
+} from "./telegramStore.types";
 import {
   getActiveConversationTraceId,
   logPerformance,
@@ -71,6 +75,8 @@ export type {
   ChatFilter,
   ChatListState,
   HistoryState,
+  MessageChangeEvent,
+  MessageChangeListener,
   RuntimePhase,
   TelegramState,
 } from "./telegramStore.types";
@@ -147,6 +153,10 @@ export const createTelegramStore = (
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const liveAttentionCandidates = new Set<string>();
+    const messageChangeListeners = new Set<MessageChangeListener>();
+    const publishMessageChange = (event: MessageChangeEvent) => {
+      for (const listener of messageChangeListeners) listener(event);
+    };
     const managementCapabilitiesFor = (chatId: string) => {
       const loaded = get().groupManagement;
       return loaded?.chatId === chatId
@@ -223,6 +233,7 @@ export const createTelegramStore = (
       const ghosts = removingMessages.get(chatId) ?? [];
       removingMessages.set(chatId, [...ghosts.filter((message) => message.id !== messageId), { ...removed, isRemoving: true }]);
       set({ messages, removingMessages });
+      publishMessageChange({ type: "remove", chatId, messageIds: [messageId] });
       removalTimers.set(key, globalThis.setTimeout(() => {
         removalTimers.delete(key);
         const nextRemoving = new Map(get().removingMessages);
@@ -384,6 +395,7 @@ export const createTelegramStore = (
         chatFilter: "main",
         cacheHealth: clearSnapshot ? "empty" : get().cacheHealth,
       });
+      publishMessageChange({ type: "reset", messages: get().messages });
       if (clearSnapshot) void transport.clearCachedSnapshot().catch(() => undefined);
     };
 
@@ -506,6 +518,7 @@ export const createTelegramStore = (
         chatFilter: current.chatFilter !== "main" ? current.chatFilter : chatFilter,
         cacheHealth: migration.health,
       });
+      publishMessageChange({ type: "reset", messages });
     };
 
     const loadHistory = async (chatId: string, mode: "ensure" | "older") => {
@@ -928,6 +941,11 @@ export const createTelegramStore = (
           removingMessages.set(event.chatId, (removingMessages.get(event.chatId) ?? []).filter((message) => message.id !== event.messageId));
           if (removingMessages.get(event.chatId)?.length === 0) removingMessages.delete(event.chatId);
           set({ messages, removingMessages, unreadAttentionMessageIds });
+          publishMessageChange({
+            type: "remove",
+            chatId: event.chatId,
+            messageIds: [event.messageId],
+          });
           return;
         }
         set({ unreadAttentionMessageIds });
@@ -956,6 +974,11 @@ export const createTelegramStore = (
         if (ghosts.length > 0) removingMessages.set(chatId, ghosts);
         else removingMessages.delete(chatId);
         set({ messages, removingMessages });
+        publishMessageChange({
+          type: "replace",
+          oldMessageId: event.oldMessageId,
+          message: event.message,
+        });
         scheduleCacheWrite();
         return;
       }
@@ -982,6 +1005,7 @@ export const createTelegramStore = (
           set({ removingMessages });
         }
         set({ messages });
+        publishMessageChange({ type: "upsert", messages: event.messages, liveMessages: [] });
         logPerformance("ui_history_merge", {
           durationMs: performance.now() - mergeStartedAt,
           batchCount: event.messages.length,
@@ -1028,11 +1052,10 @@ export const createTelegramStore = (
 
       const messages = new Map(get().messages);
       const existingMessages = messages.get(event.message.chatId) ?? [];
+      const isNewLiveMessage = event.animateEntrance === true &&
+        !existingMessages.some((message) => message.id === event.message.id);
       queueLiveMessageAttention(event.message, event.animateEntrance === true);
-      if (
-        event.animateEntrance &&
-        !existingMessages.some((message) => message.id === event.message.id)
-      ) {
+      if (isNewLiveMessage) {
         markMessageEntrance(event.message);
       }
       if (!event.message.outgoing) {
@@ -1043,6 +1066,11 @@ export const createTelegramStore = (
         upsertMessage(existingMessages, event.message),
       );
       set({ messages });
+      publishMessageChange({
+        type: "upsert",
+        messages: [event.message],
+        liveMessages: isNewLiveMessage ? [event.message] : [],
+      });
       if (
         !event.message.outgoing &&
         event.message.chatId === get().activeChatId &&
@@ -1250,6 +1278,10 @@ export const createTelegramStore = (
       chatListReady: false,
       chatLists: new Map(),
       messages: new Map(),
+      subscribeMessageChanges: (listener) => {
+        messageChangeListeners.add(listener);
+        return () => messageChangeListeners.delete(listener);
+      },
       removingMessages: new Map(),
       unreadAttentionMessageIds: new Map(),
       drafts: new Map(),
@@ -1358,6 +1390,7 @@ export const createTelegramStore = (
                 ? current.chatFilter
                 : (folders[0]?.id ?? "main"),
           });
+          publishMessageChange({ type: "reset", messages });
           void registerCurrentAccount();
           if (settingsOnly) return;
           const refreshChatId = get().activeChatId ?? firstChat?.id;
@@ -1856,6 +1889,11 @@ export const createTelegramStore = (
             ),
           );
           set({ messages, operationError: undefined });
+          publishMessageChange({
+            type: "upsert",
+            messages: [...context.filter((item) => item.chatId === chatId), message],
+            liveMessages: [],
+          });
           scheduleCacheWrite();
           return true;
         } catch {

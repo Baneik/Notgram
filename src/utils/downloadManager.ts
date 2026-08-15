@@ -93,6 +93,201 @@ const currentDownloadFileName = (requestFileName: string, contentFileName: strin
     : requestFileName;
 };
 
+const messageKey = (message: Pick<Message, "chatId" | "id">) => `${message.chatId}\u0000${message.id}`;
+
+const downloadFileId = (message: Message) => {
+  const content = message.content;
+  return content.kind === "file" || content.kind === "media"
+    ? content.fileId
+    : undefined;
+};
+
+const fallbackDownloadItem = (request: ManagedDownloadRequest): ManagedDownloadItem => {
+  const status = requestStatus(request);
+  return {
+    fileId: request.fileId,
+    fileName: request.fileName,
+    chatId: request.chatId ?? "",
+    chatTitle: request.chatTitle ?? "未知会话",
+    messageId: request.messageId ?? "",
+    sentAt: request.sentAt ?? request.requestedAt,
+    kind: request.kind ?? "file",
+    status,
+    size: request.size,
+    transferredSize: status === "completed" || status === "saving" ? request.size ?? 0 : 0,
+    progress: status === "completed" || status === "saving" ? 1 : 0,
+    requestedAt: request.requestedAt,
+    error: request.error,
+  };
+};
+
+const downloadItemFromMessage = (
+  message: Message,
+  chatTitle: string | undefined,
+  request: ManagedDownloadRequest,
+): ManagedDownloadItem | undefined => {
+  const content = message.content;
+  const kind = downloadKind(message);
+  if (
+    !kind || (content.kind !== "file" && content.kind !== "media") ||
+    content.fileId !== request.fileId || content.isUploading
+  ) return undefined;
+  const status = requestStatus(request, content);
+  const sizeProgress = content.size && content.downloadedSize !== undefined
+    ? content.downloadedSize / content.size
+    : undefined;
+  const progress = status === "completed" || status === "saving"
+    ? 1
+    : Math.max(0, Math.min(status === "downloading" ? 0.99 : 1, sizeProgress ?? content.progress ?? 0));
+  return {
+    fileId: content.fileId,
+    fileName: currentDownloadFileName(request.fileName, content.fileName),
+    chatId: message.chatId,
+    chatTitle: chatTitle ?? request.chatTitle ?? "未知会话",
+    messageId: message.id,
+    sentAt: message.sentAt,
+    kind,
+    status,
+    size: content.size,
+    transferredSize: Math.max(
+      0,
+      content.downloadedSize ?? (content.size ? Math.round(content.size * progress) : 0),
+    ),
+    progress,
+    requestedAt: request.requestedAt,
+    error: request.error,
+  };
+};
+
+export class ManagedDownloadIndex {
+  private readonly messagesByFileId = new Map<number, Map<string, Message>>();
+  private readonly fileIdByMessage = new Map<string, number>();
+
+  constructor(messages?: ReadonlyMap<string, Message[]>) {
+    if (messages) this.rebuild(messages);
+  }
+
+  rebuild(messages: ReadonlyMap<string, Message[]>) {
+    const previousFileIds = new Set(this.messagesByFileId.keys());
+    this.messagesByFileId.clear();
+    this.fileIdByMessage.clear();
+    for (const chatMessages of messages.values()) this.upsert(chatMessages, previousFileIds);
+    return previousFileIds;
+  }
+
+  upsert(messages: readonly Message[], changedFileIds = new Set<number>()) {
+    for (const message of messages) {
+      const key = messageKey(message);
+      const previousFileId = this.fileIdByMessage.get(key);
+      const fileId = downloadFileId(message);
+      if (previousFileId !== undefined && previousFileId !== fileId) {
+        this.removeCandidate(previousFileId, key);
+        changedFileIds.add(previousFileId);
+      }
+      if (fileId === undefined) {
+        this.fileIdByMessage.delete(key);
+        continue;
+      }
+      const candidates = this.messagesByFileId.get(fileId) ?? new Map<string, Message>();
+      if (candidates.get(key) !== message) changedFileIds.add(fileId);
+      candidates.set(key, message);
+      this.messagesByFileId.set(fileId, candidates);
+      this.fileIdByMessage.set(key, fileId);
+    }
+    return changedFileIds;
+  }
+
+  replace(oldMessageId: string, message: Message) {
+    const changedFileIds = this.remove(message.chatId, [oldMessageId]);
+    return this.upsert([message], changedFileIds);
+  }
+
+  remove(chatId: string, messageIds: readonly string[]) {
+    const changedFileIds = new Set<number>();
+    for (const messageId of messageIds) {
+      const key = `${chatId}\u0000${messageId}`;
+      const fileId = this.fileIdByMessage.get(key);
+      if (fileId === undefined) continue;
+      this.removeCandidate(fileId, key);
+      changedFileIds.add(fileId);
+    }
+    return changedFileIds;
+  }
+
+  createRequest(
+    accountId: string,
+    fileId: number,
+    fileName: string,
+    chats: ReadonlyMap<string, Chat>,
+    existing?: ManagedDownloadRequest,
+  ): ManagedDownloadRequest {
+    let source: Message | undefined;
+    for (const candidate of this.messagesByFileId.get(fileId)?.values() ?? []) {
+      if (!source || candidate.sentAt > source.sentAt) source = candidate;
+    }
+    if (source) {
+      const content = source.content as Extract<Message["content"], { kind: "file" | "media" }>;
+      return {
+        ...existing,
+        accountId,
+        fileId,
+        fileName: fileName || content.fileName,
+        requestedAt: existing?.requestedAt ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: "pending",
+        error: undefined,
+        chatId: source.chatId,
+        chatTitle: chats.get(source.chatId)?.title ?? existing?.chatTitle ?? "未知会话",
+        messageId: source.id,
+        sentAt: source.sentAt,
+        kind: downloadKind(source) ?? existing?.kind ?? "file",
+        size: content.size ?? existing?.size,
+      };
+    }
+    return {
+      ...existing,
+      accountId,
+      fileId,
+      fileName,
+      requestedAt: existing?.requestedAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: "pending",
+      error: undefined,
+    };
+  }
+
+  collect(
+    chats: ReadonlyMap<string, Chat>,
+    requests: Iterable<ManagedDownloadRequest>,
+  ) {
+    const requestedFiles = new Map<number, ManagedDownloadRequest>();
+    for (const request of requests) requestedFiles.set(request.fileId, request);
+    const downloads: ManagedDownloadItem[] = [];
+    for (const request of requestedFiles.values()) {
+      let item: ManagedDownloadItem | undefined;
+      for (const message of this.messagesByFileId.get(request.fileId)?.values() ?? []) {
+        const candidate = downloadItemFromMessage(message, chats.get(message.chatId)?.title, request);
+        if (
+          candidate && (!item || statusRank[candidate.status] > statusRank[item.status] ||
+            (statusRank[candidate.status] === statusRank[item.status] && candidate.sentAt > item.sentAt))
+        ) item = candidate;
+      }
+      downloads.push(item ?? fallbackDownloadItem(request));
+    }
+    return downloads.sort((left, right) =>
+      statusRank[right.status] - statusRank[left.status] ||
+      right.requestedAt.localeCompare(left.requestedAt),
+    );
+  }
+
+  private removeCandidate(fileId: number, key: string) {
+    const candidates = this.messagesByFileId.get(fileId);
+    candidates?.delete(key);
+    if (candidates?.size === 0) this.messagesByFileId.delete(fileId);
+    this.fileIdByMessage.delete(key);
+  }
+}
+
 export const createManagedDownloadRequest = (
   accountId: string,
   fileId: number,
@@ -101,41 +296,7 @@ export const createManagedDownloadRequest = (
   chats: ReadonlyMap<string, Chat>,
   existing?: ManagedDownloadRequest,
 ): ManagedDownloadRequest => {
-  for (const [chatId, chatMessages] of messages) {
-    const message = chatMessages.find((candidate) => {
-      const content = candidate.content;
-      return (content.kind === "file" || content.kind === "media") && content.fileId === fileId;
-    });
-    if (!message) continue;
-    const content = message.content as Extract<Message["content"], { kind: "file" | "media" }>;
-    const kind = downloadKind(message);
-    return {
-      ...existing,
-      accountId,
-      fileId,
-      fileName: fileName || content.fileName,
-      requestedAt: existing?.requestedAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      status: "pending",
-      error: undefined,
-      chatId,
-      chatTitle: chats.get(chatId)?.title ?? existing?.chatTitle ?? "未知会话",
-      messageId: message.id,
-      sentAt: message.sentAt,
-      kind: kind ?? existing?.kind ?? "file",
-      size: content.size ?? existing?.size,
-    };
-  }
-  return {
-    ...existing,
-    accountId,
-    fileId,
-    fileName,
-    requestedAt: existing?.requestedAt ?? new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    status: "pending",
-    error: undefined,
-  };
+  return new ManagedDownloadIndex(messages).createRequest(accountId, fileId, fileName, chats, existing);
 };
 
 export const readManagedDownloadRequests = (): ReadonlyMap<string, ManagedDownloadRequest> => {
@@ -181,72 +342,5 @@ export const collectManagedDownloads = (
   chats: ReadonlyMap<string, Chat>,
   requests: Iterable<ManagedDownloadRequest>,
 ) => {
-  const requestedFiles = new Map<number, ManagedDownloadRequest>();
-  for (const request of requests) requestedFiles.set(request.fileId, request);
-  const downloads = new Map<number, ManagedDownloadItem>();
-  for (const [chatId, chatMessages] of messages) {
-    for (const message of chatMessages) {
-      const content = message.content;
-      const kind = downloadKind(message);
-      if (
-        !kind || (content.kind !== "file" && content.kind !== "media") ||
-        content.fileId === undefined || content.isUploading || !requestedFiles.has(content.fileId)
-      ) continue;
-      const request = requestedFiles.get(content.fileId)!;
-      const status = requestStatus(request, content);
-      const sizeProgress = content.size && content.downloadedSize !== undefined
-        ? content.downloadedSize / content.size
-        : undefined;
-      const progress = status === "completed" || status === "saving"
-        ? 1
-        : Math.max(0, Math.min(status === "downloading" ? 0.99 : 1, sizeProgress ?? content.progress ?? 0));
-      const transferredSize = Math.max(
-        0,
-        content.downloadedSize ?? (content.size ? Math.round(content.size * progress) : 0),
-      );
-      const item: ManagedDownloadItem = {
-        fileId: content.fileId,
-        fileName: currentDownloadFileName(request.fileName, content.fileName),
-        chatId,
-        chatTitle: chats.get(chatId)?.title ?? "未知会话",
-        messageId: message.id,
-        sentAt: message.sentAt,
-        kind,
-        status,
-        size: content.size,
-        transferredSize,
-        progress,
-        requestedAt: request.requestedAt,
-        error: request.error,
-      };
-      const current = downloads.get(item.fileId);
-      if (
-        !current || statusRank[item.status] > statusRank[current.status] ||
-        (statusRank[item.status] === statusRank[current.status] && item.sentAt > current.sentAt)
-      ) downloads.set(item.fileId, item);
-    }
-  }
-  for (const request of requestedFiles.values()) {
-    if (downloads.has(request.fileId)) continue;
-    const status = requestStatus(request);
-    downloads.set(request.fileId, {
-      fileId: request.fileId,
-      fileName: request.fileName,
-      chatId: request.chatId ?? "",
-      chatTitle: request.chatTitle ?? "未知会话",
-      messageId: request.messageId ?? "",
-      sentAt: request.sentAt ?? request.requestedAt,
-      kind: request.kind ?? "file",
-      status,
-      size: request.size,
-      transferredSize: status === "completed" || status === "saving" ? request.size ?? 0 : 0,
-      progress: status === "completed" || status === "saving" ? 1 : 0,
-      requestedAt: request.requestedAt,
-      error: request.error,
-    });
-  }
-  return [...downloads.values()].sort((left, right) =>
-    statusRank[right.status] - statusRank[left.status] ||
-    right.requestedAt.localeCompare(left.requestedAt),
-  );
+  return new ManagedDownloadIndex(messages).collect(chats, requests);
 };

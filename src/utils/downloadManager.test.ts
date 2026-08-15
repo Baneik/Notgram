@@ -3,6 +3,7 @@ import {
   collectManagedDownloads,
   createManagedDownloadRequest,
   formatDownloadSize,
+  ManagedDownloadIndex,
   readManagedDownloadRequests,
   writeManagedDownloadRequests,
 } from "./downloadManager";
@@ -95,6 +96,62 @@ describe("download manager", () => {
       kind: "audio",
       size: 8_000_000,
       status: "pending",
+    });
+  });
+
+  it("updates indexed downloads from message deltas without rescanning unrelated messages", () => {
+    const source = message("7", {
+      kind: "media",
+      mediaType: "video",
+      fileName: "demo.mp4",
+      sizeLabel: "10 KB",
+      fileId: 7,
+      size: 10_000,
+      downloadedSize: 1_000,
+      canDownload: true,
+      isDownloading: true,
+    });
+    if (source.content.kind !== "media") throw new Error("Expected a media message");
+    const index = new ManagedDownloadIndex(new Map([["chat", [source]]]));
+    const request = {
+      accountId: "account",
+      fileId: 7,
+      fileName: "demo.mp4",
+      requestedAt: "2026-08-09T01:00:00.000Z",
+    };
+
+    expect(index.collect(new Map([["chat", chat]]), [request])[0]).toMatchObject({
+      fileId: 7,
+      progress: 0.1,
+    });
+    expect(index.upsert([message("text", { kind: "text", text: "unrelated" })]).size).toBe(0);
+    const photo = message("photo", {
+      kind: "media",
+      mediaType: "photo",
+      fileName: "photo.jpg",
+      sizeLabel: "1 KB",
+      fileId: 9,
+      canDownload: true,
+    });
+    index.upsert([photo]);
+    expect(index.createRequest("account", 9, "photo.jpg", new Map([["chat", chat]]))).toMatchObject({
+      chatId: "chat",
+      messageId: "photo",
+      kind: "file",
+    });
+
+    const changed = index.upsert([{
+      ...source,
+      content: { ...source.content, downloadedSize: 6_000 },
+    }]);
+    expect(changed).toEqual(new Set([7]));
+    expect(index.collect(new Map([["chat", chat]]), [request])[0].progress).toBe(0.6);
+
+    expect(index.remove("chat", [source.id])).toEqual(new Set([7]));
+    expect(index.collect(new Map([["chat", chat]]), [request])[0]).toMatchObject({
+      fileId: 7,
+      progress: 0,
+      chatId: "",
     });
   });
 

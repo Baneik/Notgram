@@ -70,6 +70,14 @@ export interface ChatListState {
   hasMore: boolean;
 }
 
+export type MessageChangeEvent =
+  | { type: "reset"; messages: ReadonlyMap<string, Message[]> }
+  | { type: "upsert"; messages: readonly Message[]; liveMessages: readonly Message[] }
+  | { type: "replace"; oldMessageId: string; message: Message }
+  | { type: "remove"; chatId: string; messageIds: readonly string[] };
+
+export type MessageChangeListener = (event: MessageChangeEvent) => void;
+
 export interface TelegramState {
   phase: RuntimePhase;
   error?: string;
@@ -102,6 +110,7 @@ export interface TelegramState {
   chatListReady: boolean;
   chatLists: Map<string, ChatListState>;
   messages: Map<string, Message[]>;
+  subscribeMessageChanges: (listener: MessageChangeListener) => () => void;
   removingMessages: Map<string, Message[]>;
   unreadAttentionMessageIds: Map<string, string[]>;
   drafts: Map<string, ChatDraft>;
