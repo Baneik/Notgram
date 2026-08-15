@@ -223,6 +223,7 @@ interface ConversationProps {
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
+  onViewportReady?: (identity: string) => void;
   onOpenMessage: (
     chatId: string,
     messageId: string,
@@ -296,6 +297,7 @@ export function Conversation({
   onCancelFileUpload,
   onLoadOlder,
   onOpenProfile,
+  onViewportReady,
   onOpenMessage,
   onOpenMessageSearch,
   onOpenChat,
@@ -935,6 +937,11 @@ export function Conversation({
       scrollRequest?.chatId === chat?.id
     )
   );
+
+  useLayoutEffect(() => {
+    if (!conversationIdentity || pinnedViewOpen || positioning) return;
+    onViewportReady?.(conversationIdentity);
+  }, [conversationIdentity, onViewportReady, pinnedViewOpen, positioning]);
 
   const sendMessageAndFollowLatest = useCallback(async (
     text: string,

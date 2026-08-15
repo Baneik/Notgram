@@ -636,6 +636,11 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .conversation-jump-snapshot * { animation-play-state: paused !important; }
 .conversation-jump-snapshot .message-list { scrollbar-width: none; }
 .conversation-jump-snapshot .message-list::-webkit-scrollbar { display: none; }
+.conversation-switch-snapshot {
+  opacity: 1; transition: opacity 80ms ease-out;
+}
+.conversation-switch-snapshot.is-releasing { opacity: 0; }
+.reduce-motion .conversation-switch-snapshot { transition: none; }
 .conversation-date-indicator {
   position: absolute; z-index: 19; top: 8px; left: 50%; padding: 4px 10px;
   color: var(--color-on-media); background: color-mix(in srgb, var(--color-message-service) 82%, transparent);

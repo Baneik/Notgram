@@ -47,6 +47,21 @@ export const conversationLayouts = new Map<string, {
   virtualItemCount: number;
 }>();
 
+let activeConversationScrollStateCapture: (() => void) | undefined;
+
+export const registerConversationScrollStateCapture = (capture: () => void) => {
+  activeConversationScrollStateCapture = capture;
+  return () => {
+    if (activeConversationScrollStateCapture === capture) {
+      activeConversationScrollStateCapture = undefined;
+    }
+  };
+};
+
+export const captureActiveConversationScrollState = () => {
+  activeConversationScrollStateCapture?.();
+};
+
 export const scrollMemoryKey = (scope: string, chatId?: string) =>
   chatId ? `${scope}:${chatId}` : undefined;
 

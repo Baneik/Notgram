@@ -1538,6 +1538,8 @@ test("single-click entry restores the server read marker without exposing interm
         placeholder: boolean;
         transitionCovered: boolean;
         snapshotCovered: boolean;
+        snapshotMessageCount: number;
+        snapshotVisibleMessageCount: number;
         messageCount: number;
         scrollTop: number;
       }>;
@@ -1558,6 +1560,12 @@ test("single-click entry restores the server read marker without exposing interm
             "is-conversation-view-transition",
           ),
           snapshotCovered: Boolean(document.querySelector("[data-conversation-switch-snapshot]")),
+          snapshotMessageCount: Number(document.querySelector<HTMLElement>(
+            "[data-conversation-switch-snapshot]",
+          )?.dataset.snapshotMessageCount ?? 0),
+          snapshotVisibleMessageCount: Number(document.querySelector<HTMLElement>(
+            "[data-conversation-switch-snapshot]",
+          )?.dataset.snapshotVisibleMessageCount ?? 0),
           messageCount: list.querySelectorAll("[data-message-id]").length,
           scrollTop: Math.round(list.scrollTop),
         });
@@ -1586,6 +1594,8 @@ test("single-click entry restores the server read marker without exposing interm
         placeholder: boolean;
         transitionCovered: boolean;
         snapshotCovered: boolean;
+        snapshotMessageCount: number;
+        snapshotVisibleMessageCount: number;
         messageCount: number;
         scrollTop: number;
       }>;
@@ -1610,6 +1620,9 @@ test("single-click entry restores the server read marker without exposing interm
       placeholderFrameCount: placeholderFrames.length,
       transitionCoveredFrameCount: transitionCoveredFrames.length,
       snapshotCoveredFrameCount: snapshotCoveredFrames.length,
+      emptySnapshotFrameCount: snapshotCoveredFrames.filter(
+        (frame) => frame.snapshotMessageCount === 0 || frame.snapshotVisibleMessageCount === 0,
+      ).length,
       exposedPositionCount: exposedPositions.size,
       exposedPositions: [...exposedPositions],
       exposedPositionSpan: exposedPositions.size > 0
@@ -1628,13 +1641,14 @@ test("single-click entry restores the server read marker without exposing interm
   expect(
     result.placeholderFrameCount + result.transitionCoveredFrameCount,
   ).toBe(0);
-  expect(result.snapshotCoveredFrameCount).toBe(0);
+  expect(result.snapshotCoveredFrameCount).toBeGreaterThan(0);
+  expect(result.emptySnapshotFrameCount).toBe(0);
   expect(result.exposedPositionSpan, JSON.stringify(result.exposedPositions)).toBeLessThanOrEqual(4);
   expect(result.scrollBehavior).toBe("auto");
   expect(result.pseudoOverlayContent).toBe("none");
 });
 
-test("read conversations settle at the bottom without a switch overlay", async ({ page }) => {
+test("read conversations settle behind a non-empty switch snapshot", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
@@ -1684,7 +1698,7 @@ test("read conversations settle at the bottom without a switch overlay", async (
     expect(positioned.length, JSON.stringify(frames)).toBeGreaterThan(0);
     expect(Math.max(...positioned.map((frame) => Math.abs(frame.distanceBottom))))
       .toBeLessThanOrEqual(1);
-    expect(frames.some((frame) => frame.snapshotCovered), JSON.stringify(frames)).toBe(false);
+    expect(frames.some((frame) => frame.snapshotCovered), JSON.stringify(frames)).toBe(true);
   };
 
   expectOnlyBottomFrames(await sampleChenSwitch());
@@ -1739,7 +1753,7 @@ test("conversation selection, header, and rows commit to one target", async ({ p
   expect(samples.every((sample) => sample.activeChatId === "chat-chen"), JSON.stringify(samples))
     .toBe(true);
   expect(samples.every((sample) => sample.title === "陈默"), JSON.stringify(samples)).toBe(true);
-  expect(samples.some((sample) => sample.snapshot), JSON.stringify(samples)).toBe(false);
+  expect(samples.some((sample) => sample.snapshot), JSON.stringify(samples)).toBe(true);
   expect(samples.some((sample) => sample.sourceRowsInTarget > 0), JSON.stringify(samples)).toBe(false);
 
   await page.evaluate(() => {
@@ -1879,6 +1893,7 @@ test("warm conversation switches reuse messages and reveal content promptly", as
     let contentMs: number | undefined;
     let placeholderFrames = 0;
     let snapshotFrames = 0;
+    let emptySnapshotFrames = 0;
     let emptyFramesAfterHeader = 0;
     while (performance.now() - startedAt < 2_000) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -1896,7 +1911,15 @@ test("warm conversation switches reuse messages and reveal content promptly", as
       );
       const snapshotVisible = Boolean(snapshot);
       if (placeholderVisible) placeholderFrames += 1;
-      if (snapshotVisible) snapshotFrames += 1;
+      if (snapshotVisible) {
+        snapshotFrames += 1;
+        if (
+          Number(snapshot?.dataset.snapshotMessageCount ?? 0) === 0 ||
+          Number(snapshot?.dataset.snapshotVisibleMessageCount ?? 0) === 0
+        ) {
+          emptySnapshotFrames += 1;
+        }
+      }
       if (
         headerMs !== undefined && messageCount === 0 &&
         !placeholderVisible && !snapshotVisible
@@ -1921,6 +1944,7 @@ test("warm conversation switches reuse messages and reveal content promptly", as
       contentMs,
       placeholderFrames,
       snapshotFrames,
+      emptySnapshotFrames,
       emptyFramesAfterHeader,
     };
   });
@@ -1932,8 +1956,9 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   expect(timing.contentMs).toBeDefined();
   expect(timing.contentMs!).toBeLessThan(300);
   expect(timing.placeholderFrames).toBe(0);
-  expect(timing.snapshotFrames).toBe(0);
-  expect(timing.emptyFramesAfterHeader).toBeLessThanOrEqual(4);
+  expect(timing.snapshotFrames).toBeGreaterThan(0);
+  expect(timing.emptySnapshotFrames).toBe(0);
+  expect(timing.emptyFramesAfterHeader).toBe(0);
 
   await product.click();
   await mia.click();

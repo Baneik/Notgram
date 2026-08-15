@@ -25,6 +25,7 @@ import {
   conversationScrollMemory,
   conversationVirtuosoSnapshots,
   distanceFromBottom,
+  registerConversationScrollStateCapture,
   scrollMemoryKey,
   visibleAnchor,
   type ConversationLayoutSnapshot,
@@ -32,7 +33,10 @@ import {
   type InitialLocation,
   type PendingHistoryRestore,
 } from "./conversationScrollState";
-export { hasConversationScrollMemory } from "./conversationScrollState";
+export {
+  captureActiveConversationScrollState,
+  hasConversationScrollMemory,
+} from "./conversationScrollState";
 import {
   logPerformance,
   markConversationSwitch,
@@ -1582,12 +1586,8 @@ export const useConversationScroll = ({
     const handle = virtuosoRef.current;
     const controlIdentity = scrollControlRef.current.identity;
     const controlGeneration = scrollControlRef.current.generation;
-    return () => {
+    const captureScrollState = () => {
       if (!element) return;
-      if (
-        scrollControlRef.current.identity !== controlIdentity ||
-        scrollControlRef.current.generation !== controlGeneration
-      ) return;
       const current = conversationScrollMemory.get(key);
       const followLatest = current?.followLatest ??
         distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
@@ -1609,6 +1609,15 @@ export const useConversationScroll = ({
           virtualItemCount: layout?.virtualItemCount ?? 0,
         });
       });
+    };
+    const unregisterCapture = registerConversationScrollStateCapture(captureScrollState);
+    return () => {
+      unregisterCapture();
+      if (
+        scrollControlRef.current.identity !== controlIdentity ||
+        scrollControlRef.current.generation !== controlGeneration
+      ) return;
+      captureScrollState();
     };
   }, [currentScrollKey, searchActive]);
 
