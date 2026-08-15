@@ -1,4 +1,3 @@
-import { isTauri } from "@tauri-apps/api/core";
 import {
   AlertCircle,
   Check,
@@ -121,7 +120,6 @@ export function MessageActionMenu({
   onReport,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
-  const nativeRuntime = isTauri();
   const menuRef = useRef<HTMLDivElement>(null);
   const fallbackPosition = {
     left: Math.max(8, Math.min(position.left, window.innerWidth - 184 - 8)),
@@ -142,7 +140,24 @@ export function MessageActionMenu({
       : (onPin ? [{ id: "pin-message", label: "置顶消息", icon: "pin" as const }] : [])),
     ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
     ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true }] : []),
-  ] : [];
+  ] : [
+    { id: "reply", label: "回复", icon: "reply", disabled: true },
+    { id: "forward", label: "转发", icon: "forward", disabled: true },
+    { id: "copy", label: "复制", icon: "copy" },
+    ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
+    ...(message.content.kind === "text"
+      ? [{ id: "edit", label: "编辑", icon: "edit" as const, disabled: true }]
+      : []),
+    { id: "delete", label: "删除", icon: "trash", danger: true, disabled: true },
+    {
+      id: message.isPinned ? "unpin" : "pin-message",
+      label: message.isPinned ? "取消置顶" : "置顶消息",
+      icon: "pin",
+      disabled: true,
+    },
+    ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
+    ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true, disabled: true }] : []),
+  ];
   const nativeMenu = useNativeContextMenu({
     label: "消息操作",
     colorTheme: currentColorTheme(),
@@ -158,7 +173,7 @@ export function MessageActionMenu({
     else if (actionId === "play-window") onPlayInWindow?.();
     else if (actionId === "download") onDownload?.();
     else if (actionId === "report") onReport?.();
-  }, onDismiss, { enabled: Boolean(permissions) });
+  }, onDismiss);
   useContextMenuDismiss(menuRef, onDismiss);
   useEffect(() => {
     const timer = globalThis.setTimeout(() => {
@@ -166,7 +181,6 @@ export function MessageActionMenu({
     }, 0);
     return () => globalThis.clearTimeout(timer);
   }, [permissions]);
-  if (nativeRuntime && loading && !permissions) return null;
   if (nativeMenu) return null;
   return (
     <div

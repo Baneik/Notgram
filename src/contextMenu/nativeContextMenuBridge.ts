@@ -41,14 +41,44 @@ export interface NativeContextMenuDescriptor {
 }
 
 export type NativeContextMenuMessage =
-  | { type: "ready"; id: string }
+  | { type: "ready" }
+  | { type: "prepared" }
   | { type: "init"; id: string; descriptor: NativeContextMenuDescriptor }
   | { type: "action"; id: string; actionId: string }
   | { type: "closed"; id: string };
 
-export const NATIVE_CONTEXT_MENU_CHANNEL = "notgram-context-menu-v1";
+export const NATIVE_CONTEXT_MENU_CHANNEL = "notgram-context-menu-v2";
 const MENU_SCREEN_GAP = 4;
 const MENU_FIRST_ITEM_CENTER_OFFSET = 33;
+
+let preparation: Promise<void> | undefined;
+
+export const prepareNativeContextMenuWindow = () => {
+  if (!isTauri()) return Promise.resolve();
+  if (preparation) return preparation;
+  const channel = new BroadcastChannel(NATIVE_CONTEXT_MENU_CHANNEL);
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const ready = new Promise<void>((resolve, reject) => {
+    timeout = globalThis.setTimeout(() => reject(new Error("context menu window did not become ready")), 5_000);
+    channel.onmessage = (event: MessageEvent<NativeContextMenuMessage>) => {
+      if (event.data?.type !== "ready") return;
+      channel.postMessage({ type: "prepared" } satisfies NativeContextMenuMessage);
+      resolve();
+    };
+  });
+  const pending = Promise.all([
+    invoke<void>("notgram_prepare_context_menu_window"),
+    ready,
+  ]).then(() => undefined).catch((error) => {
+    if (preparation === pending) preparation = undefined;
+    throw error;
+  }).finally(() => {
+    if (timeout !== undefined) globalThis.clearTimeout(timeout);
+    channel.close();
+  });
+  preparation = pending;
+  return pending;
+};
 
 const menuId = () => {
   const random = globalThis.crypto?.randomUUID?.().replaceAll("-", "");
@@ -87,17 +117,20 @@ const menuPlacement = async (point: ContextMenuPoint, width: number, height: num
   if (y + heightPx + marginPx > bottom) y = anchor.y - heightPx - gapPx;
   x = Math.max(workPosition.x + marginPx, Math.min(x, right - widthPx - marginPx));
   y = Math.max(workPosition.y + marginPx, Math.min(y, bottom - heightPx - marginPx));
-  return { x: Math.round(x), y: Math.round(y), scaleFactor: targetScale };
+  return { x: Math.round(x), y: Math.round(y) };
 };
 
+type DescriptorUpdater = (descriptor: NativeContextMenuDescriptor) => void;
+
 const showNativeContextMenu = async (
-  descriptor: NativeContextMenuDescriptor,
+  initialDescriptor: NativeContextMenuDescriptor,
   point: ContextMenuPoint,
   signal: AbortSignal,
+  registerUpdater: (updater?: DescriptorUpdater) => void,
 ) => {
   const id = menuId();
   const geometry = calculateNativeContextMenuGeometry(
-    descriptor.items,
+    initialDescriptor.items,
     undefined,
     measureNativeContextMenuLabel,
   );
@@ -106,18 +139,30 @@ const showNativeContextMenu = async (
     geometry.expandedWidth,
     geometry.maximumExpandedHeight,
   );
+  if (signal.aborted) return undefined;
   const channel = new BroadcastChannel(NATIVE_CONTEXT_MENU_CHANNEL);
+  let descriptor = initialDescriptor;
+  let opened = false;
   let settled = false;
   let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
   let finishResult: ((actionId?: string) => void) | undefined;
   const result = new Promise<string | undefined>((resolve) => {
     finishResult = resolve;
   });
+  const publishDescriptor = () => {
+    if (!opened || settled) return;
+    channel.postMessage({ type: "init", id, descriptor } satisfies NativeContextMenuMessage);
+  };
+  registerUpdater((nextDescriptor) => {
+    descriptor = nextDescriptor;
+    publishDescriptor();
+  });
   const finish = (actionId?: string) => {
     if (settled) return;
     settled = true;
     if (timeout !== undefined) globalThis.clearTimeout(timeout);
     signal.removeEventListener("abort", abort);
+    registerUpdater(undefined);
     channel.close();
     finishResult?.(actionId);
   };
@@ -128,22 +173,32 @@ const showNativeContextMenu = async (
   signal.addEventListener("abort", abort, { once: true });
   channel.onmessage = (event: MessageEvent<NativeContextMenuMessage>) => {
     const message = event.data;
-    if (!message || message.id !== id) return;
+    if (!message) return;
     if (message.type === "ready") {
-      channel.postMessage({ type: "init", id, descriptor } satisfies NativeContextMenuMessage);
-    } else if (message.type === "action") finish(message.actionId);
-    else if (message.type === "closed") finish();
+      publishDescriptor();
+    } else if (message.type === "action" && message.id === id) {
+      finish(message.actionId);
+    } else if (message.type === "closed" && message.id === id) {
+      finish();
+    }
   };
   timeout = globalThis.setTimeout(abort, 10_000);
   try {
+    await prepareNativeContextMenuWindow().catch(() => undefined);
+    if (signal.aborted) return result;
     await invoke("notgram_open_context_menu_window", {
       id,
       width: geometry.width,
       height: geometry.height,
       x: placement.x,
       y: placement.y,
-      scaleFactor: placement.scaleFactor,
     });
+    opened = true;
+    if (signal.aborted) {
+      await invoke("notgram_close_context_menu_window", { id }).catch(() => undefined);
+      return result;
+    }
+    publishDescriptor();
   } catch (error) {
     finish();
     throw error;
@@ -163,14 +218,37 @@ export const useNativeContextMenu = (
   const [failed, setFailed] = useState(false);
   const onActionRef = useRef(onAction);
   const onCloseRef = useRef(onClose);
+  const descriptorRef = useRef(descriptor);
+  const updateDescriptorRef = useRef<DescriptorUpdater | undefined>(undefined);
   onActionRef.current = onAction;
   onCloseRef.current = onClose;
-  const identity = JSON.stringify({ descriptor, point });
+  descriptorRef.current = descriptor;
+  const descriptorIdentity = JSON.stringify(descriptor);
+
+  useEffect(() => {
+    updateDescriptorRef.current?.(descriptorRef.current);
+  }, [descriptorIdentity]);
 
   useEffect(() => {
     if (!native || !enabled) return;
+    setFailed(false);
     const controller = new AbortController();
-    void showNativeContextMenu(descriptor, point, controller.signal)
+    let registeredUpdater: DescriptorUpdater | undefined;
+    const registerUpdater = (updater?: DescriptorUpdater) => {
+      if (updater) {
+        registeredUpdater = updater;
+        updateDescriptorRef.current = updater;
+        updater(descriptorRef.current);
+      } else if (updateDescriptorRef.current === registeredUpdater) {
+        updateDescriptorRef.current = undefined;
+      }
+    };
+    void showNativeContextMenu(
+      descriptorRef.current,
+      point,
+      controller.signal,
+      registerUpdater,
+    )
       .then((actionId) => {
         if (controller.signal.aborted) return;
         if (actionId) onActionRef.current(actionId);
@@ -179,8 +257,13 @@ export const useNativeContextMenu = (
       .catch(() => {
         if (!controller.signal.aborted) setFailed(true);
       });
-    return () => controller.abort();
-  }, [enabled, identity, native]);
+    return () => {
+      controller.abort();
+      if (updateDescriptorRef.current === registeredUpdater) {
+        updateDescriptorRef.current = undefined;
+      }
+    };
+  }, [enabled, native, point.x, point.y]);
 
   return native && enabled && !failed;
 };

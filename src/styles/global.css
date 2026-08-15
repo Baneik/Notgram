@@ -22,6 +22,7 @@
   --message-group-spacing: 10px;
   --message-row-spacing: 1px;
   --message-bubble-padding-y: 8px;
+  --motion-duration-context-menu: 60ms;
   --motion-duration-fast: 120ms;
   --motion-duration-standard: 180ms;
   --motion-duration-slow: 220ms;
@@ -86,9 +87,11 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .dialog-backdrop > *, .profile-backdrop > *, .message-delete-backdrop > *, .media-viewer-backdrop > * {
   animation: motion-surface-in var(--motion-duration-slow) var(--motion-ease-standard) both;
 }
-.chat-action-menu, .context-menu-surface, .native-context-menu, .native-context-menu-children,
-.message-action-menu, .bot-suggestion-panel, .inline-query-panel, .emoji-picker {
+.chat-action-menu, .bot-suggestion-panel, .inline-query-panel, .emoji-picker {
   animation: motion-pop-in var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+.context-menu-surface, .native-context-menu, .native-context-menu-children, .message-action-menu {
+  animation: motion-pop-in var(--motion-duration-context-menu) var(--motion-ease-standard) both;
 }
 .runtime-error, .operation-error { animation: motion-toast-in var(--motion-duration-standard) var(--motion-ease-standard) both; }
 .settings-detail { animation: motion-pane-in var(--motion-duration-standard) var(--motion-ease-standard) both; }

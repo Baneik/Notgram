@@ -47,6 +47,7 @@ pub fn run() {
         .manage(telegram::TelegramRuntime::new())
         .manage(telegram::media_stream::MediaStreamRegistry::default())
         .manage(storage::SnapshotCacheWriteState::default())
+        .manage(context_menu_window::ContextMenuWindowState::default())
         .register_asynchronous_uri_scheme_protocol(
             "notgram-media",
             |context, request, responder| {
@@ -64,7 +65,9 @@ pub fn run() {
             desktop_notification::notgram_show_notification,
             context_menu_window::notgram_close_context_menu_window,
             context_menu_window::notgram_open_context_menu_window,
+            context_menu_window::notgram_prepare_context_menu_window,
             context_menu_window::notgram_resize_context_menu_window,
+            context_menu_window::notgram_show_context_menu_window,
             external_links::notgram_open_external_url,
             settings_window::notgram_open_settings_window,
             media_viewer_window::notgram_close_media_viewer_window,

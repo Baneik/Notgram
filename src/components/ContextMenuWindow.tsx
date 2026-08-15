@@ -18,7 +18,14 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   NATIVE_CONTEXT_MENU_CHANNEL,
   type NativeContextMenuDescriptor,
@@ -50,21 +57,42 @@ const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   trash: Trash2,
 };
 
-export function ContextMenuWindow({ id }: { id: string }) {
+interface ContextMenuSession {
+  id: string;
+  descriptor: NativeContextMenuDescriptor;
+}
+
+export function ContextMenuWindow() {
   const menuRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<BroadcastChannel | undefined>(undefined);
+  const activeIdRef = useRef<string | undefined>(undefined);
+  const shownIdRef = useRef<string | undefined>(undefined);
+  const initSignatureRef = useRef<string | undefined>(undefined);
   const closingRef = useRef(false);
   const blurArmedRef = useRef(false);
-  const [descriptor, setDescriptor] = useState<NativeContextMenuDescriptor>();
+  const blurTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const [session, setSession] = useState<ContextMenuSession>();
   const [expandedId, setExpandedId] = useState<string>();
 
-  const close = async () => {
-    if (closingRef.current) return;
+  const close = useCallback(async () => {
+    const id = activeIdRef.current;
+    if (!id || closingRef.current) return;
     closingRef.current = true;
+    blurArmedRef.current = false;
+    if (blurTimerRef.current !== undefined) globalThis.clearTimeout(blurTimerRef.current);
     channelRef.current?.postMessage({ type: "closed", id } satisfies NativeContextMenuMessage);
-    if (isTauri()) await getCurrentWindow().close().catch(() => undefined);
-    else globalThis.close();
-  };
+    if (isTauri()) {
+      await invoke("notgram_close_context_menu_window", { id }).catch(() => undefined);
+    } else {
+      globalThis.close();
+    }
+    if (activeIdRef.current !== id) return;
+    activeIdRef.current = undefined;
+    shownIdRef.current = undefined;
+    setExpandedId(undefined);
+    setSession(undefined);
+    closingRef.current = false;
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.add("context-menu-window-page");
@@ -72,21 +100,38 @@ export function ContextMenuWindow({ id }: { id: string }) {
     const channel = new BroadcastChannel(NATIVE_CONTEXT_MENU_CHANNEL);
     channelRef.current = channel;
     let readyTimer: ReturnType<typeof globalThis.setInterval> | undefined;
-    const ready = () => channel.postMessage({ type: "ready", id } satisfies NativeContextMenuMessage);
-    channel.onmessage = (event: MessageEvent<NativeContextMenuMessage>) => {
-      const message = event.data;
-      if (!message || message.id !== id || message.type !== "init") return;
+    const ready = () => channel.postMessage({ type: "ready" } satisfies NativeContextMenuMessage);
+    const stopReady = () => {
       if (readyTimer !== undefined) globalThis.clearInterval(readyTimer);
       readyTimer = undefined;
-      setDescriptor(message.descriptor);
+    };
+    channel.onmessage = (event: MessageEvent<NativeContextMenuMessage>) => {
+      const message = event.data;
+      if (!message) return;
+      if (message.type === "prepared") {
+        stopReady();
+        return;
+      }
+      if (message.type !== "init") return;
+      stopReady();
+      const signature = `${message.id}:${JSON.stringify(message.descriptor)}`;
+      if (initSignatureRef.current === signature) return;
+      initSignatureRef.current = signature;
+      if (activeIdRef.current !== message.id) {
+        shownIdRef.current = undefined;
+        setExpandedId(undefined);
+      }
+      activeIdRef.current = message.id;
+      closingRef.current = false;
+      blurArmedRef.current = false;
+      setSession({ id: message.id, descriptor: message.descriptor });
       applyThemeToDocument(themeIdForColorTheme(message.descriptor.colorTheme));
       if (isTauri()) {
         void getCurrentWindow().setTheme(message.descriptor.colorTheme).catch(() => undefined);
       }
-      globalThis.setTimeout(() => { blurArmedRef.current = true; }, 100);
     };
     ready();
-    readyTimer = globalThis.setInterval(ready, 200);
+    readyTimer = globalThis.setInterval(ready, 50);
     let unlisten: (() => void) | undefined;
     if (isTauri()) {
       void getCurrentWindow().onFocusChanged(({ payload }) => {
@@ -94,7 +139,8 @@ export function ContextMenuWindow({ id }: { id: string }) {
       }).then((listener) => { unlisten = listener; });
     }
     return () => {
-      if (readyTimer !== undefined) globalThis.clearInterval(readyTimer);
+      stopReady();
+      if (blurTimerRef.current !== undefined) globalThis.clearTimeout(blurTimerRef.current);
       unlisten?.();
       channel.close();
       channelRef.current = undefined;
@@ -102,33 +148,40 @@ export function ContextMenuWindow({ id }: { id: string }) {
       document.documentElement.removeAttribute("data-theme");
       document.body.classList.remove("context-menu-window-page");
     };
-  }, [id]);
+  }, [close]);
 
-  useEffect(() => {
-    if (!descriptor) return;
-    const timer = globalThis.setTimeout(() => {
-      focusFirstMenuButton(menuRef.current);
-    }, 0);
-    return () => globalThis.clearTimeout(timer);
-  }, [descriptor, expandedId]);
-
-  useEffect(() => {
-    if (!descriptor) return;
+  useLayoutEffect(() => {
+    if (!session) return;
     const geometry = calculateNativeContextMenuGeometry(
-      descriptor.items,
+      session.descriptor.items,
       expandedId,
       measureNativeContextMenuLabel,
     );
-    if (isTauri()) {
-      void invoke("notgram_resize_context_menu_window", {
-        id,
-        width: expandedId ? geometry.expandedWidth : geometry.width,
-        height: geometry.height,
-      }).catch(() => { void close(); });
-    }
-  }, [descriptor, expandedId, id]);
+    if (!isTauri()) return;
+    const firstShow = shownIdRef.current !== session.id;
+    const command = firstShow
+      ? "notgram_show_context_menu_window"
+      : "notgram_resize_context_menu_window";
+    void invoke<boolean>(command, {
+      id: session.id,
+      width: expandedId ? geometry.expandedWidth : geometry.width,
+      height: geometry.height,
+    }).then((applied) => {
+      if (!applied || activeIdRef.current !== session.id) return;
+      if (firstShow) {
+        shownIdRef.current = session.id;
+        blurTimerRef.current = globalThis.setTimeout(() => {
+          if (activeIdRef.current === session.id) blurArmedRef.current = true;
+        }, 50);
+      }
+      focusFirstMenuButton(menuRef.current);
+    }).catch(() => {
+      if (activeIdRef.current === session.id) void close();
+    });
+  }, [close, expandedId, session]);
 
-  if (!descriptor) return null;
+  if (!session) return null;
+  const { id, descriptor } = session;
   const geometry = calculateNativeContextMenuGeometry(
     descriptor.items,
     expandedId,

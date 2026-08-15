@@ -6455,6 +6455,7 @@ test("native context menu rows fill a consistently rounded popup frame", async (
     const rows = [...element.querySelectorAll("button")].map((button) =>
       button.getBoundingClientRect());
     return {
+      animationDuration: style.animationDuration,
       borderRadius: style.borderRadius,
       gap: style.rowGap,
       overflow: style.overflow,
@@ -6475,6 +6476,7 @@ test("native context menu rows fill a consistently rounded popup frame", async (
     });
 
   await expect(buttons).toHaveCount(5);
+  expect(metrics.animationDuration).toBe("0.06s");
   expect(metrics.padding).toEqual(["0px", "0px", "0px", "0px"]);
   expect(metrics.gap).toBe("0px");
   expect(metrics.overflow).toBe("hidden");
@@ -6486,6 +6488,36 @@ test("native context menu rows fill a consistently rounded popup frame", async (
   expect(metrics.width).toBe(146);
   expect(expandedRightGutter).toBe(12);
   expect(metrics.shadow).toContain("2px 6px");
+});
+
+test("native context menu entry reuses its mounted surface across sessions", async ({ page }) => {
+  await page.goto("/context-menu-window.html");
+  const postMenu = (id: string, label: string) => page.evaluate(async ({ id, label }) => {
+    const channel = new BroadcastChannel("notgram-context-menu-v2");
+    channel.postMessage({
+      type: "init",
+      id,
+      descriptor: {
+        label: "复用菜单",
+        colorTheme: "light",
+        items: [{ id: "copy", label, icon: "copy" }],
+      },
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    channel.close();
+  }, { id, label });
+
+  await postMenu("firstsession", "第一次");
+  const menu = page.getByRole("menu", { name: "复用菜单" });
+  await expect(menu.getByRole("menuitem", { name: "第一次" })).toBeVisible();
+  const mountedSurface = await menu.elementHandle();
+  expect(mountedSurface).not.toBeNull();
+
+  await postMenu("secondsession", "第二次");
+  await expect(menu.getByRole("menuitem", { name: "第二次" })).toBeVisible();
+  expect(await mountedSurface!.evaluate((element) =>
+    element === document.querySelector(".native-context-menu")))
+    .toBe(true);
 });
 
 test("chat context menu manages folders, pinning, and group exit", async ({ page }) => {
