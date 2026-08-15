@@ -3609,9 +3609,10 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await composer.press("Enter");
   await expect(preview).toBeHidden();
   await expect(composer).toHaveValue("");
-  const sentAlbum = page.locator(".media-album", { hasText: "粘贴图片说明" });
+  const sentAlbum = page.locator(".media-album.is-outgoing").last();
   await expect(sentAlbum.locator(".media-album-grid img")).toHaveCount(2);
-  await expect(sentAlbum.locator(".media-album-caption")).toHaveText("粘贴图片说明");
+  await expect(sentAlbum.locator(".media-album-captions")).toHaveCount(0);
+  await expect(sentAlbum).not.toContainText("粘贴图片说明");
   await expect(composer).toBeFocused();
 
   await composer.fill("短说明不应收窄图片");
@@ -4005,6 +4006,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
 
   await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toHaveCount(0);
   await expect(popup.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
+  await expect(popup.locator(".media-viewer-caption")).toHaveText("新的媒体预览样式");
   const viewer = popup.locator(".media-viewer");
   const viewerBounds = await popup.locator(".media-viewer-backdrop").boundingBox();
   const viewport = popup.viewportSize();
@@ -4042,14 +4044,55 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(popup.locator(".media-viewer-image")).toHaveAttribute("style", /translate\(48px, 32px\) scale\(1\.5\)/);
   await popup.keyboard.press("ArrowLeft");
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("纵向图片.jpg");
+  await expect(popup.locator(".media-viewer-caption"))
+    .toHaveText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
   await thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }).click();
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("界面预览.jpg");
+  await expect(popup.locator(".media-viewer-caption")).toHaveText("新的媒体预览样式");
 
   const closed = popup.waitForEvent("close");
   const finalStageBounds = await stage.boundingBox();
   await popup.mouse.click(finalStageBounds!.x + 8, finalStageBounds!.y + 8);
   await closed;
   await expect(page.locator(".conversation")).toBeVisible();
+});
+
+test("captioned albums keep descriptions in the fullscreen viewer", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  const album = page.locator('[data-media-album-id="mock-album-product"]');
+  await expect(album).toBeVisible();
+  await expect(album.locator(".media-album-captions")).toHaveCount(0);
+  await expect(album).not.toContainText("新的媒体预览样式");
+  for (const viewport of [
+    { width: 1220, height: 780 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await album.scrollIntoViewIfNeeded();
+    const geometry = await album.evaluate((element) => ({
+      albumHeight: element.getBoundingClientRect().height,
+      gridHeight: element.querySelector<HTMLElement>(".media-album-grid")?.getBoundingClientRect().height,
+    }));
+    expect(geometry.gridHeight).toBeDefined();
+    expect(geometry.albumHeight).toBeCloseTo(geometry.gridHeight!, 0);
+    expect(await horizontalOverflow(page)).toBe(false);
+  }
+
+  const popupPromise = page.waitForEvent("popup");
+  await page.locator('[data-message-id="p-5"] .photo-open').click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  await expect(popup.locator(".media-viewer-caption")).toHaveText("新的媒体预览样式");
+  await popup.keyboard.press("ArrowLeft");
+  await expect(popup.locator(".media-viewer-caption"))
+    .toHaveText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
+
+  const closed = popup.waitForEvent("close");
+  await popup.getByRole("button", { name: "关闭图片查看器" }).click();
+  await closed;
 });
 
 test("chat switching and ordinary message interactions keep typing focus in the composer", async ({ page }) => {
@@ -4977,7 +5020,7 @@ test("video uses synchronized transparent playback windows and owns the playback
     .toBe(true);
 });
 
-test("photo albums preserve order, captions, clipping, and tile geometry", async ({ page }) => {
+test("photo albums stay compact while keeping captions in the media viewer", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
@@ -4991,10 +5034,15 @@ test("photo albums preserve order, captions, clipping, and tile geometry", async
   expect(await album.locator(".message-row").evaluateAll((rows) =>
     rows.map((row) => (row as HTMLElement).dataset.messageId),
   )).toEqual(["p-tall", "p-5"]);
-  await expect(album.locator(".media-album-caption")).toHaveText([
-    "纵向图片应该按实际比例收窄，外壳不能留下额外空白。",
-    "新的媒体预览样式",
-  ]);
+  await expect(album.locator(".media-album-captions")).toHaveCount(0);
+  await expect(album).not.toContainText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
+  await expect(album).not.toContainText("新的媒体预览样式");
+  const compactAlbumGeometry = await album.evaluate((element) => ({
+    albumHeight: element.getBoundingClientRect().height,
+    gridHeight: element.querySelector<HTMLElement>(".media-album-grid")?.getBoundingClientRect().height,
+  }));
+  expect(compactAlbumGeometry.gridHeight).toBeDefined();
+  expect(compactAlbumGeometry.albumHeight).toBeCloseTo(compactAlbumGeometry.gridHeight!, 0);
   await expect(tallRow).toHaveClass(/group-first/);
   await expect(squareRow).toHaveClass(/group-last/);
   await expect(album.locator(".media-album-grid")).toHaveCSS("gap", "2px");

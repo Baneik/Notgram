@@ -63,7 +63,6 @@ import { autoplayAllowed } from "../utils/motionPreference";
 import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
 import { ReportDialog } from "./SafetySettings";
-import { MessageRichText } from "./MessageRichText";
 import { photoMessages } from "../utils/mediaViewerModel";
 import {
   openMediaViewerWindow,
@@ -1763,9 +1762,6 @@ export function Conversation({
                     };
                     if (segment.kind === "message") return renderBubble(segment.message);
 
-                    const captionMessages = segment.messages.filter((message) =>
-                      message.content.kind === "media" && Boolean(message.content.caption),
-                    );
                     const albumReply = segment.messages.map((message) => replyPreviewFor(
                       message,
                       messagesById,
@@ -1826,23 +1822,6 @@ export function Conversation({
                             </div>
                           ))}
                         </div>
-                        {captionMessages.length > 0 && (
-                          <div className="media-album-captions">
-                            {captionMessages.map((message) => {
-                              const content = message.content;
-                              return content.kind === "media" && content.caption ? (
-                                <div className="media-album-caption-entry" key={message.id}>
-                                  <MessageRichText
-                                    className="media-album-caption"
-                                    text={content.caption}
-                                    entities={content.captionEntities}
-                                    onOpenMention={onOpenMention}
-                                  />
-                                </div>
-                              ) : null;
-                            })}
-                          </div>
-                        )}
                       </div>
                     );
                   })}
