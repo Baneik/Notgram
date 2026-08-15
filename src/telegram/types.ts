@@ -905,18 +905,18 @@ export type TelegramEvent =
   | { type: "authorization.changed"; state: AuthorizationState }
   | { type: "connection.changed"; status: ConnectionStatus }
   | { type: "currentUser.changed"; userId: string }
-  | { type: "message.upsert"; message: Message; animateEntrance?: boolean }
+  | { type: "message.upsert"; message: Message; animateEntrance?: boolean; cacheRelevant?: boolean }
   | { type: "message.replace"; oldMessageId: string; message: Message }
   | { type: "messages.upserted"; messages: Message[] }
   | { type: "message.remove"; chatId: string; messageId: string; immediate?: boolean }
   | { type: "folders.replaced"; folders: ChatFolder[] }
   | { type: "chats.upserted"; chats: Chat[] }
-  | { type: "chat.upsert"; chat: Chat }
+  | { type: "chat.upsert"; chat: Chat; cacheRelevant?: boolean }
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
   | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }
   | { type: "chat.typingChanged"; chatId: string; senderId: string; typing: boolean }
   | { type: "forumTopics.changed"; chatId: string }
-  | { type: "user.upsert"; user: User }
+  | { type: "user.upsert"; user: User; cacheRelevant?: boolean }
   | { type: "sync.error"; message: string; fatal?: boolean };
 
 export interface SendMessageInput {

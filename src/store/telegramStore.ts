@@ -74,7 +74,8 @@ export type {
 } from "./telegramStore.types";
 export { filterAndSortChats, selectVisibleChats } from "./telegramStore.selectors";
 
-const CACHE_WRITE_DELAY_MS = 2_000;
+const CACHE_WRITE_DELAY_MS = 10_000;
+const CACHE_WRITE_MAX_DELAY_MS = 60_000;
 const CACHE_WRITE_IDLE_TIMEOUT_MS = 1_500;
 
 type ChatManagementCapabilityKey = keyof Pick<ChatManagementCapabilities,
@@ -119,6 +120,7 @@ export const createTelegramStore = (
     const sharedMediaIndex = new SharedMediaIndex();
     let cacheTimer: ReturnType<typeof setTimeout> | undefined;
     let cacheIdleCallback: number | undefined;
+    let cacheDirtySince: number | undefined;
     let cacheWrite = Promise.resolve();
     const cachedMessageIds = new Map<string, Set<string>>();
     let accountTransition = false;
@@ -250,7 +252,7 @@ export const createTelegramStore = (
       typingTimers.clear();
     };
 
-    const cancelScheduledCacheWrite = () => {
+    const cancelPendingCacheCallback = () => {
       if (cacheTimer) globalThis.clearTimeout(cacheTimer);
       cacheTimer = undefined;
       if (cacheIdleCallback !== undefined && typeof globalThis.cancelIdleCallback === "function") {
@@ -259,20 +261,25 @@ export const createTelegramStore = (
       cacheIdleCallback = undefined;
     };
 
+    const cancelScheduledCacheWrite = () => {
+      cancelPendingCacheCallback();
+      cacheDirtySince = undefined;
+    };
+
     const scheduleCacheWrite = () => {
       const state = get();
-      if (
-        state.authorization.kind !== "ready" ||
-        !state.currentUserId ||
-        cacheTimer ||
-        cacheIdleCallback !== undefined
-      ) {
-        return;
-      }
+      if (state.authorization.kind !== "ready" || !state.currentUserId) return;
+      const now = Date.now();
+      cacheDirtySince ??= now;
+      const deadline = cacheDirtySince + CACHE_WRITE_MAX_DELAY_MS;
+      if ((cacheTimer || cacheIdleCallback !== undefined) && now >= deadline) return;
+      cancelPendingCacheCallback();
+      const delay = Math.max(0, Math.min(CACHE_WRITE_DELAY_MS, deadline - now));
       cacheTimer = globalThis.setTimeout(() => {
         cacheTimer = undefined;
         const writeSnapshot = () => {
           cacheIdleCallback = undefined;
+          cacheDirtySince = undefined;
           const current = get();
           if (current.authorization.kind !== "ready" || !current.currentUserId) return;
           const snapshot = cachedSnapshotFrom(
@@ -290,12 +297,9 @@ export const createTelegramStore = (
             timeout: CACHE_WRITE_IDLE_TIMEOUT_MS,
           });
         } else {
-          cacheTimer = globalThis.setTimeout(() => {
-            cacheTimer = undefined;
-            writeSnapshot();
-          }, 0);
+          writeSnapshot();
         }
-      }, CACHE_WRITE_DELAY_MS);
+      }, delay);
     };
 
     const draftSync = new DraftSyncController({
@@ -845,7 +849,9 @@ export const createTelegramStore = (
             ? undefined
             : get().activeTopicId,
         });
-        scheduleCacheWrite();
+        if (event.type !== "chat.upsert" || event.cacheRelevant !== false) {
+          scheduleCacheWrite();
+        }
         if (activeChatModeChanged && activeChatId && activeChat) {
           if (activeChat.isForum) void refreshForumConversation(activeChatId);
           else void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
@@ -861,7 +867,7 @@ export const createTelegramStore = (
         const users = new Map(get().users);
         users.set(event.user.id, event.user);
         set({ users });
-        scheduleCacheWrite();
+        if (event.cacheRelevant !== false) scheduleCacheWrite();
         if (event.user.id === get().currentUserId) void registerCurrentAccount();
         return;
       }
@@ -1018,7 +1024,7 @@ export const createTelegramStore = (
       ) {
         scheduleChatRead(event.message.chatId);
       }
-      scheduleCacheWrite();
+      if (event.cacheRelevant !== false) scheduleCacheWrite();
     };
 
     if (import.meta.env.VITE_WEBVIEW_STRESS === "1") {
@@ -1488,10 +1494,7 @@ export const createTelegramStore = (
           set({ storageError: "Telegram 就绪后才能重建界面缓存" });
           return false;
         }
-        if (cacheTimer) {
-          globalThis.clearTimeout(cacheTimer);
-          cacheTimer = undefined;
-        }
+        cancelScheduledCacheWrite();
         set({ storagePending: true, storageError: undefined });
         try {
           await cacheWrite.catch(() => undefined);

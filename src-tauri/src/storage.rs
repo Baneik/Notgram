@@ -11,11 +11,13 @@ use cache::{
 pub use database_key::database_encryption_key;
 pub use file_actions::prepare_upload_file;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::{
+    collections::HashMap,
     env, fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::Mutex,
     time::{Duration, SystemTime},
 };
 use tauri::{AppHandle, Manager, State};
@@ -93,6 +95,88 @@ pub struct CacheCleanupResult {
 }
 
 const SENT_MEDIA_PROTECTION_DURATION: Duration = Duration::from_secs(7 * 86_400);
+const MAX_STAGED_SNAPSHOT_WRITES: usize = 2;
+const MAX_SNAPSHOT_CHUNK_ITEMS: usize = 64;
+
+#[derive(Default)]
+pub struct SnapshotCacheWriteState {
+    writes: Mutex<HashMap<String, Map<String, Value>>>,
+}
+
+impl SnapshotCacheWriteState {
+    fn begin(&self, transaction_id: &str, header: Value) -> Result<(), String> {
+        if transaction_id.is_empty()
+            || transaction_id.len() > 64
+            || !transaction_id
+                .bytes()
+                .all(|value| value.is_ascii_alphanumeric() || value == b'-')
+        {
+            return Err("Invalid UI cache transaction id".to_string());
+        }
+        let snapshot = header
+            .as_object()
+            .cloned()
+            .ok_or_else(|| "UI cache header must be an object".to_string())?;
+        let mut writes = self
+            .writes
+            .lock()
+            .map_err(|_| "UI cache staging lock is unavailable".to_string())?;
+        if !writes.contains_key(transaction_id) && writes.len() >= MAX_STAGED_SNAPSHOT_WRITES {
+            return Err("Too many staged UI cache writes".to_string());
+        }
+        writes.insert(transaction_id.to_string(), snapshot);
+        Ok(())
+    }
+
+    fn append(
+        &self,
+        transaction_id: &str,
+        section: &str,
+        values: Vec<Value>,
+    ) -> Result<(), String> {
+        if values.len() > MAX_SNAPSHOT_CHUNK_ITEMS {
+            return Err("UI cache chunk is too large".to_string());
+        }
+        let mut writes = self
+            .writes
+            .lock()
+            .map_err(|_| "UI cache staging lock is unavailable".to_string())?;
+        let snapshot = writes
+            .get_mut(transaction_id)
+            .ok_or_else(|| "UI cache transaction was not started".to_string())?;
+        let target = snapshot
+            .get_mut(section)
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| "UI cache section is not an array".to_string())?;
+        target.extend(values);
+        Ok(())
+    }
+
+    fn take(&self, transaction_id: &str) -> Result<Value, String> {
+        self.writes
+            .lock()
+            .map_err(|_| "UI cache staging lock is unavailable".to_string())?
+            .remove(transaction_id)
+            .map(Value::Object)
+            .ok_or_else(|| "UI cache transaction was not started".to_string())
+    }
+
+    fn abort(&self, transaction_id: &str) -> Result<(), String> {
+        self.writes
+            .lock()
+            .map_err(|_| "UI cache staging lock is unavailable".to_string())?
+            .remove(transaction_id);
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), String> {
+        self.writes
+            .lock()
+            .map_err(|_| "UI cache staging lock is unavailable".to_string())?
+            .clear();
+        Ok(())
+    }
+}
 
 #[tauri::command]
 pub fn telegram_storage_settings(app: AppHandle) -> Result<StorageSettings, String> {
@@ -221,6 +305,45 @@ pub async fn telegram_write_snapshot_cache(app: AppHandle, snapshot: Value) -> R
         .map_err(|error| format!("Unable to join UI cache writer: {error}"))?
 }
 
+#[tauri::command]
+pub fn telegram_begin_snapshot_cache_write(
+    state: State<'_, SnapshotCacheWriteState>,
+    transaction_id: String,
+    header: Value,
+) -> Result<(), String> {
+    state.begin(&transaction_id, header)
+}
+
+#[tauri::command]
+pub fn telegram_append_snapshot_cache_chunk(
+    state: State<'_, SnapshotCacheWriteState>,
+    transaction_id: String,
+    section: String,
+    values: Vec<Value>,
+) -> Result<(), String> {
+    state.append(&transaction_id, &section, values)
+}
+
+#[tauri::command]
+pub async fn telegram_commit_snapshot_cache_write(
+    app: AppHandle,
+    state: State<'_, SnapshotCacheWriteState>,
+    transaction_id: String,
+) -> Result<(), String> {
+    let snapshot = state.take(&transaction_id)?;
+    tauri::async_runtime::spawn_blocking(move || write_snapshot_cache_value(&app, snapshot))
+        .await
+        .map_err(|error| format!("Unable to join UI cache writer: {error}"))?
+}
+
+#[tauri::command]
+pub fn telegram_abort_snapshot_cache_write(
+    state: State<'_, SnapshotCacheWriteState>,
+    transaction_id: String,
+) -> Result<(), String> {
+    state.abort(&transaction_id)
+}
+
 fn write_snapshot_cache_value(app: &AppHandle, snapshot: Value) -> Result<(), String> {
     let path = snapshot_cache_path(app)?;
     let temporary = path.with_extension("tmp");
@@ -263,7 +386,11 @@ fn write_snapshot_cache_value(app: &AppHandle, snapshot: Value) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn telegram_clear_snapshot_cache(app: AppHandle) -> Result<(), String> {
+pub fn telegram_clear_snapshot_cache(
+    app: AppHandle,
+    state: State<'_, SnapshotCacheWriteState>,
+) -> Result<(), String> {
+    state.clear()?;
     let path = snapshot_cache_path(&app)?;
     let temporary = path.with_extension("tmp");
     let backup = path.with_extension("bak");
@@ -612,6 +739,67 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    #[test]
+    fn assembles_snapshot_cache_chunks_transactionally() {
+        let state = SnapshotCacheWriteState::default();
+        state
+            .begin(
+                "test-transaction",
+                serde_json::json!({
+                    "version": 3,
+                    "currentUserId": "self",
+                    "messages": [],
+                }),
+            )
+            .unwrap();
+        state
+            .append(
+                "test-transaction",
+                "messages",
+                vec![
+                    serde_json::json!({ "id": "1", "chatId": "chat" }),
+                    serde_json::json!({ "id": "2", "chatId": "chat" }),
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(
+            state.take("test-transaction").unwrap(),
+            serde_json::json!({
+                "version": 3,
+                "currentUserId": "self",
+                "messages": [
+                    { "id": "1", "chatId": "chat" },
+                    { "id": "2", "chatId": "chat" },
+                ],
+            })
+        );
+        assert!(state.take("test-transaction").is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_snapshot_cache_chunks() {
+        let state = SnapshotCacheWriteState::default();
+        assert!(state.begin("invalid id", serde_json::json!({})).is_err());
+        state
+            .begin("valid-id", serde_json::json!({ "messages": [] }))
+            .unwrap();
+        assert!(
+            state
+                .append("valid-id", "missing", vec![serde_json::json!({})])
+                .is_err()
+        );
+        assert!(
+            state
+                .append(
+                    "valid-id",
+                    "messages",
+                    vec![serde_json::json!({}); MAX_SNAPSHOT_CHUNK_ITEMS + 1],
+                )
+                .is_err()
+        );
     }
 
     #[test]

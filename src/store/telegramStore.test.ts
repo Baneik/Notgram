@@ -433,7 +433,7 @@ describe("telegram store", () => {
         store.getState().messages.get("chat-product")
           ?.find((message) => message.id === "p-4")?.permissions,
       ).toEqual(permissions);
-      await vi.advanceTimersByTimeAsync(2_001);
+      await vi.advanceTimersByTimeAsync(10_001);
 
       expect(transport.savedSnapshot).toMatchObject({
         version: 3,
@@ -522,6 +522,70 @@ describe("telegram store", () => {
     transport.authorize();
     await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
     expect(transport.historyRequests).toBe(1);
+  });
+
+  it("coalesces cache writes, caps the delay, and skips transient transfer updates", async () => {
+    class TrackingTransport extends MockTelegramTransport {
+      writes = 0;
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async saveCachedSnapshot() {
+        this.writes += 1;
+      }
+
+      publish(event: TelegramEvent) {
+        this.eventListener?.(event);
+      }
+    }
+
+    vi.useFakeTimers();
+    try {
+      const transport = new TrackingTransport();
+      const store = createTelegramStore(transport);
+      await store.getState().initialize();
+      await vi.advanceTimersByTimeAsync(10_001);
+      transport.writes = 0;
+
+      const source = store.getState().messages.get("chat-product")![0];
+      transport.publish({
+        type: "message.upsert",
+        message: { ...source, outgoing: true, renderKey: "transfer-progress" },
+        cacheRelevant: false,
+      });
+      await vi.advanceTimersByTimeAsync(60_001);
+      expect(transport.writes).toBe(0);
+      expect(store.getState().messages.get("chat-product")?.[0].renderKey).toBe("transfer-progress");
+
+      transport.publish({ type: "message.upsert", message: { ...source, outgoing: true } });
+      await vi.advanceTimersByTimeAsync(9_000);
+      transport.publish({ type: "message.upsert", message: { ...source, outgoing: true } });
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(transport.writes).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(transport.writes).toBe(1);
+
+      transport.writes = 0;
+      for (let index = 0; index < 7; index += 1) {
+        if (index > 0) await vi.advanceTimersByTimeAsync(9_000);
+        transport.publish({
+          type: "message.upsert",
+          message: { ...source, outgoing: true, renderKey: `durable-${index}` },
+        });
+      }
+      await vi.advanceTimersByTimeAsync(5_999);
+      expect(transport.writes).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(transport.writes).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for the initial connection sync before fixing the history cursor", async () => {

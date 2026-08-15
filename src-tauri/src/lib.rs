@@ -46,6 +46,7 @@ pub fn run() {
         .on_window_event(desktop_lifecycle::handle_window_event)
         .manage(telegram::TelegramRuntime::new())
         .manage(telegram::media_stream::MediaStreamRegistry::default())
+        .manage(storage::SnapshotCacheWriteState::default())
         .register_asynchronous_uri_scheme_protocol(
             "notgram-media",
             |context, request, responder| {
@@ -83,6 +84,10 @@ pub fn run() {
             storage::telegram_clear_media_cache,
             storage::telegram_read_snapshot_cache,
             storage::telegram_write_snapshot_cache,
+            storage::telegram_begin_snapshot_cache_write,
+            storage::telegram_append_snapshot_cache_chunk,
+            storage::telegram_commit_snapshot_cache_write,
+            storage::telegram_abort_snapshot_cache_write,
             storage::telegram_clear_snapshot_cache,
             storage::account::telegram_account_state,
             storage::account::telegram_register_account,

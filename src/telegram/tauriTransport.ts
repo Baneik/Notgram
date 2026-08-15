@@ -2054,13 +2054,17 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
-  private upsertUser(raw?: TdObject) {
+  private upsertUser(raw?: TdObject, cacheRelevant = true) {
     if (!raw) return;
     const id = tdId(raw.id);
     const user = mapTdUser(raw);
     if (!id || !user) return;
     this.rawUsers.set(id, raw);
-    this.listener?.({ type: "user.upsert", user });
+    this.listener?.({
+      type: "user.upsert",
+      user,
+      ...(cacheRelevant ? {} : { cacheRelevant: false }),
+    });
   }
 
   private upsertBasicGroup(raw?: TdObject) {
@@ -2095,12 +2099,12 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (current) this.upsertUser({ ...current, status: update.status });
   }
 
-  private upsertChat(raw?: TdObject) {
+  private upsertChat(raw?: TdObject, cacheRelevant = true) {
     if (!raw) return;
     const id = tdId(raw.id);
     if (!id) return;
     this.rawChats.set(id, raw);
-    this.emitChat(raw);
+    this.emitChat(raw, cacheRelevant);
   }
 
   private folderName(title: string): TdObject {
@@ -2180,10 +2184,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     );
   }
 
-  private emitChat(raw: TdObject) {
+  private emitChat(raw: TdObject, cacheRelevant = true) {
     const chat = this.mapChat(raw);
     if (chat && !this.initialChatSyncPending) {
-      this.listener?.({ type: "chat.upsert", chat });
+      this.listener?.({
+        type: "chat.upsert",
+        chat,
+        ...(cacheRelevant ? {} : { cacheRelevant: false }),
+      });
     }
   }
 
@@ -2320,6 +2328,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const fileId = tdNumber(file?.id);
     if (!file || fileId === undefined) return;
     const local = asTdObject(file.local);
+    const cacheRelevant = local?.is_downloading_completed === true;
     this.fileDownloads.handleFile(
       fileId,
       local?.is_downloading_completed === true,
@@ -2331,7 +2340,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       const photo = asTdObject(raw.photo);
       const small = asTdObject(photo?.small);
       if (tdNumber(small?.id) !== fileId || !photo) continue;
-      this.upsertChat({ ...raw, photo: { ...photo, small: file } });
+      this.upsertChat({ ...raw, photo: { ...photo, small: file } }, cacheRelevant);
     }
 
     for (const raw of [...this.rawUsers.values()]) {
@@ -2341,7 +2350,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.upsertUser({
         ...raw,
         profile_photo: { ...profilePhoto, small: file },
-      });
+      }, cacheRelevant);
     }
 
     const references = [...(this.fileMessageReferences.get(fileId) ?? [])];
@@ -2352,7 +2361,9 @@ export class TauriTelegramTransport implements TelegramTransport {
       const raw = this.rawMessages.get(chatId)?.get(messageId);
       if (!raw) continue;
       const replaced = replaceFileReference(raw, fileId, file);
-      if (replaced.changed) this.emitMessage(asTdObject(replaced.value));
+      if (replaced.changed) {
+        this.emitMessage(asTdObject(replaced.value), false, cacheRelevant);
+      }
     }
 
     const pending = this.pendingDownloads.get(fileId);
@@ -2371,7 +2382,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
-  private emitMessage(raw?: TdObject, animateEntrance = false) {
+  private emitMessage(raw?: TdObject, animateEntrance = false, cacheRelevant = true) {
     if (!raw) return;
     if (raw.is_outgoing !== true && raw.is_pending !== true) this.clearPendingBotDrafts(tdId(raw.chat_id));
     const message = this.mapMessage(raw);
@@ -2380,7 +2391,12 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatMessages.set(message.id, raw);
     this.rawMessages.set(message.chatId, chatMessages);
     this.indexMessageFiles(message.chatId, message.id, raw);
-    this.listener?.({ type: "message.upsert", message, animateEntrance });
+    this.listener?.({
+      type: "message.upsert",
+      message,
+      animateEntrance,
+      ...(cacheRelevant ? {} : { cacheRelevant: false }),
+    });
     this.ensureMessageSenderChat(raw);
     if (raw.is_pending !== true) {
       this.ensureReplyContent(raw);

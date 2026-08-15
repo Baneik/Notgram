@@ -3058,6 +3058,80 @@ describe("TauriTelegramTransport history", () => {
 });
 
 describe("TauriTelegramTransport media", () => {
+  it("marks file progress as transient but keeps completion cache-relevant", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.emitMessage({
+      ...rawMessage(12),
+      content: {
+        "@type": "messageDocument",
+        caption: { "@type": "formattedText", text: "", entities: [] },
+        document: {
+          file_name: "archive.zip",
+          mime_type: "application/zip",
+          document: {
+            "@type": "file",
+            id: 91,
+            size: 4_000,
+            local: {
+              can_be_downloaded: true,
+              is_downloading_active: false,
+              is_downloading_completed: false,
+              downloaded_size: 0,
+            },
+            remote: {},
+          },
+        },
+      },
+    });
+    events.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updateFile",
+      file: {
+        "@type": "file",
+        id: 91,
+        size: 4_000,
+        local: {
+          can_be_downloaded: true,
+          is_downloading_active: true,
+          is_downloading_completed: false,
+          downloaded_size: 2_000,
+        },
+        remote: {},
+      },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "message.upsert",
+      cacheRelevant: false,
+      message: { content: { isDownloading: true, downloadedSize: 2_000 } },
+    });
+
+    internal.handleUpdate({
+      "@type": "updateFile",
+      file: {
+        "@type": "file",
+        id: 91,
+        size: 4_000,
+        local: {
+          can_be_downloaded: true,
+          is_downloading_active: false,
+          is_downloading_completed: true,
+          downloaded_size: 4_000,
+          path: "C:\\cache\\archive.zip",
+        },
+        remote: {},
+      },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "message.upsert",
+      message: { content: { isDownloaded: true, localPath: "C:\\cache\\archive.zip" } },
+    });
+    expect(events.at(-1)).not.toHaveProperty("cacheRelevant", false);
+  });
+
   it("cancels an idle stream without interrupting an explicit file download", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

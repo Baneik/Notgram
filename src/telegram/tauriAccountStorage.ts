@@ -9,6 +9,12 @@ import type {
   TelegramAccountState,
 } from "./types";
 
+const SNAPSHOT_CACHE_CHUNK_SIZE = 64;
+
+const yieldToMainThread = () => new Promise<void>((resolve) => {
+  globalThis.setTimeout(resolve, 0);
+});
+
 export class TauriAccountStorage {
   getAccountState() {
     return invoke<TelegramAccountState>("telegram_account_state");
@@ -33,7 +39,35 @@ export class TauriAccountStorage {
   }
 
   async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
-    await invoke("telegram_write_snapshot_cache", { snapshot });
+    const transactionId = globalThis.crypto.randomUUID();
+    const header: Record<string, unknown> = {};
+    const sections: Array<{ name: string; values: unknown[] }> = [];
+    for (const [name, value] of Object.entries(snapshot)) {
+      if (Array.isArray(value)) {
+        header[name] = [];
+        sections.push({ name, values: value });
+      } else {
+        header[name] = value;
+      }
+    }
+
+    try {
+      await invoke("telegram_begin_snapshot_cache_write", { transactionId, header });
+      for (const section of sections) {
+        for (let index = 0; index < section.values.length; index += SNAPSHOT_CACHE_CHUNK_SIZE) {
+          await invoke("telegram_append_snapshot_cache_chunk", {
+            transactionId,
+            section: section.name,
+            values: section.values.slice(index, index + SNAPSHOT_CACHE_CHUNK_SIZE),
+          });
+          await yieldToMainThread();
+        }
+      }
+      await invoke("telegram_commit_snapshot_cache_write", { transactionId });
+    } catch (error) {
+      await invoke("telegram_abort_snapshot_cache_write", { transactionId }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async clearCachedSnapshot() {
