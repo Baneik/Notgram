@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { Message } from "../../src/telegram/types";
 
 interface ConversationSwitchRecord {
   durationMs?: number;
@@ -478,6 +479,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
     listBottom: number;
     composerTop: number;
     opacity: number;
+    animationDuration: string;
   }>((resolve) => {
     let awaitingEntranceObserved = false;
     const observer = new MutationObserver(() => {
@@ -496,6 +498,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
         listBottom: list?.getBoundingClientRect().bottom ?? Number.NEGATIVE_INFINITY,
         composerTop: composer?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
         opacity: Number.parseFloat(getComputedStyle(entering).opacity),
+        animationDuration: getComputedStyle(entering).animationDuration,
       });
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true });
@@ -508,6 +511,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
         listBottom: Number.NEGATIVE_INFINITY,
         composerTop: Number.NEGATIVE_INFINITY,
         opacity: 0,
+        animationDuration: "",
       });
     }, 2_000);
   }));
@@ -520,8 +524,73 @@ test("live messages animate without replaying history rows", async ({ page }) =>
   expect(report.rowBottom).toBeLessThanOrEqual(report.listBottom + 1);
   expect(report.listBottom).toBeLessThanOrEqual(report.composerTop + 1);
   expect(report.opacity).toBeGreaterThanOrEqual(0.99);
+  expect(report.animationDuration).toBe("0.14s");
   await expect(page.getByText("动画消息测试", { exact: true })).toBeVisible();
   await expect(page.locator(".message-row.is-entering-outgoing")).toHaveCount(0);
+});
+
+test("incoming messages do not wait for a bottom pin while reading away from latest", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect(page.getByRole("button", { name: /^跳到最新消息/ })).toBeVisible();
+
+  const messageId = "m-detached-incoming";
+  const report = await page.evaluate(async ({ entrancePath, storePath, targetId }) => {
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Message[]> };
+        setState: (partial: { messages: Map<string, Message[]> }) => void;
+      };
+    };
+    const entranceModule = await import(entrancePath) as {
+      markMessageEntrance: (message: Message) => void;
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-mia") ?? [])];
+    const latest = current.at(-1);
+    if (!latest) throw new Error("Missing incoming fixture");
+    const appended: Message = {
+      ...latest,
+      id: targetId,
+      renderKey: undefined,
+      outgoing: false,
+      senderId: "u-mia",
+      sentAt: new Date(Date.now() + 2_000).toISOString(),
+      content: { kind: "text", text: "离开底部时收到的新消息立即显示" },
+    };
+    entranceModule.markMessageEntrance(appended);
+    current.push(appended);
+    messages.set("chat-mia", current);
+    const startedAt = performance.now();
+    storeModule.telegramStore.setState({ messages });
+    let mountedAt: number | undefined;
+    while (performance.now() - startedAt < 500) {
+      const row = document.querySelector<HTMLElement>(`[data-message-id="${targetId}"]`);
+      if (row) {
+        mountedAt ??= performance.now();
+        const style = getComputedStyle(row);
+        if (style.visibility !== "hidden" && Number.parseFloat(style.opacity) > 0) {
+          return {
+            mountedAt: mountedAt - startedAt,
+            visibleAt: performance.now() - startedAt,
+            className: row.className,
+          };
+        }
+      }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    throw new Error("Detached incoming message stayed hidden");
+  }, {
+    entrancePath: "/src/utils/messageEntrance.ts",
+    storePath: "/src/store/telegramStore.ts",
+    targetId: messageId,
+  });
+
+  expect(report.visibleAt, JSON.stringify(report)).toBeLessThan(250);
+  expect(report.className).not.toContain("is-preparing-entrance");
 });
 
 test("new messages stay pinned without viewport rebound", async ({ page }) => {

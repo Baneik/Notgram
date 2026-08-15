@@ -114,7 +114,7 @@ interface MessageBubbleProps {
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
   onExpandLongText: (messageId: string) => void;
-  onMount?: (onPinned?: () => void) => void;
+  onMount?: (onPinned?: () => void) => boolean;
   deferUntilPinned?: boolean;
   previousAudioPlaybackId?: string;
   nextAudioPlaybackId?: string;
@@ -567,10 +567,16 @@ function MessageBubbleComponent({
       startWhenReady();
     }, { root: list, threshold: [0, 0.99, 1] });
     observer.observe(element);
-    onMount?.(() => {
+    const willPinAtBottom = onMount?.(() => {
       bottomPinned = true;
       startWhenReady();
     });
+    if (willPinAtBottom === false) {
+      clearEntranceWait();
+      element.classList.remove(preparingClass);
+      consumeMessageEntrance(message);
+      return;
+    }
     timeout = globalThis.setTimeout(() => {
       clearEntranceWait();
       element.classList.remove(preparingClass);

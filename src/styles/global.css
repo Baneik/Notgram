@@ -693,8 +693,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-source-locate:focus-visible { color: var(--accent); background: var(--accent-soft); border-color: var(--color-border-focus); outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .message-row.is-preparing-entrance-incoming { visibility: hidden; opacity: 0; transform: translate3d(-10px, 0, 0) scale(0.985); }
 .message-row.is-preparing-entrance-outgoing { visibility: hidden; opacity: 0; transform: translate3d(10px, 0, 0) scale(0.985); }
-.message-row.is-entering-incoming { animation: message-enter-incoming 220ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
-.message-row.is-entering-outgoing { animation: message-enter-outgoing 200ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
+.message-row.is-entering-incoming { animation: message-enter-incoming 160ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
+.message-row.is-entering-outgoing { animation: message-enter-outgoing 140ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
 .message-row.is-removing { animation: message-delete-out 180ms ease both; pointer-events: none; }
 @keyframes message-enter-incoming {
   from { opacity: 1; transform: translate3d(-10px, 0, 0) scale(0.985); }

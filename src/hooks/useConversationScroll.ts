@@ -753,10 +753,15 @@ export const useConversationScroll = ({
   ]);
 
   const pinFollowingMessageMount = useCallback((onSettled?: () => void) => {
-    if (!currentScrollKey || searchActive) return;
-    if (conversationScrollMemory.get(currentScrollKey)?.followLatest !== true) return;
-    scheduleBottomPin(onSettled);
-  }, [currentScrollKey, scheduleBottomPin, searchActive]);
+    if (!currentScrollKey || searchActive) return false;
+    if (conversationScrollMemory.get(currentScrollKey)?.followLatest !== true) return false;
+    // The mounted row is already measurable, so expose it after the first pin.
+    // The coordinator continues reconciling later Virtuoso measurements.
+    pinToBottom();
+    scheduleBottomPin();
+    onSettled?.();
+    return true;
+  }, [currentScrollKey, pinToBottom, scheduleBottomPin, searchActive]);
 
   const restoreAnchor = useCallback((
     element: HTMLElement,
