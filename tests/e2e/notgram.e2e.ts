@@ -277,6 +277,20 @@ test("standalone settings update the still-interactive main window", async ({ pa
 
 test("account settings only show and edit the current profile", async ({ page }) => {
   await page.goto("/?settingsWindow");
+  const accountCategory = page.getByRole("button", { name: "我的账号", exact: true });
+  await expect(accountCategory).toHaveText("我的账号");
+  await expect(accountCategory.locator("small")).toHaveCount(0);
+  await expect(accountCategory).not.toContainText("林然");
+  const categoryLayout = await page.evaluate(() => {
+    const nav = document.querySelector<HTMLElement>(".settings-categories");
+    const buttons = [...document.querySelectorAll<HTMLElement>(".settings-category")];
+    return {
+      navWidth: nav?.getBoundingClientRect().width ?? 0,
+      buttonWidths: buttons.map((button) => button.getBoundingClientRect().width),
+    };
+  });
+  expect(categoryLayout.navWidth).toBeLessThan(180);
+  expect(new Set(categoryLayout.buttonWidths.map(Math.round)).size).toBe(1);
   await expect(page.getByText("已登录账号", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "添加账号" })).toHaveCount(0);
   await expect(page.getByText("切换到此账号", { exact: true })).toHaveCount(0);

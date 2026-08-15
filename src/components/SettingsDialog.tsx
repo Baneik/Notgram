@@ -86,7 +86,6 @@ interface SettingsCategory {
   id: SettingsCategoryId;
   label: string;
   icon: LucideIcon;
-  detail?: string;
 }
 
 const categories: SettingsCategory[] = [
@@ -352,9 +351,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
         <nav className="settings-categories" aria-label="设置分类">
           {categories.map((category) => {
             const Icon = category.icon;
-            const detail = category.id === "account"
-              ? currentUser?.displayName ?? (currentUserId ? "Telegram 账号" : undefined)
-              : category.detail;
             return (
               <button
                 key={category.id}
@@ -368,7 +364,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               >
                 <Icon size={21} strokeWidth={1.8} />
                 <span>{category.label}</span>
-                {detail && <small>{detail}</small>}
                 <ChevronRight className="settings-category-chevron" size={17} />
               </button>
             );

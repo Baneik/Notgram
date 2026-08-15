@@ -1808,7 +1808,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .new-chat-loading { min-height: 120px; display: grid; place-items: center; color: var(--accent); }
 .settings-dialog {
   width: min(900px, calc(100vw - 40px)); height: min(680px, calc(100vh - 40px)); min-height: 0;
-  display: grid; grid-template-columns: 232px minmax(0, 1fr); grid-template-rows: 56px minmax(0, 1fr);
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); grid-template-rows: 56px minmax(0, 1fr);
   overflow: hidden; color: var(--ink); background: var(--color-bg-elevated); border-radius: 8px;
   box-shadow: 0 16px 48px var(--color-shadow);
 }
@@ -1859,20 +1859,18 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .download-manager-footer { padding: 0 14px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); border-top: 1px solid var(--line); font-size: 10px; }
 .download-manager-footer button { min-height: 34px; padding: 0 10px; display: inline-flex; align-items: center; gap: 7px; color: var(--accent); background: var(--color-accent-soft); border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 650; }
 .settings-categories {
-  grid-column: 1; grid-row: 2; min-height: 0; padding: 8px; overflow-y: auto;
+  grid-column: 1; grid-row: 2; width: max-content; min-height: 0; padding: 8px; overflow-y: auto;
   background: var(--color-bg-surface-hover); border-right: 1px solid var(--line);
 }
 .settings-category {
   position: relative; width: 100%; min-height: 44px; padding: 5px 8px; display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto 16px; align-items: center; gap: 4px;
+  grid-template-columns: 28px max-content 16px; align-items: center; gap: 6px;
   color: var(--muted); text-align: left; background: transparent; border: 0; border-radius: 6px; cursor: pointer;
 }
 .settings-category:hover { color: var(--ink); background: var(--surface-hover); }
 .settings-category.is-active { color: var(--accent); background: var(--color-bg-selected); box-shadow: inset 3px 0 var(--accent); }
 .settings-category > svg:first-child { justify-self: center; }
 .settings-category > span { min-width: 0; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
-.settings-category small { max-width: 104px; overflow: hidden; color: var(--accent); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
-.settings-category.is-active small { color: var(--muted); }
 .settings-category-chevron { color: var(--subtle); }
 .settings-category.is-active .settings-category-chevron { color: var(--color-text-link); }
 .settings-detail { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px minmax(0, 1fr); }
@@ -2374,8 +2372,8 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
     grid-template-rows: 58px minmax(0, 1fr); border-radius: 0;
   }
   .settings-dialog-header { grid-column: 1; padding-left: 16px; }
-  .settings-categories { grid-column: 1; grid-row: 2; border-right: 0; }
-  .settings-category { min-height: 48px; grid-template-columns: 30px minmax(0, 1fr) auto 18px; padding-right: 10px; }
+  .settings-categories { grid-column: 1; grid-row: 2; width: 100%; border-right: 0; }
+  .settings-category { min-height: 48px; grid-template-columns: 30px minmax(0, 1fr) 18px; padding-right: 10px; }
   .settings-detail { display: none; grid-column: 1; grid-row: 2; }
   .settings-dialog.show-detail .settings-categories { display: none; }
   .settings-dialog.show-detail .settings-detail { display: grid; }
@@ -2450,8 +2448,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
     forced-color-adjust: none;
   }
   .chat-row.is-active .chat-preview, .chat-row.is-active time,
-  .rail-button.is-active svg, .settings-category.is-active small,
-  .settings-category.is-active svg {
+  .rail-button.is-active svg, .settings-category.is-active svg {
     color: HighlightText;
   }
   .is-outgoing .message-bubble { border-width: 2px; }
