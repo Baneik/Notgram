@@ -1540,14 +1540,14 @@ export function App() {
         )}
       </main>
       <AudioPlaybackHost />
-      <MotionPresence present={Boolean(error)}>
+      <MotionPresence present={Boolean(error)} variant="toast">
         {error ? <div className="runtime-error" role="alert">
           <CircleAlert size={17} />
           <span>{error}</span>
           <button type="button" aria-label="关闭错误提示" title="关闭" onClick={clearError}><X size={16} /></button>
         </div> : null}
       </MotionPresence>
-      <MotionPresence present={Boolean(operationError)}>
+      <MotionPresence present={Boolean(operationError)} variant="toast">
         {operationError ? <div className="operation-error" role="alert">
           <CircleAlert size={17} />
           <span>{operationError}</span>
@@ -1611,7 +1611,7 @@ export function App() {
           onClose={() => setPendingConfirmation(undefined)}
         /> : null}
       </MotionPresence>
-      <MotionPresence present={Boolean(profile.target)}>
+      <MotionPresence present={Boolean(profile.target)} variant="drawer">
         {profile.target ? <ProfileDrawer
           state={profile}
           forwardTargets={forwardTargets}

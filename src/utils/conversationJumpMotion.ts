@@ -1,3 +1,5 @@
+import { motionDistance, motionDuration, motionEasing } from "./motionTokens";
+
 export type ConversationJumpDirection = "older" | "newer";
 
 export interface ConversationJumpMotion {
@@ -10,24 +12,24 @@ export interface ConversationJumpMotion {
 export const conversationJumpMotion = (
   direction: ConversationJumpDirection,
 ): ConversationJumpMotion => {
-  const travel = direction === "older" ? 14 : -14;
+  const travel = direction === "older" ? motionDistance.standard : -motionDistance.standard;
   return {
     exit: [
       { opacity: 1, transform: "translateY(0)" },
-      { opacity: 0.22, transform: `translateY(${travel}px)` },
+      { opacity: 0.72, transform: `translateY(${travel}px)` },
     ],
     enter: [
-      { opacity: 0.22, transform: `translateY(${-travel}px)` },
+      { opacity: 0.72, transform: `translateY(${-travel}px)` },
       { opacity: 1, transform: "translateY(0)" },
     ],
     exitTiming: {
-      duration: 110,
-      easing: "cubic-bezier(0.4, 0, 1, 1)",
+      duration: motionDuration.fast,
+      easing: motionEasing.exit,
       fill: "forwards",
     },
     enterTiming: {
-      duration: 210,
-      easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+      duration: motionDuration.standard,
+      easing: motionEasing.enter,
       fill: "both",
     },
   };

@@ -3460,8 +3460,8 @@ test("distant message jumps use a directional exit and entrance transition", asy
     }
   ).__notgramJumpAnimations ?? []);
   expect(animations).toEqual([
-    expect.objectContaining({ duration: 110, firstOpacity: 1, lastOpacity: 0.22 }),
-    expect.objectContaining({ duration: 210, firstOpacity: 0.22, lastOpacity: 1 }),
+    expect.objectContaining({ duration: 120, firstOpacity: 1, lastOpacity: 0.72 }),
+    expect.objectContaining({ duration: 180, firstOpacity: 0.72, lastOpacity: 1 }),
   ]);
   await expect.poll(() => target.evaluate((element) => {
     const list = element.closest(".message-list")?.getBoundingClientRect();

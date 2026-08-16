@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { audioPlaybackController } from "../media/audioPlayback";
+import { usePreferencesStore } from "../store/preferencesStore";
 
 interface AudioSpectrumProps {
   playbackId: string;
@@ -20,6 +21,7 @@ export function AudioSpectrum({
   className = "",
 }: AudioSpectrumProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -34,6 +36,7 @@ export function AudioSpectrum({
     let cssHeight = Math.max(1, canvas.clientHeight);
     let ratio = Math.min(2, globalThis.devicePixelRatio || 1);
     let fillStyle = getComputedStyle(canvas).color;
+    const animate = playing && !reduceMotion;
 
     const resizeCanvas = (width: number, height: number) => {
       cssWidth = Math.max(1, width);
@@ -50,7 +53,7 @@ export function AudioSpectrum({
       if (nextRatio !== ratio) resizeCanvas(cssWidth, cssHeight);
       const width = canvas.width;
       const height = canvas.height;
-      const hasLiveSpectrum = playing && audioPlaybackController.readSpectrum(values);
+      const hasLiveSpectrum = animate && audioPlaybackController.readSpectrum(values);
       context.clearRect(0, 0, width, height);
       context.fillStyle = fillStyle;
       const gap = Math.max(1.2 * ratio, width / bars * 0.32);
@@ -58,28 +61,28 @@ export function AudioSpectrum({
       for (let index = 0; index < bars; index += 1) {
         const fallback = 0.18 + (((seed >>> (index % 24)) + index * 37) % 73) / 100;
         const live = values[index] / 255;
-        const pulse = playing ? 0.08 * Math.sin(frame * 0.11 + index * 0.8) : 0;
+        const pulse = animate ? 0.08 * Math.sin(frame * 0.11 + index * 0.8) : 0;
         const amplitude = Math.max(0.12, Math.min(1, hasLiveSpectrum ? live : fallback + pulse));
         const barHeight = Math.max(2 * ratio, amplitude * height * 0.88);
         const x = index * (barWidth + gap);
-        context.globalAlpha = hasLiveSpectrum ? 0.92 : playing ? 0.78 : 0.5;
+        context.globalAlpha = hasLiveSpectrum ? 0.92 : animate ? 0.78 : 0.5;
         context.fillRect(x, (height - barHeight) / 2, barWidth, barHeight);
       }
       context.globalAlpha = 1;
       frame += 1;
-      if (playing) animationFrame = requestAnimationFrame(draw);
+      if (animate) animationFrame = requestAnimationFrame(draw);
     };
 
     resizeCanvas(cssWidth, cssHeight);
     const resizeObserver = new ResizeObserver(([entry]) => {
       if (!entry) return;
       resizeCanvas(entry.contentRect.width, entry.contentRect.height);
-      if (!playing) draw();
+      if (!animate) draw();
     });
     resizeObserver.observe(canvas);
     const themeObserver = new MutationObserver(() => {
       fillStyle = getComputedStyle(canvas).color;
-      if (!playing) draw();
+      if (!animate) draw();
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
@@ -91,12 +94,13 @@ export function AudioSpectrum({
       resizeObserver.disconnect();
       themeObserver.disconnect();
     };
-  }, [bars, playbackId, playing]);
+  }, [bars, playbackId, playing, reduceMotion]);
 
   return (
     <canvas
       ref={canvasRef}
       className={`audio-spectrum ${className}`.trim()}
+      data-motion-active={playing && !reduceMotion ? "true" : "false"}
       role="img"
       aria-label="音频频谱"
     />

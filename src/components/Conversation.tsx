@@ -1525,24 +1525,26 @@ export function Conversation({
               >
                 <MoreVertical size={20} strokeWidth={1.8} />
               </button>
-              {chatMenuOpen && (
-                <ChatActionMenu
-                  chat={chat}
-                  chatListId={chatListId}
-                  pending={chatManagementPending}
-                  canSetAutoDelete={chat.kind === "direct" || chat.management?.canChangeInfo === true}
-                  onSetPinned={onSetChatPinned}
-                  onSetMuted={onSetChatMuted}
-                  onSetArchived={onSetChatArchived}
-                  onOpenPinned={() => openPinnedMessages()}
-                  onOpenMessageSearch={() => onOpenMessageSearch()}
-                  onOpenAutoDelete={() => {
-                    setChatMenuOpen(false);
-                    setAutoDeleteDialogOpen(true);
-                  }}
-                  onClose={() => closeChatMenu(true)}
-                />
-              )}
+              <MotionPresence present={chatMenuOpen} variant="popover">
+                {chatMenuOpen ? (
+                  <ChatActionMenu
+                    chat={chat}
+                    chatListId={chatListId}
+                    pending={chatManagementPending}
+                    canSetAutoDelete={chat.kind === "direct" || chat.management?.canChangeInfo === true}
+                    onSetPinned={onSetChatPinned}
+                    onSetMuted={onSetChatMuted}
+                    onSetArchived={onSetChatArchived}
+                    onOpenPinned={() => openPinnedMessages()}
+                    onOpenMessageSearch={() => onOpenMessageSearch()}
+                    onOpenAutoDelete={() => {
+                      setChatMenuOpen(false);
+                      setAutoDeleteDialogOpen(true);
+                    }}
+                    onClose={() => closeChatMenu(true)}
+                  />
+                ) : null}
+              </MotionPresence>
             </div>
           </>
         )}

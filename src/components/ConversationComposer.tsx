@@ -36,6 +36,7 @@ import {
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { EmojiPicker } from "./EmojiPicker";
+import { MotionPresence } from "./MotionPresence";
 
 interface ConversationComposerProps {
   chatId: string;
@@ -681,21 +682,23 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   return (
     <div className="composer-wrap">
-      {emojiPickerOpen && !editingMessage && (
-        <EmojiPicker
-          chatId={chatId}
-          replyToMessageId={replyingTo?.id ?? chatDraft?.replyToMessageId}
-          onEmoji={insertEmoji}
-          onClose={closeEmojiPicker}
-          onRequestComposerFocus={focusComposer}
-          onPointerEnter={(event) => {
-            if (event.pointerType === "mouse") clearEmojiCloseTimer();
-          }}
-          onPointerLeave={(event) => {
-            if (event.pointerType === "mouse") scheduleEmojiPickerClose();
-          }}
-        />
-      )}
+      <MotionPresence present={emojiPickerOpen && !editingMessage} variant="popover">
+        {emojiPickerOpen && !editingMessage ? (
+          <EmojiPicker
+            chatId={chatId}
+            replyToMessageId={replyingTo?.id ?? chatDraft?.replyToMessageId}
+            onEmoji={insertEmoji}
+            onClose={closeEmojiPicker}
+            onRequestComposerFocus={focusComposer}
+            onPointerEnter={(event) => {
+              if (event.pointerType === "mouse") clearEmojiCloseTimer();
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType === "mouse") scheduleEmojiPickerClose();
+            }}
+          />
+        ) : null}
+      </MotionPresence>
       <input
         ref={fileInputRef}
         className="sr-only"
@@ -842,33 +845,37 @@ export const ConversationComposer = memo(function ConversationComposer({
           </button>
         </div>
       )}
-      {botSuggestions.length > 0 && (
-        <section className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
-          {botSuggestions.map((suggestion, index) => (
-            <button
-              className={index === activeBotSuggestionIndex ? "is-active" : ""}
-              key={`${suggestion.botUserId}-${suggestion.command}`}
-              type="button"
-              role="option"
-              aria-selected={index === activeBotSuggestionIndex}
-              onPointerEnter={() => setActiveBotSuggestionIndex(index)}
-              onClick={() => applyBotSuggestion(suggestion)}
-            >
-              <span className="bot-suggestion-command">
-                <strong>/{suggestion.command}</strong>
-                {suggestion.botUsername && <small>@{suggestion.botUsername}</small>}
-              </span>
-              <span className="bot-suggestion-description">{suggestion.description}</span>
-            </button>
-          ))}
-        </section>
-      )}
-      {(inlineLoading || inlineResults) && (
-        <section className="inline-query-panel" aria-label="Inline 查询结果">
-          {inlineLoading ? <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div> : inlineResults?.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; mentionEntitiesRef.current = []; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>)}
-          {inlineResults?.hasMore && <button type="button" className="inline-query-more" onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>加载更多结果</button>}
-        </section>
-      )}
+      <MotionPresence present={botSuggestions.length > 0} variant="popover">
+        {botSuggestions.length > 0 ? (
+          <section className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
+            {botSuggestions.map((suggestion, index) => (
+              <button
+                className={index === activeBotSuggestionIndex ? "is-active" : ""}
+                key={`${suggestion.botUserId}-${suggestion.command}`}
+                type="button"
+                role="option"
+                aria-selected={index === activeBotSuggestionIndex}
+                onPointerEnter={() => setActiveBotSuggestionIndex(index)}
+                onClick={() => applyBotSuggestion(suggestion)}
+              >
+                <span className="bot-suggestion-command">
+                  <strong>/{suggestion.command}</strong>
+                  {suggestion.botUsername && <small>@{suggestion.botUsername}</small>}
+                </span>
+                <span className="bot-suggestion-description">{suggestion.description}</span>
+              </button>
+            ))}
+          </section>
+        ) : null}
+      </MotionPresence>
+      <MotionPresence present={Boolean(inlineLoading || inlineResults)} variant="popover">
+        {inlineLoading || inlineResults ? (
+          <section className="inline-query-panel" aria-label="Inline 查询结果">
+            {inlineLoading ? <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div> : inlineResults?.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; mentionEntitiesRef.current = []; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>)}
+            {inlineResults?.hasMore && <button type="button" className="inline-query-more" onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>加载更多结果</button>}
+          </section>
+        ) : null}
+      </MotionPresence>
       <div className={`composer ${editingMessage ? "is-editing" : ""}`}>
         <button
           className="icon-button"

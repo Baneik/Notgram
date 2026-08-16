@@ -66,6 +66,64 @@ test("reduced motion is applied from the system and app preferences", async ({ p
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.motion)).toBe("reduced");
 });
 
+test("reduced motion freezes continuous audio visualization", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await page.evaluate(() => {
+    HTMLMediaElement.prototype.play = function play() {
+      this.dispatchEvent(new Event("play"));
+      return Promise.resolve();
+    };
+  });
+
+  await page.getByRole("button", { name: "播放 产品语音.m4a" }).click();
+  const spectrum = page.locator('[data-message-id="p-audio"] .audio-spectrum');
+  await expect(spectrum).toHaveAttribute("data-motion-active", "false");
+  await page.waitForTimeout(200);
+  const firstFrame = await spectrum.evaluate((element) =>
+    (element as HTMLCanvasElement).toDataURL());
+  await page.waitForTimeout(180);
+  const secondFrame = await spectrum.evaluate((element) =>
+    (element as HTMLCanvasElement).toDataURL());
+  expect(secondFrame).toBe(firstFrame);
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.motion)).toBe("full");
+  await expect(spectrum).toHaveAttribute("data-motion-active", "true");
+});
+
+test("presence transitions survive interrupted popover exits and finish toast exits", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+
+  const moreActions = page.getByRole("button", { name: "更多操作" });
+  await moreActions.click();
+  const popoverPresence = page.locator('.motion-presence:has(.chat-action-menu)');
+  await expect(popoverPresence).toHaveAttribute("data-motion-state", "entered");
+  await moreActions.click();
+  await expect(popoverPresence).toHaveAttribute("data-motion-state", "exiting");
+  await moreActions.click();
+  await expect(popoverPresence).toHaveAttribute("data-motion-state", "entered");
+  await page.waitForTimeout(180);
+  await expect(page.getByRole("menu", { name: "会话操作" })).toBeVisible();
+
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: { setState: (state: { operationError: string }) => void };
+    };
+    module.telegramStore.setState({ operationError: "动效退出测试" });
+  }, "/src/store/telegramStore.ts");
+  const toastPresence = page.locator('.motion-presence:has(.operation-error)');
+  await expect(page.getByText("动效退出测试")).toBeVisible();
+  await page.getByRole("button", { name: "关闭操作提示" }).click();
+  await expect(toastPresence).toHaveAttribute("data-motion-state", "exiting");
+  await expect(toastPresence.locator(".operation-error")).toHaveCSS(
+    "animation-name",
+    "motion-toast-out",
+  );
+  await expect(toastPresence).toHaveCount(0);
+});
+
 test("long unbroken content remains contained on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 720 });
   await page.goto("/");
