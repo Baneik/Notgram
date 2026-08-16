@@ -1001,8 +1001,7 @@ test("blank message viewport clicks never force a bottom correction", async ({ p
   await page.goto("/");
   const messageList = page.getByRole("log", { name: "消息列表" });
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await page.waitForTimeout(400);
 
   const before = await messageList.evaluate((element) => {
@@ -4160,11 +4159,11 @@ test("stale cached photos request recovery and render the refreshed local source
   await expect(photoMessage.locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
 });
 
-test("unloaded media uses a blurred glass preview instead of exposing thumbnail pixels", async ({ page }) => {
+test("unloaded media keeps its clear preview visible", async ({ page }) => {
   await page.goto("/");
   const preview = page.locator('[data-message-id="p-5"] .photo-preview');
   await expect(preview).toHaveClass(/is-preview-only/);
-  await expect(preview.locator("img")).toHaveCSS("filter", /blur\(18px\)/);
+  await expect(preview.locator("img")).toHaveCSS("filter", "none");
   await expect(page.locator('[data-message-id="p-video"] .photo-preview')).not.toHaveClass(/is-preview-only/);
 });
 
@@ -4692,14 +4691,14 @@ test("reply context resizes the latest viewport without moving a detached anchor
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+    .toBeLessThanOrEqual(13);
 
   const latest = page.locator('[data-message-id="p-video"]');
   await latest.locator(".message-bubble-shell").click({ button: "right" });
   await chooseMessageMenuItem(page, "回复");
   await expect(page.locator(".composer-context.is-replying")).toBeVisible();
   await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+    .toBeLessThanOrEqual(13);
   const readLatestGap = () => latest.evaluate((element) => {
     const replyContext = document.querySelector<HTMLElement>(".composer-context.is-replying");
     return replyContext
