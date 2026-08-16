@@ -1,4 +1,4 @@
-import { Download, Image as ImageIcon, LoaderCircle, MapPin } from "lucide-react";
+import { Download, Image as ImageIcon, LoaderCircle, MapPin, X } from "lucide-react";
 import {
   createElement,
   Fragment,
@@ -196,6 +196,30 @@ function RichMediaBlock({ media, context, blockKey }: {
   const requestDownload = canDownload && media.fileId !== undefined
     ? () => void context.onDownload(media.fileId!, media.fileName)
     : undefined;
+  const concealedTransferProgress = media.isDownloading ? (
+    <span
+      className="media-progress"
+      role="progressbar"
+      aria-label={`下载 ${media.fileName}`}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round((media.progress ?? 0) * 100)}
+    >
+      {media.fileId !== undefined ? (
+        <button
+          type="button"
+          aria-label={`取消下载 ${media.fileName}`}
+          title="取消下载"
+          onClick={() => void context.onCancelDownload(media.fileId!)}
+        >
+          <MediaProgressRing progress={media.progress} size={30} />
+          <X className="media-progress-cancel" size={14} strokeWidth={2.2} />
+        </button>
+      ) : (
+        <span><MediaProgressRing progress={media.progress} /></span>
+      )}
+    </span>
+  ) : undefined;
 
   let content: ReactNode;
   if (media.mediaType === "audio" || media.mediaType === "voice") {
@@ -289,6 +313,7 @@ function RichMediaBlock({ media, context, blockKey }: {
         <MediaSpoiler
           active={media.hasSpoiler}
           resetKey={`${context.messageId}:${blockKey}`}
+          concealedOverlay={concealedTransferProgress}
         >
           {mediaNode}
         </MediaSpoiler>

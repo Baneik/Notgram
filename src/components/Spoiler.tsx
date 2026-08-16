@@ -83,9 +83,10 @@ export function TextSpoiler({ spoilerId, children }: {
   );
 }
 
-export function MediaSpoiler({ active, resetKey, children }: {
+export function MediaSpoiler({ active, resetKey, concealedOverlay, children }: {
   active: boolean;
   resetKey: string;
+  concealedOverlay?: ReactNode;
   children: ReactNode;
 }) {
   const [visibilityRef, visible] = useElementVisibility<HTMLDivElement>("0px");
@@ -107,54 +108,63 @@ export function MediaSpoiler({ active, resetKey, children }: {
   const concealed = !revealed;
 
   return (
-    <div
-      ref={visibilityRef}
-      className={`media-spoiler ${concealed ? "is-concealed" : "is-revealed"}`}
-      data-spoiler-state={concealed ? "concealed" : "revealed"}
-    >
+    <>
       <div
-        className="media-spoiler-content"
-        inert={concealed ? true : undefined}
-        aria-hidden={concealed ? true : undefined}
+        ref={visibilityRef}
+        className={`media-spoiler ${concealed ? "is-concealed" : "is-revealed"}`}
+        data-spoiler-state={concealed ? "concealed" : "revealed"}
       >
-        {children}
-      </div>
-      <svg className="media-spoiler-prism-definitions" aria-hidden="true" focusable="false">
-        <defs>
-          <linearGradient id={prismGradientId} x1="0%" y1="0%" x2="100%" y2="0%" spreadMethod="repeat">
-            <stop offset="0%" stopColor="#000000" />
-            <stop offset="50%" stopColor="#ffffff" />
-            <stop offset="100%" stopColor="#000000" />
-          </linearGradient>
-          <pattern id={prismPatternId} width="24" height="1" patternUnits="userSpaceOnUse">
-            <rect width="24" height="1" fill={`url(#${prismGradientId})`} />
-          </pattern>
-          <filter id={prismFilterId} x="0%" y="0%" width="100%" height="100%">
-            <feImage href={`#${prismPatternId}`} result="grid" preserveAspectRatio="none" />
-            <feDisplacementMap
-              in="SourceGraphic"
-              in2="grid"
-              scale="35"
-              xChannelSelector="R"
-              yChannelSelector="R"
+        <div className="media-spoiler-layers">
+          <div
+            className="media-spoiler-content"
+            inert={concealed ? true : undefined}
+            aria-hidden={concealed ? true : undefined}
+          >
+            {children}
+          </div>
+          <svg className="media-spoiler-prism-definitions" aria-hidden="true" focusable="false">
+            <defs>
+              <linearGradient id={prismGradientId} x1="0%" y1="0%" x2="100%" y2="0%" spreadMethod="repeat">
+                <stop offset="0%" stopColor="#000000" />
+                <stop offset="50%" stopColor="#ffffff" />
+                <stop offset="100%" stopColor="#000000" />
+              </linearGradient>
+              <pattern id={prismPatternId} width="24" height="1" patternUnits="userSpaceOnUse">
+                <rect width="24" height="1" fill={`url(#${prismGradientId})`} />
+              </pattern>
+              <filter id={prismFilterId} x="0%" y="0%" width="100%" height="100%">
+                <feImage href={`#${prismPatternId}`} result="grid" preserveAspectRatio="none" />
+                <feDisplacementMap
+                  in="SourceGraphic"
+                  in2="grid"
+                  scale="35"
+                  xChannelSelector="R"
+                  yChannelSelector="R"
+                />
+              </filter>
+            </defs>
+          </svg>
+          <span
+            className="media-spoiler-prism"
+            aria-hidden="true"
+            style={{ filter: `url(#${prismFilterId})` }}
+          />
+          {concealed && (
+            <button
+              className="media-spoiler-reveal"
+              type="button"
+              aria-label="显示遮罩媒体"
+              title="显示媒体"
+              onClick={() => setRevealed(true)}
             />
-          </filter>
-        </defs>
-      </svg>
-      <span
-        className="media-spoiler-prism"
-        aria-hidden="true"
-        style={{ filter: `url(#${prismFilterId})` }}
-      />
-      {concealed && (
-        <button
-          className="media-spoiler-reveal"
-          type="button"
-          aria-label="显示遮罩媒体"
-          title="显示媒体"
-          onClick={() => setRevealed(true)}
-        />
+          )}
+        </div>
+      </div>
+      {concealed && concealedOverlay && (
+        <div className="media-spoiler-status">
+          {concealedOverlay}
+        </div>
       )}
-    </div>
+    </>
   );
 }

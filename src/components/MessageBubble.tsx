@@ -450,6 +450,27 @@ function MessageBubbleComponent({
     content.isUploading === true;
   const canCancelDownload = (content.kind === "file" || content.kind === "media") &&
     downloadFileId !== undefined && content.isDownloading === true;
+  const renderMediaTransferProgress = () => content.kind === "media" &&
+    (content.isDownloading || content.isUploading) ? (
+      <span
+        className="media-progress"
+        role="progressbar"
+        aria-label={`${content.isUploading ? "上传" : "下载"} ${downloadFileName}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(transferProgress * 100)}
+      >
+        {(canCancelUpload || canCancelDownload) && (
+          <button type="button" aria-label={`${canCancelUpload ? "取消上传" : "取消下载"} ${downloadFileName}`} title={canCancelUpload ? "取消上传" : "取消下载"} onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onCancelDownload(downloadFileId!)}>
+            <MediaProgressRing progress={transferProgress} size={30} />
+            <X className="media-progress-cancel" size={14} strokeWidth={2.2} />
+          </button>
+        )}
+        {!canCancelUpload && !canCancelDownload && (
+          <span><MediaProgressRing progress={transferProgress} /></span>
+        )}
+      </span>
+    ) : undefined;
   const localFilePath = content.kind === "file" || content.kind === "media"
     ? content.localPath
     : undefined;
@@ -846,6 +867,7 @@ function MessageBubbleComponent({
                 <MediaSpoiler
                   active={content.hasSpoiler === true}
                   resetKey={`${message.chatId}:${message.id}`}
+                  concealedOverlay={renderMediaTransferProgress()}
                 >
                 {["video", "videoNote"].includes(content.mediaType) ? (
                   <VideoPlayer
@@ -991,26 +1013,7 @@ function MessageBubbleComponent({
                     {previewSource ? <Play size={19} fill="currentColor" /> : <Download size={19} />}
                   </button>
                 )}
-                {(content.isDownloading || content.isUploading) && (
-                  <span
-                    className="media-progress"
-                    role="progressbar"
-                    aria-label={`${content.isUploading ? "上传" : "下载"} ${downloadFileName}`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(transferProgress * 100)}
-                  >
-                    {(canCancelUpload || canCancelDownload) && (
-                      <button type="button" aria-label={`${canCancelUpload ? "取消上传" : "取消下载"} ${downloadFileName}`} title={canCancelUpload ? "取消上传" : "取消下载"} onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onCancelDownload(downloadFileId!)}>
-                        <MediaProgressRing progress={transferProgress} size={30} />
-                        <X className="media-progress-cancel" size={14} strokeWidth={2.2} />
-                      </button>
-                    )}
-                    {!canCancelUpload && !canCancelDownload && (
-                      <span><MediaProgressRing progress={transferProgress} /></span>
-                    )}
-                  </span>
-                )}
+                {renderMediaTransferProgress()}
                 </MediaSpoiler>
               </div>
               {hasCaption && content.caption && (

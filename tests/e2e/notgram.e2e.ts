@@ -4167,20 +4167,32 @@ test("spoilers reveal on click and reset after leaving the viewport", async ({ p
   await expect(photoMessage).toBeVisible();
   let mediaSpoiler = photoMessage.locator('.media-spoiler[data-spoiler-state="concealed"]');
   const concealedContent = mediaSpoiler.locator(".media-spoiler-content");
-  await expect(mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" })).toBeVisible();
+  const revealMedia = mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" });
+  await expect(revealMedia).toBeVisible();
   await expect(concealedContent).toHaveAttribute("inert", "");
+  await expect(concealedContent).toHaveCSS("z-index", "0");
   await expect(concealedContent).toHaveCSS("filter", /blur\(12px\) saturate\(0.78\) brightness\(0.84\)/);
   const prism = mediaSpoiler.locator(".media-spoiler-prism");
   await expect(prism).toHaveCount(1);
+  await expect(prism).toHaveCSS("z-index", "10");
   await expect(prism).toHaveCSS("background-size", "24px 100%");
   await expect(prism).toHaveCSS("backdrop-filter", /blur\(24px\) saturate\(0.92\)/);
   await expect(prism).toHaveCSS("filter", /url/);
+  await expect(revealMedia).toHaveCSS("z-index", "20");
+  await expect(mediaSpoiler.locator(":scope > .media-spoiler-layers")).toHaveCSS("z-index", "0");
+  const spoilerStatus = photoMessage.locator(".photo-preview > .media-spoiler-status");
+  await expect(spoilerStatus).toHaveCSS("z-index", "30");
+  await expect(spoilerStatus).toHaveCSS("will-change", "transform");
+  await expect(spoilerStatus.getByRole("progressbar", { name: "下载 界面预览.jpg" }))
+    .toHaveAttribute("aria-valuenow", "62");
 
-  await mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" }).click();
+  await revealMedia.click({ position: { x: 12, y: 12 } });
   mediaSpoiler = photoMessage.locator('.media-spoiler[data-spoiler-state="revealed"]');
   await expect(mediaSpoiler).toBeVisible();
   await expect(mediaSpoiler.locator(".media-spoiler-content")).not.toHaveAttribute("inert", "");
   await expect(mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" })).toHaveCount(0);
+  await expect(photoMessage.locator(".photo-preview > .media-spoiler-status")).toHaveCount(0);
+  await expect(mediaSpoiler.getByRole("progressbar", { name: "下载 界面预览.jpg" })).toBeVisible();
   await expect(mediaSpoiler.locator(".media-spoiler-prism")).toHaveCSS("opacity", "0");
 
   const popupPromise = page.waitForEvent("popup");
@@ -4194,6 +4206,65 @@ test("spoilers reveal on click and reset after leaving the viewport", async ({ p
   photoMessage = page.locator('[data-message-id="p-5"]');
   await expect(photoMessage).toBeVisible();
   await expect(photoMessage.locator('.media-spoiler[data-spoiler-state="concealed"]')).toBeVisible();
+});
+
+test("rich media transfer controls stay above spoiler reveal layers", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async (storePath) => {
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Message[]> };
+        setState: (partial: {
+          messages: Map<string, Message[]>;
+          cancelFileDownload: (fileId: number) => Promise<void>;
+        }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) => {
+      if (message.id !== "p-rich-message" || message.content.kind !== "rich") return message;
+      return {
+        ...message,
+        content: {
+          ...message.content,
+          blocks: message.content.blocks.map((block) => block.kind === "media" ? {
+            ...block,
+            media: {
+              ...block.media,
+              fileId: 611,
+              isDownloaded: false,
+              isDownloading: true,
+              progress: 0.44,
+              hasSpoiler: true,
+            },
+          } : block),
+        },
+      };
+    }));
+    (window as unknown as { __notgramCancelledDownloads: number[] }).__notgramCancelledDownloads = [];
+    storeModule.telegramStore.setState({
+      messages,
+      cancelFileDownload: async (fileId) => {
+        (window as unknown as { __notgramCancelledDownloads: number[] })
+          .__notgramCancelledDownloads.push(fileId);
+      },
+    });
+  }, "/src/store/telegramStore.ts");
+
+  const richMessage = await revealVirtualMessage(page, "p-rich-message");
+  const mediaSpoiler = richMessage.locator('.rich-media-block .media-spoiler[data-spoiler-state="concealed"]');
+  await mediaSpoiler.scrollIntoViewIfNeeded();
+  await expect(mediaSpoiler.locator(".media-spoiler-content")).toHaveAttribute("inert", "");
+  const status = richMessage.locator(".rich-media-visual > .media-spoiler-status");
+  await expect(status).toHaveCSS("z-index", "30");
+  const progress = status.getByRole("progressbar", { name: "下载 Bot chart" });
+  await expect(progress).toHaveAttribute("aria-valuenow", "44");
+  await progress.getByRole("button", { name: "取消下载 Bot chart" }).click();
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramCancelledDownloads: number[] }
+  ).__notgramCancelledDownloads)).toEqual([611]);
+  await expect(mediaSpoiler).toHaveAttribute("data-spoiler-state", "concealed");
 });
 
 test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoom and dragging", async ({ page }) => {
