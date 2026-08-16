@@ -153,6 +153,14 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
         interaction_info: update.interaction_info,
       });
       return;
+    case "updateMessageMentionRead":
+      handlers.patchChat(update.chat_id, {
+        unread_mention_count: update.unread_mention_count,
+      });
+      handlers.patchMessage(update.chat_id, update.message_id, {
+        contains_unread_mention: false,
+      });
+      return;
     case "updateChatReadOutbox":
       handlers.updateReadOutbox(update);
       return;

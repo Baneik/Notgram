@@ -2029,7 +2029,6 @@ export class MockTelegramTransport implements TelegramTransport {
       .filter((message) => message.chatId === chatId && !message.outgoing)
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt))[0];
     chat.unreadCount = 0;
-    chat.unreadMentionCount = 0;
     chat.lastReadInboxMessageId = latestIncomingMessage?.id ?? chat.lastReadInboxMessageId;
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
@@ -2038,10 +2037,23 @@ export class MockTelegramTransport implements TelegramTransport {
     const topic = this.ensureForumTopics(chatId).find((item) => item.id === topicId);
     if (!topic || !this.snapshot.messages.some((message) => message.id === messageId && message.topicId === topicId)) return;
     topic.unreadCount = 0;
-    topic.unreadMentionCount = 0;
-    topic.unreadReactionCount = 0;
     topic.lastReadInboxMessageId = messageId;
     this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
+  async markMessageAttentionRead(chatId: string, messageIds: string[]) {
+    const requestedIds = new Set(messageIds);
+    const readMessages = this.snapshot.messages.filter(
+      (message) => message.chatId === chatId && requestedIds.has(message.id) && message.containsUnreadMention,
+    );
+    for (const message of readMessages) {
+      message.containsUnreadMention = false;
+      this.listener?.({ type: "message.upsert", message: clone(message) });
+    }
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (!chat || readMessages.length === 0) return;
+    chat.unreadMentionCount = Math.max(0, chat.unreadMentionCount - readMessages.length);
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
   private appendMessage(message: Message) {

@@ -1040,6 +1040,36 @@ describe("TauriTelegramTransport startup", () => {
     })]);
   });
 
+  it("clears the unread mention flag from message updates", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.upsertChat({
+      ...rawChat(7, 1_700_000_007),
+      unread_mention_count: 1,
+    });
+    internal.finishInitialChatSync();
+    internal.emitMessage({ ...rawMessage(15), contains_unread_mention: true });
+    events.length = 0;
+
+    internal.handleUpdate({
+      "@type": "updateMessageMentionRead",
+      chat_id: 7,
+      message_id: 15,
+      unread_mention_count: 0,
+    });
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "message.upsert",
+      message: expect.objectContaining({ id: "15", containsUnreadMention: false }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "chat.upsert",
+      chat: expect.objectContaining({ id: "7", unreadMentionCount: 0 }),
+    }));
+  });
+
   it("loads chat lists incrementally and records TDLib exhaustion", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
@@ -1189,7 +1219,7 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(3);
   });
 
-  it("leaves chats and persists message and mention read state without redundant refreshes", async () => {
+  it("leaves chats and persists message read state without clearing mentions", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -1219,12 +1249,11 @@ describe("TauriTelegramTransport startup", () => {
         source: { "@type": "messageSourceChatHistory" },
         force_read: true,
       },
-      { "@type": "readAllChatMentions", chat_id: 7 },
     ]);
     expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(1);
   });
 
-  it("persists mention read state when the chat has no other unread messages", async () => {
+  it("keeps mention-only chats unread until the mentioned message is viewed", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -1241,10 +1270,58 @@ describe("TauriTelegramTransport startup", () => {
 
     await transport.markChatRead("7");
 
+    expect(requests).toEqual([]);
+  });
+
+  it("marks only the visible attention messages as viewed", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.markMessageAttentionRead("7", ["12", "11", "12"]);
+
     expect(requests).toEqual([{
-      "@type": "readAllChatMentions",
+      "@type": "viewMessages",
       chat_id: 7,
+      message_ids: [12, 11],
+      source: { "@type": "messageSourceChatHistory" },
+      force_read: true,
     }]);
+  });
+
+  it("does not overwrite newer chat updates after a read request", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & {
+      rawChats: Map<string, TdObject>;
+    };
+    const initialChat = { ...rawChat(7, 1_700_000_007), unread_count: 4 };
+    let finishRequest!: () => void;
+    internal.finishInitialChatSync();
+    internal.upsertChat(initialChat);
+    internal.request = async () => {
+      await new Promise<void>((resolve) => {
+        finishRequest = resolve;
+      });
+      return { "@type": "ok" };
+    };
+
+    const read = transport.markChatRead("7");
+    await vi.waitFor(() => expect(finishRequest).toBeTypeOf("function"));
+    const newerChat = {
+      ...rawChat(7, 1_700_000_008),
+      title: "newer chat",
+      unread_count: 1,
+      unread_mention_count: 1,
+    };
+    internal.upsertChat(newerChat);
+    finishRequest();
+    await read;
+
+    expect(internal.rawChats.get("7")).toBe(newerChat);
   });
 
   it("creates and renames folders with complete TDLib folder objects", async () => {
@@ -2195,12 +2272,8 @@ describe("TauriTelegramTransport message operations", () => {
       message_ids: [15],
       force_read: true,
     });
-    expect(requests.find((request) => request["@type"] === "readAllForumTopicMentions"))
-      .toEqual({
-        "@type": "readAllForumTopicMentions",
-        chat_id: 7,
-        forum_topic_id: 12,
-      });
+    expect(requests.some((request) => request["@type"] === "readAllForumTopicMentions"))
+      .toBe(false);
     expect(events).not.toContainEqual(expect.objectContaining({
       type: "message.upsert",
       message: expect.objectContaining({ id: "15", chatId: "7" }),

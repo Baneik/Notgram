@@ -486,6 +486,14 @@ export function Conversation({
     },
     [allPinnedMessages, displayMessages, pinnedViewOpen],
   );
+  const attentionMessageIdsToObserve = useMemo(() => {
+    if (pinnedViewOpen) return EMPTY_ATTENTION_MESSAGE_IDS;
+    const messageIds = new Set(attentionMessageIds);
+    for (const message of renderedMessages) {
+      if (message.containsUnreadMention) messageIds.add(message.id);
+    }
+    return [...messageIds];
+  }, [attentionMessageIds, pinnedViewOpen, renderedMessages]);
 
   const focusComposer = useCallback(() => {
     globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
@@ -873,9 +881,9 @@ export function Conversation({
     const conversation = conversationRef.current;
     if (
       pinnedViewOpen || !chat || !messageListElement ||
-      !conversation || attentionMessageIds.length === 0
+      !conversation || attentionMessageIdsToObserve.length === 0
     ) return;
-    const attentionIds = new Set(attentionMessageIds);
+    const attentionIds = new Set(attentionMessageIdsToObserve);
     const visibleIds = new Set<string>();
     const observedRows = new Set<Element>();
     const consumeVisibleAttention = () => {
@@ -884,8 +892,10 @@ export function Conversation({
         document.visibilityState !== "visible" ||
         !conversation.contains(document.activeElement)
       ) return;
-      for (const messageId of visibleIds) {
-        if (attentionIds.has(messageId)) dismissMessageAttention(chat.id, messageId);
+      const visibleAttentionIds = [...visibleIds]
+        .filter((messageId) => attentionIds.has(messageId));
+      if (visibleAttentionIds.length > 0) {
+        dismissMessageAttention(chat.id, visibleAttentionIds);
       }
     };
     const observer = new IntersectionObserver((entries) => {
@@ -921,7 +931,7 @@ export function Conversation({
       document.removeEventListener("visibilitychange", consumeVisibleAttention);
     };
   }, [
-    attentionMessageIds,
+    attentionMessageIdsToObserve,
     chat,
     dismissMessageAttention,
     messageListElement,
@@ -1845,12 +1855,7 @@ export function Conversation({
             title="跳到提及或引用"
             onClick={() => {
               const messageId = attentionMessageIds.at(-1);
-              if (
-                chat && messageId &&
-                revealAttentionMessage(messageId)
-              ) {
-                dismissMessageAttention(chat.id, messageId);
-              }
+              if (chat && messageId) revealAttentionMessage(messageId);
             }}
           >
             <AtSign size={19} strokeWidth={2.1} />

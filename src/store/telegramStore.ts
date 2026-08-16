@@ -153,6 +153,10 @@ export const createTelegramStore = (
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const liveAttentionCandidates = new Set<string>();
+    // Visibility observers can fire repeatedly before TDLib publishes the mention-read update.
+    const attentionReadRequests = new Set<string>();
+    const acknowledgedAttentionMessages = new Set<string>();
+    let attentionReadGeneration = 0;
     const messageChangeListeners = new Set<MessageChangeListener>();
     const publishMessageChange = (event: MessageChangeEvent) => {
       for (const listener of messageChangeListeners) listener(event);
@@ -349,6 +353,9 @@ export const createTelegramStore = (
       draftSync.clear();
       clearTypingUsers();
       liveAttentionCandidates.clear();
+      attentionReadRequests.clear();
+      acknowledgedAttentionMessages.clear();
+      attentionReadGeneration += 1;
       for (const timer of readTimers.values()) globalThis.clearTimeout(timer);
       readTimers.clear();
       readRequestChains.clear();
@@ -722,9 +729,7 @@ export const createTelegramStore = (
       const topic = get().forumTopics.get(chatId)?.find((candidate) => candidate.id === topicId);
       if (
         topic?.lastReadInboxMessageId === latestIncoming.id &&
-        topic.unreadCount === 0 &&
-        topic.unreadMentionCount === 0 &&
-        topic.unreadReactionCount === 0
+        topic.unreadCount === 0
       ) return false;
       try {
         await transport.markForumTopicRead(chatId, topicId, latestIncoming.id);
@@ -733,8 +738,6 @@ export const createTelegramStore = (
           ? {
               ...topic,
               unreadCount: 0,
-              unreadMentionCount: 0,
-              unreadReactionCount: 0,
               lastReadInboxMessageId: latestIncoming.id,
             }
           : topic));
@@ -1905,13 +1908,45 @@ export const createTelegramStore = (
         if (chatId) await markActiveConversationRead(chatId);
       },
 
-      dismissMessageAttention: (chatId, messageId) => {
-        const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
-        const remaining = (unreadAttentionMessageIds.get(chatId) ?? [])
-          .filter((candidate) => candidate !== messageId);
-        if (remaining.length > 0) unreadAttentionMessageIds.set(chatId, remaining);
-        else unreadAttentionMessageIds.delete(chatId);
-        set({ unreadAttentionMessageIds });
+      dismissMessageAttention: (chatId, messageIds) => {
+        const pendingMessageIds = [...new Set(messageIds.filter(Boolean))].filter((messageId) => {
+          const key = `${chatId}:${messageId}`;
+          return !attentionReadRequests.has(key) && !acknowledgedAttentionMessages.has(key);
+        });
+        if (pendingMessageIds.length === 0) return;
+        const requestGeneration = attentionReadGeneration;
+        for (const messageId of pendingMessageIds) {
+          attentionReadRequests.add(`${chatId}:${messageId}`);
+        }
+        void transport.markMessageAttentionRead(chatId, pendingMessageIds)
+          .then(() => {
+            if (requestGeneration !== attentionReadGeneration) return;
+            const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
+            const readIds = new Set(pendingMessageIds);
+            const remaining = (unreadAttentionMessageIds.get(chatId) ?? [])
+              .filter((candidate) => !readIds.has(candidate));
+            if (remaining.length > 0) unreadAttentionMessageIds.set(chatId, remaining);
+            else unreadAttentionMessageIds.delete(chatId);
+            for (const messageId of pendingMessageIds) {
+              acknowledgedAttentionMessages.add(`${chatId}:${messageId}`);
+            }
+            while (acknowledgedAttentionMessages.size > 2_048) {
+              acknowledgedAttentionMessages.delete(
+                acknowledgedAttentionMessages.values().next().value!,
+              );
+            }
+            set({ unreadAttentionMessageIds });
+          })
+          .catch((error) => {
+            if (requestGeneration !== attentionReadGeneration) return;
+            set({ operationError: errorMessage(error, "无法更新提醒已读状态") });
+          })
+          .finally(() => {
+            if (requestGeneration !== attentionReadGeneration) return;
+            for (const messageId of pendingMessageIds) {
+              attentionReadRequests.delete(`${chatId}:${messageId}`);
+            }
+          });
       },
 
       loadMessageProperties: async (chatId, messageId) => {

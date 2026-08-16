@@ -1700,9 +1700,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   async markChatRead(chatId: string) {
     const rawChat = this.rawChats.get(chatId) ?? await this.refreshChat(chatId);
     const unreadCount = tdNumber(rawChat.unread_count) ?? 0;
-    const unreadMentionCount = tdNumber(rawChat.unread_mention_count) ?? 0;
     const isMarkedAsUnread = rawChat.is_marked_as_unread === true;
-    if (unreadCount === 0 && unreadMentionCount === 0 && !isMarkedAsUnread) return;
+    if (unreadCount === 0 && !isMarkedAsUnread) return;
     const lastMessageId = tdNumber(asTdObject(rawChat.last_message)?.id);
     if (unreadCount > 0 && lastMessageId !== undefined) {
       await this.request({
@@ -1713,12 +1712,6 @@ export class TauriTelegramTransport implements TelegramTransport {
         force_read: true,
       });
     }
-    if (unreadMentionCount > 0) {
-      await this.request({
-        "@type": "readAllChatMentions",
-        chat_id: numericId(chatId),
-      });
-    }
     if (isMarkedAsUnread) {
       await this.request({
         "@type": "toggleChatIsMarkedAsUnread",
@@ -1726,13 +1719,17 @@ export class TauriTelegramTransport implements TelegramTransport {
         is_marked_as_unread: false,
       });
     }
-    this.upsertChat({
-      ...rawChat,
-      unread_count: 0,
-      unread_mention_count: 0,
-      is_marked_as_unread: false,
-      last_read_inbox_message_id: lastMessageId ?? rawChat.last_read_inbox_message_id,
-    });
+    // A TDLib update received during either request owns the newer chat snapshot.
+    if (this.rawChats.get(chatId) === rawChat) {
+      this.upsertChat({
+        ...rawChat,
+        unread_count: unreadCount > 0 ? 0 : rawChat.unread_count,
+        is_marked_as_unread: isMarkedAsUnread ? false : rawChat.is_marked_as_unread,
+        last_read_inbox_message_id: unreadCount > 0 && lastMessageId !== undefined
+          ? lastMessageId
+          : rawChat.last_read_inbox_message_id,
+      });
+    }
   }
 
   async markForumTopicRead(chatId: string, topicId: string, messageId: string) {
@@ -1744,10 +1741,17 @@ export class TauriTelegramTransport implements TelegramTransport {
       source: { "@type": "messageSourceChatHistory" },
       force_read: true,
     });
+  }
+
+  async markMessageAttentionRead(chatId: string, messageIds: string[]) {
+    const uniqueMessageIds = [...new Set(messageIds.map(numericId))];
+    if (uniqueMessageIds.length === 0) return;
     await this.request({
-      "@type": "readAllForumTopicMentions",
+      "@type": "viewMessages",
       chat_id: numericId(chatId),
-      forum_topic_id: numericId(topicId),
+      message_ids: uniqueMessageIds,
+      source: { "@type": "messageSourceChatHistory" },
+      force_read: true,
     });
   }
 

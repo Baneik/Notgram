@@ -1879,6 +1879,29 @@ describe("telegram store", () => {
     expect(transport.topicReads.at(-1)).toMatchObject({ chatId: "chat-forum", topicId: "12" });
   });
 
+  it("preserves forum attention counts when only the message read boundary advances", async () => {
+    class TopicReadTransport extends MockTelegramTransport {
+      override async markForumTopicRead() {}
+    }
+
+    const store = createTelegramStore(new TopicReadTransport());
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-forum", { forumTopicId: "12" });
+    await vi.waitFor(() => expect(
+      store.getState().messages.get("chat-forum")?.some((message) => message.topicId === "12"),
+    ).toBe(true));
+    const forumTopics = new Map(store.getState().forumTopics);
+    forumTopics.set("chat-forum", (forumTopics.get("chat-forum") ?? []).map((topic) => topic.id === "12"
+      ? { ...topic, unreadCount: 3, unreadMentionCount: 2, unreadReactionCount: 1 }
+      : topic));
+    store.setState({ forumTopics });
+
+    await store.getState().markActiveChatRead();
+
+    expect(store.getState().forumTopics.get("chat-forum")?.find((topic) => topic.id === "12"))
+      .toMatchObject({ unreadCount: 0, unreadMentionCount: 2, unreadReactionCount: 1 });
+  });
+
   it("returns to the last topic when a forum chat is opened again", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();
@@ -3071,10 +3094,15 @@ describe("chat filtering", () => {
   it("queues only live mentions and replies to the current user", async () => {
     class LiveEventTransport extends MockTelegramTransport {
       private events?: TelegramEventListener;
+      attentionReads: Array<{ chatId: string; messageIds: string[] }> = [];
 
       override async connect(listener: TelegramEventListener) {
         this.events = listener;
         return super.connect(listener);
+      }
+
+      override async markMessageAttentionRead(chatId: string, messageIds: string[]) {
+        this.attentionReads.push({ chatId, messageIds: [...messageIds] });
       }
 
       dispatch(event: TelegramEvent) {
@@ -3148,10 +3176,19 @@ describe("chat filtering", () => {
     expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
       .toEqual(["attention-mention", "attention-reply", "attention-hydrated-reply"]);
 
-    store.getState().dismissMessageAttention("chat-product", "attention-hydrated-reply");
-    store.getState().dismissMessageAttention("chat-product", "attention-reply");
-    store.getState().dismissMessageAttention("chat-product", "attention-mention");
-    expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false);
+    store.getState().dismissMessageAttention("chat-product", [
+      "attention-hydrated-reply",
+      "attention-reply",
+      "attention-mention",
+      "attention-reply",
+    ]);
+    await vi.waitFor(() => {
+      expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false);
+    });
+    expect(transport.attentionReads).toEqual([{
+      chatId: "chat-product",
+      messageIds: ["attention-hydrated-reply", "attention-reply", "attention-mention"],
+    }]);
   });
 
   it("surfaces incompatible Telegram links instead of treating reserved routes as chats", async () => {

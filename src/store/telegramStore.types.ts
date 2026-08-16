@@ -181,7 +181,7 @@ export interface TelegramState {
   loadMoreHistory: (chatId: string) => Promise<void>;
   loadMessage: (chatId: string, messageId: string, options?: { forceContext?: boolean }) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
-  dismissMessageAttention: (chatId: string, messageId: string) => void;
+  dismissMessageAttention: (chatId: string, messageIds: string[]) => void;
   loadMessageProperties: (
     chatId: string,
     messageId: string,
