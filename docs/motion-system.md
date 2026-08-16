@@ -13,11 +13,14 @@ reduced-motion guidance from [web.dev](https://web.dev/articles/prefers-reduced-
 | Transient surfaces | Dialogs, drawers, toasts, anchored popovers | `MotionPresence` with a semantic `variant` |
 | Local feedback | New/deleted messages, spoiler reveal, media state | CSS animation using the shared tokens |
 | Content navigation | Explicit jumps to a distant message | Snapshot-assisted WAAPI motion from `conversationJumpMotion` |
+| Conversation handoff | Hide virtual-list measurement latency without changing state | Inert, bounded source-shell snapshot |
 | Continuous feedback | Loading, animated media, audio spectrum | Only while active and when reduced motion is disabled |
 | Async feedback | Loading, pending actions, image decode | Delayed visibility and a bounded minimum visible time |
 
-Normal conversation switches, scroll restoration, composer resizing, and virtual-list measurement
-are not presentation animations. They must remain under their existing single-owner coordinators.
+Conversation selection, scroll restoration, composer resizing, and virtual-list measurement are not
+presentation animations. They remain under their existing single-owner coordinators. A normal switch
+may use the bounded visual handoff above, but that layer cannot delay, select, measure, or write the
+destination.
 
 ## Shared tokens
 
@@ -75,8 +78,10 @@ performance sampling stop scheduling frames and resume from current state when v
 1. Animate `opacity` and `transform`; do not animate layout dimensions or virtual-list position.
 2. A scroll position has one writer. Animation code may request a semantic destination but cannot
    compete with `useConversationScroll`.
-3. Conversation switches do not use cloned page snapshots or smooth scrolling. Only explicit,
-   distant message jumps may use the bounded directional snapshot.
+3. Conversation switches do not use smooth scrolling or interactive/state-owning page snapshots.
+   Their optional source-shell handoff is `aria-hidden`, inert, pointer-transparent, interruptible,
+   and forcibly removed within 1500 ms. Explicit distant message jumps use a separate bounded
+   directional snapshot.
 4. New message animation is registered once by message identity and cannot replay after
    virtualization or conversation restoration.
 5. Reduced motion is both CSS and JavaScript policy. CSS transitions collapse, smooth scrolling is

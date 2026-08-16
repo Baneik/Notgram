@@ -5,7 +5,8 @@ viewport positioning. It is a contract for future changes, not a description of 
 
 ## Evidence from the db808d7 artifact
 
-The latest portable artifact was built from clean commit `db808d7`. Its performance log shows that
+The portable artifact used for the `16fd66a` state-model analysis was built from clean commit
+`db808d7`. Its performance log shows that
 selection and data projection were usually fast, while stage 6 (scroll positioning) frequently took
 roughly 240-334 ms. Some navigation traces stayed open until the 8 second timeout. The same sessions
 also contain repeated long frames and layout shifts.
@@ -39,7 +40,8 @@ Every user-visible route into a conversation follows this order:
 1. Resolve the destination chat/topic and the viewport intent.
 2. In one synchronous React transaction, issue the viewport command and call `selectChat` or
    `selectForumTopic`.
-3. Let the destination shell render immediately. Do not cover it with a clone of the source view.
+3. Let the destination shell render immediately. A bounded visual handoff may cover measurement
+   latency, but it must not participate in destination selection or positioning.
 4. Start or continue background history work using the captured destination generation.
 5. Ignore an asynchronous result when its generation or request is no longer current.
 
@@ -47,9 +49,13 @@ Selection methods are synchronous by contract. Read markers, history loading, an
 continue in the background, but callers must never await them before committing the selected
 destination.
 
-The full-screen conversation switch snapshot is prohibited. A local snapshot remains valid for an
-explicit in-conversation message jump because that operation has one owner, one list, and a bounded
-animation.
+An interactive, state-owning, or unbounded conversation switch snapshot is prohibited. The current
+visual handoff is deliberately narrower: it clones only the already rendered shell into a closed
+shadow root, copies canvas pixels, is `aria-hidden`, inert, and ignores pointer input. Destination
+readiness starts its 90 ms release and a 1500 ms bound removes it even when readiness never arrives;
+resize, unmount, and a newer switch cancel it. It cannot choose a destination, write scroll state,
+or delay background work. A separate local snapshot remains valid for an explicit in-conversation
+message jump because that operation has one owner, one list, and a bounded animation.
 
 ## Positioning completion
 
@@ -83,7 +89,8 @@ frames after the target first appears.
 
 - A selected chat row, conversation header, and rendered message IDs always name the same destination.
 - One click commits the destination; a second click is never part of the switching protocol.
-- No source conversation clone remains above a selected destination.
+- Any source-view visual handoff is non-interactive, cannot own state, and is removed within its
+  bounded lifecycle.
 - `positioned` is emitted once per current request and only after its settlement callback.
 - A following conversation remains visually motionless across idle frames.
 - A detached conversation never moves because of a bottom-following notification.
