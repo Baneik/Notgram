@@ -17,7 +17,9 @@ import type { ProfileState } from "../store/profileState";
 import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
 import type { ChatReportOptions, ReportChatInput } from "../telegram/types";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { Avatar } from "./Avatar";
+import { MotionPresence } from "./MotionPresence";
 import { SharedMediaBrowser } from "./SharedMediaBrowser";
 import { ReportDialog } from "./SafetySettings";
 
@@ -78,6 +80,14 @@ export function ProfileDrawer({
   const [mediaOpen, setMediaOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const profile = state.value;
+  const waitingForProfile = state.loading && !profile;
+  const showProfileLoading = useStableVisibility(waitingForProfile);
+  const showMembersLoading = useStableVisibility(Boolean(state.membersLoading), { minimumVisible: 220 });
+  const statusKind = showProfileLoading
+    ? "loading"
+    : !waitingForProfile && state.error && !profile
+      ? "error"
+      : !waitingForProfile && !profile ? "empty" : undefined;
 
   return (
     <div className="profile-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -97,17 +107,16 @@ export function ProfileDrawer({
           <span />
         </header>
         <div className="profile-drawer-scroll">
-          {state.loading && !profile ? (
-            <div className="profile-state" role="status"><LoaderCircle className="spin" size={22} /></div>
-          ) : state.error && !profile ? (
-            <div className="profile-state is-error" role="alert">
-              <span>{state.error}</span>
-              <button className="dialog-secondary" type="button" onClick={onRetry}>
-                <RefreshCw size={15} />
-                <span>重试</span>
-              </button>
-            </div>
-          ) : profile ? (
+          <MotionPresence present={Boolean(statusKind)} variant="status">
+            {statusKind ? (
+              <div key={statusKind} className={`profile-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"}>
+                {statusKind === "loading" ? <LoaderCircle className="spin" size={22} /> : statusKind === "error" ? (
+                  <><span>{state.error}</span><button className="dialog-secondary" type="button" onClick={onRetry}><RefreshCw size={15} /><span>重试</span></button></>
+                ) : <span>没有可显示的资料</span>}
+              </div>
+            ) : null}
+          </MotionPresence>
+          {!statusKind && profile ? (
             <>
               <section className="profile-hero" aria-labelledby="profile-name">
                 <Avatar avatar={profile.avatar} size="large" />
@@ -221,7 +230,7 @@ export function ProfileDrawer({
                         disabled={state.membersLoading}
                         onClick={() => void onLoadMoreMembers(profile.chatId!)}
                       >
-                        {state.membersLoading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
+                        {showMembersLoading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
                         <span>{state.membersLoading ? "正在加载成员" : "加载更多成员"}</span>
                       </button>
                     )}
@@ -233,12 +242,12 @@ export function ProfileDrawer({
                 </section>
               )}
             </>
-          ) : (
-            <div className="profile-state">没有可显示的资料</div>
-          )}
+          ) : null}
         </div>
       </section>
-      {reportOpen && (profile?.chatId || reportChatId) && <ReportDialog chatId={profile?.chatId ?? reportChatId!} messageIds={[]} title={profile?.title ?? "聊天"} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onDeleteChat={onDeleteChat} onClose={() => setReportOpen(false)} />}
+      <MotionPresence present={Boolean(reportOpen && (profile?.chatId || reportChatId))}>
+        {reportOpen && (profile?.chatId || reportChatId) ? <ReportDialog chatId={profile?.chatId ?? reportChatId!} messageIds={[]} title={profile?.title ?? "聊天"} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onDeleteChat={onDeleteChat} onClose={() => setReportOpen(false)} /> : null}
+      </MotionPresence>
     </div>
   );
 }

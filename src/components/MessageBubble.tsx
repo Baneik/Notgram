@@ -28,12 +28,14 @@ import {
   type ReactNode,
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { Message, MessageReaction, MessageReplyQuote } from "../telegram/types";
 import { formatCompactCount, formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { TgsSticker } from "./TgsSticker";
 import { AutoplayVideo } from "./AutoplayVideo";
+import { StableImage } from "./StableImage";
 import { VideoPlayer } from "./VideoPlayer";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
@@ -187,6 +189,9 @@ function MessageBubbleComponent({
   const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
   const [reactionPending, setReactionPending] = useState<string>();
+  const showReactionPending = useStableVisibility(Boolean(reactionPending), { minimumVisible: 220 });
+  const showDeliveryPending = useStableVisibility(message.delivery === "sending", { minimumVisible: 220 });
+  const showSelectionPending = useStableVisibility(selectionPending, { minimumVisible: 220 });
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -663,7 +668,9 @@ function MessageBubbleComponent({
       <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
       {message.outgoing && (
         message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
-          : message.delivery === "sending" ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
+          : message.delivery === "sending" ? showDeliveryPending
+            ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
+            : <Check size={14} strokeWidth={2.2} />
             : message.delivery === "failed" ? (
               <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? `重试发送：${sendFailureTitle}` : sendFailureTitle} onClick={() => void onRetry(message.id)}>
                 {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
@@ -699,7 +706,7 @@ function MessageBubbleComponent({
           disabled={selectionDisabled}
           onClick={() => void onToggleSelection(message)}
         >
-          {selectionPending
+          {showSelectionPending
             ? <LoaderCircle className="spin" size={15} />
             : selected && <Check size={15} strokeWidth={2.4} />}
         </button>
@@ -935,7 +942,7 @@ function MessageBubbleComponent({
                     onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
                 ) : imageMediaSource && content.mediaType === "animation" ? (
-                  <img
+                  <StableImage
                     src={imageMediaSource}
                     alt={content.caption || content.fileName}
                     loading="lazy"
@@ -959,7 +966,7 @@ function MessageBubbleComponent({
                       onOpenMedia(message.id);
                     }}
                   >
-                    <img
+                    <StableImage
                       src={imageMediaSource}
                       alt={content.caption || content.fileName}
                       loading="lazy"
@@ -973,7 +980,7 @@ function MessageBubbleComponent({
                     />
                   </button>
                 ) : imageMediaSource ? (
-                  <img
+                  <StableImage
                     src={imageMediaSource}
                     alt={content.caption || content.fileName}
                     loading="lazy"
@@ -1170,7 +1177,7 @@ function MessageBubbleComponent({
                   disabled={!emoji || reactionPending === emoji}
                   onClick={() => emoji && void toggleReaction(emoji, !reaction.chosen)}
                 >
-                  {reactionPending === emoji ? <LoaderCircle className="spin" size={12} /> : label}
+                  {showReactionPending && reactionPending === emoji ? <LoaderCircle className="spin" size={12} /> : label}
                   <span>{reaction.totalCount}</span>
                 </button>
               );

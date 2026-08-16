@@ -9,11 +9,9 @@ import {
   type ReactNode,
 } from "react";
 import { usePreferencesStore } from "../store/preferencesStore";
-import { motionDuration } from "../utils/motionTokens";
+import { motionDuration, motionLifecycleTiming } from "../utils/motionTokens";
 
-const EXIT_FALLBACK_BUFFER = 40;
-
-export type MotionPresenceVariant = "modal" | "drawer" | "toast" | "popover";
+export type MotionPresenceVariant = "modal" | "drawer" | "toast" | "popover" | "status";
 
 interface MotionPresenceProps {
   present: boolean;
@@ -67,7 +65,7 @@ export function MotionPresence({
       setMotionState("exiting");
       timer = globalThis.setTimeout(
         finishExit,
-        reduceMotion ? 0 : exitDuration + EXIT_FALLBACK_BUFFER,
+        reduceMotion ? 0 : exitDuration + motionLifecycleTiming.exitFallbackBuffer,
       );
     }
     return () => {

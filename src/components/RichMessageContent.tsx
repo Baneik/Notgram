@@ -25,6 +25,7 @@ import { highlightedText } from "../utils/textHighlight";
 import { autoplayAllowed } from "../utils/motionPreference";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { AutoplayVideo } from "./AutoplayVideo";
+import { StableImage } from "./StableImage";
 import { MediaSpoiler, TextSpoiler, TextSpoilerGroup } from "./Spoiler";
 
 interface RichMessageContentProps {
@@ -298,7 +299,7 @@ function RichMediaBlock({ media, context, blockKey }: {
         playsInline
         onError={() => markSourceFailed(mediaSource, fileIdForSource(mediaSource))}
       />
-      : <img
+      : <StableImage
         src={mediaSource}
         alt={media.fileName}
         loading="lazy"

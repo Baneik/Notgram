@@ -51,6 +51,7 @@ import {
   type ConversationScrollRequestInput,
 } from "../hooks/useConversationScroll";
 import { useSidebarSearch } from "../hooks/useSidebarSearch";
+import { useDocumentVisibility } from "../hooks/useDocumentVisibility";
 import type { SidebarSearchSenderOption } from "../components/GlobalSearchView";
 import {
   beginConversationSwitch,
@@ -74,11 +75,10 @@ import {
   removeConversationSwitchSnapshot,
   type ConversationSwitchSnapshot,
 } from "../utils/conversationSwitchSnapshot";
+import { motionLifecycleTiming } from "../utils/motionTokens";
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
-const CONVERSATION_SNAPSHOT_MAX_MS = 1_500;
-const CONVERSATION_SNAPSHOT_RELEASE_MS = 90;
 const EMPTY_MESSAGES: Message[] = [];
 
 const conversationIdentityFor = (chatId: string, topicId?: string) =>
@@ -98,6 +98,7 @@ const readSidebarWidth = () => {
 };
 
 export function App() {
+  const documentVisible = useDocumentVisibility();
   const phase = useTelegramStore((state) => state.phase);
   const error = useTelegramStore((state) => state.error);
   const operationError = useTelegramStore((state) => state.operationError);
@@ -248,6 +249,11 @@ export function App() {
   const [managedDownloadIndex] = useState(
     () => new ManagedDownloadIndex(telegramStore.getState().messages),
   );
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("motion-background-paused", !documentVisible);
+    document.documentElement.dataset.motionRuntime = documentVisible ? "active" : "paused";
+  }, [documentVisible]);
   const [downloadIndexRevision, setDownloadIndexRevision] = useState(0);
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -504,7 +510,7 @@ export function App() {
     }
     conversationSnapshotTimerRef.current = globalThis.setTimeout(
       discardConversationSnapshot,
-      CONVERSATION_SNAPSHOT_MAX_MS,
+      motionLifecycleTiming.snapshotMaximum,
     );
   }, [discardConversationSnapshot]);
   const finishConversationSnapshot = useCallback((identity: string) => {
@@ -528,7 +534,7 @@ export function App() {
     conversationSnapshotRef.current.element.classList.add("is-releasing");
     conversationSnapshotTimerRef.current = globalThis.setTimeout(
       discardConversationSnapshot,
-      CONVERSATION_SNAPSHOT_RELEASE_MS,
+      motionLifecycleTiming.snapshotRelease,
     );
   }, [discardConversationSnapshot]);
   useEffect(() => {

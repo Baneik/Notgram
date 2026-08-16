@@ -8,8 +8,10 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { CreateChatInput, NewChatKind, User } from "../telegram/types";
 import { Avatar } from "./Avatar";
+import { MotionPresence } from "./MotionPresence";
 
 interface NewChatDialogProps {
   contacts: User[];
@@ -59,6 +61,12 @@ export function NewChatDialog({
       .filter((user) => !normalized || `${user.displayName} ${user.username ?? ""}`
         .toLocaleLowerCase("zh-CN").includes(normalized));
   }, [contacts, currentUserId, query]);
+  const contactsPrimaryLoading = contactsLoading && contacts.length === 0;
+  const showContactsLoading = useStableVisibility(contactsPrimaryLoading);
+  const showPending = useStableVisibility(pending, { minimumVisible: 220 });
+  const contactsStatus = showContactsLoading ? "loading" : !contactsPrimaryLoading && contactsError && contacts.length === 0
+    ? "error"
+    : !contactsPrimaryLoading && visibleContacts.length === 0 ? "empty" : undefined;
 
   const normalizedTitle = title.trim();
   const normalizedUsername = username.trim();
@@ -184,12 +192,15 @@ export function NewChatDialog({
               <Search size={16} /><span className="sr-only">筛选联系人</span>
               <input type="search" value={query} placeholder="筛选联系人" disabled={pending} onChange={(event) => setQuery(event.target.value)} />
             </label>
-            <div className="new-chat-member-list">
-              {contactsLoading && contacts.length === 0 ? (
-                <div className="new-chat-loading" role="status"><LoaderCircle className="spin" size={18} /></div>
-              ) : contactsError && contacts.length === 0 ? (
-                <button className="dialog-secondary" type="button" onClick={() => void onLoadContacts()}>重试联系人</button>
-              ) : visibleContacts.map((user) => (
+            <div className="new-chat-member-list" aria-busy={contactsPrimaryLoading}>
+              <MotionPresence present={Boolean(contactsStatus)} variant="status">
+                {contactsStatus ? <div key={contactsStatus} className="new-chat-loading" role={contactsStatus === "error" ? "alert" : "status"}>
+                  {contactsStatus === "loading" ? <LoaderCircle className="spin" size={18} /> : contactsStatus === "error" ? (
+                    <button className="dialog-secondary" type="button" onClick={() => void onLoadContacts()}>重试联系人</button>
+                  ) : "没有匹配的联系人"}
+                </div> : null}
+              </MotionPresence>
+              {!contactsStatus && visibleContacts.map((user) => (
                 <label className="new-chat-member-row" key={user.id}>
                   <input type="checkbox" checked={memberUserIds.has(user.id)} disabled={pending} onChange={() => toggleMember(user.id)} />
                   <Avatar avatar={user.avatar} size="small" />
@@ -203,7 +214,7 @@ export function NewChatDialog({
         <footer className="new-chat-footer">
           <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
           <button className="dialog-primary" type="button" disabled={pending || !canSubmit} onClick={() => void submit()}>
-            {pending && <LoaderCircle className="spin" size={16} />}
+            {showPending && <LoaderCircle className="spin" size={16} />}
             <span>创建</span>
           </button>
         </footer>

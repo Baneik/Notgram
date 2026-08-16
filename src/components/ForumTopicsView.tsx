@@ -11,8 +11,10 @@ import {
 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { messageContentText } from "../telegram/messageContent";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { Chat, ForumTopic } from "../telegram/types";
 import { Avatar } from "./Avatar";
+import { MotionPresence } from "./MotionPresence";
 
 interface ForumTopicsViewProps {
   chat: Chat;
@@ -47,6 +49,7 @@ export function ForumTopicsView({
   const [pendingTopicId, setPendingTopicId] = useState<string>();
   const canManage = chat.management?.canManageTopics === true;
   const canCreate = canManage || chat.canCreateTopics === true;
+  const showLoading = useStableVisibility(loading && topics.length === 0);
   const orderedTopics = useMemo(
     () => [...topics].sort((left, right) => Number(right.isPinned) - Number(left.isPinned) || Number(right.order) - Number(left.order)),
     [topics],
@@ -129,11 +132,14 @@ export function ForumTopicsView({
           </form>
         )}
 
-        {loading && topics.length === 0 ? (
-          <div className="forum-topics-state">正在加载话题</div>
-        ) : orderedTopics.length === 0 ? (
-          <div className="forum-topics-state">暂无话题</div>
-        ) : (
+        <MotionPresence present={showLoading || (!loading && orderedTopics.length === 0)} variant="status">
+          {showLoading || (!loading && orderedTopics.length === 0) ? (
+            <div key={showLoading ? "loading" : "empty"} className="forum-topics-state" role="status">
+              {showLoading ? "正在加载话题" : "暂无话题"}
+            </div>
+          ) : null}
+        </MotionPresence>
+        {orderedTopics.length > 0 && (
           <div className="forum-topic-list">
             {orderedTopics.map((topic) => (
               <article className={`forum-topic-row ${topic.isClosed ? "is-closed" : ""}`} key={topic.id}>
@@ -169,13 +175,13 @@ export function ForumTopicsView({
                       >
                         <MoreVertical size={18} strokeWidth={1.8} />
                       </button>
-                      {menuTopicId === topic.id && (
-                        <div className="forum-topic-menu" role="menu">
+                      <MotionPresence present={menuTopicId === topic.id} variant="popover">
+                        {menuTopicId === topic.id ? <div className="forum-topic-menu" role="menu">
                           <button type="button" role="menuitem" onClick={() => { setEditingTopicId(topic.id); setEditingName(topic.name); setMenuTopicId(undefined); }}><Pencil size={16} />重命名</button>
                           {canManage && <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "pinned")}><Pin size={16} />{topic.isPinned ? "取消置顶" : "置顶"}</button>}
                           <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "closed")}><LockKeyhole size={16} />{topic.isClosed ? "重新开启" : "关闭话题"}</button>
-                        </div>
-                      )}
+                        </div> : null}
+                      </MotionPresence>
                     </div>}
                   </>
                 )}

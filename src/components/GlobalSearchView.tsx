@@ -13,7 +13,9 @@ import { messageContentText } from "../telegram/messageContent";
 import type { Chat, GlobalSearchFilter, Message, User } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { Avatar } from "./Avatar";
+import { MotionPresence } from "./MotionPresence";
 import { messageSearchSender, messageSearchSource } from "./searchMessagePresentation";
 
 interface GlobalSearchResultsProps {
@@ -133,8 +135,8 @@ function ChatSearchSenderPicker({
           </button>
         )}
       </div>
-      {open && (
-        <div id={popupId} className="chat-search-member-popup" role="dialog" aria-label="选择成员">
+      <MotionPresence present={open} variant="popover">
+        {open ? <div id={popupId} className="chat-search-member-popup" role="dialog" aria-label="选择成员">
           <label className="chat-search-member-field">
             <Search size={14} strokeWidth={1.8} />
             <span className="sr-only">搜索成员</span>
@@ -184,8 +186,8 @@ function ChatSearchSenderPicker({
               <div className="chat-search-member-empty" role="status">没有匹配的成员</div>
             )}
           </div>
-        </div>
-      )}
+        </div> : null}
+      </MotionPresence>
     </div>
   );
 }
@@ -218,13 +220,21 @@ export function ChatSearchResults({
   onOpenMessage,
 }: ChatSearchResultsProps) {
   const total = state.totalCount ?? state.messages.length;
+  const primaryLoading = !stateMatchesInput || (state.loading && state.messages.length === 0);
+  const showLoading = useStableVisibility(primaryLoading);
+  const showLoadingMore = useStableVisibility(state.loadingMore, { minimumVisible: 220 });
+  const prompt = stateMatchesInput && !state.loading && !state.error && query.trim() === "" && !senderId;
+  const empty = stateMatchesInput && !state.loading && !state.error && state.messages.length === 0 && Boolean(query.trim() || senderId);
+  const statusKind = showLoading ? "loading" : state.error && stateMatchesInput
+    ? "error"
+    : prompt ? "prompt" : empty ? "empty" : undefined;
   return (
     <section className="global-search-results-panel chat-search-results-panel" aria-label={`搜索${chat.title}中的消息`}>
       <div className="global-search-controls chat-search-controls">
         <ChatSearchSenderPicker senderId={senderId} options={senderOptions} onChange={onSenderChange} />
       </div>
-      <div className="global-search-results" aria-live="polite">
-        {stateMatchesInput && state.messages.length > 0 && (
+      <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading} data-search-state={primaryLoading ? "updating" : "settled"}>
+        {stateMatchesInput && !showLoading && state.messages.length > 0 && (
           <section className="global-result-section" aria-labelledby="chat-message-results">
             <h2 id="chat-message-results">{chat.title}中的消息<span>{total}</span></h2>
             <div className="global-message-results">
@@ -242,21 +252,18 @@ export function ChatSearchResults({
             </div>
           </section>
         )}
-        {state.error && stateMatchesInput && (
-          <div className="global-search-state is-error" role="alert">{state.error}</div>
-        )}
-        {(!stateMatchesInput || (state.loading && state.messages.length === 0)) && (
-          <div className="global-search-state" role="status" aria-label="正在搜索"><LoaderCircle className="spin" size={21} /></div>
-        )}
-        {stateMatchesInput && !state.loading && !state.error && query.trim() === "" && !senderId && (
-          <div className="global-search-state"><span>输入关键词搜索此会话</span></div>
-        )}
-        {stateMatchesInput && !state.loading && !state.error && state.messages.length === 0 && (query.trim() || senderId) && (
-          <div className="global-search-state"><span>没有搜索结果</span></div>
-        )}
+        <MotionPresence present={Boolean(statusKind)} variant="status">
+          {statusKind ? (
+            <div key={statusKind} className={`global-search-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"} aria-label={statusKind === "loading" ? "正在搜索" : undefined}>
+              {statusKind === "loading" ? <LoaderCircle className="spin" size={21} />
+                : statusKind === "error" ? state.error
+                  : <span>{statusKind === "prompt" ? "输入关键词搜索此会话" : "没有搜索结果"}</span>}
+            </div>
+          ) : null}
+        </MotionPresence>
         {stateMatchesInput && state.nextFromMessageId && (
           <button className="global-search-more" type="button" disabled={state.loadingMore} onClick={() => void onLoadMore()}>
-            {state.loadingMore && <LoaderCircle className="spin" size={16} />}
+            {showLoadingMore && <LoaderCircle className="spin" size={16} />}
             <span>加载更多</span>
           </button>
         )}
@@ -295,6 +302,11 @@ export function GlobalSearchResults({
     ...knownChats,
     ...chats.map((chat) => [chat.id, chat] as const),
   ]), [chats, knownChats]);
+  const primaryLoading = (!current || state.loading) && messages.length === 0 && matchingChats.length === 0;
+  const showLoading = useStableVisibility(primaryLoading);
+  const showLoadingMore = useStableVisibility(current && state.loading && Boolean(state.nextOffset), { minimumVisible: 220 });
+  const empty = current && !state.loading && !state.error && Boolean(normalizedQuery) && matchingChats.length === 0 && messages.length === 0;
+  const statusKind = showLoading ? "loading" : current && state.error ? "error" : empty ? "empty" : undefined;
 
   useEffect(() => {
     if (!normalizedQuery || current) return;
@@ -333,8 +345,8 @@ export function GlobalSearchResults({
           ))}
         </div>
       </div>
-      <div className="global-search-results" aria-live="polite">
-        {current && matchingChats.length > 0 && (
+      <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading} data-search-state={primaryLoading ? "updating" : "settled"}>
+        {!showLoading && matchingChats.length > 0 && (
           <section className="global-result-section" aria-labelledby="global-chat-results">
             <h2 id="global-chat-results">聊天</h2>
             <div className="global-chat-results">
@@ -350,7 +362,7 @@ export function GlobalSearchResults({
             </div>
           </section>
         )}
-        {current && messages.length > 0 && (
+        {current && !showLoading && messages.length > 0 && (
           <section className="global-result-section" aria-labelledby="global-message-results">
             <h2 id="global-message-results">
               消息
@@ -371,25 +383,15 @@ export function GlobalSearchResults({
             </div>
           </section>
         )}
-        {current && state.error && (
-          <div className="global-search-state is-error" role="alert">
-            <span>{state.error}</span>
-            <button className="dialog-secondary" type="button" onClick={() => void onSearch(normalizedQuery, filter)}>重试</button>
-          </div>
-        )}
-        {current && state.loading && messages.length === 0 && matchingChats.length === 0 && (
-          <div className="global-search-state" role="status" aria-label="正在搜索">
-            <LoaderCircle className="spin" size={21} />
-          </div>
-        )}
-        {!current && (
-          <div className="global-search-state" role="status" aria-label="正在搜索">
-            <LoaderCircle className="spin" size={21} />
-          </div>
-        )}
-        {current && !state.loading && !state.error && normalizedQuery && matchingChats.length === 0 && messages.length === 0 && (
-          <div className="global-search-state"><span>没有搜索结果</span></div>
-        )}
+        <MotionPresence present={Boolean(statusKind)} variant="status">
+          {statusKind ? (
+            <div key={statusKind} className={`global-search-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"} aria-label={statusKind === "loading" ? "正在搜索" : undefined}>
+              {statusKind === "loading" ? <LoaderCircle className="spin" size={21} /> : statusKind === "error" ? (
+                <><span>{state.error}</span><button className="dialog-secondary" type="button" onClick={() => void onSearch(normalizedQuery, filter)}>重试</button></>
+              ) : <span>没有搜索结果</span>}
+            </div>
+          ) : null}
+        </MotionPresence>
         {current && state.nextOffset && (
           <button
             className="global-search-more"
@@ -397,7 +399,7 @@ export function GlobalSearchResults({
             disabled={state.loading}
             onClick={() => void onLoadMore()}
           >
-            {state.loading && <LoaderCircle className="spin" size={16} />}
+            {showLoadingMore && <LoaderCircle className="spin" size={16} />}
             <span>加载更多</span>
           </button>
         )}

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useDocumentVisibility } from "./useDocumentVisibility";
 
 type VisibilityListener = (visible: boolean) => void;
 
@@ -30,17 +31,18 @@ const observerPool = (rootMargin: string) => {
 export const useElementVisibility = <T extends Element>(
   rootMargin = "120px",
 ) => {
-  const [visible, setVisible] = useState(
+  const documentVisible = useDocumentVisibility();
+  const [elementVisible, setElementVisible] = useState(
     () => typeof IntersectionObserver === "undefined",
   );
   const ref = useCallback((element: T | null) => {
     if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
+      setElementVisible(true);
       return;
     }
     const pool = observerPool(rootMargin);
     const listener: VisibilityListener = (next) => {
-      setVisible((current) => current === next ? current : next);
+      setElementVisible((current) => current === next ? current : next);
     };
     if (!element) return;
     let listeners = pool.listeners.get(element);
@@ -61,5 +63,5 @@ export const useElementVisibility = <T extends Element>(
     };
   }, [rootMargin]);
 
-  return [ref, visible] as const;
+  return [ref, elementVisible && documentVisible] as const;
 };

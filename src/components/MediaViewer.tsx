@@ -19,6 +19,7 @@ import {
   type PhotoMessage,
 } from "../utils/mediaViewerModel";
 import { writeClipboardImage } from "../utils/clipboard";
+import { StableImage } from "./StableImage";
 
 interface MediaViewerProps {
   messages: PhotoMessage[];
@@ -72,7 +73,7 @@ const MediaViewerThumbnail = forwardRef<HTMLButtonElement, MediaViewerThumbnailP
       onClick={onSelect}
     >
       {source
-        ? <img
+        ? <StableImage
             src={source}
             alt=""
             loading="eager"
@@ -293,7 +294,7 @@ export function MediaViewer({
           onPointerCancel={finishDragging}
         >
           {source && !failed ? (
-            <img
+            <StableImage
               key={`${source}:${retryKey}`}
               ref={imageRef}
               className="media-viewer-image"

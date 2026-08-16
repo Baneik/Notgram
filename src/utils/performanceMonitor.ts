@@ -1209,12 +1209,24 @@ const installLayoutShiftObserver = () => {
 
 const startFrameGapMonitor = () => {
   let previousFrameAt = performance.now();
+  let frame: number | undefined;
   const calibrationIntervals: number[] = [];
-  document.addEventListener("visibilitychange", () => {
+  const schedule = () => {
+    if (frame === undefined && document.visibilityState === "visible") {
+      frame = requestAnimationFrame(sample);
+    }
+  };
+  const handleVisibilityChange = () => {
     previousFrameAt = performance.now();
     calibrationIntervals.length = 0;
-  });
-  const sample = (now: number) => {
+    if (document.visibilityState === "visible") schedule();
+    else if (frame !== undefined) {
+      cancelAnimationFrame(frame);
+      frame = undefined;
+    }
+  };
+  function sample(now: number) {
+    frame = undefined;
     const frameGapMs = now - previousFrameAt;
     previousFrameAt = now;
     if (
@@ -1246,9 +1258,10 @@ const startFrameGapMonitor = () => {
         traceId: conversationTraceIdAt(now - frameGapMs),
       });
     }
-    requestAnimationFrame(sample);
-  };
-  requestAnimationFrame(sample);
+    schedule();
+  }
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  schedule();
 };
 
 const installNativeDisplayTiming = () => {

@@ -1,8 +1,9 @@
 import type { Message } from "../telegram/types";
+import { motionLifecycleTiming } from "./motionTokens";
 
 export type MessageEntrance = "incoming" | "outgoing";
 
-export const MESSAGE_ENTRANCE_LIFETIME_MS = 1_000;
+export const MESSAGE_ENTRANCE_LIFETIME_MS = motionLifecycleTiming.messageEntranceClaim;
 const pendingEntrances = new Map<string, {
   kind: MessageEntrance;
   token: symbol;

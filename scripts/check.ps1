@@ -19,6 +19,9 @@ try {
     npm run theme:check
     if ($LASTEXITCODE -ne 0) { throw "Theme contract check failed." }
 
+    npm run motion:check
+    if ($LASTEXITCODE -ne 0) { throw "Motion contract check failed." }
+
     npm test
     if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed." }
 

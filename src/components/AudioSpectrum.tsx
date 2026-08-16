@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { audioPlaybackController } from "../media/audioPlayback";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { useDocumentVisibility } from "../hooks/useDocumentVisibility";
 
 interface AudioSpectrumProps {
   playbackId: string;
@@ -22,6 +23,7 @@ export function AudioSpectrum({
 }: AudioSpectrumProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
+  const documentVisible = useDocumentVisibility();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -36,7 +38,7 @@ export function AudioSpectrum({
     let cssHeight = Math.max(1, canvas.clientHeight);
     let ratio = Math.min(2, globalThis.devicePixelRatio || 1);
     let fillStyle = getComputedStyle(canvas).color;
-    const animate = playing && !reduceMotion;
+    const animate = playing && !reduceMotion && documentVisible;
 
     const resizeCanvas = (width: number, height: number) => {
       cssWidth = Math.max(1, width);
@@ -94,13 +96,13 @@ export function AudioSpectrum({
       resizeObserver.disconnect();
       themeObserver.disconnect();
     };
-  }, [bars, playbackId, playing, reduceMotion]);
+  }, [bars, documentVisible, playbackId, playing, reduceMotion]);
 
   return (
     <canvas
       ref={canvasRef}
       className={`audio-spectrum ${className}`.trim()}
-      data-motion-active={playing && !reduceMotion ? "true" : "false"}
+      data-motion-active={playing && !reduceMotion && documentVisible ? "true" : "false"}
       role="img"
       aria-label="音频频谱"
     />

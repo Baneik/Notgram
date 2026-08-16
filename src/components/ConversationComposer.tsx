@@ -17,11 +17,13 @@ import {
   type RefObject,
 } from "react";
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
 import type { BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
+import { motionLifecycleTiming } from "../utils/motionTokens";
 import {
   composerInlineQueryForDraft,
   insertComposerMention,
@@ -37,6 +39,7 @@ import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { EmojiPicker } from "./EmojiPicker";
 import { MotionPresence } from "./MotionPresence";
+import { StableImage } from "./StableImage";
 
 interface ConversationComposerProps {
   chatId: string;
@@ -71,8 +74,6 @@ interface ConversationComposerProps {
 const LOCAL_DRAFT_DELAY_MS = 750;
 const TYPING_REFRESH_MS = 4_000;
 const TYPING_IDLE_MS = 5_000;
-const EMOJI_HOVER_OPEN_DELAY_MS = 260;
-const EMOJI_HOVER_CLOSE_DELAY_MS = 80;
 
 interface PendingAttachment {
   id: string;
@@ -126,6 +127,9 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [activeBotSuggestionIndex, setActiveBotSuggestionIndex] = useState(0);
   const [inlineResults, setInlineResults] = useState<InlineQueryResultPage>();
   const [inlineLoading, setInlineLoading] = useState(false);
+  const showSending = useStableVisibility(sending, { minimumVisible: 220 });
+  const showAttachmentPending = useStableVisibility(attachmentPending, { minimumVisible: 220 });
+  const showInlineLoading = useStableVisibility(inlineLoading);
   const selectedBotRef = useRef<BotCommandSuggestion | undefined>(undefined);
   const botQueryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const botQueryGenerationRef = useRef(0);
@@ -241,7 +245,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       emojiOpenTimerRef.current = undefined;
       emojiOpenedByHoverRef.current = true;
       setEmojiPickerOpen(true);
-    }, EMOJI_HOVER_OPEN_DELAY_MS);
+    }, motionLifecycleTiming.popoverHoverOpen);
   }, [clearEmojiCloseTimer, editingMessage, emojiPickerOpen]);
 
   const scheduleEmojiPickerClose = useCallback(() => {
@@ -251,7 +255,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       emojiCloseTimerRef.current = undefined;
       emojiOpenedByHoverRef.current = false;
       setEmojiPickerOpen(false);
-    }, EMOJI_HOVER_CLOSE_DELAY_MS);
+    }, motionLifecycleTiming.popoverHoverClose);
   }, [clearEmojiCloseTimer, clearEmojiOpenTimer]);
 
   const toggleEmojiPicker = useCallback(() => {
@@ -720,7 +724,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                   attachment.attachment.kind === "video" ? (
                     <video src={attachment.previewUrl} aria-label={attachment.attachment.file.name} muted />
                   ) : (
-                    <img src={attachment.previewUrl} alt={attachment.attachment.file.name} />
+                    <StableImage src={attachment.previewUrl} alt={attachment.attachment.file.name} />
                   )
                 ) : (
                   <span className="composer-file-preview"><Paperclip size={22} /></span>
@@ -799,7 +803,7 @@ export const ConversationComposer = memo(function ConversationComposer({
               disabled={attachmentPending}
               onClick={() => void sendPendingAttachments()}
             >
-              {attachmentPending ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
+              {showAttachmentPending ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
               <span>发送附件</span>
             </button>
           </footer>
@@ -868,11 +872,11 @@ export const ConversationComposer = memo(function ConversationComposer({
           </section>
         ) : null}
       </MotionPresence>
-      <MotionPresence present={Boolean(inlineLoading || inlineResults)} variant="popover">
-        {inlineLoading || inlineResults ? (
+      <MotionPresence present={Boolean(showInlineLoading || inlineResults)} variant="popover">
+        {showInlineLoading || inlineResults ? (
           <section className="inline-query-panel" aria-label="Inline 查询结果">
-            {inlineLoading ? <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div> : inlineResults?.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; mentionEntitiesRef.current = []; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>)}
-            {inlineResults?.hasMore && <button type="button" className="inline-query-more" onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>加载更多结果</button>}
+            {inlineResults ? inlineResults.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; mentionEntitiesRef.current = []; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>) : <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div>}
+            {inlineResults?.hasMore && <button type="button" className="inline-query-more" disabled={inlineLoading} onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>{showInlineLoading && <LoaderCircle className="spin" size={15} />}加载更多结果</button>}
           </section>
         ) : null}
       </MotionPresence>
@@ -887,7 +891,7 @@ export const ConversationComposer = memo(function ConversationComposer({
             fileInputRef.current?.click();
           }}
         >
-          {attachmentPending
+          {showAttachmentPending
             ? <LoaderCircle className="spin" size={19} strokeWidth={1.8} />
             : <Paperclip size={20} strokeWidth={1.8} />}
         </button>
@@ -987,9 +991,11 @@ export const ConversationComposer = memo(function ConversationComposer({
           disabled={(!draft.trim() && pendingAttachments.length === 0) || sending || attachmentPending}
           onClick={() => void submitMessage()}
         >
-          {editingMessage
-            ? <Check size={19} strokeWidth={2.2} />
-            : <Send size={19} strokeWidth={2} />}
+          {showSending
+            ? <LoaderCircle className="spin" size={19} strokeWidth={1.8} />
+            : editingMessage
+              ? <Check size={19} strokeWidth={2.2} />
+              : <Send size={19} strokeWidth={2} />}
         </button>
       </div>
     </div>

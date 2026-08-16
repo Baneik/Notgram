@@ -39,6 +39,7 @@ import {
 } from "../contextMenu/nativeContextMenuLayout";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
+import { StableImage } from "./StableImage";
 
 const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   archive: Archive,
@@ -244,7 +245,7 @@ export function ContextMenuWindow() {
                     aria-hidden="true"
                   >
                     <span>{item.avatar.label}</span>
-                    {avatarSource && <img src={avatarSource} alt="" />}
+                    {avatarSource && <StableImage src={avatarSource} alt="" />}
                   </span>
                 ) : item.checked ? (
                   <Check size={17} strokeWidth={2.1} />

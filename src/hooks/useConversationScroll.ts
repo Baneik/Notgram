@@ -14,6 +14,7 @@ import type { Message } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
 import { conversationJumpMotion } from "../utils/conversationJumpMotion";
+import { motionLifecycleTiming } from "../utils/motionTokens";
 import {
   captureConversationJumpSnapshot,
   removeConversationJumpSnapshot,
@@ -54,9 +55,10 @@ import {
 } from "./conversationBottomState";
 
 const BOTTOM_PROXIMITY_PX = 32;
-const BOTTOM_EPSILON_PX = 1;
+// Includes the 12px end sentinel so downward input cannot bounce between the
+// browser's raw scroll maximum and Virtuoso's visual end alignment.
+const BOTTOM_WHEEL_GUARD_PX = 13;
 const HISTORY_TRIGGER_PX = 64;
-const SMOOTH_SCROLL_DURATION_MS = 480;
 const BOTTOM_RECONCILE_MAX_FRAMES = 8;
 const BOTTOM_RECONCILE_STABLE_FRAMES = 2;
 const ANCHOR_RECONCILE_STABLE_FRAMES = 6;
@@ -696,7 +698,7 @@ export const useConversationScroll = ({
     smoothScrollCleanupRef.current?.();
     smoothScrollCleanupRef.current = undefined;
     if (resolvedBehavior === "smooth") {
-      smoothScrollUntilRef.current = performance.now() + SMOOTH_SCROLL_DURATION_MS * 3;
+      smoothScrollUntilRef.current = performance.now() + motionLifecycleTiming.smoothScrollFallback;
       const finishSmoothScroll = () => {
         if (smoothScrollTimerRef.current) {
           globalThis.clearTimeout(smoothScrollTimerRef.current);
@@ -722,7 +724,7 @@ export const useConversationScroll = ({
       });
       smoothScrollTimerRef.current = globalThis.setTimeout(
         finishSmoothScroll,
-        SMOOTH_SCROLL_DURATION_MS * 3,
+        motionLifecycleTiming.smoothScrollFallback,
       );
     } else {
       smoothScrollUntilRef.current = 0;
@@ -1734,7 +1736,7 @@ export const useConversationScroll = ({
     const preventBottomOverscroll = (event: WheelEvent) => {
       const rawDistance = messageListElement.scrollHeight -
         messageListElement.clientHeight - messageListElement.scrollTop;
-      if (event.deltaY > 0 && rawDistance <= BOTTOM_EPSILON_PX) {
+      if (event.deltaY > 0 && rawDistance <= BOTTOM_WHEEL_GUARD_PX) {
         event.preventDefault();
       }
     };
@@ -1752,7 +1754,7 @@ export const useConversationScroll = ({
       userIntentUntilRef.current = performance.now() + 320;
       if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
     }
-    if (event.deltaY > 0 && rawDistance <= BOTTOM_EPSILON_PX) {
+    if (event.deltaY > 0 && rawDistance <= BOTTOM_WHEEL_GUARD_PX) {
       event.preventDefault();
       if (currentScrollKey) {
         adoptUserScrollMode("following");

@@ -18,6 +18,7 @@ import type {
 } from "../telegram/types";
 import { TgsSticker } from "./TgsSticker";
 import { AutoplayVideo } from "./AutoplayVideo";
+import { StableImage } from "./StableImage";
 
 type PickerTab = "emoji" | "sticker" | "animation";
 
@@ -151,7 +152,7 @@ function LazyEmojiAsset({
       ) : usingFullAsset && (asset.mimeType === "video/webm" || asset.kind === "animation") ? (
         <AutoplayVideo src={source} muted autoplay={autoplay} loop playsInline onError={() => setFailed(true)} />
       ) : (
-        <img src={source} alt="" draggable={false} onError={() => setFailed(true)} />
+        <StableImage src={source} alt="" draggable={false} onError={() => setFailed(true)} />
       )}
     </button>
   );
@@ -393,7 +394,7 @@ export function EmojiPicker({
             {(catalog?.stickerSets ?? []).map((stickerSet) => (
               <button className={selectedStickerSetId === stickerSet.id ? "is-active" : ""} type="button" key={stickerSet.id} title={stickerSet.title} onClick={() => { setQuery(""); setSelectedStickerSetId(stickerSet.id); }}>
                 {assetSource(stickerSet.covers[0]?.previewPath) ?? stickerSet.covers[0]?.previewDataUrl
-                  ? <img src={assetSource(stickerSet.covers[0]?.previewPath) ?? stickerSet.covers[0]?.previewDataUrl} alt="" />
+                  ? <StableImage src={assetSource(stickerSet.covers[0]?.previewPath) ?? stickerSet.covers[0]?.previewDataUrl} alt="" />
                   : <Sticker size={18} />}
               </button>
             ))}

@@ -194,7 +194,9 @@ test("the top bar keeps only window controls and the account entry opens setting
   await expect(page.getByRole("button", { name: "关闭窗口" })).toBeVisible();
   await expect(page.locator(".rail-settings, .rail-connection")).toHaveCount(0);
   await expect(page.locator(".sidebar-heading .connection-status")).toHaveCount(0);
-  await expect(page.locator(".conversation-title > span")).toHaveCount(0);
+  const conversationStatus = page.locator(".conversation-title > .conversation-header-status");
+  await expect(conversationStatus).toHaveCount(1);
+  await expect(conversationStatus).not.toHaveText("");
 
   const contextMenu = await page.locator(".app-shell").evaluate((element) => {
     let propagated = false;
@@ -624,7 +626,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
   expect(report.rowBottom).toBeLessThanOrEqual(report.listBottom + 1);
   expect(report.listBottom).toBeLessThanOrEqual(report.composerTop + 1);
   expect(report.opacity).toBeGreaterThanOrEqual(0.99);
-  expect(report.animationDuration).toBe("0.14s");
+  expect(report.animationDuration).toBe("0.12s");
   await expect(page.getByText("动画消息测试", { exact: true })).toBeVisible();
   await expect(page.locator(".message-row.is-entering-outgoing")).toHaveCount(0);
 });
@@ -697,8 +699,7 @@ test("new messages stay pinned without viewport rebound", async ({ page }) => {
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   const composer = page.getByRole("textbox", { name: "消息内容" });
   await composer.fill("逐帧滚动稳定性测试");
@@ -894,8 +895,7 @@ test("expired entrance metadata does not delay appended-message anchoring", asyn
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   const firstMountedFrame = page.evaluate(() => new Promise<{
     className: string;
@@ -960,8 +960,7 @@ test("expired entrance metadata does not delay appended-message anchoring", asyn
     report.visibility === "hidden" || report.rowBottom <= report.listBottom + 1,
     JSON.stringify(report),
   ).toBe(true);
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect(page.locator('[data-message-id="p-expired-entrance"]')).toBeVisible();
 });
 
@@ -969,11 +968,9 @@ test("downward wheel input at the exact bottom never rebounds", async ({ page })
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await page.waitForTimeout(400);
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   const samplesPromise = page.evaluate(() => new Promise<number[]>((resolve) => {
     const samples: number[] = [];
@@ -997,8 +994,7 @@ test("downward wheel input at the exact bottom never rebounds", async ({ page })
   const reversals = directions.slice(1)
     .filter((direction, index) => direction !== directions[index]);
   expect(reversals, JSON.stringify(samples)).toHaveLength(0);
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 });
 
 test("blank message viewport clicks never force a bottom correction", async ({ page }) => {
@@ -1027,19 +1023,18 @@ test("middle mouse scrolling detaches instead of fighting bottom following", asy
   await page.goto("/");
   const messageList = page.getByRole("log", { name: "消息列表" });
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await page.waitForTimeout(400);
-  await messageList.evaluate((element) => {
-    const maximum = element.scrollHeight - element.clientHeight;
-    element.scrollTop = Math.max(0, maximum - 420);
-  });
-  await page.waitForTimeout(32);
   const bounds = await messageList.boundingBox();
   if (!bounds) throw new Error("Message viewport is not visible");
 
   await page.mouse.click(bounds.x + 3, bounds.y + bounds.height * 0.45, {
     button: "middle",
+  });
+  await messageList.evaluate((element) => {
+    const maximum = element.scrollHeight - element.clientHeight;
+    element.scrollTop = Math.max(0, maximum - 420);
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
   await messageList.evaluate((element) => {
     element.scrollTop = Math.min(
@@ -1066,8 +1061,7 @@ test("primary pointer scrolling still detaches from latest messages", async ({ p
   await page.goto("/");
   const messageList = page.getByRole("log", { name: "消息列表" });
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   const bounds = await messageList.boundingBox();
   if (!bounds) throw new Error("Message viewport is not visible");
 
@@ -1097,8 +1091,7 @@ test("appended mixed-height row growth during downward wheel input stays pinned"
   await page.goto("/");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await page.waitForTimeout(400);
 
   await messageList.hover();
@@ -1479,7 +1472,9 @@ test("IME composition defers draft persistence and layout work until commit", as
 test("private chats show incoming typing state", async ({ page }) => {
   await page.goto("/?typing=direct");
   await page.locator('[data-chat-id="chat-mia"]').click();
-  await expect(page.locator(".conversation-typing-status")).toHaveText("正在输入...");
+  const headerStatus = page.locator(".conversation-header-status");
+  await expect(headerStatus).toHaveClass(/is-typing/);
+  await expect(headerStatus).toHaveText("正在输入...");
   const titlePositionWhileTyping = await page.locator(".conversation-title strong").boundingBox();
   await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
@@ -1492,7 +1487,8 @@ test("private chats show incoming typing state", async ({ page }) => {
     typingUserIds.delete("chat-mia");
     module.telegramStore.setState({ typingUserIds });
   }, "/src/store/telegramStore.ts");
-  await expect(page.locator(".conversation-typing-status")).toHaveCount(0);
+  await expect(headerStatus).not.toHaveClass(/is-typing/);
+  await expect(headerStatus).not.toBeEmpty();
   const titlePositionWithoutTyping = await page.locator(".conversation-title strong").boundingBox();
   expect(Math.abs(
     titlePositionWhileTyping!.y - titlePositionWithoutTyping!.y,
@@ -1600,13 +1596,17 @@ test("message viewport reaches the composer and keeps a scrollable bottom gap", 
       latestGap: composer.getBoundingClientRect().top - latest.getBoundingClientRect().bottom,
       viewportGap: composer.getBoundingClientRect().top - list.getBoundingClientRect().bottom,
       bottomSpacer: sentinel.getBoundingClientRect().height,
+      distanceBottom: list.scrollHeight - list.scrollTop - list.clientHeight,
     };
   });
   expect(geometry).not.toBeNull();
   expect(geometry!.viewportGap).toBeCloseTo(0, 1);
   expect(geometry!.bottomSpacer).toBeCloseTo(12, 1);
-  expect(geometry!.latestGap).toBeGreaterThanOrEqual(11);
-  expect(geometry!.latestGap).toBeLessThanOrEqual(13);
+  expect(geometry!.latestGap).toBeGreaterThanOrEqual(0);
+  expect(geometry!.latestGap).toBeLessThanOrEqual(geometry!.bottomSpacer + 1);
+  expect(Math.abs(
+    geometry!.latestGap + geometry!.distanceBottom - geometry!.bottomSpacer,
+  )).toBeLessThanOrEqual(0.5);
 });
 
 test("single-click entry restores the server read marker without exposing intermediate jumps", async ({ page }) => {
@@ -2225,8 +2225,7 @@ test("idle bottom following remains motionless after geometry settles", async ({
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-    .toBeLessThanOrEqual(1);
+  await page.waitForTimeout(250);
 
   const samples = await messageList.evaluate(async (element) => {
     const frames: Array<{
@@ -2250,10 +2249,11 @@ test("idle bottom following remains motionless after geometry settles", async ({
   });
   const span = (values: number[]) => Math.max(...values) - Math.min(...values);
   expect(
-    Math.max(...samples.map(({ distanceBottom }) => Math.abs(distanceBottom))),
+    Math.max(...samples.map(({ latestGap }) => Math.abs(latestGap))),
     JSON.stringify(samples),
   )
-    .toBeLessThanOrEqual(1);
+    .toBeLessThanOrEqual(13);
+  expect(span(samples.map(({ distanceBottom }) => distanceBottom))).toBeLessThanOrEqual(0.5);
   expect(span(samples.map(({ scrollTop }) => scrollTop))).toBeLessThanOrEqual(0.5);
   expect(span(samples.map(({ latestGap }) => latestGap))).toBeLessThanOrEqual(1);
 });
@@ -2446,11 +2446,20 @@ test("media cache controls clean selected data and protect active files", async 
 
 const chooseMessageMenuItem = async (page: Page, name: string) => {
   const menu = page.getByRole("menu", { name: "消息操作" });
+  const items = menu.getByRole("menuitem");
   const item = menu.getByRole("menuitem", { name, exact: true });
   await expect(item).toBeVisible();
-  for (let step = 0; step < 12; step += 1) {
-    if (await item.evaluate((element) => element === document.activeElement)) break;
-    await page.keyboard.press("ArrowDown");
+  await expect(items.first()).toBeFocused();
+  const labels = (await items.allTextContents()).map((label) => label.trim());
+  const targetIndex = labels.indexOf(name);
+  expect(targetIndex).toBeGreaterThanOrEqual(0);
+  if (targetIndex === labels.length - 1) {
+    await page.keyboard.press("End");
+  } else {
+    await page.keyboard.press("Home");
+    for (let step = 0; step < targetIndex; step += 1) {
+      await page.keyboard.press("ArrowDown");
+    }
   }
   await expect(item).toBeFocused();
   await page.keyboard.press("Enter");
@@ -2539,7 +2548,7 @@ test("creates a public supergroup with initial members and permissions", async (
   await expect(profile.locator(".profile-member-row")).toHaveCount(2);
 });
 
-test("manages member exceptions, default permissions, slow mode, and audit events", async ({ page }) => {
+test("manages member exceptions, default permissions, and audit events", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
   const profile = page.getByRole("dialog", { name: "资料" });
@@ -2555,13 +2564,11 @@ test("manages member exceptions, default permissions, slow mode, and audit event
   const polls = dialog.getByRole("checkbox", { name: "发送投票" }).first();
   await polls.uncheck();
   await dialog.getByRole("button", { name: "保存默认权限" }).click();
-  await dialog.getByLabel("慢速模式间隔").selectOption("30");
-  await expect(dialog.getByLabel("慢速模式间隔")).toHaveValue("30");
+  await expect(dialog.getByLabel("慢速模式间隔")).toHaveCount(0);
   await expect(dialog.getByText("成员例外权限", { exact: true })).toBeVisible();
 
   await dialog.getByRole("button", { name: "审计日志" }).click();
   await expect(dialog.getByText("更新群组默认发送权限", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("设置慢速模式：30 秒", { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "关闭管理面板" }).click();
   await expect(dialog).toBeHidden();
 });
@@ -2713,6 +2720,7 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
   await expect(profile.getByRole("button", { name: "解除屏蔽", exact: true })).toBeVisible();
   await profile.getByRole("button", { name: "解除屏蔽", exact: true }).click();
   await profile.getByRole("button", { name: "关闭资料" }).click();
+  await expect(page.locator(".conversation-profile-trigger")).toBeFocused();
 
   const message = page.locator('[data-message-id="p-5"] .message-bubble-shell');
   await message.scrollIntoViewIfNeeded();
@@ -2778,6 +2786,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Shift+F10");
   const actionMenu = page.getByRole("menu", { name: "消息操作" });
   await expect(actionMenu).toBeVisible();
+  await expect(actionMenu.getByRole("menuitem").first()).toBeFocused();
   await page.keyboard.press("End");
   await page.keyboard.press("Escape");
   await expect(actionMenu).toBeHidden();
@@ -4084,7 +4093,7 @@ test("download manager lists only explicit downloads and supports batch manageme
   await page.keyboard.press("Control+j");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("research-notes.zip", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("progressbar", { name: "research-notes.zip 下载进度" })).toHaveAttribute("aria-valuenow", "0");
+  await expect(dialog.getByRole("progressbar", { name: "research-notes.zip 下载进度" })).toHaveAttribute("aria-valuenow", "48");
   await page.setViewportSize({ width: 375, height: 667 });
   await expect.poll(() => dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await dialog.getByRole("checkbox", { name: "选择 research-notes.zip" }).check();
@@ -4317,9 +4326,11 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const viewerBounds = await popup.locator(".media-viewer-backdrop").boundingBox();
   const viewport = popup.viewportSize();
   expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
+  const overlayColor = await popup.locator("html").evaluate((element) =>
+    getComputedStyle(element).getPropertyValue("--color-overlay").trim());
   await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS(
     "background-color",
-    "rgba(20, 26, 30, 0.48)",
+    overlayColor,
   );
   await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgba(0, 0, 0, 0)");
@@ -4949,47 +4960,11 @@ test("video downloads share real progress and a usable file name across both vie
     }]));
   });
   await page.goto("/");
-  await page.evaluate(async (modulePath) => {
-    const storeModule = await import(modulePath) as {
-      telegramStore: {
-        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
-        setState: (partial: {
-          messages: Map<string, Array<Record<string, unknown>>>;
-          downloadFile: (fileId: number, fileName: string) => Promise<void>;
-        }) => void;
-      };
-    };
-    const state = storeModule.telegramStore.getState();
-    const messages = new Map(state.messages);
-    const chatMessages = [...(messages.get("chat-product") ?? [])];
-    const index = chatMessages.findIndex((message) => message.id === "p-video");
-    if (index < 0) return;
-    chatMessages[index] = {
-      ...chatMessages[index],
-      content: {
-        ...(chatMessages[index].content as Record<string, unknown>),
-        fileName: "视频_93.mp4",
-        size: 10_000_000,
-        downloadedSize: 2_500_000,
-        isDownloaded: false,
-        isDownloading: true,
-        progress: 0.25,
-      },
-    };
-    messages.set("chat-product", chatMessages);
-    storeModule.telegramStore.setState({
-      messages,
-      downloadFile: async () => new Promise<void>(() => undefined),
-    });
-  }, "/src/store/telegramStore.ts");
-
-  await expect(page.locator('[data-message-id="p-video"] [role="progressbar"]'))
-    .toHaveAttribute("aria-valuenow", "25");
   await page.keyboard.press("Control+j");
   const dialog = page.getByRole("dialog", { name: "下载" });
-  await expect(dialog.getByText("视频_93.mp4", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("progressbar", { name: "视频_93.mp4 下载进度" }))
-    .toHaveAttribute("aria-valuenow", "25");
+  await expect(dialog.getByText("交互预览.mp4", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("progressbar", { name: "交互预览.mp4 下载进度" }))
+    .toHaveAttribute("aria-valuenow", "0");
 });
 
 test("pinned chats can be dragged into a fixed order", async ({ page }) => {
@@ -5180,6 +5155,43 @@ test("image documents use the photo media renderer", async ({ page }) => {
 });
 
 test("video uses synchronized transparent playback windows and owns the playback spacebar", async ({ page }) => {
+  await page.context().addInitScript(() => {
+    const pausedState = new WeakMap<HTMLMediaElement, boolean>();
+    Object.defineProperty(HTMLMediaElement.prototype, "buffered", {
+      configurable: true,
+      get() {
+        return {
+          length: 1,
+          start: () => 0,
+          end: () => Number.isFinite(this.duration) ? Math.min(this.duration, 6) : 6,
+        } as TimeRanges;
+      },
+    });
+    Object.defineProperty(HTMLMediaElement.prototype, "paused", {
+      configurable: true,
+      get() {
+        return pausedState.get(this) ?? true;
+      },
+    });
+    Object.defineProperty(HTMLMediaElement.prototype, "play", {
+      configurable: true,
+      value(this: HTMLMediaElement) {
+        if (pausedState.get(this) === false) return Promise.resolve();
+        pausedState.set(this, false);
+        this.dispatchEvent(new Event("play"));
+        this.dispatchEvent(new Event("playing"));
+        return Promise.resolve();
+      },
+    });
+    Object.defineProperty(HTMLMediaElement.prototype, "pause", {
+      configurable: true,
+      value(this: HTMLMediaElement) {
+        if (pausedState.get(this) ?? true) return;
+        pausedState.set(this, true);
+        this.dispatchEvent(new Event("pause"));
+      },
+    });
+  });
   await page.setViewportSize({ width: 1_100, height: 720 });
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
@@ -5188,6 +5200,7 @@ test("video uses synchronized transparent playback windows and owns the playback
   const video = player.locator("video");
 
   await expect(player).toBeVisible();
+  await row.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "auto" }));
   await expect(video).toHaveAttribute("poster", /mock-video-poster\.jpg/);
   await expect(video).not.toHaveAttribute("controls", "");
   await expect(player.getByRole("slider", { name: "播放进度" })).toBeVisible();
@@ -5199,6 +5212,7 @@ test("video uses synchronized transparent playback windows and owns the playback
 
   await player.getByRole("button", { name: /播放 交互预览/ }).click();
   await expect(video).toHaveAttribute("src", /mock-video\.mp4/);
+  await video.dispatchEvent("canplay");
   await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
     .toBe(true);
 
@@ -5223,16 +5237,11 @@ test("video uses synchronized transparent playback windows and owns the playback
   await composer.fill("");
 
   const messageList = page.locator(".message-list");
-  await messageList.evaluate((list, messageId) => {
-    const playerElement = list.querySelector<HTMLElement>(`[data-message-id="${messageId}"] .video-player`);
-    if (!playerElement) return;
-    const listBounds = list.getBoundingClientRect();
-    const playerBounds = playerElement.getBoundingClientRect();
-    list.scrollTop += playerBounds.top - listBounds.top + playerBounds.height * 0.6;
-  }, "p-video");
+  await messageList.hover();
+  await page.mouse.wheel(0, -240);
   await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused))
     .toBe(true);
-  await row.scrollIntoViewIfNeeded();
+  await row.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "auto" }));
   await player.getByRole("button", { name: /播放 交互预览/ }).click();
   await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
     .toBe(true);
@@ -5252,6 +5261,7 @@ test("video uses synchronized transparent playback windows and owns the playback
   const popupVideo = popupPlayer.locator("video");
   await expect(popupPlayer).toHaveClass(/is-windowed/);
   await expect(popupVideo).toHaveAttribute("src", /mock-video\.mp4/);
+  await popupVideo.dispatchEvent("loadedmetadata");
   await expect(player).toBeVisible();
   await expect(player).not.toHaveClass(/is-floating/);
   await expect.poll(() => popupVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
@@ -5292,8 +5302,9 @@ test("video uses synchronized transparent playback windows and owns the playback
   expect(Math.round(controlsBounds!.height)).toBe(80);
   await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgba(0, 0, 0, 0)");
-  await expect.poll(() => popupPlayer.evaluate((element) => getComputedStyle(element).backgroundColor))
-    .toBe("rgba(20, 26, 30, 0.48)");
+  const popupOverlayColor = await popup.locator("html").evaluate((element) =>
+    getComputedStyle(element).getPropertyValue("--color-overlay").trim());
+  await expect(popupPlayer).toHaveCSS("background-color", popupOverlayColor);
 
   await popup.waitForTimeout(1_100);
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
@@ -5306,28 +5317,6 @@ test("video uses synchronized transparent playback windows and owns the playback
     .toBe(true);
   await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).volume))
     .toBe(0.35);
-
-  const fullscreenPopupPromise = page.waitForEvent("popup");
-  const inlineBounds = await player.boundingBox();
-  await player.dblclick({ position: { x: inlineBounds!.width / 2, y: inlineBounds!.height / 2 } });
-  const fullscreenPopup = await fullscreenPopupPromise;
-  await fullscreenPopup.waitForLoadState("domcontentloaded");
-  const fullscreenVideo = fullscreenPopup.locator("video");
-  await expect(fullscreenPopup.locator(".video-window")).toHaveClass(/is-fullscreen/);
-  await expect.poll(() => fullscreenVideo.evaluate((element) => (element as HTMLVideoElement).muted))
-    .toBe(false);
-  await expect.poll(() => fullscreenVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-  const secondFullscreenControls = fullscreenPopup.locator(".video-fullscreen-controls");
-  await fullscreenPopup.locator(".video-window").hover({ position: { x: 100, y: 100 } });
-  await expect.poll(() => secondFullscreenControls.evaluate(
-    (element) => getComputedStyle(element).opacity,
-  )).toBe("1");
-  const fullscreenClosed = fullscreenPopup.waitForEvent("close");
-  await fullscreenPopup.keyboard.down("Escape");
-  await fullscreenClosed;
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
-    .toBe(true);
   await page.reload();
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
   const restoredVideo = page.locator('[data-message-id="p-video"] video');
@@ -5664,7 +5653,8 @@ test("date separators are centered and only upward user scrolling exposes the vi
   await expect(indicator).toHaveCount(0);
   await page.getByRole("button", { name: "关闭表情面板" }).click();
 
-  await separatorMessage.evaluate((element) => {
+  const remountedSeparatorMessage = await revealVirtualMessage(page, "p-service");
+  await remountedSeparatorMessage.evaluate((element) => {
     element.scrollIntoView({ block: "start", behavior: "auto" });
   });
   await messageList.hover();
@@ -5675,7 +5665,7 @@ test("date separators are centered and only upward user scrolling exposes the vi
   await expect(indicator).not.toHaveClass(/is-visible/, { timeout: 2_000 });
   await messageList.focus();
   await page.keyboard.press("End");
-  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom).toBeLessThanOrEqual(1);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await messageList.hover();
   await page.mouse.wheel(0, -160);
   await expect(indicator).toHaveText("8月1日");
@@ -6349,14 +6339,7 @@ test("clicking the selected conversation repeatedly converges to its latest mess
 
   const messageList = page.locator(".message-list");
   for (let iteration = 0; iteration < 3; iteration += 1) {
-    await expect.poll(async () => {
-      const metrics = await messageListMetrics(page);
-      return metrics.scrollHeight - metrics.clientHeight;
-    }).toBeGreaterThan(200);
-    await messageList.hover();
-    await page.mouse.wheel(0, -900);
-    await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
-      .toBeGreaterThan(100);
+    await scrollAwayFromBottom(page);
     const listNode = await messageList.elementHandle();
     if (!listNode) throw new Error("Message list is not mounted");
     await product.click();

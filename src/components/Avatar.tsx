@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import type { Avatar as AvatarModel } from "../telegram/types";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import { useTelegramStore } from "../store/telegramStore";
+import { StableImage } from "./StableImage";
 
 interface AvatarProps {
   avatar: AvatarModel;
@@ -31,7 +32,7 @@ export function Avatar({ avatar, size = "medium" }: AvatarProps) {
     >
       <span>{avatar.label}</span>
       {imageSource && imageSource !== failedSource && (
-        <img
+        <StableImage
           key={imageSource}
           src={imageSource}
           alt=""

@@ -23,7 +23,10 @@ import type {
 import { messageContentText } from "../telegram/messageContent";
 import { formatChatTime } from "../utils/formatters";
 import { useTelegramStore } from "../store/telegramStore";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { DeleteMessagesDialog } from "./ConversationOverlays";
+import { MotionPresence } from "./MotionPresence";
+import { StableImage } from "./StableImage";
 
 const CATEGORIES: { id: SharedMediaCategory; label: string; icon: typeof ImageIcon }[] = [
   { id: "media", label: "图片与视频", icon: ImageIcon },
@@ -91,6 +94,8 @@ export function SharedMediaBrowser({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [permissionLoadingIds, setPermissionLoadingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(() => new Set());
+  const showLoading = useStableVisibility(loading);
+  const showLoadingMore = useStableVisibility(loadingMore, { minimumVisible: 220 });
 
   const loadFirstPage = async (force = false, nextQuery = appliedQuery) => {
     const generation = ++generationRef.current;
@@ -234,17 +239,15 @@ export function SharedMediaBrowser({
           ><Trash2 size={15} />删除</button>
         </div>
       )}
-      <div className={`shared-media-results ${category === "media" ? "is-grid" : ""}`} aria-busy={loading}>
-        {loading ? <div className="shared-media-empty"><LoaderCircle className="spin" size={19} />正在读取</div> : visibleMessages.length === 0 ? (
-          <div className="shared-media-empty">没有匹配的内容</div>
-        ) : visibleMessages.map((message) => {
+      <div className={`shared-media-results ${category === "media" ? "is-grid" : ""}`} aria-busy={loading} data-search-state={loading ? "updating" : "settled"}>
+        {!showLoading && visibleMessages.map((message) => {
           const source = mediaSource(message);
           const usableSource = source && !failedMediaSources.has(source) ? source : undefined;
           return (
             <div className={`shared-media-item ${selected.has(message.id) ? "is-selected" : ""}`} key={message.id}>
               <label className="shared-media-check"><input type="checkbox" aria-label={`选择 ${message.id}`} checked={selected.has(message.id)} onChange={() => toggleSelected(message.id)} /></label>
               <button className="shared-media-open" type="button" onClick={() => onOpenMessage(message.chatId, message.id)}>
-                {category === "media" ? usableSource ? <img
+                {category === "media" ? usableSource ? <StableImage
                   src={usableSource}
                   alt=""
                   onError={() => {
@@ -269,11 +272,18 @@ export function SharedMediaBrowser({
             </div>
           );
         })}
+        <MotionPresence present={showLoading || (!loading && visibleMessages.length === 0)} variant="status">
+          {showLoading || (!loading && visibleMessages.length === 0) ? (
+            <div key={showLoading ? "loading" : "empty"} className="shared-media-empty" role="status">
+              {showLoading ? <><LoaderCircle className="spin" size={19} />正在读取</> : "没有匹配的内容"}
+            </div>
+          ) : null}
+        </MotionPresence>
       </div>
-      {!loading && page.hasMore && <button className="shared-media-more" type="button" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore && <LoaderCircle className="spin" size={15} />}{loadingMore ? "正在加载" : "加载更多"}</button>}
+      {!loading && page.hasMore && <button className="shared-media-more" type="button" disabled={loadingMore} onClick={() => void loadMore()}>{showLoadingMore && <LoaderCircle className="spin" size={15} />}{loadingMore ? "正在加载" : "加载更多"}</button>}
       <div className="shared-media-count">{page.totalCount ?? page.messages.length} 项</div>
-      {deleteDialogOpen && (
-        <DeleteMessagesDialog
+      <MotionPresence present={deleteDialogOpen}>
+        {deleteDialogOpen ? <DeleteMessagesDialog
           count={selectedMessages.length}
           batch
           canDeleteOnlyForSelf={canDeleteOnlyForSelf}
@@ -284,8 +294,8 @@ export function SharedMediaBrowser({
             void deleteSelected(revoke).finally(() => setActionPending(false));
           }}
           onClose={() => setDeleteDialogOpen(false)}
-        />
-      )}
+        /> : null}
+      </MotionPresence>
     </div>
   );
 }

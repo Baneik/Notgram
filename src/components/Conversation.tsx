@@ -39,6 +39,7 @@ import {
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { formatMessageDay } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 import {
@@ -77,6 +78,7 @@ import {
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
 import { MotionPresence } from "./MotionPresence";
+import { motionLifecycleTiming } from "../utils/motionTokens";
 import { ForumTopicStrip } from "./ForumTopicStrip";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
 import {
@@ -576,7 +578,10 @@ export function Conversation({
       return;
     }
     if (!historyScrollbarSettling) return;
-    const timer = globalThis.setTimeout(() => setHistoryScrollbarSettling(false), 140);
+    const timer = globalThis.setTimeout(
+      () => setHistoryScrollbarSettling(false),
+      motionLifecycleTiming.historyScrollbarSettle,
+    );
     return () => globalThis.clearTimeout(timer);
   }, [historyLoading, historyScrollbarSettling]);
 
@@ -736,7 +741,7 @@ export function Conversation({
       dateIndicatorHideTimerRef.current = globalThis.setTimeout(() => {
         dateIndicatorHideTimerRef.current = undefined;
         setDateIndicatorVisible(false);
-      }, 1_200);
+      }, motionLifecycleTiming.transientIndicatorHold);
     });
   }, [hideDateIndicator, messagesById, pinnedViewOpen]);
   const {
@@ -779,6 +784,12 @@ export function Conversation({
     messageCount: pinnedViewOpen ? renderedMessages.length : messages.length,
     onLoadOlder: pinnedViewOpen ? async () => undefined : onLoadOlder,
     onUserScroll: handleConversationUserScroll,
+  });
+  const showPinnedLoading = useStableVisibility(
+    pinnedViewOpen && pinnedMessagesLoading && allPinnedMessages.length === 0,
+  );
+  const showHistoryLoading = useStableVisibility(!pinnedViewOpen && historyLoading, {
+    minimumVisible: 220,
   });
   useEffect(() => {
     setVisibleMessageDay(undefined);
@@ -948,6 +959,9 @@ export function Conversation({
     (
       scrollRequest?.chatId === chat?.id
     )
+  );
+  const showPositioning = useStableVisibility(
+    !pinnedViewOpen && positioning && renderedMessages.length === 0 && !preservePositioningFrame,
   );
 
   useLayoutEffect(() => {
@@ -1567,26 +1581,26 @@ export function Conversation({
             onOpenMessage={openPinnedBannerMessage}
           />
         )}
-        {pinnedViewOpen && pinnedMessagesLoading && allPinnedMessages.length === 0 && (
-          <div className="pinned-messages-loading" role="status">
+        <MotionPresence present={showPinnedLoading} variant="status">
+          {showPinnedLoading ? <div className="pinned-messages-loading" role="status">
             <LoaderCircle className="spin" size={18} />
             <span>正在读取置顶消息</span>
-          </div>
-        )}
-        {!pinnedViewOpen && positioning && renderedMessages.length === 0 && !preservePositioningFrame && (
-          <div
+          </div> : null}
+        </MotionPresence>
+        <MotionPresence present={showPositioning} variant="status">
+          {showPositioning ? <div
             className={`message-positioning-placeholder ${renderedMessages.length > 0 ? "is-warm" : ""}`}
             role="status"
           >
             <LoaderCircle className="spin" size={18} />
             <span>正在加载消息</span>
-          </div>
-        )}
-        {!pinnedViewOpen && historyLoading && (
-          <div className="history-loading" aria-label="正在加载更早消息">
+          </div> : null}
+        </MotionPresence>
+        <MotionPresence present={showHistoryLoading} variant="status">
+          {showHistoryLoading ? <div className="history-loading" aria-label="正在加载更早消息">
             <LoaderCircle className="spin" size={16} />
-          </div>
-        )}
+          </div> : null}
+        </MotionPresence>
         {!pinnedViewOpen && visibleMessageDay && (
           <div
             className={`conversation-date-indicator ${dateIndicatorVisible ? "is-visible" : ""}`}

@@ -7,6 +7,7 @@ import type {
 } from "../telegram/types";
 import { writeClipboardText } from "../utils/clipboard";
 import { openExternalLink } from "../utils/externalLinks";
+import { motionLifecycleTiming } from "../utils/motionTokens";
 
 interface InlineKeyboardProps {
   messageId: string;
@@ -46,7 +47,10 @@ export function InlineKeyboard({
       case "copyText":
         await writeClipboardText(button.copyText);
         setCopiedKey(key);
-        globalThis.setTimeout(() => setCopiedKey((current) => current === key ? undefined : current), 1_200);
+        globalThis.setTimeout(
+          () => setCopiedKey((current) => current === key ? undefined : current),
+          motionLifecycleTiming.transientIndicatorHold,
+        );
         return;
       case "unsupported":
         return;

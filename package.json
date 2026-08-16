@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:portable": "node scripts/build-portable.mjs",
+    "motion:check": "node scripts/verify-motion-contract.mjs",
     "check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check.ps1",
     "check:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check.ps1 -Release",
     "preview": "vite preview",

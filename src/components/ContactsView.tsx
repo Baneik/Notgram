@@ -1,7 +1,9 @@
 import { LoaderCircle, MessageCircle, RefreshCw, Search, UserRound, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { User } from "../telegram/types";
 import { Avatar } from "./Avatar";
+import { MotionPresence } from "./MotionPresence";
 
 interface ContactsViewProps {
   contacts: User[];
@@ -33,6 +35,12 @@ export function ContactsView({
       ? contacts.filter((user) => user.displayName.toLocaleLowerCase().includes(normalized))
       : contacts;
   }, [contacts, query]);
+  const primaryLoading = loading && contacts.length === 0;
+  const showLoading = useStableVisibility(primaryLoading);
+  const showPending = useStableVisibility(Boolean(pendingUserId), { minimumVisible: 220 });
+  const statusKind = showLoading ? "loading" : !primaryLoading && error
+    ? "error"
+    : !primaryLoading && visibleContacts.length === 0 ? "empty" : undefined;
 
   return (
     <section className="contacts-view" aria-labelledby="contacts-title">
@@ -54,7 +62,7 @@ export function ContactsView({
           )}
         </label>
       </div>
-      <div className="contacts-results" aria-live="polite">
+      <div className="contacts-results" aria-live="polite" aria-busy={primaryLoading}>
         {currentUser && (
           <button className="contacts-self" type="button" onClick={onOpenCurrentProfile}>
             <Avatar avatar={currentUser.avatar} size="medium" />
@@ -65,18 +73,14 @@ export function ContactsView({
             <UserRound size={19} strokeWidth={1.8} />
           </button>
         )}
-        {loading && contacts.length === 0 ? (
-          <div className="contacts-state" role="status"><LoaderCircle className="spin" size={21} /></div>
-        ) : error ? (
-          <div className="contacts-state is-error" role="alert">
-            <span>{error}</span>
-            <button className="dialog-secondary" type="button" onClick={onRetry}>
-              <RefreshCw size={15} /><span>重试</span>
-            </button>
-          </div>
-        ) : visibleContacts.length === 0 ? (
-          <div className="contacts-state">没有匹配的联系人</div>
-        ) : (
+        <MotionPresence present={Boolean(statusKind)} variant="status">
+          {statusKind ? <div key={statusKind} className={`contacts-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"}>
+            {statusKind === "loading" ? <LoaderCircle className="spin" size={21} /> : statusKind === "error" ? (
+              <><span>{error}</span><button className="dialog-secondary" type="button" onClick={onRetry}><RefreshCw size={15} /><span>重试</span></button></>
+            ) : "没有匹配的联系人"}
+          </div> : null}
+        </MotionPresence>
+        {!statusKind && visibleContacts.length > 0 && (
           <div className="contacts-list">
             {visibleContacts.map((user) => (
               <button className="contact-row" type="button" key={user.id} disabled={Boolean(pendingUserId)} onClick={() => onOpen(user.id)}>
@@ -86,7 +90,7 @@ export function ContactsView({
                   <small>{user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线"}</small>
                 </span>
                 <span className="contact-command" aria-hidden="true">
-                  {pendingUserId === user.id ? <LoaderCircle className="spin" size={18} /> : <MessageCircle size={18} />}
+                  {showPending && pendingUserId === user.id ? <LoaderCircle className="spin" size={18} /> : <MessageCircle size={18} />}
                 </span>
               </button>
             ))}
