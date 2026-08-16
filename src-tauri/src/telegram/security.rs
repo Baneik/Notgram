@@ -13,6 +13,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "addChatToList",
     "addChatMembers",
     "canTransferOwnership",
+    "cancelDownloadFile",
     "setChatMemberStatus",
     "setChatMemberTag",
     "addMessageReaction",
@@ -184,6 +185,16 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         return Err("Local files cannot be sent through the generic TDLib bridge".to_string());
     }
     match request_type {
+        "cancelDownloadFile" => {
+            validate_nonzero_identifier(request, "file_id")?;
+            if request
+                .get("only_if_pending")
+                .and_then(Value::as_bool)
+                .is_none()
+            {
+                return Err("Download cancellation mode is missing".to_string());
+            }
+        }
         "getOption" => {
             if request.get("name").and_then(Value::as_str) != Some("dc_id") {
                 return Err("Only the data-center option can be read".to_string());
@@ -1597,6 +1608,28 @@ mod tests {
             Some("setTdlibParameters")
         );
         assert_eq!(request_type_from_extra("unexpected"), None);
+    }
+
+    #[test]
+    fn allows_bounded_file_download_cancellation() {
+        let cancel = json!({
+            "@type": "cancelDownloadFile",
+            "file_id": 77,
+            "only_if_pending": false,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&cancel).is_ok());
+
+        let mut invalid_id = cancel.clone();
+        invalid_id["file_id"] = json!(0);
+        assert!(validate_webview_tdlib_request(&invalid_id).is_err());
+
+        let mut missing_mode = cancel;
+        missing_mode
+            .as_object_mut()
+            .unwrap()
+            .remove("only_if_pending");
+        assert!(validate_webview_tdlib_request(&missing_mode).is_err());
     }
 
     #[test]

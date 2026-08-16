@@ -19,6 +19,11 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Advance native audio stream buffer windows with the active playback position and
+  preserve validated audio MIME types, preventing large high-bitrate files such as
+  FLAC tracks from stalling after the initial 8 MiB range.
+- Allow strictly validated TDLib file-download cancellation requests through the
+  WebView bridge so cancel actions stop the underlying transfer.
 - Separate measured UI stalls from asynchronous backend waits and incomplete tracing,
   so an eight-second conversation trace timeout no longer implies an eight-second
   frozen interface.

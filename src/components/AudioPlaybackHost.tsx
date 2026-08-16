@@ -37,6 +37,7 @@ import {
   formatPlaybackTime,
   mediaPlaybackCoordinator,
 } from "../media/mediaPlayback";
+import { updateMediaStreamPlayback } from "../media/mediaStream";
 import { AudioSpectrum } from "./AudioSpectrum";
 import { MediaProgressRing } from "./MediaProgressRing";
 
@@ -45,6 +46,7 @@ function PersistentAudioEngine() {
   const trackRef = useRef<AudioTrackDescriptor | undefined>(undefined);
   const requestGenerationRef = useRef(0);
   const lastRememberedSecondRef = useRef(0);
+  const lastStreamSyncAtRef = useRef(0);
   const playbackRateRef = useRef(1);
   const volumeRef = useRef(audioPlaybackController.getSnapshot().volume);
   const mutedRef = useRef(audioPlaybackController.getSnapshot().muted);
@@ -58,7 +60,25 @@ function PersistentAudioEngine() {
   const suspendTrackStream = (track?: AudioTrackDescriptor) => {
     if (!track || streamingTrackIdRef.current !== track.id) return;
     streamingTrackIdRef.current = undefined;
+    lastStreamSyncAtRef.current = 0;
     track.onSuspendStream?.();
+  };
+
+  const syncTrackStream = (
+    track: AudioTrackDescriptor | undefined,
+    audio: HTMLAudioElement,
+    force = false,
+  ) => {
+    if (!track || track.fileId === undefined || streamingTrackIdRef.current !== track.id) return;
+    const now = performance.now();
+    if (!force && now - lastStreamSyncAtRef.current < 500) return;
+    lastStreamSyncAtRef.current = now;
+    void updateMediaStreamPlayback(
+      track.fileId,
+      Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+      Number.isFinite(audio.duration) ? audio.duration : track.durationHint ?? 0,
+      audio.paused,
+    ).catch(() => undefined);
   };
 
   const ensureAudioGraph = async (audio: HTMLAudioElement) => {
@@ -143,6 +163,7 @@ function PersistentAudioEngine() {
     }
     trackRef.current = track;
     lastRememberedSecondRef.current = 0;
+    lastStreamSyncAtRef.current = 0;
     audio.removeAttribute("src");
     audio.load();
     audioPlaybackController.activate(track);
@@ -187,6 +208,7 @@ function PersistentAudioEngine() {
     if (!audio || !track || !Number.isFinite(time)) return;
     audio.currentTime = Math.max(0, Math.min(audio.duration || time, time));
     audioPlaybackController.update(track.id, { currentTime: audio.currentTime });
+    syncTrackStream(track, audio, true);
   };
 
   const setPlaybackRate = (rate: number) => {
@@ -293,6 +315,7 @@ function PersistentAudioEngine() {
         const resume = mediaPlaybackCoordinator.resumePosition(id, duration);
         if (resume > 0) audio.currentTime = resume;
         audioPlaybackController.update(id, { duration, currentTime: resume });
+        syncTrackStream(trackRef.current, audio, true);
       }}
       onPlay={(event) => {
         void ensureAudioOutput(event.currentTarget);
@@ -301,6 +324,7 @@ function PersistentAudioEngine() {
         mediaPlaybackCoordinator.activate(id, event.currentTarget);
         mediaPlaybackCoordinator.claimKeyboardTarget(id, toggleRef.current);
         audioPlaybackController.update(id, { playing: true, loading: false, failed: false });
+        syncTrackStream(trackRef.current, event.currentTarget, true);
       }}
       onPlaying={(event) => {
         void ensureAudioOutput(event.currentTarget);
@@ -310,10 +334,12 @@ function PersistentAudioEngine() {
           loading: false,
           failed: false,
         });
+        syncTrackStream(trackRef.current, event.currentTarget);
       }}
       onWaiting={(event) => {
         const id = event.currentTarget.dataset.playbackId;
         if (id) audioPlaybackController.update(id, { loading: true });
+        syncTrackStream(trackRef.current, event.currentTarget, true);
       }}
       onPause={(event) => {
         const audio = event.currentTarget;
@@ -322,12 +348,14 @@ function PersistentAudioEngine() {
         mediaPlaybackCoordinator.remember(id, audio.currentTime, audio.duration);
         mediaPlaybackCoordinator.release(audio);
         audioPlaybackController.update(id, { playing: false, loading: false });
+        syncTrackStream(trackRef.current, audio, true);
       }}
       onTimeUpdate={(event) => {
         const audio = event.currentTarget;
         const id = audio.dataset.playbackId;
         if (!id) return;
         audioPlaybackController.update(id, { currentTime: audio.currentTime });
+        syncTrackStream(trackRef.current, audio);
         const wholeSecond = Math.floor(audio.currentTime);
         if (wholeSecond - lastRememberedSecondRef.current >= 5) {
           lastRememberedSecondRef.current = wholeSecond;
@@ -339,11 +367,13 @@ function PersistentAudioEngine() {
         const id = audio.dataset.playbackId;
         if (id && Number.isFinite(audio.duration)) {
           audioPlaybackController.update(id, { duration: audio.duration });
+          syncTrackStream(trackRef.current, audio, true);
         }
       }}
       onEnded={(event) => {
         const id = event.currentTarget.dataset.playbackId;
         if (!id) return;
+        syncTrackStream(trackRef.current, event.currentTarget, true);
         suspendTrackStream(trackRef.current);
         mediaPlaybackCoordinator.clear(id);
         mediaPlaybackCoordinator.release(event.currentTarget);

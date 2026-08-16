@@ -94,10 +94,7 @@ impl MediaStreamRegistry {
         if file_id <= 0 || size == 0 {
             return Err("Invalid Telegram media stream descriptor".to_string());
         }
-        let mime_type = match mime_type.to_ascii_lowercase().as_str() {
-            "video/mp4" | "video/webm" | "video/quicktime" => mime_type.to_ascii_lowercase(),
-            _ => "video/mp4".to_string(),
-        };
+        let mime_type = normalized_media_mime_type(mime_type);
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
         inner
             .files
@@ -352,6 +349,22 @@ impl MediaStreamRegistry {
     }
 }
 
+fn normalized_media_mime_type(mime_type: &str) -> String {
+    let normalized = mime_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    match normalized.as_str() {
+        "video/mp4" | "video/webm" | "video/quicktime" | "audio/mpeg" | "audio/mp4"
+        | "audio/aac" | "audio/ogg" | "application/ogg" | "audio/opus" | "audio/wav"
+        | "audio/wave" | "audio/x-wav" | "audio/vnd.wave" | "audio/flac" | "audio/x-flac"
+        | "audio/webm" => normalized,
+        _ => "video/mp4".to_string(),
+    }
+}
+
 fn collect_file_progress(value: &Value, files: &mut Vec<(i32, FileProgress, bool)>) {
     match value {
         Value::Object(object) => {
@@ -562,6 +575,16 @@ mod tests {
     }
 
     #[test]
+    fn preserves_supported_audio_mime_types_without_accepting_arbitrary_headers() {
+        assert_eq!(normalized_media_mime_type("audio/flac"), "audio/flac");
+        assert_eq!(
+            normalized_media_mime_type("Audio/Ogg; codecs=opus"),
+            "audio/ogg"
+        );
+        assert_eq!(normalized_media_mime_type("text/plain"), "video/mp4");
+    }
+
+    #[test]
     fn reads_only_observed_ranges_for_registered_files() {
         let registry = MediaStreamRegistry::default();
         registry.register(7, 12, "video/mp4").unwrap();
@@ -672,6 +695,9 @@ mod tests {
             permitted_response_bytes(&media, 3 * 1024 * 1024, MAX_RESPONSE_BYTES),
             0
         );
+        media.playback.current_time = 120.0;
+        media.playback.paused = false;
+        assert!(permitted_response_bytes(&media, 18 * 1024 * 1024, MAX_RESPONSE_BYTES) > 0);
         assert_eq!(
             permitted_response_bytes(&media, media.size - 1024, 1024),
             1024,
