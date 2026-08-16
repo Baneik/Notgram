@@ -38,6 +38,7 @@ interface RichMessageContentProps {
   onRecoverFile: (fileId: number, priority?: number) => Promise<boolean>;
   onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onSuspendStream: (fileId: number) => Promise<void>;
+  onSearchHashtag?: (hashtag: string) => void;
 }
 
 interface RenderContext extends Omit<RichMessageContentProps, "blocks" | "isRtl" | "isFull"> {
@@ -124,9 +125,27 @@ const renderRun = (run: MessageRichTextRun, key: string, context: RenderContext)
       </span>
     );
   }
-  if (run.semantic) node = <span data-rich-semantic={run.semantic}>{node}</span>;
+  if (run.semantic === "hashtag") {
+    const hashtag = run.text.startsWith("#") ? run.text : `#${run.text}`;
+    node = (
+      <a
+        className="message-hashtag"
+        data-rich-semantic="hashtag"
+        href={`#search-${encodeURIComponent(hashtag.slice(1))}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          context.onSearchHashtag?.(hashtag);
+        }}
+      >
+        {node}
+      </a>
+    );
+  } else if (run.semantic) {
+    node = <span data-rich-semantic={run.semantic}>{node}</span>;
+  }
 
-  const href = safeHref(run.href);
+  const href = run.semantic === "hashtag" ? undefined : safeHref(run.href);
   if (href) {
     node = (
       <a href={href} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>
@@ -451,6 +470,7 @@ export function RichMessageContent({
   onRecoverFile,
   onStream,
   onSuspendStream,
+  onSearchHashtag,
 }: RichMessageContentProps) {
   const context: RenderContext = {
     messageId,
@@ -461,6 +481,7 @@ export function RichMessageContent({
     onRecoverFile,
     onStream,
     onSuspendStream,
+    onSearchHashtag,
   };
   return (
     <TextSpoilerGroup

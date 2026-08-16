@@ -13,6 +13,7 @@ interface MessageRichTextProps {
   className?: string;
   highlightQuery?: string;
   onOpenMention?: (username?: string, userId?: string) => void;
+  onSearchHashtag?: (hashtag: string) => void;
 }
 
 const entityHref = (entity: MessageTextEntity, value: string) => {
@@ -77,12 +78,39 @@ function MentionLink({
   );
 }
 
+function HashtagLink({
+  value,
+  children,
+  onSearchHashtag,
+}: {
+  value: string;
+  children: ReactNode;
+  onSearchHashtag?: (hashtag: string) => void;
+}) {
+  const hashtag = value.startsWith("#") ? value : `#${value}`;
+  const searchHashtag = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSearchHashtag?.(hashtag);
+  };
+  return (
+    <a
+      className="message-hashtag"
+      href={`#search-${encodeURIComponent(hashtag.slice(1))}`}
+      onClick={searchHashtag}
+    >
+      {children}
+    </a>
+  );
+}
+
 const wrapEntity = (
   entity: MessageTextEntity,
   value: string,
   children: ReactNode,
   key: string,
   onOpenMention?: (username?: string, userId?: string) => void,
+  onSearchHashtag?: (hashtag: string) => void,
 ) => {
   switch (entity.kind) {
     case "bold": return <strong key={key}>{children}</strong>;
@@ -105,6 +133,11 @@ const wrapEntity = (
     case "code": return <code key={key}>{children}</code>;
     case "pre": return <code key={key} className="rich-pre" data-language={entity.language}>{children}</code>;
     case "blockquote": return <span key={key} className="rich-blockquote">{children}</span>;
+    case "hashtag": return (
+      <HashtagLink key={key} value={value} onSearchHashtag={onSearchHashtag}>
+        {children}
+      </HashtagLink>
+    );
     case "url":
     case "textUrl":
     case "email":
@@ -138,12 +171,13 @@ const renderInlineRange = (
   keyPrefix: string,
   highlightRanges: ReturnType<typeof textHighlightRanges>,
   onOpenMention?: (username?: string, userId?: string) => void,
+  onSearchHashtag?: (hashtag: string) => void,
 ) => {
   const overlapping = entities.filter((entity) =>
     entity.offset < endOffset && entity.offset + entity.length > startOffset,
   );
-  const mentionRanges = overlapping.filter((entity) =>
-    entity.kind === "mention" || entity.kind === "mentionName"
+  const atomicLinkRanges = overlapping.filter((entity) =>
+    entity.kind === "hashtag" || entity.kind === "mention" || entity.kind === "mentionName"
   );
   const boundaries = [...new Set([
     startOffset,
@@ -158,7 +192,7 @@ const renderInlineRange = (
         Math.max(startOffset, range.start),
         Math.min(endOffset, range.end),
       ]),
-  ])].filter((boundary) => !mentionRanges.some((entity) =>
+  ])].filter((boundary) => !atomicLinkRanges.some((entity) =>
     boundary > entity.offset && boundary < entity.offset + entity.length
   )).sort((left, right) => left - right);
 
@@ -176,6 +210,7 @@ const renderInlineRange = (
         children,
         `${keyPrefix}:${start}:${end}:${entityIndex}`,
         onOpenMention,
+        onSearchHashtag,
       ),
       value,
     );
@@ -191,6 +226,7 @@ const renderEntities = (
   entities: MessageTextEntity[],
   highlightQuery?: string,
   onOpenMention?: (username?: string, userId?: string) => void,
+  onSearchHashtag?: (hashtag: string) => void,
 ) => {
   const highlightRanges = textHighlightRanges(text, highlightQuery);
   const valid = entities.filter((entity) =>
@@ -209,6 +245,7 @@ const renderEntities = (
       "inline",
       highlightRanges,
       onOpenMention,
+      onSearchHashtag,
     );
   }
 
@@ -227,6 +264,7 @@ const renderEntities = (
         `plain:${cursor}`,
         highlightRanges,
         onOpenMention,
+        onSearchHashtag,
       ));
     }
     nodes.push(
@@ -239,6 +277,7 @@ const renderEntities = (
           `quote:${quote.offset}`,
           highlightRanges,
           onOpenMention,
+          onSearchHashtag,
         )}
       </span>,
     );
@@ -253,6 +292,7 @@ const renderEntities = (
       `plain:${cursor}`,
       highlightRanges,
       onOpenMention,
+      onSearchHashtag,
     ));
   }
   return nodes;
@@ -264,6 +304,7 @@ export function MessageRichText({
   className = "",
   highlightQuery,
   onOpenMention,
+  onSearchHashtag,
 }: MessageRichTextProps) {
   if (entities && entities.length > 0) {
     return (
@@ -272,7 +313,7 @@ export function MessageRichText({
         data-rich-text="entities"
         resetKey={text}
       >
-        {renderEntities(text, entities, highlightQuery, onOpenMention)}
+        {renderEntities(text, entities, highlightQuery, onOpenMention, onSearchHashtag)}
       </TextSpoilerGroup>
     );
   }

@@ -2842,13 +2842,18 @@ test("search paginates, filters the current conversation by member, and opens ex
 
   await search.fill("产品讨论历史消息 36");
   await expect(page.locator("[data-search-message-id]")).toHaveCount(1);
+  const globalMessageResult = page.locator('[data-search-message-id="p-old-36"]');
+  await expect(globalMessageResult.locator(".avatar")).toContainText("产");
+  await expect(globalMessageResult.locator("strong")).toHaveText("产品讨论");
+  await expect(globalMessageResult.locator(".global-message-result-sender")).toHaveText("林然：");
 
   await page.getByRole("tab", { name: "媒体" }).click();
   await search.fill("预览");
   const target = page.locator('[data-search-message-id="p-5"]');
   await expect(target).toContainText("新的媒体预览样式");
   await target.click();
-  await expect(page.locator(".global-search-results-panel")).toBeHidden();
+  await expect(page.locator(".global-search-results-panel")).toBeVisible();
+  await expect(search).toHaveValue("预览");
   const locatedMessage = page.locator('[data-message-id="p-5"]');
   await expect(locatedMessage).toHaveClass(/is-notification-target/);
   await expect.poll(() => locatedMessage.evaluate((element) => {
@@ -2893,8 +2898,11 @@ test("search paginates, filters the current conversation by member, and opens ex
 
   const newestSearchResult = page.locator('.chat-search-results-panel [data-search-message-id="p-old-36"]');
   await expect(newestSearchResult).toContainText("产品讨论历史消息 36");
+  await expect(newestSearchResult.locator(".avatar")).toContainText("林");
+  await expect(newestSearchResult.locator("strong")).toHaveText("林然");
   await newestSearchResult.click();
-  await expect(page.locator(".chat-search-results-panel")).toBeHidden();
+  await expect(page.locator(".chat-search-results-panel")).toBeVisible();
+  await expect(search).toHaveValue("产品讨论历史消息");
   const searchSourceMessage = page.locator('[data-message-id="p-old-36"]');
   await expect(searchSourceMessage).toHaveClass(/is-notification-target/);
   await expect(searchSourceMessage).toBeInViewport();
@@ -2936,6 +2944,8 @@ test("search paginates, filters the current conversation by member, and opens ex
   await search.fill("Mia Chen");
   await page.locator(".global-chat-result", { hasText: "Mia Chen" }).click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await expect(page.locator(".global-search-results-panel")).toBeVisible();
+  await expect(search).toHaveValue("Mia Chen");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.keyboard.press("Control+K");
@@ -3071,6 +3081,32 @@ test("shared media supports server categories, filters, forwarding, and batch de
   await deleteDialog.getByRole("button", { name: "仅对我删除" }).click();
   await expect(profile.getByText("desktop-layout-review.pdf", { exact: true })).toHaveCount(0);
   expect(await horizontalOverflow(page)).toBe(false);
+});
+
+test("message hashtags open and retain scoped search", async ({ page }) => {
+  await page.goto("/");
+  const message = await revealVirtualMessage(page, "p-rich-entities");
+  const hashtag = message.getByRole("link", { name: "#release" });
+  await expect(hashtag).toBeVisible();
+  await expect(hashtag).toHaveCSS("text-decoration-line", "underline");
+
+  await hashtag.click();
+
+  const search = page.getByRole("searchbox", { name: "搜索会话和消息" });
+  await expect(page.getByRole("group", { name: "搜索范围：产品讨论" })).toBeVisible();
+  await expect(search).toHaveValue("#release");
+  const result = page.locator('.chat-search-results-panel [data-search-message-id="p-rich-entities"]');
+  await expect(result).toBeVisible();
+  await expect(result.locator("strong")).toHaveText("Jules");
+  await expect(result.locator(".avatar")).toContainText("J");
+
+  await result.click();
+  await expect(page.locator(".chat-search-results-panel")).toBeVisible();
+  await expect(search).toHaveValue("#release");
+  await expect(page.locator('[data-message-id="p-rich-entities"]')).toHaveClass(/is-notification-target/);
+
+  await page.getByRole("button", { name: "移除会话搜索范围" }).click();
+  await expect(page.locator(".chat-search-results-panel")).toBeHidden();
 });
 
 test("message deletion keeps safety actions separate and exposes only allowed scopes", async ({ page }) => {

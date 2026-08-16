@@ -11,6 +11,7 @@ import type {
   SharedMediaSearchInput,
 } from "./types";
 import {
+  asTdObject,
   asTdObjects,
   tdId,
   tdNumber,
@@ -21,7 +22,9 @@ import type { TdObject } from "./tdlibMapper";
 export interface TauriSearchServiceContext {
   request: (request: TdObject) => Promise<TdObject>;
   rawChats: Map<string, TdObject>;
+  rawUsers: Map<string, TdObject>;
   upsertChat: (raw?: TdObject) => void;
+  upsertUser: (raw?: TdObject) => void;
   mapChat: (raw: TdObject) => Chat | undefined;
   mapMessage: (raw: TdObject) => Message | undefined;
   emitMessages: (rawMessages: TdObject[]) => void;
@@ -85,6 +88,37 @@ const unixDate = (message: Message) => Math.floor(Date.parse(message.sentAt) / 1
 export class TauriSearchService {
   constructor(private readonly context: TauriSearchServiceContext) {}
 
+  private async hydrateMessageSenders(rawMessages: TdObject[]) {
+    const userIds = new Set<string>();
+    const chatIds = new Set<string>();
+    for (const message of rawMessages) {
+      const sender = asTdObject(message.sender_id);
+      if (sender?.["@type"] === "messageSenderUser") {
+        const userId = tdId(sender.user_id);
+        if (userId && !this.context.rawUsers.has(userId)) userIds.add(userId);
+      } else if (sender?.["@type"] === "messageSenderChat") {
+        const chatId = tdId(sender.chat_id);
+        if (chatId && !this.context.rawChats.has(chatId)) chatIds.add(chatId);
+      }
+    }
+    await Promise.all([
+      ...[...userIds].map(async (userId) => {
+        const user = await this.context.request({
+          "@type": "getUser",
+          user_id: numericId(userId),
+        }).catch(() => undefined);
+        this.context.upsertUser(user);
+      }),
+      ...[...chatIds].map(async (chatId) => {
+        const chat = await this.context.request({
+          "@type": "getChat",
+          chat_id: numericId(chatId),
+        }).catch(() => undefined);
+        this.context.upsertChat(chat);
+      }),
+    ]);
+  }
+
   async searchChats(query: string, limit = 50) {
     const normalized = query.trim();
     if (!normalized) return;
@@ -138,6 +172,7 @@ export class TauriSearchService {
       }).catch(() => undefined),
     ]);
     const rawMessages = asTdObjects(found.messages);
+    await this.hydrateMessageSenders(rawMessages);
     const resultChatIds = new Set(
       rawMessages.map((message) => tdId(message.chat_id)).filter(Boolean),
     );
@@ -215,6 +250,7 @@ export class TauriSearchService {
       filter: chatSearchFilterObject(filter),
     });
     const rawMessages = asTdObjects(result.messages);
+    await this.hydrateMessageSenders(rawMessages);
     const mappedMessages = rawMessages
       .map((raw) => this.context.mapMessage(raw))
       .filter((message): message is Message => Boolean(message && message.chatId === input.chatId));

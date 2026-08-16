@@ -299,10 +299,13 @@ export class TauriTelegramTransport implements TelegramTransport {
   private unlistenError?: UnlistenFn;
   private requestBroker = new TdRequestBroker();
   private rawChats = new Map<string, TdObject>();
+  private rawUsers = new Map<string, TdObject>();
   private searchService = new TauriSearchService({
     request: (request) => this.request(request),
     rawChats: this.rawChats,
+    rawUsers: this.rawUsers,
     upsertChat: (raw) => this.upsertChat(raw),
+    upsertUser: (raw) => this.upsertUser(raw),
     mapChat: (raw) => this.mapChat(raw),
     mapMessage: (raw) => this.mapMessage(raw),
     emitMessages: (rawMessages) => this.emitMessages(rawMessages),
@@ -314,7 +317,6 @@ export class TauriTelegramTransport implements TelegramTransport {
   });
   private rawBasicGroups = new Map<string, TdObject>();
   private rawSupergroups = new Map<string, TdObject>();
-  private rawUsers = new Map<string, TdObject>();
   private profileService = new TauriProfileService({
     request: (request) => this.request(request),
     rawChats: this.rawChats,

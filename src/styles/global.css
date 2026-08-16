@@ -333,12 +333,13 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .global-chat-result strong { font-size: 13px; }
 .global-chat-result small { color: var(--muted); font-size: 11px; }
 .global-message-result { min-height: 62px; padding: 8px 10px; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 10px; }
-.global-message-result-icon { width: 32px; height: 32px; display: grid; place-items: center; color: var(--color-status-success); background: color-mix(in srgb, var(--color-status-success) 12%, var(--color-bg-surface)); border-radius: 6px; }
+.global-message-result > .avatar-small { width: 32px; height: 32px; }
 .global-message-result-copy { min-width: 0; display: grid; gap: 5px; }
 .global-message-result-copy > span { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .global-message-result-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .global-message-result-copy time { flex: 0 0 auto; color: var(--subtle); font-size: 10px; }
-.global-message-result-copy small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.global-message-result-copy small { min-width: 0; display: block; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.global-message-result-sender { color: var(--color-text-link); font-weight: 650; }
 .global-search-state { min-height: 180px; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
 .global-search-state.is-error { color: var(--color-status-danger); }
 .global-search-more { min-width: 120px; min-height: 38px; margin: 18px auto 0; padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--accent); background: var(--color-bg-surface); border: 1px solid var(--accent); border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
@@ -976,6 +977,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 }
 .message-rich-text a,
 .is-outgoing .message-rich-text a { color: var(--color-text-link); text-decoration: underline; text-underline-offset: 2px; }
+.message-rich-text .message-hashtag { cursor: pointer; font-weight: 600; }
 .message-rich-text code {
   padding: 1px 4px; color: var(--color-status-danger); background: var(--color-bg-code);
   border-radius: 3px; font-family: Consolas, "Courier New", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));

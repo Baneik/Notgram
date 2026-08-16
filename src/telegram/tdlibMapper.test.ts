@@ -585,7 +585,7 @@ describe("TDLib mapper", () => {
         "@type": "messageText",
         text: {
           "@type": "formattedText",
-          text: "Bold link code",
+          text: "Bold link code #release",
           entities: [
             { offset: 0, length: 4, type: { "@type": "textEntityTypeBold" } },
             {
@@ -594,6 +594,7 @@ describe("TDLib mapper", () => {
               type: { "@type": "textEntityTypeTextUrl", url: "https://example.com" },
             },
             { offset: 10, length: 4, type: { "@type": "textEntityTypeCode" } },
+            { offset: 15, length: 8, type: { "@type": "textEntityTypeHashtag" } },
           ],
         },
       },
@@ -601,7 +602,7 @@ describe("TDLib mapper", () => {
 
     expect(message?.content).toEqual({
       kind: "text",
-      text: "Bold link code",
+      text: "Bold link code #release",
       entities: [
         { offset: 0, length: 4, kind: "bold", href: undefined, language: undefined },
         {
@@ -612,6 +613,7 @@ describe("TDLib mapper", () => {
           language: undefined,
         },
         { offset: 10, length: 4, kind: "code", href: undefined, language: undefined },
+        { offset: 15, length: 8, kind: "hashtag", href: undefined, language: undefined },
       ],
     });
   });

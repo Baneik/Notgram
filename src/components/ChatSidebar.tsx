@@ -408,6 +408,8 @@ export function ChatSidebar({
           query={searchQuery}
           senderId={chatSearchSenderId}
           senderOptions={chatSearchSenderOptions}
+          knownChats={allChats}
+          knownUsers={users}
           state={chatMessageSearch}
           stateMatchesInput={chatSearchStateMatchesInput}
           onSenderChange={onChatSearchSenderChange}
@@ -418,7 +420,8 @@ export function ChatSidebar({
         <GlobalSearchResults
           query={searchQuery}
           state={globalSearch}
-          knownChats={new Map(chats.map((chat) => [chat.id, chat]))}
+          knownChats={allChats}
+          knownUsers={users}
           onSearch={onSearchMessages}
           onLoadMore={onLoadMoreSearchMessages}
           onCancel={onCancelMessageSearch}

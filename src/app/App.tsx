@@ -684,18 +684,22 @@ export function App() {
     return () => window.removeEventListener("pointerdown", routePointerButton, true);
   }, [navigateBack, navigateForward]);
 
-  const openChatSearch = useCallback((chatId: string, senderId?: string) => {
+  const openChatSearch = useCallback((chatId: string, senderId?: string, initialQuery?: string) => {
     if (!chatId) return;
     cancelGlobalSearch();
     clearGlobalSearch();
     enterChatSearch(chatId, senderId);
+    if (initialQuery) setSearchQuery(initialQuery);
     clearProfile();
     setMobileChatOpen(false);
     globalThis.setTimeout(() => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
     }, 0);
-  }, [cancelGlobalSearch, clearGlobalSearch, clearProfile, enterChatSearch]);
+  }, [cancelGlobalSearch, clearGlobalSearch, clearProfile, enterChatSearch, setSearchQuery]);
+  const searchActiveChatHashtag = useCallback((hashtag: string) => {
+    if (activeChatId) openChatSearch(activeChatId, undefined, hashtag);
+  }, [activeChatId, openChatSearch]);
 
   const openFolderManager = useCallback((folderId?: string) => {
     setFolderManagerInitialId(folderId);
@@ -707,7 +711,11 @@ export function App() {
     setFolderManagerInitialId(undefined);
   }, []);
 
-  const openGlobalSearchChat = useCallback((chatId: string, recordNavigation = false) => {
+  const openGlobalSearchChat = useCallback((
+    chatId: string,
+    recordNavigation = false,
+    preserveSearch = false,
+  ) => {
     const state = telegramStore.getState();
     const targetTopicId = state.chats.get(chatId)?.isForum
       ? state.lastForumTopicIds.get(chatId) ?? state.forumTopics.get(chatId)?.find((topic) => !topic.isHidden)?.id
@@ -722,10 +730,12 @@ export function App() {
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
-    const targetLocation = locationForChat(chatId, targetTopicId);
+    const targetLocation = preserveSearch
+      ? { ...captureConversationLocation(), chatId, topicId: targetTopicId, mobileChatOpen: true }
+      : locationForChat(chatId, targetTopicId);
     if (recordNavigation) recordConversationNavigation(targetLocation);
     else syncConversationNavigation(targetLocation);
-    closeSearch(false, true);
+    if (!preserveSearch) closeSearch(false, true);
     chatOpenGenerationRef.current += 1;
     beginConversationSnapshot(
       conversationIdentityFor(chatId, targetTopicId),
@@ -743,7 +753,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
-  }, [beginConversationSnapshot, closeSearch, issueConversationScrollRequest, locationForChat, recordConversationNavigation, syncConversationNavigation]);
+  }, [beginConversationSnapshot, captureConversationLocation, closeSearch, issueConversationScrollRequest, locationForChat, recordConversationNavigation, syncConversationNavigation]);
 
   const openGlobalSearchMessage = useCallback(async (
     chatId: string,
@@ -753,6 +763,7 @@ export function App() {
       highlight?: boolean;
       loadContext?: boolean;
       recordNavigation?: boolean;
+      preserveSearch?: boolean;
     },
   ) => {
     const generation = chatOpenGenerationRef.current + 1;
@@ -786,7 +797,9 @@ export function App() {
     const targetTopicId = loadedState.chats.get(chatId)?.isForum
       ? loadedState.messages.get(chatId)?.find((message) => message.id === messageId)?.topicId
       : undefined;
-    const targetLocation = locationForChat(chatId, targetTopicId);
+    const targetLocation = options?.preserveSearch
+      ? { ...captureConversationLocation(), chatId, topicId: targetTopicId, mobileChatOpen: true }
+      : locationForChat(chatId, targetTopicId);
     if (options?.recordNavigation) recordConversationNavigation(targetLocation);
     else syncConversationNavigation(targetLocation);
     const destinationAlreadyActive = loadedState.activeChatId === chatId && (
@@ -794,7 +807,7 @@ export function App() {
       !targetTopicId ||
       loadedState.activeTopicId === targetTopicId
     );
-    closeSearch(false, true);
+    if (!options?.preserveSearch) closeSearch(false, true);
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
     beginConversationSnapshot(
@@ -818,7 +831,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
-  }, [beginConversationSnapshot, closeSearch, issueConversationScrollRequest, loadMessage, locationForChat, recordConversationNavigation, syncConversationNavigation]);
+  }, [beginConversationSnapshot, captureConversationLocation, closeSearch, issueConversationScrollRequest, loadMessage, locationForChat, recordConversationNavigation, syncConversationNavigation]);
 
   const openProfileMessage = useCallback((chatId: string, messageId: string) => {
     clearProfile();
@@ -1259,7 +1272,7 @@ export function App() {
           onLoadMoreSearchMessages={loadMoreGlobalSearch}
           onCancelMessageSearch={cancelGlobalSearch}
           onOpenSearchMessage={(chatId, messageId) => {
-            void openGlobalSearchMessage(chatId, messageId);
+            void openGlobalSearchMessage(chatId, messageId, { preserveSearch: true });
           }}
           searchScope={sidebarSearchScope}
           chatMessageSearch={chatMessageSearch}
@@ -1276,7 +1289,7 @@ export function App() {
             }
           }}
           onSelect={(chatId) => {
-            if (searchQuery.trim()) void openGlobalSearchChat(chatId);
+            if (searchQuery.trim()) void openGlobalSearchChat(chatId, false, true);
             else {
               setMobileChatOpen(true);
               const state = telegramStore.getState();
@@ -1498,6 +1511,7 @@ export function App() {
             else void loadUserProfile(senderId);
           }}
           onOpenMention={openMentionProfile}
+          onSearchHashtag={searchActiveChatHashtag}
           onStartPrivateChat={(senderId) => { void openProfilePrivateChat(senderId); }}
           onSetChatPinned={(pinned) => activeChatId
             ? setChatPinned(

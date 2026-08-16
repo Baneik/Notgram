@@ -142,6 +142,7 @@ const formattedTextDetails = (value: unknown) => {
       case "textEntityTypePreCode": kind = "pre"; break;
       case "textEntityTypeBlockQuote":
       case "textEntityTypeExpandableBlockQuote": kind = "blockquote"; break;
+      case "textEntityTypeHashtag": kind = "hashtag"; break;
       case "textEntityTypeMention": kind = "mention"; break;
       case "textEntityTypeMentionName": kind = "mentionName"; break;
       case "textEntityTypeUrl": kind = "url"; break;

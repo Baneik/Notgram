@@ -1,11 +1,7 @@
 import {
   Check,
   ChevronDown,
-  FileText,
-  Image,
-  Link,
   LoaderCircle,
-  MessageSquare,
   Search,
   Users,
   X,
@@ -14,15 +10,17 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { messageContentText } from "../telegram/messageContent";
-import type { Chat, GlobalSearchFilter, Message } from "../telegram/types";
+import type { Chat, GlobalSearchFilter, Message, User } from "../telegram/types";
 import { formatChatTime } from "../utils/formatters";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { Avatar } from "./Avatar";
+import { messageSearchSender, messageSearchSource } from "./searchMessagePresentation";
 
 interface GlobalSearchResultsProps {
   query: string;
   state: GlobalSearchState;
   knownChats: Map<string, Chat>;
+  knownUsers: Map<string, User>;
   onSearch: (query: string, filter: GlobalSearchFilter) => Promise<void>;
   onLoadMore: () => Promise<void>;
   onCancel: () => void;
@@ -197,6 +195,8 @@ export interface ChatSearchResultsProps {
   query: string;
   senderId?: string;
   senderOptions: SidebarSearchSenderOption[];
+  knownChats: Map<string, Chat>;
+  knownUsers: Map<string, User>;
   state: ChatMessageSearchState;
   stateMatchesInput: boolean;
   onSenderChange: (senderId: string | undefined) => void;
@@ -209,6 +209,8 @@ export function ChatSearchResults({
   query,
   senderId,
   senderOptions,
+  knownChats,
+  knownUsers,
   state,
   stateMatchesInput,
   onSenderChange,
@@ -231,6 +233,9 @@ export function ChatSearchResults({
                   key={`${message.chatId}:${message.id}`}
                   message={message}
                   chat={chat}
+                  knownChats={knownChats}
+                  knownUsers={knownUsers}
+                  scope="chat"
                   onOpen={() => onOpenMessage(message.chatId, message.id)}
                 />
               ))}
@@ -264,6 +269,7 @@ export function GlobalSearchResults({
   query,
   state,
   knownChats,
+  knownUsers,
   onSearch,
   onLoadMore,
   onCancel,
@@ -356,6 +362,9 @@ export function GlobalSearchResults({
                   key={`${message.chatId}:${message.id}`}
                   message={message}
                   chat={chatById.get(message.chatId)}
+                  knownChats={chatById}
+                  knownUsers={knownUsers}
+                  scope="global"
                   onOpen={() => onOpenMessage(message.chatId, message.id)}
                 />
               ))}
@@ -400,23 +409,21 @@ export function GlobalSearchResults({
 function MessageSearchResult({
   message,
   chat,
+  knownChats,
+  knownUsers,
+  scope,
   onOpen,
 }: {
   message: Message;
   chat?: Chat;
+  knownChats: Map<string, Chat>;
+  knownUsers: Map<string, User>;
+  scope: "chat" | "global";
   onOpen: () => void;
 }) {
   const content = message.content;
-  const Icon = content.kind === "file"
-    ? FileText
-    : content.kind === "media"
-      ? Image
-      : content.kind === "text" && (
-        content.entities?.some((entity) => entity.kind === "url" || entity.kind === "textUrl") ||
-        /https?:\/\//i.test(content.text)
-      )
-        ? Link
-        : MessageSquare;
+  const sender = messageSearchSender(message, knownUsers, knownChats);
+  const primary = scope === "chat" ? sender : messageSearchSource(chat, sender);
   return (
     <button
       className="global-message-result"
@@ -424,13 +431,16 @@ function MessageSearchResult({
       data-search-message-id={message.id}
       onClick={onOpen}
     >
-      <span className="global-message-result-icon"><Icon size={18} strokeWidth={1.8} /></span>
+      <Avatar avatar={primary.avatar} size="small" />
       <span className="global-message-result-copy">
         <span>
-          <strong>{chat?.title ?? "Telegram 聊天"}</strong>
+          <strong>{primary.name}</strong>
           <time dateTime={message.sentAt}>{formatChatTime(message.sentAt)}</time>
         </span>
-        <small>{messageContentText(content)}</small>
+        <small>
+          {scope === "global" && <span className="global-message-result-sender">{sender.name}：</span>}
+          <span>{messageContentText(content)}</span>
+        </small>
       </span>
     </button>
   );

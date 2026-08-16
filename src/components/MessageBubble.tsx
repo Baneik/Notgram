@@ -120,6 +120,7 @@ interface MessageBubbleProps {
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMention: (username?: string, userId?: string) => void;
+  onSearchHashtag: (hashtag: string) => void;
   onOpenMedia?: (messageId: string) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
@@ -175,6 +176,7 @@ function MessageBubbleComponent({
   onOpenReply,
   onOpenSenderProfile,
   onOpenMention,
+  onSearchHashtag,
   onOpenMedia,
   cornerAction,
   albumItem = false,
@@ -793,6 +795,7 @@ function MessageBubbleComponent({
                 entities={content.entities}
                 highlightQuery={searchQuery}
                 onOpenMention={onOpenMention}
+                onSearchHashtag={onSearchHashtag}
               />
               {message.isPending && (
                 content.text ? (
@@ -831,6 +834,7 @@ function MessageBubbleComponent({
               onRecoverFile={onRecoverFile}
               onStream={onStream}
               onSuspendStream={onSuspendStream}
+              onSearchHashtag={onSearchHashtag}
             />
           ) : content.kind === "service" ? (
             <p className="message-service-content">
@@ -1028,6 +1032,7 @@ function MessageBubbleComponent({
                     entities={content.captionEntities}
                     highlightQuery={searchQuery}
                     onOpenMention={onOpenMention}
+                    onSearchHashtag={onSearchHashtag}
                   />
                   {messageMeta}
                 </div>
@@ -1039,6 +1044,7 @@ function MessageBubbleComponent({
               messageId={message.id}
               highlightQuery={searchQuery}
               onAnswer={onPollAnswer}
+              onSearchHashtag={onSearchHashtag}
             />
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
             <div className="attachment-message">
@@ -1078,6 +1084,7 @@ function MessageBubbleComponent({
                   entities={content.captionEntities}
                   highlightQuery={searchQuery}
                   onOpenMention={onOpenMention}
+                  onSearchHashtag={onSearchHashtag}
                 />
               )}
             </div>
@@ -1131,6 +1138,7 @@ function MessageBubbleComponent({
                   entities={content.captionEntities}
                   highlightQuery={searchQuery}
                   onOpenMention={onOpenMention}
+                  onSearchHashtag={onSearchHashtag}
                 />
               )}
             </div>

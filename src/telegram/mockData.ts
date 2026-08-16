@@ -474,12 +474,13 @@ const messages: Message[] = [
     delivery: "read",
     content: {
       kind: "text",
-      text: "TDLib bold link @mia_design @notgram_bot",
+      text: "TDLib bold link @mia_design @notgram_bot #release",
       entities: [
         { offset: 6, length: 4, kind: "bold" },
         { offset: 11, length: 4, kind: "textUrl", href: "https://t.me/addtheme/NotgramTheme" },
         { offset: 16, length: 11, kind: "mention" },
         { offset: 28, length: 12, kind: "mention" },
+        { offset: 41, length: 8, kind: "hashtag" },
       ],
     },
   },

@@ -4,10 +4,13 @@ import type { Message } from "./types";
 
 const createHarness = () => {
   const rawChats = new Map();
+  const rawUsers = new Map();
   const context: TauriSearchServiceContext = {
     request: vi.fn(),
     rawChats,
+    rawUsers,
     upsertChat: vi.fn(),
+    upsertUser: vi.fn(),
     mapChat: vi.fn((raw) => ({
       id: String(raw.id),
       kind: "direct" as const,
@@ -108,5 +111,42 @@ describe("tauri search service", () => {
     });
     expect(page.totalCount).toBeUndefined();
     expect(harness.context.emitMessages).not.toHaveBeenCalled();
+  });
+
+  it("hydrates an unknown message sender before returning search results", async () => {
+    const harness = createHarness();
+    vi.mocked(harness.context.mapMessage).mockReturnValue({
+      id: "89",
+      chatId: "7",
+      senderId: "11",
+      outgoing: false,
+      sentAt: "2026-08-09T04:00:00.000Z",
+      delivery: "sent",
+      content: { kind: "text", text: "result" },
+    });
+    vi.mocked(harness.context.request)
+      .mockResolvedValueOnce({
+        "@type": "foundChatMessages",
+        total_count: 1,
+        messages: [{
+          "@type": "message",
+          id: 89,
+          chat_id: 7,
+          sender_id: { "@type": "messageSenderUser", user_id: 11 },
+        }],
+      })
+      .mockResolvedValueOnce({ "@type": "user", id: 11, first_name: "Mia" });
+
+    await harness.service.searchChatMessages({ chatId: "7", query: "result" });
+
+    expect(harness.context.request).toHaveBeenNthCalledWith(2, {
+      "@type": "getUser",
+      user_id: 11,
+    });
+    expect(harness.context.upsertUser).toHaveBeenCalledWith({
+      "@type": "user",
+      id: 11,
+      first_name: "Mia",
+    });
   });
 });

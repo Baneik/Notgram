@@ -7,6 +7,7 @@ interface PollMessageProps {
   poll: MessagePollContent;
   messageId: string;
   highlightQuery?: string;
+  onSearchHashtag?: (hashtag: string) => void;
   onAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
 }
 
@@ -14,7 +15,7 @@ const chosenPositions = (poll: MessagePollContent) => poll.options
   .filter((option) => option.chosen)
   .map((option) => option.position);
 
-export function PollMessage({ poll, messageId, highlightQuery, onAnswer }: PollMessageProps) {
+export function PollMessage({ poll, messageId, highlightQuery, onSearchHashtag, onAnswer }: PollMessageProps) {
   const serverSelection = useMemo(() => chosenPositions(poll), [poll]);
   const [selection, setSelection] = useState(serverSelection);
   const [pending, setPending] = useState(false);
@@ -40,6 +41,7 @@ export function PollMessage({ poll, messageId, highlightQuery, onAnswer }: PollM
           text={poll.question}
           entities={poll.questionEntities}
           highlightQuery={highlightQuery}
+          onSearchHashtag={onSearchHashtag}
         />
         <small>{poll.type === "quiz" ? "测验" : poll.isAnonymous ? "匿名投票" : "公开投票"}</small>
       </header>
@@ -80,6 +82,7 @@ export function PollMessage({ poll, messageId, highlightQuery, onAnswer }: PollM
                 text={option.text}
                 entities={option.entities}
                 highlightQuery={highlightQuery}
+                onSearchHashtag={onSearchHashtag}
               />
               {showResults && <span className="poll-option-result">{option.votePercentage}%</span>}
             </button>
@@ -105,6 +108,7 @@ export function PollMessage({ poll, messageId, highlightQuery, onAnswer }: PollM
             text={poll.explanation}
             entities={poll.explanationEntities}
             highlightQuery={highlightQuery}
+            onSearchHashtag={onSearchHashtag}
           />
         </div>
       )}

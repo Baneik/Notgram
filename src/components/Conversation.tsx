@@ -235,6 +235,7 @@ interface ConversationProps {
   onOpenChat: (chatId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMention: (username?: string, userId?: string) => void;
+  onSearchHashtag: (hashtag: string) => void;
   onStartPrivateChat: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
@@ -305,6 +306,7 @@ export function Conversation({
   onOpenChat,
   onOpenSenderProfile,
   onOpenMention,
+  onSearchHashtag,
   onStartPrivateChat,
   onSetChatPinned,
   onSetChatMuted,
@@ -1751,6 +1753,7 @@ export function Conversation({
                         onOpenReply={openMessageInHistory}
                         onOpenSenderProfile={onOpenSenderProfile}
                         onOpenMention={onOpenMention}
+                        onSearchHashtag={onSearchHashtag}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}
                         cornerAction={!selectionMode && pinnedViewOpen ? (
                           <MessageSourceLocateButton

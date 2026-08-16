@@ -526,6 +526,7 @@ export type MessageTextEntityKind =
   | "code"
   | "pre"
   | "blockquote"
+  | "hashtag"
   | "mention"
   | "mentionName"
   | "url"
