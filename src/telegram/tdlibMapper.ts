@@ -371,6 +371,7 @@ const mediaContent = (
     width?: number;
     height?: number;
     duration?: number;
+    hasSpoiler?: boolean;
     includePendingUpload?: boolean;
   } = {},
 ): MessageContent => {
@@ -1028,6 +1029,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
         width: tdNumber(largest?.width),
         height: tdNumber(largest?.height),
+        hasSpoiler: content.has_spoiler === true,
         includePendingUpload,
       });
     }
@@ -1050,6 +1052,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
           previewDataUrl: cover.previewDataUrl ?? minithumbnailDataUrl(video?.minithumbnail),
           width: tdNumber(video?.width),
           height: tdNumber(video?.height),
+          hasSpoiler: content.has_spoiler === true,
           includePendingUpload,
         },
       );
@@ -1067,6 +1070,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
           previewDataUrl: minithumbnailDataUrl(animation?.minithumbnail),
           width: tdNumber(animation?.width),
           height: tdNumber(animation?.height),
+          hasSpoiler: content.has_spoiler === true,
           includePendingUpload,
         },
       );

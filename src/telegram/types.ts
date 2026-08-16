@@ -719,6 +719,7 @@ interface TransferableMessageContent {
   width?: number;
   height?: number;
   duration?: number;
+  hasSpoiler?: boolean;
 }
 
 export type MessageContent =

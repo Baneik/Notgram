@@ -3,6 +3,7 @@ import { useTelegramStore } from "../store/telegramStore";
 import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
+import { TextSpoiler, TextSpoilerGroup } from "./Spoiler";
 
 const MarkdownText = lazy(() => import("./MarkdownText"));
 
@@ -88,7 +89,11 @@ const wrapEntity = (
     case "italic": return <em key={key}>{children}</em>;
     case "underline": return <u key={key}>{children}</u>;
     case "strikethrough": return <del key={key}>{children}</del>;
-    case "spoiler": return <span key={key} className="rich-spoiler" tabIndex={0}>{children}</span>;
+    case "spoiler": return (
+      <TextSpoiler key={key} spoilerId={`${entity.offset}:${entity.length}`}>
+        {children}
+      </TextSpoiler>
+    );
     case "customEmoji": return (
       <span key={key} className="rich-custom-emoji" data-custom-emoji-id={entity.customEmojiId}>
         {children}
@@ -262,9 +267,13 @@ export function MessageRichText({
 }: MessageRichTextProps) {
   if (entities && entities.length > 0) {
     return (
-      <div className={`message-rich-text ${className}`} data-rich-text="entities">
+      <TextSpoilerGroup
+        className={`message-rich-text ${className}`}
+        data-rich-text="entities"
+        resetKey={text}
+      >
         {renderEntities(text, entities, highlightQuery, onOpenMention)}
-      </div>
+      </TextSpoilerGroup>
     );
   }
 

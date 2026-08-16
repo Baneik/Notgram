@@ -456,6 +456,7 @@ describe("TDLib mapper", () => {
       date: 1_700_000_000,
       content: {
         "@type": "messagePhoto",
+        has_spoiler: true,
         caption: { "@type": "formattedText", text: "preview", entities: [] },
         photo: {
           minithumbnail: { width: 40, height: 22, data: "aGVsbG8=" },
@@ -506,10 +507,12 @@ describe("TDLib mapper", () => {
       previewDataUrl: "data:image/jpeg;base64,aGVsbG8=",
       width: 1280,
       height: 720,
+      hasSpoiler: true,
     });
 
     expect(mapTdMessageContent({
       "@type": "messageVideo",
+      has_spoiler: true,
       video: {
         mime_type: "video/mp4",
         video: {
@@ -522,6 +525,17 @@ describe("TDLib mapper", () => {
       kind: "media",
       mediaType: "video",
       fileName: "视频_33.mp4",
+      hasSpoiler: true,
+    });
+
+    expect(mapTdMessageContent({
+      "@type": "messageAnimation",
+      has_spoiler: true,
+      animation: { file_name: "preview.gif", animation: { id: 36 } },
+    })).toMatchObject({
+      kind: "media",
+      mediaType: "animation",
+      hasSpoiler: true,
     });
 
     expect(mapTdMessageContent({

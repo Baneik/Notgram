@@ -59,6 +59,7 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { formatFileSize, isExecutableFile } from "../utils/fileTransfer";
 import { localMediaSource } from "../media/localMediaSource";
 import { observeLayout } from "../utils/layoutObservation";
+import { MediaSpoiler } from "./Spoiler";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 const INLINE_META_LOWERING_PX = 2.5;
@@ -842,6 +843,10 @@ function MessageBubbleComponent({
                   ? { aspectRatio: mediaLayout.aspectRatio }
                   : undefined}
               >
+                <MediaSpoiler
+                  active={content.hasSpoiler === true}
+                  resetKey={`${message.chatId}:${message.id}`}
+                >
                 {["video", "videoNote"].includes(content.mediaType) ? (
                   <VideoPlayer
                     source={usableFullMediaSource}
@@ -1006,6 +1011,7 @@ function MessageBubbleComponent({
                     )}
                   </span>
                 )}
+                </MediaSpoiler>
               </div>
               {hasCaption && content.caption && (
                 <div

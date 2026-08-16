@@ -4116,6 +4116,75 @@ test("unloaded media uses a blurred glass preview instead of exposing thumbnail 
   await expect(page.locator('[data-message-id="p-video"] .photo-preview')).not.toHaveClass(/is-preview-only/);
 });
 
+test("spoilers reveal on click and reset after leaving the viewport", async ({ page }) => {
+  await page.goto("/");
+
+  let richMessage = (await revealVirtualMessage(page, "p-rich-message"))
+    .locator(".rich-message-content");
+  let textSpoiler = richMessage.locator(".rich-spoiler").filter({ hasText: "Ready" });
+  await expect(textSpoiler).toHaveAttribute("role", "button");
+  await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "concealed");
+  await textSpoiler.hover();
+  await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "concealed");
+  await textSpoiler.click();
+  await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "revealed");
+
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  await messageList.focus();
+  await page.keyboard.press("End");
+  await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
+  richMessage = (await revealVirtualMessage(page, "p-rich-message"))
+    .locator(".rich-message-content");
+  textSpoiler = richMessage.locator(".rich-spoiler").filter({ hasText: "Ready" });
+  await expect(textSpoiler).toHaveAttribute("role", "button");
+  await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "concealed");
+
+  await page.evaluate(async (storePath) => {
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Message[]> };
+        setState: (partial: { messages: Map<string, Message[]> }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) => (
+      message.id === "p-5" && message.content.kind === "media"
+        ? { ...message, content: { ...message.content, hasSpoiler: true } }
+        : message
+    )));
+    storeModule.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  await messageList.focus();
+  await page.keyboard.press("End");
+  let photoMessage = page.locator('[data-message-id="p-5"]');
+  await expect(photoMessage).toBeVisible();
+  let mediaSpoiler = photoMessage.locator('.media-spoiler[data-spoiler-state="concealed"]');
+  const concealedContent = mediaSpoiler.locator(".media-spoiler-content");
+  await expect(mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" })).toBeVisible();
+  await expect(concealedContent).toHaveAttribute("inert", "");
+  await expect(concealedContent).toHaveCSS("filter", /blur\(24px\)/);
+
+  await mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" }).click();
+  mediaSpoiler = photoMessage.locator('.media-spoiler[data-spoiler-state="revealed"]');
+  await expect(mediaSpoiler).toBeVisible();
+  await expect(mediaSpoiler.locator(".media-spoiler-content")).not.toHaveAttribute("inert", "");
+  await expect(mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" })).toHaveCount(0);
+
+  const popupPromise = page.waitForEvent("popup");
+  await mediaSpoiler.locator(".photo-open").click();
+  const popup = await popupPromise;
+  await popup.close();
+
+  await revealVirtualMessage(page, "p-rich-message");
+  await messageList.focus();
+  await page.keyboard.press("End");
+  photoMessage = page.locator('[data-message-id="p-5"]');
+  await expect(photoMessage).toBeVisible();
+  await expect(photoMessage.locator('.media-spoiler[data-spoiler-state="concealed"]')).toBeVisible();
+});
+
 test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoom and dragging", async ({ page }) => {
   await page.goto("/");
   const popupPromise = page.waitForEvent("popup");

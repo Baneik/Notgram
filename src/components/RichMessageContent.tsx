@@ -25,6 +25,7 @@ import { highlightedText } from "../utils/textHighlight";
 import { autoplayAllowed } from "../utils/motionPreference";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { AutoplayVideo } from "./AutoplayVideo";
+import { MediaSpoiler, TextSpoiler, TextSpoilerGroup } from "./Spoiler";
 
 interface RichMessageContentProps {
   blocks: MessageRichBlock[];
@@ -109,7 +110,7 @@ const renderRun = (run: MessageRichTextRun, key: string, context: RenderContext)
   if (run.italic) node = <em>{node}</em>;
   if (run.underline) node = <u>{node}</u>;
   if (run.strikethrough) node = <del>{node}</del>;
-  if (run.spoiler) node = <span className="rich-spoiler" tabIndex={0}>{node}</span>;
+  if (run.spoiler) node = <TextSpoiler spoilerId={key}>{node}</TextSpoiler>;
   if (run.subscript) node = <sub>{node}</sub>;
   if (run.superscript) node = <sup>{node}</sup>;
   if (run.marked) node = <mark>{node}</mark>;
@@ -166,7 +167,6 @@ function RichMediaBlock({ media, context, blockKey }: {
   context: RenderContext;
   blockKey: string;
 }) {
-  const [revealed, setRevealed] = useState(!media.hasSpoiler);
   const [failedSource, setFailedSource] = useState<string>();
   const attemptedRecoveryRef = useRef(new Set<string>());
   const autoplay = usePreferencesStore((state) => autoplayAllowed(
@@ -286,12 +286,12 @@ function RichMediaBlock({ media, context, blockKey }: {
   return (
     <figure className={`rich-media-block rich-media-${media.mediaType}`} style={style}>
       <div className="rich-media-visual">
-        {mediaNode}
-        {!revealed && (
-          <button className="rich-media-spoiler" type="button" onClick={() => setRevealed(true)}>
-            显示媒体
-          </button>
-        )}
+        <MediaSpoiler
+          active={media.hasSpoiler}
+          resetKey={`${context.messageId}:${blockKey}`}
+        >
+          {mediaNode}
+        </MediaSpoiler>
       </div>
       <Caption caption={media.caption} context={context} captionKey={`${blockKey}:caption`} />
     </figure>
@@ -438,12 +438,13 @@ export function RichMessageContent({
     onSuspendStream,
   };
   return (
-    <div
+    <TextSpoilerGroup
       id={scopedAnchor(context, "anchor", "")}
       className="message-rich-text rich-message-content"
       data-rich-text="rich-message"
       data-rich-message-full={isFull ? "true" : "false"}
       dir={isRtl ? "rtl" : "auto"}
+      resetKey={`${messageId}:${isFull}`}
     >
       {renderBlocks(blocks, "rich-message", context)}
       {!isFull && (
@@ -451,6 +452,6 @@ export function RichMessageContent({
           <span />
         </span>
       )}
-    </div>
+    </TextSpoilerGroup>
   );
 }

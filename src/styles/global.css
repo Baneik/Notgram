@@ -1033,6 +1033,13 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   width: 100%; max-height: 420px; display: block; object-fit: contain;
   aspect-ratio: var(--rich-media-ratio, auto); background: var(--color-bg-code);
 }
+.rich-media-visual .media-spoiler-content > img,
+.rich-media-visual .media-spoiler-content > video,
+.rich-media-visual .media-spoiler-content > .rich-media-link > img,
+.rich-media-visual .media-spoiler-content > .rich-media-link > video {
+  width: 100%; max-height: 420px; display: block; object-fit: contain;
+  aspect-ratio: var(--rich-media-ratio, auto); background: var(--color-bg-code);
+}
 .rich-media-block .video-player { width: min(440px, 100%); }
 .rich-media-block figcaption, .rich-collection > figcaption, .rich-map-block figcaption {
   padding-top: 4px; white-space: pre-wrap;
@@ -1049,10 +1056,25 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 }
 .rich-media-placeholder:disabled { cursor: default; }
 .rich-media-placeholder small { font-size: 10px; }
-.rich-media-spoiler {
-  position: absolute; inset: 0; width: 100%; border: 0; color: var(--color-on-media);
-  background: var(--color-overlay); cursor: pointer;
+.media-spoiler {
+  position: relative; width: 100%; height: 100%; min-height: inherit; overflow: hidden;
+  display: grid; place-items: stretch; isolation: isolate;
 }
+.media-spoiler.is-concealed { z-index: 3; }
+.media-spoiler-content {
+  position: relative; grid-area: 1 / 1; width: 100%; height: 100%; min-width: 0; min-height: inherit;
+  overflow: hidden; display: grid; place-items: center;
+  transition: filter 180ms ease, transform 220ms ease;
+}
+.media-spoiler.is-concealed .media-spoiler-content {
+  filter: blur(24px) saturate(.62) brightness(.72); pointer-events: none;
+  transform: scale(1.1); user-select: none; -webkit-user-select: none;
+}
+.media-spoiler-reveal {
+  position: absolute; z-index: 8; inset: 0; width: 100%; height: 100%; padding: 0;
+  background: transparent; border: 0; cursor: pointer;
+}
+.media-spoiler-reveal:focus-visible { box-shadow: inset 0 0 0 2px var(--color-on-media); }
 .rich-collection-items { display: grid; gap: 3px; }
 .rich-collage .rich-collection-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .rich-collage .rich-collection-items > :only-child { grid-column: 1 / -1; }
@@ -1067,8 +1089,21 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   min-height: 100px; padding: 14px; display: flex; align-items: center; justify-content: center;
   gap: 7px; color: inherit; background: var(--color-accent-soft); text-decoration: none;
 }
-.rich-spoiler { color: transparent; background: var(--color-text-tertiary); border-radius: 3px; outline: 0; }
-.rich-spoiler:hover, .rich-spoiler:focus { color: inherit; background: color-mix(in srgb, var(--color-text-tertiary) 18%, transparent); }
+.rich-spoiler {
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+  border-radius: 1px; outline: 0; transition: color 120ms ease, background 140ms ease;
+}
+.rich-spoiler.is-concealed {
+  margin: 0 .04em; padding: .02em .08em; color: transparent !important;
+  background:
+    linear-gradient(177deg, transparent 3%, #141719 4% 91%, transparent 92%),
+    linear-gradient(183deg, transparent 8%, #050607 9% 96%, transparent 97%);
+  text-decoration-color: transparent !important; text-shadow: none; cursor: pointer;
+  user-select: none; -webkit-user-select: none;
+}
+.rich-spoiler.is-concealed * { color: transparent !important; text-decoration-color: transparent !important; }
+.rich-spoiler.is-concealed:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.rich-spoiler.is-revealed { color: inherit; background: color-mix(in srgb, var(--color-text-tertiary) 12%, transparent); }
 .rich-image-alt { color: var(--muted); font-style: italic; }
 .message-meta { min-height: 15px; margin: 1px 0 0 10px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; color: var(--subtle); font-size: 10px; line-height: 1; }
 .message-meta-stat { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -2484,4 +2519,5 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .message-photo, .video-player, .media-album-grid img, .avatar img, .auth-qr-code {
     forced-color-adjust: none;
   }
+  .rich-spoiler.is-concealed { background: CanvasText; forced-color-adjust: none; }
 }
