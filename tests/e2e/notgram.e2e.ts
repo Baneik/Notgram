@@ -4125,10 +4125,10 @@ test("spoilers reveal on click and reset after leaving the viewport", async ({ p
   await expect(textSpoiler).toHaveAttribute("role", "button");
   await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "concealed");
   await expect(textSpoiler).toHaveCSS("background-image", /data:image\/svg\+xml/);
-  await expect(textSpoiler).toHaveCSS("filter", "blur(3px)");
+  await expect(textSpoiler).toHaveCSS("filter", "blur(1px)");
   await textSpoiler.hover();
   await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "concealed");
-  await expect(textSpoiler).toHaveCSS("filter", "blur(2px)");
+  await expect(textSpoiler).toHaveCSS("filter", "blur(0.6px)");
   await textSpoiler.click();
   await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "revealed");
   await expect(textSpoiler).toHaveCSS("background-image", "none");
@@ -4169,11 +4169,11 @@ test("spoilers reveal on click and reset after leaving the viewport", async ({ p
   const concealedContent = mediaSpoiler.locator(".media-spoiler-content");
   await expect(mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" })).toBeVisible();
   await expect(concealedContent).toHaveAttribute("inert", "");
-  await expect(concealedContent).toHaveCSS("filter", /blur\(3px\) saturate\(1.12\)/);
+  await expect(concealedContent).toHaveCSS("filter", /blur\(12px\) saturate\(0.78\) brightness\(0.84\)/);
   const prism = mediaSpoiler.locator(".media-spoiler-prism");
   await expect(prism).toHaveCount(1);
   await expect(prism).toHaveCSS("background-size", "24px 100%");
-  await expect(prism).toHaveCSS("backdrop-filter", /blur\(10px\) saturate\(1.3\)/);
+  await expect(prism).toHaveCSS("backdrop-filter", /blur\(24px\) saturate\(0.92\)/);
   await expect(prism).toHaveCSS("filter", /url/);
 
   await mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" }).click();
