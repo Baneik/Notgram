@@ -86,6 +86,8 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "pinChatMessage",
     "pingProxy",
     "registerUser",
+    "readAllChatMentions",
+    "readAllForumTopicMentions",
     "requestQrCodeAuthentication",
     "removeMessageReaction",
     "revokeChatInviteLink",
@@ -386,6 +388,19 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                         .is_none_or(|limit| !(1..=100).contains(&limit)))
             {
                 return Err("Invalid forum topic history pagination".to_string());
+            }
+        }
+        "readAllChatMentions" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+        }
+        "readAllForumTopicMentions" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            let topic_id = request
+                .get("forum_topic_id")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Forum topic identifier is missing".to_string())?;
+            if topic_id <= 0 {
+                return Err("Invalid forum topic identifier".to_string());
             }
         }
         "createForumTopic" => {
@@ -1753,6 +1768,24 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&mark_chat_read).is_ok());
+
+        let read_mentions = json!({
+            "@type": "readAllChatMentions",
+            "chat_id": 7,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&read_mentions).is_ok());
+
+        let read_topic_mentions = json!({
+            "@type": "readAllForumTopicMentions",
+            "chat_id": 7,
+            "forum_topic_id": 12,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&read_topic_mentions).is_ok());
+        let mut invalid_topic_mentions = read_topic_mentions;
+        invalid_topic_mentions["forum_topic_id"] = json!(0);
+        assert!(validate_webview_tdlib_request(&invalid_topic_mentions).is_err());
 
         for request in [
             json!({ "@type": "getChatFolder", "chat_folder_id": 12, "@extra": EXTRA }),

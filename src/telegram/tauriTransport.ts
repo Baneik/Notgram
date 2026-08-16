@@ -1711,6 +1711,12 @@ export class TauriTelegramTransport implements TelegramTransport {
         force_read: true,
       });
     }
+    if (unreadMentionCount > 0) {
+      await this.request({
+        "@type": "readAllChatMentions",
+        chat_id: numericId(chatId),
+      });
+    }
     if (isMarkedAsUnread) {
       await this.request({
         "@type": "toggleChatIsMarkedAsUnread",
@@ -1735,6 +1741,11 @@ export class TauriTelegramTransport implements TelegramTransport {
       message_ids: [numericId(messageId)],
       source: { "@type": "messageSourceChatHistory" },
       force_read: true,
+    });
+    await this.request({
+      "@type": "readAllForumTopicMentions",
+      chat_id: numericId(chatId),
+      forum_topic_id: numericId(topicId),
     });
   }
 

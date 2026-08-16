@@ -1189,7 +1189,7 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(3);
   });
 
-  it("leaves chats and marks the latest message as read without redundant refreshes", async () => {
+  it("leaves chats and persists message and mention read state without redundant refreshes", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -1197,6 +1197,7 @@ describe("TauriTelegramTransport startup", () => {
       ...rawChat(7, 1_700_000_007),
       type: { "@type": "chatTypeBasicGroup", basic_group_id: 17 },
       unread_count: 4,
+      unread_mention_count: 2,
     };
     internal.finishInitialChatSync();
     internal.upsertChat(managedChat);
@@ -1218,8 +1219,32 @@ describe("TauriTelegramTransport startup", () => {
         source: { "@type": "messageSourceChatHistory" },
         force_read: true,
       },
+      { "@type": "readAllChatMentions", chat_id: 7 },
     ]);
     expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(1);
+  });
+
+  it("persists mention read state when the chat has no other unread messages", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.finishInitialChatSync();
+    internal.upsertChat({
+      ...rawChat(7, 1_700_000_007),
+      unread_count: 0,
+      unread_mention_count: 1,
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.markChatRead("7");
+
+    expect(requests).toEqual([{
+      "@type": "readAllChatMentions",
+      chat_id: 7,
+    }]);
   });
 
   it("creates and renames folders with complete TDLib folder objects", async () => {
@@ -2170,6 +2195,12 @@ describe("TauriTelegramTransport message operations", () => {
       message_ids: [15],
       force_read: true,
     });
+    expect(requests.find((request) => request["@type"] === "readAllForumTopicMentions"))
+      .toEqual({
+        "@type": "readAllForumTopicMentions",
+        chat_id: 7,
+        forum_topic_id: 12,
+      });
     expect(events).not.toContainEqual(expect.objectContaining({
       type: "message.upsert",
       message: expect.objectContaining({ id: "15", chatId: "7" }),
