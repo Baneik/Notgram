@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
@@ -17,6 +17,7 @@ import {
   Reply,
   Search,
   Trash2,
+  UserPlus,
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -55,6 +56,7 @@ const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   reply: Reply,
   search: Search,
   trash: Trash2,
+  "user-plus": UserPlus,
 };
 
 interface ContextMenuSession {
@@ -215,10 +217,18 @@ export function ContextMenuWindow() {
         {descriptor.items.map((item) => {
           const Icon = icons[item.icon];
           const expanded = item.id === expandedId;
+          const avatarSource = item.avatar?.imagePath
+            ? isTauri() ? convertFileSrc(item.avatar.imagePath) : item.avatar.imagePath
+            : undefined;
+          const itemClassName = [
+            item.danger ? "is-danger" : "",
+            item.avatar ? "native-account-menu-item" : "",
+            item.separatorBefore ? "has-separator" : "",
+          ].filter(Boolean).join(" ") || undefined;
           return (
             <div className="native-context-menu-group" key={item.id}>
               <button
-                className={item.danger ? "is-danger" : undefined}
+                className={itemClassName}
                 type="button"
                 role="menuitem"
                 disabled={item.disabled}
@@ -227,9 +237,26 @@ export function ContextMenuWindow() {
                 onMouseEnter={() => setExpandedId(item.children ? item.id : undefined)}
                 onClick={() => item.children ? setExpandedId(expanded ? undefined : item.id) : select(item.id)}
               >
-                {item.checked ? <Check size={17} strokeWidth={2.1} /> : <Icon size={17} strokeWidth={1.9} />}
+                {item.avatar ? (
+                  <span
+                    className="native-account-menu-avatar avatar"
+                    style={{ backgroundColor: item.avatar.color }}
+                    aria-hidden="true"
+                  >
+                    <span>{item.avatar.label}</span>
+                    {avatarSource && <img src={avatarSource} alt="" />}
+                  </span>
+                ) : item.checked ? (
+                  <Check size={17} strokeWidth={2.1} />
+                ) : (
+                  <Icon size={17} strokeWidth={1.9} />
+                )}
                 <span>{item.label}</span>
-                {item.children && <ChevronRight className="context-menu-chevron" size={16} />}
+                {item.children ? (
+                  <ChevronRight className="context-menu-chevron" size={16} />
+                ) : item.avatar && item.checked ? (
+                  <Check className="account-switcher-check" size={16} strokeWidth={2.2} />
+                ) : null}
               </button>
             </div>
           );

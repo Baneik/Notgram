@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, monitorFromPoint } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
+import type { Avatar } from "../telegram/types";
 import type { ContextMenuPoint } from "../utils/contextMenuLayout";
 import {
   calculateNativeContextMenuGeometry,
@@ -22,7 +23,8 @@ export type NativeContextMenuIcon =
   | "play-window"
   | "reply"
   | "search"
-  | "trash";
+  | "trash"
+  | "user-plus";
 
 export interface NativeContextMenuItem {
   id: string;
@@ -31,6 +33,8 @@ export interface NativeContextMenuItem {
   danger?: boolean;
   disabled?: boolean;
   checked?: boolean;
+  avatar?: Avatar;
+  separatorBefore?: boolean;
   children?: NativeContextMenuItem[];
 }
 
@@ -85,7 +89,14 @@ const menuId = () => {
   return random ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
 };
 
-const menuPlacement = async (point: ContextMenuPoint, width: number, height: number) => {
+type NativeContextMenuPlacement = "cursor" | "anchor";
+
+const menuPlacement = async (
+  point: ContextMenuPoint,
+  width: number,
+  height: number,
+  placement: NativeContextMenuPlacement,
+) => {
   const currentWindow = getCurrentWindow();
   const [origin, sourceScale, innerSize] = await Promise.all([
     currentWindow.outerPosition(),
@@ -111,8 +122,8 @@ const menuPlacement = async (point: ContextMenuPoint, width: number, height: num
   const marginPx = 6 * targetScale;
   const right = workPosition.x + workSize.width;
   const bottom = workPosition.y + workSize.height;
-  let x = anchor.x + gapPx;
-  let y = anchor.y - MENU_FIRST_ITEM_CENTER_OFFSET * targetScale;
+  let x = anchor.x + (placement === "cursor" ? gapPx : 0);
+  let y = anchor.y - (placement === "cursor" ? MENU_FIRST_ITEM_CENTER_OFFSET * targetScale : 0);
   if (x + widthPx + marginPx > right) x = anchor.x - widthPx - gapPx;
   if (y + heightPx + marginPx > bottom) y = anchor.y - heightPx - gapPx;
   x = Math.max(workPosition.x + marginPx, Math.min(x, right - widthPx - marginPx));
@@ -127,6 +138,7 @@ const showNativeContextMenu = async (
   point: ContextMenuPoint,
   signal: AbortSignal,
   registerUpdater: (updater?: DescriptorUpdater) => void,
+  placement: NativeContextMenuPlacement,
 ) => {
   const id = menuId();
   const geometry = calculateNativeContextMenuGeometry(
@@ -134,10 +146,11 @@ const showNativeContextMenu = async (
     undefined,
     measureNativeContextMenuLabel,
   );
-  const placement = await menuPlacement(
+  const menuPosition = await menuPlacement(
     point,
     geometry.expandedWidth,
     geometry.maximumExpandedHeight,
+    placement,
   );
   if (signal.aborted) return undefined;
   const channel = new BroadcastChannel(NATIVE_CONTEXT_MENU_CHANNEL);
@@ -190,8 +203,8 @@ const showNativeContextMenu = async (
       id,
       width: geometry.width,
       height: geometry.height,
-      x: placement.x,
-      y: placement.y,
+      x: menuPosition.x,
+      y: menuPosition.y,
     });
     opened = true;
     if (signal.aborted) {
@@ -211,7 +224,7 @@ export const useNativeContextMenu = (
   point: ContextMenuPoint,
   onAction: (actionId: string) => void,
   onClose: () => void,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; placement?: NativeContextMenuPlacement } = {},
 ) => {
   const native = isTauri();
   const enabled = options.enabled ?? true;
@@ -248,6 +261,7 @@ export const useNativeContextMenu = (
       point,
       controller.signal,
       registerUpdater,
+      options.placement ?? "cursor",
     )
       .then((actionId) => {
         if (controller.signal.aborted) return;
@@ -263,7 +277,7 @@ export const useNativeContextMenu = (
         updateDescriptorRef.current = undefined;
       }
     };
-  }, [enabled, native, point.x, point.y]);
+  }, [enabled, native, options.placement, point.x, point.y]);
 
   return native && enabled && !failed;
 };

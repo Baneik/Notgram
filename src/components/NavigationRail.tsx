@@ -1,7 +1,8 @@
 import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, UserRound, Users } from "lucide-react";
 import { useCallback, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { ChatFilter } from "../store/telegramStore";
-import type { Chat, ChatFolder, User } from "../telegram/types";
+import type { Chat, ChatFolder, TelegramAccount, User } from "../telegram/types";
+import { AccountSwitcherMenu } from "./AccountSwitcherMenu";
 import { Avatar } from "./Avatar";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { FolderContextMenu } from "./SidebarContextMenus";
@@ -11,6 +12,9 @@ interface NavigationRailProps {
   folders: ChatFolder[];
   chats: Chat[];
   account?: User;
+  accounts: TelegramAccount[];
+  activeAccountId: string;
+  accountPending: boolean;
   folderManagementPending: boolean;
   onFilterChange: (filter: ChatFilter) => void;
   onManageFolders: () => void;
@@ -18,12 +22,17 @@ interface NavigationRailProps {
   onMarkFolderRead: (folderId: string) => Promise<boolean>;
   onRequestDeleteFolder: (folder: ChatFolder) => void;
   onOpenSettings: () => void;
+  onAddAccount: () => Promise<boolean>;
+  onSwitchAccount: (accountId: string) => Promise<boolean>;
 }
 
 export function NavigationRail({
   folders,
   chats,
   account,
+  accounts,
+  activeAccountId,
+  accountPending,
   filter,
   folderManagementPending,
   onFilterChange,
@@ -32,6 +41,8 @@ export function NavigationRail({
   onMarkFolderRead,
   onRequestDeleteFolder,
   onOpenSettings,
+  onAddAccount,
+  onSwitchAccount,
 }: NavigationRailProps) {
   const [contextMenu, setContextMenu] = useState<{
     folderId: string;
@@ -39,6 +50,11 @@ export function NavigationRail({
     anchor: HTMLButtonElement;
   }>();
   const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
+  const [accountMenu, setAccountMenu] = useState<{
+    point: ContextMenuPoint;
+    anchor: HTMLButtonElement;
+  }>();
+  const closeAccountMenu = useCallback(() => setAccountMenu(undefined), []);
   const contextFolder = contextMenu
     ? folders.find((folder) => folder.id === contextMenu.folderId)
     : undefined;
@@ -50,6 +66,15 @@ export function NavigationRail({
     point: ContextMenuPoint,
     anchor: HTMLButtonElement,
   ) => setContextMenu({ folderId, point, anchor });
+
+  const openAccountMenu = (anchor: HTMLButtonElement) => {
+    const bounds = anchor.getBoundingClientRect();
+    setContextMenu(undefined);
+    setAccountMenu({
+      point: { x: bounds.right + 4, y: bounds.top },
+      anchor,
+    });
+  };
 
   const openFromKeyboard = (
     event: KeyboardEvent<HTMLButtonElement>,
@@ -74,6 +99,15 @@ export function NavigationRail({
         aria-label="设置"
         title={`当前账号：${accountName}`}
         onClick={onOpenSettings}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          openAccountMenu(event.currentTarget);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+          event.preventDefault();
+          openAccountMenu(event.currentTarget);
+        }}
       >
         <Avatar avatar={accountAvatar} size="small" />
         <span>{accountName}</span>
@@ -109,6 +143,19 @@ export function NavigationRail({
         onMarkRead={() => onMarkFolderRead(contextFolder.id)}
         onRequestDelete={() => onRequestDeleteFolder(contextFolder)}
         onClose={closeContextMenu}
+      />
+    )}
+    {accountMenu && (
+      <AccountSwitcherMenu
+        accounts={accounts}
+        activeAccountId={activeAccountId}
+        currentAccount={account}
+        pending={accountPending}
+        point={accountMenu.point}
+        restoreFocus={() => accountMenu.anchor.focus()}
+        onAdd={onAddAccount}
+        onSwitch={onSwitchAccount}
+        onClose={closeAccountMenu}
       />
     )}
     </>

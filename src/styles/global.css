@@ -541,6 +541,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .context-menu-panel button.is-danger { color: var(--color-status-danger); }
 .context-menu-panel button.is-danger:hover:not(:disabled),
 .context-menu-panel button.is-danger:focus-visible { background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-elevated)); }
+.account-switcher-panel { width: 220px; padding: 4px; gap: 0; overflow: hidden; }
+.context-menu-panel .account-switcher-item {
+  min-height: 46px; padding: 4px 9px; grid-template-columns: 32px minmax(0, 1fr) 18px; gap: 8px;
+}
+.account-switcher-item .avatar { width: 30px; height: 30px; font-size: 10px; }
+.account-switcher-check { color: var(--accent); }
+.context-menu-panel .account-switcher-add {
+  min-height: 42px; margin-top: 2px; border-top: 1px solid var(--line); border-radius: 0 0 5px 5px;
+}
 .context-menu-window-page,
 .context-menu-window-page body,
 .context-menu-window-page body #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent !important; }
@@ -561,6 +570,11 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .native-context-menu button,
 .native-context-menu-children button { min-height: 42px; border-radius: 0; }
+.native-context-menu button.has-separator { box-shadow: inset 0 1px 0 var(--line); }
+.native-context-menu button.native-account-menu-item {
+  grid-template-columns: 30px minmax(0, 1fr) 18px; padding-right: 10px;
+}
+.native-account-menu-avatar { width: 28px; height: 28px; font-size: 10px; }
 .context-menu-chevron { color: var(--subtle); }
 .context-menu-surface[data-context-submenu-side="left"] .context-menu-chevron { transform: rotate(180deg); }
 .chat-folder-submenu { width: 190px; overflow: hidden; }

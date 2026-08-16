@@ -112,6 +112,8 @@ export function App() {
   );
   const activeTopicId = useTelegramStore((state) => state.activeTopicId);
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
+  const accounts = useTelegramStore((state) => state.accounts);
+  const accountPending = useTelegramStore((state) => state.accountPending);
   const chats = useTelegramStore((state) => state.chats);
   const chatListReady = useTelegramStore((state) => state.chatListReady);
   const chatLists = useTelegramStore((state) => state.chatLists);
@@ -142,6 +144,8 @@ export function App() {
   const authorizationPending = useTelegramStore((state) => state.authorizationPending);
   const authorizationError = useTelegramStore((state) => state.authorizationError);
   const initialize = useTelegramStore((state) => state.initialize);
+  const addAccount = useTelegramStore((state) => state.addAccount);
+  const switchAccount = useTelegramStore((state) => state.switchAccount);
   const loadForumTopics = useTelegramStore((state) => state.loadForumTopics);
   const createForumTopic = useTelegramStore((state) => state.createForumTopic);
   const editForumTopic = useTelegramStore((state) => state.editForumTopic);
@@ -1218,6 +1222,9 @@ export function App() {
           folders={folders}
           chats={[...chats.values()]}
           account={currentUserId ? users.get(currentUserId) : undefined}
+          accounts={accounts}
+          activeAccountId={activeAccountId}
+          accountPending={accountPending}
           filter={chatFilter}
           folderManagementPending={folderManagementPending}
           onFilterChange={(filter) => {
@@ -1233,6 +1240,8 @@ export function App() {
             title: folder.title,
           })}
           onOpenSettings={openSettings}
+          onAddAccount={addAccount}
+          onSwitchAccount={switchAccount}
         />
         <ChatSidebar
           chats={visibleChats}

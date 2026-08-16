@@ -227,6 +227,69 @@ test("the top bar keeps only window controls and the account entry opens setting
   await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
 });
 
+test("the account avatar opens a fixed account switcher with add account last", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (window.localStorage.getItem("notgram:accounts:v1")) return;
+    window.localStorage.setItem("notgram:accounts:v1", JSON.stringify({
+      activeAccountId: "default",
+      accounts: [
+        {
+          id: "default",
+          userId: "self",
+          displayName: "林然",
+          avatar: { label: "林", color: "#d16f45" },
+        },
+        {
+          id: "account-secondary",
+          userId: "secondary",
+          displayName: "工作账号",
+          avatar: { label: "工", color: "#4477aa" },
+        },
+      ],
+    }));
+  });
+  await page.goto("/");
+
+  const accountEntry = page.locator(".rail-account");
+  await accountEntry.click({ button: "right", position: { x: 8, y: 8 } });
+  let menu = page.getByRole("menu", { name: "切换账号" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitemradio")).toHaveCount(2);
+  await expect(menu.getByRole("menuitemradio", { name: "林然" })).toHaveAttribute("aria-checked", "true");
+  await expect(menu.getByRole("menuitemradio", { name: "工作账号" }).locator(".avatar")).toContainText("工");
+  const menuItems = menu.getByRole("menuitemradio").or(menu.getByRole("menuitem"));
+  await expect(menuItems.last()).toHaveText("添加新账号");
+  const firstPosition = await menu.boundingBox();
+  expect(firstPosition).not.toBeNull();
+
+  await page.keyboard.press("Escape");
+  await accountEntry.click({ button: "right", position: { x: 60, y: 60 } });
+  menu = page.getByRole("menu", { name: "切换账号" });
+  const secondPosition = await menu.boundingBox();
+  expect(secondPosition).not.toBeNull();
+  expect(Math.abs((secondPosition?.x ?? 0) - (firstPosition?.x ?? 0))).toBeLessThan(1);
+  expect(Math.abs((secondPosition?.y ?? 0) - (firstPosition?.y ?? 0))).toBeLessThan(1);
+
+  await menu.getByRole("menuitemradio", { name: "工作账号" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");
+    return state.activeAccountId;
+  })).toBe("account-secondary");
+
+  const previousAccountId = await page.evaluate(() => {
+    const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");
+    return state.activeAccountId as string;
+  });
+  await page.locator(".rail-account").click({ button: "right" });
+  await page.getByRole("menu", { name: "切换账号" })
+    .getByRole("menuitem", { name: "添加新账号" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");
+    return state.activeAccountId as string;
+  })).not.toBe(previousAccountId);
+  await expect(page.locator(".auth-shell")).toBeVisible();
+});
+
 test("settings isolate wheel input from the covered conversation list", async ({ page }) => {
   await page.setViewportSize({ width: 1080, height: 520 });
   await page.goto("/");
@@ -6518,6 +6581,47 @@ test("native context menu entry reuses its mounted surface across sessions", asy
   expect(await mountedSurface!.evaluate((element) =>
     element === document.querySelector(".native-context-menu")))
     .toBe(true);
+});
+
+test("native context menu entry renders account avatars and the trailing add action", async ({ page }) => {
+  await page.goto("/context-menu-window.html");
+  await page.evaluate(async () => {
+    const channel = new BroadcastChannel("notgram-context-menu-v2");
+    channel.postMessage({
+      type: "init",
+      id: "accountsession",
+      descriptor: {
+        label: "切换账号",
+        colorTheme: "light",
+        items: [
+          {
+            id: "account:default",
+            label: "林然",
+            icon: "check",
+            avatar: { label: "林", color: "#d16f45" },
+            checked: true,
+          },
+          {
+            id: "add-account",
+            label: "添加新账号",
+            icon: "user-plus",
+            separatorBefore: true,
+          },
+        ],
+      },
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    channel.close();
+  });
+
+  const menu = page.getByRole("menu", { name: "切换账号" });
+  const account = menu.getByRole("menuitem", { name: "林然" });
+  await expect(account.locator(".native-account-menu-avatar")).toContainText("林");
+  await expect(account.locator(".account-switcher-check")).toBeVisible();
+  const add = menu.getByRole("menuitem", { name: "添加新账号" });
+  await expect(add).toHaveClass(/has-separator/);
+  await expect(add.locator("svg")).toBeVisible();
+  await expect(menu.getByRole("menuitem").last()).toHaveText("添加新账号");
 });
 
 test("chat context menu manages folders, pinning, and group exit", async ({ page }) => {
