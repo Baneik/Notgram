@@ -11,7 +11,6 @@ import {
   Forward,
   Image as ImageIcon,
   LoaderCircle,
-  Play,
   Pin,
   RotateCcw,
   Save,
@@ -1021,7 +1020,7 @@ function MessageBubbleComponent({
                     title="下载媒体"
                     onClick={() => void onDownload(downloadFileId!, downloadFileName)}
                   >
-                    {previewSource ? <Play size={19} fill="currentColor" /> : <Download size={19} />}
+                    <Download size={19} />
                   </button>
                 )}
                 {renderMediaTransferProgress()}

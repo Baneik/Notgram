@@ -5115,7 +5115,7 @@ test("image documents use the photo media renderer", async ({ page }) => {
           document: {
             "@type": "file",
             id: 181,
-            size: 2048,
+            size: 11 * 1024 * 1024,
             local: {
               can_be_downloaded: true,
               is_downloading_active: false,
@@ -5151,7 +5151,15 @@ test("image documents use the photo media renderer", async ({ page }) => {
   await expect(row.locator('[data-media-type="photo"]')).toBeVisible();
   await expect(row.locator(".file-message")).toHaveCount(0);
   await expect(row.locator(".photo-caption")).toContainText("Image sent as a file");
-  await expect(row.locator('img[alt="Image sent as a file"]')).toBeVisible();
+  const preview = row.locator(".photo-preview");
+  const image = row.locator('img[alt="Image sent as a file"]');
+  await expect(preview).toHaveClass(/is-preview-only/);
+  await expect(image).toBeVisible();
+  await expect(image).toHaveCSS("filter", "none");
+  const download = row.getByRole("button", { name: "下载 design-export.png" });
+  await expect(download).toBeVisible();
+  await expect(download.locator(".lucide-download")).toBeVisible();
+  await expect(download.locator(".lucide-play")).toHaveCount(0);
 });
 
 test("video uses synchronized transparent playback windows and owns the playback spacebar", async ({ page }) => {
