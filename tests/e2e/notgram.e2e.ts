@@ -3097,7 +3097,14 @@ test("message hashtags open and retain scoped search", async ({ page }) => {
   const message = await revealVirtualMessage(page, "p-rich-entities");
   const hashtag = message.getByRole("link", { name: "#release" });
   await expect(hashtag).toBeVisible();
-  await expect(hashtag).toHaveCSS("text-decoration-line", "underline");
+  await expect(hashtag).toHaveCSS("text-decoration-line", "none");
+  await expect(hashtag).toHaveCSS("color", "rgb(66, 120, 165)");
+  await expect.poll(() => hashtag.evaluate((link) => getComputedStyle(link, "::after").transform))
+    .toBe("matrix(0, 0, 0, 1, 0, 0)");
+
+  await hashtag.hover();
+  await expect.poll(() => hashtag.evaluate((link) => getComputedStyle(link, "::after").transform))
+    .toBe("matrix(1, 0, 0, 1, 0, 0)");
 
   await hashtag.click();
 

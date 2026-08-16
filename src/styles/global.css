@@ -26,6 +26,7 @@
   --motion-duration-fast: 120ms;
   --motion-duration-standard: 180ms;
   --motion-duration-slow: 220ms;
+  --motion-duration-link: 300ms;
   --motion-duration-attention: 800ms;
   --motion-duration-continuous: 900ms;
   --motion-distance-near: 4px;
@@ -33,6 +34,7 @@
   --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-ease-standard: cubic-bezier(0.2, 0.75, 0.25, 1);
   --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --motion-ease-link: cubic-bezier(0.86, 0, 0.07, 1);
 }
 
 * { box-sizing: border-box; letter-spacing: 0; }
@@ -1061,7 +1063,18 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   margin: 0 0 5px; font-size: var(--chat-font-size); line-height: 1.4; font-weight: 750;
 }
 .message-rich-text a,
-.is-outgoing .message-rich-text a { color: var(--color-text-link); text-decoration: underline; text-underline-offset: 2px; }
+.is-outgoing .message-rich-text a {
+  position: relative; color: var(--color-text-link); text-decoration: none;
+}
+.message-rich-text a:not(.rich-media-link)::after {
+  content: ""; position: absolute; left: 0; bottom: -2px; width: 100%; height: 2px;
+  background: currentColor; pointer-events: none; transform: scaleX(0); transform-origin: bottom right;
+  transition: transform var(--motion-duration-link) var(--motion-ease-link);
+}
+.message-rich-text a:not(.rich-media-link):hover::after,
+.message-rich-text a:not(.rich-media-link):focus-visible::after {
+  transform: scaleX(1); transform-origin: bottom left;
+}
 .message-rich-text .message-hashtag { cursor: pointer; font-weight: 600; }
 .message-rich-text code {
   padding: 1px 4px; color: var(--color-status-danger); background: var(--color-bg-code);
@@ -1201,6 +1214,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   min-height: 100px; padding: 14px; display: flex; align-items: center; justify-content: center;
   gap: 7px; color: inherit; background: var(--color-accent-soft); text-decoration: none;
 }
+.rich-map-block > a::after { content: none; }
 @keyframes spoiler-text-reveal {
   from { opacity: 0.72; }
   to { opacity: 1; }
