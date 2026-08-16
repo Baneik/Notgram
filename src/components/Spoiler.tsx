@@ -4,6 +4,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type CSSProperties,
   type HTMLAttributes,
   type KeyboardEvent,
   type MouseEvent,
@@ -17,6 +18,23 @@ interface TextSpoilerGroupState {
 }
 
 const TextSpoilerContext = createContext<TextSpoilerGroupState | undefined>(undefined);
+
+const mediaSpoilerParticles = Array.from({ length: 56 }, (_, index) => {
+  const random = (salt: number) => {
+    const value = Math.sin((index + 1) * (salt + 1) * 12.9898) * 43758.5453;
+    return value - Math.floor(value);
+  };
+  return {
+    x: random(0) * 100,
+    y: random(1) * 100,
+    size: 1.5 + random(2) * 2.8,
+    dx: -14 + random(3) * 28,
+    dy: -12 + random(4) * 24,
+    opacity: .28 + random(5) * .48,
+    duration: 3.4 + random(6) * 3.8,
+    delay: random(7) * -6,
+  };
+});
 
 interface TextSpoilerGroupProps extends HTMLAttributes<HTMLDivElement> {
   resetKey: string;
@@ -115,13 +133,33 @@ export function MediaSpoiler({ active, resetKey, children }: {
         {children}
       </div>
       {concealed && (
-        <button
-          className="media-spoiler-reveal"
-          type="button"
-          aria-label="显示遮罩媒体"
-          title="显示媒体"
-          onClick={() => setRevealed(true)}
-        />
+        <>
+          <span className="media-spoiler-particles" aria-hidden="true">
+            {mediaSpoilerParticles.map((particle, index) => (
+              <span
+                className="media-spoiler-particle"
+                key={index}
+                style={{
+                  "--spoiler-particle-x": `${particle.x}%`,
+                  "--spoiler-particle-y": `${particle.y}%`,
+                  "--spoiler-particle-size": `${particle.size}px`,
+                  "--spoiler-particle-dx": `${particle.dx}px`,
+                  "--spoiler-particle-dy": `${particle.dy}px`,
+                  "--spoiler-particle-opacity": particle.opacity,
+                  "--spoiler-particle-duration": `${particle.duration}s`,
+                  "--spoiler-particle-delay": `${particle.delay}s`,
+                } as CSSProperties}
+              />
+            ))}
+          </span>
+          <button
+            className="media-spoiler-reveal"
+            type="button"
+            aria-label="显示遮罩媒体"
+            title="显示媒体"
+            onClick={() => setRevealed(true)}
+          />
+        </>
       )}
     </div>
   );

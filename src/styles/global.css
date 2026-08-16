@@ -1063,12 +1063,24 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .media-spoiler.is-concealed { z-index: 3; }
 .media-spoiler-content {
   position: relative; grid-area: 1 / 1; width: 100%; height: 100%; min-width: 0; min-height: inherit;
-  overflow: hidden; display: grid; place-items: center;
-  transition: filter 180ms ease, transform 220ms ease;
+  z-index: 0; overflow: hidden; display: grid; place-items: center;
+  transition: filter 240ms ease, transform 260ms ease;
 }
 .media-spoiler.is-concealed .media-spoiler-content {
-  filter: blur(24px) saturate(.62) brightness(.72); pointer-events: none;
-  transform: scale(1.1); user-select: none; -webkit-user-select: none;
+  filter: blur(38px) saturate(.72) brightness(.68); pointer-events: none;
+  transform: scale(1.18); user-select: none; -webkit-user-select: none;
+}
+.media-spoiler-particles {
+  position: absolute; z-index: 4; inset: 0; overflow: hidden; pointer-events: none;
+  background: rgb(24 28 32 / 24%);
+}
+.media-spoiler-particle {
+  position: absolute; left: var(--spoiler-particle-x); top: var(--spoiler-particle-y);
+  width: var(--spoiler-particle-size); aspect-ratio: 1; border-radius: 50%;
+  background: rgb(255 255 255 / 92%); opacity: var(--spoiler-particle-opacity);
+  box-shadow: 0 0 3px rgb(255 255 255 / 46%);
+  animation: spoiler-particle-float var(--spoiler-particle-duration) ease-in-out
+    var(--spoiler-particle-delay) infinite alternate;
 }
 .media-spoiler-reveal {
   position: absolute; z-index: 8; inset: 0; width: 100%; height: 100%; padding: 0;
@@ -1089,21 +1101,39 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   min-height: 100px; padding: 14px; display: flex; align-items: center; justify-content: center;
   gap: 7px; color: inherit; background: var(--color-accent-soft); text-decoration: none;
 }
+@keyframes spoiler-particles-text {
+  0% { background-position: 0 0, 2px 3px, 4px 1px; }
+  33% { background-position: 3px -2px, -1px 5px, 2px 4px; }
+  66% { background-position: -2px 2px, 4px 1px, 6px -2px; }
+  100% { background-position: 0 0, 2px 3px, 4px 1px; }
+}
+@keyframes spoiler-particle-float {
+  to {
+    opacity: calc(var(--spoiler-particle-opacity) * .42);
+    transform: translate3d(var(--spoiler-particle-dx), var(--spoiler-particle-dy), 0) scale(.72);
+  }
+}
 .rich-spoiler {
   box-decoration-break: clone; -webkit-box-decoration-break: clone;
-  border-radius: 1px; outline: 0; transition: color 120ms ease, background 140ms ease;
+  border-radius: 3px; outline: 0;
+  transition: color 120ms ease, background-color 160ms ease;
 }
 .rich-spoiler.is-concealed {
-  margin: 0 .04em; padding: .02em .08em; color: transparent !important;
-  background:
-    linear-gradient(177deg, transparent 3%, #141719 4% 91%, transparent 92%),
-    linear-gradient(183deg, transparent 8%, #050607 9% 96%, transparent 97%);
+  margin: 0 .03em; padding: .02em .06em; color: transparent !important;
+  background-color: color-mix(in srgb, var(--color-text-tertiary) 34%, transparent);
+  background-image:
+    radial-gradient(circle, color-mix(in srgb, var(--color-text-primary) 70%, transparent) 0 .65px, transparent .95px),
+    radial-gradient(circle, color-mix(in srgb, var(--color-text-primary) 48%, transparent) 0 .55px, transparent .85px),
+    radial-gradient(circle, color-mix(in srgb, var(--color-text-tertiary) 72%, transparent) 0 .45px, transparent .75px);
+  background-position: 0 0, 2px 3px, 4px 1px;
+  background-size: 5px 5px, 7px 7px, 6px 6px;
   text-decoration-color: transparent !important; text-shadow: none; cursor: pointer;
   user-select: none; -webkit-user-select: none;
+  animation: spoiler-particles-text 2.8s linear infinite;
 }
 .rich-spoiler.is-concealed * { color: transparent !important; text-decoration-color: transparent !important; }
 .rich-spoiler.is-concealed:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
-.rich-spoiler.is-revealed { color: inherit; background: color-mix(in srgb, var(--color-text-tertiary) 12%, transparent); }
+.rich-spoiler.is-revealed { color: inherit; background: transparent; }
 .rich-image-alt { color: var(--muted); font-style: italic; }
 .message-meta { min-height: 15px; margin: 1px 0 0 10px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; color: var(--subtle); font-size: 10px; line-height: 1; }
 .message-meta-stat { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }

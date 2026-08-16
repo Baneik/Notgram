@@ -4124,10 +4124,13 @@ test("spoilers reveal on click and reset after leaving the viewport", async ({ p
   let textSpoiler = richMessage.locator(".rich-spoiler").filter({ hasText: "Ready" });
   await expect(textSpoiler).toHaveAttribute("role", "button");
   await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "concealed");
+  await expect(textSpoiler).toHaveCSS("background-image", /radial-gradient/);
+  await expect(textSpoiler).toHaveCSS("animation-name", "spoiler-particles-text");
   await textSpoiler.hover();
   await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "concealed");
   await textSpoiler.click();
   await expect(textSpoiler).toHaveAttribute("data-spoiler-state", "revealed");
+  await expect(textSpoiler).toHaveCSS("background-image", "none");
 
   const messageList = page.getByRole("log", { name: "消息列表" });
   await messageList.focus();
@@ -4164,7 +4167,10 @@ test("spoilers reveal on click and reset after leaving the viewport", async ({ p
   const concealedContent = mediaSpoiler.locator(".media-spoiler-content");
   await expect(mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" })).toBeVisible();
   await expect(concealedContent).toHaveAttribute("inert", "");
-  await expect(concealedContent).toHaveCSS("filter", /blur\(24px\)/);
+  await expect(concealedContent).toHaveCSS("filter", /blur\(38px\)/);
+  await expect(mediaSpoiler.locator(".media-spoiler-particle")).toHaveCount(56);
+  await expect(mediaSpoiler.locator(".media-spoiler-particle").first())
+    .toHaveCSS("animation-name", "spoiler-particle-float");
 
   await mediaSpoiler.getByRole("button", { name: "显示遮罩媒体" }).click();
   mediaSpoiler = photoMessage.locator('.media-spoiler[data-spoiler-state="revealed"]');
