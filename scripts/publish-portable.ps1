@@ -8,6 +8,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+# Progress rendering can fail when an inherited Windows console is resized.
+$ProgressPreference = "SilentlyContinue"
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $defaultDestinationRoot = Join-Path $repositoryRoot "artifacts\notgram"
