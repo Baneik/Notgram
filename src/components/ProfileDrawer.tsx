@@ -292,6 +292,7 @@ export function ProfileDrawer({
         className={`profile-drawer ${page === "main" ? "is-main" : "is-detail"}`}
         role="dialog"
         aria-modal="true"
+        aria-busy={waitingForProfile}
         aria-labelledby="profile-drawer-title"
         tabIndex={-1}
       >

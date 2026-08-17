@@ -2308,10 +2308,12 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   position: fixed; inset: 0; z-index: 110; padding: 22px; display: grid; place-items: center; background: var(--color-overlay);
 }
 .profile-drawer {
+  --profile-main-height: min(602px, calc(100vh - 44px));
   position: relative; width: min(420px, calc(100vw - 28px)); max-height: min(680px, calc(100vh - 44px)); min-height: 0; overflow: hidden;
   color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-strong); border-radius: 8px;
   box-shadow: 0 22px 64px color-mix(in srgb, var(--color-shadow) 82%, transparent), 0 2px 10px color-mix(in srgb, var(--color-shadow) 44%, transparent);
 }
+.profile-drawer.is-main { height: var(--profile-main-height); }
 
 .chat-management-dialog { width: min(720px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px)); display: grid; grid-template-rows: 64px 48px minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 18px 60px var(--color-shadow); }
 .chat-management-dialog .settings-dialog-header { min-width: 0; padding: 0 14px 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
@@ -2419,7 +2421,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   box-shadow: 0 3px 12px color-mix(in srgb, var(--color-shadow) 36%, transparent); backdrop-filter: blur(8px);
 }
 .profile-close:hover { color: var(--ink); background: var(--color-bg-control-hover); }
-.profile-drawer-scroll { min-height: 0; max-height: min(680px, calc(100vh - 44px)); overflow-y: auto; overscroll-behavior: contain; }
+.profile-drawer-scroll { height: 100%; min-height: 0; max-height: min(680px, calc(100vh - 44px)); overflow-y: auto; overscroll-behavior: contain; }
 .profile-hero {
   padding: 28px 54px 17px; display: grid; justify-items: center; gap: 6px; text-align: center;
   background: color-mix(in srgb, var(--color-bg-elevated) 88%, var(--color-accent-soft)); border-bottom: 1px solid var(--line);
@@ -2549,7 +2551,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .shared-media-empty { grid-column: 1 / -1; min-height: 112px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 11px; }
 .shared-media-more { justify-self: center; min-height: 32px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; color: var(--accent); background: transparent; border: 1px solid var(--color-border-focus); border-radius: 6px; cursor: pointer; font-size: 11px; }
 .shared-media-count { color: var(--subtle); text-align: right; font-size: 10px; }
-.profile-state { min-height: 230px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.profile-state { min-height: 100%; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .profile-state.is-error { padding: 20px; color: var(--color-status-danger); text-align: center; line-height: 1.5; }
 
 @media (max-width: 930px) {
@@ -2689,7 +2691,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .settings-actions .dialog-save { width: 100%; }
   .settings-error { margin-right: 15px; margin-left: 15px; }
   .profile-backdrop { padding: 8px; }
-  .profile-drawer { width: 100%; max-height: calc(100vh - 16px); }
+  .profile-drawer { --profile-main-height: min(602px, calc(100vh - 16px)); width: 100%; max-height: calc(100vh - 16px); }
   .chat-management-dialog { width: 100%; height: 100%; max-height: none; border-radius: 0; grid-template-rows: 58px 48px minmax(0, 1fr); }
   .chat-management-body { padding: 12px; }
   .management-permission-grid { grid-template-columns: minmax(0, 1fr); }

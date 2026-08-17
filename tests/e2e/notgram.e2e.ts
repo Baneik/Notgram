@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { Message } from "../../src/telegram/types";
+import type { ChatProfile, Message } from "../../src/telegram/types";
 
 interface ConversationSwitchRecord {
   durationMs?: number;
@@ -3092,6 +3092,83 @@ test("chat profiles expose compact detail pages, rich bios, profile music, and s
   expect(await horizontalOverflow(page)).toBe(false);
   await profile.getByRole("button", { name: "关闭资料" }).click();
   await expect(profileTrigger).toBeFocused();
+});
+
+test("unloaded profiles keep the same card geometry through every loading phase", async ({ page }) => {
+  await page.goto("/");
+  const loadedProfile: ChatProfile = {
+    id: "user:u-delayed-profile",
+    kind: "user",
+    userId: "u-delayed-profile",
+    title: "Delayed Profile",
+    avatar: { label: "DP", color: "#4f7c70" },
+    statusLabel: "在线",
+    bio: "Profile content arriving from TDLib.",
+    username: "delayed_profile",
+    dataCenterId: 5,
+    dataCenterLocation: "Singapore, SG",
+    members: [],
+    canViewMembers: false,
+    groupInCommonCount: 2,
+    groupsInCommon: [],
+    profileAudioCount: 0,
+    profileAudios: [],
+  };
+  const profile = page.getByRole("dialog", { name: "资料" });
+  const openingHeight = await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        setState: (partial: {
+          profile: {
+            target: { kind: "user"; userId: string };
+            loading: boolean;
+          };
+        }) => void;
+      };
+    };
+    module.telegramStore.setState({
+      profile: {
+        target: { kind: "user", userId: "u-delayed-profile" },
+        loading: true,
+      },
+    });
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    return document.querySelector<HTMLElement>(".profile-drawer")?.offsetHeight ?? 0;
+  }, "/src/store/telegramStore.ts");
+
+  await expect(profile).toBeVisible();
+  await expect(profile).toHaveAttribute("aria-busy", "true");
+  await expect(profile.locator(".profile-state .spin")).toBeVisible();
+  const loadingHeight = await profile.evaluate((element) => (element as HTMLElement).offsetHeight);
+
+  await page.evaluate(async ({ modulePath, value }) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        setState: (partial: {
+          profile: {
+            target: { kind: "user"; userId: string };
+            value: ChatProfile;
+            loading: boolean;
+          };
+        }) => void;
+      };
+    };
+    module.telegramStore.setState({
+      profile: {
+        target: { kind: "user", userId: value.userId! },
+        value,
+        loading: false,
+      },
+    });
+  }, { modulePath: "/src/store/telegramStore.ts", value: loadedProfile });
+
+  await expect(profile).toHaveAttribute("aria-busy", "false");
+  await expect(profile.getByRole("heading", { name: loadedProfile.title })).toBeVisible();
+  const loadedHeight = await profile.evaluate((element) => (element as HTMLElement).offsetHeight);
+  expect(openingHeight).toBeGreaterThan(0);
+  expect(new Set([openingHeight, loadingHeight, loadedHeight]).size).toBe(1);
 });
 
 test("shared media supports server categories, filters, forwarding, and batch deletion", async ({ page }) => {
