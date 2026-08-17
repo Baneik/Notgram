@@ -19,6 +19,7 @@ import {
   type PhotoMessage,
 } from "../utils/mediaViewerModel";
 import { writeClipboardImage } from "../utils/clipboard";
+import { MediaProgressRing } from "./MediaProgressRing";
 import { StableImage } from "./StableImage";
 
 interface MediaViewerProps {
@@ -81,6 +82,18 @@ const MediaViewerThumbnail = forwardRef<HTMLButtonElement, MediaViewerThumbnailP
             onError={() => setSourceIndex((current) => current + 1)}
           />
         : <ImageOff size={18} strokeWidth={1.6} />}
+      {message.content.isDownloading && (
+        <span
+          className="media-progress"
+          role="progressbar"
+          aria-label={`下载 ${message.content.fileName}`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round((message.content.progress ?? 0) * 100)}
+        >
+          <span><MediaProgressRing progress={message.content.progress} /></span>
+        </span>
+      )}
     </button>
   );
 });

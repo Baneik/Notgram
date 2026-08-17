@@ -1582,7 +1582,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   box-shadow: 0 8px 24px var(--color-shadow); transform: translateX(-50%); scrollbar-width: thin;
 }
 .media-viewer-thumbnails button {
-  width: 58px; height: 58px; padding: 0; overflow: hidden; display: grid; place-items: center; flex: 0 0 58px;
+  position: relative; width: 58px; height: 58px; padding: 0; overflow: hidden; display: grid; place-items: center; flex: 0 0 58px;
   color: inherit; background: var(--color-overlay); border: 2px solid transparent; border-radius: 5px; cursor: pointer;
 }
 .media-viewer-thumbnails button:hover { border-color: color-mix(in srgb, var(--color-border-focus) 70%, transparent); }

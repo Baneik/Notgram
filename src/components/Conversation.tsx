@@ -518,6 +518,7 @@ export function Conversation({
   const openMediaViewer = useCallback((messageId: string) => {
     const activeIndex = viewerPhotos.findIndex((message) => message.id === messageId);
     if (activeIndex < 0) return;
+    const activeContent = viewerPhotos[activeIndex].content;
     const nearbyPhotos = viewerPhotos.slice(
       Math.max(0, activeIndex - 24),
       Math.min(viewerPhotos.length, activeIndex + 25),
@@ -539,6 +540,14 @@ export function Conversation({
       activeMessageId: messageId,
       colorTheme,
     }, onDownloadFile);
+    if (
+      activeContent.fileId !== undefined &&
+      activeContent.canDownload !== false &&
+      !activeContent.isDownloading &&
+      !activeContent.isDownloaded
+    ) {
+      void onDownloadFile(activeContent.fileId, activeContent.fileName);
+    }
   }, [cacheFile, colorTheme, onDownloadFile, viewerPhotos]);
 
   useEffect(() => {

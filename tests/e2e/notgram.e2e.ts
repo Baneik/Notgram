@@ -5092,7 +5092,7 @@ test("Markdown and TDLib rich text render as structured message content", async 
   expect(senderGeometry.fontSize).toBeGreaterThanOrEqual(11);
 });
 
-test("image documents use the photo media renderer", async ({ page }) => {
+test("opening an oversized image document previews and downloads it with synchronized progress", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
@@ -5146,7 +5146,33 @@ test("image documents use the photo media renderer", async ({ page }) => {
       ...(messages.get("chat-product") ?? []),
       mapped as Record<string, unknown>,
     ]);
-    telegramStore.setState({ messages });
+    (window as unknown as { __notgramOpenedImageDownloads: Array<[number, string]> })
+      .__notgramOpenedImageDownloads = [];
+    telegramStore.setState({
+      messages,
+      downloadFile: async (fileId: number, fileName: string) => {
+        (window as unknown as { __notgramOpenedImageDownloads: Array<[number, string]> })
+          .__notgramOpenedImageDownloads.push([fileId, fileName]);
+        const current = telegramStore.getState() as {
+          messages: Map<string, Array<Record<string, unknown>>>;
+        };
+        const updatedMessages = new Map(current.messages);
+        updatedMessages.set("chat-product", (updatedMessages.get("chat-product") ?? []).map((message) => {
+          if (message.id !== "p-image-document") return message;
+          const content = message.content as Record<string, unknown>;
+          return {
+            ...message,
+            content: {
+              ...content,
+              isDownloading: true,
+              progress: 0.37,
+            },
+          };
+        }));
+        telegramStore.setState({ messages: updatedMessages });
+        await new Promise<void>(() => undefined);
+      },
+    });
   }, {
     mapperPath: "/src/telegram/tdlibMapper.ts",
     storePath: "/src/store/telegramStore.ts",
@@ -5166,6 +5192,34 @@ test("image documents use the photo media renderer", async ({ page }) => {
   await expect(download).toBeVisible();
   await expect(download.locator(".lucide-download")).toBeVisible();
   await expect(download.locator(".lucide-play")).toHaveCount(0);
+
+  const popupPromise = page.waitForEvent("popup");
+  await preview.locator(".photo-open").click({ position: { x: 12, y: 12 } });
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramOpenedImageDownloads: Array<[number, string]> }
+  ).__notgramOpenedImageDownloads)).toEqual([[181, "design-export.png"]]);
+  await expect(popup.locator('.media-viewer-image[alt="Image sent as a file"]')).toBeVisible();
+
+  const mainProgress = row.getByRole("progressbar", { name: "下载 design-export.png" });
+  const thumbnail = popup.getByRole("button", { name: "查看 design-export.png" });
+  const thumbnailProgress = thumbnail.getByRole("progressbar", { name: "下载 design-export.png" });
+  await expect(mainProgress).toHaveAttribute("aria-valuenow", "37");
+  await expect(thumbnailProgress).toHaveAttribute("aria-valuenow", "37");
+  await expect(thumbnailProgress.locator(".media-progress-ring-value")).toBeVisible();
+  const mainProgressStyle = await mainProgress.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.width, style.height, style.backgroundColor, style.borderRadius];
+  });
+  await expect.poll(() => thumbnailProgress.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.width, style.height, style.backgroundColor, style.borderRadius];
+  })).toEqual(mainProgressStyle);
+
+  const closed = popup.waitForEvent("close");
+  await popup.getByRole("button", { name: "关闭图片查看器" }).click();
+  await closed;
 });
 
 test("video uses synchronized transparent playback windows and owns the playback spacebar", async ({ page }) => {
