@@ -396,6 +396,8 @@ export interface ChatProfile {
   memberOffset?: number;
   memberHasMore?: boolean;
   groupInCommonCount?: number;
+  groupsInCommon?: Chat[];
+  profilePhotos?: ProfilePhoto[];
 }
 
 export interface UpdateCurrentUserProfileInput {
@@ -741,6 +743,12 @@ export type MessageContent =
       mediaType: "photo" | "video" | "videoNote" | "audio" | "voice" | "animation" | "sticker";
       previewDataUrl?: string;
     } & TransferableMessageContent);
+
+export interface ProfilePhoto {
+  id: string;
+  addedAt?: string;
+  content: Extract<MessageContent, { kind: "media" }> & { mediaType: "photo" };
+}
 
 export type MessageOrigin =
   | { kind: "user"; userId: string }

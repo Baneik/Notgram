@@ -112,6 +112,7 @@ describe("profile transport", () => {
       "getMe",
       "getUserFullInfo",
       "getOption",
+      "getUserProfilePhotos",
     ]);
   });
 
@@ -139,6 +140,8 @@ describe("profile transport", () => {
       if (request["@type"] === "getUserFullInfo") {
         return { "@type": "userFullInfo", group_in_common_count: 0 };
       }
+      if (request["@type"] === "getGroupsInCommon") return { "@type": "chats", chat_ids: [] };
+      if (request["@type"] === "getUserProfilePhotos") return { "@type": "chatPhotos", photos: [] };
       throw new Error(`unexpected request: ${String(request["@type"])}`);
     };
 
@@ -149,7 +152,86 @@ describe("profile transport", () => {
       dataCenterLocation: "Amsterdam, NL",
     });
     expect(requests.map((request) => request["@type"]))
-      .toEqual(["getUser", "getUserFullInfo"]);
+      .toEqual(["getUser", "getUserFullInfo", "getGroupsInCommon", "getUserProfilePhotos"]);
+  });
+
+  it("loads concrete common groups and profile-photo history for a user", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as {
+      request: (request: TdObject) => Promise<TdObject>;
+    };
+    const requests: TdObject[] = [];
+    const file = (id: number, path: string): TdObject => ({
+      "@type": "file",
+      id,
+      size: 120_000,
+      local: {
+        is_downloading_completed: true,
+        is_downloading_active: false,
+        can_be_downloaded: false,
+        path,
+      },
+    });
+    const rawPhoto = (id: number, path: string, addedDate: number): TdObject => ({
+      "@type": "chatPhoto",
+      id,
+      added_date: addedDate,
+      sizes: [
+        { "@type": "photoSize", width: 160, height: 160, photo: file(id * 10, path) },
+        { "@type": "photoSize", width: 640, height: 640, photo: file(id * 10 + 1, path) },
+      ],
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      switch (request["@type"]) {
+        case "getUser": return rawUser(12, "Lin");
+        case "getUserFullInfo": return {
+          "@type": "userFullInfo",
+          bio: { "@type": "formattedText", text: "Design lead", entities: [] },
+          group_in_common_count: 2,
+        };
+        case "getGroupsInCommon": return { "@type": "chats", chat_ids: [70, 71] };
+        case "getUserProfilePhotos": return {
+          "@type": "chatPhotos",
+          photos: [
+            rawPhoto(1, "C:\\avatars\\lin-current.jpg", 1_722_000_000),
+            rawPhoto(2, "C:\\avatars\\lin-history.jpg", 1_710_000_000),
+          ],
+        };
+        case "getChat": return {
+          "@type": "chat",
+          id: Number(request.chat_id),
+          title: Number(request.chat_id) === 70 ? "Design Group" : "Product Group",
+          type: { "@type": "chatTypeSupergroup", supergroup_id: Number(request.chat_id) + 1000, is_channel: false },
+          member_count: 8,
+          positions: [],
+          unread_count: 0,
+          notification_settings: { mute_for: 0 },
+        };
+        default: return { "@type": "ok" };
+      }
+    };
+
+    const profile = await transport.getUserProfile("12");
+
+    expect(profile.groupsInCommon?.map(({ title }) => title)).toEqual(["Design Group", "Product Group"]);
+    expect(profile.profilePhotos?.map(({ content }) => content.fileName)).toEqual([
+      "Lin 的当前头像.jpg",
+      "Lin 的历史头像 1.jpg",
+    ]);
+    expect(profile.profilePhotos?.[0]?.content.localPath).toBe("C:\\avatars\\lin-current.jpg");
+    expect(requests).toContainEqual(expect.objectContaining({
+      "@type": "getGroupsInCommon",
+      user_id: 12,
+      offset_chat_id: 0,
+      limit: 100,
+    }));
+    expect(requests).toContainEqual(expect.objectContaining({
+      "@type": "getUserProfilePhotos",
+      user_id: 12,
+      offset: 0,
+      limit: 100,
+    }));
   });
 
   it("maps TDLib group members and resolves contacts and private chats on the server", async () => {

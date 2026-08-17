@@ -1,4 +1,9 @@
-import { mockSnapshot } from "./mockData";
+import {
+  mockProfilePhotoUrl,
+  mockSnapshot,
+  tallMediaPreviewUrl,
+  wideMediaPreviewUrl,
+} from "./mockData";
 import { messageContentText } from "./messageContent";
 import { messageSearchMatches } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
@@ -52,6 +57,7 @@ import type {
   ChatMessageSearchPage,
   Message,
   MessagePermissions,
+  ProfilePhoto,
   PinMessageInput,
   ProxySettings,
   SendEmojiAssetInput,
@@ -89,6 +95,57 @@ const clone = <T,>(value: T): T => structuredClone(value);
 const CACHE_KEY = "notgram:ui-cache:v1";
 const ACCOUNT_STATE_KEY = "notgram:accounts:v1";
 const PINNED_ORDER_KEY = "notgram:mock-pinned-order:v1";
+
+const mockProfilePhotos = (user: User): ProfilePhoto[] => [
+  {
+    id: `${user.id}:current`,
+    addedAt: "2026-07-18T10:00:00+08:00",
+    content: {
+      kind: "media",
+      mediaType: "photo",
+      fileName: `${user.displayName} 的当前头像.png`,
+      sizeLabel: "128 KB",
+      localPath: mockProfilePhotoUrl,
+      canDownload: false,
+      isDownloaded: true,
+      width: 512,
+      height: 512,
+      caption: "当前头像",
+    },
+  },
+  {
+    id: `${user.id}:history:1`,
+    addedAt: "2026-04-12T14:30:00+08:00",
+    content: {
+      kind: "media",
+      mediaType: "photo",
+      fileName: `${user.displayName} 的历史头像 1.jpg`,
+      sizeLabel: "220 KB",
+      localPath: tallMediaPreviewUrl,
+      canDownload: false,
+      isDownloaded: true,
+      width: 900,
+      height: 1800,
+      caption: "历史头像",
+    },
+  },
+  {
+    id: `${user.id}:history:2`,
+    addedAt: "2025-12-06T09:15:00+08:00",
+    content: {
+      kind: "media",
+      mediaType: "photo",
+      fileName: `${user.displayName} 的历史头像 2.jpg`,
+      sizeLabel: "310 KB",
+      localPath: wideMediaPreviewUrl,
+      canDownload: false,
+      isDownloaded: true,
+      width: 1800,
+      height: 600,
+      caption: "历史头像",
+    },
+  },
+];
 
 const defaultMockAccount = (): TelegramAccount => {
   const user = mockSnapshot.users.find((item) => item.id === mockSnapshot.currentUserId);
@@ -634,6 +691,8 @@ export class MockTelegramTransport implements TelegramTransport {
       members: [],
       canViewMembers: false,
       groupInCommonCount: 0,
+      groupsInCommon: [],
+      profilePhotos: mockProfilePhotos(user),
     };
   }
 
@@ -657,6 +716,10 @@ export class MockTelegramTransport implements TelegramTransport {
       members: [],
       canViewMembers: false,
       groupInCommonCount: user.id === this.snapshot.currentUserId ? 0 : 2,
+      groupsInCommon: user.id === this.snapshot.currentUserId
+        ? []
+        : clone(this.snapshot.chats.filter((chat) => chat.kind === "group").slice(0, 2)),
+      profilePhotos: mockProfilePhotos(user),
     };
   }
 
@@ -717,6 +780,10 @@ export class MockTelegramTransport implements TelegramTransport {
         members: [],
         canViewMembers: false,
         groupInCommonCount: user.id === this.snapshot.currentUserId ? 0 : 2,
+        groupsInCommon: user.id === this.snapshot.currentUserId
+          ? []
+          : clone(this.snapshot.chats.filter((item) => item.kind === "group").slice(0, 2)),
+        profilePhotos: mockProfilePhotos(user),
       };
     }
     const settings = this.createdChatSettings.get(chat.id);

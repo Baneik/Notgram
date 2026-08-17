@@ -1,10 +1,12 @@
 import {
   AtSign,
   Ban,
+  ChevronRight,
   Flag,
   Fingerprint,
   Image,
   LoaderCircle,
+  Maximize2,
   MessageCircle,
   Network,
   Phone,
@@ -12,12 +14,17 @@ import {
   Shield,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { ProfileState } from "../store/profileState";
 import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
 import type { ChatReportOptions, ReportChatInput } from "../telegram/types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
+import { useTelegramStore } from "../store/telegramStore";
+import { usePreferencesStore } from "../store/preferencesStore";
+import { colorThemeForThemeId } from "../theme/theme";
+import { openMediaViewerWindow, syncMediaViewerWindow } from "../media/mediaViewerWindowBridge";
+import type { PhotoMessage } from "../utils/mediaViewerModel";
 import { Avatar } from "./Avatar";
 import { MotionPresence } from "./MotionPresence";
 import { SharedMediaBrowser } from "./SharedMediaBrowser";
@@ -40,6 +47,7 @@ interface ProfileDrawerProps {
   reportChatId?: string;
   onDeleteChat?: () => Promise<boolean>;
   onOpenUserProfile: (userId: string) => void;
+  onOpenChat: (chatId: string) => void;
   onLoadMoreMembers: (chatId: string) => Promise<boolean>;
   onLoadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
@@ -68,6 +76,7 @@ export function ProfileDrawer({
   reportChatId,
   onDeleteChat,
   onOpenUserProfile,
+  onOpenChat,
   onLoadMoreMembers,
   onLoadSharedMedia,
   onDownloadFile,
@@ -79,6 +88,8 @@ export function ProfileDrawer({
   const dialogRef = useModalFocus<HTMLElement>(onClose, false, closeRef);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const cacheFile = useTelegramStore((store) => store.cacheFile);
+  const colorTheme = usePreferencesStore((store) => colorThemeForThemeId(store.themeId));
   const profile = state.value;
   const waitingForProfile = state.loading && !profile;
   const showProfileLoading = useStableVisibility(waitingForProfile);
@@ -88,6 +99,58 @@ export function ProfileDrawer({
     : !waitingForProfile && state.error && !profile
       ? "error"
       : !waitingForProfile && !profile ? "empty" : undefined;
+  const profilePhotoMessages = useMemo<PhotoMessage[]>(() => (
+    profile?.profilePhotos ?? []
+  ).map((photo) => ({
+    id: `profile-photo:${photo.id}`,
+    chatId: `profile:${profile?.userId ?? profile?.id ?? "unknown"}`,
+    senderId: profile?.userId ?? profile?.id ?? "unknown",
+    outgoing: profile?.kind === "self",
+    sentAt: photo.addedAt ?? "1970-01-01T00:00:00.000Z",
+    delivery: "read",
+    content: photo.content,
+  })), [profile?.id, profile?.kind, profile?.profilePhotos, profile?.userId]);
+  const downloadProfilePhoto = useCallback(async (fileId: number, fileName: string) => {
+    await onDownloadFile(fileId, fileName);
+    onRetry();
+  }, [onDownloadFile, onRetry]);
+  const openProfileAvatar = useCallback(() => {
+    const active = profilePhotoMessages[0];
+    if (!active) return;
+    for (const photo of profilePhotoMessages.slice(0, 25)) {
+      const content = photo.content;
+      if (
+        content.thumbnailFileId !== undefined &&
+        content.thumbnailCanDownload === true &&
+        !content.thumbnailPath &&
+        !content.thumbnailIsDownloading
+      ) {
+        void cacheFile(content.thumbnailFileId, 32).catch(() => undefined);
+      }
+    }
+    void openMediaViewerWindow({
+      messages: profilePhotoMessages,
+      activeMessageId: active.id,
+      colorTheme,
+    }, downloadProfilePhoto);
+    const content = active.content;
+    if (
+      content.fileId !== undefined &&
+      content.canDownload !== false &&
+      !content.isDownloading &&
+      !content.isDownloaded
+    ) {
+      void downloadProfilePhoto(content.fileId, content.fileName);
+    }
+  }, [cacheFile, colorTheme, downloadProfilePhoto, profilePhotoMessages]);
+  const openCommonGroup = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const chatId = event.currentTarget.dataset.chatId;
+    if (chatId) onOpenChat(chatId);
+  }, [onOpenChat]);
+
+  useEffect(() => {
+    syncMediaViewerWindow(profilePhotoMessages, colorTheme);
+  }, [colorTheme, profilePhotoMessages]);
 
   return (
     <div className="profile-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -119,7 +182,18 @@ export function ProfileDrawer({
           {!statusKind && profile ? (
             <>
               <section className="profile-hero" aria-labelledby="profile-name">
-                <Avatar avatar={profile.avatar} size="large" />
+                {profilePhotoMessages.length > 0 ? (
+                  <button
+                    className="profile-avatar-button"
+                    type="button"
+                    aria-label={`查看 ${profile.title} 的头像和历史头像`}
+                    title="查看头像"
+                    onClick={openProfileAvatar}
+                  >
+                    <Avatar avatar={profile.avatar} size="large" />
+                    <span className="profile-avatar-open" aria-hidden="true"><Maximize2 size={14} /></span>
+                  </button>
+                ) : <span className="profile-avatar-static"><Avatar avatar={profile.avatar} size="large" /></span>}
                 <h3 id="profile-name">{profile.title}</h3>
                 <span className="profile-status">{profile.statusLabel}</span>
                 {profile.bio && <p>{profile.bio}</p>}
@@ -169,9 +243,27 @@ export function ProfileDrawer({
                 </section>
               )}
               {profile.groupInCommonCount !== undefined && profile.kind === "user" && (
-                <section className="profile-info-section">
-                  <h4>共同群组</h4>
-                  <p>{profile.groupInCommonCount} 个共同群组</p>
+                <section className="profile-info-section" aria-labelledby="common-groups-heading">
+                  <div className="profile-section-heading">
+                    <h4 id="common-groups-heading">共同群组</h4>
+                    <span>{profile.groupInCommonCount}</span>
+                  </div>
+                  {(profile.groupsInCommon?.length ?? 0) > 0 ? (
+                    <div className="profile-common-group-list">
+                      {profile.groupsInCommon?.map((group) => (
+                        <button key={group.id} type="button" data-chat-id={group.id} onClick={openCommonGroup}>
+                          <Avatar avatar={group.avatar} size="small" />
+                          <span>
+                            <strong>{group.title}</strong>
+                            <small>{group.memberCount
+                              ? `${group.memberCount.toLocaleString("zh-CN")} 位成员`
+                              : "共同群组"}</small>
+                          </span>
+                          <ChevronRight size={16} aria-hidden="true" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : <p>{profile.groupInCommonCount > 0 ? "暂时无法读取群组列表" : "没有共同群组"}</p>}
                 </section>
               )}
               {profile.chatId && mediaOpen && (

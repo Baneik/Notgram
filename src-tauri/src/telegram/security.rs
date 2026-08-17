@@ -71,6 +71,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getStickerSet",
     "getStickers",
     "getFullRichMessage",
+    "getGroupsInCommon",
     "getProxies",
     "getRepliedMessage",
     "getSecretChat",
@@ -79,6 +80,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getSupergroupMembers",
     "getUser",
     "getUserFullInfo",
+    "getUserProfilePhotos",
     "leaveChat",
     "loadChats",
     "logOut",
@@ -198,6 +200,34 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         "getOption" => {
             if request.get("name").and_then(Value::as_str) != Some("dc_id") {
                 return Err("Only the data-center option can be read".to_string());
+            }
+        }
+        "getGroupsInCommon" => {
+            validate_nonzero_identifier(request, "user_id")?;
+            if request
+                .get("offset_chat_id")
+                .and_then(Value::as_i64)
+                .is_none()
+                || request
+                    .get("limit")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|limit| !(1..=100).contains(&limit))
+            {
+                return Err("Invalid common group pagination".to_string());
+            }
+        }
+        "getUserProfilePhotos" => {
+            validate_nonzero_identifier(request, "user_id")?;
+            if request
+                .get("offset")
+                .and_then(Value::as_i64)
+                .is_none_or(|offset| offset < 0)
+                || request
+                    .get("limit")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|limit| !(1..=100).contains(&limit))
+            {
+                return Err("Invalid profile photo pagination".to_string());
             }
         }
         "setName" => {
@@ -1816,6 +1846,51 @@ mod tests {
         ] {
             let request = json!({ "@type": request_type, "@extra": EXTRA });
             assert!(validate_webview_tdlib_request(&request).is_ok());
+        }
+
+        for request in [
+            json!({
+                "@type": "getGroupsInCommon",
+                "user_id": 7,
+                "offset_chat_id": 0,
+                "limit": 100,
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "getUserProfilePhotos",
+                "user_id": 7,
+                "offset": 0,
+                "limit": 100,
+                "@extra": EXTRA
+            }),
+        ] {
+            assert!(validate_webview_tdlib_request(&request).is_ok());
+        }
+
+        for request in [
+            json!({
+                "@type": "getGroupsInCommon",
+                "user_id": 0,
+                "offset_chat_id": 0,
+                "limit": 100,
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "getGroupsInCommon",
+                "user_id": 7,
+                "offset_chat_id": 0,
+                "limit": 101,
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "getUserProfilePhotos",
+                "user_id": 7,
+                "offset": -1,
+                "limit": 100,
+                "@extra": EXTRA
+            }),
+        ] {
+            assert!(validate_webview_tdlib_request(&request).is_err());
         }
 
         let private_chat = json!({

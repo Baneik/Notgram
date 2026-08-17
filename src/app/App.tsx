@@ -844,6 +844,11 @@ export function App() {
     void openGlobalSearchMessage(chatId, messageId);
   }, [clearProfile, openGlobalSearchMessage]);
 
+  const openProfileChat = useCallback((chatId: string) => {
+    clearProfile();
+    openGlobalSearchChat(chatId);
+  }, [clearProfile, openGlobalSearchChat]);
+
   useEffect(() => {
     const openTelegramLink = (event: Event) => {
       const detail = (event as CustomEvent<TelegramLinkTarget>).detail;
@@ -1639,6 +1644,7 @@ export function App() {
           reportChatId={activeChatId}
           onDeleteChat={profile.target?.kind === "chat" && activeChatId === profile.target.chatId && profile.value?.kind === "group" ? () => leaveGroup(activeChatId) : undefined}
           onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
+          onOpenChat={openProfileChat}
           onLoadMoreMembers={(chatId) => loadMoreChatProfileMembers(chatId)}
           onLoadSharedMedia={loadSharedMedia}
           onDownloadFile={requestDownload}

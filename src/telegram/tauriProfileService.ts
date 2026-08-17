@@ -1,6 +1,7 @@
 import {
   asTdObject,
   asTdObjects,
+  mapTdMessageContent,
   mapTdUser,
   tdId,
   tdNumber,
@@ -12,12 +13,15 @@ import type {
   Chat,
   ChatProfile,
   ChatProfileMembersPage,
+  ProfilePhoto,
   UpdateCurrentUserProfileInput,
   User,
 } from "./types";
 
 export const PROFILE_MEMBER_PAGE_SIZE = 50;
 export const PROFILE_ADMIN_PAGE_SIZE = 200;
+export const PROFILE_COMMON_GROUP_LIMIT = 100;
+export const PROFILE_PHOTO_LIMIT = 100;
 
 export const profileField = (
   value: string,
@@ -275,9 +279,13 @@ export class TauriProfileService {
 
   private async loadUserProfile(userId: string, kind: "self" | "user"): Promise<ChatProfile> {
     const user = await this.loadUser(userId);
-    const [full, dataCenter] = await Promise.all([
+    const [full, dataCenter, groupsInCommon, profilePhotos] = await Promise.all([
       this.context.request({ "@type": "getUserFullInfo", user_id: numericId(userId) }),
       this.loadDataCenter(this.context.rawUsers.get(userId)),
+      kind === "user"
+        ? this.loadGroupsInCommon(userId).catch(() => [])
+        : Promise.resolve([]),
+      this.loadUserProfilePhotos(userId, user?.displayName ?? "用户").catch(() => []),
     ]);
     if (!user) throw new Error("TDLib 未返回用户资料");
     const bio = profileText(full.bio);
@@ -298,7 +306,70 @@ export class TauriProfileService {
       members: [],
       canViewMembers: false,
       groupInCommonCount: tdNumber(full.group_in_common_count),
+      groupsInCommon,
+      profilePhotos,
     };
+  }
+
+  private async loadGroupsInCommon(userId: string): Promise<Chat[]> {
+    const result = await this.context.request({
+      "@type": "getGroupsInCommon",
+      user_id: numericId(userId),
+      offset_chat_id: 0,
+      limit: PROFILE_COMMON_GROUP_LIMIT,
+    });
+    const chatIds = Array.isArray(result.chat_ids)
+      ? result.chat_ids.map(tdId).filter(Boolean)
+      : [];
+    const chats = await Promise.all(chatIds.map(async (chatId) => {
+      try {
+        const raw = this.context.rawChats.get(chatId) ?? await this.context.request({
+          "@type": "getChat",
+          chat_id: numericId(chatId),
+        });
+        this.context.upsertChat(raw);
+        return this.context.mapChat(raw);
+      } catch {
+        return undefined;
+      }
+    }));
+    return chats.filter((chat): chat is Chat => chat?.kind === "group");
+  }
+
+  private async loadUserProfilePhotos(userId: string, displayName: string): Promise<ProfilePhoto[]> {
+    const result = await this.context.request({
+      "@type": "getUserProfilePhotos",
+      user_id: numericId(userId),
+      offset: 0,
+      limit: PROFILE_PHOTO_LIMIT,
+    });
+    return asTdObjects(result.photos).flatMap((photo, index) => {
+      const mapped = mapTdMessageContent({
+        "@type": "messagePhoto",
+        photo,
+        caption: { "@type": "formattedText", text: "", entities: [] },
+        has_spoiler: false,
+      });
+      if (mapped.kind !== "media" || mapped.mediaType !== "photo") return [];
+      const addedAtSeconds = tdNumber(photo.added_date);
+      const addedAt = addedAtSeconds && addedAtSeconds > 0
+        ? new Date(addedAtSeconds * 1_000).toISOString()
+        : undefined;
+      const id = tdId(photo.id) || `${mapped.fileId ?? "photo"}:${index}`;
+      return [{
+        id,
+        addedAt,
+        content: {
+          ...mapped,
+          kind: "media" as const,
+          mediaType: "photo" as const,
+          fileName: index === 0
+            ? `${displayName} 的当前头像.jpg`
+            : `${displayName} 的历史头像 ${index}.jpg`,
+          caption: index === 0 ? "当前头像" : "历史头像",
+        },
+      }];
+    });
   }
 
   private async loadDataCenter(rawUser?: TdObject) {

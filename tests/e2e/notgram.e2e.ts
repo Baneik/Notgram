@@ -3036,7 +3036,17 @@ test("chat profiles expose members and shared media with focus restoration", asy
   await profile.locator(".profile-member-identity").filter({ hasText: "Mia Chen" }).click();
   await expect(profile.getByText("@mia_design", { exact: true })).toBeVisible();
   await expect(profile.getByText("u-mia", { exact: true })).toBeVisible();
-  await profile.getByRole("button", { name: "关闭资料" }).click();
+  await expect(profile.locator(".profile-common-group-list > button")).toHaveCount(2);
+  const avatarPopupPromise = page.waitForEvent("popup");
+  await profile.getByRole("button", { name: "查看 Mia Chen 的头像和历史头像" }).click();
+  const avatarPopup = await avatarPopupPromise;
+  await avatarPopup.waitForLoadState("domcontentloaded");
+  await expect(avatarPopup.getByRole("dialog", { name: /Mia Chen 的当前头像/ })).toBeVisible();
+  await expect(avatarPopup.getByRole("navigation", { name: "会话图片预览" }).getByRole("button")).toHaveCount(3);
+  await avatarPopup.close();
+  await profile.locator(".profile-common-group-list > button").first().click();
+  await expect(profile).toBeHidden();
+  await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await profileTrigger.click();
   await expect(profile.locator(".profile-state")).toHaveCount(0);
 

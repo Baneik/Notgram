@@ -1,7 +1,9 @@
 import type { Chat, Message, TelegramSnapshot, User } from "./types";
 import mediaPreviewUrl from "../../src-tauri/icons/icon.png";
 
-const tallMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+export const mockProfilePhotoUrl = mediaPreviewUrl;
+
+export const tallMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1800" viewBox="0 0 900 1800">
     <rect width="900" height="1800" fill="#173b4c"/>
     <rect x="70" y="70" width="760" height="1660" rx="48" fill="#ecf3f1"/>
@@ -13,7 +15,7 @@ const tallMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURICompone
   </svg>
 `)}`;
 
-const wideMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+export const wideMediaPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="600" viewBox="0 0 1800 600">
     <rect width="1800" height="600" fill="#173b4c"/>
     <rect x="90" y="70" width="1620" height="460" rx="42" fill="#ecf3f1"/>
