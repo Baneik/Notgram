@@ -24,6 +24,7 @@ import { messageContentText } from "../telegram/messageContent";
 import { formatChatTime } from "../utils/formatters";
 import { useTelegramStore } from "../store/telegramStore";
 import { useStableVisibility } from "../hooks/useStableVisibility";
+import { useFlipListMotion } from "../hooks/useFlipListMotion";
 import { DeleteMessagesDialog } from "./ConversationOverlays";
 import { MotionPresence } from "./MotionPresence";
 import { StableImage } from "./StableImage";
@@ -80,6 +81,7 @@ export function SharedMediaBrowser({
   const recoverFile = useTelegramStore((state) => state.recoverFile);
   const generationRef = useRef(0);
   const attemptedRecoveryRef = useRef(new Set<string>());
+  const resultsRef = useRef<HTMLDivElement>(null);
   const [category, setCategory] = useState<SharedMediaCategory>("media");
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
@@ -116,6 +118,11 @@ export function SharedMediaBrowser({
     const date = message.sentAt.slice(0, 10);
     return (!fromDate || date >= fromDate) && (!toDate || date <= toDate);
   }), [fromDate, page.messages, toDate]);
+  useFlipListMotion({
+    containerRef: resultsRef,
+    itemSelector: ".shared-media-item[data-motion-key]",
+    dependencies: [visibleMessages, category, showLoading],
+  });
   const selectedMessages = page.messages.filter((message) => selected.has(message.id));
   const permissionsReady = selectedMessages.length > 0 && selectedMessages.every((message) => Boolean(message.permissions));
   const canDeleteOnlyForSelf = permissionsReady && selectedMessages.every((message) => message.permissions?.canDeleteOnlyForSelf === true);
@@ -239,12 +246,12 @@ export function SharedMediaBrowser({
           ><Trash2 size={15} />删除</button>
         </div>
       )}
-      <div className={`shared-media-results ${category === "media" ? "is-grid" : ""}`} aria-busy={loading} data-search-state={loading ? "updating" : "settled"}>
+      <div ref={resultsRef} className={`shared-media-results ${category === "media" ? "is-grid" : ""}`} aria-busy={loading} data-search-state={loading ? "updating" : "settled"}>
         {!showLoading && visibleMessages.map((message) => {
           const source = mediaSource(message);
           const usableSource = source && !failedMediaSources.has(source) ? source : undefined;
           return (
-            <div className={`shared-media-item ${selected.has(message.id) ? "is-selected" : ""}`} key={message.id}>
+            <div className={`shared-media-item ${selected.has(message.id) ? "is-selected" : ""}`} data-motion-key={message.id} key={message.id}>
               <label className="shared-media-check"><input type="checkbox" aria-label={`选择 ${message.id}`} checked={selected.has(message.id)} onChange={() => toggleSelected(message.id)} /></label>
               <button className="shared-media-open" type="button" onClick={() => onOpenMessage(message.chatId, message.id)}>
                 {category === "media" ? usableSource ? <StableImage

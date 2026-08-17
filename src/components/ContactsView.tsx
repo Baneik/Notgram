@@ -1,6 +1,7 @@
 import { LoaderCircle, MessageCircle, RefreshCw, Search, UserRound, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useStableVisibility } from "../hooks/useStableVisibility";
+import { useFlipListMotion } from "../hooks/useFlipListMotion";
 import type { User } from "../telegram/types";
 import { Avatar } from "./Avatar";
 import { MotionPresence } from "./MotionPresence";
@@ -29,6 +30,7 @@ export function ContactsView({
   onClose,
 }: ContactsViewProps) {
   const [query, setQuery] = useState("");
+  const contactsListRef = useRef<HTMLDivElement>(null);
   const visibleContacts = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return normalized
@@ -41,6 +43,11 @@ export function ContactsView({
   const statusKind = showLoading ? "loading" : !primaryLoading && error
     ? "error"
     : !primaryLoading && visibleContacts.length === 0 ? "empty" : undefined;
+  useFlipListMotion({
+    containerRef: contactsListRef,
+    itemSelector: ".contact-row[data-motion-key]",
+    dependencies: [visibleContacts, statusKind],
+  });
 
   return (
     <section className="contacts-view" aria-labelledby="contacts-title">
@@ -81,9 +88,9 @@ export function ContactsView({
           </div> : null}
         </MotionPresence>
         {!statusKind && visibleContacts.length > 0 && (
-          <div className="contacts-list">
+          <div className="contacts-list" ref={contactsListRef}>
             {visibleContacts.map((user) => (
-              <button className="contact-row" type="button" key={user.id} disabled={Boolean(pendingUserId)} onClick={() => onOpen(user.id)}>
+              <button className="contact-row" type="button" data-motion-key={user.id} key={user.id} disabled={Boolean(pendingUserId)} onClick={() => onOpen(user.id)}>
                 <Avatar avatar={user.avatar} size="medium" />
                 <span className="contact-copy">
                   <strong>{user.displayName}</strong>

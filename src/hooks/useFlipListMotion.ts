@@ -15,33 +15,36 @@ export const useFlipListMotion = ({
   dependencies,
 }: UseFlipListMotionOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
-  const previousTopRef = useRef(new Map<string, number>());
+  const previousPositionRef = useRef(new Map<string, { left: number; top: number }>());
   const animationsRef = useRef(new Map<string, Animation>());
 
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const items = [...container.querySelectorAll<HTMLElement>(itemSelector)];
-    const previousTop = previousTopRef.current;
-    const nextTop = new Map<string, number>();
+    const previousPosition = previousPositionRef.current;
+    const nextPosition = new Map<string, { left: number; top: number }>();
     items.forEach((item) => {
       const key = item.dataset.motionKey;
-      if (key) nextTop.set(key, item.getBoundingClientRect().top);
+      if (!key) return;
+      const bounds = item.getBoundingClientRect();
+      nextPosition.set(key, { left: bounds.left, top: bounds.top });
     });
-    if (previousTop.size > 0 && !reduceMotion && typeof HTMLElement.prototype.animate === "function") {
+    if (previousPosition.size > 0 && !reduceMotion && typeof HTMLElement.prototype.animate === "function") {
       items.forEach((item) => {
         const key = item.dataset.motionKey;
         if (!key) return;
-        const oldTop = previousTop.get(key);
-        const newTop = nextTop.get(key);
-        if (oldTop === undefined || newTop === undefined) return;
-        const deltaY = oldTop - newTop;
-        if (Math.abs(deltaY) < 0.5) return;
+        const oldPosition = previousPosition.get(key);
+        const newPosition = nextPosition.get(key);
+        if (!oldPosition || !newPosition) return;
+        const deltaX = oldPosition.left - newPosition.left;
+        const deltaY = oldPosition.top - newPosition.top;
+        if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return;
         animationsRef.current.get(key)?.cancel();
         const animation = item.animate(
           [
-            { transform: `translateY(${deltaY}px)` },
-            { transform: "translateY(0)" },
+            { transform: `translate(${deltaX}px, ${deltaY}px)` },
+            { transform: "translate(0, 0)" },
           ],
           {
             duration: motionDuration.fast,
@@ -51,11 +54,13 @@ export const useFlipListMotion = ({
         );
         animationsRef.current.set(key, animation);
         void animation.finished.then(() => {
-          if (animationsRef.current.get(key) === animation) animationsRef.current.delete(key);
+          if (animationsRef.current.get(key) !== animation) return;
+          animation.cancel();
+          animationsRef.current.delete(key);
         }).catch(() => undefined);
       });
     }
-    previousTopRef.current = nextTop;
+    previousPositionRef.current = nextPosition;
     return () => {
       animationsRef.current.forEach((animation) => animation.cancel());
       animationsRef.current.clear();
