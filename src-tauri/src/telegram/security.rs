@@ -81,6 +81,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getUser",
     "getUserFullInfo",
     "getUserProfilePhotos",
+    "getUserProfileAudios",
     "leaveChat",
     "loadChats",
     "logOut",
@@ -216,7 +217,7 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid common group pagination".to_string());
             }
         }
-        "getUserProfilePhotos" => {
+        "getUserProfilePhotos" | "getUserProfileAudios" => {
             validate_nonzero_identifier(request, "user_id")?;
             if request
                 .get("offset")
@@ -227,7 +228,7 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                     .and_then(Value::as_i64)
                     .is_none_or(|limit| !(1..=100).contains(&limit))
             {
-                return Err("Invalid profile photo pagination".to_string());
+                return Err("Invalid profile media pagination".to_string());
             }
         }
         "setName" => {
@@ -1863,6 +1864,13 @@ mod tests {
                 "limit": 100,
                 "@extra": EXTRA
             }),
+            json!({
+                "@type": "getUserProfileAudios",
+                "user_id": 7,
+                "offset": 0,
+                "limit": 100,
+                "@extra": EXTRA
+            }),
         ] {
             assert!(validate_webview_tdlib_request(&request).is_ok());
         }
@@ -1886,6 +1894,20 @@ mod tests {
                 "@type": "getUserProfilePhotos",
                 "user_id": 7,
                 "offset": -1,
+                "limit": 100,
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "getUserProfileAudios",
+                "user_id": 7,
+                "offset": 0,
+                "limit": 101,
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "getUserProfileAudios",
+                "user_id": 0,
+                "offset": 0,
                 "limit": 100,
                 "@extra": EXTRA
             }),

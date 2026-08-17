@@ -384,6 +384,7 @@ export interface ChatProfile {
   avatar: Avatar;
   statusLabel: string;
   bio?: string;
+  bioEntities?: MessageTextEntity[];
   firstName?: string;
   lastName?: string;
   username?: string;
@@ -398,6 +399,8 @@ export interface ChatProfile {
   groupInCommonCount?: number;
   groupsInCommon?: Chat[];
   profilePhotos?: ProfilePhoto[];
+  profileAudioCount?: number;
+  profileAudios?: ProfileAudio[];
 }
 
 export interface UpdateCurrentUserProfileInput {
@@ -748,6 +751,13 @@ export interface ProfilePhoto {
   id: string;
   addedAt?: string;
   content: Extract<MessageContent, { kind: "media" }> & { mediaType: "photo" };
+}
+
+export interface ProfileAudio {
+  id: string;
+  title?: string;
+  performer?: string;
+  content: Extract<MessageContent, { kind: "media" }> & { mediaType: "audio" };
 }
 
 export type MessageOrigin =

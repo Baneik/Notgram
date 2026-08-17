@@ -1542,6 +1542,9 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
   await expect(messageList).toBeVisible();
   await expect(messageList).toHaveAttribute("aria-busy", "false");
   await expect(messageList).not.toHaveClass(/is-scrolling/);
+  await expect.poll(() => messageList.evaluate((element) => (
+    getComputedStyle(element).scrollbarColor.startsWith("rgba(0, 0, 0, 0)")
+  ))).toBe(true);
 
   const idle = await messageList.evaluate((element) => {
     const content = element.querySelector<HTMLElement>(".message-list-content");
@@ -2544,6 +2547,7 @@ test("creates a public supergroup with initial members and permissions", async (
   await page.locator(".conversation-profile-trigger").click();
   const profile = page.getByRole("dialog", { name: "资料" });
   await expect(profile).toContainText("桌面客户端验收协作");
+  await profile.locator(".profile-navigation > button").filter({ hasText: "成员" }).click();
   await expect(profile.locator(".profile-member-row")).toHaveCount(2);
 });
 
@@ -2714,6 +2718,7 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
   await report.getByRole("radio", { name: "垃圾信息" }).click();
   await report.getByRole("button", { name: "提交举报" }).click();
   await expect(report).toBeHidden();
+  await profile.locator(".profile-navigation > button").filter({ hasText: "成员" }).click();
   await profile.locator(".profile-member-identity").filter({ hasText: "Mia Chen" }).click();
   await profile.getByRole("button", { name: "屏蔽", exact: true }).click();
   await expect(profile.getByRole("button", { name: "解除屏蔽", exact: true })).toBeVisible();
@@ -3018,7 +3023,7 @@ test("conversation navigation records only links opened inside a conversation", 
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
 });
 
-test("chat profiles expose members and shared media with focus restoration", async ({ page }) => {
+test("chat profiles expose compact detail pages, rich bios, profile music, and shared media", async ({ page }) => {
   await page.goto("/");
   const profileTrigger = page.getByRole("button", { name: "查看 产品讨论 资料" });
   await profileTrigger.click();
@@ -3027,16 +3032,20 @@ test("chat profiles expose members and shared media with focus restoration", asy
   await expect(profile).toBeVisible();
   await expect(profile.getByRole("heading", { name: "产品讨论" })).toBeVisible();
   await expect(profile.getByText("产品、设计与开发协作群。", { exact: true })).toBeVisible();
+  await expect(profile.locator(".profile-member-row")).toHaveCount(0);
+  await profile.getByRole("button", { name: /成员\s*查看群组成员\s*4/ }).click();
   await expect(profile.locator(".profile-member-row")).toHaveCount(4);
   const popupBounds = await profile.boundingBox();
   expect(popupBounds).not.toBeNull();
-  expect(popupBounds!.height).toBeLessThan(720);
+  expect(popupBounds!.height).toBeLessThanOrEqual(680);
   expect(Math.abs((popupBounds!.x + popupBounds!.width / 2) - 640)).toBeLessThan(2);
 
   await profile.locator(".profile-member-identity").filter({ hasText: "Mia Chen" }).click();
   await expect(profile.getByText("@mia_design", { exact: true })).toBeVisible();
   await expect(profile.getByText("u-mia", { exact: true })).toBeVisible();
-  await expect(profile.locator(".profile-common-group-list > button")).toHaveCount(2);
+  await expect(profile.getByRole("link", { name: "https://example.com" })).toBeVisible();
+  await expect(profile.getByRole("link", { name: "@Mia Chen" })).toBeVisible();
+  expect(await profile.locator(".profile-drawer-scroll").evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
   const avatarPopupPromise = page.waitForEvent("popup");
   await profile.getByRole("button", { name: "查看 Mia Chen 的头像和历史头像" }).click();
   const avatarPopup = await avatarPopupPromise;
@@ -3044,6 +3053,27 @@ test("chat profiles expose members and shared media with focus restoration", asy
   await expect(avatarPopup.getByRole("dialog", { name: /Mia Chen 的当前头像/ })).toBeVisible();
   await expect(avatarPopup.getByRole("navigation", { name: "会话图片预览" }).getByRole("button")).toHaveCount(3);
   await avatarPopup.close();
+  await page.evaluate(() => {
+    (window as unknown as { __notgramProfileAudioPlayCalls: string[] }).__notgramProfileAudioPlayCalls = [];
+    HTMLMediaElement.prototype.play = function play() {
+      const playbackId = this.dataset.playbackId;
+      if (playbackId) {
+        (window as unknown as { __notgramProfileAudioPlayCalls: string[] })
+          .__notgramProfileAudioPlayCalls.push(playbackId);
+      }
+      this.dispatchEvent(new Event("play"));
+      return Promise.resolve();
+    };
+  });
+  await profile.getByRole("button", { name: /音乐\s*资料歌单\s*2/ }).click();
+  await expect(profile.locator(".profile-playlist-track")).toHaveCount(2);
+  await profile.getByRole("button", { name: "播放 夜航界面" }).click();
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramProfileAudioPlayCalls: string[] }
+  ).__notgramProfileAudioPlayCalls)).toContain("profile:user:u-mia:audio:u-mia:audio:1");
+  await profile.getByRole("button", { name: "返回资料" }).click();
+  await profile.getByRole("button", { name: /共同群组\s*查看你们都加入的群组\s*2/ }).click();
+  await expect(profile.locator(".profile-common-group-list > button")).toHaveCount(2);
   await profile.locator(".profile-common-group-list > button").first().click();
   await expect(profile).toBeHidden();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
@@ -3224,7 +3254,9 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
   await expect(profile).toBeVisible();
   await expect(profile).toHaveCSS("background-color", "rgb(38, 43, 49)");
   await expect(profile).toHaveCSS("border-color", "rgb(70, 80, 90)");
+  await profile.locator(".profile-navigation > button").filter({ hasText: "成员" }).click();
   await assertDarkHover(profile.locator(".profile-member-identity").first());
+  await profile.getByRole("button", { name: "返回资料" }).click();
 
   await profile.getByRole("button", { name: "管理", exact: true }).click();
   const management = page.getByRole("dialog", { name: /管理“产品讨论”/ });

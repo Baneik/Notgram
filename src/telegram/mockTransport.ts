@@ -57,6 +57,8 @@ import type {
   ChatMessageSearchPage,
   Message,
   MessagePermissions,
+  MessageTextEntity,
+  ProfileAudio,
   ProfilePhoto,
   PinMessageInput,
   ProxySettings,
@@ -146,6 +148,61 @@ const mockProfilePhotos = (user: User): ProfilePhoto[] => [
     },
   },
 ];
+
+const mockProfileBio = (user: User): { bio?: string; bioEntities?: MessageTextEntity[] } => {
+  if (user.id !== "u-mia") return {};
+  const bio = "产品设计师，关注桌面端体验。作品集 https://example.com @mia_design";
+  const portfolio = "https://example.com";
+  const mention = "@mia_design";
+  return {
+    bio,
+    bioEntities: [
+      { offset: bio.indexOf(portfolio), length: portfolio.length, kind: "url" },
+      { offset: bio.indexOf(mention), length: mention.length, kind: "mention" },
+    ],
+  };
+};
+
+const mockProfileAudios = (user: User): ProfileAudio[] => user.id === "u-mia" ? [
+  {
+    id: `${user.id}:audio:1`,
+    title: "夜航界面",
+    performer: "Mia Chen",
+    content: {
+      kind: "media",
+      mediaType: "audio",
+      fileName: "夜航界面.m4a",
+      sizeLabel: "278 KB",
+      fileId: 94,
+      size: 283_989,
+      mimeType: "audio/mp4",
+      localPath: "/mock-video.mp4",
+      duration: 24,
+      canDownload: false,
+      isDownloaded: true,
+      isDownloading: false,
+    },
+  },
+  {
+    id: `${user.id}:audio:2`,
+    title: "评审之后",
+    performer: "Mia Chen",
+    content: {
+      kind: "media",
+      mediaType: "audio",
+      fileName: "评审之后.m4a",
+      sizeLabel: "196 KB",
+      fileId: 95,
+      size: 200_704,
+      mimeType: "audio/mp4",
+      localPath: "/mock-video.mp4",
+      duration: 18,
+      canDownload: false,
+      isDownloaded: true,
+      isDownloading: false,
+    },
+  },
+] : [];
 
 const defaultMockAccount = (): TelegramAccount => {
   const user = mockSnapshot.users.find((item) => item.id === mockSnapshot.currentUserId);
@@ -693,6 +750,8 @@ export class MockTelegramTransport implements TelegramTransport {
       groupInCommonCount: 0,
       groupsInCommon: [],
       profilePhotos: mockProfilePhotos(user),
+      profileAudioCount: mockProfileAudios(user).length,
+      profileAudios: mockProfileAudios(user),
     };
   }
 
@@ -706,7 +765,7 @@ export class MockTelegramTransport implements TelegramTransport {
       title: user.displayName,
       avatar: clone(user.avatar),
       statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
-      bio: user.id === "u-mia" ? "产品设计师，关注桌面端体验。" : undefined,
+      ...mockProfileBio(user),
       firstName: user.firstName,
       lastName: user.lastName,
       username: user.username,
@@ -720,6 +779,8 @@ export class MockTelegramTransport implements TelegramTransport {
         ? []
         : clone(this.snapshot.chats.filter((chat) => chat.kind === "group").slice(0, 2)),
       profilePhotos: mockProfilePhotos(user),
+      profileAudioCount: mockProfileAudios(user).length,
+      profileAudios: mockProfileAudios(user),
     };
   }
 
@@ -770,7 +831,7 @@ export class MockTelegramTransport implements TelegramTransport {
         title: user.displayName,
         avatar: clone(user.avatar),
         statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
-        bio: user.id === "u-mia" ? "产品设计师，关注桌面端体验。" : undefined,
+        ...mockProfileBio(user),
         firstName: user.firstName,
         lastName: user.lastName,
         username: user.username,
@@ -784,6 +845,8 @@ export class MockTelegramTransport implements TelegramTransport {
           ? []
           : clone(this.snapshot.chats.filter((item) => item.kind === "group").slice(0, 2)),
         profilePhotos: mockProfilePhotos(user),
+        profileAudioCount: mockProfileAudios(user).length,
+        profileAudios: mockProfileAudios(user),
       };
     }
     const settings = this.createdChatSettings.get(chat.id);

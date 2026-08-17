@@ -113,6 +113,7 @@ describe("profile transport", () => {
       "getUserFullInfo",
       "getOption",
       "getUserProfilePhotos",
+      "getUserProfileAudios",
     ]);
   });
 
@@ -142,6 +143,7 @@ describe("profile transport", () => {
       }
       if (request["@type"] === "getGroupsInCommon") return { "@type": "chats", chat_ids: [] };
       if (request["@type"] === "getUserProfilePhotos") return { "@type": "chatPhotos", photos: [] };
+      if (request["@type"] === "getUserProfileAudios") return { "@type": "audios", total_count: 0, audios: [] };
       throw new Error(`unexpected request: ${String(request["@type"])}`);
     };
 
@@ -152,7 +154,7 @@ describe("profile transport", () => {
       dataCenterLocation: "Amsterdam, NL",
     });
     expect(requests.map((request) => request["@type"]))
-      .toEqual(["getUser", "getUserFullInfo", "getGroupsInCommon", "getUserProfilePhotos"]);
+      .toEqual(["getUser", "getUserFullInfo", "getGroupsInCommon", "getUserProfilePhotos", "getUserProfileAudios"]);
   });
 
   it("loads concrete common groups and profile-photo history for a user", async () => {
@@ -187,7 +189,16 @@ describe("profile transport", () => {
         case "getUser": return rawUser(12, "Lin");
         case "getUserFullInfo": return {
           "@type": "userFullInfo",
-          bio: { "@type": "formattedText", text: "Design lead", entities: [] },
+          bio: {
+            "@type": "formattedText",
+            text: "Design lead @lin",
+            entities: [{
+              "@type": "textEntity",
+              offset: 12,
+              length: 4,
+              type: { "@type": "textEntityTypeMention" },
+            }],
+          },
           group_in_common_count: 2,
         };
         case "getGroupsInCommon": return { "@type": "chats", chat_ids: [70, 71] };
@@ -197,6 +208,19 @@ describe("profile transport", () => {
             rawPhoto(1, "C:\\avatars\\lin-current.jpg", 1_722_000_000),
             rawPhoto(2, "C:\\avatars\\lin-history.jpg", 1_710_000_000),
           ],
+        };
+        case "getUserProfileAudios": return {
+          "@type": "audios",
+          total_count: 1,
+          audios: [{
+            "@type": "audio",
+            duration: 218,
+            title: "Night Drive",
+            performer: "Lin",
+            file_name: "night-drive.mp3",
+            mime_type: "audio/mpeg",
+            audio: file(90, "C:\\music\\night-drive.mp3"),
+          }],
         };
         case "getChat": return {
           "@type": "chat",
@@ -220,6 +244,22 @@ describe("profile transport", () => {
       "Lin 的历史头像 1.jpg",
     ]);
     expect(profile.profilePhotos?.[0]?.content.localPath).toBe("C:\\avatars\\lin-current.jpg");
+    expect(profile.bioEntities).toEqual([expect.objectContaining({
+      offset: 12,
+      length: 4,
+      kind: "mention",
+    })]);
+    expect(profile.profileAudioCount).toBe(1);
+    expect(profile.profileAudios).toEqual([expect.objectContaining({
+      title: "Night Drive",
+      performer: "Lin",
+      content: expect.objectContaining({
+        mediaType: "audio",
+        fileName: "night-drive.mp3",
+        localPath: "C:\\music\\night-drive.mp3",
+        duration: 218,
+      }),
+    })]);
     expect(requests).toContainEqual(expect.objectContaining({
       "@type": "getGroupsInCommon",
       user_id: 12,
@@ -228,6 +268,12 @@ describe("profile transport", () => {
     }));
     expect(requests).toContainEqual(expect.objectContaining({
       "@type": "getUserProfilePhotos",
+      user_id: 12,
+      offset: 0,
+      limit: 100,
+    }));
+    expect(requests).toContainEqual(expect.objectContaining({
+      "@type": "getUserProfileAudios",
       user_id: 12,
       offset: 0,
       limit: 100,

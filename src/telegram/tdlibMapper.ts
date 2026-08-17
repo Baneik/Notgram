@@ -170,6 +170,14 @@ const formattedTextDetails = (value: unknown) => {
   return { text, entities };
 };
 
+export const mapTdFormattedText = (value: unknown) => {
+  const { text, entities } = formattedTextDetails(value);
+  return {
+    text,
+    entities: entities.length > 0 ? entities : undefined,
+  };
+};
+
 const formattedText = (value: unknown) => formattedTextDetails(value).text;
 
 const formattedCaption = (value: unknown) => {

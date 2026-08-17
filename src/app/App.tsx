@@ -1681,10 +1681,16 @@ export function App() {
           reportChatId={activeChatId}
           onDeleteChat={profile.target?.kind === "chat" && activeChatId === profile.target.chatId && profile.value?.kind === "group" ? () => leaveGroup(activeChatId) : undefined}
           onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
+          onOpenMention={openMentionProfile}
+          onSearchHashtag={searchActiveChatHashtag}
           onOpenChat={openProfileChat}
           onLoadMoreMembers={(chatId) => loadMoreChatProfileMembers(chatId)}
           onLoadSharedMedia={loadSharedMedia}
           onDownloadFile={requestDownload}
+          onCancelFileDownload={cancelManagedDownload}
+          onRecoverFile={recoverFile}
+          onStreamFile={streamFile}
+          onSuspendFileStream={suspendFileStream}
           onLoadMessageProperties={loadMessageProperties}
           onDeleteMessages={deleteMessagesFromChat}
           onForwardMessages={forwardMessages}

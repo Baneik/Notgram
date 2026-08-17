@@ -1,6 +1,7 @@
 import {
   asTdObject,
   asTdObjects,
+  mapTdFormattedText,
   mapTdMessageContent,
   mapTdUser,
   tdId,
@@ -13,6 +14,7 @@ import type {
   Chat,
   ChatProfile,
   ChatProfileMembersPage,
+  ProfileAudio,
   ProfilePhoto,
   UpdateCurrentUserProfileInput,
   User,
@@ -22,6 +24,7 @@ export const PROFILE_MEMBER_PAGE_SIZE = 50;
 export const PROFILE_ADMIN_PAGE_SIZE = 200;
 export const PROFILE_COMMON_GROUP_LIMIT = 100;
 export const PROFILE_PHOTO_LIMIT = 100;
+export const PROFILE_AUDIO_LIMIT = 100;
 
 export const profileField = (
   value: string,
@@ -42,11 +45,6 @@ const DATA_CENTER_LOCATIONS: Record<number, string> = {
   3: "Miami, US",
   4: "Amsterdam, NL",
   5: "Singapore, SG",
-};
-
-const profileText = (value: unknown) => {
-  const object = asTdObject(value);
-  return typeof object?.text === "string" ? object.text.trim() : "";
 };
 
 const profileMemberRole = (value: unknown) => {
@@ -279,16 +277,17 @@ export class TauriProfileService {
 
   private async loadUserProfile(userId: string, kind: "self" | "user"): Promise<ChatProfile> {
     const user = await this.loadUser(userId);
-    const [full, dataCenter, groupsInCommon, profilePhotos] = await Promise.all([
+    const [full, dataCenter, groupsInCommon, profilePhotos, profileAudioPage] = await Promise.all([
       this.context.request({ "@type": "getUserFullInfo", user_id: numericId(userId) }),
       this.loadDataCenter(this.context.rawUsers.get(userId)),
       kind === "user"
         ? this.loadGroupsInCommon(userId).catch(() => [])
         : Promise.resolve([]),
       this.loadUserProfilePhotos(userId, user?.displayName ?? "用户").catch(() => []),
+      this.loadUserProfileAudios(userId).catch(() => ({ totalCount: 0, audios: [] })),
     ]);
     if (!user) throw new Error("TDLib 未返回用户资料");
-    const bio = profileText(full.bio);
+    const bio = mapTdFormattedText(full.bio);
     return {
       id: `user:${user.id}`,
       kind,
@@ -296,7 +295,8 @@ export class TauriProfileService {
       title: user.displayName,
       avatar: user.avatar,
       statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
-      bio: bio || undefined,
+      bio: bio.text || undefined,
+      bioEntities: bio.entities,
       firstName: user.firstName,
       lastName: user.lastName,
       username: user.username,
@@ -308,6 +308,8 @@ export class TauriProfileService {
       groupInCommonCount: tdNumber(full.group_in_common_count),
       groupsInCommon,
       profilePhotos,
+      profileAudioCount: profileAudioPage.totalCount,
+      profileAudios: profileAudioPage.audios,
     };
   }
 
@@ -370,6 +372,43 @@ export class TauriProfileService {
         },
       }];
     });
+  }
+
+  private async loadUserProfileAudios(userId: string): Promise<{
+    totalCount: number;
+    audios: ProfileAudio[];
+  }> {
+    const result = await this.context.request({
+      "@type": "getUserProfileAudios",
+      user_id: numericId(userId),
+      offset: 0,
+      limit: PROFILE_AUDIO_LIMIT,
+    });
+    const audios = asTdObjects(result.audios).flatMap((audio, index) => {
+      const mapped = mapTdMessageContent({
+        "@type": "messageAudio",
+        audio,
+        caption: { "@type": "formattedText", text: "", entities: [] },
+      });
+      if (mapped.kind !== "media" || mapped.mediaType !== "audio") return [];
+      const id = tdId(asTdObject(audio.audio)?.id) || `${mapped.fileId ?? "audio"}:${index}`;
+      const title = typeof audio.title === "string" ? audio.title.trim() : "";
+      const performer = typeof audio.performer === "string" ? audio.performer.trim() : "";
+      return [{
+        id,
+        title: title || undefined,
+        performer: performer || undefined,
+        content: {
+          ...mapped,
+          kind: "media" as const,
+          mediaType: "audio" as const,
+        },
+      }];
+    });
+    return {
+      totalCount: Math.max(tdNumber(result.total_count) ?? audios.length, audios.length),
+      audios,
+    };
   }
 
   private async loadDataCenter(rawUser?: TdObject) {
