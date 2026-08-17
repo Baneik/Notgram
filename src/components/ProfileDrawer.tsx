@@ -121,12 +121,11 @@ export function ProfileDrawer({
   const profile = state.value;
   const waitingForProfile = state.loading && !profile;
   const showProfileLoading = useStableVisibility(waitingForProfile);
+  const showProfileSkeleton = waitingForProfile || showProfileLoading;
   const showMembersLoading = useStableVisibility(Boolean(state.membersLoading), { minimumVisible: 220 });
-  const statusKind = showProfileLoading
-    ? "loading"
-    : !waitingForProfile && state.error && !profile
-      ? "error"
-      : !waitingForProfile && !profile ? "empty" : undefined;
+  const statusKind = !showProfileSkeleton && state.error && !profile
+    ? "error"
+    : !showProfileSkeleton && !profile ? "empty" : undefined;
   const profilePhotoMessages = useMemo<PhotoMessage[]>(() => (
     profile?.profilePhotos ?? []
   ).map((photo) => ({
@@ -292,7 +291,7 @@ export function ProfileDrawer({
         className={`profile-drawer ${page === "main" ? "is-main" : "is-detail"}`}
         role="dialog"
         aria-modal="true"
-        aria-busy={waitingForProfile}
+        aria-busy={showProfileSkeleton}
         aria-labelledby="profile-drawer-title"
         tabIndex={-1}
       >
@@ -301,17 +300,27 @@ export function ProfileDrawer({
           <X size={19} />
         </button>
         {page !== "main" ? renderDetailPage() : (
-          <div className="profile-drawer-scroll">
+          <div className={`profile-drawer-scroll ${showProfileSkeleton ? "is-loading" : ""}`.trim()}>
+            {showProfileSkeleton ? (
+              <section className={`profile-loading-shell ${showProfileLoading ? "is-active" : ""}`.trim()} role="status">
+                <span className="sr-only">正在加载资料</span>
+                <div className="profile-loading-hero" aria-hidden="true">
+                  <span className="profile-loading-placeholder is-avatar" />
+                  <span className="profile-loading-placeholder is-title" />
+                  <span className="profile-loading-placeholder is-status" />
+                </div>
+              </section>
+            ) : null}
             <MotionPresence present={Boolean(statusKind)} variant="status">
               {statusKind ? (
                 <div key={statusKind} className={`profile-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"}>
-                  {statusKind === "loading" ? <LoaderCircle className="spin" size={22} /> : statusKind === "error" ? (
+                  {statusKind === "error" ? (
                     <><span>{state.error}</span><button className="dialog-secondary" type="button" onClick={onRetry}><RefreshCw size={15} /><span>重试</span></button></>
                   ) : <span>没有可显示的资料</span>}
                 </div>
               ) : null}
             </MotionPresence>
-            {!statusKind && profile ? (
+            {!showProfileSkeleton && !statusKind && profile ? (
               <>
                 <section className="profile-hero" aria-labelledby="profile-name">
                   {profilePhotoMessages.length > 0 ? (
@@ -337,78 +346,80 @@ export function ProfileDrawer({
                     />
                   ) : null}
                 </section>
-                <div className="profile-actions">
-                  {profile.kind === "user" && profile.userId && profile.userId !== currentUserId ? (
-                    <button type="button" onClick={() => void onStartPrivateChat(profile.userId!)}>
-                      <MessageCircle size={18} /><span>发消息</span>
-                    </button>
-                  ) : null}
-                  {canManageChat && profile.chatId && (profile.kind === "group" || profile.kind === "channel") ? (
-                    <button type="button" onClick={() => onManageChat(profile.chatId!)}>
-                      <Shield size={18} /><span>管理</span>
-                    </button>
-                  ) : null}
-                  {profile.userId && profile.kind === "user" ? (
-                    <button type="button" onClick={() => void onToggleBlock(profile.userId!, "user", !isBlocked)}>
-                      <Ban size={18} /><span>{isBlocked ? "解除屏蔽" : "屏蔽"}</span>
-                    </button>
-                  ) : null}
-                  {profile.chatId && profile.kind === "channel" ? (
-                    <button type="button" onClick={() => void onToggleBlock(profile.chatId!, "chat", !isBlocked)}>
-                      <Ban size={18} /><span>{isBlocked ? "解除屏蔽" : "屏蔽频道"}</span>
-                    </button>
-                  ) : null}
-                  {(profile.chatId || reportChatId) && (profile.kind === "user" || profile.kind === "group" || profile.kind === "channel") ? (
-                    <button type="button" onClick={() => setReportOpen(true)}>
-                      <Flag size={18} /><span>举报</span>
-                    </button>
-                  ) : null}
-                </div>
-                {(profile.kind === "user" || profile.kind === "self") ? (
-                  <section className="profile-identity-card" aria-label="用户账户信息">
-                    {profile.username ? (
-                      <div><AtSign size={18} /><span><strong>@{profile.username}</strong><small>用户名</small></span></div>
+                <div className="profile-secondary-content">
+                  <div className="profile-actions">
+                    {profile.kind === "user" && profile.userId && profile.userId !== currentUserId ? (
+                      <button type="button" onClick={() => void onStartPrivateChat(profile.userId!)}>
+                        <MessageCircle size={18} /><span>发消息</span>
+                      </button>
                     ) : null}
-                    {profile.phoneNumber && profile.kind === "self" ? (
-                      <div><Phone size={18} /><span><strong>{profile.phoneNumber}</strong><small>手机号</small></span></div>
+                    {canManageChat && profile.chatId && (profile.kind === "group" || profile.kind === "channel") ? (
+                      <button type="button" onClick={() => onManageChat(profile.chatId!)}>
+                        <Shield size={18} /><span>管理</span>
+                      </button>
                     ) : null}
-                    <div><Fingerprint size={18} /><span><strong>{profile.userId}</strong><small>用户 ID</small></span></div>
-                    <div><Network size={18} /><span><strong>{profile.dataCenterId ? `DC${profile.dataCenterId}, ${profile.dataCenterLocation}` : profile.dataCenterLocation}</strong><small>数据中心</small></span></div>
-                  </section>
-                ) : null}
-                <nav className="profile-navigation" aria-label="资料详情">
-                  {profile.groupInCommonCount !== undefined && profile.kind === "user" ? (
-                    <button type="button" onClick={() => setPage("commonGroups")}>
-                      <span className="profile-navigation-icon"><Users size={18} /></span>
-                      <span><strong>共同群组</strong><small>查看你们都加入的群组</small></span>
-                      <span className="profile-navigation-value">{profile.groupInCommonCount}</span>
-                      <ChevronRight size={17} aria-hidden="true" />
-                    </button>
-                  ) : null}
+                    {profile.userId && profile.kind === "user" ? (
+                      <button type="button" onClick={() => void onToggleBlock(profile.userId!, "user", !isBlocked)}>
+                        <Ban size={18} /><span>{isBlocked ? "解除屏蔽" : "屏蔽"}</span>
+                      </button>
+                    ) : null}
+                    {profile.chatId && profile.kind === "channel" ? (
+                      <button type="button" onClick={() => void onToggleBlock(profile.chatId!, "chat", !isBlocked)}>
+                        <Ban size={18} /><span>{isBlocked ? "解除屏蔽" : "屏蔽频道"}</span>
+                      </button>
+                    ) : null}
+                    {(profile.chatId || reportChatId) && (profile.kind === "user" || profile.kind === "group" || profile.kind === "channel") ? (
+                      <button type="button" onClick={() => setReportOpen(true)}>
+                        <Flag size={18} /><span>举报</span>
+                      </button>
+                    ) : null}
+                  </div>
                   {(profile.kind === "user" || profile.kind === "self") ? (
-                    <button type="button" onClick={() => setPage("playlist")}>
-                      <span className="profile-navigation-icon"><Headphones size={18} /></span>
-                      <span><strong>音乐</strong><small>资料歌单</small></span>
-                      <span className="profile-navigation-value">{profile.profileAudioCount ?? 0}</span>
-                      <ChevronRight size={17} aria-hidden="true" />
-                    </button>
+                    <section className="profile-identity-card" aria-label="用户账户信息">
+                      {profile.username ? (
+                        <div><AtSign size={18} /><span><strong>@{profile.username}</strong><small>用户名</small></span></div>
+                      ) : null}
+                      {profile.phoneNumber && profile.kind === "self" ? (
+                        <div><Phone size={18} /><span><strong>{profile.phoneNumber}</strong><small>手机号</small></span></div>
+                      ) : null}
+                      <div><Fingerprint size={18} /><span><strong>{profile.userId}</strong><small>用户 ID</small></span></div>
+                      <div><Network size={18} /><span><strong>{profile.dataCenterId ? `DC${profile.dataCenterId}, ${profile.dataCenterLocation}` : profile.dataCenterLocation}</strong><small>数据中心</small></span></div>
+                    </section>
                   ) : null}
-                  {profile.chatId ? (
-                    <button type="button" onClick={() => setPage("sharedMedia")}>
-                      <span className="profile-navigation-icon"><Image size={18} /></span>
-                      <span><strong>共享媒体</strong><small>图片、文件、链接与音频</small></span>
-                      <ChevronRight size={17} aria-hidden="true" />
-                    </button>
-                  ) : null}
-                  {(profile.kind === "group" || profile.kind === "channel") ? (
-                    <button type="button" onClick={() => setPage("members")}>
-                      <span className="profile-navigation-icon"><Users size={18} /></span>
-                      <span><strong>成员</strong><small>{profile.canViewMembers ? "查看群组成员" : "成员列表未公开"}</small></span>
-                      {profile.memberCount !== undefined ? <span className="profile-navigation-value">{profile.memberCount.toLocaleString("zh-CN")}</span> : null}
-                      <ChevronRight size={17} aria-hidden="true" />
-                    </button>
-                  ) : null}
-                </nav>
+                  <nav className="profile-navigation" aria-label="资料详情">
+                    {profile.groupInCommonCount !== undefined && profile.kind === "user" ? (
+                      <button type="button" onClick={() => setPage("commonGroups")}>
+                        <span className="profile-navigation-icon"><Users size={18} /></span>
+                        <span><strong>共同群组</strong><small>查看你们都加入的群组</small></span>
+                        <span className="profile-navigation-value">{profile.groupInCommonCount}</span>
+                        <ChevronRight size={17} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                    {(profile.kind === "user" || profile.kind === "self") ? (
+                      <button type="button" onClick={() => setPage("playlist")}>
+                        <span className="profile-navigation-icon"><Headphones size={18} /></span>
+                        <span><strong>音乐</strong><small>资料歌单</small></span>
+                        <span className="profile-navigation-value">{profile.profileAudioCount ?? 0}</span>
+                        <ChevronRight size={17} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                    {profile.chatId ? (
+                      <button type="button" onClick={() => setPage("sharedMedia")}>
+                        <span className="profile-navigation-icon"><Image size={18} /></span>
+                        <span><strong>共享媒体</strong><small>图片、文件、链接与音频</small></span>
+                        <ChevronRight size={17} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                    {(profile.kind === "group" || profile.kind === "channel") ? (
+                      <button type="button" onClick={() => setPage("members")}>
+                        <span className="profile-navigation-icon"><Users size={18} /></span>
+                        <span><strong>成员</strong><small>{profile.canViewMembers ? "查看群组成员" : "成员列表未公开"}</small></span>
+                        {profile.memberCount !== undefined ? <span className="profile-navigation-value">{profile.memberCount.toLocaleString("zh-CN")}</span> : null}
+                        <ChevronRight size={17} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </nav>
+                </div>
               </>
             ) : null}
           </div>

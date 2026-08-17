@@ -3094,7 +3094,7 @@ test("chat profiles expose compact detail pages, rich bios, profile music, and s
   await expect(profileTrigger).toBeFocused();
 });
 
-test("unloaded profiles keep the same card geometry through every loading phase", async ({ page }) => {
+test("unloaded profiles keep their top edge stable and grow only toward the bottom", async ({ page }) => {
   await page.goto("/");
   const loadedProfile: ChatProfile = {
     id: "user:u-delayed-profile",
@@ -3103,7 +3103,6 @@ test("unloaded profiles keep the same card geometry through every loading phase"
     title: "Delayed Profile",
     avatar: { label: "DP", color: "#4f7c70" },
     statusLabel: "在线",
-    bio: "Profile content arriving from TDLib.",
     username: "delayed_profile",
     dataCenterId: 5,
     dataCenterLocation: "Singapore, SG",
@@ -3115,7 +3114,7 @@ test("unloaded profiles keep the same card geometry through every loading phase"
     profileAudios: [],
   };
   const profile = page.getByRole("dialog", { name: "资料" });
-  const openingHeight = await page.evaluate(async (modulePath) => {
+  const openingMetrics = await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
       telegramStore: {
         setState: (partial: {
@@ -3135,13 +3134,26 @@ test("unloaded profiles keep the same card geometry through every loading phase"
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     });
-    return document.querySelector<HTMLElement>(".profile-drawer")?.offsetHeight ?? 0;
+    const drawer = document.querySelector<HTMLElement>(".profile-drawer")!;
+    const scroll = drawer.querySelector<HTMLElement>(".profile-drawer-scroll")!;
+    return {
+      height: drawer.offsetHeight,
+      top: drawer.offsetTop,
+      overflowY: getComputedStyle(scroll).overflowY,
+      scrollHeight: scroll.scrollHeight,
+      clientHeight: scroll.clientHeight,
+    };
   }, "/src/store/telegramStore.ts");
 
   await expect(profile).toBeVisible();
   await expect(profile).toHaveAttribute("aria-busy", "true");
-  await expect(profile.locator(".profile-state .spin")).toBeVisible();
-  const loadingHeight = await profile.evaluate((element) => (element as HTMLElement).offsetHeight);
+  const skeleton = profile.locator(".profile-loading-shell");
+  await expect(skeleton).toBeVisible();
+  await expect(skeleton).toHaveClass(/is-active/);
+  const loadingMetrics = await profile.evaluate((element) => ({
+    height: (element as HTMLElement).offsetHeight,
+    top: (element as HTMLElement).offsetTop,
+  }));
 
   await page.evaluate(async ({ modulePath, value }) => {
     const module = await import(modulePath) as {
@@ -3166,9 +3178,23 @@ test("unloaded profiles keep the same card geometry through every loading phase"
 
   await expect(profile).toHaveAttribute("aria-busy", "false");
   await expect(profile.getByRole("heading", { name: loadedProfile.title })).toBeVisible();
-  const loadedHeight = await profile.evaluate((element) => (element as HTMLElement).offsetHeight);
-  expect(openingHeight).toBeGreaterThan(0);
-  expect(new Set([openingHeight, loadingHeight, loadedHeight]).size).toBe(1);
+  const loadedMetrics = await profile.evaluate((element) => {
+    const scroll = element.querySelector<HTMLElement>(".profile-drawer-scroll")!;
+    return {
+      height: (element as HTMLElement).offsetHeight,
+      top: (element as HTMLElement).offsetTop,
+      scrollHeight: scroll.scrollHeight,
+      clientHeight: scroll.clientHeight,
+    };
+  });
+  expect(openingMetrics.height).toBeGreaterThan(0);
+  expect(openingMetrics.height).toBe(loadingMetrics.height);
+  expect(loadedMetrics.height).toBeGreaterThan(loadingMetrics.height);
+  expect(new Set([openingMetrics.top, loadingMetrics.top, loadedMetrics.top]).size).toBe(1);
+  expect(openingMetrics.overflowY).toBe("hidden");
+  expect(openingMetrics.scrollHeight).toBeLessThanOrEqual(openingMetrics.clientHeight);
+  expect(loadedMetrics.scrollHeight).toBeLessThanOrEqual(loadedMetrics.clientHeight + 1);
+  expect(loadedMetrics.height).toBeLessThan(602);
 });
 
 test("shared media supports server categories, filters, forwarding, and batch deletion", async ({ page }) => {
