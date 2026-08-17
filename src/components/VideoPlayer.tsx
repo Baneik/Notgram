@@ -36,6 +36,7 @@ import {
 } from "../media/videoWindowBridge";
 import { logPerformance } from "../utils/performanceMonitor";
 import { currentColorTheme } from "../theme/theme";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { MediaProgressRing } from "./MediaProgressRing";
 
 interface VideoPlayerProps {
@@ -120,6 +121,8 @@ export function VideoPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(readRememberedVideoVolume);
   const [muted, setMuted] = useState(true);
+  const showLoading = useStableVisibility(loading, { minimumVisible: 220 });
+  const showBuffering = useStableVisibility(buffering, { minimumVisible: 220 });
 
   const clearSingleClick = () => {
     if (singleClickTimerRef.current !== undefined) {
@@ -616,7 +619,7 @@ export function VideoPlayer({
   };
 
   const stopControlClick = (event: MouseEvent) => event.stopPropagation();
-  const showStartButton = !playing || loading || buffering || failed || downloading;
+  const showStartButton = !playing || showLoading || showBuffering || failed || downloading;
   const progressStyle = {
     "--video-progress": `${duration > 0 ? Math.min(100, currentTime / duration * 100) : 0}%`,
     "--video-buffered": `${duration > 0 ? Math.min(100, bufferedEnd / duration * 100) : 0}%`,
@@ -762,7 +765,7 @@ export function VideoPlayer({
         >
           {downloading
             ? <MediaProgressRing progress={downloadProgress} size={27} />
-            : loading || buffering
+            : showLoading || showBuffering
               ? <LoaderCircle className="spin" size={23} />
             : playing
               ? <Pause size={22} fill="currentColor" />
@@ -783,9 +786,9 @@ export function VideoPlayer({
         onFocus={claimKeyboardTarget}
         onChange={(event) => seek(Number(event.currentTarget.value))}
       />
-      {isStreaming && (buffering || downloadSpeed > 0) && (
+      {isStreaming && (showBuffering || downloadSpeed > 0) && (
         <span className="video-buffer-status" aria-live="polite">
-          {buffering ? "缓冲中" : "加载"} · {formatTransferSpeed(downloadSpeed)}
+          {showBuffering ? "缓冲中" : "加载"} · {formatTransferSpeed(downloadSpeed)}
         </span>
       )}
     </div>

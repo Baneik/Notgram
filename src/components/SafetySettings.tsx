@@ -1,6 +1,7 @@
 import { Ban, Check, LoaderCircle, LogOut, MonitorSmartphone, ShieldAlert, UserRoundX } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTelegramStore } from "../store/telegramStore";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { ChatReportOptions, DeviceSession, PrivacyRule, PrivacySettingKey, ReportChatInput } from "../telegram/types";
 import { Avatar } from "./Avatar";
 
@@ -61,6 +62,7 @@ export function ReportDialog({ chatId, messageIds, title, onGetOptions, onSubmit
 export function SafetySettings() {
   const blockedSenders = useTelegramStore((state) => state.blockedSenders);
   const loading = useTelegramStore((state) => state.blockedSendersLoading);
+  const showLoading = useStableVisibility(loading);
   const load = useTelegramStore((state) => state.loadBlockedSenders);
   const setBlocked = useTelegramStore((state) => state.setMessageSenderBlocked);
   const [pending, setPending] = useState<string>();
@@ -107,7 +109,7 @@ export function SafetySettings() {
           </div>
         </div>
         <div className="blocked-sender-list" aria-busy={loading}>
-          {loading ? (
+          {showLoading ? (
             <div className="settings-loading"><LoaderCircle className="spin" size={18} /></div>
           ) : blockedSenders.length === 0 ? (
             <p className="settings-empty">暂无屏蔽对象</p>

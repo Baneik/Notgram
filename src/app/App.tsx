@@ -239,6 +239,8 @@ export function App() {
   const cacheRetentionDays = usePreferencesStore((state) => state.cacheRetentionDays);
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [mobileViewport, setMobileViewport] = useState(false);
+  const previousMobileChatOpenRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
   const [managedDownloadRequests, setManagedDownloadRequests] = useState<ReadonlyMap<string, ManagedDownloadRequest>>(
@@ -268,6 +270,35 @@ export function App() {
     () => managedDownloadIndex.collect(chats, requestedDownloadsForAccount),
     [chats, downloadIndexRevision, managedDownloadIndex, requestedDownloadsForAccount],
   );
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 720px)");
+    const syncViewport = () => setMobileViewport(mediaQuery.matches);
+    syncViewport();
+    mediaQuery.addEventListener("change", syncViewport);
+    return () => mediaQuery.removeEventListener("change", syncViewport);
+  }, []);
+  const closeMobileChat = useCallback(() => {
+    const chatId = activeChatId;
+    setMobileChatOpen(false);
+    requestAnimationFrame(() => {
+      if (!chatId) return;
+      const row = [...document.querySelectorAll<HTMLElement>(".chat-row[data-chat-id]")]
+        .find((candidate) => candidate.dataset.chatId === chatId);
+      row?.focus({ preventScroll: true });
+    });
+  }, [activeChatId]);
+  useEffect(() => {
+    const opened = mobileViewport && mobileChatOpen && !previousMobileChatOpenRef.current;
+    previousMobileChatOpenRef.current = mobileChatOpen;
+    if (!opened) return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLElement>(
+        ".conversation:not([aria-hidden]) .mobile-back, .forum-topics-view:not([aria-hidden]) .mobile-back",
+      );
+      target?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [mobileChatOpen, mobileViewport]);
   useEffect(() => subscribeMessageChanges((event) => {
     const changedFileIds = event.type === "reset"
       ? managedDownloadIndex.rebuild(event.messages)
@@ -1405,13 +1436,17 @@ export function App() {
           width={sidebarWidth}
           onWidthPreview={previewSidebarWidth}
           onWidthChange={setSidebarWidth}
+          mobileViewport={mobileViewport}
+          mobileChatOpen={mobileChatOpen}
         />
         {activeChat?.isForum && (!activeTopicId || !activeTopic) ? (
           <ForumTopicsView
             chat={activeChat}
             topics={activeTopics}
             loading={activeChatId ? forumTopicsLoading.has(activeChatId) : false}
-            onBack={() => setMobileChatOpen(false)}
+            onBack={closeMobileChat}
+            mobileViewport={mobileViewport}
+            mobileChatOpen={mobileChatOpen}
             onSelectTopic={openForumTopic}
             onCreateTopic={(name) => activeChatId ? createForumTopic(activeChatId, name) : Promise.resolve(undefined)}
             onEditTopic={(topicId, name) => activeChatId ? editForumTopic(activeChatId, topicId, name) : Promise.resolve(false)}
@@ -1505,6 +1540,8 @@ export function App() {
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
           onViewportReady={finishConversationSnapshot}
+          mobileViewport={mobileViewport}
+          mobileChatOpen={mobileChatOpen}
           onOpenMessage={(chatId, messageId, options) => {
             void openGlobalSearchMessage(chatId, messageId, {
               ...options,
@@ -1545,7 +1582,7 @@ export function App() {
           onSendBotStart={sendComposerBotStart}
           onGetReportOptions={getChatReportOptions}
           onReportChat={reportChat}
-          onBack={() => setMobileChatOpen(false)}
+          onBack={closeMobileChat}
             />
           </Profiler>
         )}

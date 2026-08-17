@@ -35,6 +35,7 @@ import {
   DEFAULT_CHAT_PERMISSIONS,
 } from "../telegram/chatManagement";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { Avatar } from "./Avatar";
 
 interface ChatManagementDialogProps {
@@ -146,6 +147,7 @@ export function ChatManagementDialog({
 }: ChatManagementDialogProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLElement>(onClose, false, closeRef);
+  const showLoading = useStableVisibility(loading && !management);
   const capabilities = management?.capabilities ?? chat.management;
   const [tab, setTab] = useState<Tab>("members");
   const [query, setQuery] = useState("");
@@ -444,7 +446,7 @@ export function ChatManagementDialog({
           {capabilities?.canViewEventLog && <button type="button" className={tab === "audit" ? "is-active" : ""} onClick={() => setTab("audit")}><ClipboardList size={16} />审计日志</button>}
         </nav>
         <div className="chat-management-body">
-          {loading && !management ? <div className="profile-state"><LoaderCircle className="spin" size={22} /></div> : error && !management ? <div className="profile-state is-error" role="alert">{error}<button className="dialog-secondary" type="button" onClick={() => void onLoad()}><LoaderCircle size={15} />重试</button></div> : (
+          {showLoading ? <div className="profile-state"><LoaderCircle className="spin" size={22} /></div> : error && !management ? <div className="profile-state is-error" role="alert">{error}<button className="dialog-secondary" type="button" onClick={() => void onLoad()}><LoaderCircle size={15} />重试</button></div> : (
             <>
               {tab === "members" && (
                 <>

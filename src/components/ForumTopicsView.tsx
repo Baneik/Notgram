@@ -9,12 +9,13 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { messageContentText } from "../telegram/messageContent";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { Chat, ForumTopic } from "../telegram/types";
 import { Avatar } from "./Avatar";
 import { MotionPresence } from "./MotionPresence";
+import { useFlipListMotion } from "../hooks/useFlipListMotion";
 
 interface ForumTopicsViewProps {
   chat: Chat;
@@ -26,6 +27,8 @@ interface ForumTopicsViewProps {
   onEditTopic: (topicId: string, name: string) => Promise<boolean>;
   onSetTopicClosed: (topicId: string, closed: boolean) => Promise<boolean>;
   onSetTopicPinned: (topicId: string, pinned: boolean) => Promise<boolean>;
+  mobileViewport?: boolean;
+  mobileChatOpen?: boolean;
 }
 
 const topicIconColor = (color: number) => `#${(color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
@@ -40,6 +43,8 @@ export function ForumTopicsView({
   onEditTopic,
   onSetTopicClosed,
   onSetTopicPinned,
+  mobileViewport = false,
+  mobileChatOpen = false,
 }: ForumTopicsViewProps) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -47,6 +52,7 @@ export function ForumTopicsView({
   const [editingName, setEditingName] = useState("");
   const [menuTopicId, setMenuTopicId] = useState<string>();
   const [pendingTopicId, setPendingTopicId] = useState<string>();
+  const topicsListRef = useRef<HTMLDivElement>(null);
   const canManage = chat.management?.canManageTopics === true;
   const canCreate = canManage || chat.canCreateTopics === true;
   const showLoading = useStableVisibility(loading && topics.length === 0);
@@ -54,6 +60,11 @@ export function ForumTopicsView({
     () => [...topics].sort((left, right) => Number(right.isPinned) - Number(left.isPinned) || Number(right.order) - Number(left.order)),
     [topics],
   );
+  useFlipListMotion({
+    containerRef: topicsListRef,
+    itemSelector: ".forum-topic-row[data-motion-key]",
+    dependencies: [orderedTopics],
+  });
 
   const submitNewTopic = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -87,7 +98,12 @@ export function ForumTopicsView({
   };
 
   return (
-    <section className="forum-topics-view" aria-label={`${chat.title} 话题`}>
+    <section
+      className="forum-topics-view"
+      aria-label={`${chat.title} 话题`}
+      aria-hidden={mobileViewport && !mobileChatOpen ? true : undefined}
+      inert={mobileViewport && !mobileChatOpen ? true : undefined}
+    >
       <header className="conversation-header forum-topics-header">
         <button className="mobile-back icon-button" type="button" aria-label="返回会话列表" title="返回会话列表" onClick={onBack}>
           <ArrowLeft size={20} strokeWidth={1.9} />
@@ -140,9 +156,9 @@ export function ForumTopicsView({
           ) : null}
         </MotionPresence>
         {orderedTopics.length > 0 && (
-          <div className="forum-topic-list">
+          <div className="forum-topic-list" ref={topicsListRef}>
             {orderedTopics.map((topic) => (
-              <article className={`forum-topic-row ${topic.isClosed ? "is-closed" : ""}`} key={topic.id}>
+              <article className={`forum-topic-row ${topic.isClosed ? "is-closed" : ""}`} data-motion-key={topic.id} key={topic.id}>
                 {editingTopicId === topic.id ? (
                   <form className="forum-topic-form forum-topic-edit" onSubmit={(event) => void submitEdit(event, topic.id)}>
                     <span className="forum-topic-icon" style={{ backgroundColor: topicIconColor(topic.iconColor) }}><Hash size={17} /></span>

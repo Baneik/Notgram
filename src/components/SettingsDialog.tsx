@@ -43,6 +43,7 @@ import { useTelegramStore } from "../store/telegramStore";
 import type { CacheHealth } from "../store/telegramStore.cache";
 import type { ProfileState } from "../store/profileState";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { requestDesktopNotificationPermission } from "../notifications/desktopNotifications";
 import {
   usePreferencesStore,
@@ -813,6 +814,7 @@ function AccountSettings({
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const profile = profileState.target?.kind === "current" ? profileState.value : undefined;
   const profilePending = profileState.updating === true;
+  const showProfileLoading = useStableVisibility(profileState.loading && !profile);
   const usernameInvalid = Boolean(
     draft.username && !/^[A-Za-z0-9_]{5,32}$/.test(draft.username),
   );
@@ -842,7 +844,7 @@ function AccountSettings({
 
   return (
     <div className="settings-detail-scroll account-settings">
-      {currentUser && profileState.loading && !profile ? (
+      {currentUser && showProfileLoading ? (
         <div className="settings-empty" role="status"><LoaderCircle className="spin" size={20} /><span>正在读取账号资料</span></div>
       ) : currentUser && profile ? (
         <section className="settings-section account-profile-section" aria-labelledby="account-profile-heading">

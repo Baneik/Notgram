@@ -715,8 +715,9 @@ export const ConversationComposer = memo(function ConversationComposer({
           focusComposer();
         }}
       />
-      {pendingAttachments.length > 0 && (
-        <section className="composer-attachment-preview" aria-label="待发送附件">
+      <MotionPresence present={pendingAttachments.length > 0} variant="status">
+        {pendingAttachments.length > 0 ? (
+          <section className="composer-attachment-preview" aria-label="待发送附件">
           <div className="composer-attachment-grid" data-count={pendingAttachments.length}>
             {pendingAttachments.map((attachment) => (
               <article className="composer-attachment-item" key={attachment.id}>
@@ -807,8 +808,9 @@ export const ConversationComposer = memo(function ConversationComposer({
               <span>发送附件</span>
             </button>
           </footer>
-        </section>
-      )}
+          </section>
+        ) : null}
+      </MotionPresence>
       {connectionStatus !== "online" && connectionStatus !== "syncing" && (
         <ConnectionStatusIndicator
           className="composer-connection-status"
@@ -825,8 +827,9 @@ export const ConversationComposer = memo(function ConversationComposer({
           ].filter(Boolean).join("；")}
         </div>
       )}
-      {composerContextMessage && (
-        <div className={`composer-context ${editingMessage ? "is-editing" : "is-replying"}`}>
+      <MotionPresence present={Boolean(composerContextMessage)} variant="status">
+        {composerContextMessage ? (
+          <div className={`composer-context ${editingMessage ? "is-editing" : "is-replying"}`}>
           <span className="composer-context-icon">
             {editingMessage
               ? <Edit3 size={18} strokeWidth={1.9} />
@@ -847,8 +850,9 @@ export const ConversationComposer = memo(function ConversationComposer({
           >
             <X size={17} strokeWidth={1.9} />
           </button>
-        </div>
-      )}
+          </div>
+        ) : null}
+      </MotionPresence>
       <MotionPresence present={botSuggestions.length > 0} variant="popover">
         {botSuggestions.length > 0 ? (
           <section className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">

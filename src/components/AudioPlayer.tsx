@@ -17,6 +17,7 @@ import {
 import { formatPlaybackTime } from "../media/mediaPlayback";
 import { AudioSpectrum } from "./AudioSpectrum";
 import { MediaProgressRing } from "./MediaProgressRing";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 
 interface AudioPlayerProps {
   source?: string;
@@ -97,6 +98,7 @@ export function AudioPlayer({
   const active = playback.track?.id === playbackId;
   const playing = active && playback.playing;
   const loading = active && playback.loading;
+  const showLoading = useStableVisibility(loading, { minimumVisible: 220 });
   const failed = active && playback.failed;
   const currentTime = active ? playback.currentTime : 0;
   const duration = active ? playback.duration : durationHint ?? 0;
@@ -117,7 +119,7 @@ export function AudioPlayer({
         disabled={!canPlay}
         onClick={() => audioPlaybackController.toggle(track)}
       >
-        {loading
+        {showLoading
           ? <LoaderCircle className="spin" size={18} />
           : failed || !canPlay ? <AlertCircle size={18} />
             : playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}

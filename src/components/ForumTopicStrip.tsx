@@ -1,6 +1,7 @@
 import { Hash } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { ForumTopic } from "../telegram/types";
+import { usePreferencesStore } from "../store/preferencesStore";
 
 interface ForumTopicStripProps {
   topics: ForumTopic[];
@@ -51,14 +52,19 @@ export function ForumTopicStrip({
 }: ForumTopicStripProps) {
   const activeTabRef = useRef<HTMLButtonElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const orderedTopics = useMemo(
     () => [...topics].filter((topic) => !topic.isHidden).sort(compareTopicOrder),
     [topics],
   );
 
   useLayoutEffect(() => {
-    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
-  }, [activeTopicId]);
+    activeTabRef.current?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [activeTopicId, reduceMotion]);
 
   useLayoutEffect(() => {
     const tabs = tabsRef.current;

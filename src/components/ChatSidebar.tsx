@@ -22,6 +22,7 @@ import { ChatSearchResults, GlobalSearchResults, type SidebarSearchSenderOption 
 import { ChatContextMenu } from "./SidebarContextMenus";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { usePreferencesStore, type UnreadBadgePosition } from "../store/preferencesStore";
+import { useFlipListMotion } from "../hooks/useFlipListMotion";
 
 interface ChatSidebarProps {
   chats: Chat[];
@@ -65,6 +66,8 @@ interface ChatSidebarProps {
   width: number;
   onWidthPreview: (width: number) => void;
   onWidthChange: (width: number) => void;
+  mobileViewport?: boolean;
+  mobileChatOpen?: boolean;
 }
 
 const MIN_SIDEBAR_WIDTH = 250;
@@ -109,6 +112,8 @@ export function ChatSidebar({
   width,
   onWidthPreview,
   onWidthChange,
+  mobileViewport = false,
+  mobileChatOpen = false,
 }: ChatSidebarProps) {
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -352,9 +357,21 @@ export function ChatSidebar({
   const scopedChat = searchScope.type === "chat" ? allChats.get(searchScope.chatId) : undefined;
   const scopedSearch = Boolean(scopedChat);
 
+  useFlipListMotion({
+    containerRef: chatListRef,
+    itemSelector: ".chat-row[data-motion-key]",
+    dependencies: [chats, folderId, searchQuery, searchScope.type],
+  });
+
   return (
     <>
-    <aside ref={sidebarRef} className={`chat-sidebar ${scopedSearch ? "has-scoped-search" : ""} ${resizing ? "is-resizing" : ""}`} aria-label="会话列表">
+    <aside
+      ref={sidebarRef}
+      className={`chat-sidebar ${scopedSearch ? "has-scoped-search" : ""} ${resizing ? "is-resizing" : ""}`}
+      aria-label="会话列表"
+      aria-hidden={mobileViewport && mobileChatOpen ? true : undefined}
+      inert={mobileViewport && mobileChatOpen ? true : undefined}
+    >
       <div className="sidebar-heading">
         <div>
           <h1>{folderTitle}</h1>
@@ -580,6 +597,7 @@ const ChatRow = memo(function ChatRow({
       type="button"
       className={`chat-row ${active ? "is-active" : ""} ${chat.muted ? "is-muted" : ""} ${pinnedDraggable ? "is-pinned-draggable" : ""} ${dragging ? "is-dragging" : ""} ${dropEdge ? `drop-${dropEdge}` : ""}`}
       data-chat-id={chat.id}
+      data-motion-key={chat.id}
       data-pinned={pinnedDraggable}
       aria-grabbed={dragging}
       aria-current={active ? "true" : undefined}

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 import { usePreferencesStore } from "../store/preferencesStore";
 import {
   adjacentPhotoId,
@@ -123,6 +124,9 @@ export function MediaViewer({
   const [failedSource, setFailedSource] = useState<string>();
   const [retryKey, setRetryKey] = useState(0);
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
+  const showDownloading = useStableVisibility(Boolean(active?.content.isDownloading), {
+    minimumVisible: 320,
+  });
   const activeThumbnailRef = useRef<HTMLButtonElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const dialogRef = useModalFocus<HTMLDivElement>(onClose);
@@ -319,10 +323,10 @@ export function MediaViewer({
             />
           ) : (
             <div className="media-viewer-empty" role="status">
-              {content.isDownloading
+              {showDownloading
                 ? <LoaderCircle className="spin" size={34} />
                 : <ImageOff size={38} strokeWidth={1.5} />}
-              <span>{failed ? "图片加载失败" : content.isDownloading ? "图片正在下载" : "原图尚未下载"}</span>
+              <span>{failed ? "图片加载失败" : showDownloading ? "图片正在下载" : "原图尚未下载"}</span>
               {failed && (
                 <button type="button" onClick={() => {
                   setFailedSource(undefined);

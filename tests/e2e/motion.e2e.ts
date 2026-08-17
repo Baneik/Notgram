@@ -125,6 +125,38 @@ test("async feedback suppresses short flashes and holds visible loading feedback
   await expect(loading).toHaveCount(0);
 });
 
+test("mobile conversation handoff keeps only the active layer interactive", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 390, height: 720 });
+  await page.goto("/");
+
+  const sidebar = page.locator(".chat-sidebar");
+  const conversation = page.locator(".conversation").first();
+  await page.locator(".chat-row").first().click();
+  await expect(page.locator(".app-shell")).toHaveClass(/mobile-chat-open/);
+  await expect.poll(() => sidebar.evaluate((element) => {
+    const node = element as HTMLElement & { inert?: boolean };
+    return { inert: node.inert === true, opacity: getComputedStyle(element).opacity };
+  })).toEqual({ inert: true, opacity: "0" });
+  await expect.poll(() => conversation.evaluate((element) => {
+    const node = element as HTMLElement & { inert?: boolean };
+    return { inert: node.inert === true, opacity: getComputedStyle(element).opacity };
+  })).toEqual({ inert: false, opacity: "1" });
+  await expect(page.getByRole("button", { name: "返回会话列表" })).toBeFocused();
+
+  await page.getByRole("button", { name: "返回会话列表" }).click();
+  await expect(page.locator(".app-shell")).not.toHaveClass(/mobile-chat-open/);
+  await expect.poll(() => sidebar.evaluate((element) => {
+    const node = element as HTMLElement & { inert?: boolean };
+    return { inert: node.inert === true, opacity: getComputedStyle(element).opacity };
+  })).toEqual({ inert: false, opacity: "1" });
+  await expect.poll(() => conversation.evaluate((element) => {
+    const node = element as HTMLElement & { inert?: boolean };
+    return { inert: node.inert === true, opacity: getComputedStyle(element).opacity };
+  })).toEqual({ inert: true, opacity: "0" });
+  await expect(page.locator(".chat-row").first()).toBeFocused();
+});
+
 test("images remain hidden until their current source finishes decoding", async ({ page }) => {
   await page.addInitScript(() => {
     let released = false;

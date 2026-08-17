@@ -249,6 +249,8 @@ interface ConversationProps {
   onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
   onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<import("../telegram/types").ChatReportOptions | undefined>;
   onReportChat: (input: import("../telegram/types").ReportChatInput) => Promise<boolean>;
+  mobileViewport?: boolean;
+  mobileChatOpen?: boolean;
 }
 
 export function Conversation({
@@ -320,10 +322,13 @@ export function Conversation({
   onSendBotStart,
   onGetReportOptions,
   onReportChat,
+  mobileViewport = false,
+  mobileChatOpen = false,
 }: ConversationProps) {
   const conversationIdentity = chat
     ? topic ? `${chat.id}:topic:${topic.id}` : chat.id
     : undefined;
+  const mobileViewHidden = mobileViewport && !mobileChatOpen;
   const knownNonBotUsernames = useMemo(() => {
     const usernames = new Set<string>();
     for (const user of users.values()) {
@@ -1243,7 +1248,11 @@ export function Conversation({
 
   if (!chat) {
     return (
-      <section className="conversation empty-conversation">
+      <section
+        className="conversation empty-conversation"
+        aria-hidden={mobileViewHidden ? true : undefined}
+        inert={mobileViewHidden ? true : undefined}
+      >
         <div className="conversation-empty-mark">N</div>
         <h2>选择一个对话</h2>
       </section>
@@ -1460,6 +1469,8 @@ export function Conversation({
     <section
       ref={conversationRef}
       className={`conversation ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
+      aria-hidden={mobileViewHidden ? true : undefined}
+      inert={mobileViewHidden ? true : undefined}
       onPointerUp={(event) => {
         if (event.button !== 0 || selectionMode || pinnedViewOpen) return;
         const target = event.target;
