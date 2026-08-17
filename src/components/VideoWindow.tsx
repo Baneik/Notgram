@@ -32,6 +32,7 @@ import {
 } from "../media/videoWindowBridge";
 import { logPerformance } from "../utils/performanceMonitor";
 import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 
 const CONTROL_IDLE_TIMEOUT_MS = 1_000;
 const READY_RETRY_INTERVAL_MS = 250;
@@ -68,6 +69,8 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const [muted, setMuted] = useState(true);
   const [fullscreen, setFullscreenState] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(false);
+  const showPreparing = useStableVisibility(!descriptor);
+  const showBuffering = useStableVisibility(buffering, { minimumVisible: 220 });
 
   const setFullscreen = (next: boolean) => {
     fullscreenRef.current = next;
@@ -431,7 +434,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
   return (
     <div
       ref={shellRef}
-      className={`video-window ${fullscreen ? "is-fullscreen" : "is-windowed"} ${controlsVisible ? "is-controls-visible" : ""}`}
+      className={`video-window ${fullscreen ? "is-fullscreen" : "is-windowed"} ${controlsVisible ? "is-controls-visible" : ""} ${descriptor ? "is-ready" : ""}`}
       tabIndex={-1}
       aria-label={descriptor?.label ?? "视频播放窗口"}
       onPointerMove={revealControls}
@@ -511,9 +514,11 @@ export function VideoWindow({ id }: VideoWindowProps) {
             publishState();
           }}
         />
-      ) : <div className="video-window-loading" aria-label="正在准备视频" />}
+      ) : <div className="video-window-loading" aria-label="正在准备视频">
+        {showPreparing ? <LoaderCircle className="spin" size={26} /> : null}
+      </div>}
 
-      {buffering && (
+      {showBuffering && (
         <div className="video-window-buffering" aria-live="polite">
           <LoaderCircle className="spin" size={32} />
           <span>{formatTransferSpeed(downloadSpeed)}</span>
@@ -533,7 +538,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
             <button type="button" aria-label="关闭小窗" title="关闭" onClick={() => void closeWindow()}><X size={20} /></button>
           </div>
         </div>
-        {!playing && !buffering && (
+        {!playing && !showBuffering && (
           <button className="video-window-center-play" type="button" aria-label="播放" title="播放" onClick={() => void togglePlayback()}>
             <Play size={34} fill="currentColor" />
           </button>
@@ -554,7 +559,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
             <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="音量" onChange={(event) => updateVolume(Number(event.currentTarget.value))} />
           </div>
           <button className="video-fullscreen-play" type="button" aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"} onClick={() => void togglePlayback()}>
-            {buffering
+            {showBuffering
               ? <LoaderCircle className="spin" size={24} />
               : playing
                 ? <Pause size={24} fill="currentColor" />
@@ -575,7 +580,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
         </div>
         {descriptor?.streaming && (
           <span className="video-fullscreen-speed">
-            {buffering ? "缓冲中" : "加载"} · {formatTransferSpeed(downloadSpeed)}
+            {showBuffering ? "缓冲中" : "加载"} · {formatTransferSpeed(downloadSpeed)}
           </span>
         )}
       </div>

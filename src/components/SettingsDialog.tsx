@@ -243,6 +243,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const setPreference = usePreferencesStore((state) => state.setPreference);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
   const [detailOpen, setDetailOpen] = useState(false);
+  const [compactViewport, setCompactViewport] = useState(false);
   const [draft, setDraft] = useState<ProxySettings>(emptySettings);
   const [storageDraft, setStorageDraft] = useState<StorageSettings>(emptyStorageSettings);
   const [preferenceError, setPreferenceError] = useState<string>();
@@ -251,6 +252,14 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     void load();
     void loadStorage();
   }, [load, loadStorage]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 620px)");
+    const syncViewport = () => setCompactViewport(mediaQuery.matches);
+    syncViewport();
+    mediaQuery.addEventListener("change", syncViewport);
+    return () => mediaQuery.removeEventListener("change", syncViewport);
+  }, []);
 
   useEffect(() => {
     if (settings) setDraft(structuredClone(settings));
@@ -291,11 +300,21 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const activeEndpoint = draft.mode === "system" ? draft.system : draft.custom;
   const busy = pending || storagePending;
   const settingsTitleRef = useRef<HTMLHeadingElement>(null);
+  const activeCategoryButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsBackRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLFormElement>(
     onClose,
     busy,
     standalone ? settingsTitleRef : undefined,
   );
+
+  useEffect(() => {
+    if (!compactViewport || !detailOpen) return;
+    const frame = requestAnimationFrame(() => {
+      settingsBackRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [compactViewport, detailOpen]);
 
   const updatePreference = async <Key extends keyof AppPreferences>(
     key: Key,
@@ -349,12 +368,18 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
           )}
         </header>
 
-        <nav className="settings-categories" aria-label="设置分类">
+        <nav
+          className="settings-categories"
+          aria-label="设置分类"
+          aria-hidden={compactViewport && detailOpen ? true : undefined}
+          inert={compactViewport && detailOpen ? true : undefined}
+        >
           {categories.map((category) => {
             const Icon = category.icon;
             return (
               <button
                 key={category.id}
+                ref={activeCategory === category.id ? activeCategoryButtonRef : undefined}
                 className={`settings-category ${activeCategory === category.id ? "is-active" : ""}`}
                 type="button"
                 aria-current={activeCategory === category.id ? "page" : undefined}
@@ -371,14 +396,24 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
           })}
         </nav>
 
-        <main className={`settings-detail ${activeCategory === "advanced" ? "is-advanced" : ""}`}>
+        <main
+          className={`settings-detail ${activeCategory === "advanced" ? "is-advanced" : ""}`}
+          aria-hidden={compactViewport && !detailOpen ? true : undefined}
+          inert={compactViewport && !detailOpen ? true : undefined}
+        >
           <header className="settings-detail-header">
             <button
+              ref={settingsBackRef}
               className="settings-mobile-back icon-button"
               type="button"
               aria-label="返回设置分类"
               title="返回"
-              onClick={() => setDetailOpen(false)}
+              onClick={() => {
+                setDetailOpen(false);
+                requestAnimationFrame(() => {
+                  activeCategoryButtonRef.current?.focus({ preventScroll: true });
+                });
+              }}
             >
               <ArrowLeft size={19} />
             </button>

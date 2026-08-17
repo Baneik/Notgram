@@ -157,6 +157,40 @@ test("mobile conversation handoff keeps only the active layer interactive", asyn
   await expect(page.locator(".chat-row").first()).toBeFocused();
 });
 
+test("mobile settings handoff preserves layers and restores focus", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 600, height: 720 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+
+  const categories = page.locator(".settings-categories");
+  const detail = page.locator(".settings-detail");
+  const accountCategory = page.getByRole("button", { name: "我的账号" });
+  await expect.poll(() => detail.evaluate((element) => ({
+    inert: (element as HTMLElement & { inert?: boolean }).inert === true,
+    opacity: getComputedStyle(element).opacity,
+  }))).toEqual({ inert: true, opacity: "0" });
+
+  await accountCategory.click();
+  await expect.poll(() => categories.evaluate((element) => ({
+    inert: (element as HTMLElement & { inert?: boolean }).inert === true,
+    opacity: getComputedStyle(element).opacity,
+  }))).toEqual({ inert: true, opacity: "0" });
+  await expect.poll(() => detail.evaluate((element) => ({
+    inert: (element as HTMLElement & { inert?: boolean }).inert === true,
+    opacity: getComputedStyle(element).opacity,
+  }))).toEqual({ inert: false, opacity: "1" });
+  const back = page.getByRole("button", { name: "返回设置分类" });
+  await expect(back).toBeFocused();
+
+  await back.click();
+  await expect.poll(() => categories.evaluate((element) => ({
+    inert: (element as HTMLElement & { inert?: boolean }).inert === true,
+    opacity: getComputedStyle(element).opacity,
+  }))).toEqual({ inert: false, opacity: "1" });
+  await expect(accountCategory).toBeFocused();
+});
+
 test("images remain hidden until their current source finishes decoding", async ({ page }) => {
   await page.addInitScript(() => {
     let released = false;

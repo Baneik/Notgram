@@ -1383,6 +1383,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   position: relative; width: 100%; height: 100%; overflow: hidden; color: var(--color-on-media); background: transparent; outline: none;
   user-select: none; -webkit-user-select: none;
 }
+.video-window.is-ready { animation: motion-media-image-in var(--motion-duration-fast) var(--motion-ease-enter) both; }
 .video-window.is-windowed { border-radius: 12px; background: var(--color-bg-media); cursor: grab; }
 .video-window.is-windowed:active { cursor: grabbing; }
 .video-window.is-fullscreen { background: var(--color-overlay); }
@@ -1390,7 +1391,10 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .video-window.is-windowed video { border-radius: 12px; }
 .video-window:not(.is-controls-visible),
 .video-window:not(.is-controls-visible) video { cursor: none; }
-.video-window-loading { width: 100%; height: 100%; border-radius: inherit; background: color-mix(in srgb, var(--color-bg-media) 92%, transparent); }
+.video-window-loading {
+  width: 100%; height: 100%; display: grid; place-items: center; border-radius: inherit;
+  color: var(--color-on-media); background: color-mix(in srgb, var(--color-bg-media) 92%, transparent);
+}
 .video-window-buffering {
   position: absolute; z-index: 4; left: 50%; top: 50%; min-width: 86px; padding: 10px 12px; display: grid; place-items: center; gap: 5px;
   color: var(--color-on-media); background: color-mix(in srgb, var(--color-bg-media) 70%, transparent); border: 1px solid color-mix(in srgb, var(--color-on-media) 20%, transparent); border-radius: 12px;
@@ -1556,7 +1560,10 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .media-viewer-window-page,
 .media-viewer-window-page body,
 .media-viewer-window-page #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent !important; }
-.media-viewer-window-loading { width: 100%; height: 100%; background: var(--color-overlay); }
+.media-viewer-window-loading {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  color: var(--color-on-media); background: var(--color-overlay);
+}
 .media-viewer { width: 100%; height: 100%; min-width: 0; display: grid; grid-template-rows: 56px minmax(0, 1fr) auto; outline: none; }
 .media-viewer-toolbar { min-width: 0; padding: 0 12px 0 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: color-mix(in srgb, var(--color-overlay) 82%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--color-on-media) 12%, transparent); }
 .media-viewer-title { min-width: 0; display: grid; gap: 1px; }
@@ -2595,11 +2602,36 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
     grid-template-rows: 58px minmax(0, 1fr); border-radius: 0;
   }
   .settings-dialog-header { grid-column: 1; padding-left: 16px; }
-  .settings-categories { grid-column: 1; grid-row: 2; width: 100%; border-right: 0; }
+  .settings-categories {
+    grid-column: 1;
+    grid-row: 2;
+    width: 100%;
+    border-right: 0;
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity var(--motion-duration-standard) var(--motion-ease-standard), transform var(--motion-duration-standard) var(--motion-ease-standard);
+  }
   .settings-category { min-height: 48px; grid-template-columns: 30px minmax(0, 1fr) 18px; padding-right: 10px; }
-  .settings-detail { display: none; grid-column: 1; grid-row: 2; }
-  .settings-dialog.show-detail .settings-categories { display: none; }
-  .settings-dialog.show-detail .settings-detail { display: grid; }
+  .settings-detail {
+    display: grid;
+    grid-column: 1;
+    grid-row: 2;
+    opacity: 0;
+    transform: translateY(var(--motion-distance-standard));
+    pointer-events: none;
+    animation: none;
+    transition: opacity var(--motion-duration-standard) var(--motion-ease-standard), transform var(--motion-duration-standard) var(--motion-ease-standard);
+  }
+  .settings-dialog.show-detail .settings-categories {
+    opacity: 0;
+    transform: translateY(calc(var(--motion-distance-standard) * -1));
+    pointer-events: none;
+  }
+  .settings-dialog.show-detail .settings-detail {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
   .settings-detail-header { height: 52px; padding: 0 8px; gap: 7px; }
   .settings-mobile-back { display: inline-grid; }
   .settings-section { padding: 15px 14px 17px; }

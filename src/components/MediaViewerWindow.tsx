@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   MEDIA_VIEWER_WINDOW_CHANNEL,
@@ -8,6 +9,7 @@ import {
 } from "../media/mediaViewerWindowBridge";
 import { MediaViewer } from "./MediaViewer";
 import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
+import { useStableVisibility } from "../hooks/useStableVisibility";
 
 const READY_RETRY_INTERVAL_MS = 250;
 
@@ -20,6 +22,7 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
   const closedRef = useRef(false);
   const [descriptor, setDescriptor] = useState<MediaViewerWindowDescriptor>();
   const [activeMessageId, setActiveMessageId] = useState<string>();
+  const showPreparing = useStableVisibility(!descriptor || !activeMessageId);
 
   const applyTheme = (colorTheme: MediaViewerWindowDescriptor["colorTheme"]) => {
     applyThemeToDocument(themeIdForColorTheme(colorTheme));
@@ -88,7 +91,9 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
   }, [id]);
 
   if (!descriptor || !activeMessageId) {
-    return <div className="media-viewer-window-loading" aria-label="正在准备图片查看器" />;
+    return <div className="media-viewer-window-loading" aria-label="正在准备图片查看器">
+      {showPreparing ? <LoaderCircle className="spin" size={28} /> : null}
+    </div>;
   }
 
   return (
