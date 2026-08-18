@@ -31,7 +31,6 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             webview_security::setup(app)?;
@@ -48,6 +47,7 @@ pub fn run() {
         .manage(telegram::media_stream::MediaStreamRegistry::default())
         .manage(storage::SnapshotCacheWriteState::default())
         .manage(context_menu_window::ContextMenuWindowState::default())
+        .manage(desktop_notification::DesktopNotificationWindowState::default())
         .register_asynchronous_uri_scheme_protocol(
             "notgram-media",
             |context, request, responder| {
@@ -63,6 +63,10 @@ pub fn run() {
             desktop_lifecycle::notgram_desktop_settings,
             desktop_lifecycle::notgram_set_launch_on_startup,
             desktop_notification::notgram_show_notification,
+            desktop_notification::notgram_desktop_notification_snapshot,
+            desktop_notification::notgram_show_notification_window,
+            desktop_notification::notgram_dismiss_notification,
+            desktop_notification::notgram_open_notification,
             context_menu_window::notgram_close_context_menu_window,
             context_menu_window::notgram_open_context_menu_window,
             context_menu_window::notgram_prepare_context_menu_window,

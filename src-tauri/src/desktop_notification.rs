@@ -1,8 +1,26 @@
+use std::{
+    collections::VecDeque,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
-use tauri_winrt_notification::{Sound, Toast};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 
 const NOTIFICATION_OPEN_EVENT: &str = "notgram://notification-open";
+const NOTIFICATIONS_CHANGED_EVENT: &str = "notgram://desktop-notifications-changed";
+const NOTIFICATION_WINDOW_LABEL: &str = "desktop-notifications";
+const NOTIFICATION_WINDOW_WIDTH: f64 = 380.0;
+const NOTIFICATION_WINDOW_MIN_HEIGHT: f64 = 88.0;
+const NOTIFICATION_WINDOW_MAX_HEIGHT: f64 = 560.0;
+const NOTIFICATION_WINDOW_MARGIN: f64 = 16.0;
+const MAX_VISIBLE_NOTIFICATIONS: usize = 4;
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_BODY_CHARS: usize = 1_000;
 const MAX_ROUTE_ID_CHARS: usize = 256;
@@ -21,7 +39,109 @@ pub struct DesktopNotificationRequest {
     title: String,
     body: String,
     sound: bool,
+    theme_id: String,
+    reduce_motion: bool,
     route: NotificationRoute,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopNotificationItem {
+    id: String,
+    title: String,
+    body: String,
+    theme_id: String,
+    reduce_motion: bool,
+    created_at_ms: u64,
+    route: NotificationRoute,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopNotificationSnapshot {
+    revision: u64,
+    items: Vec<DesktopNotificationItem>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NotificationWindowLayout {
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+}
+
+#[derive(Default)]
+pub struct DesktopNotificationWindowState {
+    queue: Mutex<NotificationQueue>,
+    next_id: AtomicU64,
+}
+
+#[derive(Default)]
+struct NotificationQueue {
+    visible: VecDeque<DesktopNotificationItem>,
+    waiting: VecDeque<DesktopNotificationItem>,
+    revision: u64,
+}
+
+impl DesktopNotificationWindowState {
+    fn push(&self, request: DesktopNotificationRequest) -> Result<DesktopNotificationItem, String> {
+        let sequence = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let item = DesktopNotificationItem {
+            id: format!("notification-{sequence}"),
+            title: request.title,
+            body: request.body,
+            theme_id: request.theme_id,
+            reduce_motion: request.reduce_motion,
+            created_at_ms: notification_timestamp(),
+            route: request.route,
+        };
+        let mut queue = self.queue.lock().map_err(|error| error.to_string())?;
+        if queue.visible.len() < MAX_VISIBLE_NOTIFICATIONS {
+            queue.visible.push_back(item.clone());
+        } else {
+            queue.waiting.push_back(item.clone());
+        }
+        queue.revision = queue.revision.saturating_add(1);
+        Ok(item)
+    }
+
+    fn remove(&self, id: &str) -> Result<DesktopNotificationSnapshot, String> {
+        let mut queue = self.queue.lock().map_err(|error| error.to_string())?;
+        let pending_len = queue.visible.len() + queue.waiting.len();
+        let visible_len = queue.visible.len();
+        queue.visible.retain(|item| item.id != id);
+        queue.waiting.retain(|item| item.id != id);
+        if queue.visible.len() < visible_len
+            && let Some(mut promoted) = queue.waiting.pop_front()
+        {
+            promoted.created_at_ms = notification_timestamp();
+            queue.visible.push_back(promoted);
+        }
+        if queue.visible.len() + queue.waiting.len() < pending_len {
+            queue.revision = queue.revision.saturating_add(1);
+        }
+        Ok(snapshot_for(&queue))
+    }
+
+    fn snapshot(&self) -> Result<DesktopNotificationSnapshot, String> {
+        let queue = self.queue.lock().map_err(|error| error.to_string())?;
+        Ok(snapshot_for(&queue))
+    }
+}
+
+fn snapshot_for(queue: &NotificationQueue) -> DesktopNotificationSnapshot {
+    DesktopNotificationSnapshot {
+        revision: queue.revision,
+        items: queue.visible.iter().cloned().collect(),
+    }
+}
+
+fn notification_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 fn validate_text(value: &str, maximum_chars: usize, field: &str) -> Result<(), String> {
@@ -34,38 +154,130 @@ fn validate_text(value: &str, maximum_chars: usize, field: &str) -> Result<(), S
     Ok(())
 }
 
-fn validate_request(request: &DesktopNotificationRequest) -> Result<(), String> {
-    validate_text(&request.title, MAX_TITLE_CHARS, "notification title")?;
-    validate_text(&request.body, MAX_BODY_CHARS, "notification body")?;
+fn validate_route(route: &NotificationRoute) -> Result<(), String> {
     validate_text(
-        &request.route.account_id,
+        &route.account_id,
         MAX_ROUTE_ID_CHARS,
         "notification account id",
     )?;
+    validate_text(&route.chat_id, MAX_ROUTE_ID_CHARS, "notification chat id")?;
     validate_text(
-        &request.route.chat_id,
-        MAX_ROUTE_ID_CHARS,
-        "notification chat id",
-    )?;
-    validate_text(
-        &request.route.message_id,
+        &route.message_id,
         MAX_ROUTE_ID_CHARS,
         "notification message id",
+    )
+}
+
+fn validate_request(request: &DesktopNotificationRequest) -> Result<(), String> {
+    validate_text(&request.title, MAX_TITLE_CHARS, "notification title")?;
+    validate_text(&request.body, MAX_BODY_CHARS, "notification body")?;
+    if !matches!(request.theme_id.as_str(), "notgram-light" | "notgram-dark") {
+        return Err("invalid notification theme".to_string());
+    }
+    validate_route(&request.route)
+}
+
+fn notification_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window(NOTIFICATION_WINDOW_LABEL) {
+        return Ok(window);
+    }
+    WebviewWindowBuilder::new(
+        app,
+        NOTIFICATION_WINDOW_LABEL,
+        WebviewUrl::App("notification-window.html".into()),
+    )
+    .title("Notgram")
+    .inner_size(NOTIFICATION_WINDOW_WIDTH, NOTIFICATION_WINDOW_MIN_HEIGHT)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(false)
+    .focused(false)
+    .focusable(false)
+    .visible(false)
+    .transparent(true)
+    .zoom_hotkeys_enabled(false)
+    .prevent_overflow()
+    .build()
+    .map_err(|error| error.to_string())
+}
+
+fn notification_window_layout(
+    work_area_position: PhysicalPosition<i32>,
+    work_area_size: PhysicalSize<u32>,
+    scale_factor: f64,
+    requested_height: f64,
+) -> Result<NotificationWindowLayout, String> {
+    if !requested_height.is_finite() || requested_height <= 0.0 {
+        return Err("invalid notification window height".to_string());
+    }
+    let scale_factor = scale_factor.max(0.1);
+    let margin = (NOTIFICATION_WINDOW_MARGIN * scale_factor).round() as i64;
+    let available_width = i64::from(work_area_size.width).saturating_sub(margin * 2);
+    let available_height = i64::from(work_area_size.height).saturating_sub(margin * 2);
+    let width = (NOTIFICATION_WINDOW_WIDTH * scale_factor).round() as i64;
+    let height = (requested_height.clamp(
+        NOTIFICATION_WINDOW_MIN_HEIGHT,
+        NOTIFICATION_WINDOW_MAX_HEIGHT,
+    ) * scale_factor)
+        .round() as i64;
+    let width = width.min(available_width).max(1);
+    let height = height.min(available_height).max(1);
+    let right = i64::from(work_area_position.x) + i64::from(work_area_size.width);
+    let bottom = i64::from(work_area_position.y) + i64::from(work_area_size.height);
+    let x = (right - width - margin)
+        .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
+        .try_into()
+        .unwrap_or(work_area_position.x);
+    let y = (bottom - height - margin)
+        .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
+        .try_into()
+        .unwrap_or(work_area_position.y);
+    Ok(NotificationWindowLayout {
+        position: PhysicalPosition::new(x, y),
+        size: PhysicalSize::new(
+            width.try_into().unwrap_or(1),
+            height.try_into().unwrap_or(1),
+        ),
+    })
+}
+
+fn position_notification_window(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    height: f64,
+) -> Result<(), String> {
+    let monitor = app
+        .get_webview_window("main")
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .ok_or_else(|| "No display is available for notifications".to_string())?;
+    let work_area = monitor.work_area();
+    let layout = notification_window_layout(
+        work_area.position,
+        work_area.size,
+        monitor.scale_factor(),
+        height,
     )?;
+    window
+        .set_position(layout.position)
+        .map_err(|error| error.to_string())?;
+    window
+        .set_size(layout.size)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
-fn should_set_application_id() -> bool {
-    let Ok(executable) = std::env::current_exe() else {
-        return false;
-    };
-    let Some(directory) = executable.parent() else {
-        return false;
-    };
-    let directory = directory.to_string_lossy();
-    let separator = std::path::MAIN_SEPARATOR;
-    !directory.ends_with(&format!("{separator}target{separator}debug"))
-        && !directory.ends_with(&format!("{separator}target{separator}release"))
+fn emit_snapshot(app: &AppHandle, snapshot: &DesktopNotificationSnapshot) {
+    let _ = app.emit_to(
+        NOTIFICATION_WINDOW_LABEL,
+        NOTIFICATIONS_CHANGED_EVENT,
+        snapshot,
+    );
 }
 
 fn open_notification_route(app: &AppHandle, route: &NotificationRoute) {
@@ -74,32 +286,87 @@ fn open_notification_route(app: &AppHandle, route: &NotificationRoute) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
-    let _ = app.emit(NOTIFICATION_OPEN_EVENT, route.clone());
+    let _ = app.emit_to("main", NOTIFICATION_OPEN_EVENT, route.clone());
 }
 
+#[cfg(windows)]
+fn play_notification_sound() {
+    use windows::Win32::{
+        System::Diagnostics::Debug::MessageBeep, UI::WindowsAndMessaging::MB_ICONASTERISK,
+    };
+
+    // MessageBeep only queues the user's configured Windows alert sound.
+    let _ = unsafe { MessageBeep(MB_ICONASTERISK) };
+}
+
+#[cfg(not(windows))]
+fn play_notification_sound() {}
+
 #[tauri::command]
-pub fn notgram_show_notification(
+pub async fn notgram_show_notification(
     app: AppHandle,
+    state: State<'_, DesktopNotificationWindowState>,
     notification: DesktopNotificationRequest,
 ) -> Result<(), String> {
     validate_request(&notification)?;
+    let sound = notification.sound;
+    let item = state.push(notification)?;
+    if let Err(error) = notification_window(&app) {
+        let _ = state.remove(&item.id);
+        return Err(error);
+    }
+    let snapshot = state.snapshot()?;
+    emit_snapshot(&app, &snapshot);
+    if sound {
+        play_notification_sound();
+    }
+    Ok(())
+}
 
-    let application_id = if should_set_application_id() {
-        app.config().identifier.clone()
-    } else {
-        Toast::POWERSHELL_APP_ID.to_string()
-    };
-    let route = notification.route;
-    Toast::new(&application_id)
-        .title(&notification.title)
-        .text1(&notification.body)
-        .sound(notification.sound.then_some(Sound::IM))
-        .on_activated(move |_| {
-            open_notification_route(&app, &route);
-            Ok(())
-        })
-        .show()
-        .map_err(|_| "Unable to show the Windows notification".to_string())
+#[tauri::command]
+pub fn notgram_desktop_notification_snapshot(
+    state: State<'_, DesktopNotificationWindowState>,
+) -> Result<DesktopNotificationSnapshot, String> {
+    state.snapshot()
+}
+
+#[tauri::command]
+pub fn notgram_show_notification_window(
+    app: AppHandle,
+    state: State<'_, DesktopNotificationWindowState>,
+    height: f64,
+) -> Result<bool, String> {
+    if state.snapshot()?.items.is_empty() {
+        return Ok(false);
+    }
+    let window = notification_window(&app)?;
+    position_notification_window(&app, &window, height)?;
+    window.show().map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn notgram_dismiss_notification(
+    app: AppHandle,
+    state: State<'_, DesktopNotificationWindowState>,
+    id: String,
+) -> Result<DesktopNotificationSnapshot, String> {
+    validate_text(&id, 64, "notification id")?;
+    let snapshot = state.remove(&id)?;
+    emit_snapshot(&app, &snapshot);
+    if snapshot.items.is_empty()
+        && let Some(window) = app.get_webview_window(NOTIFICATION_WINDOW_LABEL)
+    {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn notgram_open_notification(app: AppHandle, route: NotificationRoute) -> Result<(), String> {
+    validate_route(&route)?;
+    open_notification_route(&app, &route);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -111,6 +378,8 @@ mod tests {
             title: "Notgram".to_string(),
             body: "New message".to_string(),
             sound: true,
+            theme_id: "notgram-light".to_string(),
+            reduce_motion: false,
             route: NotificationRoute {
                 account_id: "default".to_string(),
                 chat_id: "123".to_string(),
@@ -125,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_and_oversized_values() {
+    fn rejects_empty_oversized_and_invalid_theme_values() {
         let mut empty_route = request();
         empty_route.route.message_id = "  ".to_string();
         assert_eq!(
@@ -139,18 +408,113 @@ mod tests {
             validate_request(&oversized_body),
             Err("notification body is too long".to_string())
         );
+
+        let mut invalid_theme = request();
+        invalid_theme.theme_id = "unknown".to_string();
+        assert_eq!(
+            validate_request(&invalid_theme),
+            Err("invalid notification theme".to_string())
+        );
     }
 
     #[test]
-    fn serializes_routes_with_frontend_field_names() {
-        let route = request().route;
+    fn serializes_routes_and_items_with_frontend_field_names() {
+        let state = DesktopNotificationWindowState::default();
+        let item = state.push(request()).expect("notification should queue");
         assert_eq!(
-            serde_json::to_value(route).expect("route should serialize"),
+            serde_json::to_value(item.route.clone()).expect("route should serialize"),
             serde_json::json!({
                 "accountId": "default",
                 "chatId": "123",
                 "messageId": "456",
             })
         );
+        let serialized = serde_json::to_value(item).expect("item should serialize");
+        assert_eq!(serialized["themeId"], "notgram-light");
+        assert_eq!(serialized["reduceMotion"], false);
+        assert!(serialized["createdAtMs"].is_number());
+    }
+
+    #[test]
+    fn queues_bursts_without_dropping_notifications() {
+        let state = DesktopNotificationWindowState::default();
+        for index in 0..(MAX_VISIBLE_NOTIFICATIONS + 2) {
+            let mut next = request();
+            next.route.message_id = index.to_string();
+            state.push(next).expect("notification should queue");
+        }
+        let snapshot = state.snapshot().expect("snapshot should be available");
+        assert_eq!(snapshot.revision, (MAX_VISIBLE_NOTIFICATIONS + 2) as u64);
+        assert_eq!(snapshot.items.len(), MAX_VISIBLE_NOTIFICATIONS);
+        assert_eq!(
+            snapshot
+                .items
+                .first()
+                .map(|item| item.route.message_id.as_str()),
+            Some("0")
+        );
+        let first_id = snapshot.items[0].id.clone();
+        let snapshot = state
+            .remove(&first_id)
+            .expect("visible item should dismiss");
+        assert_eq!(snapshot.items.len(), MAX_VISIBLE_NOTIFICATIONS);
+        assert_eq!(
+            snapshot
+                .items
+                .last()
+                .map(|item| item.route.message_id.as_str()),
+            Some("4")
+        );
+        for _ in 0..MAX_VISIBLE_NOTIFICATIONS + 1 {
+            let id = state
+                .snapshot()
+                .expect("snapshot should be available")
+                .items[0]
+                .id
+                .clone();
+            state.remove(&id).expect("queued item should dismiss");
+        }
+        assert!(
+            state
+                .snapshot()
+                .expect("snapshot should be available")
+                .items
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn positions_notifications_on_scaled_secondary_work_areas() {
+        let layout = notification_window_layout(
+            PhysicalPosition::new(-1920, 0),
+            PhysicalSize::new(1920, 1040),
+            1.25,
+            300.0,
+        )
+        .expect("layout should be valid");
+        assert_eq!(layout.position, PhysicalPosition::new(-495, 645));
+        assert_eq!(layout.size, PhysicalSize::new(475, 375));
+    }
+
+    #[test]
+    fn rejects_invalid_heights_and_fits_small_work_areas() {
+        assert!(
+            notification_window_layout(
+                PhysicalPosition::new(0, 0),
+                PhysicalSize::new(800, 600),
+                1.0,
+                f64::NAN,
+            )
+            .is_err()
+        );
+        let layout = notification_window_layout(
+            PhysicalPosition::new(0, 0),
+            PhysicalSize::new(300, 180),
+            1.0,
+            560.0,
+        )
+        .expect("small work areas should still fit");
+        assert_eq!(layout.position, PhysicalPosition::new(16, 16));
+        assert_eq!(layout.size, PhysicalSize::new(268, 148));
     }
 }

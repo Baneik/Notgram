@@ -4,38 +4,24 @@ import {
   shouldNotifyMessage,
 } from "./messageNotificationPolicy";
 
-const incomingBackgroundMessage = {
+const incomingMessage = {
   outgoing: false,
   notificationsEnabled: true,
   muted: false,
-  activeChat: false,
-  appVisible: false,
 };
 
 describe("message notification policy", () => {
-  it("notifies for an incoming background message", () => {
-    expect(shouldNotifyMessage(incomingBackgroundMessage)).toBe(true);
+  it("notifies every incoming message from an unmuted conversation", () => {
+    expect(shouldNotifyMessage(incomingMessage)).toBe(true);
   });
 
-  it("suppresses outgoing, disabled, muted, and foreground-active messages", () => {
-    expect(shouldNotifyMessage({ ...incomingBackgroundMessage, outgoing: true })).toBe(false);
+  it("suppresses only outgoing, globally disabled, and explicitly muted messages", () => {
+    expect(shouldNotifyMessage({ ...incomingMessage, outgoing: true })).toBe(false);
     expect(shouldNotifyMessage({
-      ...incomingBackgroundMessage,
+      ...incomingMessage,
       notificationsEnabled: false,
     })).toBe(false);
-    expect(shouldNotifyMessage({ ...incomingBackgroundMessage, muted: true })).toBe(false);
-    expect(shouldNotifyMessage({
-      ...incomingBackgroundMessage,
-      activeChat: true,
-      appVisible: true,
-    })).toBe(false);
-  });
-
-  it("still notifies for the selected chat while the app is hidden", () => {
-    expect(shouldNotifyMessage({
-      ...incomingBackgroundMessage,
-      activeChat: true,
-    })).toBe(true);
+    expect(shouldNotifyMessage({ ...incomingMessage, muted: true })).toBe(false);
   });
 
   it("redacts both the chat title and message when previews are disabled", () => {

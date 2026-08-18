@@ -325,8 +325,6 @@ export function App() {
         outgoing: message.outgoing,
         notificationsEnabled: preferences.notificationsEnabled,
         muted: chat?.muted ?? false,
-        activeChat: message.chatId === state.activeChatId,
-        appVisible: document.visibilityState === "visible",
       })) continue;
       const presentation = notificationPresentation({
         showPreview: preferences.notificationPreview,
@@ -336,6 +334,8 @@ export function App() {
       void showDesktopNotification({
         ...presentation,
         sound: preferences.notificationSound,
+        themeId: preferences.themeId,
+        reduceMotion: preferences.effectiveReduceMotion,
         route: {
           accountId: state.activeAccountId,
           chatId: message.chatId,

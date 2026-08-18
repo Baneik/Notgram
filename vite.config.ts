@@ -27,6 +27,7 @@ export default defineConfig({
         videoWindow: htmlEntry("./video-window.html"),
         mediaViewerWindow: htmlEntry("./media-viewer-window.html"),
         contextMenuWindow: htmlEntry("./context-menu-window.html"),
+        notificationWindow: htmlEntry("./notification-window.html"),
       },
     },
   },

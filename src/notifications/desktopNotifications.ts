@@ -1,9 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import {
-  isPermissionGranted,
-  requestPermission,
-} from "@tauri-apps/plugin-notification";
+import type { ThemeId } from "../theme/theme";
 
 export interface DesktopNotificationRoute {
   accountId: string;
@@ -15,6 +12,8 @@ export interface DesktopNotification {
   title: string;
   body: string;
   sound: boolean;
+  themeId: ThemeId;
+  reduceMotion: boolean;
   route: DesktopNotificationRoute;
 }
 
@@ -41,24 +40,21 @@ export const parseDesktopNotificationRoute = (
 };
 
 export const requestDesktopNotificationPermission = async () => {
-  try {
-    if (await isPermissionGranted()) return true;
-    return await requestPermission() === "granted";
-  } catch {
-    return false;
-  }
+  // Notgram notifications use an app-owned desktop window and need no OS toast permission.
+  return true;
 };
 
 export const showDesktopNotification = async ({
   title,
   body,
   sound,
+  themeId,
+  reduceMotion,
   route,
 }: DesktopNotification) => {
   try {
-    if (!await isPermissionGranted()) return false;
     await invoke("notgram_show_notification", {
-      notification: { title, body, sound, route },
+      notification: { title, body, sound, themeId, reduceMotion, route },
     });
     return true;
   } catch {

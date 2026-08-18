@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notification-window",
+  "description": "Restricted controls for the reusable desktop notification window",
+  "windows": ["desktop-notifications"],
+  "permissions": [
+    "core:default"
+  ]
+}
