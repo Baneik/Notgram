@@ -12,7 +12,7 @@ const item = {
   body: "设计稿已经更新",
   themeId: "notgram-dark",
   reduceMotion: false,
-  createdAtMs: 1234,
+  updatedAtMs: 1234,
   route: { accountId: "default", chatId: "chat-product", messageId: "p-5" },
 } as const;
 
@@ -24,7 +24,7 @@ describe("desktop notification window store", () => {
   it("accepts valid native items and rejects malformed payloads", () => {
     expect(parseDesktopNotificationWindowItem(item)).toEqual(item);
     expect(parseDesktopNotificationWindowItem({ ...item, themeId: "unknown" })).toBeUndefined();
-    expect(parseDesktopNotificationWindowItem({ ...item, createdAtMs: Number.NaN })).toBeUndefined();
+    expect(parseDesktopNotificationWindowItem({ ...item, updatedAtMs: Number.NaN })).toBeUndefined();
     expect(parseDesktopNotificationWindowItem({ ...item, route: { chatId: "missing" } }))
       .toBeUndefined();
   });
@@ -40,7 +40,7 @@ describe("desktop notification window store", () => {
       "notification-1",
       "notification-2",
     ]);
-    removeDesktopNotificationWindowItem("notification-1");
+    removeDesktopNotificationWindowItem("notification-1", item.updatedAtMs);
     expect(desktopNotificationWindowStore.getSnapshot()).toMatchObject([
       { id: "notification-2" },
     ]);
@@ -52,5 +52,16 @@ describe("desktop notification window store", () => {
     replaceDesktopNotificationWindowSnapshot({ revision: 3, items: [item] });
     replaceDesktopNotificationWindowSnapshot({ revision: 2, items: [] });
     expect(desktopNotificationWindowStore.getSnapshot()).toEqual([item]);
+  });
+
+  it("does not remove a conversation notification after its content is refreshed", () => {
+    replaceDesktopNotificationWindowSnapshot({
+      revision: 4,
+      items: [{ ...item, updatedAtMs: 2000, body: "newest message" }],
+    });
+    removeDesktopNotificationWindowItem(item.id, item.updatedAtMs);
+    expect(desktopNotificationWindowStore.getSnapshot()).toMatchObject([
+      { id: item.id, updatedAtMs: 2000, body: "newest message" },
+    ]);
   });
 });

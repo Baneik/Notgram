@@ -8,7 +8,7 @@ const injectNotifications = async (
     const module = await import(modulePath) as {
       replaceDesktopNotificationWindowSnapshot: (value: unknown) => void;
     };
-    const createdAtMs = Date.now();
+    const updatedAtMs = Date.now();
     module.replaceDesktopNotificationWindowSnapshot({
       revision: 1,
       items: [{
@@ -17,7 +17,7 @@ const injectNotifications = async (
         body: "设计稿已经更新，可以直接查看对应消息。",
         themeId: "notgram-dark",
         reduceMotion,
-        createdAtMs,
+        updatedAtMs,
         route: { accountId: "default", chatId: "chat-product", messageId: "p-5" },
       }, {
         id: "notification-2",
@@ -25,7 +25,7 @@ const injectNotifications = async (
         body: "这是一段很长的通知内容，用于验证桌面通知在有限宽度内能够稳定换行并限制为两行，不会造成水平溢出。",
         themeId: "notgram-dark",
         reduceMotion,
-        createdAtMs,
+        updatedAtMs,
         route: { accountId: "default", chatId: "chat-mia", messageId: "m-9" },
       }],
     });
@@ -48,15 +48,19 @@ test("desktop notifications stack, animate, and keep controls within the window"
   await expect(page.getByRole("button", { name: "关闭通知" })).toHaveCount(2);
   await expect(page.locator("html")).toHaveAttribute("data-theme", "notgram-dark");
   await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
+  await expect(page.locator(".desktop-notification-source")).toHaveCount(2);
 
   await expect.poll(() => cards.evaluateAll((elements) => elements.every((element) => {
     const bounds = element.getBoundingClientRect();
     const title = element.querySelector<HTMLElement>(".desktop-notification-copy strong")!;
-    const body = element.querySelector<HTMLElement>(".desktop-notification-copy > span")!;
+    const body = element.querySelector<HTMLElement>(".desktop-notification-message")!;
     const close = element.querySelector<HTMLElement>(".desktop-notification-close")!;
     return bounds.left >= 0 && bounds.right <= 380 && bounds.height >= 84 &&
-      title.getBoundingClientRect().right <= close.getBoundingClientRect().left &&
-      body.getBoundingClientRect().right <= close.getBoundingClientRect().left &&
+      title.getBoundingClientRect().right <= bounds.right &&
+      body.getBoundingClientRect().right <= bounds.right &&
+      close.getBoundingClientRect().right <= bounds.right &&
+      Number.parseInt(getComputedStyle(title).fontWeight, 10) >= 700 &&
+      getComputedStyle(body).color === getComputedStyle(title).color &&
       getComputedStyle(element).animationName === "motion-toast-in";
   }))).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -95,4 +99,58 @@ test("desktop notifications honor reduced motion", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
   await page.getByRole("button", { name: "关闭通知" }).first().click();
   await expect(page.locator(".desktop-notification-card")).toHaveCount(1);
+});
+
+test("a conversation notification reuses its card and expires five seconds after the latest message", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-08-19T03:00:00.000Z") });
+  await page.setViewportSize({ width: 380, height: 220 });
+  await page.goto("/notification-window.html");
+  await expect(page.getByRole("region", { name: "桌面通知" })).toBeVisible();
+
+  const replaceConversationNotification = async (revision: number, body: string) => {
+    await page.evaluate(async ({ modulePath, revision, body }) => {
+      const module = await import(modulePath) as {
+        replaceDesktopNotificationWindowSnapshot: (value: unknown) => void;
+      };
+      module.replaceDesktopNotificationWindowSnapshot({
+        revision,
+        items: [{
+          id: "notification-chat-product",
+          title: "产品讨论",
+          body,
+          themeId: "notgram-dark",
+          reduceMotion: false,
+          updatedAtMs: Date.now(),
+          route: {
+            accountId: "default",
+            chatId: "chat-product",
+            messageId: `message-${revision}`,
+          },
+        }],
+      });
+    }, {
+      modulePath: "/src/notifications/notificationWindowStore.ts",
+      revision,
+      body,
+    });
+  };
+
+  await replaceConversationNotification(10, "第一条消息");
+  const card = page.locator(".desktop-notification-card");
+  await expect(card).toHaveCount(1);
+  await card.evaluate((element) => { element.setAttribute("data-card-instance", "retained"); });
+
+  await page.clock.fastForward(4_000);
+  await replaceConversationNotification(11, "同一会话的最新消息");
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAttribute("data-card-instance", "retained");
+  await expect(page.locator(".desktop-notification-message")).toHaveText("同一会话的最新消息");
+  await expect(page.getByRole("button", { name: "打开 产品讨论 的消息" })).toBeVisible();
+
+  await page.clock.fastForward(4_999);
+  await expect(card).toHaveCount(1);
+  await page.clock.fastForward(1);
+  await expect(card).toHaveClass(/is-exiting/);
+  await page.clock.fastForward(120);
+  await expect(card).toHaveCount(0);
 });

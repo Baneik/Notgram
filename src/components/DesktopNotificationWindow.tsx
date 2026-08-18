@@ -1,4 +1,4 @@
-import { MessageCircle, X } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -9,7 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { applyThemeToDocument } from "../theme/theme";
-import { motionDuration } from "../utils/motionTokens";
+import { motionDuration, motionLifecycleTiming } from "../utils/motionTokens";
 import {
   dismissDesktopNotificationWindowItem,
   listenForDesktopNotificationWindowChanges,
@@ -24,12 +24,10 @@ import {
   type DesktopNotificationWindowItem,
 } from "../notifications/notificationWindowStore";
 
-const NOTIFICATION_LIFETIME_MS = 6_000;
-
 interface DesktopNotificationCardProps {
   exiting: boolean;
   item: DesktopNotificationWindowItem;
-  onDismiss: (id: string, reduceMotion: boolean) => void;
+  onDismiss: (item: DesktopNotificationWindowItem) => void;
   onOpen: (item: DesktopNotificationWindowItem) => void;
 }
 
@@ -39,50 +37,54 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
   onDismiss,
   onOpen,
 }: DesktopNotificationCardProps) {
+  const itemRef = useRef(item);
+  itemRef.current = item;
   const handleOpen = useCallback(() => onOpen(item), [item, onOpen]);
-  const handleDismiss = useCallback(() => {
-    onDismiss(item.id, item.reduceMotion);
-  }, [item.id, item.reduceMotion, onDismiss]);
+  const handleDismiss = useCallback(() => onDismiss(item), [item, onDismiss]);
 
   useEffect(() => {
     if (exiting) return;
-    const elapsed = Math.max(0, Date.now() - item.createdAtMs);
+    const elapsed = Math.max(0, Date.now() - item.updatedAtMs);
     const timer = globalThis.setTimeout(
-      () => onDismiss(item.id, item.reduceMotion),
-      Math.max(0, NOTIFICATION_LIFETIME_MS - elapsed),
+      () => onDismiss(itemRef.current),
+      Math.max(0, motionLifecycleTiming.desktopNotificationIdle - elapsed),
     );
     return () => globalThis.clearTimeout(timer);
-  }, [exiting, item.createdAtMs, item.id, item.reduceMotion, onDismiss]);
+  }, [exiting, item.updatedAtMs, onDismiss]);
 
   return (
     <article
       className={`desktop-notification-card${exiting ? " is-exiting" : ""}`}
       data-notification-id={item.id}
+      data-notification-updated-at={item.updatedAtMs}
       aria-hidden={exiting || undefined}
       inert={exiting || undefined}
     >
+      <header className="desktop-notification-header">
+        <span className="desktop-notification-source">
+          <Bell size={13} strokeWidth={2.2} aria-hidden="true" />
+          <span>Notgram</span>
+        </span>
+        <button
+          className="desktop-notification-close"
+          type="button"
+          aria-label="关闭通知"
+          title="关闭通知"
+          onClick={handleDismiss}
+        >
+          <X size={15} strokeWidth={2} />
+        </button>
+      </header>
       <button
         className="desktop-notification-open"
         type="button"
         aria-label={`打开 ${item.title} 的消息`}
         onClick={handleOpen}
       >
-        <span className="desktop-notification-icon" aria-hidden="true">
-          <MessageCircle size={19} strokeWidth={2} />
-        </span>
         <span className="desktop-notification-copy">
           <strong>{item.title}</strong>
-          <span>{item.body}</span>
+          <span className="desktop-notification-message" key={item.updatedAtMs}>{item.body}</span>
         </span>
-      </button>
-      <button
-        className="desktop-notification-close"
-        type="button"
-        aria-label="关闭通知"
-        title="关闭通知"
-        onClick={handleDismiss}
-      >
-        <X size={16} strokeWidth={2} />
       </button>
     </article>
   );
@@ -90,47 +92,75 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
 
 export function DesktopNotificationWindow() {
   const stageRef = useRef<HTMLDivElement>(null);
-  const exitTimersRef = useRef(new Map<string, ReturnType<typeof globalThis.setTimeout>>());
+  const exitTimersRef = useRef(new Map<string, {
+    timer: ReturnType<typeof globalThis.setTimeout>;
+    updatedAtMs: number;
+  }>());
   const lastHeightRef = useRef(0);
   const notifications = useSyncExternalStore(
     desktopNotificationWindowStore.subscribe,
     desktopNotificationWindowStore.getSnapshot,
     desktopNotificationWindowStore.getSnapshot,
   );
-  const [exitingIds, setExitingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [exitingVersions, setExitingVersions] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
 
-  const finishDismiss = useCallback((id: string) => {
-    exitTimersRef.current.delete(id);
-    void dismissDesktopNotificationWindowItem(id)
+  const finishDismiss = useCallback((id: string, expectedUpdatedAtMs: number) => {
+    const pending = exitTimersRef.current.get(id);
+    if (pending?.updatedAtMs === expectedUpdatedAtMs) exitTimersRef.current.delete(id);
+    void dismissDesktopNotificationWindowItem(id, expectedUpdatedAtMs)
       .then((snapshot) => {
-        if (snapshot === undefined) removeDesktopNotificationWindowItem(id);
+        if (snapshot === undefined) {
+          removeDesktopNotificationWindowItem(id, expectedUpdatedAtMs);
+        }
         else replaceDesktopNotificationWindowSnapshot(snapshot);
       })
-      .catch(() => removeDesktopNotificationWindowItem(id))
+      .catch(() => removeDesktopNotificationWindowItem(id, expectedUpdatedAtMs))
       .finally(() => {
-        setExitingIds((current) => {
-          if (!current.has(id)) return current;
-          const next = new Set(current);
+        setExitingVersions((current) => {
+          if (current.get(id) !== expectedUpdatedAtMs) return current;
+          const next = new Map(current);
           next.delete(id);
           return next;
         });
       });
   }, []);
 
-  const dismiss = useCallback((id: string, reduceMotion: boolean) => {
-    if (exitTimersRef.current.has(id)) return;
-    setExitingIds((current) => new Set(current).add(id));
+  const dismiss = useCallback((item: DesktopNotificationWindowItem) => {
+    const pending = exitTimersRef.current.get(item.id);
+    if (pending?.updatedAtMs === item.updatedAtMs) return;
+    if (pending) globalThis.clearTimeout(pending.timer);
+    setExitingVersions((current) => new Map(current).set(item.id, item.updatedAtMs));
     const timer = globalThis.setTimeout(
-      () => finishDismiss(id),
-      reduceMotion ? 0 : motionDuration.fast,
+      () => finishDismiss(item.id, item.updatedAtMs),
+      item.reduceMotion ? 0 : motionDuration.fast,
     );
-    exitTimersRef.current.set(id, timer);
+    exitTimersRef.current.set(item.id, { timer, updatedAtMs: item.updatedAtMs });
   }, [finishDismiss]);
 
   const open = useCallback((item: DesktopNotificationWindowItem) => {
-    dismiss(item.id, item.reduceMotion);
+    dismiss(item);
     void openDesktopNotificationWindowItem(item.route);
   }, [dismiss]);
+
+  useEffect(() => {
+    const latestVersions = new Map(notifications.map((item) => [item.id, item.updatedAtMs]));
+    const revivedIds: string[] = [];
+    for (const [id, pending] of exitTimersRef.current) {
+      const latestVersion = latestVersions.get(id);
+      if (latestVersion === undefined || latestVersion === pending.updatedAtMs) continue;
+      globalThis.clearTimeout(pending.timer);
+      exitTimersRef.current.delete(id);
+      revivedIds.push(id);
+    }
+    if (revivedIds.length === 0) return;
+    setExitingVersions((current) => {
+      const next = new Map(current);
+      for (const id of revivedIds) next.delete(id);
+      return next;
+    });
+  }, [notifications]);
 
   useEffect(() => {
     let disposed = false;
@@ -152,7 +182,7 @@ export function DesktopNotificationWindow() {
   }, []);
 
   useEffect(() => () => {
-    for (const timer of exitTimersRef.current.values()) globalThis.clearTimeout(timer);
+    for (const { timer } of exitTimersRef.current.values()) globalThis.clearTimeout(timer);
     exitTimersRef.current.clear();
   }, []);
 
@@ -202,7 +232,7 @@ export function DesktopNotificationWindow() {
         <DesktopNotificationCard
           key={item.id}
           item={item}
-          exiting={exitingIds.has(item.id)}
+          exiting={exitingVersions.get(item.id) === item.updatedAtMs}
           onDismiss={dismiss}
           onOpen={open}
         />

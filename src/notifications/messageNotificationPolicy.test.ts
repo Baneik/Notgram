@@ -8,6 +8,10 @@ const incomingMessage = {
   outgoing: false,
   notificationsEnabled: true,
   muted: false,
+  messageId: "120",
+  sentAt: "2026-08-19T02:30:00.000Z",
+  lastReadInboxMessageId: "119",
+  notBeforeMs: Date.parse("2026-08-19T02:29:50.000Z"),
 };
 
 describe("message notification policy", () => {
@@ -22,6 +26,30 @@ describe("message notification policy", () => {
       notificationsEnabled: false,
     })).toBe(false);
     expect(shouldNotifyMessage({ ...incomingMessage, muted: true })).toBe(false);
+  });
+
+  it("suppresses messages already covered by the Telegram read cursor", () => {
+    expect(shouldNotifyMessage({
+      ...incomingMessage,
+      messageId: "119",
+    })).toBe(false);
+    expect(shouldNotifyMessage({
+      ...incomingMessage,
+      messageId: "118",
+    })).toBe(false);
+  });
+
+  it("does not replay historical updates received during startup", () => {
+    expect(shouldNotifyMessage({
+      ...incomingMessage,
+      messageId: "121",
+      sentAt: "2026-08-19T02:00:00.000Z",
+    })).toBe(false);
+    expect(shouldNotifyMessage({
+      ...incomingMessage,
+      messageId: "121",
+      sentAt: "2026-08-19T02:29:59.000Z",
+    })).toBe(true);
   });
 
   it("redacts both the chat title and message when previews are disabled", () => {

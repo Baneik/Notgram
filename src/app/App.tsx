@@ -315,35 +315,47 @@ export function App() {
       break;
     }
   }), [managedDownloadIndex, subscribeMessageChanges]);
-  useEffect(() => subscribeMessageChanges((event) => {
-    if (event.type !== "upsert" || event.liveMessages.length === 0) return;
-    const state = telegramStore.getState();
-    const preferences = preferencesStore.getState();
-    for (const message of event.liveMessages) {
-      const chat = state.chats.get(message.chatId);
-      if (!shouldNotifyMessage({
-        outgoing: message.outgoing,
-        notificationsEnabled: preferences.notificationsEnabled,
-        muted: chat?.muted ?? false,
-      })) continue;
-      const presentation = notificationPresentation({
-        showPreview: preferences.notificationPreview,
-        chatTitle: chat?.title,
-        messageText: messageContentText(message.content),
-      });
-      void showDesktopNotification({
-        ...presentation,
-        sound: preferences.notificationSound,
-        themeId: preferences.themeId,
-        reduceMotion: preferences.effectiveReduceMotion,
-        route: {
-          accountId: state.activeAccountId,
-          chatId: message.chatId,
+  useEffect(() => {
+    // TDLib can replay updateNewMessage records during bootstrap. Only updates sent around this
+    // application session are eligible for desktop notification presentation.
+    const notBeforeMs = Date.now() - 10_000;
+    return subscribeMessageChanges((event) => {
+      if (event.type !== "upsert" || event.liveMessages.length === 0) return;
+      const state = telegramStore.getState();
+      const preferences = preferencesStore.getState();
+      for (const message of event.liveMessages) {
+        const chat = state.chats.get(message.chatId);
+        const topic = message.topicId
+          ? state.forumTopics.get(message.chatId)?.find(({ id }) => id === message.topicId)
+          : undefined;
+        if (!shouldNotifyMessage({
+          outgoing: message.outgoing,
+          notificationsEnabled: preferences.notificationsEnabled,
+          muted: topic?.muted ?? chat?.muted ?? false,
           messageId: message.id,
-        },
-      });
-    }
-  }), [subscribeMessageChanges]);
+          sentAt: message.sentAt,
+          lastReadInboxMessageId: topic?.lastReadInboxMessageId ?? chat?.lastReadInboxMessageId,
+          notBeforeMs,
+        })) continue;
+        const presentation = notificationPresentation({
+          showPreview: preferences.notificationPreview,
+          chatTitle: chat?.title,
+          messageText: messageContentText(message.content),
+        });
+        void showDesktopNotification({
+          ...presentation,
+          sound: preferences.notificationSound,
+          themeId: preferences.themeId,
+          reduceMotion: preferences.effectiveReduceMotion,
+          route: {
+            accountId: state.activeAccountId,
+            chatId: message.chatId,
+            messageId: message.id,
+          },
+        });
+      }
+    });
+  }, [subscribeMessageChanges]);
   useEffect(() => {
     writeManagedDownloadRequests(managedDownloadRequests.values());
   }, [managedDownloadRequests]);

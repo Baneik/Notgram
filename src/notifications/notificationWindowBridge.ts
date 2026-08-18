@@ -23,9 +23,10 @@ export const showDesktopNotificationWindow = async (height: number) => {
 
 export const dismissDesktopNotificationWindowItem = async (
   id: string,
+  expectedUpdatedAtMs: number,
 ): Promise<unknown | undefined> => {
   if (!isTauri()) return undefined;
-  return invoke("notgram_dismiss_notification", { id });
+  return invoke("notgram_dismiss_notification", { id, expectedUpdatedAtMs });
 };
 
 export const openDesktopNotificationWindowItem = async (

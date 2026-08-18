@@ -10,7 +10,7 @@ export interface DesktopNotificationWindowItem {
   body: string;
   themeId: ThemeId;
   reduceMotion: boolean;
-  createdAtMs: number;
+  updatedAtMs: number;
   route: DesktopNotificationRoute;
 }
 
@@ -36,9 +36,9 @@ export const parseDesktopNotificationWindowItem = (
     !isBoundedText(candidate.body, 1_000) ||
     !isThemeId(candidate.themeId) ||
     typeof candidate.reduceMotion !== "boolean" ||
-    typeof candidate.createdAtMs !== "number" ||
-    !Number.isFinite(candidate.createdAtMs) ||
-    candidate.createdAtMs < 0 ||
+    typeof candidate.updatedAtMs !== "number" ||
+    !Number.isFinite(candidate.updatedAtMs) ||
+    candidate.updatedAtMs < 0 ||
     !route
   ) return undefined;
   return {
@@ -47,7 +47,7 @@ export const parseDesktopNotificationWindowItem = (
     body: candidate.body,
     themeId: candidate.themeId,
     reduceMotion: candidate.reduceMotion,
-    createdAtMs: candidate.createdAtMs,
+    updatedAtMs: candidate.updatedAtMs,
     route,
   };
 };
@@ -92,7 +92,9 @@ export const replaceDesktopNotificationWindowSnapshot = (value: unknown) => {
   return snapshot;
 };
 
-export const removeDesktopNotificationWindowItem = (id: string) => {
+export const removeDesktopNotificationWindowItem = (id: string, expectedUpdatedAtMs: number) => {
+  const current = snapshot.find((item) => item.id === id);
+  if (!current || current.updatedAtMs !== expectedUpdatedAtMs) return snapshot;
   const next = snapshot.filter((item) => item.id !== id);
   if (next.length === snapshot.length) return snapshot;
   snapshot = next;

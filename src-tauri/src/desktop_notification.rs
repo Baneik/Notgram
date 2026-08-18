@@ -52,7 +52,7 @@ pub struct DesktopNotificationItem {
     body: String,
     theme_id: String,
     reduce_motion: bool,
-    created_at_ms: u64,
+    updated_at_ms: u64,
     route: NotificationRoute,
 }
 
@@ -84,6 +84,40 @@ struct NotificationQueue {
 
 impl DesktopNotificationWindowState {
     fn push(&self, request: DesktopNotificationRequest) -> Result<DesktopNotificationItem, String> {
+        let mut queue = self.queue.lock().map_err(|error| error.to_string())?;
+        let timestamp = notification_timestamp();
+        let visible_index = queue.visible.iter().position(|item| {
+            item.route.account_id == request.route.account_id
+                && item.route.chat_id == request.route.chat_id
+        });
+        let waiting_index = visible_index
+            .is_none()
+            .then(|| {
+                queue.waiting.iter().position(|item| {
+                    item.route.account_id == request.route.account_id
+                        && item.route.chat_id == request.route.chat_id
+                })
+            })
+            .flatten();
+        let existing = if let Some(index) = visible_index {
+            queue.visible.get_mut(index)
+        } else if let Some(index) = waiting_index {
+            queue.waiting.get_mut(index)
+        } else {
+            None
+        };
+        if let Some(item) = existing {
+            item.title = request.title;
+            item.body = request.body;
+            item.theme_id = request.theme_id;
+            item.reduce_motion = request.reduce_motion;
+            item.updated_at_ms = timestamp.max(item.updated_at_ms.saturating_add(1));
+            item.route = request.route;
+            let item = item.clone();
+            queue.revision = queue.revision.saturating_add(1);
+            return Ok(item);
+        }
+
         let sequence = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let item = DesktopNotificationItem {
             id: format!("notification-{sequence}"),
@@ -91,10 +125,9 @@ impl DesktopNotificationWindowState {
             body: request.body,
             theme_id: request.theme_id,
             reduce_motion: request.reduce_motion,
-            created_at_ms: notification_timestamp(),
+            updated_at_ms: timestamp,
             route: request.route,
         };
-        let mut queue = self.queue.lock().map_err(|error| error.to_string())?;
         if queue.visible.len() < MAX_VISIBLE_NOTIFICATIONS {
             queue.visible.push_back(item.clone());
         } else {
@@ -104,21 +137,29 @@ impl DesktopNotificationWindowState {
         Ok(item)
     }
 
-    fn remove(&self, id: &str) -> Result<DesktopNotificationSnapshot, String> {
+    fn remove(
+        &self,
+        id: &str,
+        expected_updated_at_ms: u64,
+    ) -> Result<DesktopNotificationSnapshot, String> {
         let mut queue = self.queue.lock().map_err(|error| error.to_string())?;
-        let pending_len = queue.visible.len() + queue.waiting.len();
-        let visible_len = queue.visible.len();
+        let matching_item = queue
+            .visible
+            .iter()
+            .chain(queue.waiting.iter())
+            .find(|item| item.id == id);
+        if matching_item.is_none_or(|item| item.updated_at_ms != expected_updated_at_ms) {
+            return Ok(snapshot_for(&queue));
+        }
+        let removed_visible = queue.visible.iter().any(|item| item.id == id);
         queue.visible.retain(|item| item.id != id);
         queue.waiting.retain(|item| item.id != id);
-        if queue.visible.len() < visible_len
-            && let Some(mut promoted) = queue.waiting.pop_front()
-        {
-            promoted.created_at_ms = notification_timestamp();
+        if removed_visible && let Some(mut promoted) = queue.waiting.pop_front() {
+            promoted.updated_at_ms =
+                notification_timestamp().max(promoted.updated_at_ms.saturating_add(1));
             queue.visible.push_back(promoted);
         }
-        if queue.visible.len() + queue.waiting.len() < pending_len {
-            queue.revision = queue.revision.saturating_add(1);
-        }
+        queue.revision = queue.revision.saturating_add(1);
         Ok(snapshot_for(&queue))
     }
 
@@ -312,7 +353,7 @@ pub async fn notgram_show_notification(
     let sound = notification.sound;
     let item = state.push(notification)?;
     if let Err(error) = notification_window(&app) {
-        let _ = state.remove(&item.id);
+        let _ = state.remove(&item.id, item.updated_at_ms);
         return Err(error);
     }
     let snapshot = state.snapshot()?;
@@ -350,9 +391,10 @@ pub fn notgram_dismiss_notification(
     app: AppHandle,
     state: State<'_, DesktopNotificationWindowState>,
     id: String,
+    expected_updated_at_ms: u64,
 ) -> Result<DesktopNotificationSnapshot, String> {
     validate_text(&id, 64, "notification id")?;
-    let snapshot = state.remove(&id)?;
+    let snapshot = state.remove(&id, expected_updated_at_ms)?;
     emit_snapshot(&app, &snapshot);
     if snapshot.items.is_empty()
         && let Some(window) = app.get_webview_window(NOTIFICATION_WINDOW_LABEL)
@@ -432,14 +474,41 @@ mod tests {
         let serialized = serde_json::to_value(item).expect("item should serialize");
         assert_eq!(serialized["themeId"], "notgram-light");
         assert_eq!(serialized["reduceMotion"], false);
-        assert!(serialized["createdAtMs"].is_number());
+        assert!(serialized["updatedAtMs"].is_number());
     }
 
     #[test]
-    fn queues_bursts_without_dropping_notifications() {
+    fn reuses_a_notification_for_new_messages_in_the_same_conversation() {
+        let state = DesktopNotificationWindowState::default();
+        let first = state.push(request()).expect("notification should queue");
+        let mut replacement = request();
+        replacement.body = "Newest message".to_string();
+        replacement.route.message_id = "789".to_string();
+        let updated = state.push(replacement).expect("notification should update");
+
+        assert_eq!(updated.id, first.id);
+        assert!(updated.updated_at_ms > first.updated_at_ms);
+        let snapshot = state.snapshot().expect("snapshot should be available");
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].body, "Newest message");
+        assert_eq!(snapshot.items[0].route.message_id, "789");
+
+        let stale_dismiss = state
+            .remove(&first.id, first.updated_at_ms)
+            .expect("stale dismiss should be ignored");
+        assert_eq!(stale_dismiss.items.len(), 1);
+        let dismissed = state
+            .remove(&updated.id, updated.updated_at_ms)
+            .expect("current notification should dismiss");
+        assert!(dismissed.items.is_empty());
+    }
+
+    #[test]
+    fn queues_conversation_bursts_without_dropping_notifications() {
         let state = DesktopNotificationWindowState::default();
         for index in 0..(MAX_VISIBLE_NOTIFICATIONS + 2) {
             let mut next = request();
+            next.route.chat_id = format!("chat-{index}");
             next.route.message_id = index.to_string();
             state.push(next).expect("notification should queue");
         }
@@ -454,8 +523,9 @@ mod tests {
             Some("0")
         );
         let first_id = snapshot.items[0].id.clone();
+        let first_updated_at_ms = snapshot.items[0].updated_at_ms;
         let snapshot = state
-            .remove(&first_id)
+            .remove(&first_id, first_updated_at_ms)
             .expect("visible item should dismiss");
         assert_eq!(snapshot.items.len(), MAX_VISIBLE_NOTIFICATIONS);
         assert_eq!(
@@ -466,13 +536,11 @@ mod tests {
             Some("4")
         );
         for _ in 0..MAX_VISIBLE_NOTIFICATIONS + 1 {
-            let id = state
-                .snapshot()
-                .expect("snapshot should be available")
-                .items[0]
-                .id
-                .clone();
-            state.remove(&id).expect("queued item should dismiss");
+            let snapshot = state.snapshot().expect("snapshot should be available");
+            let item = &snapshot.items[0];
+            state
+                .remove(&item.id, item.updated_at_ms)
+                .expect("queued item should dismiss");
         }
         assert!(
             state
