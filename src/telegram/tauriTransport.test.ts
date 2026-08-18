@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TelegramEventListener } from "./transport";
 import { TauriTelegramTransport } from "./tauriTransport";
 import type { TdObject } from "./tdlibMapper";
+import type { ProxySettings } from "./types";
 import { clearPerformanceRecords, getPerformanceRecords } from "../utils/performanceMonitor";
 import { DEFAULT_CHAT_ADMIN_RIGHTS, DEFAULT_CHAT_PERMISSIONS } from "./chatManagement";
 
@@ -26,6 +27,9 @@ type TestableTransport = {
   upsertUser: (user: TdObject) => void;
   finishInitialChatSync: () => void;
   startBootstrap: () => void;
+  requestImmediateConnectionRecovery: (forceProxyRefresh?: boolean) => void;
+  proxySettings?: ProxySettings;
+  runtimeProxyProfileId?: string;
 };
 
 const rawMessage = (id: number): TdObject => ({
@@ -918,7 +922,7 @@ describe("TauriTelegramTransport startup", () => {
     }]);
   });
 
-  it("reopens stalled proxy connections with backoff and reports a persistent failure", async () => {
+  it("retries stalled proxy connections forever with a 15 second delay cap", async () => {
     vi.useFakeTimers();
     try {
       const transport = new TauriTelegramTransport();
@@ -944,15 +948,16 @@ describe("TauriTelegramTransport startup", () => {
         "@type": "updateConnectionState",
         state: { "@type": "connectionStateConnectingToProxy" },
       });
-      await vi.advanceTimersByTimeAsync(8_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(10_000);
       await vi.advanceTimersByTimeAsync(15_000);
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(15_000);
       internal.handleUpdate({
         "@type": "updateConnectionState",
         state: { "@type": "connectionStateReady" },
       });
 
-      expect(requests).toEqual(Array.from({ length: 3 }, () => ({
+      expect(requests).toEqual(Array.from({ length: 4 }, () => ({
         "@type": "setNetworkType",
         type: { "@type": "networkTypeOther" },
       })));
@@ -965,6 +970,127 @@ describe("TauriTelegramTransport startup", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("rotates custom proxies after repeated recovery failures", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new TauriTelegramTransport();
+      const internal = transport as unknown as TestableTransport;
+      const requests: TdObject[] = [];
+      internal.proxySettings = {
+        mode: "custom",
+        profiles: [
+          {
+            id: "primary",
+            name: "主代理",
+            endpoint: {
+              type: "socks5",
+              server: "127.0.0.1",
+              port: 1080,
+              username: "",
+              password: "",
+              secret: "",
+              httpOnly: false,
+            },
+          },
+          {
+            id: "backup",
+            name: "备用代理",
+            endpoint: {
+              type: "socks5",
+              server: "127.0.0.1",
+              port: 1081,
+              username: "",
+              password: "",
+              secret: "",
+              httpOnly: false,
+            },
+          },
+        ],
+        activeProfileId: "primary",
+        autoSwitch: true,
+      };
+      internal.runtimeProxyProfileId = "primary";
+      internal.request = async (request) => {
+        requests.push(request);
+        if (request["@type"] === "getProxies") return { "@type": "proxies", proxies: [] };
+        return { "@type": "ok" };
+      };
+
+      internal.handleUpdate({
+        "@type": "updateConnectionState",
+        state: { "@type": "connectionStateConnectingToProxy" },
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      internal.handleUpdate({
+        "@type": "updateConnectionState",
+        state: { "@type": "connectionStateWaitingForNetwork" },
+      });
+
+      expect(requests.filter((request) => request["@type"] === "addProxy")).toEqual([
+        expect.objectContaining({ proxy: expect.objectContaining({ port: 1080 }) }),
+        expect.objectContaining({ proxy: expect.objectContaining({ port: 1081 }) }),
+      ]);
+      expect(internal.runtimeProxyProfileId).toBe("backup");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reapplies the proxy after wake even when TDLib still reports ready", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.finishInitialChatSync();
+    internal.listener = vi.fn();
+    internal.proxySettings = {
+      mode: "custom",
+      profiles: [{
+        id: "primary",
+        name: "主代理",
+        endpoint: {
+          type: "http",
+          server: "127.0.0.1",
+          port: 7890,
+          username: "",
+          password: "",
+          secret: "",
+          httpOnly: false,
+        },
+      }],
+      activeProfileId: "primary",
+      autoSwitch: false,
+    };
+    internal.runtimeProxyProfileId = "primary";
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getProxies") return { "@type": "proxies", proxies: [] };
+      return { "@type": "ok" };
+    };
+    internal.handleUpdate({
+      "@type": "updateConnectionState",
+      state: { "@type": "connectionStateReady" },
+    });
+
+    internal.requestImmediateConnectionRecovery(true);
+    await vi.waitFor(() => {
+      expect(requests.map((request) => request["@type"])).toEqual([
+        "getProxies",
+        "addProxy",
+        "setNetworkType",
+      ]);
+    });
+    internal.handleUpdate({
+      "@type": "updateConnectionState",
+      state: { "@type": "connectionStateReady" },
+    });
+
+    expect(internal.listener).toHaveBeenCalledWith({
+      type: "connection.changed",
+      status: "connecting",
+    });
   });
 
   it("keeps a ready connection syncing until the initial chat refresh completes", async () => {

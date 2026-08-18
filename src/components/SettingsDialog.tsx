@@ -53,9 +53,7 @@ import type {
   CacheCategory,
   CacheCleanupResult,
   CacheUsage,
-  ProxyMode,
   ProxySettings,
-  ProxyType,
   StorageSettings,
   UpdateCurrentUserProfileInput,
   User,
@@ -66,6 +64,7 @@ import { DesktopStartupSettings } from "./DesktopStartupSettings";
 import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
 import { SafetySettings } from "./SafetySettings";
+import { ProxySettingsEditor } from "./ProxySettingsEditor";
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -101,29 +100,23 @@ const categories: SettingsCategory[] = [
   { id: "power", label: "电池和动画", icon: BatteryCharging },
 ];
 
-const modeOptions: Array<{ value: ProxyMode; label: string }> = [
-  { value: "system", label: "系统代理" },
-  { value: "direct", label: "直连" },
-  { value: "custom", label: "自定义" },
-];
-
-const proxyTypeLabels: Record<ProxyType, string> = {
-  http: "HTTP",
-  socks5: "SOCKS5",
-  mtproto: "MTProto",
-};
-
 const emptySettings: ProxySettings = {
   mode: "system",
-  custom: {
-    type: "http",
-    server: "127.0.0.1",
-    port: 7890,
-    username: "",
-    password: "",
-    secret: "",
-    httpOnly: false,
-  },
+  profiles: [{
+    id: "proxy-1",
+    name: "代理 1",
+    endpoint: {
+      type: "http",
+      server: "127.0.0.1",
+      port: 7890,
+      username: "",
+      password: "",
+      secret: "",
+      httpOnly: false,
+    },
+  }],
+  activeProfileId: "proxy-1",
+  autoSwitch: false,
 };
 
 const emptyStorageSettings: StorageSettings = {
@@ -279,14 +272,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     }
   }, [activeCategory, authorization.kind, currentUserId, loadCurrentUserProfile]);
 
-  const updateCustom = <K extends keyof ProxySettings["custom"]>(
-    key: K,
-    value: ProxySettings["custom"][K],
-  ) => setDraft((current) => ({
-    ...current,
-    custom: { ...current.custom, [key]: value },
-  }));
-
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (activeCategory !== "advanced") return;
@@ -297,7 +282,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
 
   const active = categories.find((category) => category.id === activeCategory) ?? categories[0];
   const ActiveIcon = active.icon;
-  const activeEndpoint = draft.mode === "system" ? draft.system : draft.custom;
   const busy = pending || storagePending;
   const settingsTitleRef = useRef<HTMLHeadingElement>(null);
   const activeCategoryButtonRef = useRef<HTMLButtonElement>(null);
@@ -444,10 +428,8 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               cacheUsage={cacheUsage}
               cacheCleanupResult={cacheCleanupResult}
               latency={latency}
-              activeEndpoint={activeEndpoint}
               setDraft={setDraft}
               setStorageDraft={setStorageDraft}
-              updateCustom={updateCustom}
               onTest={() => void test(draft)}
               onRebuildCache={() => void rebuildCache()}
               onRefreshCache={() => void loadCacheUsage()}
@@ -986,13 +968,8 @@ interface AdvancedSettingsProps {
   cacheUsage?: CacheUsage;
   cacheCleanupResult?: CacheCleanupResult;
   latency?: number;
-  activeEndpoint?: ProxySettings["custom"];
   setDraft: Dispatch<SetStateAction<ProxySettings>>;
   setStorageDraft: Dispatch<SetStateAction<StorageSettings>>;
-  updateCustom: <K extends keyof ProxySettings["custom"]>(
-    key: K,
-    value: ProxySettings["custom"][K],
-  ) => void;
   onTest: () => void;
   onRebuildCache: () => void;
   onRefreshCache: () => void;
@@ -1022,10 +999,8 @@ function AdvancedSettings({
   cacheUsage,
   cacheCleanupResult,
   latency,
-  activeEndpoint,
   setDraft,
   setStorageDraft,
-  updateCustom,
   onTest,
   onRebuildCache,
   onRefreshCache,
@@ -1057,102 +1032,14 @@ function AdvancedSettings({
           </div>
         </div>
 
-        <div className="proxy-mode" role="radiogroup" aria-label="代理模式">
-          {modeOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="radio"
-              aria-checked={draft.mode === option.value}
-              className={draft.mode === option.value ? "is-active" : ""}
-              onClick={() => setDraft((current) => ({ ...current, mode: option.value }))}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-
-        {draft.mode === "system" && (
-          <div className="proxy-system-status">
-            <Network size={18} strokeWidth={1.8} />
-            {draft.system ? (
-              <div>
-                <strong>{proxyTypeLabels[draft.system.type]}</strong>
-                <span>{draft.system.server}:{draft.system.port}</span>
-              </div>
-            ) : (
-              <div><strong>未检测到系统代理</strong><span>当前将使用直连</span></div>
-            )}
-          </div>
-        )}
-
-        {draft.mode === "direct" && (
-          <div className="proxy-system-status">
-            <Network size={18} strokeWidth={1.8} />
-            <div><strong>直连</strong><span>TDLib 代理已停用</span></div>
-          </div>
-        )}
-
-        {draft.mode === "custom" && (
-          <div className="proxy-fields">
-            <label className="auth-field">
-              <span>代理类型</span>
-              <select value={draft.custom.type} onChange={(event) => updateCustom("type", event.target.value as ProxyType)}>
-                <option value="http">HTTP</option>
-                <option value="socks5">SOCKS5</option>
-                <option value="mtproto">MTProto</option>
-              </select>
-            </label>
-            <div className="proxy-address-row">
-              <label className="auth-field">
-                <span>服务器</span>
-                <input required value={draft.custom.server} onChange={(event) => updateCustom("server", event.target.value)} />
-              </label>
-              <label className="auth-field proxy-port">
-                <span>端口</span>
-                <input required type="number" min={1} max={65535} value={draft.custom.port} onChange={(event) => updateCustom("port", Number(event.target.value))} />
-              </label>
-            </div>
-
-            {draft.custom.type === "mtproto" ? (
-              <label className="auth-field">
-                <span>Secret</span>
-                <input required type="password" autoComplete="off" value={draft.custom.secret} onChange={(event) => updateCustom("secret", event.target.value)} />
-              </label>
-            ) : (
-              <div className="proxy-address-row">
-                <label className="auth-field">
-                  <span>用户名</span>
-                  <input autoComplete="username" value={draft.custom.username} onChange={(event) => updateCustom("username", event.target.value)} />
-                </label>
-                <label className="auth-field">
-                  <span>密码</span>
-                  <input type="password" autoComplete="current-password" value={draft.custom.password} onChange={(event) => updateCustom("password", event.target.value)} />
-                </label>
-              </div>
-            )}
-
-            {draft.custom.type === "http" && (
-              <label className="proxy-checkbox">
-                <input type="checkbox" checked={draft.custom.httpOnly} onChange={(event) => updateCustom("httpOnly", event.target.checked)} />
-                <span>仅 HTTP，不使用 CONNECT</span>
-              </label>
-            )}
-          </div>
-        )}
-
-        <div className="settings-inline-actions">
-          <button
-            className="dialog-secondary"
-            type="button"
-            disabled={busy || (draft.mode === "system" && !activeEndpoint)}
-            onClick={onTest}
-          >
-            {pending ? <LoaderCircle className="spin" size={17} /> : <Gauge size={17} />}
-            <span>测速</span>
-          </button>
-          {latency !== undefined && <span className="proxy-latency" role="status">延迟 {latency} ms</span>}
-        </div>
+        <ProxySettingsEditor
+          settings={draft}
+          busy={busy}
+          pending={pending}
+          latency={latency}
+          onChange={setDraft}
+          onTest={onTest}
+        />
         </section>
 
         <section className="settings-section" aria-labelledby="storage-heading">

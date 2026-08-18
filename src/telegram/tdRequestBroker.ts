@@ -38,15 +38,17 @@ export class TdRequestBroker {
 
   constructor(private invokeCommand: InvokeCommand = invoke) {}
 
-  async request(request: TdObject) {
+  async request(request: TdObject, timeoutMs = 30_000) {
     const requestType = typeof request["@type"] === "string" ? request["@type"] : "unknown";
     const extra = crypto.randomUUID();
-    const response = this.waitForResponse(extra, `TDLib ${requestType} 请求超时。`);
-    try {
-      await this.invokeCommand("telegram_send", { request: { ...request, "@extra": extra } });
-    } catch (error) {
-      this.reject(extra, error);
-    }
+    const response = this.waitForResponse(
+      extra,
+      `TDLib ${requestType} 请求超时。`,
+      timeoutMs,
+    );
+    void this.invokeCommand("telegram_send", {
+      request: { ...request, "@extra": extra },
+    }).catch((error) => this.reject(extra, error));
     return response;
   }
 
@@ -175,12 +177,12 @@ export class TdRequestBroker {
     }
   }
 
-  private waitForResponse(extra: string, timeoutMessage: string) {
+  private waitForResponse(extra: string, timeoutMessage: string, timeoutMs = 30_000) {
     return new Promise<TdObject>((resolve, reject) => {
       const timer = globalThis.setTimeout(() => {
         this.pending.delete(extra);
         reject(new Error(timeoutMessage));
-      }, 30_000);
+      }, timeoutMs);
       this.pending.set(extra, { resolve, reject, timer });
     });
   }

@@ -1,8 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TdRequestBroker } from "./tdRequestBroker";
 
 describe("TdRequestBroker prepared files", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("supports a bounded timeout for connection recovery requests", async () => {
+    vi.useFakeTimers();
+    const broker = new TdRequestBroker(() => new Promise(() => undefined));
+    const pending = broker.request({ "@type": "setNetworkType" }, 2_000);
+    const rejection = expect(pending).rejects.toThrow("setNetworkType 请求超时");
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await rejection;
+  });
+
   it("waits for a selected profile photo to be accepted by TDLib", async () => {
     let broker!: TdRequestBroker;
     broker = new TdRequestBroker(async (command, args) => {

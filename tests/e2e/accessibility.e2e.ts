@@ -35,6 +35,13 @@ test("forced colors preserve selection and custom switches without focus frames"
   await expect.poll(() => crashSwitch.evaluate(
     (element) => getComputedStyle(element).forcedColorAdjust,
   )).toBe("none");
+  await page.getByRole("button", { name: /高级设置/ }).click();
+  await page.getByRole("radio", { name: "自定义" }).click();
+  await page.getByRole("button", { name: "添加代理" }).click();
+  const proxySwitch = page.getByRole("switch", { name: /自动切换/ });
+  await expect.poll(() => proxySwitch.evaluate(
+    (element) => getComputedStyle(element).forcedColorAdjust,
+  )).toBe("none");
   await expect(viewportOverflow(page)).resolves.toEqual([]);
 });
 

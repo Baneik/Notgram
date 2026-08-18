@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeProxyProfile,
   chatListObject,
   effectiveProxy,
   forumTopicObject,
   mapAuthorizationState,
   numericId,
+  nextProxyProfile,
 } from "./tdlibRequests";
 
 describe("TDLib request builders", () => {
@@ -47,8 +49,21 @@ describe("TDLib request builders", () => {
       secret: "",
       httpOnly: false,
     };
-    expect(effectiveProxy({ mode: "direct", custom: endpoint })).toBeUndefined();
-    expect(effectiveProxy({ mode: "system", custom: endpoint, system: endpoint })).toEqual(endpoint);
-    expect(effectiveProxy({ mode: "custom", custom: endpoint })).toEqual(endpoint);
+    const profiles = [
+      { id: "primary", name: "主代理", endpoint },
+      { id: "backup", name: "备用代理", endpoint: { ...endpoint, port: 1081 } },
+    ];
+    const settings = {
+      mode: "custom" as const,
+      profiles,
+      activeProfileId: "primary",
+      autoSwitch: true,
+    };
+    expect(effectiveProxy({ ...settings, mode: "direct" })).toBeUndefined();
+    expect(effectiveProxy({ ...settings, mode: "system", system: endpoint })).toEqual(endpoint);
+    expect(effectiveProxy(settings)).toEqual(endpoint);
+    expect(activeProxyProfile({ ...settings, activeProfileId: "missing" })).toEqual(profiles[0]);
+    expect(nextProxyProfile(settings, "primary")).toEqual(profiles[1]);
+    expect(nextProxyProfile(settings, "backup")).toEqual(profiles[0]);
   });
 });

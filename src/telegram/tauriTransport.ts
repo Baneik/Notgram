@@ -25,6 +25,7 @@ import {
 } from "./tdRequestBroker";
 import { TauriAccountStorage } from "./tauriAccountStorage";
 import {
+  activeProxyProfile,
   chatListKey,
   chatListObject,
   chatFolderNumericId,
@@ -34,6 +35,7 @@ import {
   mapAuthorizationState,
   forumTopicObject,
   numericId,
+  nextProxyProfile,
   proxyValue,
   sameProxy,
 } from "./tdlibRequests";
@@ -102,6 +104,7 @@ import type {
   PinMessageInput,
   ConnectionStatus,
   CreateChatInput,
+  ProxyEndpoint,
   ProxySettings,
   SendEmojiAssetInput,
   SendFileInput,
@@ -150,8 +153,19 @@ interface RuntimeStatus {
   performanceLogPath?: string;
 }
 
-const PROXY_RECOVERY_DELAYS_MS = [8_000, 15_000, 30_000, 60_000] as const;
+const PROXY_RECOVERY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
 const PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS = 3;
+const PROXY_SWITCH_AFTER_RECOVERY_ATTEMPTS = 2;
+const PROXY_RECOVERY_REQUEST_TIMEOUT_MS = 5_000;
+const WAKE_HEARTBEAT_INTERVAL_MS = 10_000;
+const WAKE_HEARTBEAT_DRIFT_MS = 25_000;
+
+const proxyPreferences = (settings: ProxySettings) => ({
+  mode: settings.mode,
+  profiles: settings.profiles,
+  activeProfileId: settings.activeProfileId,
+  autoSwitch: settings.autoSwitch,
+});
 
 const chatPermissionsForTemplate = (template: CreateChatInput["permissionTemplate"]): TdObject => {
   const open = template !== "restricted";
@@ -414,7 +428,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   private connectingThroughProxy = false;
   private proxyRecoveryAttempt = 0;
   private networkReopenPromise?: Promise<void>;
+  private proxyRecoveryPromise?: Promise<void>;
+  private proxySettings?: ProxySettings;
+  private runtimeProxyProfileId?: string;
   private networkOnlineHandler?: () => void;
+  private visibilityChangeHandler?: () => void;
+  private pageShowHandler?: () => void;
+  private wakeHeartbeatTimer?: ReturnType<typeof globalThis.setInterval>;
+  private lastWakeHeartbeatAt = 0;
 
   async connect(
     listener: TelegramEventListener,
@@ -424,13 +445,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.settingsOnly = options.settingsOnly === true;
     this.listener = listener;
     this.initialChatSyncPending = true;
-    if (typeof window !== "undefined") {
-      this.networkOnlineHandler = () => {
-        if (!this.listener || this.connectionStatus === "online") return;
-        void this.reopenNetworkConnections().catch(() => undefined);
-      };
-      window.addEventListener("online", this.networkOnlineHandler, { passive: true });
-    }
     this.emitConnectionStatus("connecting");
     const status = await invoke<RuntimeStatus>("telegram_runtime_status");
     if (!status.linked) {
@@ -442,6 +456,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!status.credentialsConfigured) {
       throw new Error("TDLib 已加载，但缺少 NOTGRAM_API_ID / NOTGRAM_API_HASH。");
     }
+    this.proxySettings = await this.getProxySettings();
+    this.runtimeProxyProfileId = activeProxyProfile(this.proxySettings)?.id;
 
     this.unlistenUpdate = await listen<TdObject>("telegram://update", (event) => {
       this.handleUpdateBatch([event.payload]);
@@ -459,6 +475,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       },
     );
     await invoke("telegram_start");
+    this.installConnectionRecoveryListeners();
     const authorizationState = await this.request({ "@type": "getAuthorizationState" });
     this.handleAuthorizationUpdate({ authorization_state: authorizationState });
 
@@ -616,8 +633,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     try {
       await this.applyProxy(settings);
       await invoke("telegram_save_proxy_settings", {
-        preferences: { mode: settings.mode, custom: settings.custom },
+        preferences: proxyPreferences(settings),
       });
+      this.proxySettings = structuredClone(settings);
+      this.runtimeProxyProfileId = activeProxyProfile(settings)?.id;
     } catch (error) {
       if (effectiveProxy(settings)) this.emitConnectionStatus("proxyError");
       throw error;
@@ -1779,8 +1798,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     };
   }
 
-  private async request(request: TdObject) {
-    return this.requestBroker.request(request);
+  private async request(request: TdObject, timeoutMs?: number) {
+    return this.requestBroker.request(request, timeoutMs);
   }
 
   private async requestPreparedFile(chatId: string, topicId?: string) {
@@ -1817,14 +1836,18 @@ export class TauriTelegramTransport implements TelegramTransport {
       return;
     }
 
-    const current = await this.request({ "@type": "getProxies" });
+    await this.applyProxyEndpoint(endpoint);
+  }
+
+  private async applyProxyEndpoint(endpoint: ProxyEndpoint, timeoutMs?: number) {
+    const current = await this.request({ "@type": "getProxies" }, timeoutMs);
     const existing = asTdObjects(current.proxies).find((added) => {
       const proxy = asTdObject(added.proxy);
       return proxy ? sameProxy(proxy, endpoint) : false;
     });
     const proxyId = tdNumber(existing?.id);
     if (proxyId !== undefined) {
-      await this.request({ "@type": "enableProxy", proxy_id: proxyId });
+      await this.request({ "@type": "enableProxy", proxy_id: proxyId }, timeoutMs);
       return;
     }
     await this.request({
@@ -1832,7 +1855,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       proxy: proxyValue(endpoint),
       enable: true,
       comment: "Notgram",
-    });
+    }, timeoutMs);
   }
 
   private handleUpdate(update: TdObject) {
@@ -1867,6 +1890,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     ) {
       this.proxyRecoveryAttempt = 0;
     }
+    if (state?.["@type"] === "connectionStateReady") {
+      void this.rememberWorkingProxy();
+    }
     this.emitConnectionStatus(
       status === "online" && this.initialChatSyncPending ? "syncing" : status,
     );
@@ -1884,7 +1910,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (
       !this.connectingThroughProxy ||
       this.proxyConnectionTimer ||
-      this.networkReopenPromise
+      this.proxyRecoveryPromise
     ) return;
     const delay = PROXY_RECOVERY_DELAYS_MS[
       Math.min(this.proxyRecoveryAttempt, PROXY_RECOVERY_DELAYS_MS.length - 1)
@@ -1898,15 +1924,15 @@ export class TauriTelegramTransport implements TelegramTransport {
   private async recoverStalledProxy() {
     if (!this.connectingThroughProxy) return;
     this.proxyRecoveryAttempt += 1;
+    const pending = this.recoverProxyConnection();
+    this.proxyRecoveryPromise = pending;
     try {
-      // TDLib documents that setting the same network type forces all network
-      // connections to reopen. This keeps the configured proxy enabled while
-      // replacing a socket that became stuck on a weak or changing network.
-      await this.reopenNetworkConnections();
+      await pending;
     } catch {
-      // TDLib keeps its own retry loop; the next bounded watchdog attempt is
-      // still useful even if this local recovery request failed.
+      // The capped watchdog continues forever; a failed or timed-out recovery
+      // must never hold the next attempt hostage.
     } finally {
+      if (this.proxyRecoveryPromise === pending) this.proxyRecoveryPromise = undefined;
       if (!this.connectingThroughProxy) return;
       if (this.proxyRecoveryAttempt >= PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS) {
         this.emitConnectionStatus("proxyError");
@@ -1915,18 +1941,99 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
-  private reopenNetworkConnections() {
+  private async recoverProxyConnection() {
+    const settings = this.proxySettings;
+    if (settings?.mode === "custom") {
+      const shouldSwitch = settings.autoSwitch &&
+        settings.profiles.length > 1 &&
+        this.proxyRecoveryAttempt % PROXY_SWITCH_AFTER_RECOVERY_ATTEMPTS === 0;
+      const profile = shouldSwitch
+        ? nextProxyProfile(settings, this.runtimeProxyProfileId)
+        : settings.profiles.find((item) => item.id === this.runtimeProxyProfileId) ??
+          activeProxyProfile(settings);
+      if (profile) {
+        await this.applyProxyEndpoint(profile.endpoint, PROXY_RECOVERY_REQUEST_TIMEOUT_MS);
+        this.runtimeProxyProfileId = profile.id;
+      }
+    } else if (settings?.mode === "system" && settings.system) {
+      await this.applyProxyEndpoint(settings.system, PROXY_RECOVERY_REQUEST_TIMEOUT_MS);
+    }
+    await this.reopenNetworkConnections(PROXY_RECOVERY_REQUEST_TIMEOUT_MS);
+  }
+
+  private reopenNetworkConnections(timeoutMs?: number) {
     if (this.networkReopenPromise) return this.networkReopenPromise;
     const pending = this.request({
       "@type": "setNetworkType",
       type: { "@type": "networkTypeOther" },
-    }).then(() => undefined);
+    }, timeoutMs).then(() => undefined);
     this.networkReopenPromise = pending;
     const clear = () => {
       if (this.networkReopenPromise === pending) this.networkReopenPromise = undefined;
     };
     void pending.then(clear, clear);
     return pending;
+  }
+
+  private requestImmediateConnectionRecovery(forceProxyRefresh = false) {
+    if (!this.listener || this.proxyRecoveryPromise) return;
+    const hasProxy = effectiveProxy(this.proxySettings ?? {
+      mode: "direct",
+      profiles: [],
+      activeProfileId: "",
+      autoSwitch: false,
+    }) !== undefined;
+    if (!forceProxyRefresh && this.connectionStatus === "online") return;
+    if (this.proxyConnectionTimer) globalThis.clearTimeout(this.proxyConnectionTimer);
+    this.proxyConnectionTimer = undefined;
+    if (hasProxy) {
+      this.connectingThroughProxy = true;
+      this.emitConnectionStatus("connecting");
+      void this.recoverStalledProxy();
+      return;
+    }
+    void this.reopenNetworkConnections(PROXY_RECOVERY_REQUEST_TIMEOUT_MS).catch(() => undefined);
+  }
+
+  private installConnectionRecoveryListeners() {
+    if (typeof window === "undefined") return;
+    this.networkOnlineHandler = () => this.requestImmediateConnectionRecovery();
+    this.visibilityChangeHandler = () => {
+      if (document.visibilityState === "visible") this.requestImmediateConnectionRecovery();
+    };
+    this.pageShowHandler = () => this.requestImmediateConnectionRecovery();
+    window.addEventListener("online", this.networkOnlineHandler, { passive: true });
+    window.addEventListener("pageshow", this.pageShowHandler, { passive: true });
+    document.addEventListener("visibilitychange", this.visibilityChangeHandler, { passive: true });
+    this.lastWakeHeartbeatAt = Date.now();
+    this.wakeHeartbeatTimer = globalThis.setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - this.lastWakeHeartbeatAt;
+      this.lastWakeHeartbeatAt = now;
+      if (elapsed >= WAKE_HEARTBEAT_DRIFT_MS) {
+        this.requestImmediateConnectionRecovery(true);
+      }
+    }, WAKE_HEARTBEAT_INTERVAL_MS);
+  }
+
+  private async rememberWorkingProxy() {
+    const settings = this.proxySettings;
+    const profileId = this.runtimeProxyProfileId;
+    if (
+      settings?.mode !== "custom" ||
+      !profileId ||
+      settings.activeProfileId === profileId ||
+      !settings.profiles.some((profile) => profile.id === profileId)
+    ) return;
+    const nextSettings = { ...settings, activeProfileId: profileId };
+    this.proxySettings = nextSettings;
+    try {
+      await invoke("telegram_save_proxy_settings", {
+        preferences: proxyPreferences(nextSettings),
+      });
+    } catch {
+      // Runtime recovery remains valid even if remembering the winner fails.
+    }
   }
 
   private startBootstrap() {
@@ -2793,10 +2900,24 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.connectingThroughProxy = false;
     this.proxyRecoveryAttempt = 0;
     this.networkReopenPromise = undefined;
+    this.proxyRecoveryPromise = undefined;
+    this.proxySettings = undefined;
+    this.runtimeProxyProfileId = undefined;
     if (this.networkOnlineHandler && typeof window !== "undefined") {
       window.removeEventListener("online", this.networkOnlineHandler);
     }
+    if (this.pageShowHandler && typeof window !== "undefined") {
+      window.removeEventListener("pageshow", this.pageShowHandler);
+    }
+    if (this.visibilityChangeHandler && typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.visibilityChangeHandler);
+    }
+    if (this.wakeHeartbeatTimer) globalThis.clearInterval(this.wakeHeartbeatTimer);
     this.networkOnlineHandler = undefined;
+    this.pageShowHandler = undefined;
+    this.visibilityChangeHandler = undefined;
+    this.wakeHeartbeatTimer = undefined;
+    this.lastWakeHeartbeatAt = 0;
     this.connectionStatus = undefined;
     this.rawChats.clear();
     this.rawBasicGroups.clear();

@@ -3,6 +3,7 @@ import type {
   AuthorizationState,
   MessageTextEntity,
   ProxyEndpoint,
+  ProxyProfile,
   ProxySettings,
 } from "./types";
 
@@ -113,9 +114,26 @@ export const sameProxy = (raw: TdObject, endpoint: ProxyEndpoint) => {
     rawType.http_only === endpoint.httpOnly;
 };
 
+export const activeProxyProfile = (settings: ProxySettings): ProxyProfile | undefined =>
+  settings.profiles.find((profile) => profile.id === settings.activeProfileId) ??
+  settings.profiles[0];
+
 export const effectiveProxy = (settings: ProxySettings) => {
   if (settings.mode === "direct") return undefined;
-  return settings.mode === "system" ? settings.system : settings.custom;
+  return settings.mode === "system"
+    ? settings.system
+    : activeProxyProfile(settings)?.endpoint;
+};
+
+export const nextProxyProfile = (
+  settings: ProxySettings,
+  currentProfileId?: string,
+): ProxyProfile | undefined => {
+  if (settings.profiles.length === 0) return undefined;
+  const currentIndex = settings.profiles.findIndex(
+    (profile) => profile.id === currentProfileId,
+  );
+  return settings.profiles[(currentIndex + 1) % settings.profiles.length];
 };
 
 export const mapAuthorizationState = (state: TdObject): AuthorizationState => {

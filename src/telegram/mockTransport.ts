@@ -390,15 +390,21 @@ export class MockTelegramTransport implements TelegramTransport {
   };
   private proxySettings: ProxySettings = {
     mode: "system",
-    custom: {
-      type: "http",
-      server: "127.0.0.1",
-      port: 7890,
-      username: "",
-      password: "",
-      secret: "",
-      httpOnly: false,
-    },
+    profiles: [{
+      id: "proxy-1",
+      name: "代理 1",
+      endpoint: {
+        type: "http",
+        server: "127.0.0.1",
+        port: 7890,
+        username: "",
+        password: "",
+        secret: "",
+        httpOnly: false,
+      },
+    }],
+    activeProfileId: "proxy-1",
+    autoSwitch: false,
     system: {
       type: "http",
       server: "127.0.0.1",

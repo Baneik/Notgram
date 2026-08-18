@@ -1199,9 +1199,17 @@ export interface ProxyEndpoint {
   httpOnly: boolean;
 }
 
+export interface ProxyProfile {
+  id: string;
+  name: string;
+  endpoint: ProxyEndpoint;
+}
+
 export interface ProxySettings {
   mode: ProxyMode;
-  custom: ProxyEndpoint;
+  profiles: ProxyProfile[];
+  activeProfileId: string;
+  autoSwitch: boolean;
   system?: ProxyEndpoint;
 }
 

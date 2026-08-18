@@ -98,21 +98,116 @@ impl ProxyEndpoint {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyProfile {
+    pub id: String,
+    pub name: String,
+    pub endpoint: ProxyEndpoint,
+}
+
+impl ProxyProfile {
+    fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty()
+            || self.id.len() > 64
+            || !self
+                .id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err("代理标识无效".to_string());
+        }
+        let name = self.name.trim();
+        if name.is_empty() || name.chars().count() > 40 {
+            return Err("代理名称必须为 1 到 40 个字符".to_string());
+        }
+        self.endpoint.validate()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyPreferences {
     #[serde(default)]
     pub mode: ProxyMode,
+    #[serde(default, skip_serializing)]
+    custom: Option<ProxyEndpoint>,
     #[serde(default)]
-    pub custom: ProxyEndpoint,
+    pub profiles: Vec<ProxyProfile>,
+    #[serde(default)]
+    pub active_profile_id: String,
+    #[serde(default)]
+    pub auto_switch: bool,
+}
+
+impl Default for ProxyPreferences {
+    fn default() -> Self {
+        Self {
+            mode: ProxyMode::System,
+            custom: None,
+            profiles: vec![ProxyProfile {
+                id: "proxy-1".to_string(),
+                name: "代理 1".to_string(),
+                endpoint: ProxyEndpoint::default(),
+            }],
+            active_profile_id: "proxy-1".to_string(),
+            auto_switch: false,
+        }
+    }
 }
 
 impl ProxyPreferences {
+    fn normalize(mut self) -> Result<Self, String> {
+        if self.profiles.is_empty() {
+            self.profiles.push(ProxyProfile {
+                id: "proxy-1".to_string(),
+                name: "代理 1".to_string(),
+                endpoint: self.custom.take().unwrap_or_default(),
+            });
+        }
+        if !self
+            .profiles
+            .iter()
+            .any(|profile| profile.id == self.active_profile_id)
+        {
+            self.active_profile_id = self.profiles[0].id.clone();
+        }
+        self.custom = None;
+        self.validate()?;
+        Ok(self)
+    }
+
     fn validate(&self) -> Result<(), String> {
-        if self.mode == ProxyMode::Custom {
-            self.custom.validate()?;
+        if self.profiles.len() > 20 {
+            return Err("最多可以保存 20 个代理".to_string());
+        }
+        let mut ids = std::collections::HashSet::new();
+        for profile in &self.profiles {
+            profile.validate()?;
+            if !ids.insert(&profile.id) {
+                return Err("代理标识不能重复".to_string());
+            }
+        }
+        if self.mode == ProxyMode::Custom && self.profiles.is_empty() {
+            return Err("自定义模式至少需要一个代理".to_string());
+        }
+        if !self.profiles.is_empty()
+            && !self
+                .profiles
+                .iter()
+                .any(|profile| profile.id == self.active_profile_id)
+        {
+            return Err("当前代理不在代理列表中".to_string());
         }
         Ok(())
+    }
+
+    fn active_endpoint(&self) -> Option<&ProxyEndpoint> {
+        self.profiles
+            .iter()
+            .find(|profile| profile.id == self.active_profile_id)
+            .or_else(|| self.profiles.first())
+            .map(|profile| &profile.endpoint)
     }
 }
 
@@ -120,7 +215,9 @@ impl ProxyPreferences {
 #[serde(rename_all = "camelCase")]
 pub struct ProxySettings {
     mode: ProxyMode,
-    custom: ProxyEndpoint,
+    profiles: Vec<ProxyProfile>,
+    active_profile_id: String,
+    auto_switch: bool,
     system: Option<ProxyEndpoint>,
 }
 
@@ -129,7 +226,9 @@ pub fn telegram_proxy_settings(app: AppHandle) -> Result<ProxySettings, String> 
     let preferences = load_preferences(&app)?;
     Ok(ProxySettings {
         mode: preferences.mode,
-        custom: preferences.custom,
+        profiles: preferences.profiles,
+        active_profile_id: preferences.active_profile_id,
+        auto_switch: preferences.auto_switch,
         system: detect_system_proxy(),
     })
 }
@@ -139,7 +238,7 @@ pub fn telegram_save_proxy_settings(
     app: AppHandle,
     preferences: ProxyPreferences,
 ) -> Result<(), String> {
-    preferences.validate()?;
+    let preferences = preferences.normalize()?;
     save_preferences(&app, &preferences)
 }
 
@@ -148,10 +247,7 @@ pub fn startup_proxy_request(app: &AppHandle) -> Result<Value, String> {
     let endpoint = match preferences.mode {
         ProxyMode::System => detect_system_proxy(),
         ProxyMode::Direct => None,
-        ProxyMode::Custom => {
-            preferences.custom.validate()?;
-            Some(preferences.custom)
-        }
+        ProxyMode::Custom => preferences.active_endpoint().cloned(),
     };
 
     Ok(match endpoint {
@@ -189,8 +285,7 @@ fn load_preferences(app: &AppHandle) -> Result<ProxyPreferences, String> {
     let serialized = unprotect(&protected)?;
     let preferences: ProxyPreferences = serde_json::from_slice(&serialized)
         .map_err(|error| format!("无法解析代理设置: {error}"))?;
-    preferences.validate()?;
-    Ok(preferences)
+    preferences.normalize()
 }
 
 fn save_preferences(app: &AppHandle, preferences: &ProxyPreferences) -> Result<(), String> {
@@ -391,6 +486,48 @@ mod tests {
         assert_eq!(proxy.kind, ProxyKind::Socks5);
         assert_eq!(proxy.server, "localhost");
         assert_eq!(proxy.port, 1080);
+    }
+
+    #[test]
+    fn migrates_the_legacy_single_proxy_preferences() {
+        let preferences: ProxyPreferences = serde_json::from_value(json!({
+            "mode": "custom",
+            "custom": {
+                "type": "socks5",
+                "server": "127.0.0.1",
+                "port": 1080,
+                "username": "demo",
+                "password": "secret",
+                "secret": "",
+                "httpOnly": false
+            }
+        }))
+        .expect("legacy preferences");
+
+        let migrated = preferences.normalize().expect("normalized preferences");
+
+        assert_eq!(migrated.profiles.len(), 1);
+        assert_eq!(migrated.active_profile_id, "proxy-1");
+        assert_eq!(migrated.profiles[0].endpoint.kind, ProxyKind::Socks5);
+        assert_eq!(migrated.profiles[0].endpoint.password, "secret");
+    }
+
+    #[test]
+    fn rejects_duplicate_proxy_profile_ids() {
+        let profile = ProxyProfile {
+            id: "duplicate".to_string(),
+            name: "主代理".to_string(),
+            endpoint: ProxyEndpoint::default(),
+        };
+        let preferences = ProxyPreferences {
+            mode: ProxyMode::Custom,
+            custom: None,
+            profiles: vec![profile.clone(), profile],
+            active_profile_id: "duplicate".to_string(),
+            auto_switch: true,
+        };
+
+        assert_eq!(preferences.validate(), Err("代理标识不能重复".to_string()));
     }
 
     #[cfg(target_os = "windows")]

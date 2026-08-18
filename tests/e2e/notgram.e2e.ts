@@ -535,6 +535,40 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(24, 27, 31)");
 });
 
+test("custom proxy profiles persist and enable automatic switching", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await settings.getByRole("button", { name: /高级设置/ }).click();
+  await settings.getByRole("radio", { name: "自定义" }).click();
+
+  const proxyList = settings.getByRole("list", { name: "自定义代理" });
+  await expect(proxyList.getByRole("listitem")).toHaveCount(1);
+  await proxyList.getByRole("button", { name: "添加代理" }).click();
+  await expect(proxyList.getByRole("listitem")).toHaveCount(2);
+
+  await settings.getByLabel("名称").fill("备用节点");
+  await settings.getByLabel("服务器").fill("proxy.example.test");
+  await settings.getByLabel("端口").fill("1088");
+  const autoSwitch = settings.getByRole("switch", { name: /自动切换/ });
+  await expect(autoSwitch).toBeEnabled();
+  await autoSwitch.check();
+
+  await page.setViewportSize({ width: 390, height: 700 });
+  expect(await horizontalOverflow(page)).toBe(false);
+  await settings.getByRole("button", { name: "保存更改" }).click();
+  await expect(settings).toBeHidden();
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await settings.getByRole("button", { name: /高级设置/ }).click();
+  await expect(settings.getByRole("radio", { name: "自定义" })).toBeChecked();
+  await expect(settings.getByRole("list", { name: "自定义代理" }).getByRole("listitem"))
+    .toHaveCount(2);
+  await expect(settings.getByLabel("名称")).toHaveValue("备用节点");
+  await expect(settings.getByRole("switch", { name: /自动切换/ })).toBeChecked();
+  expect(await horizontalOverflow(page)).toBe(false);
+});
+
 test("composer keeps focus, typing status is visible, and previews name the sender", async ({ page }) => {
   await page.goto("/?typing=group");
 
