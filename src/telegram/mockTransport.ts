@@ -49,6 +49,7 @@ import type {
   ForumTopic,
   ForumTopicPage,
   GetForumTopicsInput,
+  GetMessageReactionSendersInput,
   CreateForumTopicInput,
   GlobalSearchInput,
   GlobalSearchPage,
@@ -442,6 +443,7 @@ export class MockTelegramTransport implements TelegramTransport {
     cachedSnapshot?: CachedTelegramSnapshot;
     connectionStatus?: ConnectionStatus;
     initialTyping?: { chatId: string; senderId: string };
+    reactionPreview?: boolean;
   } = {}) {
     const serializedAccounts = browserStorage()?.getItem(ACCOUNT_STATE_KEY);
     let storedAccounts: TelegramAccountState | undefined;
@@ -462,6 +464,31 @@ export class MockTelegramTransport implements TelegramTransport {
     this.authFlow = options.authFlow ?? !activeAccountExists;
     this.connectionStatus = options.connectionStatus ?? "online";
     this.initialTyping = options.initialTyping;
+    if (options.reactionPreview) {
+      const previewMessage = this.snapshot.messages.find((message) => message.id === "p-4");
+      if (previewMessage) {
+        previewMessage.interaction = {
+          viewCount: 0,
+          forwardCount: 0,
+          replyCount: 0,
+          canGetAddedReactions: true,
+          reactions: [
+            {
+              type: { kind: "emoji", emoji: "👍" },
+              totalCount: 3,
+              chosen: true,
+              recentSenderIds: ["self", "u-mia", "u-chen"],
+            },
+            {
+              type: { kind: "emoji", emoji: "🔥" },
+              totalCount: 2,
+              chosen: false,
+              recentSenderIds: ["u-jules", "u-mia"],
+            },
+          ],
+        };
+      }
+    }
     for (let index = 0; index < (options.blockedSenderCount ?? 0); index += 1) {
       const sender: BlockedSender = {
         id: `blocked-${index}`,
@@ -1763,7 +1790,15 @@ export class MockTelegramTransport implements TelegramTransport {
       const current = reactions[index];
       const totalCount = Math.max(0, current.totalCount + (input.chosen ? 1 : -1));
       if (totalCount === 0) reactions.splice(index, 1);
-      else reactions[index] = { ...current, chosen: input.chosen, totalCount };
+      else reactions[index] = {
+        ...current,
+        chosen: input.chosen,
+        totalCount,
+        recentSenderIds: [
+          ...(input.chosen ? [this.snapshot.currentUserId] : []),
+          ...current.recentSenderIds.filter((id) => id !== this.snapshot.currentUserId),
+        ].slice(0, 3),
+      };
     } else if (input.chosen) {
       reactions.push({
         type: { kind: "emoji", emoji: input.emoji },
@@ -1774,6 +1809,43 @@ export class MockTelegramTransport implements TelegramTransport {
     }
     message.interaction = { ...interaction, reactions };
     this.listener?.({ type: "message.upsert", message: clone(message) });
+  }
+
+  async getMessageReactionSenders(input: GetMessageReactionSendersInput) {
+    const message = this.snapshot.messages.find(
+      (item) => item.chatId === input.chatId && item.id === input.messageId,
+    );
+    if (!message) throw new Error("消息不存在");
+    if (message.interaction?.canGetAddedReactions === false) {
+      throw new Error("Telegram 未提供完整回应名单");
+    }
+    const reaction = message.interaction?.reactions.find((candidate) => {
+      if (candidate.type.kind !== input.type.kind) return false;
+      if (candidate.type.kind === "emoji" && input.type.kind === "emoji") {
+        return candidate.type.emoji === input.type.emoji;
+      }
+      if (candidate.type.kind === "customEmoji" && input.type.kind === "customEmoji") {
+        return candidate.type.customEmojiId === input.type.customEmojiId;
+      }
+      return candidate.type.kind === "paid";
+    });
+    if (!reaction) return { totalCount: 0, senders: [] };
+    const offset = Math.max(0, Number.parseInt(input.offset ?? "0", 10) || 0);
+    const limit = Math.max(1, Math.min(input.limit ?? 100, 100));
+    const senderIds = reaction.recentSenderIds.slice(offset, offset + limit);
+    const nextOffset = offset + senderIds.length < reaction.recentSenderIds.length
+      ? String(offset + senderIds.length)
+      : undefined;
+    return {
+      totalCount: reaction.totalCount,
+      senders: senderIds.map((senderId, index) => ({
+        senderId,
+        type: reaction.type,
+        outgoing: senderId === this.snapshot.currentUserId,
+        addedAt: new Date(Date.parse(message.sentAt) + index * 1_000).toISOString(),
+      })),
+      nextOffset,
+    };
   }
 
   async setPollAnswer(input: SetPollAnswerInput) {

@@ -98,11 +98,16 @@ describe("telegram store message state", () => {
     const ordered = upsertMessage([message("2")], message("1"));
     expect(ordered.map(({ id }) => id)).toEqual(["1", "2"]);
 
-    const reacted = withEmojiReaction(ordered[0], "👍", true);
+    const reacted = withEmojiReaction(ordered[0], "👍", true, "self");
     expect(reacted.interaction?.reactions).toMatchObject([
-      { type: { kind: "emoji", emoji: "👍" }, totalCount: 1, chosen: true },
+      {
+        type: { kind: "emoji", emoji: "👍" },
+        totalCount: 1,
+        chosen: true,
+        recentSenderIds: ["self"],
+      },
     ]);
-    expect(withEmojiReaction(reacted, "👍", false).interaction?.reactions).toEqual([]);
+    expect(withEmojiReaction(reacted, "👍", false, "self").interaction?.reactions).toEqual([]);
   });
 
   it("acknowledges confirmed cache entries without inferring deletion from gaps", () => {

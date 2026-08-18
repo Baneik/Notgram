@@ -2314,7 +2314,7 @@ export const createTelegramStore = (
         const currentMessages = get().messages.get(chatId) ?? [];
         const original = currentMessages.find((message) => message.id === messageId);
         if (!original) return;
-        const optimistic = withEmojiReaction(original, emoji, chosen);
+        const optimistic = withEmojiReaction(original, emoji, chosen, get().currentUserId);
         if (optimistic === original) return;
         const messages = new Map(get().messages);
         messages.set(chatId, upsertMessage(currentMessages, optimistic));
@@ -2337,6 +2337,18 @@ export const createTelegramStore = (
             operationError: error instanceof Error ? error.message : "无法更新表情回应",
           });
         }
+      },
+
+      getMessageReactionSenders: async (messageId, type, offset) => {
+        const chatId = get().activeChatId;
+        if (!chatId) throw new Error("当前没有打开的会话");
+        return transport.getMessageReactionSenders({
+          chatId,
+          messageId,
+          type,
+          offset,
+          limit: 100,
+        });
       },
 
       setPollAnswer: async (messageId, optionPositions) => {

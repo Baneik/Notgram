@@ -50,6 +50,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChatJoinRequests",
     "getInternalLinkType",
     "getMessageLinkInfo",
+    "getMessageAddedReactions",
     "getChatAdministrators",
     "getBlockedMessageSenders",
     "getActiveSessions",
@@ -697,6 +698,35 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
             unique.dedup();
             if unique.len() != positions.len() {
                 return Err("Poll option identifiers must be unique".to_string());
+            }
+        }
+        "getMessageAddedReactions" => {
+            validate_message_target(request)?;
+            let offset = request
+                .get("offset")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Reaction pagination offset is missing".to_string())?;
+            let limit = request
+                .get("limit")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Reaction page limit is missing".to_string())?;
+            let reaction = request
+                .get("reaction_type")
+                .and_then(Value::as_object)
+                .ok_or_else(|| "Reaction type is missing".to_string())?;
+            let reaction_valid = match reaction.get("@type").and_then(Value::as_str) {
+                Some("reactionTypeEmoji") => reaction
+                    .get("emoji")
+                    .and_then(Value::as_str)
+                    .is_some_and(|emoji| !emoji.is_empty() && emoji.chars().count() <= 16),
+                Some("reactionTypeCustomEmoji") => reaction
+                    .get("custom_emoji_id")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|id| id > 0),
+                _ => false,
+            };
+            if offset.len() > 256 || !(1..=100).contains(&limit) || !reaction_valid {
+                return Err("Invalid reaction sender pagination".to_string());
             }
         }
         "pinChatMessage" => {
@@ -1984,6 +2014,35 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&local_file).is_err());
+    }
+
+    #[test]
+    fn validates_message_reaction_sender_pagination() {
+        let request = json!({
+            "@type": "getMessageAddedReactions",
+            "chat_id": 7,
+            "message_id": 31,
+            "reaction_type": { "@type": "reactionTypeEmoji", "emoji": "👍" },
+            "offset": "",
+            "limit": 100,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&request).is_ok());
+
+        let mut oversized_page = request.clone();
+        oversized_page["limit"] = json!(101);
+        assert!(validate_webview_tdlib_request(&oversized_page).is_err());
+
+        let mut paid_reaction = request.clone();
+        paid_reaction["reaction_type"] = json!({ "@type": "reactionTypePaid" });
+        assert!(validate_webview_tdlib_request(&paid_reaction).is_err());
+
+        let mut invalid_custom = request.clone();
+        invalid_custom["reaction_type"] = json!({
+            "@type": "reactionTypeCustomEmoji",
+            "custom_emoji_id": 0
+        });
+        assert!(validate_webview_tdlib_request(&invalid_custom).is_err());
     }
 
     #[test]

@@ -33,6 +33,10 @@ const mockBlockedSenderCount = () => {
   return Number.isFinite(value) && value > 0 ? Math.min(value, 50) : undefined;
 };
 
+const mockReactionPreview = () =>
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("reactionPreview");
+
 export const createTelegramTransport = (): TelegramTransport => {
   if (import.meta.env.VITE_TELEGRAM_TRANSPORT === "tauri") {
     return new TauriTelegramTransport();
@@ -46,5 +50,6 @@ export const createTelegramTransport = (): TelegramTransport => {
     connectionStatus: mockConnectionStatus(),
     initialTyping: mockInitialTyping(),
     blockedSenderCount: mockBlockedSenderCount(),
+    reactionPreview: mockReactionPreview(),
   });
 };

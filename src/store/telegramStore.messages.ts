@@ -63,6 +63,7 @@ export const withEmojiReaction = (
   message: Message,
   emoji: string,
   chosen: boolean,
+  senderId?: string,
 ): Message => {
   const interaction = message.interaction ?? {
     viewCount: 0,
@@ -79,13 +80,21 @@ export const withEmojiReaction = (
     if (current.chosen === chosen) return message;
     const totalCount = Math.max(0, current.totalCount + (chosen ? 1 : -1));
     if (totalCount === 0) reactions.splice(index, 1);
-    else reactions[index] = { ...current, chosen, totalCount };
+    else {
+      const recentSenderIds = senderId
+        ? [
+            ...(chosen ? [senderId] : []),
+            ...current.recentSenderIds.filter((id) => id !== senderId),
+          ].slice(0, 3)
+        : current.recentSenderIds;
+      reactions[index] = { ...current, chosen, totalCount, recentSenderIds };
+    }
   } else if (chosen) {
     reactions.push({
       type: { kind: "emoji", emoji },
       totalCount: 1,
       chosen: true,
-      recentSenderIds: [],
+      recentSenderIds: senderId ? [senderId] : [],
     });
   } else {
     return message;

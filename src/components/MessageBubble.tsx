@@ -28,7 +28,14 @@ import {
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
 import { useStableVisibility } from "../hooks/useStableVisibility";
-import type { Message, MessageReaction, MessageReplyQuote } from "../telegram/types";
+import type {
+  Chat,
+  Message,
+  MessageReactionSenderPage,
+  MessageReactionType,
+  MessageReplyQuote,
+  User,
+} from "../telegram/types";
 import { formatCompactCount, formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
@@ -61,6 +68,7 @@ import { formatFileSize, isExecutableFile } from "../utils/fileTransfer";
 import { localMediaSource } from "../media/localMediaSource";
 import { observeLayout } from "../utils/layoutObservation";
 import { MediaSpoiler } from "./Spoiler";
+import { MessageReactions } from "./MessageReactions";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 const INLINE_META_LOWERING_PX = 2.5;
@@ -111,6 +119,11 @@ interface MessageBubbleProps {
   onRetry: (messageId: string) => Promise<void>;
   onCancelUpload: (messageId: string) => Promise<void>;
   onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onLoadReactionSenders: (
+    messageId: string,
+    type: MessageReactionType,
+    offset?: string,
+  ) => Promise<MessageReactionSenderPage>;
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
   onExpandLongText: (messageId: string) => void;
@@ -120,6 +133,8 @@ interface MessageBubbleProps {
   nextAudioPlaybackId?: string;
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
+  users: ReadonlyMap<string, User>;
+  senderChats: ReadonlyMap<string, Chat>;
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string) => void;
   onOpenMedia?: (messageId: string) => void;
@@ -128,12 +143,6 @@ interface MessageBubbleProps {
   autoplayAnimations: boolean;
   autoDownloadPolicy: AutoDownloadPolicy;
 }
-
-const reactionLabel = (reaction: MessageReaction) => {
-  if (reaction.type.kind === "emoji") return reaction.type.emoji;
-  if (reaction.type.kind === "paid") return "★";
-  return "◇";
-};
 
 function MessageBubbleComponent({
   message,
@@ -167,6 +176,7 @@ function MessageBubbleComponent({
   onRetry,
   onCancelUpload,
   onReaction,
+  onLoadReactionSenders,
   onPollAnswer,
   onBotCallback,
   onExpandLongText,
@@ -176,6 +186,8 @@ function MessageBubbleComponent({
   nextAudioPlaybackId,
   onOpenReply,
   onOpenSenderProfile,
+  users,
+  senderChats,
   onOpenMention,
   onSearchHashtag,
   onOpenMedia,
@@ -187,8 +199,6 @@ function MessageBubbleComponent({
   const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
   const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
-  const [reactionPending, setReactionPending] = useState<string>();
-  const showReactionPending = useStableVisibility(Boolean(reactionPending), { minimumVisible: 220 });
   const showDeliveryPending = useStableVisibility(message.delivery === "sending", { minimumVisible: 220 });
   const showSelectionPending = useStableVisibility(selectionPending, { minimumVisible: 220 });
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
@@ -620,16 +630,6 @@ function MessageBubbleComponent({
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
   const reactions = message.interaction?.reactions ?? [];
-
-  const toggleReaction = async (emoji: string, chosen: boolean) => {
-    if (reactionPending) return;
-    setReactionPending(emoji);
-    try {
-      await onReaction(message.id, emoji, chosen);
-    } finally {
-      setReactionPending(undefined);
-    }
-  };
 
   const sendFailureTitle = message.sendFailure?.needAnotherReplyQuote
     ? "引用内容已失效，请重新选择引用后发送"
@@ -1150,6 +1150,18 @@ function MessageBubbleComponent({
             </div>
           )}
           {content.kind !== "text" && !(isVisual && hasCaption) && messageMeta}
+          {!albumItem && !selectionMode && !isService && reactions.length > 0 && (
+            <MessageReactions
+              messageId={message.id}
+              reactions={reactions}
+              canGetAddedReactions={message.interaction?.canGetAddedReactions}
+              users={users}
+              chats={senderChats}
+              onReaction={onReaction}
+              onLoadSenders={onLoadReactionSenders}
+              onOpenSenderProfile={onOpenSenderProfile}
+            />
+          )}
         </div>
         {!albumItem && !selectionMode && message.replyMarkup && (
           <InlineKeyboard
@@ -1158,30 +1170,6 @@ function MessageBubbleComponent({
             onCallback={onBotCallback}
             onOpenUser={onOpenSenderProfile}
           />
-        )}
-        {!albumItem && !selectionMode && !isService && reactions.length > 0 && (
-          <div className="message-reactions">
-            {reactions.map((reaction) => {
-              const label = reactionLabel(reaction);
-              const emoji = reaction.type.kind === "emoji" ? reaction.type.emoji : undefined;
-              return (
-                <button
-                  type="button"
-                  className={reaction.chosen ? "is-chosen" : ""}
-                  key={reaction.type.kind === "customEmoji"
-                    ? reaction.type.customEmojiId
-                    : `${reaction.type.kind}:${label}`}
-                  aria-pressed={reaction.chosen}
-                  aria-label={`${label}，${reaction.totalCount} 个回应`}
-                  disabled={!emoji || reactionPending === emoji}
-                  onClick={() => emoji && void toggleReaction(emoji, !reaction.chosen)}
-                >
-                  {showReactionPending && reactionPending === emoji ? <LoaderCircle className="spin" size={12} /> : label}
-                  <span>{reaction.totalCount}</span>
-                </button>
-              );
-            })}
-          </div>
         )}
         {cornerAction}
       </div>

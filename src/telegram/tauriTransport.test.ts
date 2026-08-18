@@ -2797,6 +2797,45 @@ describe("TauriTelegramTransport message operations", () => {
     });
   });
 
+  it("loads reaction senders through the paged TDLib API", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "addedReactions",
+        total_count: 1,
+        reactions: [{
+          type: { "@type": "reactionTypeEmoji", emoji: "👍" },
+          sender_id: { "@type": "messageSenderUser", user_id: 11 },
+          is_outgoing: false,
+          date: 1_700_000_000,
+        }],
+        next_offset: "",
+      };
+    };
+
+    await expect(transport.getMessageReactionSenders({
+      chatId: "7",
+      messageId: "12",
+      type: { kind: "emoji", emoji: "👍" },
+      offset: "",
+      limit: 50,
+    })).resolves.toMatchObject({
+      totalCount: 1,
+      senders: [{ senderId: "11", type: { kind: "emoji", emoji: "👍" } }],
+    });
+    expect(requests).toEqual([{
+      "@type": "getMessageAddedReactions",
+      chat_id: 7,
+      message_id: 12,
+      reaction_type: { "@type": "reactionTypeEmoji", emoji: "👍" },
+      offset: "",
+      limit: 50,
+    }]);
+  });
+
   it("writes, clears, and publishes chat drafts through the current TDLib schema", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

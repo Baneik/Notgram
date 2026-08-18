@@ -113,6 +113,7 @@ import type {
   SetChatDraftInput,
   SetChatMessageAutoDeleteTimeInput,
   SetMessageReactionInput,
+  GetMessageReactionSendersInput,
   SetPollAnswerInput,
   StorageSettings,
   StickerSet,
@@ -1629,6 +1630,10 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async setMessageReaction(input: SetMessageReactionInput) {
     return this.messageMediaService.setMessageReaction(input);
+  }
+
+  async getMessageReactionSenders(input: GetMessageReactionSendersInput) {
+    return this.messageMediaService.getMessageReactionSenders(input);
   }
 
   async setPollAnswer(input: SetPollAnswerInput) {

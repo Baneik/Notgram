@@ -1879,6 +1879,24 @@ describe("telegram store", () => {
     expect(transport.topicReads.at(-1)).toMatchObject({ chatId: "chat-forum", topicId: "12" });
   });
 
+  it("loads the users behind a message reaction", async () => {
+    const store = createTelegramStore(new MockTelegramTransport({ reactionPreview: true }));
+    await store.getState().initialize();
+    store.getState().selectChat("chat-product");
+
+    await expect(store.getState().getMessageReactionSenders(
+      "p-4",
+      { kind: "emoji", emoji: "👍" },
+    )).resolves.toMatchObject({
+      totalCount: 3,
+      senders: [
+        { senderId: "self" },
+        { senderId: "u-mia" },
+        { senderId: "u-chen" },
+      ],
+    });
+  });
+
   it("preserves forum attention counts when only the message read boundary advances", async () => {
     class TopicReadTransport extends MockTelegramTransport {
       override async markForumTopicRead() {}

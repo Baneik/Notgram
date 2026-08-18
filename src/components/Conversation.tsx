@@ -29,6 +29,8 @@ import type {
   ForumTopic,
   Message,
   MessagePermissions,
+  MessageReactionSenderPage,
+  MessageReactionType,
   MessageReplyQuote,
   MessageTextEntity,
   ForwardMessagesResult,
@@ -209,6 +211,11 @@ interface ConversationProps {
     messageId: string,
   ) => Promise<MessagePermissions | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onGetMessageReactionSenders: (
+    messageId: string,
+    type: MessageReactionType,
+    offset?: string,
+  ) => Promise<MessageReactionSenderPage>;
   onSetPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<import("../telegram/types").CallbackQueryAnswer | undefined>;
   onLoadPinnedMessages: (chatId: string) => Promise<Message[]>;
@@ -289,6 +296,7 @@ export function Conversation({
   onLoadForumTopics,
   onLoadMessageProperties,
   onSetMessageReaction,
+  onGetMessageReactionSenders,
   onSetPollAnswer,
   onBotCallback,
   onLoadPinnedMessages,
@@ -1806,6 +1814,7 @@ export function Conversation({
                         onRetry={onRetryMessage}
                         onCancelUpload={onCancelFileUpload}
                         onReaction={onSetMessageReaction}
+                        onLoadReactionSenders={onGetMessageReactionSenders}
                         onPollAnswer={onSetPollAnswer}
                         onBotCallback={onBotCallback}
                         onExpandLongText={revealMessageStart}
@@ -1817,6 +1826,8 @@ export function Conversation({
                         nextAudioPlaybackId={audioPlaybackNeighborsByMessage.get(message.id)?.nextId}
                         onOpenReply={openMessageInHistory}
                         onOpenSenderProfile={onOpenSenderProfile}
+                        users={users}
+                        senderChats={forwardTargetsById}
                         onOpenMention={onOpenMention}
                         onSearchHashtag={onSearchHashtag}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}

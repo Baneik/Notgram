@@ -8,6 +8,7 @@ import {
   asTdObject,
   asTdObjects,
   mapTdMessageProperties,
+  mapTdMessageReactionSenders,
   tdId,
   tdLocalFilePath,
   tdNumber,
@@ -31,6 +32,7 @@ import type {
   EmojiPickerCatalog,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  GetMessageReactionSendersInput,
   Message,
   MessageDateTimeFormatting,
   MessagePermissions,
@@ -292,6 +294,25 @@ export class TauriMessageMediaService {
       request.update_recent_reactions = true;
     }
     await this.context.request(request);
+  }
+
+  async getMessageReactionSenders(input: GetMessageReactionSendersInput) {
+    if (input.type.kind === "paid") {
+      throw new Error("付费回应不提供成员列表");
+    }
+    const limit = Math.max(1, Math.min(input.limit ?? 100, 100));
+    const reactionType = input.type.kind === "emoji"
+      ? { "@type": "reactionTypeEmoji", emoji: input.type.emoji }
+      : { "@type": "reactionTypeCustomEmoji", custom_emoji_id: numericId(input.type.customEmojiId) };
+    const result = await this.context.request({
+      "@type": "getMessageAddedReactions",
+      chat_id: numericId(input.chatId),
+      message_id: numericId(input.messageId),
+      reaction_type: reactionType,
+      offset: input.offset ?? "",
+      limit,
+    });
+    return mapTdMessageReactionSenders(result);
   }
 
   async setPollAnswer(input: SetPollAnswerInput) {

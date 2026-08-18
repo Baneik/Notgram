@@ -13,6 +13,8 @@ import type {
   GlobalSearchPage,
   SetChatDraftInput,
   SetMessageReactionInput,
+  GetMessageReactionSendersInput,
+  MessageReactionSenderPage,
   SetPollAnswerInput,
   SendFileInput,
   SendFilesInput,
@@ -161,6 +163,9 @@ export interface TelegramTransport {
   getMessage(chatId: string, messageId: string): Promise<Message | undefined>;
   getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
   setMessageReaction(input: SetMessageReactionInput): Promise<void>;
+  getMessageReactionSenders(
+    input: GetMessageReactionSendersInput,
+  ): Promise<MessageReactionSenderPage>;
   setPollAnswer(input: SetPollAnswerInput): Promise<void>;
   getPinnedMessages(chatId: string): Promise<Message[]>;
   pinMessage(input: PinMessageInput): Promise<void>;

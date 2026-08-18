@@ -212,6 +212,7 @@ export function App() {
   const forwardMessages = useTelegramStore((state) => state.forwardMessages);
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
+  const getMessageReactionSenders = useTelegramStore((state) => state.getMessageReactionSenders);
   const setPollAnswer = useTelegramStore((state) => state.setPollAnswer);
   const loadPinnedMessages = useTelegramStore((state) => state.loadPinnedMessages);
   const pinMessage = useTelegramStore((state) => state.pinMessage);
@@ -1611,6 +1612,7 @@ export function App() {
           onLoadForumTopics={loadForumTopics}
           onLoadMessageProperties={loadMessageProperties}
           onSetMessageReaction={setMessageReaction}
+          onGetMessageReactionSenders={getMessageReactionSenders}
           onSetPollAnswer={setPollAnswer}
           onBotCallback={getCallbackQueryAnswer}
           onLoadPinnedMessages={loadPinnedMessages}

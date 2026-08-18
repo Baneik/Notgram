@@ -13,6 +13,7 @@ import type {
   MessageOrigin,
   MessagePermissions,
   MessageReaction,
+  MessageReactionSenderPage,
   MessageReactionType,
   MessageReplyTarget,
   MessageRichBlock,
@@ -1576,7 +1577,8 @@ const mapTdInteraction = (value: unknown): MessageInteraction | undefined => {
   const interaction = asTdObject(value);
   if (!interaction) return undefined;
   const replyInfo = asTdObject(interaction.reply_info);
-  const reactions = asTdObjects(asTdObject(interaction.reactions)?.reactions)
+  const rawReactions = asTdObject(interaction.reactions);
+  const reactions = asTdObjects(rawReactions?.reactions)
     .map(mapTdReaction)
     .filter((reaction): reaction is MessageReaction => Boolean(reaction));
   return {
@@ -1584,6 +1586,31 @@ const mapTdInteraction = (value: unknown): MessageInteraction | undefined => {
     forwardCount: Math.max(0, tdNumber(interaction.forward_count) ?? 0),
     replyCount: Math.max(0, tdNumber(replyInfo?.reply_count) ?? 0),
     reactions,
+    canGetAddedReactions: rawReactions?.can_get_added_reactions === true,
+  };
+};
+
+export const mapTdMessageReactionSenders = (value: unknown): MessageReactionSenderPage => {
+  const page = asTdObject(value);
+  if (!page || page["@type"] !== "addedReactions") {
+    return { totalCount: 0, senders: [] };
+  }
+  return {
+    totalCount: Math.max(0, tdNumber(page.total_count) ?? 0),
+    senders: asTdObjects(page.reactions).flatMap((entry) => {
+      const type = mapTdReactionType(entry.type);
+      const senderId = messageSenderId(entry.sender_id);
+      if (!type || !senderId) return [];
+      return [{
+        senderId,
+        type,
+        outgoing: entry.is_outgoing === true,
+        addedAt: optionalUnixDate(entry.date),
+      }];
+    }),
+    nextOffset: typeof page.next_offset === "string" && page.next_offset
+      ? page.next_offset
+      : undefined,
   };
 };
 

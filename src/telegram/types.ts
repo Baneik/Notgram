@@ -815,11 +815,25 @@ export interface MessageReaction {
   recentSenderIds: string[];
 }
 
+export interface MessageReactionSender {
+  senderId: string;
+  type: MessageReactionType;
+  outgoing: boolean;
+  addedAt?: string;
+}
+
+export interface MessageReactionSenderPage {
+  totalCount: number;
+  senders: MessageReactionSender[];
+  nextOffset?: string;
+}
+
 export interface MessageInteraction {
   viewCount: number;
   forwardCount: number;
   replyCount: number;
   reactions: MessageReaction[];
+  canGetAddedReactions?: boolean;
 }
 
 export interface MessagePermissions {
@@ -1004,6 +1018,14 @@ export interface SetMessageReactionInput {
   messageId: string;
   emoji: string;
   chosen: boolean;
+}
+
+export interface GetMessageReactionSendersInput {
+  chatId: string;
+  messageId: string;
+  type: MessageReactionType;
+  offset?: string;
+  limit?: number;
 }
 
 export interface SetPollAnswerInput {

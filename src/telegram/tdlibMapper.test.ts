@@ -7,6 +7,7 @@ import {
   mapTdMessage,
   mapTdMessageContent,
   mapTdMessageProperties,
+  mapTdMessageReactionSenders,
   mapTdUser,
 } from "./tdlibMapper";
 
@@ -1515,6 +1516,7 @@ describe("TDLib mapper", () => {
         forward_count: 3,
         reply_info: { reply_count: 2 },
         reactions: {
+          can_get_added_reactions: true,
           reactions: [
             {
               type: { "@type": "reactionTypeEmoji", emoji: "👍" },
@@ -1568,6 +1570,7 @@ describe("TDLib mapper", () => {
         viewCount: 12,
         forwardCount: 3,
         replyCount: 2,
+        canGetAddedReactions: true,
         reactions: [
           {
             type: { kind: "emoji", emoji: "👍" },
@@ -1582,6 +1585,45 @@ describe("TDLib mapper", () => {
           },
         ],
       },
+    });
+  });
+
+  it("maps paged message reaction senders", () => {
+    expect(mapTdMessageReactionSenders({
+      "@type": "addedReactions",
+      total_count: 3,
+      reactions: [
+        {
+          type: { "@type": "reactionTypeEmoji", emoji: "🔥" },
+          sender_id: { "@type": "messageSenderUser", user_id: 7 },
+          is_outgoing: true,
+          date: 1_700_000_000,
+        },
+        {
+          type: { "@type": "reactionTypeCustomEmoji", custom_emoji_id: "123456789" },
+          sender_id: { "@type": "messageSenderChat", chat_id: 77 },
+          is_outgoing: false,
+          date: 1_700_000_001,
+        },
+      ],
+      next_offset: "next-page",
+    })).toEqual({
+      totalCount: 3,
+      senders: [
+        {
+          senderId: "7",
+          type: { kind: "emoji", emoji: "🔥" },
+          outgoing: true,
+          addedAt: "2023-11-14T22:13:20.000Z",
+        },
+        {
+          senderId: "chat:77",
+          type: { kind: "customEmoji", customEmojiId: "123456789" },
+          outgoing: false,
+          addedAt: "2023-11-14T22:13:21.000Z",
+        },
+      ],
+      nextOffset: "next-page",
     });
   });
 

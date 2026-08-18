@@ -43,6 +43,8 @@ import type {
   GetChatJoinRequestsInput,
   Message,
   MessagePermissions,
+  MessageReactionSenderPage,
+  MessageReactionType,
   MessageReplyQuote,
   MessageTextEntity,
   ProxySettings,
@@ -234,6 +236,11 @@ export interface TelegramState {
   getPrivacySettingRules: (setting: PrivacySettingKey) => Promise<PrivacyRule[]>;
   setPrivacySettingRules: (setting: PrivacySettingKey, rules: PrivacyRule[]) => Promise<boolean>;
   setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  getMessageReactionSenders: (
+    messageId: string,
+    type: MessageReactionType,
+    offset?: string,
+  ) => Promise<MessageReactionSenderPage>;
   setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   loadPinnedMessages: (chatId: string) => Promise<Message[]>;
   pinMessage: (
