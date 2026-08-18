@@ -633,7 +633,7 @@ function AudioFloatingController() {
                   type="range"
                   min={0}
                   max={1}
-                  step={0.05}
+                  step={0.01}
                   value={playback.muted ? 0 : playback.volume}
                   aria-label="音量"
                   onChange={(event) => audioPlaybackController.setVolume(Number(event.currentTarget.value))}

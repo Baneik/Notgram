@@ -4173,6 +4173,10 @@ test("audio controls remember volume and keep the collapsible player inside the 
   const expandedBounds = await controller.boundingBox();
 
   const volume = controller.getByRole("slider", { name: "音量" });
+  await expect(volume).toHaveAttribute("step", "0.01");
+  const floatingVolumeBounds = await volume.boundingBox();
+  expect(floatingVolumeBounds).not.toBeNull();
+  expect(floatingVolumeBounds!.width).toBeGreaterThanOrEqual(84);
   await volume.fill("0.35");
   await expect(audioEngine).toHaveJSProperty("volume", 0.35);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("notgram.audio.volume")))
@@ -4244,7 +4248,12 @@ test("audio message controls remain inside their bubble at narrow conversation w
   await page.goto("/");
   const audio = page.getByRole("group", { name: "产品语音.m4a" });
   const bubble = audio.locator("xpath=ancestor::*[contains(@class, 'message-bubble')][1]");
+  const volume = audio.getByRole("slider", { name: "音量" });
   await expect(audio).toBeVisible();
+  await expect(volume).toHaveAttribute("step", "0.01");
+  const volumeBounds = await volume.boundingBox();
+  expect(volumeBounds).not.toBeNull();
+  expect(volumeBounds!.width).toBeGreaterThanOrEqual(68);
   const geometry = await audio.evaluate((element) => {
     const bubbleElement = element.closest<HTMLElement>(".message-bubble");
     const player = element.getBoundingClientRect();
