@@ -23,6 +23,8 @@ const NOTIFICATION_WINDOW_MARGIN: f64 = 16.0;
 const MAX_VISIBLE_NOTIFICATIONS: usize = 4;
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_BODY_CHARS: usize = 1_000;
+const MAX_AVATAR_LABEL_CHARS: usize = 8;
+const MAX_AVATAR_PATH_CHARS: usize = 4_096;
 const MAX_ROUTE_ID_CHARS: usize = 256;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -33,11 +35,20 @@ pub struct NotificationRoute {
     message_id: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopNotificationAvatar {
+    label: String,
+    color: String,
+    image_path: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopNotificationRequest {
     title: String,
     body: String,
+    avatar: DesktopNotificationAvatar,
     sound: bool,
     theme_id: String,
     reduce_motion: bool,
@@ -50,6 +61,7 @@ pub struct DesktopNotificationItem {
     id: String,
     title: String,
     body: String,
+    avatar: DesktopNotificationAvatar,
     theme_id: String,
     reduce_motion: bool,
     updated_at_ms: u64,
@@ -109,6 +121,7 @@ impl DesktopNotificationWindowState {
         if let Some(item) = existing {
             item.title = request.title;
             item.body = request.body;
+            item.avatar = request.avatar;
             item.theme_id = request.theme_id;
             item.reduce_motion = request.reduce_motion;
             item.updated_at_ms = timestamp.max(item.updated_at_ms.saturating_add(1));
@@ -123,6 +136,7 @@ impl DesktopNotificationWindowState {
             id: format!("notification-{sequence}"),
             title: request.title,
             body: request.body,
+            avatar: request.avatar,
             theme_id: request.theme_id,
             reduce_motion: request.reduce_motion,
             updated_at_ms: timestamp,
@@ -209,9 +223,34 @@ fn validate_route(route: &NotificationRoute) -> Result<(), String> {
     )
 }
 
+fn validate_avatar(avatar: &DesktopNotificationAvatar) -> Result<(), String> {
+    validate_text(
+        &avatar.label,
+        MAX_AVATAR_LABEL_CHARS,
+        "notification avatar label",
+    )?;
+    let valid_color = avatar.color.len() == 7
+        && avatar.color.starts_with('#')
+        && avatar.color[1..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit());
+    if !valid_color {
+        return Err("invalid notification avatar color".to_string());
+    }
+    if let Some(image_path) = &avatar.image_path {
+        validate_text(
+            image_path,
+            MAX_AVATAR_PATH_CHARS,
+            "notification avatar image path",
+        )?;
+    }
+    Ok(())
+}
+
 fn validate_request(request: &DesktopNotificationRequest) -> Result<(), String> {
     validate_text(&request.title, MAX_TITLE_CHARS, "notification title")?;
     validate_text(&request.body, MAX_BODY_CHARS, "notification body")?;
+    validate_avatar(&request.avatar)?;
     if !matches!(request.theme_id.as_str(), "notgram-light" | "notgram-dark") {
         return Err("invalid notification theme".to_string());
     }
@@ -419,6 +458,11 @@ mod tests {
         DesktopNotificationRequest {
             title: "Notgram".to_string(),
             body: "New message".to_string(),
+            avatar: DesktopNotificationAvatar {
+                label: "N".to_string(),
+                color: "#4e86b0".to_string(),
+                image_path: Some("C:\\avatars\\chat.jpg".to_string()),
+            },
             sound: true,
             theme_id: "notgram-light".to_string(),
             reduce_motion: false,
@@ -457,6 +501,13 @@ mod tests {
             validate_request(&invalid_theme),
             Err("invalid notification theme".to_string())
         );
+
+        let mut invalid_avatar = request();
+        invalid_avatar.avatar.color = "url(bad)".to_string();
+        assert_eq!(
+            validate_request(&invalid_avatar),
+            Err("invalid notification avatar color".to_string())
+        );
     }
 
     #[test]
@@ -474,6 +525,8 @@ mod tests {
         let serialized = serde_json::to_value(item).expect("item should serialize");
         assert_eq!(serialized["themeId"], "notgram-light");
         assert_eq!(serialized["reduceMotion"], false);
+        assert_eq!(serialized["avatar"]["label"], "N");
+        assert_eq!(serialized["avatar"]["imagePath"], "C:\\avatars\\chat.jpg");
         assert!(serialized["updatedAtMs"].is_number());
     }
 

@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 const nativeInvoke = vi.mocked(invoke);
 const nativeListen = vi.mocked(listen);
 const route = { accountId: "default", chatId: "123", messageId: "456" };
+const avatar = { label: "N", color: "#4e86b0", imagePath: "C:\\avatars\\chat.jpg" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -29,6 +30,7 @@ describe("desktop notifications", () => {
     await expect(showDesktopNotification({
       title: "Notgram",
       body: "message",
+      avatar,
       sound: false,
       themeId: "notgram-dark",
       reduceMotion: true,
@@ -38,6 +40,7 @@ describe("desktop notifications", () => {
       notification: {
         title: "Notgram",
         body: "message",
+        avatar,
         sound: false,
         themeId: "notgram-dark",
         reduceMotion: true,
@@ -51,6 +54,7 @@ describe("desktop notifications", () => {
     await expect(showDesktopNotification({
       title: "Notgram",
       body: "message",
+      avatar,
       sound: true,
       themeId: "notgram-light",
       reduceMotion: false,

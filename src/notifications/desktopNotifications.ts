@@ -8,9 +8,16 @@ export interface DesktopNotificationRoute {
   messageId: string;
 }
 
+export interface DesktopNotificationAvatar {
+  label: string;
+  color: string;
+  imagePath?: string;
+}
+
 export interface DesktopNotification {
   title: string;
   body: string;
+  avatar: DesktopNotificationAvatar;
   sound: boolean;
   themeId: ThemeId;
   reduceMotion: boolean;
@@ -47,6 +54,7 @@ export const requestDesktopNotificationPermission = async () => {
 export const showDesktopNotification = async ({
   title,
   body,
+  avatar,
   sound,
   themeId,
   reduceMotion,
@@ -54,7 +62,7 @@ export const showDesktopNotification = async ({
 }: DesktopNotification) => {
   try {
     await invoke("notgram_show_notification", {
-      notification: { title, body, sound, themeId, reduceMotion, route },
+      notification: { title, body, avatar, sound, themeId, reduceMotion, route },
     });
     return true;
   } catch {

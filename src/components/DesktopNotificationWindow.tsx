@@ -1,4 +1,5 @@
 import { Bell, X } from "lucide-react";
+import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
   memo,
   useCallback,
@@ -9,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { applyThemeToDocument } from "../theme/theme";
+import { StableImage } from "./StableImage";
 import { motionDuration, motionLifecycleTiming } from "../utils/motionTokens";
 import {
   dismissDesktopNotificationWindowItem,
@@ -39,8 +41,15 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
 }: DesktopNotificationCardProps) {
   const itemRef = useRef(item);
   itemRef.current = item;
+  const [failedAvatarSource, setFailedAvatarSource] = useState<string>();
+  const avatarSource = item.avatar.imagePath
+    ? isTauri() ? convertFileSrc(item.avatar.imagePath) : item.avatar.imagePath
+    : undefined;
   const handleOpen = useCallback(() => onOpen(item), [item, onOpen]);
   const handleDismiss = useCallback(() => onDismiss(item), [item, onDismiss]);
+  const handleAvatarError = useCallback(() => {
+    if (avatarSource) setFailedAvatarSource(avatarSource);
+  }, [avatarSource]);
 
   useEffect(() => {
     if (exiting) return;
@@ -81,6 +90,23 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
         aria-label={`打开 ${item.title} 的消息`}
         onClick={handleOpen}
       >
+        <span
+          className="desktop-notification-avatar avatar"
+          style={{ backgroundColor: item.avatar.color }}
+          aria-hidden="true"
+        >
+          <span>{item.avatar.label}</span>
+          {avatarSource && avatarSource !== failedAvatarSource ? (
+            <StableImage
+              key={avatarSource}
+              src={avatarSource}
+              alt=""
+              loading="eager"
+              decoding="async"
+              onError={handleAvatarError}
+            />
+          ) : null}
+        </span>
         <span className="desktop-notification-copy">
           <strong>{item.title}</strong>
           <span className="desktop-notification-message" key={item.updatedAtMs}>{item.body}</span>

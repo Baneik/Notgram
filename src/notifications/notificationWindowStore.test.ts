@@ -10,6 +10,7 @@ const item = {
   id: "notification-1",
   title: "产品讨论",
   body: "设计稿已经更新",
+  avatar: { label: "产", color: "#4e86b0", imagePath: "C:\\avatars\\product.jpg" },
   themeId: "notgram-dark",
   reduceMotion: false,
   updatedAtMs: 1234,
@@ -25,6 +26,10 @@ describe("desktop notification window store", () => {
     expect(parseDesktopNotificationWindowItem(item)).toEqual(item);
     expect(parseDesktopNotificationWindowItem({ ...item, themeId: "unknown" })).toBeUndefined();
     expect(parseDesktopNotificationWindowItem({ ...item, updatedAtMs: Number.NaN })).toBeUndefined();
+    expect(parseDesktopNotificationWindowItem({
+      ...item,
+      avatar: { ...item.avatar, color: "url(bad)" },
+    })).toBeUndefined();
     expect(parseDesktopNotificationWindowItem({ ...item, route: { chatId: "missing" } }))
       .toBeUndefined();
   });

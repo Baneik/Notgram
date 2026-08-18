@@ -35,5 +35,5 @@ export const motionLifecycleTiming = {
   transientIndicatorHold: 1_200,
   smoothScrollFallback: 1_440,
   snapshotMaximum: 1_500,
-  desktopNotificationIdle: 5_000,
+  desktopNotificationIdle: 10_000,
 } as const;

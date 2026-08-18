@@ -344,6 +344,13 @@ export function App() {
         });
         void showDesktopNotification({
           ...presentation,
+          avatar: preferences.notificationPreview && chat
+            ? {
+                label: chat.avatar.label,
+                color: chat.avatar.color,
+                imagePath: chat.avatar.imagePath,
+              }
+            : { label: "N", color: "#4e86b0" },
           sound: preferences.notificationSound,
           themeId: preferences.themeId,
           reduceMotion: preferences.effectiveReduceMotion,

@@ -1,6 +1,7 @@
 import { isThemeId, type ThemeId } from "../theme/theme";
 import {
   parseDesktopNotificationRoute,
+  type DesktopNotificationAvatar,
   type DesktopNotificationRoute,
 } from "./desktopNotifications";
 
@@ -8,6 +9,7 @@ export interface DesktopNotificationWindowItem {
   id: string;
   title: string;
   body: string;
+  avatar: DesktopNotificationAvatar;
   themeId: ThemeId;
   reduceMotion: boolean;
   updatedAtMs: number;
@@ -24,16 +26,36 @@ type NotificationWindowListener = () => void;
 const isBoundedText = (value: unknown, maximum: number): value is string =>
   typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
 
+const parseDesktopNotificationAvatar = (
+  value: unknown,
+): DesktopNotificationAvatar | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<DesktopNotificationAvatar>;
+  if (
+    !isBoundedText(candidate.label, 8) ||
+    typeof candidate.color !== "string" ||
+    !/^#[\da-f]{6}$/i.test(candidate.color) ||
+    (candidate.imagePath !== undefined && !isBoundedText(candidate.imagePath, 4_096))
+  ) return undefined;
+  return {
+    label: candidate.label,
+    color: candidate.color,
+    ...(candidate.imagePath ? { imagePath: candidate.imagePath } : {}),
+  };
+};
+
 export const parseDesktopNotificationWindowItem = (
   value: unknown,
 ): DesktopNotificationWindowItem | undefined => {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<DesktopNotificationWindowItem>;
   const route = parseDesktopNotificationRoute(candidate.route);
+  const avatar = parseDesktopNotificationAvatar(candidate.avatar);
   if (
     !isBoundedText(candidate.id, 64) ||
     !isBoundedText(candidate.title, 200) ||
     !isBoundedText(candidate.body, 1_000) ||
+    !avatar ||
     !isThemeId(candidate.themeId) ||
     typeof candidate.reduceMotion !== "boolean" ||
     typeof candidate.updatedAtMs !== "number" ||
@@ -45,6 +67,7 @@ export const parseDesktopNotificationWindowItem = (
     id: candidate.id,
     title: candidate.title,
     body: candidate.body,
+    avatar,
     themeId: candidate.themeId,
     reduceMotion: candidate.reduceMotion,
     updatedAtMs: candidate.updatedAtMs,
