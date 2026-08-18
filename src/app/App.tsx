@@ -829,10 +829,13 @@ export function App() {
     });
   }, [beginConversationSnapshot, captureConversationLocation, closeSearch, issueConversationScrollRequest, locationForChat, recordConversationNavigation, syncConversationNavigation]);
 
-  const executeBotStart = useCallback(async (request: PendingBotStart) => {
+  const executeBotStart = useCallback(async (
+    request: PendingBotStart,
+    showProgress = true,
+  ) => {
     if (botStartSendingRef.current) return false;
     botStartSendingRef.current = true;
-    setBotStartSending(true);
+    if (showProgress) setBotStartSending(true);
     try {
       const sent = await sendBotStartMessage(
         request.chatId,
@@ -847,7 +850,7 @@ export function App() {
       return sent;
     } finally {
       botStartSendingRef.current = false;
-      setBotStartSending(false);
+      if (showProgress) setBotStartSending(false);
     }
   }, [sendBotStartMessage]);
 
@@ -959,9 +962,16 @@ export function App() {
           accountId: telegramStore.getState().activeAccountId,
           requestId: ++botStartRequestIdRef.current,
         };
-        setPendingBotStart(request);
+        setPendingBotStart(detail.autostart ? undefined : request);
         openGlobalSearchChat(detail.chatId, true);
-        if (detail.autostart) void executeBotStart(request);
+        if (detail.autostart) {
+          void executeBotStart(request, false).then((sent) => {
+            if (sent || telegramStore.getState().activeAccountId !== request.accountId) return;
+            setPendingBotStart((current) => !current || current.requestId <= request.requestId
+              ? request
+              : current);
+          });
+        }
         return;
       }
       if (detail && isTelegramUserLink(detail)) {

@@ -2706,10 +2706,27 @@ test("opens parameterized bot links and preserves the start payload", async ({ p
   await expect(page.getByRole("button", { name: "启动机器人" })).toHaveCount(0);
 
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  await page.evaluate(() => {
+    document.documentElement.dataset.botStartMounted = "false";
+    const observer = new MutationObserver(() => {
+      if (document.querySelector(".bot-start-bar")) {
+        document.documentElement.dataset.botStartMounted = "true";
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    (globalThis as typeof globalThis & { botStartObserver?: MutationObserver }).botStartObserver = observer;
+  });
   await expect(openBotLink("tg://resolve?domain=notgram_bot&start=verify_A1b2-token"))
     .resolves.toBe(true);
   await expect(botMessages).toHaveCount(2);
+  await expect(page.locator("html")).toHaveAttribute("data-bot-start-mounted", "false");
   await expect(page.getByRole("button", { name: "启动机器人" })).toHaveCount(0);
+  await page.evaluate(() => {
+    const target = globalThis as typeof globalThis & { botStartObserver?: MutationObserver };
+    target.botStartObserver?.disconnect();
+    delete target.botStartObserver;
+    delete document.documentElement.dataset.botStartMounted;
+  });
 });
 
 test("long text uses configurable line folding and expands from its start", async ({ page }) => {
