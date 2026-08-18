@@ -2,11 +2,29 @@ export interface MessageNotificationContext {
   outgoing: boolean;
   notificationsEnabled: boolean;
   muted: boolean;
+  activeConversation: boolean;
+  appVisible: boolean;
   messageId?: string;
   sentAt?: string;
   lastReadInboxMessageId?: string;
   notBeforeMs?: number;
 }
+
+export const isMessageInActiveConversation = ({
+  messageChatId,
+  messageTopicId,
+  activeChatId,
+  activeTopicId,
+  forum,
+}: {
+  messageChatId: string;
+  messageTopicId?: string;
+  activeChatId?: string;
+  activeTopicId?: string;
+  forum: boolean;
+}) => messageChatId === activeChatId && (
+  !forum || (Boolean(activeTopicId) && messageTopicId === activeTopicId)
+);
 
 const isAtOrBeforeReadCursor = (messageId?: string, lastReadMessageId?: string) => {
   if (!messageId || !lastReadMessageId) return false;
@@ -25,6 +43,8 @@ export const shouldNotifyMessage = ({
   outgoing,
   notificationsEnabled,
   muted,
+  activeConversation,
+  appVisible,
   messageId,
   sentAt,
   lastReadInboxMessageId,
@@ -33,6 +53,7 @@ export const shouldNotifyMessage = ({
   notificationsEnabled &&
   !outgoing &&
   !muted &&
+  !(activeConversation && appVisible) &&
   !isAtOrBeforeReadCursor(messageId, lastReadInboxMessageId) &&
   !predatesNotificationSession(sentAt, notBeforeMs);
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isMessageInActiveConversation,
   notificationPresentation,
   shouldNotifyMessage,
 } from "./messageNotificationPolicy";
@@ -8,6 +9,8 @@ const incomingMessage = {
   outgoing: false,
   notificationsEnabled: true,
   muted: false,
+  activeConversation: false,
+  appVisible: true,
   messageId: "120",
   sentAt: "2026-08-19T02:30:00.000Z",
   lastReadInboxMessageId: "119",
@@ -19,13 +22,61 @@ describe("message notification policy", () => {
     expect(shouldNotifyMessage(incomingMessage)).toBe(true);
   });
 
-  it("suppresses only outgoing, globally disabled, and explicitly muted messages", () => {
+  it("suppresses outgoing, globally disabled, explicitly muted, and visible active messages", () => {
     expect(shouldNotifyMessage({ ...incomingMessage, outgoing: true })).toBe(false);
     expect(shouldNotifyMessage({
       ...incomingMessage,
       notificationsEnabled: false,
     })).toBe(false);
     expect(shouldNotifyMessage({ ...incomingMessage, muted: true })).toBe(false);
+    expect(shouldNotifyMessage({
+      ...incomingMessage,
+      activeConversation: true,
+    })).toBe(false);
+  });
+
+  it("still notifies for the selected conversation while the app is hidden", () => {
+    expect(shouldNotifyMessage({
+      ...incomingMessage,
+      activeConversation: true,
+      appVisible: false,
+    })).toBe(true);
+  });
+
+  it("matches only the displayed topic inside forum conversations", () => {
+    expect(isMessageInActiveConversation({
+      messageChatId: "forum",
+      messageTopicId: "topic-a",
+      activeChatId: "forum",
+      activeTopicId: "topic-a",
+      forum: true,
+    })).toBe(true);
+    expect(isMessageInActiveConversation({
+      messageChatId: "forum",
+      messageTopicId: "topic-b",
+      activeChatId: "forum",
+      activeTopicId: "topic-a",
+      forum: true,
+    })).toBe(false);
+    expect(isMessageInActiveConversation({
+      messageChatId: "forum",
+      messageTopicId: "topic-a",
+      activeChatId: "forum",
+      forum: true,
+    })).toBe(false);
+  });
+
+  it("matches a selected non-forum chat without a topic", () => {
+    expect(isMessageInActiveConversation({
+      messageChatId: "direct",
+      activeChatId: "direct",
+      forum: false,
+    })).toBe(true);
+    expect(isMessageInActiveConversation({
+      messageChatId: "other",
+      activeChatId: "direct",
+      forum: false,
+    })).toBe(false);
   });
 
   it("suppresses messages already covered by the Telegram read cursor", () => {

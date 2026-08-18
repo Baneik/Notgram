@@ -35,6 +35,7 @@ import {
   type DesktopNotificationRoute,
 } from "../notifications/desktopNotifications";
 import {
+  isMessageInActiveConversation,
   notificationPresentation,
   shouldNotifyMessage,
 } from "../notifications/messageNotificationPolicy";
@@ -332,6 +333,14 @@ export function App() {
           outgoing: message.outgoing,
           notificationsEnabled: preferences.notificationsEnabled,
           muted: topic?.muted ?? chat?.muted ?? false,
+          activeConversation: isMessageInActiveConversation({
+            messageChatId: message.chatId,
+            messageTopicId: message.topicId,
+            activeChatId: state.activeChatId,
+            activeTopicId: state.activeTopicId,
+            forum: chat?.isForum ?? false,
+          }),
+          appVisible: document.visibilityState === "visible",
           messageId: message.id,
           sentAt: message.sentAt,
           lastReadInboxMessageId: topic?.lastReadInboxMessageId ?? chat?.lastReadInboxMessageId,
