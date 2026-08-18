@@ -20,6 +20,8 @@ if (-not $DestinationRoot) {
 $resolvedDestinationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
 $releaseDirectory = Join-Path $repositoryRoot "src-tauri\target\release"
 $executable = Join-Path $releaseDirectory "notgram.exe"
+$appResourcesSource = Join-Path $releaseDirectory "resources"
+$notificationSoundSource = Join-Path $appResourcesSource "sounds\notification.mp3"
 $runtimeSource = Join-Path $releaseDirectory "tdlib"
 $version = (Get-Content -LiteralPath (Join-Path $repositoryRoot "version.json") -Raw | ConvertFrom-Json).version
 $releasePolicyPath = Join-Path $repositoryRoot "release-policy.json"
@@ -79,7 +81,7 @@ if (-not $SkipBuild) {
     }
 }
 
-foreach ($requiredPath in @($executable, (Join-Path $runtimeSource "tdjson.dll"))) {
+foreach ($requiredPath in @($executable, $notificationSoundSource, (Join-Path $runtimeSource "tdjson.dll"))) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Release build output is missing: $requiredPath"
     }
@@ -102,6 +104,7 @@ if ($usingDefaultDestination -and (Test-Path -LiteralPath $resolvedDestinationRo
 New-Item -ItemType Directory -Path $resolvedDestinationRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $portableDirectory -Force | Out-Null
 Copy-Item -LiteralPath $executable -Destination (Join-Path $portableDirectory "Notgram.exe")
+Copy-Item -LiteralPath $appResourcesSource -Destination $portableDirectory -Recurse
 Copy-Item -LiteralPath $runtimeSource -Destination $portableDirectory -Recurse
 Copy-Item -LiteralPath $releasePolicyPath -Destination (Join-Path $portableDirectory "RELEASE-POLICY.json")
 [System.IO.File]::WriteAllText(

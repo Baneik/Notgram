@@ -26,6 +26,13 @@ const MAX_BODY_CHARS: usize = 1_000;
 const MAX_AVATAR_LABEL_CHARS: usize = 8;
 const MAX_AVATAR_PATH_CHARS: usize = 4_096;
 const MAX_ROUTE_ID_CHARS: usize = 256;
+#[cfg(windows)]
+const NOTIFICATION_SOUND_RESOURCE: &str = "resources/sounds/notification.mp3";
+#[cfg(windows)]
+const NOTIFICATION_SOUND_ALIAS: &str = "notgram_notification_sound";
+
+#[cfg(windows)]
+static NOTIFICATION_SOUND_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -370,17 +377,55 @@ fn open_notification_route(app: &AppHandle, route: &NotificationRoute) {
 }
 
 #[cfg(windows)]
-fn play_notification_sound() {
+fn send_mci_command(command: &str) -> u32 {
+    use windows::{Win32::Media::Multimedia::mciSendStringW, core::HSTRING};
+
+    let command = HSTRING::from(command);
+    unsafe { mciSendStringW(&command, None, None) }
+}
+
+#[cfg(windows)]
+fn try_play_notification_sound(app: &AppHandle) -> bool {
+    let Ok(_guard) = NOTIFICATION_SOUND_LOCK.lock() else {
+        return false;
+    };
+    let Ok(resource_directory) = app.path().resource_dir() else {
+        return false;
+    };
+    let sound_path = resource_directory.join(NOTIFICATION_SOUND_RESOURCE);
+    if !sound_path.is_file() {
+        return false;
+    }
+
+    let _ = send_mci_command(&format!("close {NOTIFICATION_SOUND_ALIAS}"));
+    let open_command = format!(
+        "open \"{}\" type mpegvideo alias {NOTIFICATION_SOUND_ALIAS}",
+        sound_path.display()
+    );
+    if send_mci_command(&open_command) != 0 {
+        return false;
+    }
+    if send_mci_command(&format!("play {NOTIFICATION_SOUND_ALIAS}")) == 0 {
+        return true;
+    }
+
+    let _ = send_mci_command(&format!("close {NOTIFICATION_SOUND_ALIAS}"));
+    false
+}
+
+#[cfg(windows)]
+fn play_notification_sound(app: &AppHandle) {
     use windows::Win32::{
         System::Diagnostics::Debug::MessageBeep, UI::WindowsAndMessaging::MB_ICONASTERISK,
     };
 
-    // MessageBeep only queues the user's configured Windows alert sound.
-    let _ = unsafe { MessageBeep(MB_ICONASTERISK) };
+    if !try_play_notification_sound(app) {
+        let _ = unsafe { MessageBeep(MB_ICONASTERISK) };
+    }
 }
 
 #[cfg(not(windows))]
-fn play_notification_sound() {}
+fn play_notification_sound(_app: &AppHandle) {}
 
 #[tauri::command]
 pub async fn notgram_show_notification(
@@ -398,7 +443,7 @@ pub async fn notgram_show_notification(
     let snapshot = state.snapshot()?;
     emit_snapshot(&app, &snapshot);
     if sound {
-        play_notification_sound();
+        play_notification_sound(&app);
     }
     Ok(())
 }

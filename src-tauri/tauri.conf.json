@@ -43,6 +43,7 @@
     ],
     "shortDescription": "A focused third-party Telegram client",
     "resources": [
+      "resources/sounds/notification.mp3",
       "tdlib/*",
       "tdlib/licenses/*"
     ],
