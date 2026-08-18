@@ -2689,6 +2689,29 @@ test("renders and activates TDLib inline bot keyboards", async ({ page }) => {
   await expect(keyboard.getByRole("status")).toHaveText("机器人已处理操作");
 });
 
+test("opens parameterized bot links and preserves the start payload", async ({ page }) => {
+  await page.goto("/");
+  const openBotLink = (url: string) => page.evaluate(async (targetUrl) => {
+    const modulePath = "/src/utils/externalLinks.ts";
+    const { openTelegramLinkInApp } = await import(/* @vite-ignore */ modulePath);
+    return openTelegramLinkInApp(targetUrl);
+  }, url);
+
+  await expect(openBotLink("https://t.me/notgram_bot?start=verify_A1b2-token"))
+    .resolves.toBe(true);
+  await expect(page.getByRole("button", { name: "启动机器人" })).toBeVisible();
+  await page.getByRole("button", { name: "启动机器人" }).click();
+  const botMessages = page.locator(".message-list").getByText("/start verify_A1b2-token", { exact: true });
+  await expect(botMessages).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "启动机器人" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  await expect(openBotLink("tg://resolve?domain=notgram_bot&start=verify_A1b2-token"))
+    .resolves.toBe(true);
+  await expect(botMessages).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "启动机器人" })).toHaveCount(0);
+});
+
 test("long text uses configurable line folding and expands from its start", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /收藏夹/ }).click();

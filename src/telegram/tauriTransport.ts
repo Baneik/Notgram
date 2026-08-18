@@ -1219,7 +1219,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async sendBotStartMessage(chatId: string, botUserId: string, parameter = ""): Promise<void> {
-    await this.request({ "@type": "sendBotStartMessage", bot_user_id: numericId(botUserId), chat_id: numericId(chatId), parameter: parameter.trim().slice(0, 64) });
+    await this.request({ "@type": "sendBotStartMessage", bot_user_id: numericId(botUserId), chat_id: numericId(chatId), parameter });
   }
 
   async getBlockedSenders(): Promise<BlockedSender[]> {
@@ -1319,6 +1319,43 @@ export class TauriTelegramTransport implements TelegramTransport {
     const linkType = typeof rawLinkType?.["@type"] === "string"
       ? rawLinkType["@type"]
       : undefined;
+    if (linkType === "internalLinkTypeBotStart") {
+      const botUsername = typeof rawLinkType?.bot_username === "string"
+        ? rawLinkType.bot_username
+        : "";
+      const parameter = typeof rawLinkType?.start_parameter === "string"
+        ? rawLinkType.start_parameter
+        : "";
+      if (!/^[A-Za-z0-9_]{5,32}$/.test(botUsername)) {
+        return unsupportedTelegramLink(linkType, "Telegram 机器人链接无效");
+      }
+      const rawChat = await this.request({
+        "@type": "searchPublicChat",
+        username: botUsername,
+      }).catch(() => undefined);
+      const chatId = tdId(rawChat?.id);
+      const chatType = asTdObject(rawChat?.type);
+      const botUserId = tdId(chatType?.user_id);
+      if (!rawChat || !chatId || chatType?.["@type"] !== "chatTypePrivate" || !botUserId) {
+        return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 机器人");
+      }
+      const rawUser = this.rawUsers.get(botUserId) ?? await this.request({
+        "@type": "getUser",
+        user_id: numericId(botUserId),
+      }).catch(() => undefined);
+      if (asTdObject(rawUser?.type)?.["@type"] !== "userTypeBot") {
+        return unsupportedTelegramLink(linkType, "链接目标不是 Telegram 机器人");
+      }
+      this.upsertUser(rawUser);
+      this.upsertChat(rawChat);
+      return {
+        kind: "botStart",
+        chatId,
+        botUserId,
+        parameter,
+        autostart: rawLinkType?.autostart === true,
+      };
+    }
     if (linkType === "internalLinkTypeUserPhoneNumber") {
       const phoneNumber = typeof rawLinkType?.phone_number === "string"
         ? rawLinkType.phone_number

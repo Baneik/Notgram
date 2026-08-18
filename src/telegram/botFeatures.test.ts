@@ -18,4 +18,28 @@ describe("bot commands and inline queries", () => {
     expect(internal.snapshot.messages.some((message) => message.content.kind === "text" && message.content.text?.includes("@notgram_bot"))).toBe(true);
     expect(internal.snapshot.messages.some((message) => message.content.kind === "text" && message.content.text === "/start campaign")).toBe(true);
   });
+
+  it("keeps bot deep-link parameters and autostarts known bot chats", async () => {
+    const transport = new MockTelegramTransport();
+    const first = await transport.resolveTelegramLink(
+      "https://t.me/notgram_bot?start=verify_A1b2-token",
+    );
+    expect(first).toMatchObject({
+      kind: "botStart",
+      botUserId: "u-notgram-bot",
+      parameter: "verify_A1b2-token",
+      autostart: false,
+    });
+    if (!first || !("kind" in first) || first.kind !== "botStart") return;
+
+    await transport.sendBotStartMessage(first.chatId, first.botUserId, first.parameter);
+    await expect(transport.resolveTelegramLink(
+      "tg://resolve?domain=notgram_bot&start=verify_A1b2-token",
+    )).resolves.toMatchObject({
+      kind: "botStart",
+      chatId: first.chatId,
+      parameter: "verify_A1b2-token",
+      autostart: true,
+    });
+  });
 });

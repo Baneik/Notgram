@@ -48,6 +48,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getForumTopics",
     "getChatInviteLinks",
     "getChatJoinRequests",
+    "getInternalLinkType",
     "getMessageLinkInfo",
     "getChatAdministrators",
     "getBlockedMessageSenders",
@@ -643,11 +644,16 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid public chat username".to_string());
             }
         }
-        "getMessageLinkInfo" => {
+        "getInternalLinkType" | "getMessageLinkInfo" => {
+            let field = if request_type == "getInternalLinkType" {
+                "link"
+            } else {
+                "url"
+            };
             let url = request
-                .get("url")
+                .get(field)
                 .and_then(Value::as_str)
-                .ok_or_else(|| "Message link is missing".to_string())?;
+                .ok_or_else(|| "Telegram link is missing".to_string())?;
             let lower = url.to_ascii_lowercase();
             if url.len() > 4_096
                 || !(lower.starts_with("https://t.me/")
@@ -655,7 +661,7 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                     || lower.starts_with("https://telegram.dog/")
                     || lower.starts_with("tg:"))
             {
-                return Err("Invalid Telegram message link".to_string());
+                return Err("Invalid Telegram link".to_string());
             }
         }
         "toggleSupergroupIsAllHistoryAvailable" => {
@@ -2397,6 +2403,18 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&start_bot).is_ok());
+        let bot_link = json!({
+            "@type": "getInternalLinkType",
+            "link": "https://t.me/notgram_bot?start=verify_A1b2-token",
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&bot_link).is_ok());
+        let external_link = json!({
+            "@type": "getInternalLinkType",
+            "link": "https://example.com/notgram_bot?start=verify_A1b2-token",
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&external_link).is_err());
 
         let photo = crate::storage::UploadFileInfo {
             path: "C:\\selected\\group.jpg".to_string(),

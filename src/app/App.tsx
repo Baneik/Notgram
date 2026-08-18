@@ -27,7 +27,7 @@ import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/te
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
 import type { Message, TelegramLinkTarget } from "../telegram/types";
-import { isTelegramUserLink } from "../telegram/telegramLinks";
+import { isTelegramBotStartLink, isTelegramUserLink } from "../telegram/telegramLinks";
 import { connectionPresentation } from "../telegram/connectionState";
 import {
   listenForDesktopNotificationOpen,
@@ -88,6 +88,11 @@ const conversationIdentityFor = (chatId: string, topicId?: string) =>
 type PendingConfirmation =
   | { kind: "leaveGroup"; chatId: string; title: string }
   | { kind: "deleteFolder"; folderId: string; title: string };
+
+type PendingBotStart = Extract<TelegramLinkTarget, { kind: "botStart" }> & {
+  accountId: string;
+  requestId: number;
+};
 
 const readSidebarWidth = () => {
   try {
@@ -241,6 +246,10 @@ export function App() {
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [mobileViewport, setMobileViewport] = useState(false);
+  const [pendingBotStart, setPendingBotStart] = useState<PendingBotStart>();
+  const [botStartSending, setBotStartSending] = useState(false);
+  const botStartRequestIdRef = useRef(0);
+  const botStartSendingRef = useRef(false);
   const previousMobileChatOpenRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
@@ -820,6 +829,39 @@ export function App() {
     });
   }, [beginConversationSnapshot, captureConversationLocation, closeSearch, issueConversationScrollRequest, locationForChat, recordConversationNavigation, syncConversationNavigation]);
 
+  const executeBotStart = useCallback(async (request: PendingBotStart) => {
+    if (botStartSendingRef.current) return false;
+    botStartSendingRef.current = true;
+    setBotStartSending(true);
+    try {
+      const sent = await sendBotStartMessage(
+        request.chatId,
+        request.botUserId,
+        request.parameter,
+      );
+      if (sent) {
+        setPendingBotStart((current) => current?.requestId === request.requestId
+          ? undefined
+          : current);
+      }
+      return sent;
+    } finally {
+      botStartSendingRef.current = false;
+      setBotStartSending(false);
+    }
+  }, [sendBotStartMessage]);
+
+  const confirmPendingBotStart = useCallback(() => pendingBotStart
+    ? executeBotStart(pendingBotStart)
+    : Promise.resolve(false), [executeBotStart, pendingBotStart]);
+
+  const botStartAccountRef = useRef(activeAccountId);
+  useEffect(() => {
+    if (botStartAccountRef.current === activeAccountId) return;
+    botStartAccountRef.current = activeAccountId;
+    setPendingBotStart(undefined);
+  }, [activeAccountId]);
+
   const openGlobalSearchMessage = useCallback(async (
     chatId: string,
     messageId: string,
@@ -911,6 +953,17 @@ export function App() {
   useEffect(() => {
     const openTelegramLink = (event: Event) => {
       const detail = (event as CustomEvent<TelegramLinkTarget>).detail;
+      if (detail && isTelegramBotStartLink(detail)) {
+        const request = {
+          ...detail,
+          accountId: telegramStore.getState().activeAccountId,
+          requestId: ++botStartRequestIdRef.current,
+        };
+        setPendingBotStart(request);
+        openGlobalSearchChat(detail.chatId, true);
+        if (detail.autostart) void executeBotStart(request);
+        return;
+      }
       if (detail && isTelegramUserLink(detail)) {
         void loadUserProfile(detail.userId);
         return;
@@ -925,7 +978,7 @@ export function App() {
     };
     globalThis.addEventListener("notgram:telegram-link-opened", openTelegramLink);
     return () => globalThis.removeEventListener("notgram:telegram-link-opened", openTelegramLink);
-  }, [loadUserProfile, openGlobalSearchChat, openGlobalSearchMessage]);
+  }, [executeBotStart, loadUserProfile, openGlobalSearchChat, openGlobalSearchMessage]);
 
   const openProfilePrivateChat = useCallback(async (userId: string) => {
     const chatId = await startPrivateChat(userId);
@@ -1608,6 +1661,9 @@ export function App() {
           onGetInlineResults={getComposerInlineResults}
           onSendInlineResult={sendComposerInlineResult}
           onSendBotStart={sendComposerBotStart}
+          botStartPending={pendingBotStart?.accountId === activeAccountId && pendingBotStart.chatId === activeChatId}
+          botStartSending={pendingBotStart?.accountId === activeAccountId && pendingBotStart.chatId === activeChatId && botStartSending}
+          onConfirmBotStart={confirmPendingBotStart}
           onGetReportOptions={getChatReportOptions}
           onReportChat={reportChat}
           onBack={closeMobileChat}

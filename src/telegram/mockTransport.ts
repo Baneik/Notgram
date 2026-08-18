@@ -1346,7 +1346,7 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async sendBotStartMessage(chatId: string, botUserId: string, parameter = ""): Promise<void> {
-    await this.sendMessage({ chatId, text: `/start${parameter.trim() ? ` ${parameter.trim()}` : ""}` });
+    await this.sendMessage({ chatId, text: `/start${parameter ? ` ${parameter}` : ""}` });
     void botUserId;
   }
 
@@ -1421,6 +1421,34 @@ export class MockTelegramTransport implements TelegramTransport {
     const username = parsed.protocol === "tg:" ? parsed.searchParams.get("domain") : parts[0];
     if (!username) return unsupportedTelegramLink("internalLinkTypeUnknownDeepLink");
     const user = this.snapshot.users.find((candidate) => candidate.username?.toLowerCase() === username.toLowerCase());
+    if (user?.isBot && parsed.searchParams.has("start")) {
+      let privateChat = this.snapshot.chats.find((candidate) => candidate.peerId === user.id);
+      if (!privateChat) {
+        privateChat = {
+          id: `chat:bot:${user.id}`,
+          kind: "direct",
+          folderIds: ["main"],
+          title: user.displayName,
+          avatar: clone(user.avatar),
+          peerId: user.id,
+          preview: "暂无消息",
+          updatedAt: new Date().toISOString(),
+          unreadCount: 0,
+          unreadMentionCount: 0,
+          pinned: false,
+          muted: false,
+        };
+        this.snapshot.chats.push(privateChat);
+        this.listener?.({ type: "chat.upsert", chat: clone(privateChat) });
+      }
+      return {
+        kind: "botStart" as const,
+        chatId: privateChat.id,
+        botUserId: user.id,
+        parameter: parsed.searchParams.get("start") ?? "",
+        autostart: this.snapshot.messages.some((message) => message.chatId === privateChat.id),
+      };
+    }
     if (user) {
       const privateChat = this.snapshot.chats.find((candidate) => candidate.peerId === user.id);
       return privateChat ? { chatId: privateChat.id } : { kind: "user" as const, userId: user.id };

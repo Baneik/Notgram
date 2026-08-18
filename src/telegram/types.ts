@@ -362,6 +362,13 @@ export interface PrivacyRule { kind: PrivacyRuleKind; userIds?: string[]; }
 export type TelegramLinkTarget =
   | { chatId: string; messageId?: string }
   | { kind: "user"; userId: string }
+  | {
+      kind: "botStart";
+      chatId: string;
+      botUserId: string;
+      parameter: string;
+      autostart: boolean;
+    }
   | { kind: "unsupported"; reason: string; linkType?: string };
 
 export interface ProfileMember {

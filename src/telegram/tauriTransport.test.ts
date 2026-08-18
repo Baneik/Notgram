@@ -362,6 +362,61 @@ describe("TauriTelegramTransport startup", () => {
     ]);
   });
 
+  it("resolves bot start links with the exact TDLib start parameter", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getInternalLinkType") {
+        return {
+          "@type": "internalLinkTypeBotStart",
+          bot_username: "notgram_bot",
+          start_parameter: "verify_A1b2-token",
+          autostart: true,
+        };
+      }
+      if (request["@type"] === "searchPublicChat") {
+        return {
+          "@type": "chat",
+          id: 72,
+          title: "Notgram Bot",
+          type: { "@type": "chatTypePrivate", user_id: 901 },
+          positions: [],
+        };
+      }
+      if (request["@type"] === "getUser") {
+        return {
+          "@type": "user",
+          id: 901,
+          first_name: "Notgram",
+          last_name: "Bot",
+          usernames: { active_usernames: ["notgram_bot"] },
+          status: { "@type": "userStatusOnline" },
+          type: { "@type": "userTypeBot" },
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    const target = await transport.resolveTelegramLink(
+      "https://t.me/notgram_bot?start=verify_A1b2-token",
+    );
+
+    expect(target).toEqual({
+      kind: "botStart",
+      chatId: "72",
+      botUserId: "901",
+      parameter: "verify_A1b2-token",
+      autostart: true,
+    });
+    expect(requests.map((request) => request["@type"])).toEqual([
+      "getInternalLinkType",
+      "searchPublicChat",
+      "getUser",
+    ]);
+  });
+
   it("loads complete administrator labels independently of the member page", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as {

@@ -94,3 +94,8 @@ export const isTelegramUserLink = (
   target: TelegramLinkTarget,
 ): target is Extract<TelegramLinkTarget, { kind: "user" }> =>
   "kind" in target && target.kind === "user";
+
+export const isTelegramBotStartLink = (
+  target: TelegramLinkTarget,
+): target is Extract<TelegramLinkTarget, { kind: "botStart" }> =>
+  "kind" in target && target.kind === "botStart";

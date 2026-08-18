@@ -7,6 +7,7 @@ import {
   MoreVertical,
   LoaderCircle,
   Pin,
+  Play,
   X,
 } from "lucide-react";
 import {
@@ -247,6 +248,9 @@ interface ConversationProps {
   onGetInlineResults: (botUsername: string, query: string, offset?: string) => Promise<import("../telegram/types").InlineQueryResultPage | undefined>;
   onSendInlineResult: (botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
   onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
+  botStartPending: boolean;
+  botStartSending: boolean;
+  onConfirmBotStart: () => Promise<boolean>;
   onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<import("../telegram/types").ChatReportOptions | undefined>;
   onReportChat: (input: import("../telegram/types").ReportChatInput) => Promise<boolean>;
   mobileViewport?: boolean;
@@ -320,6 +324,9 @@ export function Conversation({
   onGetInlineResults,
   onSendInlineResult,
   onSendBotStart,
+  botStartPending,
+  botStartSending,
+  onConfirmBotStart,
   onGetReportOptions,
   onReportChat,
   mobileViewport = false,
@@ -2027,6 +2034,22 @@ export function Conversation({
           >
             <Forward size={18} strokeWidth={1.9} />
             转发
+          </button>
+        </div>
+      ) : botStartPending ? (
+        <div className="bot-start-bar">
+          <button
+            className="bot-start-button"
+            type="button"
+            aria-label="启动机器人"
+            title="启动机器人"
+            disabled={botStartSending || (connectionStatus !== "online" && connectionStatus !== "syncing")}
+            onClick={() => void onConfirmBotStart()}
+          >
+            {botStartSending
+              ? <LoaderCircle className="spin" size={18} strokeWidth={1.9} />
+              : <Play size={17} strokeWidth={2} fill="currentColor" />}
+            <span>{botStartSending ? "正在启动" : "开始"}</span>
           </button>
         </div>
       ) : (
