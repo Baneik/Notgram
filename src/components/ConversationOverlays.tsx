@@ -13,6 +13,7 @@ import {
   PinOff,
   PictureInPicture2,
   Reply,
+  Repeat2,
   AtSign,
   MessageCircle,
   Search,
@@ -91,6 +92,7 @@ interface MessageActionMenuProps {
   onReply: () => void;
   onEdit: () => void;
   onForward: () => void;
+  onRepeat?: () => void;
   onDelete: () => void;
   onPin?: () => void;
   onUnpin?: () => void;
@@ -109,6 +111,7 @@ export function MessageActionMenu({
   onReply,
   onEdit,
   onForward,
+  onRepeat,
   onDelete,
   onPin,
   onUnpin,
@@ -128,6 +131,9 @@ export function MessageActionMenu({
   const nativeItems: NativeContextMenuItem[] = permissions ? [
     ...(permissions.canReply ? [{ id: "reply", label: "回复", icon: "reply" as const }] : []),
     ...(permissions.canForward ? [{ id: "forward", label: "转发", icon: "forward" as const }] : []),
+    ...(permissions.canForward && onRepeat
+      ? [{ id: "repeat", label: "复读", icon: "repeat" as const }]
+      : []),
     { id: "copy", label: "复制", icon: "copy" },
     ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
     ...(permissions.canEdit && message.content.kind === "text"
@@ -143,6 +149,7 @@ export function MessageActionMenu({
   ] : [
     { id: "reply", label: "回复", icon: "reply", disabled: true },
     { id: "forward", label: "转发", icon: "forward", disabled: true },
+    ...(onRepeat ? [{ id: "repeat", label: "复读", icon: "repeat" as const, disabled: true }] : []),
     { id: "copy", label: "复制", icon: "copy" },
     ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
     ...(message.content.kind === "text"
@@ -165,6 +172,7 @@ export function MessageActionMenu({
   }, { x: position.left, y: position.top }, (actionId) => {
     if (actionId === "reply") onReply();
     else if (actionId === "forward") onForward();
+    else if (actionId === "repeat") onRepeat?.();
     else if (actionId === "copy") onCopy();
     else if (actionId === "edit") onEdit();
     else if (actionId === "delete") onDelete();
@@ -225,6 +233,12 @@ export function MessageActionMenu({
             <button type="button" role="menuitem" onClick={onForward}>
               <Forward size={16} strokeWidth={1.9} />
               <span>转发</span>
+            </button>
+          )}
+          {permissions.canForward && onRepeat && (
+            <button type="button" role="menuitem" onClick={onRepeat}>
+              <Repeat2 size={16} strokeWidth={1.9} />
+              <span>复读</span>
             </button>
           )}
           <button type="button" role="menuitem" onClick={onCopy}>

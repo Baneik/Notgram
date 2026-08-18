@@ -22,6 +22,7 @@ export type NativeContextMenuIcon =
   | "pin"
   | "play-window"
   | "reply"
+  | "repeat"
   | "search"
   | "trash"
   | "user-plus";

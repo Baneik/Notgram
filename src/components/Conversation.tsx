@@ -1246,6 +1246,18 @@ export function Conversation({
     };
   }, [actionMenu, closeActionMenu]);
 
+  const repeatMessage = useCallback(async (message: Message) => {
+    if (
+      !chat ||
+      chat.kind !== "group" ||
+      topic?.isClosed === true ||
+      message.outgoing ||
+      message.permissions?.canForward !== true
+    ) return;
+    closeActionMenu(false);
+    await onForwardMessages(chat.id, [message.id], chat.id, topic?.id);
+  }, [chat, closeActionMenu, onForwardMessages, topic?.id]);
+
   if (!chat) {
     return (
       <section
@@ -1930,6 +1942,9 @@ export function Conversation({
           onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessage)}
           onForward={() => startForwardSelection(actionMessage)}
+          onRepeat={chat.kind === "group" && topic?.isClosed !== true && !actionMessage.outgoing
+            ? () => void repeatMessage(actionMessage)
+            : undefined}
           onDelete={() => {
             setDeleteTarget(actionMessage);
             setActionMenu(undefined);

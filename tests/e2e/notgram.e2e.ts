@@ -1575,6 +1575,7 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
   const messageList = page.locator(".message-list");
   await expect(messageList).toBeVisible();
   await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect(messageList).not.toHaveClass(/is-history-adjusting/);
   await expect(messageList).not.toHaveClass(/is-scrolling/);
   await expect.poll(() => messageList.evaluate((element) => (
     getComputedStyle(element).scrollbarColor.startsWith("rgba(0, 0, 0, 0)")
@@ -1587,12 +1588,10 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
       contentWidth: content?.getBoundingClientRect().width,
       horizontalOverflow: element.scrollWidth > (element as HTMLElement).offsetWidth,
       overflowX: getComputedStyle(element).overflowX,
-      scrollbarColor: getComputedStyle(element).scrollbarColor,
     };
   });
   expect(idle.overflowX).toBe("hidden");
   expect(idle.horizontalOverflow).toBe(false);
-  expect(idle.scrollbarColor).toContain("rgba(0, 0, 0, 0)");
 
   await messageList.evaluate((element) => {
     element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -160 }));
@@ -1600,16 +1599,17 @@ test("conversation suppresses horizontal scrolling and reveals its vertical scro
     element.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
   await expect(messageList).toHaveClass(/is-scrolling/);
+  await expect.poll(() => messageList.evaluate((element) => (
+    getComputedStyle(element).scrollbarColor.startsWith("rgba(0, 0, 0, 0)")
+  ))).toBe(false);
 
   const scrolling = await messageList.evaluate((element) => ({
     clientWidth: element.clientWidth,
     contentWidth: element.querySelector<HTMLElement>(".message-list-content")
       ?.getBoundingClientRect().width,
-    scrollbarColor: getComputedStyle(element).scrollbarColor,
   }));
   expect(scrolling.clientWidth).toBe(idle.clientWidth);
   expect(scrolling.contentWidth).toBe(idle.contentWidth);
-  expect(scrolling.scrollbarColor).not.toBe(idle.scrollbarColor);
 
   await expect(messageList).not.toHaveClass(/is-scrolling/, { timeout: 2_000 });
   await expect.poll(() => messageList.evaluate((element) => element.clientWidth))
@@ -2873,6 +2873,58 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Escape");
   await expect(reactionMenu).toBeHidden();
   await expect(actionTrigger).toBeFocused();
+});
+
+test("repeat forwards an incoming message directly to the current group only", async ({ page }) => {
+  await page.goto("/");
+
+  const incoming = await revealVirtualMessage(page, "p-4");
+  await incoming.locator(".message-bubble-shell").click({ button: "right" });
+  let menu = page.getByRole("menu", { name: "消息操作" });
+  await expect(menu.getByRole("menuitem").nth(1)).toHaveText("转发");
+  await expect(menu.getByRole("menuitem").nth(2)).toHaveText("复读");
+  await menu.getByRole("menuitem", { name: "复读", exact: true }).click();
+
+  await expect(menu).toBeHidden();
+  await expect(page.getByRole("dialog", { name: /转发 \d+ 条消息/ })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: { getState: () => { messages: Map<string, Message[]> } };
+    };
+    return module.telegramStore.getState().messages.get("chat-product")
+      ?.filter((message) => message.outgoing && message.forwardInfo?.source?.messageId === "p-4")
+      .map((message) => ({ chatId: message.chatId, text: message.content.kind === "text" ? message.content.text : "" }));
+  }, "/src/store/telegramStore.ts")).toEqual([{
+    chatId: "chat-product",
+    text: "我把交互稿更新到最新版本了，下午可以直接走查。",
+  }]);
+
+  const outgoing = await revealVirtualMessage(page, "p-2");
+  await outgoing.locator(".message-bubble-shell").click({ button: "right" });
+  menu = page.getByRole("menu", { name: "消息操作" });
+  await expect(menu.getByRole("menuitem", { name: "复读", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  const directIncoming = await revealVirtualMessage(page, "m-3");
+  await directIncoming.locator(".message-bubble-shell").click({ button: "right" });
+  menu = page.getByRole("menu", { name: "消息操作" });
+  await expect(menu.getByRole("menuitem", { name: "复读", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await page.locator('[data-chat-id="chat-forum"]').click();
+  const forumIncoming = await revealVirtualMessage(page, "forum-general-1");
+  await forumIncoming.locator(".message-bubble-shell").click({ button: "right" });
+  menu = page.getByRole("menu", { name: "消息操作" });
+  await menu.getByRole("menuitem", { name: "复读", exact: true }).click();
+  await expect.poll(() => page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: { getState: () => { messages: Map<string, Message[]> } };
+    };
+    return module.telegramStore.getState().messages.get("chat-forum")
+      ?.find((message) => message.outgoing && message.forwardInfo?.source?.messageId === "forum-general-1")
+      ?.topicId;
+  }, "/src/store/telegramStore.ts")).toBe("1");
 });
 
 test("search paginates, filters the current conversation by member, and opens exact messages", async ({ page }) => {
