@@ -1645,7 +1645,7 @@ test("message viewport reaches the composer and keeps a scrollable bottom gap", 
   )).toBeLessThanOrEqual(0.5);
 });
 
-test("single-click entry restores the server read marker without exposing intermediate jumps", async ({ page }) => {
+test("a 99+ unread entry positions once without exposing intermediate jumps", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await page.evaluate(async (modulePath) => {
@@ -1658,7 +1658,7 @@ test("single-click entry restores the server read marker without exposing interm
     const state = storeModule.telegramStore.getState();
     const chats = new Map(state.chats);
     const chat = chats.get("chat-chen");
-    if (chat) chats.set("chat-chen", { ...chat, unreadCount: 1 });
+    if (chat) chats.set("chat-chen", { ...chat, unreadCount: 120 });
     storeModule.telegramStore.setState({ chats });
   }, "/src/store/telegramStore.ts");
   await page.evaluate(() => {
@@ -1776,6 +1776,17 @@ test("single-click entry restores the server read marker without exposing interm
   expect(result.exposedPositionSpan, JSON.stringify(result.exposedPositions)).toBeLessThanOrEqual(4);
   expect(result.scrollBehavior).toBe("auto");
   expect(result.pseudoOverlayContent).toBe("none");
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      getPerformanceRecords: () => Array<{
+        event: string;
+        details: { navigationKind?: number; missingStageMask?: number };
+      }>;
+    };
+    return module.getPerformanceRecords()
+      .filter((record) => record.event === "ui_conversation_switch")
+      .at(-1)?.details.missingStageMask;
+  }, "/src/utils/performanceMonitor.ts")).toBe(0);
 });
 
 test("conversation switch snapshot preserves the source message geometry", async ({ page }) => {
@@ -6770,6 +6781,109 @@ test("clicking the selected conversation repeatedly converges to its latest mess
   }
 });
 
+test("near and distant latest jumps finish smoothly without a bottom rebound", async ({ page }) => {
+  await page.goto("/");
+  const list = page.locator(".message-list");
+  await expect(list).toHaveAttribute("aria-busy", "false");
+
+  const sampleJump = async (mode: "near" | "far") => page.evaluate(async (jumpMode) => {
+    const element = document.querySelector<HTMLElement>(".message-list")!;
+    const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
+    element.scrollTop = jumpMode === "near"
+      ? Math.max(0, maximum - 180)
+      : Math.max(0, maximum - element.clientHeight * 2);
+    element.dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -120,
+    }));
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    await new Promise<void>((resolve) => requestAnimationFrame(() =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const button = document.querySelector<HTMLButtonElement>(".jump-to-latest");
+    if (!button) throw new Error(`Latest button missing for ${jumpMode} jump`);
+
+    const startedAt = performance.now();
+    const readSample = () => ({
+      elapsed: performance.now() - startedAt,
+      scrollTop: element.scrollTop,
+      distanceBottom: Math.max(
+        0,
+        element.scrollHeight - element.clientHeight - element.scrollTop,
+      ),
+    });
+    const samples: Array<ReturnType<typeof readSample>> = [readSample()];
+    button.click();
+    for (let frame = 0; frame < 55; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      samples.push(readSample());
+    }
+    return { viewportHeight: element.clientHeight, samples };
+  }, mode);
+
+  const near = await sampleJump("near");
+  const far = await sampleJump("far");
+  for (const [mode, result] of [["near", near], ["far", far]] as const) {
+    const distanceDeltas = result.samples.slice(1).map((sample, index) =>
+      sample.distanceBottom - result.samples[index].distanceBottom);
+    expect(
+      distanceDeltas.filter((delta) => delta > 2),
+      `${mode}: ${JSON.stringify(result.samples)}`,
+    ).toHaveLength(0);
+    expect(result.samples.at(-1)?.distanceBottom, mode).toBeLessThanOrEqual(1);
+  }
+
+  const nearDistanceDrops = near.samples.slice(1).map((sample, index) =>
+    near.samples[index].distanceBottom - sample.distanceBottom);
+  expect(Math.max(...nearDistanceDrops)).toBeLessThan(near.viewportHeight * 0.5);
+
+  const farDistanceDrops = far.samples.slice(1).map((sample, index) =>
+    far.samples[index].distanceBottom - sample.distanceBottom);
+  const snapIndex = farDistanceDrops.findIndex((delta) => delta > far.viewportHeight);
+  expect(snapIndex, JSON.stringify(far.samples)).toBeGreaterThanOrEqual(0);
+  expect(
+    farDistanceDrops.slice(snapIndex + 1).filter((delta) => delta > 0.5).length,
+  ).toBeGreaterThan(1);
+
+  const settleTime = (samples: typeof near.samples) => samples.find(
+    (sample, index) => sample.distanceBottom <= 1 &&
+      samples.slice(index, index + 3).every((next) => next.distanceBottom <= 1),
+  )?.elapsed ?? Number.POSITIVE_INFINITY;
+  expect(Math.abs(settleTime(near.samples) - settleTime(far.samples))).toBeLessThan(160);
+});
+
+test("one upward input loads exactly one history page", async ({ page }) => {
+  await page.goto("/");
+  const list = page.locator(".message-list");
+  await expect(list).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { loadMoreHistory: (chatId: string) => Promise<void> };
+        setState: (state: { loadMoreHistory: (chatId: string) => Promise<void> }) => void;
+      };
+    };
+    const original = module.telegramStore.getState().loadMoreHistory;
+    let calls = 0;
+    module.telegramStore.setState({ loadMoreHistory: async (chatId: string) => {
+      calls += 1;
+      return original(chatId);
+    } });
+    Object.assign(globalThis, { __notgramHistoryPageCalls: () => calls });
+  }, "/src/store/telegramStore.ts");
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+  await list.hover();
+  await page.mouse.wheel(0, -10_000);
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramHistoryPageCalls: () => number }
+  ).__notgramHistoryPageCalls())).toBe(1);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramHistoryPageCalls: () => number }
+  ).__notgramHistoryPageCalls())).toBe(1);
+});
+
 test("loading older messages preserves the visible message anchor", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-row").first()).toBeAttached();
@@ -6778,31 +6892,28 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   await expect(list).toHaveAttribute("aria-busy", "false");
   await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
-      MockTelegramTransport: {
-        prototype: {
-          loadChatHistory: (...args: unknown[]) => Promise<unknown>;
-        };
+      telegramStore: {
+        getState: () => { loadMoreHistory: (chatId: string) => Promise<void> };
+        setState: (state: { loadMoreHistory: (chatId: string) => Promise<void> }) => void;
       };
     };
-    const prototype = module.MockTelegramTransport.prototype;
-    const original = prototype.loadChatHistory;
+    const original = module.telegramStore.getState().loadMoreHistory;
     let release: (() => void) | undefined;
-    prototype.loadChatHistory = async function (...args: unknown[]) {
+    module.telegramStore.setState({ loadMoreHistory: async (chatId: string) => {
       await new Promise<void>((resolve) => { release = resolve; });
-      return original.apply(this, args);
-    };
+      return original(chatId);
+    } });
     Object.assign(globalThis, {
+      __notgramHistoryLoadPending: () => Boolean(release),
       __notgramReleaseHistoryLoad: () => release?.(),
     });
-  }, "/src/telegram/mockTransport.ts");
-  await list.evaluate((element) => {
-    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
-    element.scrollTop = 40;
-    element.dispatchEvent(new Event("scroll", { bubbles: true }));
-  });
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-  }));
+  }, "/src/store/telegramStore.ts");
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  await list.hover();
+  await page.mouse.wheel(0, -10_000);
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramHistoryLoadPending: () => boolean }
+  ).__notgramHistoryLoadPending())).toBe(true);
   const before = await list.evaluate((element) => {
     const listBounds = element.getBoundingClientRect();
     const row = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]

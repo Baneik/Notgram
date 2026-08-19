@@ -14,7 +14,7 @@ import type { Message } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
 import { conversationJumpMotion } from "../utils/conversationJumpMotion";
-import { motionLifecycleTiming } from "../utils/motionTokens";
+import { motionDuration } from "../utils/motionTokens";
 import {
   captureConversationJumpSnapshot,
   removeConversationJumpSnapshot,
@@ -50,6 +50,8 @@ import {
 } from "./conversationJumpHistory";
 import {
   advanceBottomReconcile,
+  latestScrollMode,
+  latestScrollProgress,
   startBottomReconcile,
   type BottomReconcileState,
 } from "./conversationBottomState";
@@ -61,8 +63,15 @@ const BOTTOM_WHEEL_GUARD_PX = 13;
 const HISTORY_TRIGGER_PX = 64;
 const BOTTOM_RECONCILE_MAX_FRAMES = 8;
 const BOTTOM_RECONCILE_STABLE_FRAMES = 2;
+const BOTTOM_MOTION_RECONCILE_MAX_FRAMES = 36;
+const BOTTOM_MOTION_RECONCILE_STABLE_FRAMES = BOTTOM_MOTION_RECONCILE_MAX_FRAMES + 1;
 const ANCHOR_RECONCILE_STABLE_FRAMES = 6;
+const CONTENT_ANCHOR_RECONCILE_MAX_FRAMES = 18;
+const CONTENT_ANCHOR_RECONCILE_STABLE_FRAMES = 6;
 const NAVIGATION_RECONCILE_STABLE_FRAMES = 6;
+
+const bottomScrollTop = (element: HTMLElement) =>
+  Math.max(0, element.scrollHeight - element.clientHeight);
 
 type ScrollControlMode = "following" | "detached" | "restoring" | "navigating";
 type UserScrollDirection = "up" | "down";
@@ -83,6 +92,8 @@ interface BottomPinRequest {
   identity: string;
   generation: number;
   mountCommitted: boolean;
+  continuous: boolean;
+  stableFrameCount: number;
   state: BottomReconcileState;
   onSettled: Set<() => void>;
 }
@@ -145,7 +156,6 @@ interface ConversationScrollOptions {
   virtualItemCount: number;
   search: string;
   historyLoading: boolean;
-  historyInitialized: boolean;
   hasOlderMessages: boolean;
   messageCount: number;
   onLoadOlder: () => Promise<void>;
@@ -161,7 +171,6 @@ export const useConversationScroll = ({
   virtualItemCount,
   search,
   historyLoading,
-  historyInitialized,
   hasOlderMessages,
   messageCount,
   onLoadOlder,
@@ -169,6 +178,7 @@ export const useConversationScroll = ({
 }: ConversationScrollOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const messageListRef = useRef<HTMLDivElement>(null);
+  const virtuosoKeyRef = useRef("");
   const [messageListElement, setMessageListElement] = useState<HTMLDivElement | null>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const messageItemIndexesRef = useRef(messageItemIndexes);
@@ -194,9 +204,9 @@ export const useConversationScroll = ({
   const positioningAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningFrameRef = useRef<number | undefined>(undefined);
   const positioningIdentityRef = useRef<string | undefined>(undefined);
-  const smoothScrollTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
-  const smoothScrollCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const smoothScrollFrameRef = useRef<number | undefined>(undefined);
   const smoothScrollUntilRef = useRef(0);
+  const anchorCorrectionUntilRef = useRef(0);
   const userIntentUntilRef = useRef(0);
   const trustedUserIntentUntilRef = useRef(0);
   const userScrollDirectionRef = useRef<UserScrollDirection | undefined>(undefined);
@@ -209,6 +219,7 @@ export const useConversationScroll = ({
   const middleAutoScrollRef = useRef(false);
   const trustedMiddleAutoScrollRef = useRef(false);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
+  const olderLoadArmedRef = useRef(false);
   const handledEntryRequestRef = useRef(0);
   const handledLatestRequestRef = useRef(0);
   const handledMessageRequestRef = useRef(0);
@@ -292,9 +303,11 @@ export const useConversationScroll = ({
     trustedPointerActiveRef.current = false;
     middleAutoScrollRef.current = false;
     trustedMiddleAutoScrollRef.current = false;
+    anchorCorrectionUntilRef.current = 0;
+    olderLoadArmedRef.current = false;
     setJumpHistoryState(currentScrollKey ? { key: currentScrollKey, count: 0 } : undefined);
   }, [currentScrollKey]);
-  const dataPhase = virtualItemCount > 0 ? "ready" : historyLoading ? "loading" : "empty";
+  const dataPhase = virtualItemCount > 0 ? "ready" : "empty";
   const targetPhase = !requestIdentityTargetId
     ? "none"
     : messageItemIndexes.has(requestIdentityTargetId)
@@ -306,11 +319,11 @@ export const useConversationScroll = ({
     matchingLatestRequest?.requestId ?? 0,
     matchingMessageRequest?.requestId ?? 0,
     searchActive ? "search" : "conversation",
-    historyInitialized ? "history-ready" : "history-initial",
     dataPhase,
     targetPhase,
   ].join(":");
   const virtuosoKey = `${currentScrollKey ?? scope}:${searchActive ? "search" : "conversation"}`;
+  virtuosoKeyRef.current = virtuosoKey;
   if (currentScrollKey) {
     conversationLayouts.set(currentScrollKey, {
       firstMessageId: firstVisibleMessageId,
@@ -413,15 +426,10 @@ export const useConversationScroll = ({
 
   const setMessageListRef = useCallback((ref: HTMLElement | Window | null) => {
     const element = ref instanceof HTMLDivElement ? ref : null;
+    if (element) element.dataset.conversationVirtuosoKey = virtuosoKeyRef.current;
     messageListRef.current = element;
     setMessageListElement((current) => current === element ? current : element);
   }, []);
-
-  useLayoutEffect(() => {
-    if (messageListElement) {
-      messageListElement.dataset.conversationVirtuosoKey = virtuosoKey;
-    }
-  }, [messageListElement, virtuosoKey]);
 
   useLayoutEffect(() => {
     if (!messageListElement) {
@@ -468,11 +476,11 @@ export const useConversationScroll = ({
     const element = messageListRef.current;
     if (!element || !currentScrollKey || searchActive) return;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return;
-    const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
-    if (Math.abs(element.scrollTop - maximum) > 0.5) element.scrollTop = maximum;
+    const target = bottomScrollTop(element);
+    if (Math.abs(element.scrollTop - target) > 0.5) element.scrollTop = target;
   }, [currentScrollKey, searchActive]);
 
-  const scheduleBottomPin = useCallback((onSettled?: () => void) => {
+  const scheduleBottomPin = useCallback((onSettled?: () => void, continuous = false) => {
     if (!currentScrollKey || searchActive) return;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return;
     if (performance.now() < smoothScrollUntilRef.current) return;
@@ -499,6 +507,11 @@ export const useConversationScroll = ({
         pendingRequest.mountCommitted = true;
         pinToBottom();
       }
+      if (continuous && !pendingRequest.continuous) {
+        pendingRequest.continuous = true;
+        pendingRequest.stableFrameCount = BOTTOM_MOTION_RECONCILE_STABLE_FRAMES;
+        pendingRequest.state = startBottomReconcile(BOTTOM_MOTION_RECONCILE_MAX_FRAMES);
+      }
       if (onSettled) pendingRequest.onSettled.add(onSettled);
     } else {
       if (bottomFrameRef.current !== undefined) {
@@ -509,7 +522,13 @@ export const useConversationScroll = ({
         identity: control.identity,
         generation: control.generation,
         mountCommitted: false,
-        state: startBottomReconcile(BOTTOM_RECONCILE_MAX_FRAMES),
+        continuous,
+        stableFrameCount: continuous
+          ? BOTTOM_MOTION_RECONCILE_STABLE_FRAMES
+          : BOTTOM_RECONCILE_STABLE_FRAMES,
+        state: startBottomReconcile(
+          continuous ? BOTTOM_MOTION_RECONCILE_MAX_FRAMES : BOTTOM_RECONCILE_MAX_FRAMES,
+        ),
         onSettled: new Set(onSettled ? [onSettled] : []),
       };
     }
@@ -536,6 +555,7 @@ export const useConversationScroll = ({
         request.mountCommitted = true;
         pinToBottom();
       }
+      if (request.continuous) pinToBottom();
       const signature = [
         element.scrollHeight,
         element.clientHeight,
@@ -544,7 +564,7 @@ export const useConversationScroll = ({
       const step = advanceBottomReconcile(
         request.state,
         signature,
-        BOTTOM_RECONCILE_STABLE_FRAMES,
+        request.stableFrameCount,
       );
       request.state = step.state;
       if (step.settled) {
@@ -617,12 +637,10 @@ export const useConversationScroll = ({
       bottomFrameRef.current = undefined;
     }
     bottomPinRequestRef.current = undefined;
-    if (smoothScrollTimerRef.current) {
-      globalThis.clearTimeout(smoothScrollTimerRef.current);
-      smoothScrollTimerRef.current = undefined;
+    if (smoothScrollFrameRef.current !== undefined) {
+      cancelAnimationFrame(smoothScrollFrameRef.current);
+      smoothScrollFrameRef.current = undefined;
     }
-    smoothScrollCleanupRef.current?.();
-    smoothScrollCleanupRef.current = undefined;
     smoothScrollUntilRef.current = 0;
     if (positioningAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(positioningAnchorFrameRef.current);
@@ -691,41 +709,61 @@ export const useConversationScroll = ({
     preparedJumpRef.current = undefined;
     publishJumpHistory(currentScrollKey, []);
     writeMemory(currentScrollKey, element, true, 0, false);
-    if (smoothScrollTimerRef.current) {
-      globalThis.clearTimeout(smoothScrollTimerRef.current);
-      smoothScrollTimerRef.current = undefined;
+    if (smoothScrollFrameRef.current !== undefined) {
+      cancelAnimationFrame(smoothScrollFrameRef.current);
+      smoothScrollFrameRef.current = undefined;
     }
-    smoothScrollCleanupRef.current?.();
-    smoothScrollCleanupRef.current = undefined;
     if (resolvedBehavior === "smooth") {
-      smoothScrollUntilRef.current = performance.now() + motionLifecycleTiming.smoothScrollFallback;
+      // Keep bottom movement under one writer. Virtuoso's smooth animation and
+      // the measurement callback otherwise race and produce the 30-50px rebound.
+      smoothScrollUntilRef.current = Number.POSITIVE_INFINITY;
+      const valid = () => messageListRef.current === element &&
+        scrollControlRef.current.generation === generation &&
+        conversationScrollMemory.get(currentScrollKey)?.followLatest === true;
       const finishSmoothScroll = () => {
-        if (smoothScrollTimerRef.current) {
-          globalThis.clearTimeout(smoothScrollTimerRef.current);
-          smoothScrollTimerRef.current = undefined;
-        }
-        smoothScrollCleanupRef.current?.();
-        smoothScrollCleanupRef.current = undefined;
+        smoothScrollFrameRef.current = undefined;
+        if (!valid()) return;
         smoothScrollUntilRef.current = 0;
-        if (
-          messageListRef.current === element &&
-          scrollControlRef.current.generation === generation &&
-          conversationScrollMemory.get(currentScrollKey)?.followLatest === true
-        ) scheduleBottomPin(options?.onSettled);
+        pinToBottom();
+        scheduleBottomPin(options?.onSettled, true);
       };
-      element.addEventListener("scrollend", finishSmoothScroll, { once: true });
-      smoothScrollCleanupRef.current = () => {
-        element.removeEventListener("scrollend", finishSmoothScroll);
+      const animateSegment = (
+        duration: number,
+        target: () => number,
+        onFinished: () => void,
+      ) => {
+        const startedAt = performance.now();
+        const startTop = element.scrollTop;
+        const animate = (now: number) => {
+          smoothScrollFrameRef.current = undefined;
+          if (!valid()) return;
+          const progress = latestScrollProgress((now - startedAt) / duration);
+          element.scrollTop = startTop + (target() - startTop) * progress;
+          if (progress < 1) smoothScrollFrameRef.current = requestAnimationFrame(animate);
+          else onFinished();
+        };
+        smoothScrollFrameRef.current = requestAnimationFrame(animate);
       };
-      virtuosoRef.current?.scrollToIndex({
-        index: "LAST",
-        align: "end",
-        behavior: "smooth",
-      });
-      smoothScrollTimerRef.current = globalThis.setTimeout(
-        finishSmoothScroll,
-        motionLifecycleTiming.smoothScrollFallback,
-      );
+      const bottomTarget = () => bottomScrollTop(element);
+      const distance = distanceFromBottom(element);
+      if (latestScrollMode(distance, element.clientHeight) === "near") {
+        animateSegment(motionDuration.standard + motionDuration.fast, bottomTarget, finishSmoothScroll);
+      } else {
+        const approachTop = Math.min(
+          bottomTarget(),
+          element.scrollTop + Math.max(120, element.clientHeight * 0.35),
+        );
+        animateSegment(motionDuration.fast, () => approachTop, () => {
+          if (!valid()) return;
+          virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
+          smoothScrollFrameRef.current = requestAnimationFrame(() => {
+            if (!valid()) return;
+            const settleDistance = Math.min(48, Math.max(24, element.clientHeight * 0.05));
+            element.scrollTop = Math.max(0, bottomTarget() - settleDistance);
+            animateSegment(motionDuration.slow, bottomTarget, finishSmoothScroll);
+          });
+        });
+      }
     } else {
       smoothScrollUntilRef.current = 0;
       if (needsConvergence) {
@@ -774,6 +812,9 @@ export const useConversationScroll = ({
     messageId: string,
     expectedOffset: number,
   ) => {
+    const markControlledCorrection = () => {
+      anchorCorrectionUntilRef.current = performance.now() + 120;
+    };
     const correctMountedAnchor = () => {
       const anchor = element.querySelector<HTMLElement>(
         `[data-message-id="${CSS.escape(messageId)}"]`,
@@ -782,12 +823,16 @@ export const useConversationScroll = ({
       const actualOffset = anchor.getBoundingClientRect().top -
         element.getBoundingClientRect().top;
       const correction = actualOffset - expectedOffset;
-      if (Math.abs(correction) > 0.5) element.scrollTop += correction;
+      if (Math.abs(correction) > 0.5) {
+        markControlledCorrection();
+        element.scrollTop += correction;
+      }
       return true;
     };
     if (correctMountedAnchor()) return;
     const itemIndex = messageItemIndexesRef.current.get(messageId);
     if (itemIndex === undefined) return;
+    markControlledCorrection();
     virtuosoRef.current?.scrollToIndex({
       index: itemIndex,
       align: "start",
@@ -862,7 +907,9 @@ export const useConversationScroll = ({
     if (contentAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(contentAnchorFrameRef.current);
     }
-    let remainingFrames = 18;
+    let remainingFrames = CONTENT_ANCHOR_RECONCILE_MAX_FRAMES;
+    let stableFrames = 0;
+    let previousSignature = "";
     const settle = () => {
       contentAnchorFrameRef.current = undefined;
       if (
@@ -870,8 +917,23 @@ export const useConversationScroll = ({
         element.dataset.conversationVirtuosoKey !== expectedVirtuosoKey
       ) return;
       restoreAnchor(element, messageId, expectedOffset);
+      const anchor = element.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(messageId)}"]`,
+      );
+      const actualOffset = anchor
+        ? anchor.getBoundingClientRect().top - element.getBoundingClientRect().top
+        : undefined;
+      const signature = actualOffset === undefined
+        ? "missing"
+        : `${element.scrollHeight}:${element.scrollTop.toFixed(1)}:${actualOffset.toFixed(1)}`;
+      if (actualOffset !== undefined && Math.abs(actualOffset - expectedOffset) <= 1) {
+        stableFrames = signature === previousSignature ? stableFrames + 1 : 1;
+      } else {
+        stableFrames = 0;
+      }
+      previousSignature = signature;
       remainingFrames -= 1;
-      if (remainingFrames > 0) {
+      if (stableFrames < CONTENT_ANCHOR_RECONCILE_STABLE_FRAMES && remainingFrames > 0) {
         contentAnchorFrameRef.current = requestAnimationFrame(settle);
       } else onSettled?.();
     };
@@ -887,9 +949,13 @@ export const useConversationScroll = ({
       historyLoading ||
       !hasOlderMessages ||
       historyLoadKeyRef.current === currentScrollKey
-    ) return;
+    ) return false;
     const anchor = visibleAnchor(element);
-    if (!anchor?.messageId) return;
+    if (!anchor?.messageId) return false;
+    olderLoadArmedRef.current = false;
+    userIntentUntilRef.current = 0;
+    trustedUserIntentUntilRef.current = 0;
+    userScrollDirectionRef.current = undefined;
     if (scrollControlRef.current.identity === initialLocationIdentity) {
       scrollControlRef.current.mode = "detached";
     }
@@ -916,6 +982,7 @@ export const useConversationScroll = ({
         historyLoadKeyRef.current = undefined;
       }
     });
+    return true;
   }, [
     currentScrollKey,
     hasOlderMessages,
@@ -927,11 +994,22 @@ export const useConversationScroll = ({
   ]);
 
   const scheduleOlderLoad = useCallback(() => {
-    if (historyLoadFrameRef.current !== undefined) return;
-    historyLoadFrameRef.current = requestAnimationFrame(() => {
-      historyLoadFrameRef.current = undefined;
-      loadOlder();
-    });
+    if (!olderLoadArmedRef.current || historyLoadFrameRef.current !== undefined) return;
+    let remainingFrames = 4;
+    const attempt = () => {
+      historyLoadFrameRef.current = requestAnimationFrame(() => {
+        historyLoadFrameRef.current = undefined;
+        if (!olderLoadArmedRef.current || loadOlder()) return;
+        const element = messageListRef.current;
+        remainingFrames -= 1;
+        if (
+          remainingFrames > 0 &&
+          element &&
+          element.scrollTop <= HISTORY_TRIGGER_PX
+        ) attempt();
+      });
+    };
+    attempt();
   }, [loadOlder]);
 
   const completePositioning = useCallback((bottomAlreadySettled = false) => {
@@ -1037,6 +1115,19 @@ export const useConversationScroll = ({
       element.dataset.conversationVirtuosoKey !== virtuosoKey
     ) return;
     const bounds = element.getBoundingClientRect();
+    let activeNavigationAnchor: HTMLElement | undefined;
+    if (highlightedMessage?.key === currentScrollKey) {
+      const activeTarget = element.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(highlightedMessage.messageId)}"]`,
+      );
+      if (activeTarget) {
+        const targetBounds = activeTarget.getBoundingClientRect();
+        const targetOffset = (targetBounds.top + targetBounds.bottom) / 2 -
+          (bounds.top + bounds.bottom) / 2;
+        if (Math.abs(targetOffset) > 0.5) element.scrollTop += targetOffset;
+        activeNavigationAnchor = activeTarget;
+      }
+    }
     const destination = element.querySelector<HTMLElement>(
       `[data-message-id="${CSS.escape(destinationMessageId)}"]`,
     );
@@ -1047,11 +1138,12 @@ export const useConversationScroll = ({
         destinationBounds.top < bounds.bottom - 1
       ) return;
     }
-    const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
-      .find((row) => {
-        const rowBounds = row.getBoundingClientRect();
-        return rowBounds.bottom > bounds.top + 1 && rowBounds.top < bounds.bottom - 1;
-      });
+    const anchor = activeNavigationAnchor ??
+      [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+        .find((row) => {
+          const rowBounds = row.getBoundingClientRect();
+          return rowBounds.bottom > bounds.top + 1 && rowBounds.top < bounds.bottom - 1;
+        });
     if (!anchor?.dataset.messageId) return;
     publishJumpHistory(
       currentScrollKey,
@@ -1065,7 +1157,7 @@ export const useConversationScroll = ({
       ),
     );
     preparedJumpRef.current = { key: currentScrollKey, messageId: destinationMessageId };
-  }, [currentScrollKey, publishJumpHistory, virtuosoKey]);
+  }, [currentScrollKey, highlightedMessage, publishJumpHistory, virtuosoKey]);
 
   const revealTarget = useCallback((
     messageId: string,
@@ -1123,7 +1215,19 @@ export const useConversationScroll = ({
         true,
       );
     };
-    let revealTransitionReady: (() => void) | undefined;
+    const publishHighlight = () => {
+      if (!highlight) return;
+      setHighlightedMessage({ key: currentScrollKey, messageId });
+      if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = globalThis.setTimeout(() => {
+        highlightTimerRef.current = undefined;
+        setHighlightedMessage((current) =>
+          current?.key === currentScrollKey && current.messageId === messageId
+            ? undefined
+            : current);
+      }, 1_600);
+    };
+    let revealTransitionReady: ((onReady: () => void) => void) | undefined;
     const settleMountedTarget = () => {
       let remainingFrames = resolvedBehavior === "smooth" ? 36 : 18;
       let stableFrames = 0;
@@ -1154,14 +1258,22 @@ export const useConversationScroll = ({
             (listBounds.top + listBounds.bottom) / 2;
           if (Math.abs(offset) > 0.5) element.scrollTop += offset;
         }
-        revealTransitionReady?.();
-        revealTargetTokenRef.current = undefined;
-        persistTargetPosition();
-        if (scrollControlRef.current.generation === navigationGeneration) {
+        const completeReveal = () => {
+          if (
+            messageListRef.current !== element ||
+            navigationRequestIdentityRef.current !== expectedNavigationIdentity ||
+            revealTargetTokenRef.current !== revealToken ||
+            scrollControlRef.current.generation !== navigationGeneration
+          ) return;
+          publishHighlight();
+          revealTargetTokenRef.current = undefined;
+          persistTargetPosition();
           scrollControlRef.current.mode = "detached";
-        }
-        onSettled?.();
-        completePositioning();
+          onSettled?.();
+          completePositioning();
+        };
+        if (revealTransitionReady) revealTransitionReady(completeReveal);
+        else completeReveal();
       };
       const settle = () => {
         const invalid =
@@ -1191,8 +1303,16 @@ export const useConversationScroll = ({
           });
         }
         const currentScrollTop = element.scrollTop;
-        if (target && Math.abs(currentScrollTop - previousScrollTop) <= 0.5) {
-          stableFrames += 1;
+        const scrollStable = Math.abs(currentScrollTop - previousScrollTop) <= 0.5;
+        if (target && scrollStable) {
+          const listBounds = element.getBoundingClientRect();
+          const targetBounds = target.getBoundingClientRect();
+          const targetOffset = (targetBounds.top + targetBounds.bottom) / 2 -
+            (listBounds.top + listBounds.bottom) / 2;
+          if (Math.abs(targetOffset) > 0.5) {
+            element.scrollTop += targetOffset;
+            stableFrames = 0;
+          } else stableFrames += 1;
         } else {
           stableFrames = 0;
         }
@@ -1235,12 +1355,12 @@ export const useConversationScroll = ({
         clearJumpTransition();
         jumpSnapshotRef.current = { token: revealToken, snapshot };
         element.classList.add("is-jump-transitioning");
-        revealTransitionReady = () => {
+        revealTransitionReady = (onReady) => {
           if (jumpSnapshotRef.current?.token !== revealToken) return;
           clearJumpTransition(revealToken);
           const nextContent = element.querySelector<HTMLElement>(".message-list-content") ?? element;
           const enter = nextContent.animate(motion.enter, motion.enterTiming);
-          void enter.finished.catch(() => undefined);
+          void enter.finished.catch(() => undefined).then(onReady);
         };
         const exit = snapshot.content.animate(motion.exit, motion.exitTiming);
         void exit.finished.catch(() => undefined).then(() => {
@@ -1275,6 +1395,7 @@ export const useConversationScroll = ({
     }
     requestAnimationFrame(() => {
       if (!settleScheduled && revealTargetTokenRef.current === revealToken) {
+        publishHighlight();
         revealTargetTokenRef.current = undefined;
         persistTargetPosition();
         if (scrollControlRef.current.generation === navigationGeneration) {
@@ -1283,17 +1404,6 @@ export const useConversationScroll = ({
         completePositioning();
       }
     });
-    if (highlight) {
-      setHighlightedMessage({ key: currentScrollKey, messageId });
-      if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
-      highlightTimerRef.current = globalThis.setTimeout(() => {
-        highlightTimerRef.current = undefined;
-        setHighlightedMessage((current) =>
-          current?.key === currentScrollKey && current.messageId === messageId
-            ? undefined
-            : current);
-      }, 1_600);
-    }
     return true;
   }, [
     completePositioning,
@@ -1358,6 +1468,15 @@ export const useConversationScroll = ({
       return true;
     }
     stopFollowingLatest();
+    const current = conversationScrollMemory.get(currentScrollKey);
+    conversationScrollMemory.set(currentScrollKey, {
+      scrollTop: element.scrollTop,
+      followLatest: false,
+      lastKnownMessageId: current?.lastKnownMessageId,
+      pendingNewCount: current?.pendingNewCount ?? 0,
+      anchorMessageId: result.anchor.messageId,
+      anchorOffset: result.anchor.offset,
+    });
     settleContentAnchorPosition(
       element,
       result.anchor.messageId,
@@ -1517,23 +1636,28 @@ export const useConversationScroll = ({
     if (
       !matchingLatestRequest ||
       matchingLatestRequest.requestId <= handledLatestRequestRef.current ||
-      !messageListElement
+      !messageListElement ||
+      messageListElement !== messageListRef.current ||
+      messageListElement.dataset.conversationVirtuosoKey !== virtuosoKey
     ) return;
     handledLatestRequestRef.current = matchingLatestRequest.requestId;
     jumpToLatest("auto", true, {
       publishPositioned: false,
       onSettled: () => completePositioning(true),
     });
-  }, [completePositioning, jumpToLatest, matchingLatestRequest, messageListElement]);
+  }, [completePositioning, jumpToLatest, matchingLatestRequest, messageListElement, virtuosoKey]);
 
   useLayoutEffect(() => {
     if (
       !matchingMessageRequest ||
       matchingMessageRequest.requestId <= handledMessageRequestRef.current ||
       !targetReady ||
-      !messageListElement
+      !messageListElement ||
+      messageListElement !== messageListRef.current ||
+      messageListElement.dataset.conversationVirtuosoKey !== virtuosoKey
     ) return;
     const requestId = matchingMessageRequest.requestId;
+    handledMessageRequestRef.current = requestId;
     const prepared = preparedJumpRef.current;
     if (
       prepared && prepared.key === currentScrollKey &&
@@ -1547,14 +1671,15 @@ export const useConversationScroll = ({
       matchingMessageRequest.messageId,
       matchingMessageRequest.behavior ?? "smooth",
       matchingMessageRequest.highlight !== false,
-      () => {
-        handledMessageRequestRef.current = Math.max(
-          handledMessageRequestRef.current,
-          requestId,
-        );
-      },
     );
-  }, [captureJumpAnchor, matchingMessageRequest, messageListElement, revealTarget, targetReady]);
+  }, [
+    captureJumpAnchor,
+    matchingMessageRequest,
+    messageListElement,
+    revealTarget,
+    targetReady,
+    virtuosoKey,
+  ]);
 
   useLayoutEffect(() => {
     if (
@@ -1566,15 +1691,23 @@ export const useConversationScroll = ({
       completePositioning();
       return;
     }
-    if (!targetReady || !messageListElement) return;
+    if (
+      !targetReady ||
+      !messageListElement ||
+      messageListElement !== messageListRef.current ||
+      messageListElement.dataset.conversationVirtuosoKey !== virtuosoKey
+    ) return;
     const requestId = matchingEntryRequest.requestId;
-    revealTarget(matchingEntryRequest.serverMessageId, "auto", false, () => {
-      handledEntryRequestRef.current = Math.max(
-        handledEntryRequestRef.current,
-        requestId,
-      );
-    });
-  }, [completePositioning, matchingEntryRequest, messageListElement, revealTarget, targetReady]);
+    handledEntryRequestRef.current = requestId;
+    revealTarget(matchingEntryRequest.serverMessageId, "auto", false);
+  }, [
+    completePositioning,
+    matchingEntryRequest,
+    messageListElement,
+    revealTarget,
+    targetReady,
+    virtuosoKey,
+  ]);
 
   useLayoutEffect(() => {
     if (!searchActive || !messageListElement) return;
@@ -1665,13 +1798,13 @@ export const useConversationScroll = ({
     positioningIdentityRef.current = undefined;
     removeConversationJumpSnapshot(jumpSnapshotRef.current?.snapshot);
     jumpSnapshotRef.current = undefined;
-    if (smoothScrollTimerRef.current) globalThis.clearTimeout(smoothScrollTimerRef.current);
-    smoothScrollCleanupRef.current?.();
+    if (smoothScrollFrameRef.current !== undefined) cancelAnimationFrame(smoothScrollFrameRef.current);
     if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
   }, []);
 
   const onTotalListHeightChanged = useCallback(() => {
     if (!currentScrollKey || searchActive) return;
+    if (performance.now() < smoothScrollUntilRef.current) return;
     const memory = conversationScrollMemory.get(currentScrollKey);
     const control = scrollControlRef.current;
     if (
@@ -1748,9 +1881,17 @@ export const useConversationScroll = ({
     const element = event.currentTarget;
     const rawDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
     if (event.deltaY !== 0) {
+      anchorCorrectionUntilRef.current = 0;
+      setHighlightedMessage(undefined);
       middleAutoScrollRef.current = false;
       trustedMiddleAutoScrollRef.current = false;
       userScrollDirectionRef.current = event.deltaY < 0 ? "up" : "down";
+      if (
+        event.deltaY < 0 &&
+        !historyLoading &&
+        historyLoadFrameRef.current === undefined &&
+        historyLoadKeyRef.current !== currentScrollKey
+      ) olderLoadArmedRef.current = true;
       userIntentUntilRef.current = performance.now() + 320;
       if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
     }
@@ -1782,6 +1923,7 @@ export const useConversationScroll = ({
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    anchorCorrectionUntilRef.current = 0;
     const wasMiddleAutoScrolling = middleAutoScrollRef.current;
     middleAutoScrollRef.current = false;
     trustedMiddleAutoScrollRef.current = false;
@@ -1867,6 +2009,8 @@ export const useConversationScroll = ({
   }, [releasePointerControl]);
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    anchorCorrectionUntilRef.current = 0;
+    setHighlightedMessage(undefined);
     middleAutoScrollRef.current = false;
     trustedMiddleAutoScrollRef.current = false;
     if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
@@ -1883,6 +2027,11 @@ export const useConversationScroll = ({
     }
     if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
       userScrollDirectionRef.current = "up";
+      if (
+        !historyLoading &&
+        historyLoadFrameRef.current === undefined &&
+        historyLoadKeyRef.current !== currentScrollKey
+      ) olderLoadArmedRef.current = true;
       userIntentUntilRef.current = performance.now() + 320;
       stopFollowingLatest();
     } else if (["ArrowDown", "PageDown", " "].includes(event.key)) {
@@ -1906,6 +2055,10 @@ export const useConversationScroll = ({
       performance.now() <= userIntentUntilRef.current;
     const userInitiated = pointerInitiated || timedIntent;
     if (!userInitiated) return;
+    if (
+      !pointerInitiated &&
+      performance.now() <= anchorCorrectionUntilRef.current
+    ) return;
     const atBottom = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
     const previousScrollTop = userScrollTopRef.current;
     const measuredDirection = previousScrollTop === undefined
@@ -1918,11 +2071,21 @@ export const useConversationScroll = ({
     userScrollTopRef.current = element.scrollTop;
     const direction = timedIntent ? userScrollDirectionRef.current ?? measuredDirection : measuredDirection;
     if (pointerInitiated && measuredDirection) {
+      setHighlightedMessage(undefined);
       if (pointerActiveRef.current) pointerScrolledRef.current = true;
       if (contentAnchorFrameRef.current !== undefined) {
         cancelAnimationFrame(contentAnchorFrameRef.current);
         contentAnchorFrameRef.current = undefined;
       }
+    }
+    if (direction === "up" && pointerInitiated) {
+      if (
+        !historyLoading &&
+        historyLoadFrameRef.current === undefined &&
+        historyLoadKeyRef.current !== currentScrollKey
+      ) olderLoadArmedRef.current = true;
+    } else if (direction === "down") {
+      olderLoadArmedRef.current = false;
     }
     const trustedUserInitiated = trustedPointerActiveRef.current ||
       (middleAutoScroll && trustedMiddleAutoScrollRef.current) ||
@@ -1951,6 +2114,7 @@ export const useConversationScroll = ({
     if (
       element.scrollTop <= HISTORY_TRIGGER_PX &&
       userInitiated &&
+      olderLoadArmedRef.current &&
       hasOlderMessages &&
       !historyLoading
     ) {

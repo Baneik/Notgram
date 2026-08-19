@@ -173,7 +173,6 @@ interface ConversationProps {
   forumTopics: Map<string, ForumTopic[]>;
   users: Map<string, User>;
   historyLoading: boolean;
-  historyInitialized: boolean;
   hasOlderMessages: boolean;
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
@@ -277,7 +276,6 @@ export function Conversation({
   forumTopics,
   users,
   historyLoading,
-  historyInitialized,
   hasOlderMessages,
   connectionStatus,
   queuedMessageCount,
@@ -808,7 +806,6 @@ export function Conversation({
     virtualItemCount: visibleMessageBlocks.length,
     search: pinnedViewOpen ? "" : "",
     historyLoading: pinnedViewOpen ? false : historyLoading,
-    historyInitialized: pinnedViewOpen ? true : historyInitialized,
     hasOlderMessages: pinnedViewOpen ? false : hasOlderMessages,
     messageCount: pinnedViewOpen ? renderedMessages.length : messages.length,
     onLoadOlder: pinnedViewOpen ? async () => undefined : onLoadOlder,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceBottomReconcile,
+  latestScrollMode,
+  latestScrollProgress,
   startBottomReconcile,
 } from "./conversationBottomState";
 
@@ -31,5 +33,18 @@ describe("conversation bottom reconcile state", () => {
     const step = advanceBottomReconcile(state, "1240:800:440", 2);
     expect(step.state.stableFrames).toBe(0);
     expect(step.settled).toBe(false);
+  });
+
+  it("uses one smooth phase near the bottom and two phases for distant content", () => {
+    expect(latestScrollMode(300, 600)).toBe("near");
+    expect(latestScrollMode(751, 600)).toBe("far");
+    expect(latestScrollMode(159, 0)).toBe("near");
+    expect(latestScrollMode(161, 0)).toBe("far");
+  });
+
+  it("eases scroll progress without leaving its normalized range", () => {
+    expect(latestScrollProgress(-1)).toBe(0);
+    expect(latestScrollProgress(0.5)).toBe(0.875);
+    expect(latestScrollProgress(2)).toBe(1);
   });
 });

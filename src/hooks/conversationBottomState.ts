@@ -9,6 +9,20 @@ export interface BottomReconcileStep {
   settled: boolean;
 }
 
+export type LatestScrollMode = "near" | "far";
+
+export const latestScrollMode = (
+  distanceFromBottom: number,
+  viewportHeight: number,
+): LatestScrollMode => distanceFromBottom <= Math.max(160, viewportHeight * 1.25)
+  ? "near"
+  : "far";
+
+export const latestScrollProgress = (elapsed: number) => {
+  const progress = Math.min(1, Math.max(0, elapsed));
+  return 1 - (1 - progress) ** 3;
+};
+
 export const startBottomReconcile = (maxFrames: number): BottomReconcileState => ({
   remainingFrames: Math.max(1, maxFrames),
   stableFrames: 0,
