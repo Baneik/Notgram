@@ -299,6 +299,8 @@ function MessageBubbleComponent({
         },
       )
     : undefined;
+  const reactions = message.interaction?.reactions ?? [];
+  const showReactionFooter = !albumItem && !selectionMode && !isService && reactions.length > 0;
 
   useLayoutEffect(() => {
     setTextExpanded(false);
@@ -318,8 +320,8 @@ function MessageBubbleComponent({
     const measure = () => {
       const text = flow.querySelector<HTMLElement>(".message-rich-text");
       const meta = flow.querySelector<HTMLElement>(".message-meta");
-      if (!text || !meta) return;
-      const isWrappedLayout = flow.classList.contains("is-meta-wrapped");
+      if (!text) return;
+      const isWrappedLayout = Boolean(meta) && flow.classList.contains("is-meta-wrapped");
       if (isWrappedLayout) flow.classList.remove("is-meta-wrapped");
       try {
         const range = document.createRange();
@@ -353,6 +355,11 @@ function MessageBubbleComponent({
             : nextHeight);
         }
 
+        if (!meta) {
+          setMetaWrapped(false);
+          setMetaInlineOffset(0);
+          return;
+        }
         if (textCollapsible) {
           setMetaWrapped(true);
           setMetaInlineOffset(0);
@@ -407,6 +414,7 @@ function MessageBubbleComponent({
     message.delivery,
     message.editedAt,
     message.sentAt,
+    showReactionFooter,
     textCollapsible,
   ]);
   const visualShellStyle = mediaLayout
@@ -629,7 +637,6 @@ function MessageBubbleComponent({
   const selectionDisabled = selectionPending ||
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
-  const reactions = message.interaction?.reactions ?? [];
 
   const sendFailureTitle = message.sendFailure?.needAnotherReplyQuote
     ? "引用内容已失效，请重新选择引用后发送"
@@ -738,7 +745,7 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget);
         }}
       >
-        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""}`}>
+        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             onOpenForwardSource ? (
               <button
@@ -826,7 +833,7 @@ function MessageBubbleComponent({
                   展开全文
                 </button>
               )}
-              {messageMeta}
+              {!showReactionFooter && messageMeta}
             </div>
           ) : content.kind === "rich" ? (
             <RichMessageContent
@@ -1040,7 +1047,7 @@ function MessageBubbleComponent({
                     onOpenMention={onOpenMention}
                     onSearchHashtag={onSearchHashtag}
                   />
-                  {messageMeta}
+                  {!showReactionFooter && messageMeta}
                 </div>
               )}
             </div>
@@ -1149,18 +1156,21 @@ function MessageBubbleComponent({
               )}
             </div>
           )}
-          {content.kind !== "text" && !(isVisual && hasCaption) && messageMeta}
-          {!albumItem && !selectionMode && !isService && reactions.length > 0 && (
-            <MessageReactions
-              messageId={message.id}
-              reactions={reactions}
-              canGetAddedReactions={message.interaction?.canGetAddedReactions}
-              users={users}
-              chats={senderChats}
-              onReaction={onReaction}
-              onLoadSenders={onLoadReactionSenders}
-              onOpenSenderProfile={onOpenSenderProfile}
-            />
+          {content.kind !== "text" && !(isVisual && hasCaption) && !showReactionFooter && messageMeta}
+          {showReactionFooter && (
+            <div className="message-reaction-footer">
+              <MessageReactions
+                messageId={message.id}
+                reactions={reactions}
+                canGetAddedReactions={message.interaction?.canGetAddedReactions}
+                users={users}
+                chats={senderChats}
+                onReaction={onReaction}
+                onLoadSenders={onLoadReactionSenders}
+                onOpenSenderProfile={onOpenSenderProfile}
+              />
+              {messageMeta}
+            </div>
           )}
         </div>
         {!albumItem && !selectionMode && message.replyMarkup && (

@@ -2924,13 +2924,31 @@ test("message reactions stay in the bubble and reveal the reacting users", async
   await expect(reactions).toBeVisible();
   await expect(reactions.locator(":scope > button")).toHaveCount(2);
   await expect(reactions.locator(".message-reaction-avatars .avatar")).toHaveCount(5);
-  expect(await reactions.evaluate((element) => element.parentElement?.classList.contains("message-bubble")))
+  const footer = bubble.locator(":scope > .message-reaction-footer");
+  expect(await footer.evaluate((element) => element.parentElement?.classList.contains("message-bubble")))
     .toBe(true);
-  const layout = await Promise.all([bubble.boundingBox(), reactions.boundingBox()]);
+  await expect(bubble.locator(".message-text-flow .message-meta")).toHaveCount(0);
+  await expect(footer.locator(":scope > .message-meta")).toHaveCount(1);
+  const layout = await Promise.all([
+    bubble.boundingBox(),
+    reactions.boundingBox(),
+    reactions.locator(":scope > button").first().boundingBox(),
+    footer.locator(":scope > .message-meta").boundingBox(),
+  ]);
   expect(layout[0]).not.toBeNull();
   expect(layout[1]).not.toBeNull();
+  expect(layout[2]).not.toBeNull();
+  expect(layout[3]).not.toBeNull();
   expect(layout[1]!.x).toBeGreaterThanOrEqual(layout[0]!.x);
   expect(layout[1]!.x + layout[1]!.width).toBeLessThanOrEqual(layout[0]!.x + layout[0]!.width + 1);
+  expect(Math.abs(layout[2]!.y + layout[2]!.height / 2 - (layout[3]!.y + layout[3]!.height / 2)))
+    .toBeLessThanOrEqual(3);
+  const reactionStyle = await footer.evaluate((element) => ({
+    borderTopStyle: getComputedStyle(element).borderTopStyle,
+    emojiSize: getComputedStyle(element.querySelector(".message-reaction-emoji")!).fontSize,
+  }));
+  expect(reactionStyle.borderTopStyle).toBe("none");
+  expect(Number.parseFloat(reactionStyle.emojiSize)).toBeLessThanOrEqual(14);
 
   const thumbsUp = reactions.getByRole("button", { name: /👍，3 个回应/ });
   await thumbsUp.click({ button: "right" });
@@ -2954,6 +2972,15 @@ test("message reactions stay in the bubble and reveal the reacting users", async
   const updatedThumbsUp = reactions.getByRole("button", { name: /👍，2 个回应/ });
   await expect(updatedThumbsUp).toHaveAttribute("aria-pressed", "false");
   await expect(updatedThumbsUp.locator(".message-reaction-avatars .avatar")).toHaveCount(2);
+
+  const outgoingMessage = await revealVirtualMessage(page, "p-2");
+  await expect(outgoingMessage).toHaveClass(/is-outgoing/);
+  const outgoingBubble = outgoingMessage.locator(".message-bubble");
+  const outgoingReaction = outgoingBubble.locator(".message-reactions > button").first();
+  const outgoingLayout = await Promise.all([outgoingBubble.boundingBox(), outgoingReaction.boundingBox()]);
+  expect(outgoingLayout[0]).not.toBeNull();
+  expect(outgoingLayout[1]).not.toBeNull();
+  expect(outgoingLayout[1]!.x - outgoingLayout[0]!.x).toBeLessThanOrEqual(11);
 });
 
 test("repeat forwards an incoming message directly to the current group only", async ({ page }) => {

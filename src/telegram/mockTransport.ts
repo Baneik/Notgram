@@ -488,6 +488,23 @@ export class MockTelegramTransport implements TelegramTransport {
           ],
         };
       }
+      const outgoingPreviewMessage = this.snapshot.messages.find((message) => message.id === "p-2");
+      if (outgoingPreviewMessage) {
+        outgoingPreviewMessage.interaction = {
+          viewCount: 0,
+          forwardCount: 0,
+          replyCount: 0,
+          canGetAddedReactions: true,
+          reactions: [
+            {
+              type: { kind: "emoji", emoji: "👍" },
+              totalCount: 1,
+              chosen: false,
+              recentSenderIds: ["u-mia"],
+            },
+          ],
+        };
+      }
     }
     for (let index = 0; index < (options.blockedSenderCount ?? 0); index += 1) {
       const sender: BlockedSender = {
