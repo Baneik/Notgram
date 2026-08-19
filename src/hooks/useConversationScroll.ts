@@ -1415,37 +1415,6 @@ export const useConversationScroll = ({
     writeMemory,
   ]);
 
-  const revealMessageStart = useCallback((messageId: string) => {
-    const element = messageListRef.current;
-    if (!element || !currentScrollKey) return;
-    stopFollowingLatest();
-    const current = conversationScrollMemory.get(currentScrollKey);
-    conversationScrollMemory.set(currentScrollKey, {
-      scrollTop: element.scrollTop,
-      followLatest: false,
-      lastKnownMessageId: current?.lastKnownMessageId,
-      pendingNewCount: current?.pendingNewCount ?? 0,
-      anchorMessageId: messageId,
-      anchorOffset: 0,
-    });
-    settleContentAnchorPosition(element, messageId, 0, virtuosoKey, () => {
-      const current = conversationScrollMemory.get(currentScrollKey);
-      writeMemory(
-        currentScrollKey,
-        element,
-        false,
-        current?.pendingNewCount ?? 0,
-        true,
-      );
-    });
-  }, [
-    currentScrollKey,
-    settleContentAnchorPosition,
-    stopFollowingLatest,
-    virtuosoKey,
-    writeMemory,
-  ]);
-
   const revealAttentionMessage = useCallback((messageId: string) => {
     captureJumpAnchor(messageId);
     return revealTarget(messageId, "smooth", true);
@@ -2166,7 +2135,6 @@ export const useConversationScroll = ({
     pinFollowingMessageMount,
     appendMountMessageId,
     revealAttentionMessage,
-    revealMessageStart,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,

@@ -1,11 +1,25 @@
-import { Fragment, lazy, Suspense, type MouseEvent, type ReactNode } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { useTelegramStore } from "../store/telegramStore";
 import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
+import { observeLayout } from "../utils/layoutObservation";
 import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
 import { TextSpoiler, TextSpoilerGroup } from "./Spoiler";
 
 const MarkdownText = lazy(() => import("./MarkdownText"));
+const COLLAPSIBLE_QUOTE_LINE_THRESHOLD = 5;
+const COLLAPSED_QUOTE_LINES = 1.5;
 
 interface MessageRichTextProps {
   text: string;
@@ -221,6 +235,100 @@ const renderInlineRange = (
   });
 };
 
+function CollapsibleBlockQuote({
+  quoteText,
+  resetKey,
+  children,
+}: {
+  quoteText: string;
+  resetKey: string;
+  children: ReactNode;
+}) {
+  const contentRef = useRef<HTMLSpanElement>(null);
+  const [lineCount, setLineCount] = useState(0);
+  const [collapsedHeight, setCollapsedHeight] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = lineCount > COLLAPSIBLE_QUOTE_LINE_THRESHOLD;
+  const collapsed = collapsible && !expanded;
+
+  useLayoutEffect(() => {
+    setExpanded(false);
+  }, [resetKey]);
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const measure = () => {
+      const computed = getComputedStyle(content);
+      const parsedLineHeight = Number.parseFloat(computed.lineHeight);
+      const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
+        ? parsedLineHeight
+        : Number.parseFloat(computed.fontSize) * 1.48;
+      const range = document.createRange();
+      range.selectNodeContents(content);
+      const lineTops: number[] = [];
+      for (const rect of range.getClientRects()) {
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        if (!lineTops.some((top) => Math.abs(top - rect.top) < 1.5)) lineTops.push(rect.top);
+      }
+      const nextLineCount = Math.max(
+        lineTops.length,
+        Math.round(content.scrollHeight / lineHeight),
+      );
+      setLineCount((current) => current === nextLineCount ? current : nextLineCount);
+      const nextCollapsedHeight = lineHeight * COLLAPSED_QUOTE_LINES;
+      setCollapsedHeight((current) => Math.abs(current - nextCollapsedHeight) < 0.25
+        ? current
+        : nextCollapsedHeight);
+    };
+    measure();
+    return observeLayout(content, measure);
+  }, [resetKey]);
+
+  const preview = quoteText.replace(/\s+/g, " ").trim().slice(0, 120);
+  return (
+    <span
+      className={`rich-blockquote ${collapsed ? "is-collapsed" : ""} ${collapsible && expanded ? "is-expanded" : ""}`}
+      data-quote-line-count={lineCount || undefined}
+      data-quote-state={collapsible ? (expanded ? "expanded" : "collapsed") : "static"}
+      style={{
+        "--collapsed-quote-height": `${collapsedHeight}px`,
+      } as CSSProperties}
+    >
+      <span
+        ref={contentRef}
+        className="rich-blockquote-content"
+        inert={collapsed ? true : undefined}
+      >
+        {children}
+      </span>
+      {collapsed && (
+        <button
+          className="rich-blockquote-expand"
+          type="button"
+          aria-label={preview ? `展开引用：${preview}` : "展开引用"}
+          title="展开引用"
+          onClick={() => setExpanded(true)}
+        >
+          <span className="rich-blockquote-fade" aria-hidden="true" />
+          <ChevronDown size={17} strokeWidth={2.2} aria-hidden="true" />
+        </button>
+      )}
+      {collapsible && expanded && (
+        <button
+          className="rich-blockquote-collapse"
+          type="button"
+          aria-label="收起引用"
+          title="收起引用"
+          onClick={() => setExpanded(false)}
+        >
+          <ChevronUp size={17} strokeWidth={2.2} aria-hidden="true" />
+        </button>
+      )}
+    </span>
+  );
+}
+
 const renderEntities = (
   text: string,
   entities: MessageTextEntity[],
@@ -268,7 +376,11 @@ const renderEntities = (
       ));
     }
     nodes.push(
-      <span className="rich-blockquote" key={`quote:${quote.offset}:${quote.length}`}>
+      <CollapsibleBlockQuote
+        key={`quote:${quote.offset}:${quote.length}`}
+        quoteText={text.slice(quoteStart, quoteEnd)}
+        resetKey={`${quote.offset}:${quote.length}:${text.slice(quoteStart, quoteEnd)}`}
+      >
         {renderInlineRange(
           text,
           inlineEntities,
@@ -279,7 +391,7 @@ const renderEntities = (
           onOpenMention,
           onSearchHashtag,
         )}
-      </span>,
+      </CollapsibleBlockQuote>,
     );
     cursor = quoteEnd;
   }

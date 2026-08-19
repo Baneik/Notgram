@@ -1056,19 +1056,6 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-text-flow.is-large-emoji { line-height: 1; }
 .message-text-flow.is-large-emoji > .message-rich-text { font-size: 2.35em; line-height: 1.08; }
 .message-text-flow { min-width: 0; display: flow-root; }
-.message-text-flow.is-text-collapsible > .message-rich-text { display: block !important; }
-.message-text-flow.is-text-collapsed > .message-rich-text {
-  max-height: var(--collapsed-message-height); overflow: hidden;
-}
-.message-text-flow.is-text-collapsible > .message-meta {
-  margin: 3px 0 0 8px; display: flex; float: right; transform: none;
-}
-.long-message-expand {
-  min-height: 30px; margin: 5px 0 0; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px;
-  color: var(--color-text-link); background: transparent; border: 0; cursor: pointer; font: inherit;
-  font-size: 11px; font-weight: 650;
-}
-.long-message-expand:hover { text-decoration: underline; text-underline-offset: 2px; }
 .pending-message-caret { width: 7px; height: 16px; margin-left: 2px; display: inline-flex; align-items: flex-end; vertical-align: text-bottom; }
 .pending-message-caret > span { width: 2px; height: 14px; background: var(--accent); border-radius: 2px; animation: rich-streaming-caret var(--motion-duration-attention) ease-in-out infinite; }
 .pending-message-thinking { min-height: 22px; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
@@ -1152,6 +1139,44 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-rich-text pre code { padding: 0; color: inherit; background: transparent; white-space: inherit; }
 .message-rich-text blockquote, .message-rich-text .rich-blockquote {
   padding-left: 8px; display: block; border-left: 3px solid var(--accent); color: var(--muted);
+}
+.message-rich-text .rich-blockquote {
+  position: relative; box-sizing: border-box;
+}
+.rich-blockquote-content { min-width: 0; display: block; }
+.rich-blockquote.is-collapsed {
+  height: var(--collapsed-quote-height); padding-right: 23px; overflow: hidden; cursor: pointer;
+}
+.rich-blockquote.is-expanded { padding-right: 23px; padding-bottom: 18px; }
+.rich-blockquote-expand {
+  position: absolute; z-index: 1; inset: 0; padding: 0; color: var(--color-text-link);
+  background: transparent; border: 0; cursor: pointer;
+}
+.rich-blockquote-expand > svg {
+  position: absolute; right: 1px; bottom: 0;
+}
+.rich-blockquote-fade {
+  position: absolute; right: 0; bottom: 0; left: 0; height: 72%; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--color-message-incoming) 88%, transparent));
+  -webkit-backdrop-filter: blur(2.5px); backdrop-filter: blur(2.5px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 48%); mask-image: linear-gradient(to bottom, transparent, black 48%);
+}
+.is-outgoing .rich-blockquote-fade {
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--outgoing) 88%, transparent));
+}
+.rich-blockquote-expand:focus-visible {
+  outline: 2px solid var(--color-border-focus); outline-offset: 1px;
+}
+.rich-blockquote-collapse {
+  position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; padding: 0;
+  display: grid; place-items: center; color: var(--color-text-link); background: transparent;
+  border: 0; border-radius: 4px; cursor: pointer;
+}
+.rich-blockquote-collapse:hover, .rich-blockquote-collapse:focus-visible {
+  background: color-mix(in srgb, var(--color-accent-soft) 72%, transparent);
+}
+.rich-blockquote-collapse:focus-visible {
+  outline: 2px solid var(--color-border-focus); outline-offset: 1px;
 }
 .message-rich-text table { max-width: 100%; display: block; overflow-x: auto; border-collapse: collapse; white-space: normal; }
 .message-rich-text th, .message-rich-text td { padding: 3px 6px; border: 1px solid var(--color-border-default); text-align: left; }

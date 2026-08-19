@@ -35,8 +35,6 @@ export interface AppPreferences {
   messageGroupSpacing: number;
   messageRowSpacing: number;
   messageBubblePadding: number;
-  messageCollapseThresholdLines: number;
-  messageCollapsedLines: number;
   unreadBadgePosition: UnreadBadgePosition;
   themeId: ThemeId;
 }
@@ -71,8 +69,6 @@ const defaults: AppPreferences = {
   messageGroupSpacing: 10,
   messageRowSpacing: 1,
   messageBubblePadding: 8,
-  messageCollapseThresholdLines: 100,
-  messageCollapsedLines: 50,
   unreadBadgePosition: "right",
   themeId: "notgram-light",
 };
@@ -91,16 +87,6 @@ const readPreferences = (): AppPreferences => {
       compactMode?: boolean;
     };
     const legacyCompact = stored.compactMode === true;
-    const messageCollapseThresholdLines = boundedInteger(
-      stored.messageCollapseThresholdLines,
-      defaults.messageCollapseThresholdLines,
-      20,
-      500,
-    );
-    const messageCollapsedLines = Math.min(
-      messageCollapseThresholdLines,
-      boundedInteger(stored.messageCollapsedLines, defaults.messageCollapsedLines, 10, 250),
-    );
     return {
       notificationsEnabled: stored.notificationsEnabled ?? defaults.notificationsEnabled,
       notificationSound: stored.notificationSound ?? defaults.notificationSound,
@@ -151,8 +137,6 @@ const readPreferences = (): AppPreferences => {
         4,
         12,
       ),
-      messageCollapseThresholdLines,
-      messageCollapsedLines,
       unreadBadgePosition: stored.unreadBadgePosition === "avatar"
         ? "avatar"
         : defaults.unreadBadgePosition,
@@ -262,8 +246,6 @@ preferencesStore.subscribe((state) => {
     messageGroupSpacing: state.messageGroupSpacing,
     messageRowSpacing: state.messageRowSpacing,
     messageBubblePadding: state.messageBubblePadding,
-    messageCollapseThresholdLines: state.messageCollapseThresholdLines,
-    messageCollapsedLines: state.messageCollapsedLines,
     unreadBadgePosition: state.unreadBadgePosition,
     themeId: state.themeId,
   };

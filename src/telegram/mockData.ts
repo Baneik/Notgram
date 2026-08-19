@@ -31,6 +31,13 @@ const botQuoteTopics = ["热搜：", "贺子涵", "秦嘉倪", "高三爱情故�
 const botQuoteBody = botQuoteTopics.join(" ");
 const botQuoteText = `${botQuoteHeader}\n${botQuoteBody}`;
 const botQuoteOffset = botQuoteHeader.length + 1;
+const longQuoteIntro = "引用内容会保持消息正文可读";
+const longQuoteBody = Array.from(
+  { length: 8 },
+  (_, index) => `引用文本第 ${index + 1} 行：这是需要保留的完整上下文。`,
+).join("\n");
+const longQuoteText = `${longQuoteIntro}\n${longQuoteBody}`;
+const longQuoteOffset = longQuoteIntro.length + 1;
 
 const users: User[] = [
   {
@@ -734,7 +741,7 @@ const messages: Message[] = [
     content: { kind: "text", text: "那我们下午三点对一下细节。" },
   },
   {
-    id: "p-long-text",
+    id: "saved-long-quote",
     chatId: "chat-saved",
     senderId: "self",
     outgoing: true,
@@ -742,7 +749,10 @@ const messages: Message[] = [
     delivery: "read",
     content: {
       kind: "text",
-      text: Array.from({ length: 120 }, (_, index) => `长消息内容第 ${index + 1} 行`).join("\n"),
+      text: longQuoteText,
+      entities: [
+        { offset: longQuoteOffset, length: longQuoteBody.length, kind: "blockquote" },
+      ],
     },
   },
   {

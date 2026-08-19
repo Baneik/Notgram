@@ -2818,45 +2818,40 @@ test("opens parameterized bot links and preserves the start payload", async ({ p
   });
 });
 
-test("long text uses configurable line folding and expands from its start", async ({ page }) => {
+test("long quotes fold after five lines and expand or collapse from their controls", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /收藏夹/ }).click();
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  const settings = page.getByRole("dialog", { name: "设置" });
-  await settings.getByRole("button", { name: /聊天设置/ }).click();
-  await settings.getByRole("spinbutton", { name: "折叠阈值" }).fill("110");
-  await settings.getByRole("spinbutton", { name: "收缩行数" }).fill("60");
-  await expect(settings.getByRole("spinbutton", { name: "折叠阈值" })).toHaveValue("110");
-  await expect(settings.getByRole("spinbutton", { name: "收缩行数" })).toHaveValue("60");
-  await settings.getByRole("button", { name: "关闭", exact: true }).click();
-
-  await openConversationMessageSearch(page);
-  const messageSearch = page.getByRole("searchbox", { name: "搜索会话和消息" });
-  await expect(page.getByRole("group", { name: "搜索范围：收藏夹" })).toBeVisible();
-  await messageSearch.fill("长消息内容第 120 行");
-  await page.locator('.chat-search-results-panel [data-search-message-id="p-long-text"]').click();
-  const row = page.locator('[data-message-id="p-long-text"]');
+  const row = page.locator('[data-message-id="saved-long-quote"]');
   await expect(row).toBeVisible();
   await expect(row).toHaveClass(/is-outgoing/);
-  const flow = row.locator(".message-text-flow");
-  await expect(flow).toHaveClass(/is-text-collapsed/);
-  await expect.poll(async () => Number(await flow.getAttribute("data-message-line-count")))
-    .toBeGreaterThan(110);
-  const collapsed = await flow.locator(".message-rich-text").evaluate((element) => ({
-    height: element.getBoundingClientRect().height,
-    lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
-    scrollHeight: element.scrollHeight,
-  }));
-  expect(Math.abs(collapsed.height - collapsed.lineHeight * 60)).toBeLessThanOrEqual(1);
-  expect(collapsed.scrollHeight).toBeGreaterThan(collapsed.height);
+  await expect(row.locator(".message-rich-text")).toContainText("引用内容会保持消息正文可读");
+  const quote = row.locator(".rich-blockquote");
+  await expect(quote).toHaveAttribute("data-quote-state", "collapsed");
+  await expect.poll(async () => Number(await quote.getAttribute("data-quote-line-count")))
+    .toBeGreaterThan(5);
+  await expect(quote.getByRole("button", { name: /展开引用/ })).toBeVisible();
+  const collapsed = await quote.evaluate((element) => {
+    const content = element.querySelector<HTMLElement>(".rich-blockquote-content")!;
+    const fade = element.querySelector<HTMLElement>(".rich-blockquote-fade")!;
+    return {
+      height: element.getBoundingClientRect().height,
+      contentHeight: content.scrollHeight,
+      lineHeight: Number.parseFloat(getComputedStyle(content).lineHeight),
+      backdropFilter: getComputedStyle(fade).backdropFilter,
+    };
+  });
+  expect(Math.abs(collapsed.height - collapsed.lineHeight * 1.5)).toBeLessThanOrEqual(1);
+  expect(collapsed.contentHeight).toBeGreaterThan(collapsed.height);
+  expect(collapsed.backdropFilter).toContain("blur");
 
-  await row.getByRole("button", { name: "展开全文" }).click();
-  await expect(flow).not.toHaveClass(/is-text-collapsed/);
-  await expect(row.getByRole("button", { name: "展开全文" })).toHaveCount(0);
-  await expect.poll(() => row.evaluate((element) => {
-    const list = element.closest<HTMLElement>(".message-list");
-    return list ? Math.abs(element.getBoundingClientRect().top - list.getBoundingClientRect().top) : 999;
-  })).toBeLessThanOrEqual(1);
+  await quote.click({ position: { x: 12, y: 8 } });
+  await expect(quote).toHaveAttribute("data-quote-state", "expanded");
+  await expect(quote.getByRole("button", { name: "收起引用" })).toBeVisible();
+  const expandedHeight = await quote.evaluate((element) => element.getBoundingClientRect().height);
+  expect(expandedHeight).toBeGreaterThan(collapsed.lineHeight * 5);
+
+  await quote.getByRole("button", { name: "收起引用" }).click();
+  await expect(quote).toHaveAttribute("data-quote-state", "collapsed");
 });
 
 test("blocks users and reports chats or selected messages", async ({ page }) => {
@@ -4179,33 +4174,6 @@ test("text message time releases reserved inline space when it wraps", async ({ 
   });
   await expect(longMessage.locator(".message-text-flow")).not.toHaveClass(/is-meta-wrapped/);
   await expect(longMessage.locator(".message-meta")).toHaveCSS("float", "right");
-});
-
-test("collapsed long text keeps metadata on its own right-aligned row", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: /收藏夹/ }).click();
-  const row = page.locator('[data-message-id="p-long-text"]');
-  await expect(row).toBeVisible();
-  await page.evaluate(async (storePath) => {
-    const { preferencesStore } = await import(storePath);
-    preferencesStore.setState({ messageCollapseThresholdLines: 20, messageCollapsedLines: 10 });
-  }, "/src/store/preferencesStore.ts");
-
-  const flow = row.locator(".message-text-flow");
-  await expect(flow).toHaveClass(/is-text-collapsible/);
-  await expect(flow).toHaveClass(/is-meta-wrapped/);
-  await expect(flow.locator(".message-meta")).toHaveCSS("float", "none");
-  const geometry = await row.evaluate((element) => {
-    const bubble = element.querySelector<HTMLElement>(".message-bubble");
-    const meta = element.querySelector<HTMLElement>(".message-meta");
-    if (!bubble || !meta) return undefined;
-    return {
-      metaRight: meta.getBoundingClientRect().right,
-      bubbleRight: bubble.getBoundingClientRect().right,
-    };
-  });
-  expect(geometry).toBeTruthy();
-  expect(Math.abs(geometry!.metaRight - (geometry!.bubbleRight - 10))).toBeLessThanOrEqual(1);
 });
 
 test("media cards preserve media width while giving captions a stable reading width", async ({ page }) => {

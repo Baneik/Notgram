@@ -2,7 +2,6 @@ import {
   AlertCircle,
   Check,
   CheckCheck,
-  ChevronDown,
   Download,
   Eye,
   ExternalLink,
@@ -63,7 +62,6 @@ import { MediaProgressRing } from "./MediaProgressRing";
 import { PollMessage } from "./PollMessage";
 import { InlineKeyboard } from "./InlineKeyboard";
 import type { CallbackQueryAnswer } from "../telegram/types";
-import { usePreferencesStore } from "../store/preferencesStore";
 import { formatFileSize, isExecutableFile } from "../utils/fileTransfer";
 import { localMediaSource } from "../media/localMediaSource";
 import { observeLayout } from "../utils/layoutObservation";
@@ -126,7 +124,6 @@ interface MessageBubbleProps {
   ) => Promise<MessageReactionSenderPage>;
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
-  onExpandLongText: (messageId: string) => void;
   onMount?: (onPinned?: () => void) => boolean;
   deferUntilPinned?: boolean;
   previousAudioPlaybackId?: string;
@@ -180,7 +177,6 @@ function MessageBubbleComponent({
   onLoadReactionSenders,
   onPollAnswer,
   onBotCallback,
-  onExpandLongText,
   onMount,
   deferUntilPinned = false,
   previousAudioPlaybackId,
@@ -217,13 +213,6 @@ function MessageBubbleComponent({
   const textFlowRef = useRef<HTMLDivElement>(null);
   const [metaWrapped, setMetaWrapped] = useState(false);
   const [metaInlineOffset, setMetaInlineOffset] = useState(0);
-  const collapseThresholdLines = usePreferencesStore(
-    (state) => state.messageCollapseThresholdLines,
-  );
-  const collapsedLines = usePreferencesStore((state) => state.messageCollapsedLines);
-  const [textLineCount, setTextLineCount] = useState(0);
-  const [collapsedTextHeight, setCollapsedTextHeight] = useState(0);
-  const [textExpanded, setTextExpanded] = useState(false);
   const content = message.content;
   const selectedReplyQuoteFor = (shell: HTMLElement) => {
     const sourceText = content.kind === "text"
@@ -254,7 +243,6 @@ function MessageBubbleComponent({
       : undefined;
   };
   const isSticker = content.kind === "media" && content.mediaType === "sticker";
-  const textCollapsible = content.kind === "text" && textLineCount > collapseThresholdLines;
   const isService = content.kind === "service" || content.kind === "unsupported";
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
@@ -305,17 +293,9 @@ function MessageBubbleComponent({
   const showReactionFooter = !albumItem && !selectionMode && !isService && reactions.length > 0;
 
   useLayoutEffect(() => {
-    setTextExpanded(false);
-  }, [collapseThresholdLines, collapsedLines, content.kind === "text" ? content.text : content.kind, message.id]);
-
-  useLayoutEffect(() => {
     const flow = textFlowRef.current;
     const hasInlineCaption = isVisual && hasCaption;
     if ((content.kind !== "text" && !hasInlineCaption) || !flow) {
-      if (content.kind !== "text") {
-        setTextLineCount(0);
-        setCollapsedTextHeight(0);
-      }
       return;
     }
 
@@ -337,32 +317,12 @@ function MessageBubbleComponent({
           ? parsedLineHeight
           : Number.parseFloat(computed.fontSize) * 1.48;
 
-        if (content.kind === "text") {
-          const lineTops: number[] = [];
-          for (const rect of rects) {
-            if (!lineTops.some((top) => Math.abs(top - rect.top) < 1.5)) lineTops.push(rect.top);
-          }
-          const rectHeight = rects.length > 0
-            ? Math.max(...rects.map((rect) => rect.bottom)) - Math.min(...rects.map((rect) => rect.top))
-            : 0;
-          const lineCount = Math.max(
-            lineTops.length,
-            Math.ceil(rectHeight / lineHeight),
-            Math.ceil(text.scrollHeight / lineHeight),
-          );
-          setTextLineCount((current) => current === lineCount ? current : lineCount);
-          const nextHeight = lineHeight * collapsedLines;
-          setCollapsedTextHeight((current) => Math.abs(current - nextHeight) < 0.25
-            ? current
-            : nextHeight);
-        }
-
         if (!meta) {
           setMetaWrapped(false);
           setMetaInlineOffset(0);
           return;
         }
-        if (textCollapsible) {
+        if (text.querySelector(".rich-blockquote.is-collapsed")) {
           setMetaWrapped(true);
           setMetaInlineOffset(0);
           return;
@@ -409,7 +369,6 @@ function MessageBubbleComponent({
       stopObservingContainer?.();
     };
   }, [
-    collapsedLines,
     content,
     hasCaption,
     isVisual,
@@ -417,7 +376,6 @@ function MessageBubbleComponent({
     message.editedAt,
     message.sentAt,
     showReactionFooter,
-    textCollapsible,
   ]);
   const visualShellStyle = mediaLayout
     ? {
@@ -798,11 +756,9 @@ function MessageBubbleComponent({
           {content.kind === "text" ? (
             <div
               ref={textFlowRef}
-              className={`message-text-flow ${isLargeEmojiText(content.text) ? "is-large-emoji" : ""} ${metaWrapped ? "is-meta-wrapped" : ""} ${textCollapsible ? "is-text-collapsible" : ""} ${textCollapsible && !textExpanded ? "is-text-collapsed" : ""}`}
-              data-message-line-count={textLineCount || undefined}
+              className={`message-text-flow ${isLargeEmojiText(content.text) ? "is-large-emoji" : ""} ${metaWrapped ? "is-meta-wrapped" : ""}`}
               style={{
                 "--message-meta-inline-offset": `${metaInlineOffset}px`,
-                "--collapsed-message-height": `${collapsedTextHeight}px`,
               } as CSSProperties}
             >
               <MessageRichText
@@ -821,19 +777,6 @@ function MessageBubbleComponent({
                     正在生成
                   </span>
                 )
-              )}
-              {textCollapsible && !textExpanded && (
-                <button
-                  className="long-message-expand"
-                  type="button"
-                  onClick={() => {
-                    setTextExpanded(true);
-                    requestAnimationFrame(() => onExpandLongText(message.id));
-                  }}
-                >
-                  <ChevronDown size={15} strokeWidth={2} />
-                  展开全文
-                </button>
               )}
               {!showReactionFooter && messageMeta}
             </div>

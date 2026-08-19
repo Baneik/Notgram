@@ -793,7 +793,6 @@ export function Conversation({
     pinFollowingMessageMount,
     appendMountMessageId,
     revealAttentionMessage,
-    revealMessageStart,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,
@@ -1815,7 +1814,6 @@ export function Conversation({
                         onLoadReactionSenders={onGetMessageReactionSenders}
                         onPollAnswer={onSetPollAnswer}
                         onBotCallback={onBotCallback}
-                        onExpandLongText={revealMessageStart}
                         onMount={gateEntranceAtBottom
                           ? pinFollowingMessageMount
                           : undefined}
