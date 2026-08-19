@@ -55,6 +55,7 @@ const createHarness = () => {
   }) as ForumControllerOptions["set"];
   const transport = {
     getForumTopics: vi.fn(),
+    getForumTopic: vi.fn(),
     createForumTopic: vi.fn(),
     editForumTopic: vi.fn(),
     setForumTopicClosed: vi.fn(),
@@ -119,6 +120,29 @@ describe("telegram store forum controller", () => {
     resolvePage(page);
     await expect(Promise.all([first, second])).resolves.toEqual([page, page]);
     expect(harness.getState().forumTopicsLoading.has("forum-1")).toBe(false);
+  });
+
+  it("coalesces exact topic resolution and replaces stale notification settings", async () => {
+    const harness = createHarness();
+    harness.getState().forumTopics.set("forum-1", [topic("topic-1")]);
+    let resolveTopic!: (value: ForumTopic) => void;
+    vi.mocked(harness.transport.getForumTopic).mockReturnValue(new Promise((resolve) => {
+      resolveTopic = resolve;
+    }));
+
+    const first = harness.controller.resolveForumTopic("forum-1", "topic-1");
+    const second = harness.controller.resolveForumTopic("forum-1", "topic-1");
+    expect(harness.transport.getForumTopic).toHaveBeenCalledTimes(1);
+    resolveTopic({ ...topic("topic-1"), muted: true, useDefaultMuteFor: false });
+
+    await expect(Promise.all([first, second])).resolves.toMatchObject([
+      { id: "topic-1", muted: true, useDefaultMuteFor: false },
+      { id: "topic-1", muted: true, useDefaultMuteFor: false },
+    ]);
+    expect(harness.getState().forumTopics.get("forum-1")?.[0]).toMatchObject({
+      muted: true,
+      useDefaultMuteFor: false,
+    });
   });
 
   it("blocks topic mutations outside the member's explicit topic scope", async () => {

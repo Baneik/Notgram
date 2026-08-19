@@ -26,6 +26,18 @@ export const isMessageInActiveConversation = ({
   !forum || (Boolean(activeTopicId) && messageTopicId === activeTopicId)
 );
 
+export const isMessageConversationMuted = ({
+  chatMuted,
+  topic,
+}: {
+  chatMuted: boolean;
+  topic?: { muted: boolean; useDefaultMuteFor?: boolean };
+}) => {
+  if (!topic) return chatMuted;
+  if (topic.muted) return true;
+  return topic.useDefaultMuteFor === false ? false : chatMuted;
+};
+
 const isAtOrBeforeReadCursor = (messageId?: string, lastReadMessageId?: string) => {
   if (!messageId || !lastReadMessageId) return false;
   if (messageId === lastReadMessageId) return true;
@@ -60,17 +72,24 @@ export const shouldNotifyMessage = ({
 export const notificationPresentation = ({
   showPreview,
   chatTitle,
+  topicTitle,
+  senderName,
   messageText,
 }: {
   showPreview: boolean;
   chatTitle?: string;
+  topicTitle?: string;
+  senderName?: string;
   messageText: string;
-}) => showPreview
-  ? {
-      title: chatTitle?.trim() || "Notgram",
-      body: messageText.trim() || "收到一条新消息",
-    }
-  : {
-      title: "Notgram",
-      body: "收到一条新消息",
-    };
+}) => {
+  if (!showPreview) return { title: "Notgram", body: "收到一条新消息" };
+  const titleParts = [chatTitle, topicTitle]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+  const message = messageText.trim() || "收到一条新消息";
+  const sender = senderName?.trim();
+  return {
+    title: titleParts.join(" · ") || "Notgram",
+    body: sender ? `${sender}：${message}` : message,
+  };
+};

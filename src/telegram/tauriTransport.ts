@@ -406,6 +406,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.patchChatWithPositions(chatId, patch, positions),
     updateChatPosition: (update) => this.updateChatPosition(update),
     updateChatList: (update, added) => this.updateChatList(update, added),
+    updateForumTopic: (update) => this.updateForumTopic(update),
     emitMessage: (message, animateEntrance) => this.emitMessage(message, animateEntrance),
     replaceSentMessage: (update) => this.replaceSentMessage(update),
     updateMessageContent: (update) => this.updateMessageContent(update),
@@ -1593,6 +1594,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.forumTopicService.getForumTopics(input);
   }
 
+  async getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined> {
+    return this.forumTopicService.getForumTopic(chatId, topicId);
+  }
+
   async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
     return this.forumTopicService.loadForumTopicHistory(chatId, topicId, limit);
   }
@@ -2576,6 +2581,11 @@ export class TauriTelegramTransport implements TelegramTransport {
   private emitForumTopicsChanged(chatIdValue: unknown) {
     const chatId = tdId(chatIdValue);
     if (chatId) this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
+  private updateForumTopic(update: TdObject) {
+    const changed = this.forumTopicService.applyForumTopicUpdate(update);
+    if (changed) this.listener?.({ type: "forumTopics.changed", ...changed });
   }
 
   private emitMessages(rawMessages: TdObject[]) {

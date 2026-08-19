@@ -958,7 +958,20 @@ export type TelegramEvent =
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
   | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }
   | { type: "chat.typingChanged"; chatId: string; senderId: string; typing: boolean }
-  | { type: "forumTopics.changed"; chatId: string }
+  | {
+      type: "forumTopics.changed";
+      chatId: string;
+      topic?: Pick<
+        ForumTopic,
+        | "id"
+        | "muted"
+        | "useDefaultMuteFor"
+        | "lastReadInboxMessageId"
+        | "lastReadOutboxMessageId"
+        | "unreadMentionCount"
+        | "unreadReactionCount"
+      >;
+    }
   | { type: "user.upsert"; user: User; cacheRelevant?: boolean }
   | { type: "sync.error"; message: string; fatal?: boolean };
 
@@ -1109,6 +1122,8 @@ export interface ForumTopic {
   lastMessage?: Message;
   order: string;
   muted: boolean;
+  /** Whether this topic inherits mute state from its forum chat. */
+  useDefaultMuteFor?: boolean;
   draft?: ChatDraft;
 }
 

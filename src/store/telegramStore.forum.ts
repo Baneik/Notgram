@@ -1,5 +1,5 @@
 import type { TelegramTransport } from "../telegram/transport";
-import type { ForumTopicPage } from "../telegram/types";
+import type { ForumTopic, ForumTopicPage } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
 
 type ForumStoreState = Pick<
@@ -13,6 +13,7 @@ type StoreSetter = (
 
 export interface ForumController {
   loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
+  resolveForumTopic: (chatId: string, topicId: string) => Promise<ForumTopic | undefined>;
   createForumTopic: (chatId: string, name: string) => Promise<ForumTopicPage["topics"][number] | undefined>;
   editForumTopic: (chatId: string, topicId: string, name: string) => Promise<boolean>;
   setForumTopicClosed: (chatId: string, topicId: string, closed: boolean) => Promise<boolean>;
@@ -38,6 +39,7 @@ export const createForumController = ({
   onTopicsLoaded,
 }: ForumControllerOptions): ForumController => {
   const pendingLoads = new Map<string, Promise<ForumTopicPage | undefined>>();
+  const pendingTopicLoads = new Map<string, Promise<ForumTopic | undefined>>();
 
   const loadForumTopics: ForumController["loadForumTopics"] = async (chatId, query = "") => {
     if (!get().chats.get(chatId)?.isForum) return undefined;
@@ -99,6 +101,28 @@ export const createForumController = ({
 
   return {
     loadForumTopics,
+    resolveForumTopic: async (chatId, topicId) => {
+      const key = topicKey(chatId, topicId);
+      const pending = pendingTopicLoads.get(key);
+      if (pending) return pending;
+      const cached = get().forumTopics.get(chatId)?.find((topic) => topic.id === topicId);
+      const request = transport.getForumTopic(chatId, topicId)
+        .then((topic) => {
+          if (!topic) return cached;
+          const existing = get().forumTopics.get(chatId) ?? [];
+          const forumTopics = new Map(get().forumTopics);
+          const index = existing.findIndex((candidate) => candidate.id === topicId);
+          forumTopics.set(chatId, index >= 0
+            ? existing.map((candidate) => candidate.id === topicId ? topic : candidate)
+            : [...existing, topic]);
+          set({ forumTopics });
+          return topic;
+        })
+        .catch(() => cached)
+        .finally(() => pendingTopicLoads.delete(key));
+      pendingTopicLoads.set(key, request);
+      return request;
+    },
 
     createForumTopic: async (chatId, name) => {
       if (!canCreateTopic(chatId)) {

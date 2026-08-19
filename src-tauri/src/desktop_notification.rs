@@ -40,6 +40,7 @@ pub struct NotificationRoute {
     account_id: String,
     chat_id: String,
     message_id: String,
+    topic_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -108,6 +109,7 @@ impl DesktopNotificationWindowState {
         let visible_index = queue.visible.iter().position(|item| {
             item.route.account_id == request.route.account_id
                 && item.route.chat_id == request.route.chat_id
+                && item.route.topic_id == request.route.topic_id
         });
         let waiting_index = visible_index
             .is_none()
@@ -115,6 +117,7 @@ impl DesktopNotificationWindowState {
                 queue.waiting.iter().position(|item| {
                     item.route.account_id == request.route.account_id
                         && item.route.chat_id == request.route.chat_id
+                        && item.route.topic_id == request.route.topic_id
                 })
             })
             .flatten();
@@ -227,7 +230,11 @@ fn validate_route(route: &NotificationRoute) -> Result<(), String> {
         &route.message_id,
         MAX_ROUTE_ID_CHARS,
         "notification message id",
-    )
+    )?;
+    if let Some(topic_id) = &route.topic_id {
+        validate_text(topic_id, MAX_ROUTE_ID_CHARS, "notification topic id")?;
+    }
+    Ok(())
 }
 
 fn validate_avatar(avatar: &DesktopNotificationAvatar) -> Result<(), String> {
@@ -515,6 +522,7 @@ mod tests {
                 account_id: "default".to_string(),
                 chat_id: "123".to_string(),
                 message_id: "456".to_string(),
+                topic_id: None,
             },
         }
     }
@@ -565,6 +573,7 @@ mod tests {
                 "accountId": "default",
                 "chatId": "123",
                 "messageId": "456",
+                "topicId": null,
             })
         );
         let serialized = serde_json::to_value(item).expect("item should serialize");
@@ -599,6 +608,23 @@ mod tests {
             .remove(&updated.id, updated.updated_at_ms)
             .expect("current notification should dismiss");
         assert!(dismissed.items.is_empty());
+    }
+
+    #[test]
+    fn keeps_forum_topic_notifications_as_separate_conversations() {
+        let state = DesktopNotificationWindowState::default();
+        let mut first_topic = request();
+        first_topic.route.topic_id = Some("12".to_string());
+        let mut second_topic = request();
+        second_topic.route.topic_id = Some("18".to_string());
+
+        state.push(first_topic).expect("first topic should queue");
+        state.push(second_topic).expect("second topic should queue");
+
+        let snapshot = state.snapshot().expect("snapshot should be available");
+        assert_eq!(snapshot.items.len(), 2);
+        assert_eq!(snapshot.items[0].route.topic_id.as_deref(), Some("12"));
+        assert_eq!(snapshot.items[1].route.topic_id.as_deref(), Some("18"));
     }
 
     #[test]

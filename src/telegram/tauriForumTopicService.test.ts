@@ -55,4 +55,60 @@ describe("tauri forum topic service", () => {
       { "@type": "message", id: "8" },
     ]);
   });
+
+  it("resolves one topic once and applies live notification settings to the cache", async () => {
+    const harness = createHarness();
+    vi.mocked(harness.context.request).mockResolvedValue({
+      "@type": "forumTopic",
+      info: {
+        "@type": "forumTopicInfo",
+        chat_id: 1001,
+        forum_topic_id: 12,
+        name: "Releases",
+        icon: { "@type": "forumTopicIcon", color: 7_321_072, custom_emoji_id: 0 },
+        creation_date: 1_700_000_000,
+      },
+      notification_settings: { use_default_mute_for: true, mute_for: 0 },
+      last_read_inbox_message_id: 100,
+      last_read_outbox_message_id: 90,
+      unread_mention_count: 0,
+      unread_reaction_count: 0,
+      order: "1000",
+    });
+
+    const first = harness.service.getForumTopic("1001", "12");
+    const second = harness.service.getForumTopic("1001", "12");
+    await expect(Promise.all([first, second])).resolves.toMatchObject([
+      { id: "12", muted: false, useDefaultMuteFor: true },
+      { id: "12", muted: false, useDefaultMuteFor: true },
+    ]);
+    expect(harness.context.request).toHaveBeenCalledTimes(1);
+
+    const pendingNotificationTopic = harness.service.getForumTopic("1001", "12");
+    expect(harness.service.applyForumTopicUpdate({
+      "@type": "updateForumTopic",
+      chat_id: 1001,
+      forum_topic_id: 12,
+      notification_settings: { use_default_mute_for: false, mute_for: 2_147_483_647 },
+      last_read_inbox_message_id: 101,
+      last_read_outbox_message_id: 90,
+      unread_mention_count: 1,
+      unread_reaction_count: 2,
+    })).toMatchObject({
+      chatId: "1001",
+      topic: { id: "12", muted: true, useDefaultMuteFor: false, lastReadInboxMessageId: "101" },
+    });
+    await expect(pendingNotificationTopic).resolves.toMatchObject({
+      id: "12",
+      muted: true,
+      useDefaultMuteFor: false,
+    });
+    await expect(harness.service.getForumTopic("1001", "12")).resolves.toMatchObject({
+      id: "12",
+      muted: true,
+      useDefaultMuteFor: false,
+      lastReadInboxMessageId: "101",
+    });
+    expect(harness.context.request).toHaveBeenCalledTimes(1);
+  });
 });

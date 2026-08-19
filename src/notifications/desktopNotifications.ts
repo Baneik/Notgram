@@ -6,6 +6,7 @@ export interface DesktopNotificationRoute {
   accountId: string;
   chatId: string;
   messageId: string;
+  topicId?: string;
 }
 
 export interface DesktopNotificationAvatar {
@@ -39,10 +40,12 @@ export const parseDesktopNotificationRoute = (
     !isRouteId(candidate.chatId) ||
     !isRouteId(candidate.messageId)
   ) return undefined;
+  if (candidate.topicId != null && !isRouteId(candidate.topicId)) return undefined;
   return {
     accountId: candidate.accountId,
     chatId: candidate.chatId,
     messageId: candidate.messageId,
+    ...(typeof candidate.topicId === "string" ? { topicId: candidate.topicId } : {}),
   };
 };
 

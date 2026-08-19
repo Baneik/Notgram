@@ -13,7 +13,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 const nativeInvoke = vi.mocked(invoke);
 const nativeListen = vi.mocked(listen);
-const route = { accountId: "default", chatId: "123", messageId: "456" };
+const route = { accountId: "default", chatId: "123", messageId: "456", topicId: "12" };
 const avatar = { label: "N", color: "#4e86b0", imagePath: "C:\\avatars\\chat.jpg" };
 
 beforeEach(() => {
@@ -66,6 +66,12 @@ describe("desktop notifications", () => {
     expect(parseDesktopNotificationRoute(route)).toEqual(route);
     expect(parseDesktopNotificationRoute({ ...route, messageId: "" })).toBeUndefined();
     expect(parseDesktopNotificationRoute({ ...route, chatId: 123 })).toBeUndefined();
+    expect(parseDesktopNotificationRoute({ ...route, topicId: "" })).toBeUndefined();
+    expect(parseDesktopNotificationRoute({ ...route, topicId: null })).toEqual({
+      accountId: "default",
+      chatId: "123",
+      messageId: "456",
+    });
 
     let listener: ((event: { payload: unknown }) => void) | undefined;
     const unlisten = vi.fn();

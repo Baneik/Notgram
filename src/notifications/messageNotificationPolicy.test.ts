@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isMessageConversationMuted,
   isMessageInActiveConversation,
   notificationPresentation,
   shouldNotifyMessage,
@@ -79,6 +80,22 @@ describe("message notification policy", () => {
     })).toBe(false);
   });
 
+  it("applies forum chat mute state only when the topic inherits it", () => {
+    expect(isMessageConversationMuted({
+      chatMuted: true,
+      topic: { muted: false, useDefaultMuteFor: true },
+    })).toBe(true);
+    expect(isMessageConversationMuted({
+      chatMuted: true,
+      topic: { muted: false, useDefaultMuteFor: false },
+    })).toBe(false);
+    expect(isMessageConversationMuted({
+      chatMuted: false,
+      topic: { muted: true, useDefaultMuteFor: false },
+    })).toBe(true);
+    expect(isMessageConversationMuted({ chatMuted: true })).toBe(true);
+  });
+
   it("suppresses messages already covered by the Telegram read cursor", () => {
     expect(shouldNotifyMessage({
       ...incomingMessage,
@@ -117,5 +134,18 @@ describe("message notification policy", () => {
       chatTitle: " ",
       messageText: " ",
     })).toEqual({ title: "Notgram", body: "收到一条新消息" });
+  });
+
+  it("identifies forum topics and prefixes group messages with the sender", () => {
+    expect(notificationPresentation({
+      showPreview: true,
+      chatTitle: "产品讨论",
+      topicTitle: "构建与发布",
+      senderName: "林然",
+      messageText: "候选包已上传",
+    })).toEqual({
+      title: "产品讨论 · 构建与发布",
+      body: "林然：候选包已上传",
+    });
   });
 });

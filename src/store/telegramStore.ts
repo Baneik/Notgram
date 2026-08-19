@@ -924,6 +924,17 @@ export const createTelegramStore = (
       }
 
       if (event.type === "forumTopics.changed") {
+        if (event.topic) {
+          const existing = get().forumTopics.get(event.chatId);
+          if (existing?.some((topic) => topic.id === event.topic?.id)) {
+            const forumTopics = new Map(get().forumTopics);
+            forumTopics.set(event.chatId, existing.map((topic) => topic.id === event.topic?.id
+              ? { ...topic, ...event.topic }
+              : topic));
+            set({ forumTopics });
+            scheduleCacheWrite();
+          }
+        }
         if (get().chats.get(event.chatId)?.isForum) {
           void refreshForumConversation(event.chatId, true);
         }
@@ -1663,6 +1674,7 @@ export const createTelegramStore = (
       },
 
       loadForumTopics: forumController.loadForumTopics,
+      resolveForumTopic: forumController.resolveForumTopic,
       createForumTopic: forumController.createForumTopic,
       editForumTopic: forumController.editForumTopic,
       setForumTopicClosed: forumController.setForumTopicClosed,

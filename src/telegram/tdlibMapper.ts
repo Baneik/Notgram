@@ -1948,6 +1948,7 @@ export const mapTdForumTopic = (value: unknown): ForumTopic | undefined => {
   const lastMessage = lastMessageRaw ? mapTdMessage(lastMessageRaw) : undefined;
   const draft = mapTdChatDraft(chatId, raw.draft_message, id);
   const customEmojiId = tdId(icon?.custom_emoji_id);
+  const useDefaultMuteFor = notificationSettings?.use_default_mute_for !== false;
   return {
     id,
     chatId,
@@ -1967,7 +1968,8 @@ export const mapTdForumTopic = (value: unknown): ForumTopic | undefined => {
     lastReadOutboxMessageId: tdId(raw.last_read_outbox_message_id) || undefined,
     lastMessage,
     order: tdId(raw.order) || "0",
-    muted: (tdNumber(notificationSettings?.mute_for) ?? 0) > 0,
+    muted: !useDefaultMuteFor && (tdNumber(notificationSettings?.mute_for) ?? 0) > 0,
+    useDefaultMuteFor,
     draft,
   };
 };

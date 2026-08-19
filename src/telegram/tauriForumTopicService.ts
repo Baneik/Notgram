@@ -19,6 +19,8 @@ export class TauriForumTopicService {
   private exhaustedHistories = new Set<string>();
   private historyCursors = new Map<string, number>();
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
+  private topics = new Map<string, ForumTopic>();
+  private topicLoads = new Map<string, Promise<ForumTopic | undefined>>();
 
   constructor(private readonly context: TauriForumTopicServiceContext) {}
 
@@ -26,6 +28,17 @@ export class TauriForumTopicService {
     this.exhaustedHistories.clear();
     this.historyCursors.clear();
     this.historyLoads.clear();
+    this.topics.clear();
+    this.topicLoads.clear();
+  }
+
+  private topicKey(chatId: string, topicId: string) {
+    return `${chatId}:${topicId}`;
+  }
+
+  private rememberTopic(topic: ForumTopic) {
+    this.topics.set(this.topicKey(topic.chatId, topic.id), topic);
+    return topic;
   }
 
   async getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage> {
@@ -42,7 +55,8 @@ export class TauriForumTopicService {
     const rawTopics = asTdObjects(result.topics);
     const topics = rawTopics
       .map(mapTdForumTopic)
-      .filter((topic): topic is ForumTopic => Boolean(topic && topic.chatId === input.chatId));
+      .filter((topic): topic is ForumTopic => Boolean(topic && topic.chatId === input.chatId))
+      .map((topic) => this.rememberTopic(topic));
     const lastMessages = rawTopics.flatMap((topic) => {
       const last = asTdObject(topic.last_message);
       return last ? [last] : [];
@@ -59,6 +73,49 @@ export class TauriForumTopicService {
       nextOffsetTopicId,
       hasMore: topics.length > 0 && Boolean(nextOffsetDate || nextOffsetMessageId || nextOffsetTopicId),
     };
+  }
+
+  async getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined> {
+    const key = this.topicKey(chatId, topicId);
+    const cached = this.topics.get(key);
+    if (cached) return cached;
+    const pending = this.topicLoads.get(key);
+    if (pending) return pending;
+    const load = (async () => {
+      const raw = await this.context.request({
+        "@type": "getForumTopic",
+        chat_id: numericId(chatId),
+        forum_topic_id: numericId(topicId),
+      });
+      const topic = mapTdForumTopic(raw);
+      if (!topic || topic.chatId !== chatId || topic.id !== topicId) return undefined;
+      const lastMessage = asTdObject(raw.last_message);
+      if (lastMessage) this.context.emitMessages([lastMessage]);
+      return this.rememberTopic(topic);
+    })().finally(() => this.topicLoads.delete(key));
+    this.topicLoads.set(key, load);
+    return load;
+  }
+
+  applyForumTopicUpdate(update: TdObject) {
+    const chatId = tdId(update.chat_id);
+    const topicId = tdId(update.forum_topic_id);
+    if (!chatId || !topicId) return undefined;
+    const notificationSettings = asTdObject(update.notification_settings);
+    const useDefaultMuteFor = notificationSettings?.use_default_mute_for !== false;
+    const topicUpdate = {
+      id: topicId,
+      muted: !useDefaultMuteFor && (tdNumber(notificationSettings?.mute_for) ?? 0) > 0,
+      useDefaultMuteFor,
+      lastReadInboxMessageId: tdId(update.last_read_inbox_message_id) || undefined,
+      lastReadOutboxMessageId: tdId(update.last_read_outbox_message_id) || undefined,
+      unreadMentionCount: Math.max(0, tdNumber(update.unread_mention_count) ?? 0),
+      unreadReactionCount: Math.max(0, tdNumber(update.unread_reaction_count) ?? 0),
+    };
+    const key = this.topicKey(chatId, topicId);
+    const cached = this.topics.get(key);
+    if (cached) Object.assign(cached, topicUpdate);
+    return { chatId, topic: topicUpdate };
   }
 
   async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
@@ -106,11 +163,7 @@ export class TauriForumTopicService {
       icon: { "@type": "forumTopicIcon", color: iconColor, custom_emoji_id: 0 },
     });
     try {
-      const topic = mapTdForumTopic(await this.context.request({
-        "@type": "getForumTopic",
-        chat_id: numericId(input.chatId),
-        forum_topic_id: numericId(tdId(info.forum_topic_id)),
-      }));
+      const topic = await this.getForumTopic(input.chatId, tdId(info.forum_topic_id));
       if (topic) {
         this.context.emitForumTopicsChanged(input.chatId);
         return topic;

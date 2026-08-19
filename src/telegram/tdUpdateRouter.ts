@@ -15,6 +15,7 @@ export interface TdUpdateHandlers {
   patchChatWithPositions: (chatId: unknown, patch: TdObject, positions: unknown) => void;
   updateChatPosition: (update: TdObject) => void;
   updateChatList: (update: TdObject, added: boolean) => void;
+  updateForumTopic: (update: TdObject) => void;
   emitMessage: (message?: TdObject, animateEntrance?: boolean) => void;
   replaceSentMessage: (update: TdObject) => void;
   updateMessageContent: (update: TdObject) => void;
@@ -84,7 +85,7 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
       handlers.forumTopicsChanged(asTdObject(update.info)?.chat_id);
       return;
     case "updateForumTopic":
-      handlers.forumTopicsChanged(update.chat_id);
+      handlers.updateForumTopic(update);
       return;
     case "updateChatPosition":
       handlers.updateChatPosition(update);

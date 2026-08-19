@@ -1695,6 +1695,11 @@ export class MockTelegramTransport implements TelegramTransport {
     });
   }
 
+  async getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined> {
+    const topic = this.ensureForumTopics(chatId).find((candidate) => candidate.id === topicId);
+    return topic ? clone(topic) : undefined;
+  }
+
   async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
     const historyKey = `forum:${chatId}:${topicId}`;
     const history = this.snapshot.messages

@@ -23,6 +23,7 @@ import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
 import { NewChatDialog } from "../components/NewChatDialog";
 import { ChatManagementDialog } from "../components/ChatManagementDialog";
 import { AudioPlaybackHost } from "../components/AudioPlaybackHost";
+import { senderNameForMessage } from "../components/conversationMessages";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { messageContentText } from "../telegram/messageContent";
@@ -35,6 +36,7 @@ import {
   type DesktopNotificationRoute,
 } from "../notifications/desktopNotifications";
 import {
+  isMessageConversationMuted,
   isMessageInActiveConversation,
   notificationPresentation,
   shouldNotifyMessage,
@@ -330,57 +332,84 @@ export function App() {
     // TDLib can replay updateNewMessage records during bootstrap. Only updates sent around this
     // application session are eligible for desktop notification presentation.
     const notBeforeMs = Date.now() - 10_000;
-    return subscribeMessageChanges((event) => {
-      if (event.type !== "upsert" || event.liveMessages.length === 0) return;
+    let disposed = false;
+    const notifyMessage = async (message: Message) => {
+      const receivedState = telegramStore.getState();
+      const accountId = receivedState.activeAccountId;
+      let topic = message.topicId
+        ? receivedState.forumTopics.get(message.chatId)?.find(({ id }) => id === message.topicId)
+        : undefined;
+      if (message.topicId) {
+        topic = await receivedState.resolveForumTopic(message.chatId, message.topicId) ?? topic;
+      }
+      if (disposed) return;
+      // A missing topic means its notification settings are unknown. Suppress instead of
+      // leaking an alert from a topic that may be muted.
+      if (message.topicId && !topic) return;
       const state = telegramStore.getState();
+      if (state.activeAccountId !== accountId) return;
       const preferences = preferencesStore.getState();
-      for (const message of event.liveMessages) {
-        const chat = state.chats.get(message.chatId);
-        const topic = message.topicId
-          ? state.forumTopics.get(message.chatId)?.find(({ id }) => id === message.topicId)
-          : undefined;
-        if (!shouldNotifyMessage({
-          outgoing: message.outgoing,
-          notificationsEnabled: preferences.notificationsEnabled,
-          muted: topic?.muted ?? chat?.muted ?? false,
-          activeConversation: isMessageInActiveConversation({
-            messageChatId: message.chatId,
-            messageTopicId: message.topicId,
-            activeChatId: state.activeChatId,
-            activeTopicId: state.activeTopicId,
-            forum: chat?.isForum ?? false,
-          }),
-          appVisible: document.visibilityState === "visible",
+      const chat = state.chats.get(message.chatId);
+      if (!shouldNotifyMessage({
+        outgoing: message.outgoing,
+        notificationsEnabled: preferences.notificationsEnabled,
+        muted: isMessageConversationMuted({
+          chatMuted: chat?.muted ?? false,
+          topic,
+        }),
+        activeConversation: isMessageInActiveConversation({
+          messageChatId: message.chatId,
+          messageTopicId: message.topicId,
+          activeChatId: state.activeChatId,
+          activeTopicId: state.activeTopicId,
+          forum: chat?.isForum ?? Boolean(message.topicId),
+        }),
+        appVisible: document.visibilityState === "visible",
+        messageId: message.id,
+        sentAt: message.sentAt,
+        lastReadInboxMessageId: topic?.lastReadInboxMessageId ?? chat?.lastReadInboxMessageId,
+        notBeforeMs,
+      })) return;
+      const includeSender = chat?.kind === "group" || chat?.isForum === true;
+      const presentation = notificationPresentation({
+        showPreview: preferences.notificationPreview,
+        chatTitle: chat?.title,
+        topicTitle: topic?.name,
+        senderName: includeSender && chat
+          ? senderNameForMessage(message, state.users, chat, state.chats)
+          : undefined,
+        messageText: messageContentText(message.content),
+      });
+      void showDesktopNotification({
+        ...presentation,
+        avatar: preferences.notificationPreview && chat
+          ? {
+              label: chat.avatar.label,
+              color: chat.avatar.color,
+              imagePath: chat.avatar.imagePath,
+            }
+          : { label: "N", color: "#4e86b0" },
+        sound: preferences.notificationSound,
+        themeId: preferences.themeId,
+        reduceMotion: preferences.effectiveReduceMotion,
+        route: {
+          accountId,
+          chatId: message.chatId,
           messageId: message.id,
-          sentAt: message.sentAt,
-          lastReadInboxMessageId: topic?.lastReadInboxMessageId ?? chat?.lastReadInboxMessageId,
-          notBeforeMs,
-        })) continue;
-        const presentation = notificationPresentation({
-          showPreview: preferences.notificationPreview,
-          chatTitle: chat?.title,
-          messageText: messageContentText(message.content),
-        });
-        void showDesktopNotification({
-          ...presentation,
-          avatar: preferences.notificationPreview && chat
-            ? {
-                label: chat.avatar.label,
-                color: chat.avatar.color,
-                imagePath: chat.avatar.imagePath,
-              }
-            : { label: "N", color: "#4e86b0" },
-          sound: preferences.notificationSound,
-          themeId: preferences.themeId,
-          reduceMotion: preferences.effectiveReduceMotion,
-          route: {
-            accountId: state.activeAccountId,
-            chatId: message.chatId,
-            messageId: message.id,
-          },
-        });
+          topicId: message.topicId,
+        },
+      });
+    };
+    const unsubscribe = subscribeMessageChanges((event) => {
+      if (event.type !== "upsert" || event.liveMessages.length === 0) return;
+      for (const message of event.liveMessages) {
+        void notifyMessage(message);
       }
     });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
   }, [subscribeMessageChanges]);
   useEffect(() => {
     writeManagedDownloadRequests(managedDownloadRequests.values());
@@ -1092,7 +1121,7 @@ export function App() {
     if (chatOpenGenerationRef.current !== generation) return;
     const loadedState = telegramStore.getState();
     const targetTopicId = loadedState.chats.get(route.chatId)?.isForum
-      ? loadedState.messages.get(route.chatId)?.find((message) => message.id === route.messageId)?.topicId
+      ? route.topicId ?? loadedState.messages.get(route.chatId)?.find((message) => message.id === route.messageId)?.topicId
       : undefined;
     syncConversationNavigation(locationForChat(route.chatId, targetTopicId));
     clearPendingNotificationRoute();

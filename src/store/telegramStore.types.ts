@@ -160,6 +160,7 @@ export interface TelegramState {
   selectChat: (chatId: string, options?: { forumTopicId?: string }) => void;
   selectForumTopic: (topicId?: string) => void;
   loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
+  resolveForumTopic: (chatId: string, topicId: string) => Promise<ForumTopic | undefined>;
   createForumTopic: (chatId: string, name: string) => Promise<ForumTopic | undefined>;
   editForumTopic: (chatId: string, topicId: string, name: string) => Promise<boolean>;
   setForumTopicClosed: (chatId: string, topicId: string, closed: boolean) => Promise<boolean>;

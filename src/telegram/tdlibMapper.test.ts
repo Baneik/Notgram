@@ -47,7 +47,7 @@ describe("TDLib mapper", () => {
       order: "9223372036854775000",
       is_pinned: true,
       unread_count: 3,
-      notification_settings: { mute_for: 60 },
+      notification_settings: { use_default_mute_for: false, mute_for: 60 },
       draft_message: {
         "@type": "draftMessage",
         date: 1_700_000_200,
@@ -61,6 +61,7 @@ describe("TDLib mapper", () => {
       isPinned: true,
       unreadCount: 3,
       muted: true,
+      useDefaultMuteFor: false,
       order: "9223372036854775000",
       lastMessage: { id: "1001", topicId: "12" },
       draft: { chatId: "77", topicId: "12", text: "release note" },
