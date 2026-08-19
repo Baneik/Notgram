@@ -5,7 +5,6 @@ import {
   Download,
   ImageOff,
   LoaderCircle,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -257,29 +256,6 @@ export function MediaViewer({
         aria-label={`图片查看器：${content.fileName}`}
         tabIndex={-1}
       >
-        <header className="media-viewer-toolbar">
-          <span className="media-viewer-title">
-            <strong>{content.fileName}</strong>
-          </span>
-          <div className="media-viewer-tools" role="toolbar" aria-label="图片操作">
-            <button
-              type="button"
-              aria-label="下载图片"
-              aria-busy={content.isDownloading || undefined}
-              title={content.isDownloading ? "原图下载中" : canSave ? "保存到下载目录" : "下载原图"}
-              disabled={content.isDownloading || downloadUnavailable}
-              onClick={() => void handleDownload()}
-            >
-              {content.isDownloading
-                ? <LoaderCircle className="spin" size={18} />
-                : <Download size={18} />}
-            </button>
-            <button type="button" aria-label="关闭图片查看器" title="关闭" onClick={onClose}>
-              <X size={20} />
-            </button>
-          </div>
-        </header>
-
         <main
           ref={stageRef}
           tabIndex={-1}
@@ -290,6 +266,19 @@ export function MediaViewer({
           onPointerUp={finishDragging}
           onPointerCancel={finishDragging}
         >
+          <button
+            className="media-viewer-download"
+            type="button"
+            aria-label="下载图片"
+            aria-busy={content.isDownloading || undefined}
+            title={content.isDownloading ? "原图下载中" : canSave ? "保存到下载目录" : "下载原图"}
+            disabled={content.isDownloading || downloadUnavailable}
+            onClick={() => void handleDownload()}
+          >
+            {content.isDownloading
+              ? <LoaderCircle className="spin" size={19} />
+              : <Download size={19} />}
+          </button>
           <aside className="media-viewer-details" aria-label="图片详细信息">
             {imageDetails.map((detail) => <span key={detail}>{detail}</span>)}
           </aside>

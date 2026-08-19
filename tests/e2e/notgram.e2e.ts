@@ -4897,18 +4897,17 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toHaveCount(0);
   await expect(popup.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
   const viewer = popup.locator(".media-viewer");
-  const toolbar = viewer.getByRole("toolbar", { name: "图片操作" });
-  const downloadButton = toolbar.getByRole("button", { name: "下载图片" });
-  await expect(toolbar.getByRole("button")).toHaveCount(2);
+  const downloadButton = viewer.getByRole("button", { name: "下载图片" });
+  await expect(viewer.locator(".media-viewer-toolbar")).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "关闭图片查看器" })).toHaveCount(0);
   await expect(downloadButton).toBeVisible();
   await expect(downloadButton).not.toBeFocused();
   await expect.poll(() => popup.evaluate(() =>
     document.activeElement?.classList.contains("media-viewer-stage"))).toBe(true);
-  await expect(toolbar.getByRole("button", { name: "缩小" })).toHaveCount(0);
-  await expect(toolbar.getByRole("button", { name: "放大" })).toHaveCount(0);
-  await expect(toolbar.getByRole("button", { name: "重置缩放" })).toHaveCount(0);
-  await expect(toolbar.getByRole("button", { name: "复制图片" })).toHaveCount(0);
-  await expect(viewer.locator(".media-viewer-title small")).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "缩小" })).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "放大" })).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "重置缩放" })).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "复制图片" })).toHaveCount(0);
   const details = viewer.getByLabel("图片详细信息");
   await expect(details.locator("span")).toHaveText([
     "数据中心：DC2",
@@ -4933,9 +4932,18 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const stage = popup.locator(".media-viewer-stage");
   const stageBounds = await stage.boundingBox();
   const detailsBounds = await details.boundingBox();
+  const downloadBounds = await downloadButton.boundingBox();
+  expect(Math.abs(stageBounds!.x - viewerBounds!.x)).toBeLessThan(2);
+  expect(Math.abs(stageBounds!.y - viewerBounds!.y)).toBeLessThan(2);
+  expect(Math.abs(stageBounds!.width - viewerBounds!.width)).toBeLessThan(2);
+  expect(Math.abs(stageBounds!.height - viewerBounds!.height)).toBeLessThan(2);
   expect(detailsBounds!.x - stageBounds!.x).toBeCloseTo(18, 0);
   expect(detailsBounds!.width).toBeLessThan(260);
   expect(stageBounds!.y + stageBounds!.height - detailsBounds!.y - detailsBounds!.height)
+    .toBeCloseTo(14, 0);
+  expect(stageBounds!.x + stageBounds!.width - downloadBounds!.x - downloadBounds!.width)
+    .toBeCloseTo(18, 0);
+  expect(stageBounds!.y + stageBounds!.height - downloadBounds!.y - downloadBounds!.height)
     .toBeCloseTo(14, 0);
   const overlayColor = await popup.locator("html").evaluate((element) =>
     getComputedStyle(element).getPropertyValue("--color-overlay").trim());
@@ -4981,7 +4989,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(popup.locator(".media-viewer-image")).toHaveAttribute("style", /translate\(48px, 32px\) scale\(1\.5\)/);
   const previousNavigationBounds = await viewer.getByRole("button", { name: "上一张" }).boundingBox();
   await popup.keyboard.press("ArrowLeft");
-  await expect(viewer.locator(".media-viewer-title strong")).toHaveText("纵向图片.jpg");
+  await expect(viewer).toHaveAttribute("aria-label", "图片查看器：纵向图片.jpg");
   await expect(details.locator("span")).toHaveText([
     "数据中心：DC4",
     "尺寸：512 × 512",
@@ -4992,7 +5000,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const nextNavigationBounds = await viewer.getByRole("button", { name: "下一张" }).boundingBox();
   expect(nextNavigationBounds!.y).toBeCloseTo(previousNavigationBounds!.y, 0);
   await thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }).click();
-  await expect(viewer.locator(".media-viewer-title strong")).toHaveText("界面预览.jpg");
+  await expect(viewer).toHaveAttribute("aria-label", "图片查看器：界面预览.jpg");
   await expect(popup.locator(".media-viewer-caption")).toHaveText("新的媒体预览样式");
   await downloadButton.click();
   await expect.poll(() => page.evaluate(() => (
@@ -5043,7 +5051,7 @@ test("captioned albums keep descriptions in the fullscreen viewer", async ({ pag
     .toHaveText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
 
   const closed = popup.waitForEvent("close");
-  await popup.getByRole("button", { name: "关闭图片查看器" }).click();
+  await popup.keyboard.down("Escape");
   await closed;
 });
 
@@ -5847,7 +5855,7 @@ test("opening an oversized image document previews and downloads it with synchro
   })).toEqual(mainProgressStyle);
 
   const closed = popup.waitForEvent("close");
-  await popup.getByRole("button", { name: "关闭图片查看器" }).click();
+  await popup.keyboard.down("Escape");
   await closed;
 });
 
