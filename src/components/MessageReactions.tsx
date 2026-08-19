@@ -112,7 +112,7 @@ export function MessageReactions({
       if (requestIdRef.current !== requestId) return;
       setDetails((current) => current?.requestId === requestId ? {
         ...current,
-        senders: offset ? mergeSenders(current.senders, page.senders) : page.senders,
+        senders: mergeSenders(current.senders, page.senders),
         totalCount: page.totalCount,
         nextOffset: page.nextOffset,
         loading: false,
@@ -265,11 +265,6 @@ export function MessageReactions({
                 <p className="reaction-details-status">暂无可显示的回应者</p>
               )}
             </div>
-            {details.loading && (
-              <p className="reaction-details-status" role="status">
-                <LoaderCircle className="spin" size={14} />正在读取回应者
-              </p>
-            )}
             {details.error && <p className="reaction-details-status is-error" role="status">{details.error}</p>}
             {details.limited && (
               <p className="reaction-details-status">Telegram 仅提供最近的回应者</p>

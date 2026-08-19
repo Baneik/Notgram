@@ -2958,11 +2958,12 @@ test("message reactions stay in the bubble and reveal the reacting users", async
   await expect(details.getByRole("menuitem", { name: "Mia Chen", exact: true })).toBeVisible();
   await expect(details.getByRole("menuitem", { name: "陈默", exact: true })).toBeVisible();
   await expect(details.locator(".reaction-details-user .avatar")).toHaveCount(3);
+  await expect(details.getByText("正在读取回应者", { exact: true })).toHaveCount(0);
   await expect(details.locator(".reaction-details-header")).toHaveCount(0);
   await expect(details.locator(".reaction-details-user-emoji")).toHaveCount(0);
   const detailsBox = await details.boundingBox();
   expect(detailsBox).not.toBeNull();
-  expect(detailsBox!.width).toBeLessThanOrEqual(230);
+  expect(detailsBox!.width).toBeLessThan(214);
 
   await page.keyboard.press("Escape");
   await expect(details).toBeHidden();
