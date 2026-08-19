@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TelegramEventListener } from "./transport";
 import { TauriTelegramTransport } from "./tauriTransport";
 import type { TdObject } from "./tdlibMapper";
-import type { ProxySettings } from "./types";
+import type { Message, ProxySettings } from "./types";
 import { clearPerformanceRecords, getPerformanceRecords } from "../utils/performanceMonitor";
 import { DEFAULT_CHAT_ADMIN_RIGHTS, DEFAULT_CHAT_PERMISSIONS } from "./chatManagement";
 
@@ -10,6 +10,7 @@ type TestableTransport = {
   listener?: TelegramEventListener;
   request: (request: TdObject) => Promise<TdObject>;
   bootstrap: () => Promise<void>;
+  mapMessage: (message: TdObject) => Message | undefined;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
   recoverFile: (fileId: number, priority?: number) => Promise<void>;
   requestPreparedFile: (chatId: string) => Promise<boolean>;
@@ -30,6 +31,7 @@ type TestableTransport = {
   requestImmediateConnectionRecovery: (forceProxyRefresh?: boolean) => void;
   proxySettings?: ProxySettings;
   runtimeProxyProfileId?: string;
+  dataCenterId?: number;
 };
 
 const rawMessage = (id: number): TdObject => ({
@@ -93,6 +95,39 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("uses the avatar data-center fallback for media without a parseable remote identifier", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.dataCenterId = 5;
+
+    const message = internal.mapMessage({
+      ...rawMessage(44),
+      content: {
+        "@type": "messagePhoto",
+        caption: { "@type": "formattedText", text: "", entities: [] },
+        photo: {
+          sizes: [{
+            width: 1280,
+            height: 720,
+            photo: {
+              "@type": "file",
+              id: 91,
+              size: 4096,
+              local: {},
+              remote: { id: "unparseable" },
+            },
+          }],
+        },
+      },
+    });
+
+    expect(message?.content).toMatchObject({
+      kind: "media",
+      mediaType: "photo",
+      dataCenterId: 5,
+    });
+  });
+
   it("resolves bot commands, inline results, and native send actions", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawChats: Map<string, TdObject> };

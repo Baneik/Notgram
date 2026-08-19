@@ -186,11 +186,11 @@ export function MediaViewer({
   const downloadUnavailable = !canSave && !canDownload && !content.isDownloading;
   const activeIndex = messages.findIndex((message) => message.id === activeMessageId);
   const imageDetails = [
-    `${activeIndex + 1} / ${messages.length}`,
-    content.dataCenterId ? `DC${content.dataCenterId}` : "DC 未知",
-    content.width && content.height ? `${content.width} × ${content.height}` : undefined,
-    content.sizeLabel,
-  ].filter((detail): detail is string => Boolean(detail));
+    `序号：${activeIndex + 1} / ${messages.length}`,
+    `数据中心：${content.dataCenterId ? `DC${content.dataCenterId}` : "Telegram 自动选择"}`,
+    `尺寸：${content.width && content.height ? `${content.width} × ${content.height}` : "未知"}`,
+    `大小：${content.sizeLabel}`,
+  ];
   const handleDownload = () => {
     if (content.localPath) return onSave(content.localPath, content.fileName);
     if (canDownload) return onDownload(content.fileId!, content.fileName);
@@ -212,7 +212,7 @@ export function MediaViewer({
   const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     const target = event.target;
-    if (target instanceof Element && target.closest("button, .media-viewer-thumbnails, .media-viewer-caption")) return;
+    if (target instanceof Element && target.closest("button, .media-viewer-thumbnails, .media-viewer-caption, .media-viewer-details")) return;
     const imageBounds = imageRef.current?.getBoundingClientRect();
     const insideImage = imageBounds && event.clientX >= imageBounds.left && event.clientX <= imageBounds.right &&
       event.clientY >= imageBounds.top && event.clientY <= imageBounds.bottom;
@@ -268,7 +268,6 @@ export function MediaViewer({
         <header className="media-viewer-toolbar">
           <span className="media-viewer-title">
             <strong>{content.fileName}</strong>
-            <small>{imageDetails.join(" · ")}</small>
           </span>
           <div className="media-viewer-tools" role="toolbar" aria-label="图片操作">
             <button
@@ -297,6 +296,9 @@ export function MediaViewer({
           onPointerUp={finishDragging}
           onPointerCancel={finishDragging}
         >
+          <aside className="media-viewer-details" aria-label="图片详细信息">
+            {imageDetails.map((detail) => <span key={detail}>{detail}</span>)}
+          </aside>
           {source && !failed ? (
             <StableImage
               key={`${source}:${retryKey}`}

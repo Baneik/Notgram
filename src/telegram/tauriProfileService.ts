@@ -9,7 +9,7 @@ import {
   type TdObject,
 } from "./tdlibMapper";
 import { numericId } from "./tdlibRequests";
-import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
+import { resolveTdlibDataCenter } from "./fileDataCenter";
 import type {
   Chat,
   ChatProfile,
@@ -37,14 +37,6 @@ export const profileField = (
     throw new Error(`${label}格式不正确`);
   }
   return normalized;
-};
-
-const DATA_CENTER_LOCATIONS: Record<number, string> = {
-  1: "Miami, US",
-  2: "Amsterdam, NL",
-  3: "Miami, US",
-  4: "Amsterdam, NL",
-  5: "Singapore, SG",
 };
 
 const profileMemberRole = (value: unknown) => {
@@ -413,22 +405,11 @@ export class TauriProfileService {
 
   private async loadDataCenter(rawUser?: TdObject) {
     const profilePhoto = asTdObject(rawUser?.profile_photo);
-    for (const size of [profilePhoto?.small, profilePhoto?.big]) {
+    const remoteIds = [profilePhoto?.small, profilePhoto?.big].map((size) => {
       const remoteId = asTdObject(asTdObject(size)?.remote)?.id;
-      if (typeof remoteId !== "string") continue;
-      const id = parseTdlibRemoteFileDataCenter(remoteId);
-      if (id) return { id, location: DATA_CENTER_LOCATIONS[id] ?? "Telegram 数据中心" };
-    }
-    try {
-      const option = await this.context.request({ "@type": "getOption", name: "dc_id" });
-      const id = tdNumber(option.value);
-      if (id !== undefined && id > 0) {
-        return { id, location: DATA_CENTER_LOCATIONS[id] ?? "Telegram 数据中心" };
-      }
-    } catch {
-      // TDLib builds may not expose the internal dc_id option.
-    }
-    return { id: undefined, location: "Telegram 自动选择" };
+      return typeof remoteId === "string" ? remoteId : undefined;
+    });
+    return resolveTdlibDataCenter(remoteIds, this.context.request);
   }
 
   private async loadProfileMembers(values: TdObject[]) {

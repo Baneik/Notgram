@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
+import { describe, expect, it, vi } from "vitest";
+import { parseTdlibRemoteFileDataCenter, resolveTdlibDataCenter } from "./fileDataCenter";
 
 const zeroEncode = (bytes: Uint8Array) => {
   const encoded: number[] = [];
@@ -35,5 +35,34 @@ describe("parseTdlibRemoteFileDataCenter", () => {
     expect(parseTdlibRemoteFileDataCenter("not-a-file-id")).toBeUndefined();
     expect(parseTdlibRemoteFileDataCenter(remoteId(5, 3))).toBeUndefined();
     expect(parseTdlibRemoteFileDataCenter(remoteId(9))).toBeUndefined();
+  });
+
+  it("uses the avatar file identifier before querying the TDLib option", async () => {
+    const request = vi.fn();
+
+    await expect(resolveTdlibDataCenter([remoteId(4)], request)).resolves.toEqual({
+      id: 4,
+      location: "Amsterdam, NL",
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the active TDLib data center when file identifiers cannot be parsed", async () => {
+    const request = vi.fn().mockResolvedValue({ "@type": "optionValueInteger", value: 5 });
+
+    await expect(resolveTdlibDataCenter(["not-a-file-id", undefined], request)).resolves.toEqual({
+      id: 5,
+      location: "Singapore, SG",
+    });
+    expect(request).toHaveBeenCalledWith({ "@type": "getOption", name: "dc_id" });
+  });
+
+  it("reports automatic selection when TDLib doesn't expose its active data center", async () => {
+    const request = vi.fn().mockRejectedValue(new Error("Option not found"));
+
+    await expect(resolveTdlibDataCenter([], request)).resolves.toEqual({
+      id: undefined,
+      location: "Telegram 自动选择",
+    });
   });
 });

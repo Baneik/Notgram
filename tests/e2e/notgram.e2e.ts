@@ -4836,9 +4836,19 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(toolbar.getByRole("button", { name: "放大" })).toHaveCount(0);
   await expect(toolbar.getByRole("button", { name: "重置缩放" })).toHaveCount(0);
   await expect(toolbar.getByRole("button", { name: "复制图片" })).toHaveCount(0);
-  await expect(viewer.locator(".media-viewer-title small"))
-    .toHaveText("2 / 2 · DC2 · 512 × 512 · 186 KB");
-  await expect(viewer.locator(".media-viewer-title")).toHaveCSS("text-align", "left");
+  await expect(viewer.locator(".media-viewer-title small")).toHaveCount(0);
+  const details = viewer.getByLabel("图片详细信息");
+  await expect(details.locator("span")).toHaveText([
+    "序号：2 / 2",
+    "数据中心：DC2",
+    "尺寸：512 × 512",
+    "大小：186 KB",
+  ]);
+  await expect(details).toHaveCSS("text-align", "left");
+  await expect(details).toHaveCSS("position", "absolute");
+  const detailRows = await details.locator("span").evaluateAll((items) =>
+    items.map((item) => item.getBoundingClientRect().y));
+  expect(detailRows.every((row, index) => index === 0 || row > detailRows[index - 1]!)).toBe(true);
   const caption = popup.locator(".media-viewer-caption");
   await expect(caption).toHaveText("新的媒体预览样式");
   await expect(caption).toHaveCSS("position", "absolute");
@@ -4847,6 +4857,9 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const viewerBounds = await popup.locator(".media-viewer-backdrop").boundingBox();
   const viewport = popup.viewportSize();
   expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
+  const titleBarBounds = await viewer.locator(".media-viewer-toolbar").boundingBox();
+  const detailsBounds = await details.boundingBox();
+  expect(detailsBounds!.y).toBeGreaterThanOrEqual(titleBarBounds!.y + titleBarBounds!.height);
   const overlayColor = await popup.locator("html").evaluate((element) =>
     getComputedStyle(element).getPropertyValue("--color-overlay").trim());
   await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS(
@@ -4888,8 +4901,12 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const previousNavigationBounds = await viewer.getByRole("button", { name: "上一张" }).boundingBox();
   await popup.keyboard.press("ArrowLeft");
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("纵向图片.jpg");
-  await expect(viewer.locator(".media-viewer-title small"))
-    .toHaveText("1 / 2 · DC4 · 512 × 512 · 220 KB");
+  await expect(details.locator("span")).toHaveText([
+    "序号：1 / 2",
+    "数据中心：DC4",
+    "尺寸：512 × 512",
+    "大小：220 KB",
+  ]);
   await expect(popup.locator(".media-viewer-caption"))
     .toHaveText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
   const nextNavigationBounds = await viewer.getByRole("button", { name: "下一张" }).boundingBox();

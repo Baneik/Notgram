@@ -14,6 +14,7 @@ import {
   type TdObject,
 } from "./tdlibMapper";
 import { FileDownloadQueue } from "./fileDownloadQueue";
+import { resolveTdlibDataCenter } from "./fileDataCenter";
 import { loadHistoryWindow } from "./historyPager";
 import {
   mapTdConnectionStatus,
@@ -422,6 +423,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private rawFolderInfos: TdObject[] = [];
   private mainChatListPosition = 0;
   private currentUserId?: string;
+  private dataCenterId?: number;
   private bootstrapPromise?: Promise<void>;
   private initialChatSyncPending = true;
   private connectionStatus?: ConnectionStatus;
@@ -2104,6 +2106,12 @@ export class TauriTelegramTransport implements TelegramTransport {
     const me = await this.request({ "@type": "getMe" });
     this.currentUserId = tdId(me.id);
     this.upsertUser(me);
+    const profilePhoto = asTdObject(me.profile_photo);
+    const remoteIds = [profilePhoto?.small, profilePhoto?.big].map((size) => {
+      const remoteId = asTdObject(asTdObject(size)?.remote)?.id;
+      return typeof remoteId === "string" ? remoteId : undefined;
+    });
+    this.dataCenterId = (await resolveTdlibDataCenter(remoteIds, (request) => this.request(request))).id;
     if (this.currentUserId) {
       this.listener?.({ type: "currentUser.changed", userId: this.currentUserId });
     }
@@ -2715,7 +2723,13 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private mapMessage(raw: TdObject) {
-    const message = mapTdMessage(raw);
+    const mapped = mapTdMessage(raw);
+    const message = mapped &&
+      this.dataCenterId !== undefined &&
+      (mapped.content.kind === "media" || mapped.content.kind === "file") &&
+      mapped.content.dataCenterId === undefined
+      ? { ...mapped, content: { ...mapped.content, dataCenterId: this.dataCenterId } }
+      : mapped;
     if (!message?.outgoing || message.delivery !== "sent") return message;
     const lastReadId = tdId(
       this.rawChats.get(message.chatId)?.last_read_outbox_message_id,
@@ -3004,6 +3018,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawFolderInfos = [];
     this.mainChatListPosition = 0;
     this.currentUserId = undefined;
+    this.dataCenterId = undefined;
     this.bootstrapPromise = undefined;
     this.initialChatSyncPending = true;
   }
