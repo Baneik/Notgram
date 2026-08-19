@@ -4892,6 +4892,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await sourcePhoto.locator(".photo-open").click();
   const popup = await popupPromise;
   await popup.waitForLoadState("domcontentloaded");
+  await popup.setViewportSize({ width: 1080, height: 720 });
 
   await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toHaveCount(0);
   await expect(popup.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
@@ -4934,7 +4935,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const detailsBounds = await details.boundingBox();
   expect(detailsBounds!.x - stageBounds!.x).toBeCloseTo(18, 0);
   expect(stageBounds!.y + stageBounds!.height - detailsBounds!.y - detailsBounds!.height)
-    .toBeCloseTo(18, 0);
+    .toBeCloseTo(14, 0);
   const overlayColor = await popup.locator("html").evaluate((element) =>
     getComputedStyle(element).getPropertyValue("--color-overlay").trim());
   await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS(
@@ -4961,7 +4962,11 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const thumbnailBounds = await thumbnails.boundingBox();
   expect(captionBounds!.x + captionBounds!.width / 2)
     .toBeCloseTo(thumbnailBounds!.x + thumbnailBounds!.width / 2, 0);
-  expect(captionBounds!.y + captionBounds!.height).toBeLessThan(thumbnailBounds!.y);
+  expect(detailsBounds!.y).toBeCloseTo(thumbnailBounds!.y, 0);
+  expect(detailsBounds!.y + detailsBounds!.height)
+    .toBeCloseTo(thumbnailBounds!.y + thumbnailBounds!.height, 0);
+  expect(captionBounds!.y + captionBounds!.height)
+    .toBeLessThan(Math.min(detailsBounds!.y, thumbnailBounds!.y));
 
   await stage.hover();
   await popup.keyboard.down("Control");

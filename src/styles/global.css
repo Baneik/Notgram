@@ -1698,8 +1698,8 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .media-viewer-tools button:disabled { opacity: 0.35; cursor: default; background: transparent; }
 .media-viewer-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: grid; place-items: center; background: transparent; outline: none; touch-action: none; }
 .media-viewer-details {
-  position: absolute; z-index: 3; left: 18px; bottom: 18px; max-width: min(260px, calc(100% - 36px)); padding: 8px 10px;
-  display: grid; justify-items: start; gap: 3px; color: color-mix(in srgb, var(--color-on-media) 94%, transparent);
+  position: absolute; z-index: 3; left: 18px; bottom: 14px; width: min(260px, calc(100% - 36px)); height: 76px; padding: 8px 10px;
+  display: grid; align-content: center; justify-items: start; gap: 3px; color: color-mix(in srgb, var(--color-on-media) 94%, transparent);
   background: color-mix(in srgb, var(--color-overlay) 80%, transparent); border: 1px solid color-mix(in srgb, var(--color-on-media) 14%, transparent);
   border-radius: 6px; box-shadow: 0 6px 18px color-mix(in srgb, var(--color-shadow) 70%, transparent); backdrop-filter: blur(10px);
   font-size: 11px; line-height: 1.45; font-variant-numeric: tabular-nums; text-align: left; pointer-events: none;
@@ -1736,10 +1736,6 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   backdrop-filter: blur(12px); font-size: 12px; line-height: 1.45; text-align: center; overflow-wrap: anywhere; transform: translateX(-50%); touch-action: pan-y;
 }
 .media-viewer-stage.has-thumbnails .media-viewer-caption { bottom: 104px; }
-@media (max-width: 1159px) {
-  .media-viewer-stage.has-thumbnails .media-viewer-details { bottom: 104px; }
-  .media-viewer-stage.has-thumbnails .media-viewer-caption { bottom: 178px; }
-}
 .report-reason-options { margin-top: 7px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .report-reason-options button { min-height: 38px; padding: 0 11px; color: inherit; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
 .report-reason-options button:hover, .report-reason-options button.is-selected { border-color: var(--accent); background: var(--surface-hover); }
