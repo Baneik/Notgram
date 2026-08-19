@@ -3790,6 +3790,147 @@ test("chat list hides its scrollbar and the conversation title has no hover high
   await expect(title).toHaveCSS("background-color", backgroundBeforeHover);
 });
 
+test("chat pagination indicator does not change the bottom scroll geometry", async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 420 });
+  await page.goto("/");
+  const chatList = page.locator(".chat-list");
+  await expect.poll(() => chatList.evaluate((element) =>
+    element.scrollHeight - element.clientHeight
+  )).toBeGreaterThan(100);
+  await expect(page.locator(".chat-list-loading")).toHaveCount(0);
+
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => {
+          chatLists: Map<string, { loading: boolean; hasMore: boolean }>;
+        };
+        setState: (patch: {
+          chatLists?: Map<string, { loading: boolean; hasMore: boolean }>;
+          loadMoreChats?: (chatListId?: string) => Promise<void>;
+        }) => void;
+      };
+    };
+    const setChatListState = (loading: boolean, hasMore: boolean) => {
+      const chatLists = new Map(module.telegramStore.getState().chatLists);
+      chatLists.set("main", { loading, hasMore });
+      module.telegramStore.setState({ chatLists });
+    };
+    module.telegramStore.setState({
+      loadMoreChats: async () => {
+        setChatListState(true, true);
+        await new Promise((resolve) => globalThis.setTimeout(resolve, 180));
+        setChatListState(false, false);
+      },
+    });
+    setChatListState(false, true);
+  }, "/src/store/telegramStore.ts");
+
+  await chatList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  const loading = page.locator(".chat-list-loading");
+  await expect(loading).toBeVisible();
+  await chatList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+  });
+  const during = await chatList.evaluate((element) => {
+    const lastRow = element.querySelector<HTMLElement>(".chat-row:last-of-type");
+    return {
+      rowTop: lastRow?.getBoundingClientRect().top,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    };
+  });
+
+  await expect(loading).toHaveCount(0);
+  await expect.poll(() => chatList.evaluate((element) => element.scrollHeight))
+    .toBe(during.scrollHeight);
+  await expect.poll(() => chatList.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(during.scrollTop, 1);
+  await expect.poll(() => chatList.locator(".chat-row").last().evaluate((element) =>
+    element.getBoundingClientRect().top
+  )).toBeCloseTo(during.rowTop ?? 0, 1);
+});
+
+test("scrolled chat list stays visually stable during refreshes and context menus", async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 420 });
+  await page.goto("/");
+  const chatList = page.locator(".chat-list");
+  await expect.poll(() => chatList.evaluate((element) =>
+    element.scrollHeight - element.clientHeight
+  )).toBeGreaterThan(100);
+  await chatList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(page.locator(".chat-list-loading")).toHaveCount(0);
+  await chatList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+  });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+
+  const anchor = await chatList.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const row = [...element.querySelectorAll<HTMLElement>(".chat-row[data-chat-id]")]
+      .find((candidate) => {
+        const rowBounds = candidate.getBoundingClientRect();
+        return rowBounds.top >= bounds.top && rowBounds.bottom <= bounds.bottom;
+      });
+    return {
+      id: row?.dataset.chatId,
+      top: row?.getBoundingClientRect().top,
+      scrollTop: element.scrollTop,
+    };
+  });
+  expect(anchor.id).toBeTruthy();
+
+  await page.evaluate(() => {
+    const diagnosticWindow = window as typeof window & { __notgramChatRowMotion?: string[] };
+    const originalAnimate = Element.prototype.animate;
+    diagnosticWindow.__notgramChatRowMotion = [];
+    Element.prototype.animate = function (keyframes, options) {
+      if (this instanceof HTMLElement && this.matches(".chat-row[data-motion-key]")) {
+        const frames = Array.isArray(keyframes) ? keyframes : [];
+        diagnosticWindow.__notgramChatRowMotion?.push(String(frames[0]?.transform ?? ""));
+      }
+      return originalAnimate.call(this, keyframes, options);
+    };
+  });
+
+  const anchorRow = page.locator(`.chat-row[data-chat-id="${anchor.id}"]`);
+  await anchorRow.click({ button: "right" });
+  await expect(page.locator(".context-menu-surface")).toBeVisible();
+  await page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { chats: Map<string, unknown> };
+        setState: (patch: { chats: Map<string, unknown> }) => void;
+      };
+    };
+    module.telegramStore.setState({ chats: new Map(module.telegramStore.getState().chats) });
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+  }, "/src/store/telegramStore.ts");
+
+  expect(await page.evaluate(() => (
+    window as typeof window & { __notgramChatRowMotion?: string[] }
+  ).__notgramChatRowMotion)).toEqual([]);
+  await expect.poll(() => chatList.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(anchor.scrollTop, 1);
+  await expect.poll(() => anchorRow.evaluate((element) => element.getBoundingClientRect().top))
+    .toBeCloseTo(anchor.top ?? 0, 1);
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".context-menu-surface")).toBeHidden();
+  await expect.poll(() => chatList.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(anchor.scrollTop, 1);
+});
+
 test("distant message jumps use a directional exit and entrance transition", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");

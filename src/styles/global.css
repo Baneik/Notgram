@@ -338,7 +338,10 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .sidebar-search-scope > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
 .chat-list { min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .chat-list::-webkit-scrollbar { display: none; }
-.chat-list-loading { height: 42px; display: grid; place-items: center; color: var(--accent); }
+.chat-list-loading {
+  position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; height: 42px;
+  display: grid; place-items: center; color: var(--accent); pointer-events: none;
+}
 .chat-row {
   width: 100%; min-height: var(--chat-row-min-height); padding: 9px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px;
   color: var(--ink); text-align: left; background: transparent; border: 0; cursor: pointer;

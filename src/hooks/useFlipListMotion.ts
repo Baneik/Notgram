@@ -8,6 +8,21 @@ interface UseFlipListMotionOptions {
   dependencies: readonly unknown[];
 }
 
+interface ListMotionBounds {
+  left: number;
+  top: number;
+}
+
+export const listMotionContentPosition = (
+  containerBounds: ListMotionBounds,
+  itemBounds: ListMotionBounds,
+  scrollLeft: number,
+  scrollTop: number,
+) => ({
+  left: itemBounds.left - containerBounds.left + scrollLeft,
+  top: itemBounds.top - containerBounds.top + scrollTop,
+});
+
 /** Smooths small list reorders without changing layout ownership or scroll position. */
 export const useFlipListMotion = ({
   containerRef,
@@ -24,11 +39,16 @@ export const useFlipListMotion = ({
     const items = [...container.querySelectorAll<HTMLElement>(itemSelector)];
     const previousPosition = previousPositionRef.current;
     const nextPosition = new Map<string, { left: number; top: number }>();
+    const containerBounds = container.getBoundingClientRect();
     items.forEach((item) => {
       const key = item.dataset.motionKey;
       if (!key) return;
-      const bounds = item.getBoundingClientRect();
-      nextPosition.set(key, { left: bounds.left, top: bounds.top });
+      nextPosition.set(key, listMotionContentPosition(
+        containerBounds,
+        item.getBoundingClientRect(),
+        container.scrollLeft,
+        container.scrollTop,
+      ));
     });
     if (previousPosition.size > 0 && !reduceMotion && typeof HTMLElement.prototype.animate === "function") {
       items.forEach((item) => {

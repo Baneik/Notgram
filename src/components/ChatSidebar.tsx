@@ -534,7 +534,7 @@ export function ChatSidebar({
         point={contextMenu.point}
         chatPending={chatManagementPending.has(contextChat.id)}
         folderPending={folderManagementPending}
-        restoreFocus={() => contextMenu.anchor.focus()}
+        restoreFocus={() => contextMenu.anchor.focus({ preventScroll: true })}
         onSetPinned={(pinned) => onSetPinned(folderId, contextChat.id, pinned)}
         onSetFolderMembership={(targetFolderId, included) =>
           onSetFolderMembership(targetFolderId, contextChat.id, included)}
