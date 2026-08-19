@@ -4934,6 +4934,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const stageBounds = await stage.boundingBox();
   const detailsBounds = await details.boundingBox();
   expect(detailsBounds!.x - stageBounds!.x).toBeCloseTo(18, 0);
+  expect(detailsBounds!.width).toBeLessThan(260);
   expect(stageBounds!.y + stageBounds!.height - detailsBounds!.y - detailsBounds!.height)
     .toBeCloseTo(14, 0);
   const overlayColor = await popup.locator("html").evaluate((element) =>
