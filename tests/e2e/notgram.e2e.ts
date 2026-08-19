@@ -1256,6 +1256,25 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await expect(stickerSetPreview.getByLabel("贴纸预览")).toBeVisible();
   const stickerOptions = stickerSetPreview.getByRole("button", { name: /预览贴纸/ });
   await expect(stickerOptions).toHaveCount(6);
+  await expect(stickerOptions.locator('img[data-image-state="ready"]')).toHaveCount(6);
+  const stickerGridGeometry = await stickerOptions.evaluateAll((options) => {
+    const cells = options.map((option) => option.getBoundingClientRect());
+    const visuals = options.map((option) => [...option.querySelectorAll<HTMLElement>(".emoji-asset-visual, img, video, .tgs-sticker, .tgs-sticker > svg")]
+      .map((visual) => visual.getBoundingClientRect()));
+    const overlaps = cells.some((cell, index) => cells.slice(index + 1).some((other) =>
+      Math.min(cell.right, other.right) - Math.max(cell.left, other.left) > 0.5
+      && Math.min(cell.bottom, other.bottom) - Math.max(cell.top, other.top) > 0.5));
+    return {
+      overlaps,
+      squareCells: cells.every((cell) => Math.abs(cell.width - cell.height) <= 1),
+      visualsContained: visuals.every((items, index) => items.length > 0 && items.every((visual) =>
+        visual.left >= cells[index].left
+        && visual.top >= cells[index].top
+        && visual.right <= cells[index].right
+        && visual.bottom <= cells[index].bottom)),
+    };
+  });
+  expect(stickerGridGeometry).toEqual({ overlaps: false, squareCells: true, visualsContained: true });
   await stickerOptions.nth(1).click();
   await expect(stickerOptions.nth(1)).toHaveAttribute("aria-pressed", "true");
   await stickerSetPreview.getByRole("button", { name: "添加贴纸" }).click();

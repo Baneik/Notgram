@@ -14,6 +14,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "addChatMembers",
     "canTransferOwnership",
     "cancelDownloadFile",
+    "changeStickerSet",
     "setChatMemberStatus",
     "setChatMemberTag",
     "addMessageReaction",
@@ -198,6 +199,14 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 .is_none()
             {
                 return Err("Download cancellation mode is missing".to_string());
+            }
+        }
+        "changeStickerSet" => {
+            validate_positive_decimal_identifier(request, "set_id")?;
+            if request.get("is_installed").and_then(Value::as_bool) != Some(true)
+                || request.get("is_archived").and_then(Value::as_bool) != Some(false)
+            {
+                return Err("Sticker sets can only be installed unarchived".to_string());
             }
         }
         "getOption" => {
@@ -940,6 +949,21 @@ fn validate_nonzero_identifier(request: &Value, field: &str) -> Result<i64, Stri
         return Err(format!("Invalid identifier: {field}"));
     }
     Ok(identifier)
+}
+
+fn validate_positive_decimal_identifier(request: &Value, field: &str) -> Result<i64, String> {
+    let value = request
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("Identifier is missing: {field}"))?;
+    if value.starts_with('0') || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(format!("Invalid identifier: {field}"));
+    }
+    value
+        .parse::<i64>()
+        .ok()
+        .filter(|identifier| *identifier > 0)
+        .ok_or_else(|| format!("Invalid identifier: {field}"))
 }
 
 fn validate_user_ids(request: &Value, field: &str, maximum: usize) -> Result<(), String> {
@@ -1697,6 +1721,44 @@ mod tests {
             .unwrap()
             .remove("only_if_pending");
         assert!(validate_webview_tdlib_request(&missing_mode).is_err());
+    }
+
+    #[test]
+    fn allows_installing_a_sticker_set_with_a_preserved_int64_identifier() {
+        let install = json!({
+            "@type": "changeStickerSet",
+            "set_id": "5368324170671202286",
+            "is_installed": true,
+            "is_archived": false,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&install).is_ok());
+
+        for invalid in [
+            json!({
+                "@type": "changeStickerSet",
+                "set_id": "0",
+                "is_installed": true,
+                "is_archived": false,
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "changeStickerSet",
+                "set_id": "5368324170671202286",
+                "is_installed": false,
+                "is_archived": false,
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "changeStickerSet",
+                "set_id": "5368324170671202286",
+                "is_installed": true,
+                "is_archived": true,
+                "@extra": EXTRA
+            }),
+        ] {
+            assert!(validate_webview_tdlib_request(&invalid).is_err());
+        }
     }
 
     #[test]

@@ -1973,9 +1973,10 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   align-content: start; gap: 5px; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--line);
 }
 .sticker-set-list > button {
-  position: relative; min-width: 0; aspect-ratio: 1; padding: 5px; display: grid; place-items: center; overflow: hidden;
+  position: relative; width: 100%; min-width: 0; min-height: 0; aspect-ratio: 1; padding: 0; overflow: hidden; contain: layout paint;
   color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 7px; cursor: pointer;
 }
+.sticker-set-list > button > .emoji-asset-visual { position: absolute; inset: 5px; width: auto; height: auto; }
 .sticker-set-list > button:hover, .sticker-set-list > button:focus-visible { background: var(--surface-hover); outline: none; }
 .sticker-set-list > button.is-selected { background: var(--accent-soft); border-color: var(--color-border-focus); }
 .sticker-set-list .emoji-asset-fallback { font-size: 24px; }
@@ -2842,7 +2843,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .sticker-set-body { grid-template-columns: minmax(0, 1.08fr) minmax(132px, 0.92fr); }
   .sticker-set-stage { padding: 12px; }
   .sticker-set-list { padding: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
-  .sticker-set-list > button { padding: 3px; }
+  .sticker-set-list > button > .emoji-asset-visual { inset: 3px; }
   .sticker-set-footer .dialog-primary { width: 100%; }
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
   .chat-sidebar, .conversation, .forum-topics-view {
