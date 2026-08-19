@@ -716,6 +716,7 @@ interface TransferableMessageContent {
   captionEntities?: MessageTextEntity[];
   mimeType?: string;
   fileId?: number;
+  dataCenterId?: number;
   size?: number;
   localPath?: string;
   thumbnailPath?: string;

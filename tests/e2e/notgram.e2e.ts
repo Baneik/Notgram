@@ -4828,8 +4828,22 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
 
   await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toHaveCount(0);
   await expect(popup.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
-  await expect(popup.locator(".media-viewer-caption")).toHaveText("新的媒体预览样式");
   const viewer = popup.locator(".media-viewer");
+  const toolbar = viewer.getByRole("toolbar", { name: "图片操作" });
+  await expect(toolbar.getByRole("button")).toHaveCount(2);
+  await expect(toolbar.getByRole("button", { name: "下载图片" })).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "缩小" })).toHaveCount(0);
+  await expect(toolbar.getByRole("button", { name: "放大" })).toHaveCount(0);
+  await expect(toolbar.getByRole("button", { name: "重置缩放" })).toHaveCount(0);
+  await expect(toolbar.getByRole("button", { name: "复制图片" })).toHaveCount(0);
+  await expect(viewer.locator(".media-viewer-title small"))
+    .toHaveText("2 / 2 · DC2 · 512 × 512 · 186 KB");
+  await expect(viewer.locator(".media-viewer-title")).toHaveCSS("text-align", "left");
+  const caption = popup.locator(".media-viewer-caption");
+  await expect(caption).toHaveText("新的媒体预览样式");
+  await expect(caption).toHaveCSS("position", "absolute");
+  await expect(caption).toHaveCSS("text-align", "center");
+  await expect(caption).toHaveCSS("border-radius", "8px");
   const viewerBounds = await popup.locator(".media-viewer-backdrop").boundingBox();
   const viewport = popup.viewportSize();
   expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
@@ -4853,23 +4867,33 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   )).toBe(true);
   await expect(thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }))
     .toHaveAttribute("aria-current", "true");
+  const captionBounds = await caption.boundingBox();
+  const thumbnailBounds = await thumbnails.boundingBox();
+  expect(captionBounds!.x + captionBounds!.width / 2)
+    .toBeCloseTo(thumbnailBounds!.x + thumbnailBounds!.width / 2, 0);
+  expect(captionBounds!.y + captionBounds!.height).toBeLessThan(thumbnailBounds!.y);
 
   const stage = popup.locator(".media-viewer-stage");
   await stage.hover();
   await popup.keyboard.down("Control");
   await popup.mouse.wheel(0, -240);
   await popup.keyboard.up("Control");
-  await expect(viewer.locator(".media-viewer-zoom")).toHaveText("150%");
+  await expect(popup.locator(".media-viewer-image")).toHaveAttribute("style", /scale\(1\.5\)/);
   const stageBounds = await stage.boundingBox();
   await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2, stageBounds!.y + stageBounds!.height / 2);
   await popup.mouse.down();
   await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2 + 48, stageBounds!.y + stageBounds!.height / 2 + 32);
   await popup.mouse.up();
   await expect(popup.locator(".media-viewer-image")).toHaveAttribute("style", /translate\(48px, 32px\) scale\(1\.5\)/);
+  const previousNavigationBounds = await viewer.getByRole("button", { name: "上一张" }).boundingBox();
   await popup.keyboard.press("ArrowLeft");
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("纵向图片.jpg");
+  await expect(viewer.locator(".media-viewer-title small"))
+    .toHaveText("1 / 2 · DC4 · 512 × 512 · 220 KB");
   await expect(popup.locator(".media-viewer-caption"))
     .toHaveText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
+  const nextNavigationBounds = await viewer.getByRole("button", { name: "下一张" }).boundingBox();
+  expect(nextNavigationBounds!.y).toBeCloseTo(previousNavigationBounds!.y, 0);
   await thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }).click();
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("界面预览.jpg");
   await expect(popup.locator(".media-viewer-caption")).toHaveText("新的媒体预览样式");

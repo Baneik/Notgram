@@ -117,6 +117,7 @@ export function ProfileDrawer({
   const [page, setPage] = useState<ProfilePage>("main");
   const [reportOpen, setReportOpen] = useState(false);
   const cacheFile = useTelegramStore((store) => store.cacheFile);
+  const saveFileAs = useTelegramStore((store) => store.saveFileAs);
   const colorTheme = usePreferencesStore((store) => colorThemeForThemeId(store.themeId));
   const profile = state.value;
   const waitingForProfile = state.loading && !profile;
@@ -159,7 +160,7 @@ export function ProfileDrawer({
       messages: profilePhotoMessages,
       activeMessageId: active.id,
       colorTheme,
-    }, downloadProfilePhoto);
+    }, downloadProfilePhoto, saveFileAs);
     const content = active.content;
     if (
       content.fileId !== undefined &&
@@ -169,7 +170,7 @@ export function ProfileDrawer({
     ) {
       void downloadProfilePhoto(content.fileId, content.fileName);
     }
-  }, [cacheFile, colorTheme, downloadProfilePhoto, profilePhotoMessages]);
+  }, [cacheFile, colorTheme, downloadProfilePhoto, profilePhotoMessages, saveFileAs]);
   const openCommonGroup = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     const chatId = event.currentTarget.dataset.chatId;
     if (chatId) onOpenChat(chatId);

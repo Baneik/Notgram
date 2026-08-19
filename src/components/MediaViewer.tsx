@@ -2,16 +2,12 @@ import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
   ChevronLeft,
   ChevronRight,
-  Copy,
   Download,
   ImageOff,
   LoaderCircle,
-  RotateCcw,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import { usePreferencesStore } from "../store/preferencesStore";
@@ -19,7 +15,6 @@ import {
   adjacentPhotoId,
   type PhotoMessage,
 } from "../utils/mediaViewerModel";
-import { writeClipboardImage } from "../utils/clipboard";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { StableImage } from "./StableImage";
 
@@ -29,6 +24,7 @@ interface MediaViewerProps {
   onActiveMessageChange: (messageId: string) => void;
   onClose: () => void;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
+  onSave: (sourcePath: string, fileName: string) => Promise<void>;
 }
 
 const sourceFromPath = (path?: string) => {
@@ -110,6 +106,7 @@ export function MediaViewer({
   onActiveMessageChange,
   onClose,
   onDownload,
+  onSave,
 }: MediaViewerProps) {
   const active = messages.find((message) => message.id === activeMessageId);
   const [zoom, setZoom] = useState(MIN_ZOOM);
@@ -137,11 +134,6 @@ export function MediaViewer({
       sourceFromPath(active.content.thumbnailPath) ??
       active.content.previewDataUrl
     : undefined, [active]);
-  const copyActive = useCallback(async () => {
-    if (!source) return;
-    await writeClipboardImage(source, active?.content.caption);
-  }, [active?.content.caption, source]);
-
   useEffect(() => {
     setZoom(MIN_ZOOM);
     setPan({ x: 0, y: 0 });
@@ -177,14 +169,11 @@ export function MediaViewer({
       } else if (event.key === "-") {
         event.preventDefault();
         setZoom((current) => Math.max(MIN_ZOOM, current - ZOOM_STEP));
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && source) {
-        event.preventDefault();
-        void copyActive();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [copyActive, nextId, onActiveMessageChange, previousId, source]);
+  }, [nextId, onActiveMessageChange, previousId]);
 
   if (!active) return null;
   const content = active.content;
@@ -193,6 +182,20 @@ export function MediaViewer({
     content.canDownload !== false &&
     !content.isDownloading &&
     !content.isDownloaded;
+  const canSave = Boolean(content.localPath);
+  const downloadUnavailable = !canSave && !canDownload && !content.isDownloading;
+  const activeIndex = messages.findIndex((message) => message.id === activeMessageId);
+  const imageDetails = [
+    `${activeIndex + 1} / ${messages.length}`,
+    content.dataCenterId ? `DC${content.dataCenterId}` : "DC 未知",
+    content.width && content.height ? `${content.width} × ${content.height}` : undefined,
+    content.sizeLabel,
+  ].filter((detail): detail is string => Boolean(detail));
+  const handleDownload = () => {
+    if (content.localPath) return onSave(content.localPath, content.fileName);
+    if (canDownload) return onDownload(content.fileId!, content.fileName);
+    return Promise.resolve();
+  };
   const updateZoom = (nextZoom: number) => {
     const normalized = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
     setZoom(normalized);
@@ -209,7 +212,7 @@ export function MediaViewer({
   const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     const target = event.target;
-    if (target instanceof Element && target.closest("button, .media-viewer-thumbnails")) return;
+    if (target instanceof Element && target.closest("button, .media-viewer-thumbnails, .media-viewer-caption")) return;
     const imageBounds = imageRef.current?.getBoundingClientRect();
     const insideImage = imageBounds && event.clientX >= imageBounds.left && event.clientX <= imageBounds.right &&
       event.clientY >= imageBounds.top && event.clientY <= imageBounds.bottom;
@@ -265,37 +268,21 @@ export function MediaViewer({
         <header className="media-viewer-toolbar">
           <span className="media-viewer-title">
             <strong>{content.fileName}</strong>
-            <small>{messages.findIndex((message) => message.id === activeMessageId) + 1} / {messages.length}</small>
+            <small>{imageDetails.join(" · ")}</small>
           </span>
-          <div className="media-viewer-tools" role="toolbar" aria-label="图片缩放">
-            <button type="button" aria-label="缩小" title="缩小" disabled={zoom <= MIN_ZOOM} onClick={() => updateZoom(zoom - ZOOM_STEP)}>
-              <ZoomOut size={19} />
+          <div className="media-viewer-tools" role="toolbar" aria-label="图片操作">
+            <button
+              type="button"
+              aria-label="下载图片"
+              aria-busy={content.isDownloading || undefined}
+              title={content.isDownloading ? "原图下载中" : canSave ? "另存图片" : "下载原图"}
+              disabled={content.isDownloading || downloadUnavailable}
+              onClick={() => void handleDownload()}
+            >
+              {content.isDownloading
+                ? <LoaderCircle className="spin" size={18} />
+                : <Download size={18} />}
             </button>
-            <span className="media-viewer-zoom">{Math.round(zoom * 100)}%</span>
-            <button type="button" aria-label="放大" title="放大" disabled={zoom >= MAX_ZOOM} onClick={() => updateZoom(zoom + ZOOM_STEP)}>
-              <ZoomIn size={19} />
-            </button>
-            <button type="button" aria-label="重置缩放" title="重置缩放" disabled={zoom === MIN_ZOOM} onClick={() => updateZoom(MIN_ZOOM)}>
-              <RotateCcw size={18} />
-            </button>
-            {source && (
-              <button type="button" aria-label="复制图片" title="复制图片 (Ctrl+C)" onClick={() => void copyActive()}>
-                <Copy size={18} />
-              </button>
-            )}
-            {(canDownload || content.isDownloading) && (
-              <button
-                type="button"
-                aria-label={content.isDownloading ? "原图下载中" : "下载原图"}
-                title={content.isDownloading ? "原图下载中" : "下载原图"}
-                disabled={content.isDownloading}
-                onClick={() => void onDownload(content.fileId!, content.fileName)}
-              >
-                {content.isDownloading
-                  ? <LoaderCircle className="spin" size={18} />
-                  : <Download size={18} />}
-              </button>
-            )}
             <button type="button" aria-label="关闭图片查看器" title="关闭" onClick={onClose}>
               <X size={20} />
             </button>
@@ -364,13 +351,14 @@ export function MediaViewer({
               ))}
             </nav>
           )}
+          {content.caption && (
+            <p
+              className="media-viewer-caption"
+              aria-live="polite"
+              onWheel={(event) => event.stopPropagation()}
+            >{content.caption}</p>
+          )}
         </main>
-
-        {content.caption && (
-          <footer className="media-viewer-caption">
-            <span>{content.caption}</span>
-          </footer>
-        )}
       </div>
     </div>
   );

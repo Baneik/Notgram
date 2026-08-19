@@ -18,6 +18,7 @@ export type MediaViewerWindowMessage =
       colorTheme: MediaViewerWindowDescriptor["colorTheme"];
     }
   | { type: "download"; id: string; fileId: number; fileName: string }
+  | { type: "save"; id: string; sourcePath: string; fileName: string }
   | { type: "closed"; id: string }
   | { type: "command"; id: string; command: "close" };
 
@@ -95,6 +96,7 @@ const disposeSession = (session: MediaViewerSession, requestClose: boolean) => {
 export const openMediaViewerWindow = async (
   input: Omit<MediaViewerWindowDescriptor, "id">,
   onDownload: (fileId: number, fileName: string) => Promise<void>,
+  onSave: (sourcePath: string, fileName: string) => Promise<void>,
 ) => {
   if (activeSession) disposeSession(activeSession, true);
 
@@ -121,6 +123,8 @@ export const openMediaViewerWindow = async (
       resolveInitialized = undefined;
     } else if (message.type === "download") {
       void onDownload(message.fileId, message.fileName);
+    } else if (message.type === "save") {
+      void onSave(message.sourcePath, message.fileName);
     } else if (message.type === "closed") {
       disposeSession(session, false);
     }

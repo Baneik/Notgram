@@ -557,7 +557,7 @@ export function Conversation({
       messages: viewerPhotos,
       activeMessageId: messageId,
       colorTheme,
-    }, onDownloadFile);
+    }, onDownloadFile, onSaveFileAs);
     if (
       activeContent.fileId !== undefined &&
       activeContent.canDownload !== false &&
@@ -566,7 +566,7 @@ export function Conversation({
     ) {
       void onDownloadFile(activeContent.fileId, activeContent.fileName);
     }
-  }, [cacheFile, colorTheme, onDownloadFile, viewerPhotos]);
+  }, [cacheFile, colorTheme, onDownloadFile, onSaveFileAs, viewerPhotos]);
 
   useEffect(() => {
     syncMediaViewerWindow(viewerPhotos, colorTheme);

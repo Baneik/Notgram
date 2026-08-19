@@ -110,6 +110,14 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
           fileName,
         } satisfies MediaViewerWindowMessage);
       }}
+      onSave={async (sourcePath, fileName) => {
+        channelRef.current?.postMessage({
+          type: "save",
+          id,
+          sourcePath,
+          fileName,
+        } satisfies MediaViewerWindowMessage);
+      }}
     />
   );
 }

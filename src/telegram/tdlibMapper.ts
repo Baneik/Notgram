@@ -28,6 +28,7 @@ import type {
 } from "./types";
 import { messageContentText } from "./messageContent";
 import { deriveChatManagementCapabilitiesFromTd } from "./chatManagement";
+import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
 
 export type TdObject = Record<string, unknown>;
 
@@ -240,8 +241,10 @@ const fileDetails = (value: unknown, includePendingUpload = false) => {
   const uploadedSize = tdNumber(remote?.uploaded_size) ?? 0;
   const isUploading = remote?.is_uploading_active === true;
   const transferredSize = isUploading ? uploadedSize : downloadedSize;
+  const remoteId = typeof remote?.id === "string" ? remote.id : undefined;
   return {
     fileId: tdNumber(file?.id),
+    dataCenterId: remoteId ? parseTdlibRemoteFileDataCenter(remoteId) : undefined,
     size,
     sizeLabel: readableSize(size),
     localPath: tdLocalFilePath(file, includePendingUpload),
