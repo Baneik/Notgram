@@ -1255,9 +1255,10 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await expect(stickerSetPreview).toBeVisible();
   await expect(stickerSetPreview.getByLabel("贴纸预览")).toBeVisible();
   const stickerOptions = stickerSetPreview.getByRole("button", { name: /预览贴纸/ });
-  await expect(stickerOptions).toHaveCount(6);
-  await expect(stickerOptions.locator('img[data-image-state="ready"]')).toHaveCount(6);
+  await expect(stickerOptions).toHaveCount(32);
+  await expect(stickerOptions.first().locator('img[data-image-state="ready"]')).toBeVisible();
   const stickerGridGeometry = await stickerOptions.evaluateAll((options) => {
+    const list = options[0]?.parentElement;
     const cells = options.map((option) => option.getBoundingClientRect());
     const visuals = options.map((option) => [...option.querySelectorAll<HTMLElement>(".emoji-asset-visual, img, video, .tgs-sticker, .tgs-sticker > svg")]
       .map((visual) => visual.getBoundingClientRect()));
@@ -1267,6 +1268,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
     return {
       overlaps,
       squareCells: cells.every((cell) => Math.abs(cell.width - cell.height) <= 1),
+      scrollable: Boolean(list && list.scrollHeight > list.clientHeight),
       visualsContained: visuals.every((items, index) => items.length > 0 && items.every((visual) =>
         visual.left >= cells[index].left
         && visual.top >= cells[index].top
@@ -1274,7 +1276,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
         && visual.bottom <= cells[index].bottom)),
     };
   });
-  expect(stickerGridGeometry).toEqual({ overlaps: false, squareCells: true, visualsContained: true });
+  expect(stickerGridGeometry).toEqual({ overlaps: false, squareCells: true, scrollable: true, visualsContained: true });
   await stickerOptions.nth(1).click();
   await expect(stickerOptions.nth(1)).toHaveAttribute("aria-pressed", "true");
   await stickerSetPreview.getByRole("button", { name: "添加贴纸" }).click();
@@ -1283,8 +1285,9 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(stickerSetPreview).toBeVisible();
   const responsivePreviewGeometry = await stickerSetPreview.evaluate((dialog) => {
+    const listElement = dialog.querySelector<HTMLElement>(".sticker-set-list");
     const stage = dialog.querySelector<HTMLElement>(".sticker-set-stage")?.getBoundingClientRect();
-    const list = dialog.querySelector<HTMLElement>(".sticker-set-list")?.getBoundingClientRect();
+    const list = listElement?.getBoundingClientRect();
     const footer = dialog.querySelector<HTMLElement>(".sticker-set-footer")?.getBoundingClientRect();
     const bounds = dialog.getBoundingClientRect();
     return {
@@ -1292,6 +1295,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
       sideBySide: Boolean(stage && list && stage.right <= list.left + 1),
       footerBelow: Boolean(stage && list && footer && footer.top >= Math.max(stage.bottom, list.bottom) - 1),
       horizontalOverflow: dialog.scrollWidth > dialog.clientWidth + 1,
+      listScrollable: Boolean(listElement && listElement.scrollHeight > listElement.clientHeight),
     };
   });
   expect(responsivePreviewGeometry).toEqual({
@@ -1299,6 +1303,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
     sideBySide: true,
     footerBelow: true,
     horizontalOverflow: false,
+    listScrollable: true,
   });
   await page.setViewportSize({ width: 1280, height: 720 });
   await stickerSetPreview.getByRole("button", { name: "关闭贴纸包预览" }).click();

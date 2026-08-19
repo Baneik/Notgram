@@ -264,11 +264,11 @@ const previewDataUrl = async (file: File) => {
   return `data:${file.type};base64,${btoa(binary)}`;
 };
 
-const mockEmojiPreview = (emoji: string, background: string) =>
+const mockEmojiPreview = (emoji: string, background: string, width = 180, height = 180) =>
   `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
-      <rect width="180" height="180" rx="42" fill="${background}"/>
-      <text x="90" y="116" text-anchor="middle" font-size="96">${emoji}</text>
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <rect width="${width}" height="${height}" rx="42" fill="${background}"/>
+      <text x="${width / 2}" y="${height / 2}" dominant-baseline="central" text-anchor="middle" font-size="${Math.min(width, height) * 0.54}">${emoji}</text>
     </svg>
   `)}`;
 
@@ -277,6 +277,8 @@ const mockSticker = (
   emoji: string,
   background: string,
   stickerSetId?: string,
+  width = 180,
+  height = 180,
 ): EmojiPickerAsset => ({
   id: `mock-sticker:${fileId}`,
   kind: "sticker",
@@ -286,9 +288,23 @@ const mockSticker = (
   fileName: "sticker.webp",
   mimeType: "image/webp",
   previewMimeType: "image/svg+xml",
-  previewDataUrl: mockEmojiPreview(emoji, background),
-  width: 180,
-  height: 180,
+  previewDataUrl: mockEmojiPreview(emoji, background, width, height),
+  width,
+  height,
+});
+
+const denseWorkStickerEmojis = ["👍", "🎉", "💡", "✅", "👀", "🚀", "📌", "💬"];
+const denseWorkStickerBackgrounds = ["#dff2ff", "#fff0ca", "#f4e8ff", "#e3f6e8", "#ffe7e1", "#e6ecff"];
+const denseWorkStickers = Array.from({ length: 32 }, (_, index) => {
+  const dimensions = [[180, 180], [320, 180], [180, 320]][index % 3];
+  return mockSticker(
+    7101 + index,
+    denseWorkStickerEmojis[index % denseWorkStickerEmojis.length],
+    denseWorkStickerBackgrounds[index % denseWorkStickerBackgrounds.length],
+    "mock-pack-work",
+    dimensions[0],
+    dimensions[1],
+  );
 });
 
 const mockAnimation = (
@@ -313,16 +329,9 @@ const mockStickerSets: StickerSet[] = [
     id: "mock-pack-work",
     title: "工作日常",
     name: "notgram_work",
-    size: 6,
-    covers: [mockSticker(7101, "👍", "#dff2ff", "mock-pack-work")],
-    stickers: [
-      mockSticker(7101, "👍", "#dff2ff", "mock-pack-work"),
-      mockSticker(7102, "🎉", "#fff0ca", "mock-pack-work"),
-      mockSticker(7103, "💡", "#f4e8ff", "mock-pack-work"),
-      mockSticker(7104, "✅", "#e3f6e8", "mock-pack-work"),
-      mockSticker(7105, "👀", "#ffe7e1", "mock-pack-work"),
-      mockSticker(7106, "🚀", "#e6ecff", "mock-pack-work"),
-    ],
+    size: denseWorkStickers.length,
+    covers: [denseWorkStickers[0]],
+    stickers: denseWorkStickers,
   },
   {
     id: "mock-pack-cats",
