@@ -1,5 +1,4 @@
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
-import { Clock3, Images, LoaderCircle, Search, Smile, Sticker, X } from "lucide-react";
+import { Clock3, Images, LoaderCircle, Search, Sticker, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -16,9 +15,7 @@ import type {
   EmojiPickerCatalog,
   StickerSet,
 } from "../telegram/types";
-import { TgsSticker } from "./TgsSticker";
-import { AutoplayVideo } from "./AutoplayVideo";
-import { StableImage } from "./StableImage";
+import { EmojiAssetVisual } from "./EmojiAssetVisual";
 
 type PickerTab = "emoji" | "sticker" | "animation";
 
@@ -79,11 +76,6 @@ const readRecentEmojis = () => {
   }
 };
 
-const assetSource = (path?: string) => {
-  if (!path) return undefined;
-  return isTauri() ? convertFileSrc(path) : path;
-};
-
 function LazyEmojiAsset({
   asset,
   onSelect,
@@ -93,67 +85,17 @@ function LazyEmojiAsset({
   onSelect: (asset: EmojiPickerAsset) => void;
   autoplay: boolean;
 }) {
-  const loadEmojiAsset = useTelegramStore((state) => state.loadEmojiAsset);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [visible, setVisible] = useState(false);
-  const [loadedPath, setLoadedPath] = useState<string>();
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    const button = buttonRef.current;
-    if (!button || visible) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
-      setVisible(true);
-      observer.disconnect();
-    }, { rootMargin: "180px" });
-    observer.observe(button);
-    return () => observer.disconnect();
-  }, [visible]);
-
-  useEffect(() => {
-    if (!visible || asset.localPath || loadedPath) return;
-    let active = true;
-    void loadEmojiAsset(asset).then((path) => {
-      if (!active) return;
-      if (path) {
-        setLoadedPath(path);
-        setFailed(false);
-      } else if (!asset.previewDataUrl && !asset.previewPath) {
-        setFailed(true);
-      }
-    });
-    return () => { active = false; };
-  }, [asset, loadEmojiAsset, loadedPath, visible]);
-
-  const fullSource = assetSource(asset.localPath ?? loadedPath);
-  const previewSource = assetSource(asset.previewPath) ?? asset.previewDataUrl;
-  const source = fullSource ?? previewSource;
-  const usingFullAsset = Boolean(fullSource);
   const label = asset.kind === "animation" ? "发送 GIF" : `发送贴纸 ${asset.emoji ?? ""}`.trim();
 
   return (
     <button
-      ref={buttonRef}
       className="emoji-asset-button"
       type="button"
       aria-label={label}
       title={label}
       onClick={() => onSelect(asset)}
     >
-      {!source && !failed ? <LoaderCircle className="spin" size={18} /> : failed ? (
-        <span className="emoji-asset-fallback">{asset.emoji ?? "GIF"}</span>
-      ) : usingFullAsset && asset.mimeType === "application/x-tgsticker" ? (
-        <TgsSticker src={source!} label={label} autoplay={autoplay} onError={() => setFailed(true)} />
-      ) : usingFullAsset && (asset.mimeType === "video/webm" || asset.kind === "animation") ? (
-        <AutoplayVideo src={source} muted autoplay={autoplay} loop playsInline onError={() => setFailed(true)} />
-      ) : (
-        <StableImage src={source} alt="" draggable={false} onError={() => setFailed(true)} />
-      )}
+      <EmojiAssetVisual asset={asset} autoplay={autoplay} label={label} />
     </button>
   );
 }
@@ -393,8 +335,8 @@ export function EmojiPicker({
             <button className={selectedStickerSetId === RECENT_STICKERS ? "is-active" : ""} type="button" title="最近使用" onClick={() => { setQuery(""); setSelectedStickerSetId(RECENT_STICKERS); }}><Clock3 size={18} /></button>
             {(catalog?.stickerSets ?? []).map((stickerSet) => (
               <button className={selectedStickerSetId === stickerSet.id ? "is-active" : ""} type="button" key={stickerSet.id} title={stickerSet.title} onClick={() => { setQuery(""); setSelectedStickerSetId(stickerSet.id); }}>
-                {assetSource(stickerSet.covers[0]?.previewPath) ?? stickerSet.covers[0]?.previewDataUrl
-                  ? <StableImage src={assetSource(stickerSet.covers[0]?.previewPath) ?? stickerSet.covers[0]?.previewDataUrl} alt="" />
+                {stickerSet.covers[0]
+                  ? <EmojiAssetVisual asset={stickerSet.covers[0]} autoplay={false} label={stickerSet.title} className="sticker-pack-cover" />
                   : <Sticker size={18} />}
               </button>
             ))}
@@ -402,7 +344,6 @@ export function EmojiPicker({
         ) : (
           <button className="is-active" type="button" title="已保存的 GIF"><Images size={18} /></button>
         )}
-        <span className="emoji-picker-type-mark">{tab === "emoji" ? <Smile size={17} /> : tab === "sticker" ? <Sticker size={17} /> : <Images size={17} />}</span>
       </footer>
 
       {sendingAssetId && <div className="emoji-picker-sending" role="status"><LoaderCircle className="spin" size={18} />正在发送</div>}

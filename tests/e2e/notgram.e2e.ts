@@ -1228,7 +1228,10 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await expect(picker).toBeVisible();
   await expect(picker.getByRole("tab", { name: "贴纸" })).toHaveAttribute("aria-selected", "true");
   await expect(picker.getByRole("heading", { name: "最近使用" })).toBeVisible();
-  await picker.getByRole("button", { name: "工作日常" }).click();
+  const workStickerSet = picker.getByRole("button", { name: "工作日常" });
+  await expect(workStickerSet.locator(".sticker-pack-cover img")).toHaveAttribute("data-image-state", "ready");
+  await expect(picker.locator(".emoji-picker-type-mark")).toHaveCount(0);
+  await workStickerSet.click();
   await expect(picker.getByRole("heading", { name: "工作日常" })).toBeVisible();
   await picker.getByRole("tab", { name: "Emoji" }).click();
   await picker.getByRole("button", { name: "插入 😀" }).click();
@@ -1243,8 +1246,44 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await expect(sticker).toBeVisible();
   await sticker.click();
   await expect(picker).toBeHidden();
-  await expect(page.locator('[data-media-type="sticker"]').last()).toBeVisible();
+  const sentSticker = page.locator('[data-media-type="sticker"]').last();
+  await expect(sentSticker).toBeVisible();
   await expect(composer).toBeFocused();
+
+  await sentSticker.getByRole("button", { name: "查看贴纸包" }).click();
+  const stickerSetPreview = page.getByRole("dialog", { name: "工作日常" });
+  await expect(stickerSetPreview).toBeVisible();
+  await expect(stickerSetPreview.getByLabel("贴纸预览")).toBeVisible();
+  const stickerOptions = stickerSetPreview.getByRole("button", { name: /预览贴纸/ });
+  await expect(stickerOptions).toHaveCount(6);
+  await stickerOptions.nth(1).click();
+  await expect(stickerOptions.nth(1)).toHaveAttribute("aria-pressed", "true");
+  await stickerSetPreview.getByRole("button", { name: "添加贴纸" }).click();
+  await expect(stickerSetPreview.getByRole("button", { name: "已添加" })).toBeDisabled();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(stickerSetPreview).toBeVisible();
+  const responsivePreviewGeometry = await stickerSetPreview.evaluate((dialog) => {
+    const stage = dialog.querySelector<HTMLElement>(".sticker-set-stage")?.getBoundingClientRect();
+    const list = dialog.querySelector<HTMLElement>(".sticker-set-list")?.getBoundingClientRect();
+    const footer = dialog.querySelector<HTMLElement>(".sticker-set-footer")?.getBoundingClientRect();
+    const bounds = dialog.getBoundingClientRect();
+    return {
+      insideViewport: bounds.left >= 0 && bounds.top >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight,
+      sideBySide: Boolean(stage && list && stage.right <= list.left + 1),
+      footerBelow: Boolean(stage && list && footer && footer.top >= Math.max(stage.bottom, list.bottom) - 1),
+      horizontalOverflow: dialog.scrollWidth > dialog.clientWidth + 1,
+    };
+  });
+  expect(responsivePreviewGeometry).toEqual({
+    insideViewport: true,
+    sideBySide: true,
+    footerBelow: true,
+    horizontalOverflow: false,
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await stickerSetPreview.getByRole("button", { name: "关闭贴纸包预览" }).click();
+  await expect(stickerSetPreview).toBeHidden();
 
   await page.getByRole("button", { name: "表情" }).click();
   await picker.getByRole("tab", { name: "GIF 动态图" }).click();

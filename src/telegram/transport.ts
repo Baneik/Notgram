@@ -174,6 +174,7 @@ export interface TelegramTransport {
   setChatMessageAutoDeleteTime(input: SetChatMessageAutoDeleteTimeInput): Promise<void>;
   getEmojiPickerCatalog(): Promise<EmojiPickerCatalog>;
   getStickerSet(stickerSetId: string): Promise<StickerSet>;
+  addStickerSet(stickerSetId: string): Promise<void>;
   searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]>;
   loadEmojiAsset(asset: EmojiPickerAsset): Promise<string | undefined>;
   sendSticker(input: SendEmojiAssetInput): Promise<void>;

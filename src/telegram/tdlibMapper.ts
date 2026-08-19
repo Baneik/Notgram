@@ -54,6 +54,11 @@ export const asTdObjects = (value: unknown): TdObject[] =>
 export const tdId = (value: unknown): string =>
   typeof value === "number" || typeof value === "string" ? String(value) : "";
 
+export const tdStickerSetId = (value: unknown): string | undefined => {
+  const id = tdId(value);
+  return id && id !== "0" ? id : undefined;
+};
+
 export const tdNumber = (value: unknown): number | undefined => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -385,6 +390,7 @@ const mediaContent = (
     height?: number;
     duration?: number;
     hasSpoiler?: boolean;
+    stickerSetId?: string;
     includePendingUpload?: boolean;
   } = {},
 ): MessageContent => {
@@ -1136,6 +1142,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         thumbnailPath: thumbnailPath(sticker?.thumbnail),
         previewDataUrl: minithumbnailDataUrl(sticker?.minithumbnail),
         mimeType: tdStickerMimeType(sticker?.format),
+        stickerSetId: tdStickerSetId(sticker?.set_id),
         width: tdNumber(sticker?.width),
         height: tdNumber(sticker?.height),
         includePendingUpload,

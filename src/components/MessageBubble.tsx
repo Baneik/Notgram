@@ -138,6 +138,7 @@ interface MessageBubbleProps {
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string) => void;
   onOpenMedia?: (messageId: string) => void;
+  onOpenStickerSet?: (stickerSetId: string) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
   autoplayAnimations: boolean;
@@ -191,6 +192,7 @@ function MessageBubbleComponent({
   onOpenMention,
   onSearchHashtag,
   onOpenMedia,
+  onOpenStickerSet,
   cornerAction,
   albumItem = false,
   autoplayAnimations,
@@ -1032,6 +1034,15 @@ function MessageBubbleComponent({
                 )}
                 {renderMediaTransferProgress()}
                 </MediaSpoiler>
+                {isSticker && content.stickerSetId && onOpenStickerSet && !selectionMode && (
+                  <button
+                    className="sticker-set-open"
+                    type="button"
+                    aria-label="查看贴纸包"
+                    title="查看贴纸包"
+                    onClick={() => onOpenStickerSet(content.stickerSetId!)}
+                  />
+                )}
               </div>
               {hasCaption && content.caption && (
                 <div

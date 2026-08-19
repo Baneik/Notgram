@@ -2535,6 +2535,17 @@ export const createTelegramStore = (
         }
       },
 
+      addStickerSet: async (stickerSetId) => {
+        try {
+          await transport.addStickerSet(stickerSetId);
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "添加贴纸包失败") });
+          return false;
+        }
+      },
+
       searchStickers: async (query, chatId) => {
         const normalized = query.trim();
         if (!normalized) return [];

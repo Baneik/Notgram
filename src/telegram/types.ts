@@ -435,6 +435,7 @@ export interface EmojiPickerAsset {
   id: string;
   kind: EmojiPickerAssetKind;
   fileId: number;
+  stickerSetId?: string;
   previewFileId?: number;
   emoji?: string;
   fileName: string;
@@ -712,6 +713,7 @@ export type MessageRichBlock =
 interface TransferableMessageContent {
   fileName: string;
   sizeLabel: string;
+  stickerSetId?: string;
   caption?: string;
   captionEntities?: MessageTextEntity[];
   mimeType?: string;

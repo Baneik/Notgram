@@ -276,10 +276,12 @@ const mockSticker = (
   fileId: number,
   emoji: string,
   background: string,
+  stickerSetId?: string,
 ): EmojiPickerAsset => ({
   id: `mock-sticker:${fileId}`,
   kind: "sticker",
   fileId,
+  stickerSetId,
   emoji,
   fileName: "sticker.webp",
   mimeType: "image/webp",
@@ -312,14 +314,14 @@ const mockStickerSets: StickerSet[] = [
     title: "工作日常",
     name: "notgram_work",
     size: 6,
-    covers: [mockSticker(7101, "👍", "#dff2ff")],
+    covers: [mockSticker(7101, "👍", "#dff2ff", "mock-pack-work")],
     stickers: [
-      mockSticker(7101, "👍", "#dff2ff"),
-      mockSticker(7102, "🎉", "#fff0ca"),
-      mockSticker(7103, "💡", "#f4e8ff"),
-      mockSticker(7104, "✅", "#e3f6e8"),
-      mockSticker(7105, "👀", "#ffe7e1"),
-      mockSticker(7106, "🚀", "#e6ecff"),
+      mockSticker(7101, "👍", "#dff2ff", "mock-pack-work"),
+      mockSticker(7102, "🎉", "#fff0ca", "mock-pack-work"),
+      mockSticker(7103, "💡", "#f4e8ff", "mock-pack-work"),
+      mockSticker(7104, "✅", "#e3f6e8", "mock-pack-work"),
+      mockSticker(7105, "👀", "#ffe7e1", "mock-pack-work"),
+      mockSticker(7106, "🚀", "#e6ecff", "mock-pack-work"),
     ],
   },
   {
@@ -327,14 +329,14 @@ const mockStickerSets: StickerSet[] = [
     title: "办公室猫猫",
     name: "notgram_cats",
     size: 6,
-    covers: [mockSticker(7201, "😺", "#ffe8d4")],
+    covers: [mockSticker(7201, "😺", "#ffe8d4", "mock-pack-cats")],
     stickers: [
-      mockSticker(7201, "😺", "#ffe8d4"),
-      mockSticker(7202, "🙀", "#e8f4ff"),
-      mockSticker(7203, "😼", "#e9f7df"),
-      mockSticker(7204, "😻", "#ffe4ef"),
-      mockSticker(7205, "😿", "#e7e9ff"),
-      mockSticker(7206, "😸", "#fff4c9"),
+      mockSticker(7201, "😺", "#ffe8d4", "mock-pack-cats"),
+      mockSticker(7202, "🙀", "#e8f4ff", "mock-pack-cats"),
+      mockSticker(7203, "😼", "#e9f7df", "mock-pack-cats"),
+      mockSticker(7204, "😻", "#ffe4ef", "mock-pack-cats"),
+      mockSticker(7205, "😿", "#e7e9ff", "mock-pack-cats"),
+      mockSticker(7206, "😸", "#fff4c9", "mock-pack-cats"),
     ],
   },
 ];
@@ -1951,6 +1953,12 @@ export class MockTelegramTransport implements TelegramTransport {
     return clone(stickerSet);
   }
 
+  async addStickerSet(stickerSetId: string) {
+    if (!mockStickerSets.some((candidate) => candidate.id === stickerSetId)) {
+      throw new Error("找不到贴纸包");
+    }
+  }
+
   async searchStickers(query: string, _chatId: string) {
     const normalized = query.trim().toLocaleLowerCase();
     if (!normalized) return [];
@@ -2366,6 +2374,7 @@ export class MockTelegramTransport implements TelegramTransport {
         kind: "media",
         mediaType,
         fileId: input.asset.fileId,
+        stickerSetId: mediaType === "sticker" ? input.asset.stickerSetId : undefined,
         fileName: input.asset.fileName,
         sizeLabel: mediaType === "sticker" ? "贴纸" : "GIF",
         mimeType: input.asset.mimeType,

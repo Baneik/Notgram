@@ -23,6 +23,7 @@ import { ConfirmActionDialog } from "../components/ConfirmActionDialog";
 import { NewChatDialog } from "../components/NewChatDialog";
 import { ChatManagementDialog } from "../components/ChatManagementDialog";
 import { AudioPlaybackHost } from "../components/AudioPlaybackHost";
+import { StickerSetPreview } from "../components/StickerSetPreview";
 import { senderNameForMessage } from "../components/conversationMessages";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
@@ -257,6 +258,7 @@ export function App() {
   const previousMobileChatOpenRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
+  const [stickerSetPreviewId, setStickerSetPreviewId] = useState<string>();
   const [managedDownloadRequests, setManagedDownloadRequests] = useState<ReadonlyMap<string, ManagedDownloadRequest>>(
     readManagedDownloadRequests,
   );
@@ -1391,8 +1393,8 @@ export function App() {
   return (
     <>
       <main
-        inert={settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || Boolean(managementChatId)}
-        aria-hidden={settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
+        inert={settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId)}
+        aria-hidden={settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
         <NavigationRail
@@ -1683,6 +1685,7 @@ export function App() {
           }}
           onOpenMention={openMentionProfile}
           onSearchHashtag={searchActiveChatHashtag}
+          onOpenStickerSet={setStickerSetPreviewId}
           onStartPrivateChat={(senderId) => { void openProfilePrivateChat(senderId); }}
           onSetChatPinned={(pinned) => activeChatId
             ? setChatPinned(
@@ -1739,6 +1742,12 @@ export function App() {
           onRemove={removeDownloadRecords}
           onOpenDirectory={openDownloadDirectory}
           onClose={() => setDownloadManagerOpen(false)}
+        /> : null}
+      </MotionPresence>
+      <MotionPresence present={Boolean(stickerSetPreviewId)}>
+        {stickerSetPreviewId ? <StickerSetPreview
+          stickerSetId={stickerSetPreviewId}
+          onClose={() => setStickerSetPreviewId(undefined)}
         /> : null}
       </MotionPresence>
       <MotionPresence present={folderManagerOpen}>

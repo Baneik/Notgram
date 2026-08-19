@@ -835,6 +835,7 @@ describe("TDLib mapper", () => {
         "@type": "messageSticker",
         sticker: {
           emoji: "🙂",
+          set_id: "5368324170671202286",
           width: 512,
           height: 512,
           format: { "@type": "stickerFormatWebm" },
@@ -861,6 +862,7 @@ describe("TDLib mapper", () => {
       mediaType: "sticker",
       fileName: "🙂",
       fileId: 17,
+      stickerSetId: "5368324170671202286",
       mimeType: "video/webm",
       width: 512,
       height: 512,

@@ -258,6 +258,7 @@ export interface TelegramState {
   deleteMessagesFromChat: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
   loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
   loadStickerSet: (stickerSetId: string) => Promise<StickerSet | undefined>;
+  addStickerSet: (stickerSetId: string) => Promise<boolean>;
   searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[]>;
   loadEmojiAsset: (asset: EmojiPickerAsset) => Promise<string | undefined>;
   sendSticker: (asset: EmojiPickerAsset, replyToMessageId?: string) => Promise<boolean>;

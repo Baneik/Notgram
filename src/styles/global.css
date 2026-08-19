@@ -1919,7 +1919,8 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   color: var(--muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer;
 }
 .emoji-animation-grid .emoji-asset-button { aspect-ratio: 4 / 3; background: var(--color-bg-control-hover); }
-.emoji-asset-button img, .emoji-asset-button video, .emoji-asset-button .tgs-sticker { width: 100%; height: 100%; display: block; object-fit: contain; }
+.emoji-asset-visual { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; place-items: center; overflow: hidden; }
+.emoji-asset-visual img, .emoji-asset-visual video, .emoji-asset-visual .tgs-sticker { width: 100%; height: 100%; display: block; object-fit: contain; }
 .emoji-asset-fallback { font-size: 26px; font-weight: 700; }
 .emoji-picker-empty { min-height: 170px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .emoji-picker-error { flex-direction: column; }
@@ -1935,11 +1936,59 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 }
 .emoji-picker-packs button:hover, .emoji-picker-packs button:focus-visible, .emoji-picker-packs button.is-active { color: var(--accent); background: var(--accent-soft); }
 .emoji-picker-packs button img { width: 100%; height: 100%; object-fit: contain; }
-.emoji-picker-type-mark { position: sticky; right: 0; margin-left: auto; padding: 0 7px; display: grid; place-items: center; color: var(--accent); background: var(--color-bg-surface-hover); }
+.sticker-pack-cover { width: 27px; height: 27px; }
+.sticker-pack-cover .emoji-asset-fallback { font-size: 18px; }
 .emoji-picker-sending {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
   color: var(--ink); background: color-mix(in srgb, var(--color-bg-elevated) 78%, transparent); backdrop-filter: blur(2px); font-size: 12px; font-weight: 650;
 }
+.sticker-set-backdrop {
+  position: fixed; inset: 0; z-index: 122; padding: 20px; display: grid; place-items: center;
+  background: var(--color-overlay);
+}
+.sticker-set-dialog {
+  width: min(720px, calc(100vw - 40px)); height: min(500px, calc(100vh - 40px)); min-height: 360px;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden;
+  color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-strong); border-radius: 8px;
+  box-shadow: 0 18px 52px var(--color-shadow); outline: none;
+}
+.sticker-set-header {
+  min-width: 0; min-height: 58px; padding: 9px 10px 9px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.sticker-set-header > span { min-width: 0; display: grid; gap: 2px; }
+.sticker-set-header h2 { margin: 0; overflow: hidden; font-size: 15px; line-height: 1.3; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.sticker-set-header small { color: var(--muted); font-size: 10px; line-height: 1.3; }
+.sticker-set-state { min-height: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.sticker-set-state.is-error { flex-direction: column; color: var(--color-status-danger); }
+.sticker-set-body { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(230px, 0.88fr); }
+.sticker-set-stage {
+  min-width: 0; min-height: 0; padding: 28px; display: grid; place-items: center; overflow: hidden;
+  background: var(--color-bg-surface);
+}
+.sticker-set-stage > .emoji-asset-visual { width: min(100%, 290px); height: min(100%, 290px); aspect-ratio: 1; }
+.sticker-set-stage .emoji-asset-fallback { font-size: 58px; }
+.sticker-set-list {
+  min-width: 0; min-height: 0; padding: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start; gap: 5px; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--line);
+}
+.sticker-set-list > button {
+  position: relative; min-width: 0; aspect-ratio: 1; padding: 5px; display: grid; place-items: center; overflow: hidden;
+  color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 7px; cursor: pointer;
+}
+.sticker-set-list > button:hover, .sticker-set-list > button:focus-visible { background: var(--surface-hover); outline: none; }
+.sticker-set-list > button.is-selected { background: var(--accent-soft); border-color: var(--color-border-focus); }
+.sticker-set-list .emoji-asset-fallback { font-size: 24px; }
+.sticker-set-footer { min-height: 58px; padding: 9px 12px; display: flex; justify-content: flex-end; border-top: 1px solid var(--line); }
+.sticker-set-footer .dialog-primary {
+  min-width: 132px; height: 38px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  color: var(--color-text-on-accent); background: var(--accent); border: 1px solid var(--accent); border-radius: 6px;
+  cursor: pointer; font-size: 11px; font-weight: 650;
+}
+.sticker-set-footer .dialog-primary:hover:not(:disabled), .sticker-set-footer .dialog-primary:focus-visible:not(:disabled) { background: var(--accent-strong); outline: none; }
+.sticker-set-footer .dialog-primary:disabled { opacity: 0.52; cursor: default; }
+.sticker-set-open { position: absolute; z-index: 2; inset: 0; padding: 0; background: transparent; border: 0; cursor: pointer; }
+.sticker-set-open:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -3px; border-radius: inherit; }
 .message-delete-backdrop {
   position: fixed; inset: 0; z-index: 100; padding: 20px; display: grid; place-items: center; background: var(--color-overlay);
 }
@@ -2788,6 +2837,13 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .rail-account > span:last-child { font-size: 10px; }
   .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
   .emoji-picker { left: 6px; right: 6px; width: auto; height: min(560px, calc(100vh - 150px)); }
+  .sticker-set-backdrop { padding: 8px; }
+  .sticker-set-dialog { width: calc(100vw - 16px); height: min(520px, calc(100vh - 16px)); min-height: 340px; }
+  .sticker-set-body { grid-template-columns: minmax(0, 1.08fr) minmax(132px, 0.92fr); }
+  .sticker-set-stage { padding: 12px; }
+  .sticker-set-list { padding: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
+  .sticker-set-list > button { padding: 3px; }
+  .sticker-set-footer .dialog-primary { width: 100%; }
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
   .chat-sidebar, .conversation, .forum-topics-view {
     grid-column: 1;

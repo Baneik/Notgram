@@ -2440,6 +2440,7 @@ describe("TauriTelegramTransport message operations", () => {
       stickers: [{
         id: "sticker:5368324170671202287",
         fileId: 71,
+        stickerSetId,
         mimeType: "application/x-tgsticker",
         previewDataUrl: "data:image/jpeg;base64,cHJldmlldw==",
       }],
@@ -2447,6 +2448,15 @@ describe("TauriTelegramTransport message operations", () => {
     expect(requests).toEqual([{
       "@type": "getStickerSet",
       set_id: stickerSetId,
+    }]);
+
+    requests.length = 0;
+    await transport.addStickerSet(stickerSetId);
+    expect(requests).toEqual([{
+      "@type": "changeStickerSet",
+      set_id: stickerSetId,
+      is_installed: true,
+      is_archived: false,
     }]);
   });
 

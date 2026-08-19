@@ -10,6 +10,7 @@ import {
   mapTdMessageProperties,
   mapTdMessageReactionSenders,
   tdId,
+  tdStickerSetId,
   tdLocalFilePath,
   tdNumber,
   tdStickerMimeType,
@@ -142,7 +143,10 @@ const stickerFileName = (mimeType?: string) => {
   return "sticker.webp";
 };
 
-const mapEmojiSticker = (value: unknown): EmojiPickerAsset | undefined => {
+const mapEmojiSticker = (
+  value: unknown,
+  fallbackStickerSetId?: string,
+): EmojiPickerAsset | undefined => {
   const sticker = asTdObject(value);
   const file = asTdObject(sticker?.sticker);
   const fileId = tdNumber(file?.id);
@@ -154,6 +158,7 @@ const mapEmojiSticker = (value: unknown): EmojiPickerAsset | undefined => {
     id: `sticker:${tdId(sticker.id) || fileId}`,
     kind: "sticker",
     fileId,
+    stickerSetId: tdStickerSetId(sticker.set_id) ?? fallbackStickerSetId,
     previewFileId: tdNumber(thumbnailFile?.id),
     emoji: typeof sticker.emoji === "string" ? sticker.emoji : undefined,
     fileName: stickerFileName(mimeType),
@@ -203,7 +208,7 @@ const mapStickerSetSummary = (value: unknown): StickerSetSummary | undefined => 
     name: typeof stickerSet.name === "string" ? stickerSet.name : "",
     size: tdNumber(stickerSet.size) ?? asTdObjects(stickerSet.stickers).length,
     covers: asTdObjects(stickerSet.covers ?? stickerSet.stickers)
-      .map(mapEmojiSticker)
+      .map((sticker) => mapEmojiSticker(sticker, id))
       .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
   };
 };
@@ -430,7 +435,7 @@ export class TauriMessageMediaService {
     ]);
     return {
       recentStickers: asTdObjects(recent.stickers)
-        .map(mapEmojiSticker)
+        .map((sticker) => mapEmojiSticker(sticker))
         .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
       stickerSets: asTdObjects(installed.sets)
         .map(mapStickerSetSummary)
@@ -449,9 +454,19 @@ export class TauriMessageMediaService {
     return {
       ...summary,
       stickers: asTdObjects(response.stickers)
-        .map(mapEmojiSticker)
+        .map((sticker) => mapEmojiSticker(sticker, summary.id))
         .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
     };
+  }
+
+  async addStickerSet(stickerSetId: string) {
+    if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error("无效的贴纸包标识符");
+    await this.context.request({
+      "@type": "changeStickerSet",
+      set_id: stickerSetId,
+      is_installed: true,
+      is_archived: false,
+    });
   }
 
   async searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]> {
@@ -463,7 +478,7 @@ export class TauriMessageMediaService {
       chat_id: numericId(chatId),
     });
     return asTdObjects(response.stickers)
-      .map(mapEmojiSticker)
+      .map((sticker) => mapEmojiSticker(sticker))
       .filter((asset): asset is EmojiPickerAsset => Boolean(asset));
   }
 

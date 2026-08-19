@@ -246,6 +246,7 @@ interface ConversationProps {
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string) => void;
+  onOpenStickerSet: (stickerSetId: string) => void;
   onStartPrivateChat: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
@@ -323,6 +324,7 @@ export function Conversation({
   onOpenSenderProfile,
   onOpenMention,
   onSearchHashtag,
+  onOpenStickerSet,
   onStartPrivateChat,
   onSetChatPinned,
   onSetChatMuted,
@@ -1827,6 +1829,7 @@ export function Conversation({
                         onOpenMention={onOpenMention}
                         onSearchHashtag={onSearchHashtag}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}
+                        onOpenStickerSet={selectionMode ? undefined : onOpenStickerSet}
                         cornerAction={!selectionMode && pinnedViewOpen ? (
                           <MessageSourceLocateButton
                             message={message}
@@ -2141,7 +2144,6 @@ export function Conversation({
           onClose={forwarding.closeDialog}
         /> : null}
       </MotionPresence>
-
     </section>
   );
 }
