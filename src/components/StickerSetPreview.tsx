@@ -1,4 +1,4 @@
-import { Check, LoaderCircle, Plus, Sticker, X } from "lucide-react";
+import { LoaderCircle, Plus, Sticker, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useTelegramStore } from "../store/telegramStore";
@@ -25,7 +25,6 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [addPending, setAddPending] = useState(false);
-  const [added, setAdded] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -33,7 +32,6 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
     setFailed(false);
     setStickerSet(undefined);
     setSelectedStickerId(undefined);
-    setAdded(false);
     void loadStickerSet(stickerSetId).then((nextStickerSet) => {
       if (!active) return;
       setStickerSet(nextStickerSet);
@@ -49,11 +47,14 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
   ) ?? stickerSet?.stickers[0], [selectedStickerId, stickerSet]);
 
   const addSet = async () => {
-    if (addPending || added) return;
+    if (addPending) return;
     setAddPending(true);
     const succeeded = await addStickerSet(stickerSetId);
+    if (succeeded) {
+      onClose();
+      return;
+    }
     setAddPending(false);
-    if (succeeded) setAdded(true);
   };
 
   return (
@@ -132,11 +133,11 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
           <button
             className="dialog-primary"
             type="button"
-            disabled={loading || failed || !stickerSet || addPending || added}
+            disabled={loading || failed || !stickerSet || addPending}
             onClick={() => void addSet()}
           >
-            {addPending ? <LoaderCircle className="spin" size={16} /> : added ? <Check size={16} /> : <Plus size={16} />}
-            {addPending ? "正在添加" : added ? "已添加" : "添加贴纸"}
+            {addPending ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
+            {addPending ? "正在添加" : "添加贴纸"}
           </button>
         </footer>
       </section>

@@ -1966,10 +1966,10 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .sticker-set-state.is-error { flex-direction: column; color: var(--color-status-danger); }
 .sticker-set-body { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(230px, 0.88fr); }
 .sticker-set-stage {
-  min-width: 0; min-height: 0; padding: 28px; display: grid; place-items: center; overflow: hidden;
+  min-width: 0; min-height: 0; padding: 12px; display: grid; place-items: center; overflow: hidden;
   background: var(--color-bg-surface);
 }
-.sticker-set-stage > .emoji-asset-visual { width: min(100%, 290px); height: min(100%, 290px); aspect-ratio: 1; }
+.sticker-set-stage > .emoji-asset-visual { width: 100%; height: 100%; max-width: 100%; max-height: 100%; }
 .sticker-set-stage .emoji-asset-fallback { font-size: 58px; }
 .sticker-set-list {
   min-width: 0; min-height: 0; padding: 10px; display: flex; flex-wrap: wrap;
@@ -2844,7 +2844,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .sticker-set-backdrop { padding: 8px; }
   .sticker-set-dialog { width: calc(100vw - 16px); height: min(520px, calc(100vh - 16px)); min-height: 340px; }
   .sticker-set-body { grid-template-columns: minmax(0, 1.08fr) minmax(132px, 0.92fr); }
-  .sticker-set-stage { padding: 12px; }
+  .sticker-set-stage { padding: 8px; }
   .sticker-set-list { padding: 6px; gap: 3px; }
   .sticker-set-list > button { flex-basis: calc((100% - 3px) / 2); width: calc((100% - 3px) / 2); }
   .sticker-set-list > button > .emoji-asset-visual { inset: 3px; }

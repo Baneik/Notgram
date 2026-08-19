@@ -1279,8 +1279,23 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   expect(stickerGridGeometry).toEqual({ overlaps: false, squareCells: true, scrollable: true, visualsContained: true });
   await stickerOptions.nth(1).click();
   await expect(stickerOptions.nth(1)).toHaveAttribute("aria-pressed", "true");
-  await stickerSetPreview.getByRole("button", { name: "添加贴纸" }).click();
-  await expect(stickerSetPreview.getByRole("button", { name: "已添加" })).toBeDisabled();
+  const previewCoverage = await stickerSetPreview.getByLabel("贴纸预览").evaluate((stage) => {
+    const visual = stage.querySelector<HTMLElement>(".emoji-asset-visual")?.getBoundingClientRect();
+    const bounds = stage.getBoundingClientRect();
+    const style = getComputedStyle(stage);
+    const availableWidth = bounds.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const availableHeight = bounds.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    return {
+      fillsWidth: Boolean(visual && Math.abs(visual.width - availableWidth) <= 1),
+      fillsHeight: Boolean(visual && Math.abs(visual.height - availableHeight) <= 1),
+      insideStage: Boolean(visual
+        && visual.left >= bounds.left
+        && visual.top >= bounds.top
+        && visual.right <= bounds.right
+        && visual.bottom <= bounds.bottom),
+    };
+  });
+  expect(previewCoverage).toEqual({ fillsWidth: true, fillsHeight: true, insideStage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(stickerSetPreview).toBeVisible();
@@ -1306,7 +1321,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
     listScrollable: true,
   });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await stickerSetPreview.getByRole("button", { name: "关闭贴纸包预览" }).click();
+  await stickerSetPreview.getByRole("button", { name: "添加贴纸" }).click();
   await expect(stickerSetPreview).toBeHidden();
 
   await page.getByRole("button", { name: "表情" }).click();
