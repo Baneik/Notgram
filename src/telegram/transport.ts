@@ -191,6 +191,7 @@ export interface TelegramTransport {
   downloadFile(fileId: number, fileName: string): Promise<void>;
   cancelFileDownload(fileId: number): Promise<void>;
   openFile(sourcePath: string): Promise<void>;
+  saveFileToDownloads(sourcePath: string, fileName: string): Promise<void>;
   saveFileAs(sourcePath: string, fileName: string): Promise<boolean>;
   openDownloadDirectory(): Promise<void>;
   retryMessage(chatId: string, messageId: string): Promise<void>;

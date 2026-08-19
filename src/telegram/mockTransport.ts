@@ -2181,6 +2181,10 @@ export class MockTelegramTransport implements TelegramTransport {
     return;
   }
 
+  async saveFileToDownloads(_sourcePath: string, _fileName: string) {
+    return;
+  }
+
   async saveFileAs(_sourcePath: string, _fileName: string) {
     return true;
   }

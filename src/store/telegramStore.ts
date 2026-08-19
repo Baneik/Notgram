@@ -2869,6 +2869,15 @@ export const createTelegramStore = (
         }
       },
 
+      saveFileToDownloads: async (sourcePath, fileName) => {
+        try {
+          await transport.saveFileToDownloads(sourcePath, fileName);
+          set({ operationError: undefined });
+        } catch (error) {
+          set({ operationError: error instanceof Error ? error.message : "无法保存文件" });
+        }
+      },
+
       saveFileAs: async (sourcePath, fileName) => {
         try {
           await transport.saveFileAs(sourcePath, fileName);

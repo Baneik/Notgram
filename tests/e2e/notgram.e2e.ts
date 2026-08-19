@@ -4821,8 +4821,75 @@ test("rich media transfer controls stay above spoiler reveal layers", async ({ p
 
 test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoom and dragging", async ({ page }) => {
   await page.goto("/");
+  await revealVirtualMessage(page, "p-5");
+  await page.evaluate(async (storePath) => {
+    type ViewerMessage = {
+      id: string;
+      sentAt: string;
+      content: { kind: string; fileName?: string; caption?: string; [key: string]: unknown };
+      [key: string]: unknown;
+    };
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, ViewerMessage[]> };
+        setState: (partial: {
+          messages: Map<string, ViewerMessage[]>;
+          saveFileToDownloads: (sourcePath: string, fileName: string) => Promise<void>;
+          saveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
+        }) => void;
+      };
+    };
+    const state = storeModule.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const sourceEntry = [...messages.entries()].find(([, items]) =>
+      items.some((message) => message.id === "p-5"));
+    if (!sourceEntry) throw new Error("Missing source photo for media viewer test");
+    const [sourceChatId, sourceMessages] = sourceEntry;
+    const source = sourceMessages.find((message) => message.id === "p-5")!;
+    const downloadedSource: ViewerMessage = {
+      ...source,
+      content: {
+        ...source.content,
+        localPath: "/mock-video-poster.jpg",
+        isDownloaded: true,
+        isDownloading: false,
+        canDownload: false,
+        progress: undefined,
+      },
+    };
+    const additions = Array.from({ length: 8 }, (_, index): ViewerMessage => ({
+      ...downloadedSource,
+      id: `p-viewer-extra-${index + 1}`,
+      sentAt: new Date(Date.parse(source.sentAt) + (index + 1) * 1_000).toISOString(),
+      content: {
+        ...downloadedSource.content,
+        fileName: `查看器补充图片-${index + 1}.jpg`,
+        caption: "",
+      },
+    }));
+    messages.set(sourceChatId, [
+      ...sourceMessages.map((message) => message.id === source.id ? downloadedSource : message),
+      ...additions,
+    ]);
+    const testWindow = window as unknown as {
+      __notgramViewerSavedFiles: Array<[string, string]>;
+      __notgramViewerSaveAsFiles: Array<[string, string]>;
+    };
+    testWindow.__notgramViewerSavedFiles = [];
+    testWindow.__notgramViewerSaveAsFiles = [];
+    storeModule.telegramStore.setState({
+      messages,
+      saveFileToDownloads: async (sourcePath, fileName) => {
+        testWindow.__notgramViewerSavedFiles.push([sourcePath, fileName]);
+      },
+      saveFileAs: async (sourcePath, fileName) => {
+        testWindow.__notgramViewerSaveAsFiles.push([sourcePath, fileName]);
+      },
+    });
+  }, "/src/store/telegramStore.ts");
+  const sourcePhoto = await revealVirtualMessage(page, "p-5");
   const popupPromise = page.waitForEvent("popup");
-  await page.locator('[data-message-id="p-5"] .photo-open').click();
+  await sourcePhoto.locator(".photo-open").click();
   const popup = await popupPromise;
   await popup.waitForLoadState("domcontentloaded");
 
@@ -4830,8 +4897,12 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(popup.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
   const viewer = popup.locator(".media-viewer");
   const toolbar = viewer.getByRole("toolbar", { name: "图片操作" });
+  const downloadButton = toolbar.getByRole("button", { name: "下载图片" });
   await expect(toolbar.getByRole("button")).toHaveCount(2);
-  await expect(toolbar.getByRole("button", { name: "下载图片" })).toBeVisible();
+  await expect(downloadButton).toBeVisible();
+  await expect(downloadButton).not.toBeFocused();
+  await expect.poll(() => popup.evaluate(() =>
+    document.activeElement?.classList.contains("media-viewer-stage"))).toBe(true);
   await expect(toolbar.getByRole("button", { name: "缩小" })).toHaveCount(0);
   await expect(toolbar.getByRole("button", { name: "放大" })).toHaveCount(0);
   await expect(toolbar.getByRole("button", { name: "重置缩放" })).toHaveCount(0);
@@ -4839,7 +4910,6 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(viewer.locator(".media-viewer-title small")).toHaveCount(0);
   const details = viewer.getByLabel("图片详细信息");
   await expect(details.locator("span")).toHaveText([
-    "序号：2 / 2",
     "数据中心：DC2",
     "尺寸：512 × 512",
     "大小：186 KB",
@@ -4849,6 +4919,8 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const detailRows = await details.locator("span").evaluateAll((items) =>
     items.map((item) => item.getBoundingClientRect().y));
   expect(detailRows.every((row, index) => index === 0 || row > detailRows[index - 1]!)).toBe(true);
+  await expect.poll(() => details.evaluate((element) =>
+    getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
   const caption = popup.locator(".media-viewer-caption");
   await expect(caption).toHaveText("新的媒体预览样式");
   await expect(caption).toHaveCSS("position", "absolute");
@@ -4857,9 +4929,12 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const viewerBounds = await popup.locator(".media-viewer-backdrop").boundingBox();
   const viewport = popup.viewportSize();
   expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
-  const titleBarBounds = await viewer.locator(".media-viewer-toolbar").boundingBox();
+  const stage = popup.locator(".media-viewer-stage");
+  const stageBounds = await stage.boundingBox();
   const detailsBounds = await details.boundingBox();
-  expect(detailsBounds!.y).toBeGreaterThanOrEqual(titleBarBounds!.y + titleBarBounds!.height);
+  expect(detailsBounds!.x - stageBounds!.x).toBeCloseTo(18, 0);
+  expect(stageBounds!.y + stageBounds!.height - detailsBounds!.y - detailsBounds!.height)
+    .toBeCloseTo(18, 0);
   const overlayColor = await popup.locator("html").evaluate((element) =>
     getComputedStyle(element).getPropertyValue("--color-overlay").trim());
   await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS(
@@ -4869,8 +4944,10 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgba(0, 0, 0, 0)");
   const thumbnails = viewer.getByRole("navigation", { name: "会话图片预览" });
-  await expect(thumbnails.getByRole("button")).toHaveCount(2);
-  await expect(thumbnails.locator("img")).toHaveCount(2);
+  await expect(thumbnails.getByRole("button")).toHaveCount(9);
+  await expect(thumbnails.locator("img")).toHaveCount(9);
+  await expect(thumbnails).toHaveCSS("overflow-x", "hidden");
+  await expect(thumbnails).toHaveCSS("scrollbar-width", "none");
   await expect(thumbnails.locator("img").first()).toHaveAttribute("loading", "eager");
   await expect.poll(() => thumbnails.locator("img").evaluateAll((images) =>
     images.every((image) => {
@@ -4886,13 +4963,11 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
     .toBeCloseTo(thumbnailBounds!.x + thumbnailBounds!.width / 2, 0);
   expect(captionBounds!.y + captionBounds!.height).toBeLessThan(thumbnailBounds!.y);
 
-  const stage = popup.locator(".media-viewer-stage");
   await stage.hover();
   await popup.keyboard.down("Control");
   await popup.mouse.wheel(0, -240);
   await popup.keyboard.up("Control");
   await expect(popup.locator(".media-viewer-image")).toHaveAttribute("style", /scale\(1\.5\)/);
-  const stageBounds = await stage.boundingBox();
   await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2, stageBounds!.y + stageBounds!.height / 2);
   await popup.mouse.down();
   await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2 + 48, stageBounds!.y + stageBounds!.height / 2 + 32);
@@ -4902,7 +4977,6 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await popup.keyboard.press("ArrowLeft");
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("纵向图片.jpg");
   await expect(details.locator("span")).toHaveText([
-    "序号：1 / 2",
     "数据中心：DC4",
     "尺寸：512 × 512",
     "大小：220 KB",
@@ -4914,6 +4988,13 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }).click();
   await expect(viewer.locator(".media-viewer-title strong")).toHaveText("界面预览.jpg");
   await expect(popup.locator(".media-viewer-caption")).toHaveText("新的媒体预览样式");
+  await downloadButton.click();
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramViewerSavedFiles: Array<[string, string]> }
+  ).__notgramViewerSavedFiles)).toEqual([["/mock-video-poster.jpg", "界面预览.jpg"]]);
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __notgramViewerSaveAsFiles: Array<[string, string]> }
+  ).__notgramViewerSaveAsFiles)).toEqual([]);
 
   const closed = popup.waitForEvent("close");
   const finalStageBounds = await stage.boundingBox();

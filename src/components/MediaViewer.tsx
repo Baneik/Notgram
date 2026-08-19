@@ -7,12 +7,12 @@ import {
   LoaderCircle,
   X,
 } from "lucide-react";
-import { forwardRef, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
-import { usePreferencesStore } from "../store/preferencesStore";
 import {
   adjacentPhotoId,
+  photoThumbnailWindow,
   type PhotoMessage,
 } from "../utils/mediaViewerModel";
 import { MediaProgressRing } from "./MediaProgressRing";
@@ -42,11 +42,11 @@ interface MediaViewerThumbnailProps {
   onSelect: () => void;
 }
 
-const MediaViewerThumbnail = forwardRef<HTMLButtonElement, MediaViewerThumbnailProps>(function MediaViewerThumbnail({
+function MediaViewerThumbnail({
   message,
   selected,
   onSelect,
-}, ref) {
+}: MediaViewerThumbnailProps) {
   const sources = useMemo(() => [
     sourceFromPath(message.content.localPath),
     sourceFromPath(message.content.thumbnailPath),
@@ -63,7 +63,6 @@ const MediaViewerThumbnail = forwardRef<HTMLButtonElement, MediaViewerThumbnailP
 
   return (
     <button
-      ref={ref}
       className={selected ? "is-active" : undefined}
       type="button"
       aria-label={`查看 ${message.content.fileName}`}
@@ -93,7 +92,7 @@ const MediaViewerThumbnail = forwardRef<HTMLButtonElement, MediaViewerThumbnailP
       )}
     </button>
   );
-});
+}
 
 interface PanPosition {
   x: number;
@@ -120,15 +119,18 @@ export function MediaViewer({
   } | undefined>(undefined);
   const [failedSource, setFailedSource] = useState<string>();
   const [retryKey, setRetryKey] = useState(0);
-  const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const showDownloading = useStableVisibility(Boolean(active?.content.isDownloading), {
     minimumVisible: 320,
   });
-  const activeThumbnailRef = useRef<HTMLButtonElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
-  const dialogRef = useModalFocus<HTMLDivElement>(onClose);
+  const stageRef = useRef<HTMLElement>(null);
+  const dialogRef = useModalFocus<HTMLDivElement>(onClose, false, stageRef);
   const previousId = adjacentPhotoId(messages, activeMessageId, -1);
   const nextId = adjacentPhotoId(messages, activeMessageId, 1);
+  const thumbnailMessages = useMemo(
+    () => photoThumbnailWindow(messages, activeMessageId),
+    [activeMessageId, messages],
+  );
   const source = useMemo(() => active
     ? sourceFromPath(active.content.localPath) ??
       sourceFromPath(active.content.thumbnailPath) ??
@@ -146,14 +148,6 @@ export function MediaViewer({
   useEffect(() => {
     if (zoom === MIN_ZOOM) setPan({ x: 0, y: 0 });
   }, [zoom]);
-
-  useEffect(() => {
-    activeThumbnailRef.current?.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "nearest",
-      inline: "nearest",
-    });
-  }, [activeMessageId, reduceMotion]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -184,9 +178,7 @@ export function MediaViewer({
     !content.isDownloaded;
   const canSave = Boolean(content.localPath);
   const downloadUnavailable = !canSave && !canDownload && !content.isDownloading;
-  const activeIndex = messages.findIndex((message) => message.id === activeMessageId);
   const imageDetails = [
-    `序号：${activeIndex + 1} / ${messages.length}`,
     `数据中心：${content.dataCenterId ? `DC${content.dataCenterId}` : "Telegram 自动选择"}`,
     `尺寸：${content.width && content.height ? `${content.width} × ${content.height}` : "未知"}`,
     `大小：${content.sizeLabel}`,
@@ -274,7 +266,7 @@ export function MediaViewer({
               type="button"
               aria-label="下载图片"
               aria-busy={content.isDownloading || undefined}
-              title={content.isDownloading ? "原图下载中" : canSave ? "另存图片" : "下载原图"}
+              title={content.isDownloading ? "原图下载中" : canSave ? "保存到下载目录" : "下载原图"}
               disabled={content.isDownloading || downloadUnavailable}
               onClick={() => void handleDownload()}
             >
@@ -289,6 +281,8 @@ export function MediaViewer({
         </header>
 
         <main
+          ref={stageRef}
+          tabIndex={-1}
           className={`media-viewer-stage ${messages.length > 1 ? "has-thumbnails" : ""} ${zoom > MIN_ZOOM ? "is-pannable" : ""} ${dragging ? "is-dragging" : ""}`}
           onWheel={handleWheel}
           onPointerDown={handlePointerDown}
@@ -342,9 +336,8 @@ export function MediaViewer({
           )}
           {messages.length > 1 && (
             <nav className="media-viewer-thumbnails" aria-label="会话图片预览">
-              {messages.map((message) => (
+              {thumbnailMessages.map((message) => (
                 <MediaViewerThumbnail
-                  ref={message.id === activeMessageId ? activeThumbnailRef : undefined}
                   key={message.id}
                   message={message}
                   selected={message.id === activeMessageId}

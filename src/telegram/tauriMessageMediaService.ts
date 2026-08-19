@@ -667,6 +667,10 @@ export class TauriMessageMediaService {
     await invoke("telegram_open_cached_file", { sourcePath });
   }
 
+  async saveFileToDownloads(sourcePath: string, fileName: string) {
+    await invoke("telegram_save_downloaded_file", { sourcePath, fileName });
+  }
+
   async saveFileAs(sourcePath: string, fileName: string) {
     return invoke<boolean>("telegram_save_cached_file_as", { sourcePath, fileName });
   }

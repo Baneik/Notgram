@@ -1723,6 +1723,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.openFile(sourcePath);
   }
 
+  async saveFileToDownloads(sourcePath: string, fileName: string) {
+    return this.messageMediaService.saveFileToDownloads(sourcePath, fileName);
+  }
+
   async saveFileAs(sourcePath: string, fileName: string) {
     return this.messageMediaService.saveFileAs(sourcePath, fileName);
   }

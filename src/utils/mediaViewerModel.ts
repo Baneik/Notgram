@@ -11,6 +11,21 @@ export const isPhotoMessage = (message: Message): message is PhotoMessage =>
 
 export const photoMessages = (messages: Message[]) => messages.filter(isPhotoMessage);
 
+export const MAX_MEDIA_VIEWER_THUMBNAILS = 9;
+
+export const photoThumbnailWindow = (
+  messages: PhotoMessage[],
+  currentId: string,
+  limit = MAX_MEDIA_VIEWER_THUMBNAILS,
+) => {
+  const size = Math.max(1, Math.floor(limit));
+  if (messages.length <= size) return messages;
+  const currentIndex = Math.max(0, messages.findIndex((message) => message.id === currentId));
+  const maximumStart = messages.length - size;
+  const start = Math.min(Math.max(0, currentIndex - Math.floor(size / 2)), maximumStart);
+  return messages.slice(start, start + size);
+};
+
 export const adjacentPhotoId = (
   messages: PhotoMessage[],
   currentId: string,

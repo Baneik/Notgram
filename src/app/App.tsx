@@ -233,6 +233,7 @@ export function App() {
   const downloadFile = useTelegramStore((state) => state.downloadFile);
   const cancelFileDownload = useTelegramStore((state) => state.cancelFileDownload);
   const openFile = useTelegramStore((state) => state.openFile);
+  const saveFileToDownloads = useTelegramStore((state) => state.saveFileToDownloads);
   const saveFileAs = useTelegramStore((state) => state.saveFileAs);
   const openDownloadDirectory = useTelegramStore((state) => state.openDownloadDirectory);
   const streamFile = useTelegramStore((state) => state.streamFile);
@@ -1651,6 +1652,7 @@ export function App() {
           onCancelFileDownload={cancelManagedDownload}
           onRecoverFile={recoverFile}
           onOpenFile={openFile}
+          onSaveFileToDownloads={saveFileToDownloads}
           onSaveFileAs={saveFileAs}
           onOpenDownloadDirectory={openDownloadDirectory}
           onStreamFile={streamFile}

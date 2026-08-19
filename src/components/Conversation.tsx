@@ -68,7 +68,7 @@ import { autoplayAllowed } from "../utils/motionPreference";
 import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
 import { ReportDialog } from "./SafetySettings";
-import { photoMessages } from "../utils/mediaViewerModel";
+import { photoMessages, photoThumbnailWindow } from "../utils/mediaViewerModel";
 import {
   openMediaViewerWindow,
   syncMediaViewerWindow,
@@ -225,6 +225,7 @@ interface ConversationProps {
   onCancelFileDownload: (fileId: number) => Promise<void>;
   onRecoverFile: (fileId: number, priority?: number) => Promise<boolean>;
   onOpenFile: (sourcePath: string, fileId?: number) => Promise<boolean>;
+  onSaveFileToDownloads: (sourcePath: string, fileName: string) => Promise<void>;
   onSaveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
   onOpenDownloadDirectory: () => Promise<void>;
   onStreamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
@@ -305,6 +306,7 @@ export function Conversation({
   onCancelFileDownload,
   onRecoverFile,
   onOpenFile,
+  onSaveFileToDownloads,
   onSaveFileAs,
   onOpenDownloadDirectory,
   onStreamFile,
@@ -537,10 +539,7 @@ export function Conversation({
     const activeIndex = viewerPhotos.findIndex((message) => message.id === messageId);
     if (activeIndex < 0) return;
     const activeContent = viewerPhotos[activeIndex].content;
-    const nearbyPhotos = viewerPhotos.slice(
-      Math.max(0, activeIndex - 24),
-      Math.min(viewerPhotos.length, activeIndex + 25),
-    );
+    const nearbyPhotos = photoThumbnailWindow(viewerPhotos, messageId);
     const thumbnailFileIds = new Set(nearbyPhotos.flatMap((message) => {
       const content = message.content;
       return content.thumbnailFileId !== undefined &&
@@ -557,7 +556,7 @@ export function Conversation({
       messages: viewerPhotos,
       activeMessageId: messageId,
       colorTheme,
-    }, onDownloadFile, onSaveFileAs);
+    }, onDownloadFile, onSaveFileToDownloads);
     if (
       activeContent.fileId !== undefined &&
       activeContent.canDownload !== false &&
@@ -566,7 +565,7 @@ export function Conversation({
     ) {
       void onDownloadFile(activeContent.fileId, activeContent.fileName);
     }
-  }, [cacheFile, colorTheme, onDownloadFile, onSaveFileAs, viewerPhotos]);
+  }, [cacheFile, colorTheme, onDownloadFile, onSaveFileToDownloads, viewerPhotos]);
 
   useEffect(() => {
     syncMediaViewerWindow(viewerPhotos, colorTheme);

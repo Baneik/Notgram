@@ -26,7 +26,7 @@ import { useTelegramStore } from "../store/telegramStore";
 import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
 import type { ChatReportOptions, ReportChatInput } from "../telegram/types";
 import { colorThemeForThemeId } from "../theme/theme";
-import type { PhotoMessage } from "../utils/mediaViewerModel";
+import { photoThumbnailWindow, type PhotoMessage } from "../utils/mediaViewerModel";
 import { Avatar } from "./Avatar";
 import { MessageRichText } from "./MessageRichText";
 import { MotionPresence } from "./MotionPresence";
@@ -117,7 +117,7 @@ export function ProfileDrawer({
   const [page, setPage] = useState<ProfilePage>("main");
   const [reportOpen, setReportOpen] = useState(false);
   const cacheFile = useTelegramStore((store) => store.cacheFile);
-  const saveFileAs = useTelegramStore((store) => store.saveFileAs);
+  const saveFileToDownloads = useTelegramStore((store) => store.saveFileToDownloads);
   const colorTheme = usePreferencesStore((store) => colorThemeForThemeId(store.themeId));
   const profile = state.value;
   const waitingForProfile = state.loading && !profile;
@@ -145,7 +145,7 @@ export function ProfileDrawer({
   const openProfileAvatar = useCallback(() => {
     const active = profilePhotoMessages[0];
     if (!active) return;
-    for (const photo of profilePhotoMessages.slice(0, 25)) {
+    for (const photo of photoThumbnailWindow(profilePhotoMessages, active.id)) {
       const content = photo.content;
       if (
         content.thumbnailFileId !== undefined &&
@@ -160,7 +160,7 @@ export function ProfileDrawer({
       messages: profilePhotoMessages,
       activeMessageId: active.id,
       colorTheme,
-    }, downloadProfilePhoto, saveFileAs);
+    }, downloadProfilePhoto, saveFileToDownloads);
     const content = active.content;
     if (
       content.fileId !== undefined &&
@@ -170,7 +170,7 @@ export function ProfileDrawer({
     ) {
       void downloadProfilePhoto(content.fileId, content.fileName);
     }
-  }, [cacheFile, colorTheme, downloadProfilePhoto, profilePhotoMessages, saveFileAs]);
+  }, [cacheFile, colorTheme, downloadProfilePhoto, profilePhotoMessages, saveFileToDownloads]);
   const openCommonGroup = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     const chatId = event.currentTarget.dataset.chatId;
     if (chatId) onOpenChat(chatId);
