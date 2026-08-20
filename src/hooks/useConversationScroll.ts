@@ -511,18 +511,18 @@ export const useConversationScroll = ({
   }, [currentScrollKey, searchActive]);
 
   const scheduleBottomPin = useCallback((onSettled?: () => void, continuous = false) => {
-    if (!currentScrollKey || searchActive) return;
-    if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return;
-    if (performance.now() < smoothScrollUntilRef.current) return;
-    if (middleAutoScrollRef.current) return;
+    if (!currentScrollKey || searchActive) return false;
+    if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return false;
+    if (performance.now() < smoothScrollUntilRef.current) return false;
+    if (middleAutoScrollRef.current) return false;
     if (pointerActiveRef.current) {
       resumeBottomPinOnReleaseRef.current = true;
-      return;
+      return false;
     }
     if (
       performance.now() <= userIntentUntilRef.current &&
       userScrollDirectionRef.current === "up"
-    ) return;
+    ) return false;
     const control = scrollControlRef.current;
     const pendingRequest = bottomPinRequestRef.current;
     if (
@@ -562,7 +562,7 @@ export const useConversationScroll = ({
         onSettled: new Set(onSettled ? [onSettled] : []),
       };
     }
-    if (bottomFrameRef.current !== undefined) return;
+    if (bottomFrameRef.current !== undefined) return true;
     const reconcile = () => {
       bottomFrameRef.current = undefined;
       const request = bottomPinRequestRef.current;
@@ -579,6 +579,9 @@ export const useConversationScroll = ({
           userScrollDirectionRef.current === "up")
       ) {
         bottomPinRequestRef.current = undefined;
+        if (request && positioningIdentityRef.current === request.identity) {
+          positioningIdentityRef.current = undefined;
+        }
         return;
       }
       if (!request.mountCommitted && element.querySelector("[data-message-id]")) {
@@ -608,6 +611,7 @@ export const useConversationScroll = ({
       }
     };
     bottomFrameRef.current = requestAnimationFrame(reconcile);
+    return true;
   }, [currentScrollKey, pinToBottom, searchActive]);
 
   const settleBottomPosition = useCallback((
@@ -616,7 +620,15 @@ export const useConversationScroll = ({
     generation: number,
     onSettled?: () => void,
   ) => {
-    if (!currentScrollKey || searchActive) return;
+    const releasePositioning = () => {
+      if (positioningIdentityRef.current === identity) {
+        positioningIdentityRef.current = undefined;
+      }
+    };
+    if (!currentScrollKey || searchActive) {
+      releasePositioning();
+      return;
+    }
     const element = messageListRef.current;
     if (
       !element ||
@@ -624,8 +636,11 @@ export const useConversationScroll = ({
       element.dataset.conversationVirtuosoKey !== expectedVirtuosoKey ||
       scrollControlRef.current.identity !== identity ||
       scrollControlRef.current.generation !== generation
-    ) return;
-    scheduleBottomPin(onSettled);
+    ) {
+      releasePositioning();
+      return;
+    }
+    if (!scheduleBottomPin(onSettled)) releasePositioning();
   }, [currentScrollKey, scheduleBottomPin, searchActive]);
 
   useLayoutEffect(() => {
@@ -672,6 +687,29 @@ export const useConversationScroll = ({
     if (active && active.key !== currentScrollKey) clearHistorySnapshot();
   }, [clearHistorySnapshot, currentScrollKey]);
 
+  const publishPositionedIdentity = useCallback((identity: string) => {
+    if (positioningIdentityRef.current === identity) {
+      positioningIdentityRef.current = undefined;
+    }
+    if (positionedIdentityRef.current === identity) return;
+    positionedIdentityRef.current = identity;
+    setPositionedIdentity(identity);
+    markConversationSwitch(
+      matchingMessageRequest?.performanceTraceId ??
+        matchingLatestRequest?.performanceTraceId ??
+        matchingEntryRequest?.performanceTraceId,
+      "positioned",
+      {
+        messageCount: visibleMessagesRef.current.length,
+        blockCount: virtualItemCountRef.current,
+      },
+    );
+  }, [
+    matchingEntryRequest?.performanceTraceId,
+    matchingLatestRequest?.performanceTraceId,
+    matchingMessageRequest?.performanceTraceId,
+  ]);
+
   const interruptControlledPositioning = useCallback((
     mode: "following" | "detached",
     publishPositioned = true,
@@ -709,10 +747,14 @@ export const useConversationScroll = ({
       mode,
     };
     if (publishPositioned && current.identity === initialLocationIdentity) {
-      positionedIdentityRef.current = initialLocationIdentity;
-      setPositionedIdentity(initialLocationIdentity);
+      publishPositionedIdentity(initialLocationIdentity);
     }
-  }, [clearHistorySnapshot, clearJumpTransition, initialLocationIdentity]);
+  }, [
+    clearHistorySnapshot,
+    clearJumpTransition,
+    initialLocationIdentity,
+    publishPositionedIdentity,
+  ]);
 
   const adoptUserScrollMode = useCallback((mode: "following" | "detached") => {
     const current = scrollControlRef.current;
@@ -915,7 +957,12 @@ export const useConversationScroll = ({
         element.dataset.conversationVirtuosoKey !== expectedVirtuosoKey ||
         scrollControlRef.current.identity !== identity ||
         scrollControlRef.current.generation !== generation
-      ) return;
+      ) {
+        if (positioningIdentityRef.current === identity) {
+          positioningIdentityRef.current = undefined;
+        }
+        return;
+      }
       restoreAnchor(element, messageId, expectedOffset);
       const anchor = element.querySelector<HTMLElement>(
         `[data-message-id="${CSS.escape(messageId)}"]`,
@@ -1073,14 +1120,23 @@ export const useConversationScroll = ({
     if (!currentScrollKey) return;
     if (positionedIdentityRef.current === initialLocationIdentity) return;
     const identity = initialLocationIdentity;
+    if (positioningIdentityRef.current === identity) return;
     if (positioningFrameRef.current !== undefined) {
-      if (positioningIdentityRef.current === identity) return;
       cancelAnimationFrame(positioningFrameRef.current);
       positioningFrameRef.current = undefined;
+    }
+    if (positioningAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(positioningAnchorFrameRef.current);
+      positioningAnchorFrameRef.current = undefined;
     }
     positioningIdentityRef.current = identity;
     const expectedVirtuosoKey = virtuosoKey;
     const generation = scrollControlRef.current.generation;
+    const releasePositioning = () => {
+      if (positioningIdentityRef.current === identity) {
+        positioningIdentityRef.current = undefined;
+      }
+    };
     const finishPositioning = () => {
       const control = scrollControlRef.current;
       if (
@@ -1088,22 +1144,13 @@ export const useConversationScroll = ({
         control.generation !== generation ||
         initialLocationRef.current?.identity !== identity ||
         positionedIdentityRef.current === identity
-      ) return;
+      ) {
+        releasePositioning();
+        return;
+      }
       const memory = conversationScrollMemory.get(currentScrollKey);
       control.mode = memory?.followLatest === false ? "detached" : "following";
-      positionedIdentityRef.current = identity;
-      positioningIdentityRef.current = undefined;
-      setPositionedIdentity(identity);
-      markConversationSwitch(
-        matchingMessageRequest?.performanceTraceId ??
-          matchingLatestRequest?.performanceTraceId ??
-          matchingEntryRequest?.performanceTraceId,
-        "positioned",
-        {
-          messageCount: visibleMessagesRef.current.length,
-          blockCount: virtualItemCountRef.current,
-        },
-      );
+      publishPositionedIdentity(identity);
     };
     let attempts = 0;
     const finishWhenRendered = () => {
@@ -1111,12 +1158,12 @@ export const useConversationScroll = ({
       positioningFrameRef.current = requestAnimationFrame(() => {
         positioningFrameRef.current = undefined;
         if (initialLocationRef.current?.identity !== identity) {
-          positioningIdentityRef.current = undefined;
+          releasePositioning();
           return;
         }
         if (messageListRef.current?.dataset.conversationVirtuosoKey !== expectedVirtuosoKey) {
           if (attempts < 12) finishWhenRendered();
-          else positioningIdentityRef.current = undefined;
+          else releasePositioning();
           return;
         }
         if (revealTargetTokenRef.current) {
@@ -1156,11 +1203,9 @@ export const useConversationScroll = ({
   }, [
     currentScrollKey,
     initialLocationIdentity,
-    matchingEntryRequest?.performanceTraceId,
-    matchingLatestRequest?.performanceTraceId,
-    matchingMessageRequest?.performanceTraceId,
     virtuosoKey,
     pinToBottom,
+    publishPositionedIdentity,
     settleAnchorPosition,
     settleBottomPosition,
   ]);

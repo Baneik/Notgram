@@ -6878,6 +6878,89 @@ test("local reading anchor wins over an older unread cursor after switching conv
   await expect(page.getByRole("button", { name: /跳到最新消息/ })).toBeVisible();
 });
 
+test("repeated virtual range changes do not restart detached anchor settlement", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await scrollAwayFromBottom(page);
+  const savedAnchor = await visibleMessageAnchor(page);
+  expect(savedAnchor.id).toBeTruthy();
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+
+  const result = await page.evaluate(async () => {
+    const style = document.createElement("style");
+    style.textContent = [
+      ".message-list [data-message-id] {",
+      "  padding-bottom: var(--notgram-range-churn, 0px) !important;",
+      "}",
+    ].join("\n");
+    document.head.append(style);
+
+    document.querySelector<HTMLElement>('[data-chat-id="chat-product"]')?.click();
+    let destinationFrame: number | undefined;
+    let settledFrame: number | undefined;
+    try {
+      for (let frame = 0; frame < 54; frame += 1) {
+        document.documentElement.style.setProperty(
+          "--notgram-range-churn",
+          frame % 2 === 0 ? "0px" : "48px",
+        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => {
+          globalThis.setTimeout(resolve, 0);
+        }));
+        const isDestination = document.querySelector(".conversation-title strong")?.textContent ===
+          "产品讨论";
+        if (!isDestination) continue;
+        destinationFrame ??= frame;
+        const list = document.querySelector<HTMLElement>(".message-list");
+        const settled = list?.getAttribute("aria-busy") === "false" &&
+          !document.querySelector("[data-conversation-switch-snapshot]");
+        if (settled && settledFrame === undefined) {
+          settledFrame = frame - destinationFrame;
+        }
+      }
+    } finally {
+      document.documentElement.style.removeProperty("--notgram-range-churn");
+      style.remove();
+    }
+
+    for (let frame = 0; frame < 30; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    const performanceModule = await import("/src/utils/performanceMonitor.ts" as string) as {
+      getPerformanceRecords: () => Array<{
+        event: string;
+        durationMs?: number;
+        details: { missingStageMask?: number; timedOut?: boolean };
+      }>;
+    };
+    const trace = performanceModule.getPerformanceRecords()
+      .filter((record) => record.event === "ui_conversation_switch")
+      .at(-1);
+    return {
+      settledFrame,
+      finalBusy: document.querySelector(".message-list")?.getAttribute("aria-busy"),
+      snapshotPresent: Boolean(document.querySelector("[data-conversation-switch-snapshot]")),
+      traceDurationMs: trace?.durationMs,
+      missingStageMask: trace?.details.missingStageMask,
+      timedOut: trace?.details.timedOut,
+    };
+  });
+
+  expect(result.settledFrame, JSON.stringify(result)).toBeDefined();
+  // Allow the 18-frame anchor reconciliation and the bounded snapshot release.
+  expect(result.settledFrame!, JSON.stringify(result)).toBeLessThanOrEqual(40);
+  expect(result.finalBusy).toBe("false");
+  expect(result.snapshotPresent).toBe(false);
+  expect(result.missingStageMask).toBe(0);
+  expect(result.timedOut).not.toBe(true);
+  expect(result.traceDurationMs, JSON.stringify(result)).toBeLessThan(750);
+  await expect.poll(async () => (await visibleMessageAnchor(page)).id).toBe(savedAnchor.id);
+});
+
 test("window resizing and new messages preserve the user's follow intent", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 760 });
   await page.goto("/");
