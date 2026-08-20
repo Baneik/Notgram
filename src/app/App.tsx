@@ -14,6 +14,7 @@ import { Conversation } from "../components/Conversation";
 import { ForumTopicsView } from "../components/ForumTopicsView";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
+import { UnauthenticatedSettingsDialog } from "../components/UnauthenticatedSettingsDialog";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { DownloadManagerDialog } from "../components/DownloadManagerDialog";
 import { MotionPresence } from "../components/MotionPresence";
@@ -84,6 +85,24 @@ import { motionLifecycleTiming } from "../utils/motionTokens";
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
 const EMPTY_MESSAGES: Message[] = [];
+const ADD_ACCOUNT_RETURN_STORAGE_KEY = "notgram:add-account-return";
+
+const readAddAccountReturnId = () => {
+  try {
+    return globalThis.sessionStorage?.getItem(ADD_ACCOUNT_RETURN_STORAGE_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const writeAddAccountReturnId = (accountId?: string) => {
+  try {
+    if (accountId) globalThis.sessionStorage?.setItem(ADD_ACCOUNT_RETURN_STORAGE_KEY, accountId);
+    else globalThis.sessionStorage?.removeItem(ADD_ACCOUNT_RETURN_STORAGE_KEY);
+  } catch {
+    // A failed session hint must not block account switching.
+  }
+};
 
 const conversationIdentityFor = (chatId: string, topicId?: string) =>
   topicId ? `${chatId}:topic:${topicId}` : chatId;
@@ -650,6 +669,26 @@ export function App() {
       .then((opened) => { if (!opened) setSettingsOpen(true); })
       .catch(() => setSettingsOpen(true));
   }, []);
+  const openLoginSettings = useCallback(() => setSettingsOpen(true), []);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const handleAddAccount = useCallback(async () => {
+    writeAddAccountReturnId(activeAccountId);
+    const added = await addAccount();
+    if (!added) writeAddAccountReturnId();
+    return added;
+  }, [activeAccountId, addAccount]);
+  const addAccountReturnId = readAddAccountReturnId();
+  const returnAccount = addAccountReturnId
+    ? accounts.find((account) => account.id === addAccountReturnId)
+    : undefined;
+  const handleExitAddAccount = useCallback(() => {
+    if (!returnAccount || accountPending) return;
+    void switchAccount(returnAccount.id);
+  }, [accountPending, returnAccount, switchAccount]);
+
+  useEffect(() => {
+    if (authorization.kind === "ready") writeAddAccountReturnId();
+  }, [authorization.kind]);
 
   const closeSearch = useCallback((restoreFocus = false, preserveGlobalResults = false) => {
     exitSidebarSearchScope(false);
@@ -1370,11 +1409,14 @@ export function App() {
         pending={authorizationPending}
         error={authorizationError}
         connectionStatus={connectionStatus}
+        inactive={settingsOpen}
+        backPending={accountPending}
         onSubmit={authenticate}
-        onOpenSettings={openSettings}
+        onBack={returnAccount ? handleExitAddAccount : undefined}
+        onOpenSettings={openLoginSettings}
       />
       <MotionPresence present={settingsOpen}>
-        {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+        {settingsOpen ? <UnauthenticatedSettingsDialog onClose={closeSettings} /> : null}
       </MotionPresence>
       </>
     );
@@ -1419,7 +1461,7 @@ export function App() {
             title: folder.title,
           })}
           onOpenSettings={openSettings}
-          onAddAccount={addAccount}
+          onAddAccount={handleAddAccount}
           onSwitchAccount={switchAccount}
         />
         <ChatSidebar
@@ -1732,7 +1774,7 @@ export function App() {
         </div> : null}
       </MotionPresence>
       <MotionPresence present={settingsOpen}>
-        {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+        {settingsOpen ? <SettingsDialog onClose={closeSettings} /> : null}
       </MotionPresence>
       <MotionPresence present={downloadManagerOpen}>
         {downloadManagerOpen ? <DownloadManagerDialog

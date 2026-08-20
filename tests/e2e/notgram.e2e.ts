@@ -117,6 +117,44 @@ const openConversationMessageSearch = async (page: Page) => {
   await menu.getByRole("menuitem", { name: "搜索消息" }).click();
 };
 
+test("authorization defaults to QR login and exposes proxy-only settings", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 780 });
+  await page.goto("/?auth=1&connection=syncing");
+
+  await expect(page.locator(".auth-brand img")).toBeVisible();
+  await expect(page.locator(".auth-brand")).toContainText("Notgram");
+  await expect(page.getByLabel("Telegram 登录二维码")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "使用二维码登录" })).toBeVisible();
+  await expect(page.getByText(/\d{2}:\d{2} 后失效/)).toBeVisible();
+  await expect(page.getByText("正在同步消息", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "使用手机号登录" })).toBeVisible();
+  await expect(horizontalOverflow(page)).resolves.toBe(false);
+
+  const settingsButton = page.getByRole("button", { name: "设置" });
+  const settingsBounds = await settingsButton.boundingBox();
+  expect(settingsBounds).not.toBeNull();
+  expect(settingsBounds?.x).toBeGreaterThan(920);
+  expect(settingsBounds?.y).toBeGreaterThan(700);
+  await settingsButton.click();
+
+  const settings = page.getByRole("dialog", { name: "登录设置" });
+  await expect(settings).toBeVisible();
+  await expect(settings.getByRole("radio")).toHaveCount(3);
+  await expect(settings.locator(".settings-category")).toHaveCount(0);
+  await expect(settings.getByText("存储路径", { exact: true })).toHaveCount(0);
+  await settings.getByRole("button", { name: "关闭" }).click();
+  await expect(page.locator(".login-settings-dialog")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "使用手机号登录" }).click();
+  await expect(page.getByRole("heading", { name: "手机号登录" })).toBeVisible();
+  await expect(page.getByLabel("手机号码")).toHaveValue("+86 ");
+  await page.getByRole("button", { name: "返回二维码登录" }).click();
+  await expect(page.getByLabel("Telegram 登录二维码")).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(horizontalOverflow(page)).resolves.toBe(false);
+});
+
 test("forum groups reopen the last topic and expose compact horizontal navigation", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-chat-id="chat-forum"]').click();
@@ -290,6 +328,12 @@ test("the account avatar opens a fixed account switcher with add account last", 
     return state.activeAccountId as string;
   })).not.toBe(previousAccountId);
   await expect(page.locator(".auth-shell")).toBeVisible();
+  await page.getByRole("button", { name: "返回账号" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");
+    return state.activeAccountId as string;
+  })).toBe(previousAccountId);
+  await expect(page.locator(".app-shell")).toBeVisible();
 });
 
 test("settings isolate wheel input from the covered conversation list", async ({ page }) => {
