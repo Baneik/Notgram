@@ -1156,7 +1156,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   position: absolute; right: 1px; bottom: 0;
 }
 .rich-blockquote-fade {
-  position: absolute; right: 0; bottom: 0; left: 0; height: 72%; pointer-events: none;
+  position: absolute; right: 0; bottom: 0; left: 0; height: calc(var(--collapsed-quote-height) / 7); pointer-events: none;
   background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--color-message-incoming) 88%, transparent));
   -webkit-backdrop-filter: blur(2.5px); backdrop-filter: blur(2.5px);
   -webkit-mask-image: linear-gradient(to bottom, transparent, black 48%); mask-image: linear-gradient(to bottom, transparent, black 48%);
