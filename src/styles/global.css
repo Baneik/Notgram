@@ -313,6 +313,51 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   width: 100%; height: 48px; padding: 0 13px; color: var(--ink); background: var(--color-bg-control);
   border: 1px solid var(--color-border-strong); border-radius: 8px; font-size: 14px; outline: 0;
 }
+.auth-phone-field { width: 100%; display: grid; gap: 6px; color: var(--color-text-secondary); text-align: left; font-size: 12px; }
+.auth-phone-row { width: 100%; display: grid; grid-template-columns: minmax(150px, 0.9fr) minmax(0, 1.1fr); gap: 8px; }
+.auth-country-picker { position: relative; min-width: 0; }
+.auth-country-picker input, .auth-national-number {
+  width: 100%; height: 48px; color: var(--ink); background: var(--color-bg-control);
+  border: 1px solid var(--color-border-strong); border-radius: 8px; outline: 0; font-size: 14px;
+}
+.auth-phone-loading { height: 48px; background: var(--color-bg-control-hover); border: 1px solid var(--line); border-radius: 8px; }
+.auth-country-input { padding: 0 66px 0 12px; text-overflow: ellipsis; }
+.auth-country-picker.is-open .auth-country-input { padding-left: 34px; padding-right: 34px; }
+.auth-country-picker:focus-within input, .auth-national-number:focus {
+  border-color: var(--color-border-focus); box-shadow: inset 0 0 0 1px var(--color-border-focus);
+}
+.auth-country-search-icon {
+  position: absolute; z-index: 2; top: 17px; left: 12px; display: none; color: var(--subtle); pointer-events: none;
+}
+.auth-country-picker.is-open .auth-country-search-icon { display: block; }
+.auth-country-code {
+  position: absolute; top: 0; right: 32px; height: 48px; display: flex; align-items: center;
+  color: var(--accent); font-size: 12px; font-weight: 650; pointer-events: none;
+}
+.auth-country-toggle {
+  position: absolute; z-index: 2; top: 0; right: 0; width: 32px; height: 48px; padding: 0;
+  display: grid; place-items: center; color: var(--muted); background: transparent; border: 0; cursor: pointer;
+}
+.auth-country-picker.is-open .auth-country-toggle svg { transform: rotate(180deg); }
+.auth-national-number { min-width: 0; padding: 0 13px; }
+.auth-country-options {
+  position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: min(330px, calc(100vw - 76px));
+  max-height: 250px; padding: 5px; overflow-y: auto; color: var(--ink); background: var(--color-bg-elevated);
+  border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 14px 36px var(--color-shadow); scrollbar-gutter: stable;
+}
+.auth-country-option {
+  width: 100%; min-height: 42px; padding: 5px 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto 16px;
+  align-items: center; gap: 8px; color: var(--ink); background: transparent; border: 0; border-radius: 5px;
+  cursor: pointer; text-align: left;
+}
+.auth-country-option.is-active { background: var(--surface-hover); }
+.auth-country-option[aria-selected="true"] { color: var(--accent); }
+.auth-country-option > span:first-child { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
+.auth-country-option strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+.auth-country-option small { color: var(--subtle); font-size: 9px; }
+.auth-country-option > span:nth-child(2) { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.auth-country-option > svg { color: var(--accent); }
+.auth-country-empty { min-height: 70px; padding: 12px; display: grid; place-items: center; color: var(--muted); font-size: 11px; text-align: center; }
 .auth-error {
   width: 100%; padding: 10px 12px; color: var(--color-status-danger); background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-surface)); border-radius: 6px;
   font-size: 12px; line-height: 1.45; text-align: left;
@@ -3099,6 +3144,8 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .auth-panel { padding: 22px 18px 24px; }
   .auth-qr-frame { width: 224px; height: 224px; }
   .auth-qr-code, .auth-qr-code svg { width: 200px; height: 200px; }
+  .auth-phone-row { grid-template-columns: minmax(132px, 0.92fr) minmax(0, 1.08fr); gap: 6px; }
+  .auth-country-input { padding-right: 61px; }
   .proxy-address-row { grid-template-columns: minmax(0, 1fr); }
   .download-manager-batch { padding-right: 8px; padding-left: 8px; gap: 6px; }
   .download-batch-actions button { width: 30px; padding: 0; justify-content: center; }

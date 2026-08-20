@@ -11,12 +11,23 @@ import {
   UserRound,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import notgramLogoUrl from "../../assets/app-icon.svg";
 import { connectionPresentation } from "../telegram/connectionState";
 import type { AuthorizationAction, AuthorizationState, ConnectionStatus } from "../telegram/types";
 
 const QR_EXPIRY_SECONDS = 60;
+const PhoneNumberField = lazy(() => import("./PhoneNumberField").then((module) => ({
+  default: module.PhoneNumberField,
+})));
 
 interface AuthorizationScreenProps {
   state: AuthorizationState;
@@ -49,7 +60,7 @@ export function AuthorizationScreen({
   const qrLink = state.kind === "waitOtherDeviceConfirmation" ? state.link : undefined;
 
   useEffect(() => {
-    setPrimary(state.kind === "waitPhoneNumber" ? "+86 " : "");
+    setPrimary("");
     setSecondary("");
   }, [state.kind]);
 
@@ -74,7 +85,6 @@ export function AuthorizationScreen({
     state.kind === "waitPhoneNumber" || state.kind === "waitOtherDeviceConfirmation"
   );
   const showPhoneLogin = () => {
-    if (!primary.trim()) setPrimary("+86 ");
     setPhoneMode(true);
   };
   const returnToQrLogin = () => {
@@ -196,12 +206,18 @@ export function AuthorizationScreen({
           <p className="auth-description">{definition.description}</p>
           {definition.context && <p className="auth-context">{definition.context}</p>}
         </div>
-        <label className="auth-field">
-          <span>{definition.primaryLabel}</span>
-          <input autoFocus autoComplete={definition.autoComplete} inputMode={definition.inputMode}
-            maxLength={definition.maxLength} type={definition.inputType} value={primary}
-            onChange={(event) => setPrimary(event.target.value)} required />
-        </label>
+        {formState.kind === "waitPhoneNumber" ? (
+          <Suspense fallback={<PhoneNumberFieldFallback />}>
+            <PhoneNumberField disabled={pending} onChange={setPrimary} />
+          </Suspense>
+        ) : (
+          <label className="auth-field">
+            <span>{definition.primaryLabel}</span>
+            <input autoFocus autoComplete={definition.autoComplete} inputMode={definition.inputMode}
+              maxLength={definition.maxLength} type={definition.inputType} value={primary}
+              onChange={(event) => setPrimary(event.target.value)} required />
+          </label>
+        )}
         {definition.secondaryLabel && (
           <label className="auth-field"><span>{definition.secondaryLabel}</span>
             <input autoComplete="family-name" value={secondary} onChange={(event) => setSecondary(event.target.value)} />
@@ -218,6 +234,18 @@ export function AuthorizationScreen({
         )}
       </form>
     </AuthLayout>
+  );
+}
+
+function PhoneNumberFieldFallback() {
+  return (
+    <div className="auth-phone-field" aria-busy="true">
+      <span className="auth-phone-label">手机号码</span>
+      <div className="auth-phone-row">
+        <span className="auth-phone-loading" />
+        <span className="auth-phone-loading" />
+      </div>
+    </div>
   );
 }
 

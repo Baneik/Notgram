@@ -147,11 +147,23 @@ test("authorization defaults to QR login and exposes proxy-only settings", async
 
   await page.getByRole("button", { name: "使用手机号登录" }).click();
   await expect(page.getByRole("heading", { name: "手机号登录" })).toBeVisible();
-  await expect(page.getByLabel("手机号码")).toHaveValue("+86 ");
-  await page.getByRole("button", { name: "返回二维码登录" }).click();
-  await expect(page.getByLabel("Telegram 登录二维码")).toBeVisible();
+  const country = page.getByRole("combobox", { name: "国家或地区" });
+  await expect(country).toHaveValue("中国");
+  await expect(page.locator(".auth-country-code")).toHaveText("+86");
+  await country.fill("+81");
+  const japan = page.getByRole("option", { name: /日本 JP \+81/ });
+  await expect(japan).toBeVisible();
+  await japan.click();
+  await expect(country).toHaveValue("日本");
+  await page.getByLabel("号码").fill("90 1234 5678");
+  await page.getByRole("button", { name: "继续" }).click();
+  await expect(page.getByRole("heading", { name: "输入验证码" })).toBeVisible();
+  await expect(page.getByText("+819012345678", { exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?auth=1");
+  await page.getByRole("button", { name: "使用手机号登录" }).click();
+  await expect(page.getByRole("combobox", { name: "国家或地区" })).toBeVisible();
   await expect(horizontalOverflow(page)).resolves.toBe(false);
 });
 
