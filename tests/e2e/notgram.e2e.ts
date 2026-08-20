@@ -2818,7 +2818,7 @@ test("opens parameterized bot links and preserves the start payload", async ({ p
   });
 });
 
-test("long quotes fold after five lines and expand or collapse from their controls", async ({ page }) => {
+test("long quotes fold to three and a half lines and animate back after collapsing", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /收藏夹/ }).click();
   const row = page.locator('[data-message-id="saved-long-quote"]');
@@ -2840,7 +2840,7 @@ test("long quotes fold after five lines and expand or collapse from their contro
       backdropFilter: getComputedStyle(fade).backdropFilter,
     };
   });
-  expect(Math.abs(collapsed.height - collapsed.lineHeight * 1.5)).toBeLessThanOrEqual(1);
+  expect(Math.abs(collapsed.height - collapsed.lineHeight * 3.5)).toBeLessThanOrEqual(1);
   expect(collapsed.contentHeight).toBeGreaterThan(collapsed.height);
   expect(collapsed.backdropFilter).toContain("blur");
 
@@ -2850,8 +2850,55 @@ test("long quotes fold after five lines and expand or collapse from their contro
   const expandedHeight = await quote.evaluate((element) => element.getBoundingClientRect().height);
   expect(expandedHeight).toBeGreaterThan(collapsed.lineHeight * 5);
 
-  await quote.getByRole("button", { name: "收起引用" }).click();
+  await page.evaluate(() => {
+    const originalAnimate = Element.prototype.animate;
+    const records: Array<{
+      duration: number;
+      firstTransform?: string;
+      lastTransform?: string;
+    }> = [];
+    (globalThis as typeof globalThis & { __notgramQuoteCollapseAnimations?: typeof records })
+      .__notgramQuoteCollapseAnimations = records;
+    Element.prototype.animate = function (keyframes, options) {
+      if (this.classList.contains("message-list-content") && Array.isArray(keyframes)) {
+        const timing = typeof options === "number" ? { duration: options } : options;
+        records.push({
+          duration: Number(timing?.duration ?? 0),
+          firstTransform: String(keyframes[0]?.transform ?? ""),
+          lastTransform: String(keyframes.at(-1)?.transform ?? ""),
+        });
+      }
+      return originalAnimate.call(this, keyframes, options);
+    };
+  });
+  const collapseButton = quote.getByRole("button", { name: "收起引用" });
+  await collapseButton.scrollIntoViewIfNeeded();
+  await collapseButton.click();
   await expect(quote).toHaveAttribute("data-quote-state", "collapsed");
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramQuoteCollapseAnimations?: unknown[] }
+  ).__notgramQuoteCollapseAnimations?.length ?? 0)).toBe(2);
+  const animations = await page.evaluate(() => (
+    globalThis as typeof globalThis & {
+      __notgramQuoteCollapseAnimations?: Array<{
+        duration: number;
+        firstTransform?: string;
+        lastTransform?: string;
+      }>;
+    }
+  ).__notgramQuoteCollapseAnimations ?? []);
+  expect(animations).toEqual([
+    expect.objectContaining({ duration: 120, firstTransform: "translateY(0)", lastTransform: "translateY(8px)" }),
+    expect.objectContaining({ duration: 180, firstTransform: "translateY(-8px)", lastTransform: "translateY(0)" }),
+  ]);
+  await expect(page.locator(".message-list")).not.toHaveClass(/is-jump-transitioning/);
+  await expect.poll(() => row.evaluate((element) => {
+    const list = element.closest(".message-list")?.getBoundingClientRect();
+    const bounds = element.getBoundingClientRect();
+    return list
+      ? bounds.top >= list.top - 1 && bounds.bottom <= list.bottom + 1
+      : false;
+  })).toBe(true);
 });
 
 test("blocks users and reports chats or selected messages", async ({ page }) => {

@@ -19,7 +19,7 @@ import { TextSpoiler, TextSpoilerGroup } from "./Spoiler";
 
 const MarkdownText = lazy(() => import("./MarkdownText"));
 const COLLAPSIBLE_QUOTE_LINE_THRESHOLD = 5;
-const COLLAPSED_QUOTE_LINES = 1.5;
+const COLLAPSED_QUOTE_LINES = 3.5;
 
 interface MessageRichTextProps {
   text: string;
@@ -28,6 +28,7 @@ interface MessageRichTextProps {
   highlightQuery?: string;
   onOpenMention?: (username?: string, userId?: string) => void;
   onSearchHashtag?: (hashtag: string) => void;
+  onCollapseQuote?: (collapse: () => void) => void;
 }
 
 const entityHref = (entity: MessageTextEntity, value: string) => {
@@ -238,10 +239,12 @@ const renderInlineRange = (
 function CollapsibleBlockQuote({
   quoteText,
   resetKey,
+  onCollapse,
   children,
 }: {
   quoteText: string;
   resetKey: string;
+  onCollapse?: (collapse: () => void) => void;
   children: ReactNode;
 }) {
   const contentRef = useRef<HTMLSpanElement>(null);
@@ -320,7 +323,11 @@ function CollapsibleBlockQuote({
           type="button"
           aria-label="收起引用"
           title="收起引用"
-          onClick={() => setExpanded(false)}
+          onClick={() => {
+            const collapse = () => setExpanded(false);
+            if (onCollapse) onCollapse(collapse);
+            else collapse();
+          }}
         >
           <ChevronUp size={17} strokeWidth={2.2} aria-hidden="true" />
         </button>
@@ -335,6 +342,7 @@ const renderEntities = (
   highlightQuery?: string,
   onOpenMention?: (username?: string, userId?: string) => void,
   onSearchHashtag?: (hashtag: string) => void,
+  onCollapseQuote?: (collapse: () => void) => void,
 ) => {
   const highlightRanges = textHighlightRanges(text, highlightQuery);
   const valid = entities.filter((entity) =>
@@ -380,6 +388,7 @@ const renderEntities = (
         key={`quote:${quote.offset}:${quote.length}`}
         quoteText={text.slice(quoteStart, quoteEnd)}
         resetKey={`${quote.offset}:${quote.length}:${text.slice(quoteStart, quoteEnd)}`}
+        onCollapse={onCollapseQuote}
       >
         {renderInlineRange(
           text,
@@ -417,6 +426,7 @@ export function MessageRichText({
   highlightQuery,
   onOpenMention,
   onSearchHashtag,
+  onCollapseQuote,
 }: MessageRichTextProps) {
   if (entities && entities.length > 0) {
     return (
@@ -425,7 +435,14 @@ export function MessageRichText({
         data-rich-text="entities"
         resetKey={text}
       >
-        {renderEntities(text, entities, highlightQuery, onOpenMention, onSearchHashtag)}
+        {renderEntities(
+          text,
+          entities,
+          highlightQuery,
+          onOpenMention,
+          onSearchHashtag,
+          onCollapseQuote,
+        )}
       </TextSpoilerGroup>
     );
   }

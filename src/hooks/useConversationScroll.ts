@@ -13,7 +13,10 @@ import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
-import { conversationJumpMotion } from "../utils/conversationJumpMotion";
+import {
+  conversationJumpMotion,
+  type ConversationJumpDirection,
+} from "../utils/conversationJumpMotion";
 import { motionDuration } from "../utils/motionTokens";
 import {
   captureConversationJumpSnapshot,
@@ -101,6 +104,13 @@ interface BottomPinRequest {
 interface JumpToLatestOptions {
   onSettled?: () => void;
   publishPositioned?: boolean;
+}
+
+interface RevealTargetOptions {
+  direction?: ConversationJumpDirection;
+  forceTransition?: boolean;
+  onSettled?: () => void;
+  prepareTarget?: () => void;
 }
 
 export interface LatestConversationScrollRequest {
@@ -1163,7 +1173,7 @@ export const useConversationScroll = ({
     messageId: string,
     behavior: "auto" | "smooth",
     highlight: boolean,
-    onSettled?: () => void,
+    options?: RevealTargetOptions,
   ) => {
     const element = messageListRef.current;
     const itemIndex = messageItemIndexesRef.current.get(messageId);
@@ -1269,7 +1279,7 @@ export const useConversationScroll = ({
           revealTargetTokenRef.current = undefined;
           persistTargetPosition();
           scrollControlRef.current.mode = "detached";
-          onSettled?.();
+          options?.onSettled?.();
           completePositioning();
         };
         if (revealTransitionReady) revealTransitionReady(completeReveal);
@@ -1335,16 +1345,26 @@ export const useConversationScroll = ({
       const targetBounds = mounted.getBoundingClientRect();
       return targetBounds.bottom > listBounds.top + 1 && targetBounds.top < listBounds.bottom - 1;
     })() : false;
-    if (mountedTargetIsVisible && mounted) {
+    let targetPrepared = false;
+    const prepareTarget = () => {
+      if (targetPrepared) return;
+      targetPrepared = true;
+      options?.prepareTarget?.();
+    };
+    if (mountedTargetIsVisible && mounted && !options?.forceTransition) {
+      prepareTarget();
       centerMountedTarget(mounted);
       scheduleTargetSettlement();
     } else if (resolvedBehavior === "smooth" && typeof element.animate === "function") {
       settleScheduled = true;
       const motion = conversationJumpMotion(
-        visibleAnchorIndex !== undefined && itemIndex < visibleAnchorIndex ? "older" : "newer",
+        options?.direction ?? (
+          visibleAnchorIndex !== undefined && itemIndex < visibleAnchorIndex ? "older" : "newer"
+        ),
       );
       const snapshot = captureConversationJumpSnapshot(element);
       if (!snapshot) {
+        prepareTarget();
         virtuosoRef.current?.scrollToIndex({
           index: itemIndex,
           align: "center",
@@ -1363,6 +1383,7 @@ export const useConversationScroll = ({
           void enter.finished.catch(() => undefined).then(onReady);
         };
         const exit = snapshot.content.animate(motion.exit, motion.exitTiming);
+        prepareTarget();
         void exit.finished.catch(() => undefined).then(() => {
           const invalid =
             messageListRef.current !== element ||
@@ -1386,6 +1407,7 @@ export const useConversationScroll = ({
         });
       }
     } else {
+      prepareTarget();
       virtuosoRef.current?.scrollToIndex({
         index: itemIndex,
         align: "center",
@@ -1414,6 +1436,15 @@ export const useConversationScroll = ({
     stopFollowingLatest,
     writeMemory,
   ]);
+
+  const collapseExpandedQuote = useCallback((messageId: string, collapse: () => void) => {
+    const started = revealTarget(messageId, "smooth", false, {
+      direction: "older",
+      forceTransition: true,
+      prepareTarget: collapse,
+    });
+    if (!started) collapse();
+  }, [revealTarget]);
 
   const revealAttentionMessage = useCallback((messageId: string) => {
     captureJumpAnchor(messageId);
@@ -2135,6 +2166,7 @@ export const useConversationScroll = ({
     pinFollowingMessageMount,
     appendMountMessageId,
     revealAttentionMessage,
+    collapseExpandedQuote,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,

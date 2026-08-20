@@ -124,6 +124,7 @@ interface MessageBubbleProps {
   ) => Promise<MessageReactionSenderPage>;
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
+  onCollapseQuote: (messageId: string, collapse: () => void) => void;
   onMount?: (onPinned?: () => void) => boolean;
   deferUntilPinned?: boolean;
   previousAudioPlaybackId?: string;
@@ -177,6 +178,7 @@ function MessageBubbleComponent({
   onLoadReactionSenders,
   onPollAnswer,
   onBotCallback,
+  onCollapseQuote,
   onMount,
   deferUntilPinned = false,
   previousAudioPlaybackId,
@@ -214,6 +216,10 @@ function MessageBubbleComponent({
   const [metaWrapped, setMetaWrapped] = useState(false);
   const [metaInlineOffset, setMetaInlineOffset] = useState(0);
   const content = message.content;
+  const collapseQuote = useCallback(
+    (collapse: () => void) => onCollapseQuote(message.id, collapse),
+    [message.id, onCollapseQuote],
+  );
   const selectedReplyQuoteFor = (shell: HTMLElement) => {
     const sourceText = content.kind === "text"
       ? content.text
@@ -767,6 +773,7 @@ function MessageBubbleComponent({
                 highlightQuery={searchQuery}
                 onOpenMention={onOpenMention}
                 onSearchHashtag={onSearchHashtag}
+                onCollapseQuote={collapseQuote}
               />
               {message.isPending && (
                 content.text ? (
@@ -1000,6 +1007,7 @@ function MessageBubbleComponent({
                     highlightQuery={searchQuery}
                     onOpenMention={onOpenMention}
                     onSearchHashtag={onSearchHashtag}
+                    onCollapseQuote={collapseQuote}
                   />
                   {!showReactionFooter && messageMeta}
                 </div>
@@ -1052,6 +1060,7 @@ function MessageBubbleComponent({
                   highlightQuery={searchQuery}
                   onOpenMention={onOpenMention}
                   onSearchHashtag={onSearchHashtag}
+                  onCollapseQuote={collapseQuote}
                 />
               )}
             </div>
@@ -1106,6 +1115,7 @@ function MessageBubbleComponent({
                   highlightQuery={searchQuery}
                   onOpenMention={onOpenMention}
                   onSearchHashtag={onSearchHashtag}
+                  onCollapseQuote={collapseQuote}
                 />
               )}
             </div>
