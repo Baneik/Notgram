@@ -602,6 +602,86 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await expect(typingSwitch).not.toBeChecked();
 });
 
+test("multiline composer keeps the latest message visible and hides its scrollbar", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(13);
+
+  const samples: Array<{
+    inputHeight: number;
+    latestBottom: number;
+    listBottom: number;
+    composerTop: number;
+    distanceBottom: number;
+  }> = [];
+  for (let lineCount = 1; lineCount <= 18; lineCount += 1) {
+    await composer.fill(Array.from({ length: lineCount }, (_, index) => `第 ${index + 1} 行内容`).join("\n"));
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => globalThis.setTimeout(resolve, 0));
+    }));
+    samples.push(await messageList.evaluate((list, textarea) => {
+      const rows = list.querySelectorAll<HTMLElement>("[data-message-id]");
+      const latest = rows.item(rows.length - 1);
+      const input = textarea as HTMLTextAreaElement;
+      const listBounds = list.getBoundingClientRect();
+      return {
+        inputHeight: input.getBoundingClientRect().height,
+        latestBottom: latest?.getBoundingClientRect().bottom ?? Number.POSITIVE_INFINITY,
+        listBottom: listBounds.bottom,
+        composerTop: document.querySelector<HTMLElement>(".composer-wrap")
+          ?.getBoundingClientRect().top ?? Number.NEGATIVE_INFINITY,
+        distanceBottom: list.scrollHeight - list.clientHeight - list.scrollTop,
+      };
+    }, await composer.elementHandle()));
+  }
+
+  expect(samples.at(-1)?.inputHeight).toBe(290);
+  for (const sample of samples.filter(({ inputHeight }) => inputHeight > 40)) {
+    expect(sample.listBottom).toBeLessThanOrEqual(sample.composerTop + 1);
+    expect(sample.latestBottom, JSON.stringify(samples)).toBeLessThanOrEqual(sample.listBottom + 1);
+    expect(sample.distanceBottom, JSON.stringify(samples)).toBeLessThanOrEqual(13);
+  }
+  await expect.poll(() => composer.evaluate((element) => ({
+    overflowY: getComputedStyle(element).overflowY,
+    scrollbarWidth: getComputedStyle(element).scrollbarWidth,
+  }))).toEqual({ overflowY: "auto", scrollbarWidth: "none" });
+
+  const emojiButton = page.getByRole("button", { name: "表情" });
+  const sendButton = page.getByRole("button", { name: "发送消息" });
+  const [emojiBounds, sendBounds, sendIconBounds] = await Promise.all([
+    emojiButton.boundingBox(),
+    sendButton.boundingBox(),
+    sendButton.locator("svg").boundingBox(),
+  ]);
+  expect(sendBounds?.width).toBe(30);
+  expect(sendBounds!.width).toBeLessThan(emojiBounds!.width);
+  expect(sendBounds!.width).toBeGreaterThan(sendIconBounds!.width);
+  const buttonIsBrighterThanAccent = await sendButton.evaluate((element) => {
+    const parseColor = (value: string) => {
+      const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      return value.startsWith("color(")
+        ? channels
+        : channels.map((channel) => channel / 255);
+    };
+    const probe = document.createElement("span");
+    probe.style.background = "var(--accent)";
+    document.body.append(probe);
+    const buttonColor = parseColor(getComputedStyle(element).backgroundColor);
+    const accentColor = parseColor(getComputedStyle(probe).backgroundColor);
+    probe.remove();
+    return buttonColor.reduce((sum, channel) => sum + channel, 0) >
+      accentColor.reduce((sum, channel) => sum + channel, 0);
+  });
+  expect(buttonIsBrighterThanAccent).toBe(true);
+  expect(await sendButton.evaluate((element) => getComputedStyle(element, "::before").opacity)).toBe("0");
+  await sendButton.hover();
+  await expect.poll(() => sendButton.evaluate((element) => getComputedStyle(element, "::before").opacity))
+    .toBe("0.14");
+});
+
 test("live messages animate without replaying history rows", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
@@ -1451,6 +1531,47 @@ test("composer coalesces resizing and persists drafts without blocking input", a
     modulePath: "/src/store/telegramStore.ts",
   })).toBe(result.text);
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+});
+
+test("chat list updates a draft preview only after leaving the conversation", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  const productPreview = page.locator('[data-chat-id="chat-product"] .chat-preview');
+  const firstDraft = "只在离开会话后显示的草稿";
+  const secondDraft = `${firstDraft}，第二版`;
+
+  await composer.fill(firstDraft);
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, { text: string }> };
+      };
+    };
+    return storeModule.telegramStore.getState().drafts.get("chat-product")?.text;
+  }, "/src/store/telegramStore.ts")).toBe(firstDraft);
+  await expect(productPreview).not.toHaveClass(/is-draft/);
+  await expect(productPreview).not.toContainText(firstDraft);
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(productPreview).toHaveClass(/is-draft/);
+  await expect(productPreview).toContainText(`草稿：${firstDraft}`);
+
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(composer).toHaveValue(firstDraft);
+  await composer.fill(secondDraft);
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, { text: string }> };
+      };
+    };
+    return storeModule.telegramStore.getState().drafts.get("chat-product")?.text;
+  }, "/src/store/telegramStore.ts")).toBe(secondDraft);
+  await expect(productPreview).toContainText(`草稿：${firstDraft}`);
+  await expect(productPreview).not.toContainText(secondDraft);
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(productPreview).toContainText(`草稿：${secondDraft}`);
 });
 
 test("member mentions stay in their chat and the resulting draft can be cleared", async ({ page }) => {

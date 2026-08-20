@@ -9,13 +9,39 @@ import {
 const COMPOSER_TEXTAREA_MIN_HEIGHT = 40;
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 290;
 
+const measureComposerContentHeight = (input: HTMLTextAreaElement) => {
+  const measurement = input.cloneNode(false) as HTMLTextAreaElement;
+  measurement.value = input.value;
+  measurement.removeAttribute("id");
+  measurement.removeAttribute("name");
+  measurement.setAttribute("aria-hidden", "true");
+  measurement.tabIndex = -1;
+  Object.assign(measurement.style, {
+    position: "absolute",
+    inset: "0 auto auto 0",
+    width: `${input.getBoundingClientRect().width}px`,
+    height: "0px",
+    minHeight: "0px",
+    maxHeight: "none",
+    overflow: "hidden",
+    visibility: "hidden",
+    pointerEvents: "none",
+  });
+  input.parentElement?.append(measurement);
+  const contentHeight = measurement.scrollHeight;
+  measurement.remove();
+  return contentHeight;
+};
+
 const resizeComposerInput = (input: HTMLTextAreaElement) => {
-  input.style.height = `${COMPOSER_TEXTAREA_MIN_HEIGHT}px`;
-  const contentHeight = input.scrollHeight;
-  input.style.height = `${Math.min(
+  const contentHeight = measureComposerContentHeight(input);
+  const nextHeight = Math.min(
     COMPOSER_TEXTAREA_MAX_HEIGHT,
     Math.max(COMPOSER_TEXTAREA_MIN_HEIGHT, contentHeight),
-  )}px`;
+  );
+  if (input.getBoundingClientRect().height !== nextHeight) {
+    input.style.height = `${nextHeight}px`;
+  }
   input.style.overflowY = contentHeight > COMPOSER_TEXTAREA_MAX_HEIGHT
     ? "auto"
     : "hidden";
@@ -42,8 +68,8 @@ export const useComposerAutoResize = (
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input || !enabled) return;
-    scheduleResize(input);
-  }, [content, enabled, inputRef, scheduleResize, scope]);
+    resizeComposerInput(input);
+  }, [content, enabled, inputRef, scope]);
 
   useEffect(() => {
     const input = inputRef.current;

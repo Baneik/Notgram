@@ -644,11 +644,12 @@ export const useConversationScroll = ({
         ? conversationScrollMemory.get(currentScrollKey)
         : undefined;
       if (memory?.followLatest === false || !followsLatest) return;
+      pinToBottom();
       scheduleBottomPin();
     });
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [currentScrollKey, messageListElement, scheduleBottomPin]);
+  }, [currentScrollKey, messageListElement, pinToBottom, scheduleBottomPin]);
 
   const clearJumpTransition = useCallback((token?: symbol) => {
     const active = jumpSnapshotRef.current;

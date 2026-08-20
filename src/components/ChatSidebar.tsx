@@ -12,7 +12,7 @@ import {
 } from "react";
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { useTelegramStore } from "../store/telegramStore";
-import type { Chat, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
+import type { Chat, ChatDraft, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { SidebarSearchScope } from "../hooks/useSidebarSearch";
 import { formatChatTime } from "../utils/formatters";
@@ -73,6 +73,10 @@ interface ChatSidebarProps {
 const MIN_SIDEBAR_WIDTH = 250;
 const MAX_SIDEBAR_WIDTH = 560;
 const MIN_CONVERSATION_WIDTH = 340;
+
+const listDraft = (draft?: ChatDraft) => (
+  draft && (draft.text.length > 0 || draft.replyToMessageId) ? draft : undefined
+);
 
 export function ChatSidebar({
   chats,
@@ -584,9 +588,9 @@ const ChatRow = memo(function ChatRow({
   onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
   const draft = useTelegramStore((state) => state.drafts.get(chat.id));
-  const visibleDraft = draft && (draft.text.length > 0 || draft.replyToMessageId)
-    ? draft
-    : undefined;
+  const visibleDraftRef = useRef<ChatDraft | undefined>(listDraft(draft));
+  if (!active) visibleDraftRef.current = listDraft(draft);
+  const visibleDraft = visibleDraftRef.current;
   const hasUnreadAttention = chat.unreadMentionCount > 0;
   const unreadBadgeClassName = `unread-count ${chat.muted ? "is-muted" : ""} ${hasUnreadAttention ? "has-attention" : ""}`;
   const unreadBadgeLabel = hasUnreadAttention

@@ -1892,11 +1892,21 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .composer-context + .composer { border-radius: 0; box-shadow: inset 0 1px var(--color-border-subtle); }
 .composer textarea {
   width: 100%; min-height: 40px; max-height: 290px; padding: 9px 8px 7px; resize: none; overflow-y: hidden;
-  color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 14px; line-height: 1.5;
+  color: var(--ink); background: transparent; border: 0; outline: 0; scrollbar-width: none; font-size: 14px; line-height: 1.5;
 }
+.composer textarea::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .composer textarea:disabled { opacity: 0.7; }
-.send-button { color: var(--color-text-on-accent); background: var(--accent); }
-.send-button:hover:not(:disabled) { color: var(--color-text-on-accent); background: var(--accent-strong); }
+.send-button {
+  position: relative; width: 30px; height: 30px; margin: 4px; overflow: hidden; isolation: isolate;
+  color: var(--color-text-on-accent); background: color-mix(in srgb, var(--accent) 82%, white);
+}
+.send-button::before {
+  content: ""; position: absolute; z-index: -1; inset: 0; background: var(--accent-strong); opacity: 0;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.send-button > svg { position: relative; z-index: 1; }
+.send-button:hover:not(:disabled) { color: var(--color-text-on-accent); background: color-mix(in srgb, var(--accent) 82%, white); }
+.send-button:hover:not(:disabled)::before { opacity: 0.14; }
 .emoji-picker {
   position: absolute; right: 6px; bottom: 56px; z-index: 92;
   width: min(430px, calc(100vw - 84px)); height: min(610px, calc(100vh - 88px)); min-height: 360px;
