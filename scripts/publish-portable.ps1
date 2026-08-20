@@ -25,6 +25,7 @@ $notificationSoundSource = Join-Path $appResourcesSource "sounds\notification.mp
 $runtimeSource = Join-Path $releaseDirectory "tdlib"
 $version = (Get-Content -LiteralPath (Join-Path $repositoryRoot "version.json") -Raw | ConvertFrom-Json).version
 $releasePolicyPath = Join-Path $repositoryRoot "release-policy.json"
+$licensePath = Join-Path $repositoryRoot "LICENSE"
 $releasePolicy = Get-Content -LiteralPath $releasePolicyPath -Raw | ConvertFrom-Json
 $artifactName = "Notgram-$version-windows-x64-portable"
 $portableDirectory = Join-Path $resolvedDestinationRoot $artifactName
@@ -82,7 +83,7 @@ if (-not $SkipBuild) {
     }
 }
 
-foreach ($requiredPath in @($executable, $notificationSoundSource, (Join-Path $runtimeSource "tdjson.dll"))) {
+foreach ($requiredPath in @($executable, $notificationSoundSource, (Join-Path $runtimeSource "tdjson.dll"), $licensePath)) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Release build output is missing: $requiredPath"
     }
@@ -108,6 +109,7 @@ Copy-Item -LiteralPath $executable -Destination (Join-Path $portableDirectory "N
 Copy-Item -LiteralPath $appResourcesSource -Destination $portableDirectory -Recurse
 Copy-Item -LiteralPath $runtimeSource -Destination $portableDirectory -Recurse
 Copy-Item -LiteralPath $releasePolicyPath -Destination (Join-Path $portableDirectory "RELEASE-POLICY.json")
+Copy-Item -LiteralPath $licensePath -Destination (Join-Path $portableDirectory "LICENSE.txt")
 [System.IO.File]::WriteAllText(
     (Join-Path $portableDirectory ".notgram-portable"),
     "Notgram portable distribution`n",

@@ -67,8 +67,9 @@ Use `npm run publish:portable` for a strict release build. That command requires
 a clean worktree, runs the full repository checks, and reads API credentials
 only from the process environment. Pass `-DestinationRoot` directly to
 `scripts/publish-portable.ps1` when a release needs a custom destination. The
-versioned ZIP contains `Notgram.exe`, TDLib and its runtime licenses, dependency
-inventory, build metadata, and per-file SHA-256 hashes.
+versioned ZIP contains `Notgram.exe`, the Notgram project license, TDLib and its
+runtime licenses, dependency inventory, build metadata, and per-file SHA-256
+hashes.
 Release builds remap local source roots to stable placeholders and refuse to
 package files that still contain the build user's profile or repository path.
 Portable builds retain account data across ZIP replacement and do not run the
@@ -255,3 +256,10 @@ proxy passwords and secrets are never written to logs.
 Existing databases created before per-account keys are registered as legacy
 empty-key databases during the first upgrade and remain readable. New databases
 use a random DPAPI-protected key rather than `.env`.
+
+## License
+
+Notgram is available under the [MIT License](LICENSE).
+Bundled third-party components, including TDLib and its native runtime
+dependencies, remain under their respective licenses included with release
+artifacts.

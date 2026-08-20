@@ -19,6 +19,8 @@ with prerelease identifiers used for release candidates.
 - Store portable account configuration, TDLib login state, media cache, and
   WebView2 data beside the executable under `data/`, while installed builds keep
   their existing per-user application data locations.
+- License the Notgram source under MIT and include the project license in Windows
+  release bundles alongside the existing third-party notices.
 
 ### Fixed
 

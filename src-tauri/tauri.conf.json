@@ -43,6 +43,9 @@
       "nsis"
     ],
     "shortDescription": "A focused third-party Telegram client",
+    "copyright": "Copyright (c) 2026 Notgram contributors",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
     "resources": [
       "resources/sounds/notification.mp3",
       "tdlib/*",

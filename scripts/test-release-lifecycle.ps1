@@ -201,6 +201,10 @@ try {
 
     Expand-CheckedArchive -ArchivePath $resolvedPortable -Destination $portableFirst
     $portableExecutable = Get-OnlyFile -Root $portableFirst -Filter "Notgram.exe"
+    $portableLicense = Join-Path (Split-Path -Parent $portableExecutable) "LICENSE.txt"
+    if (-not (Test-Path -LiteralPath $portableLicense -PathType Leaf)) {
+        throw "Portable release is missing the project license."
+    }
     $requireSignature = $ExecuteInstaller -and -not $AllowUnsignedIsolated
     Invoke-ReleaseProbe -Executable $portableExecutable -ExpectedDistribution "portable" -OutputDirectory $checkRoot -RequireSignature:$requireSignature | Out-Null
     $evidence.portable.startup = "passed"
