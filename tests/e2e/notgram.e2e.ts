@@ -2873,7 +2873,22 @@ test("long quotes fold to three and a half lines and animate back after collapsi
   });
   const collapseButton = quote.getByRole("button", { name: "收起引用" });
   await collapseButton.scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    const recordCollapsePointer = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (!target?.closest(".rich-blockquote-collapse")) return;
+      (globalThis as typeof globalThis & { __notgramQuoteCollapsePointerY?: number })
+        .__notgramQuoteCollapsePointerY = event.clientY;
+      document.removeEventListener("click", recordCollapsePointer, true);
+    };
+    document.addEventListener("click", recordCollapsePointer, true);
+  });
+  await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
   await collapseButton.click();
+  const collapsePointerY = await page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramQuoteCollapsePointerY?: number }
+  ).__notgramQuoteCollapsePointerY ?? Number.NaN);
+  expect(Number.isFinite(collapsePointerY)).toBe(true);
   await expect(quote).toHaveAttribute("data-quote-state", "collapsed");
   await expect.poll(() => page.evaluate(() => (
     globalThis as typeof globalThis & { __notgramQuoteCollapseAnimations?: unknown[] }
@@ -2892,13 +2907,13 @@ test("long quotes fold to three and a half lines and animate back after collapsi
     expect.objectContaining({ duration: 180, firstTransform: "translateY(-8px)", lastTransform: "translateY(0)" }),
   ]);
   await expect(page.locator(".message-list")).not.toHaveClass(/is-jump-transitioning/);
-  await expect.poll(() => row.evaluate((element) => {
-    const list = element.closest(".message-list")?.getBoundingClientRect();
+  const expandIcon = quote.locator(".rich-blockquote-expand > svg");
+  await expect(expandIcon).toBeVisible();
+  await expect.poll(() => expandIcon.evaluate((element, pointerY) => {
     const bounds = element.getBoundingClientRect();
-    return list
-      ? bounds.top >= list.top - 1 && bounds.bottom <= list.bottom + 1
-      : false;
-  })).toBe(true);
+    return pointerY >= bounds.top - 1 && pointerY <= bounds.bottom + 1;
+  }, collapsePointerY)).toBe(true);
+  await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
 });
 
 test("blocks users and reports chats or selected messages", async ({ page }) => {

@@ -124,7 +124,12 @@ interface MessageBubbleProps {
   ) => Promise<MessageReactionSenderPage>;
   onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
   onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
-  onCollapseQuote: (messageId: string, collapse: () => void) => void;
+  onCollapseQuote: (
+    messageId: string,
+    collapse: () => void,
+    pointerClientY: number,
+    getCollapsedAnchor: () => Element | null,
+  ) => void;
   onMount?: (onPinned?: () => void) => boolean;
   deferUntilPinned?: boolean;
   previousAudioPlaybackId?: string;
@@ -217,7 +222,11 @@ function MessageBubbleComponent({
   const [metaInlineOffset, setMetaInlineOffset] = useState(0);
   const content = message.content;
   const collapseQuote = useCallback(
-    (collapse: () => void) => onCollapseQuote(message.id, collapse),
+    (
+      collapse: () => void,
+      pointerClientY: number,
+      getCollapsedAnchor: () => Element | null,
+    ) => onCollapseQuote(message.id, collapse, pointerClientY, getCollapsedAnchor),
     [message.id, onCollapseQuote],
   );
   const selectedReplyQuoteFor = (shell: HTMLElement) => {

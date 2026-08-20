@@ -111,6 +111,7 @@ interface RevealTargetOptions {
   forceTransition?: boolean;
   onSettled?: () => void;
   prepareTarget?: () => void;
+  resolveTargetOffset?: (target: HTMLElement, list: HTMLElement) => number | undefined;
 }
 
 export interface LatestConversationScrollRequest {
@@ -1215,6 +1216,13 @@ export const useConversationScroll = ({
       if (Math.abs(offset) <= 0.5) return;
       element.scrollBy({ top: offset, behavior: resolvedBehavior });
     };
+    const resolveTargetOffset = (target: HTMLElement) => {
+      if (options?.resolveTargetOffset) return options.resolveTargetOffset(target, element);
+      const listBounds = element.getBoundingClientRect();
+      const targetBounds = target.getBoundingClientRect();
+      return (targetBounds.top + targetBounds.bottom) / 2 -
+        (listBounds.top + listBounds.bottom) / 2;
+    };
     const persistTargetPosition = () => {
       const current = conversationScrollMemory.get(currentScrollKey);
       writeMemory(
@@ -1262,11 +1270,10 @@ export const useConversationScroll = ({
           `[data-message-id="${CSS.escape(messageId)}"]`,
         );
         if (target) {
-          const listBounds = element.getBoundingClientRect();
-          const targetBounds = target.getBoundingClientRect();
-          const offset = (targetBounds.top + targetBounds.bottom) / 2 -
-            (listBounds.top + listBounds.bottom) / 2;
-          if (Math.abs(offset) > 0.5) element.scrollTop += offset;
+          const targetOffset = resolveTargetOffset(target);
+          if (targetOffset !== undefined && Math.abs(targetOffset) > 0.5) {
+            element.scrollTop += targetOffset;
+          }
         }
         const completeReveal = () => {
           if (
@@ -1275,6 +1282,15 @@ export const useConversationScroll = ({
             revealTargetTokenRef.current !== revealToken ||
             scrollControlRef.current.generation !== navigationGeneration
           ) return;
+          const settledTarget = element.querySelector<HTMLElement>(
+            `[data-message-id="${CSS.escape(messageId)}"]`,
+          );
+          if (settledTarget && options?.resolveTargetOffset) {
+            const targetOffset = resolveTargetOffset(settledTarget);
+            if (targetOffset !== undefined && Math.abs(targetOffset) > 0.5) {
+              element.scrollTop += targetOffset;
+            }
+          }
           publishHighlight();
           revealTargetTokenRef.current = undefined;
           persistTargetPosition();
@@ -1315,11 +1331,10 @@ export const useConversationScroll = ({
         const currentScrollTop = element.scrollTop;
         const scrollStable = Math.abs(currentScrollTop - previousScrollTop) <= 0.5;
         if (target && scrollStable) {
-          const listBounds = element.getBoundingClientRect();
-          const targetBounds = target.getBoundingClientRect();
-          const targetOffset = (targetBounds.top + targetBounds.bottom) / 2 -
-            (listBounds.top + listBounds.bottom) / 2;
-          if (Math.abs(targetOffset) > 0.5) {
+          const targetOffset = resolveTargetOffset(target);
+          if (targetOffset === undefined) {
+            stableFrames = 0;
+          } else if (Math.abs(targetOffset) > 0.5) {
             element.scrollTop += targetOffset;
             stableFrames = 0;
           } else stableFrames += 1;
@@ -1437,11 +1452,22 @@ export const useConversationScroll = ({
     writeMemory,
   ]);
 
-  const collapseExpandedQuote = useCallback((messageId: string, collapse: () => void) => {
+  const collapseExpandedQuote = useCallback((
+    messageId: string,
+    collapse: () => void,
+    pointerClientY: number,
+    getCollapsedAnchor: () => Element | null,
+  ) => {
     const started = revealTarget(messageId, "smooth", false, {
       direction: "older",
       forceTransition: true,
       prepareTarget: collapse,
+      resolveTargetOffset: () => {
+        const anchor = getCollapsedAnchor();
+        if (!anchor) return undefined;
+        const anchorBounds = anchor.getBoundingClientRect();
+        return (anchorBounds.top + anchorBounds.bottom) / 2 - pointerClientY;
+      },
     });
     if (!started) collapse();
   }, [revealTarget]);

@@ -28,7 +28,11 @@ interface MessageRichTextProps {
   highlightQuery?: string;
   onOpenMention?: (username?: string, userId?: string) => void;
   onSearchHashtag?: (hashtag: string) => void;
-  onCollapseQuote?: (collapse: () => void) => void;
+  onCollapseQuote?: (
+    collapse: () => void,
+    pointerClientY: number,
+    getCollapsedAnchor: () => Element | null,
+  ) => void;
 }
 
 const entityHref = (entity: MessageTextEntity, value: string) => {
@@ -244,10 +248,15 @@ function CollapsibleBlockQuote({
 }: {
   quoteText: string;
   resetKey: string;
-  onCollapse?: (collapse: () => void) => void;
+  onCollapse?: (
+    collapse: () => void,
+    pointerClientY: number,
+    getCollapsedAnchor: () => Element | null,
+  ) => void;
   children: ReactNode;
 }) {
   const contentRef = useRef<HTMLSpanElement>(null);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
   const [lineCount, setLineCount] = useState(0);
   const [collapsedHeight, setCollapsedHeight] = useState(0);
   const [expanded, setExpanded] = useState(false);
@@ -307,6 +316,7 @@ function CollapsibleBlockQuote({
       </span>
       {collapsed && (
         <button
+          ref={expandButtonRef}
           className="rich-blockquote-expand"
           type="button"
           aria-label={preview ? `展开引用：${preview}` : "展开引用"}
@@ -323,9 +333,15 @@ function CollapsibleBlockQuote({
           type="button"
           aria-label="收起引用"
           title="收起引用"
-          onClick={() => {
+          onClick={(event) => {
+            const buttonBounds = event.currentTarget.getBoundingClientRect();
+            const pointerClientY = event.detail > 0
+              ? event.clientY
+              : (buttonBounds.top + buttonBounds.bottom) / 2;
             const collapse = () => setExpanded(false);
-            if (onCollapse) onCollapse(collapse);
+            const getCollapsedAnchor = () =>
+              expandButtonRef.current?.querySelector("svg") ?? expandButtonRef.current;
+            if (onCollapse) onCollapse(collapse, pointerClientY, getCollapsedAnchor);
             else collapse();
           }}
         >
@@ -342,7 +358,11 @@ const renderEntities = (
   highlightQuery?: string,
   onOpenMention?: (username?: string, userId?: string) => void,
   onSearchHashtag?: (hashtag: string) => void,
-  onCollapseQuote?: (collapse: () => void) => void,
+  onCollapseQuote?: (
+    collapse: () => void,
+    pointerClientY: number,
+    getCollapsedAnchor: () => Element | null,
+  ) => void,
 ) => {
   const highlightRanges = textHighlightRanges(text, highlightQuery);
   const valid = entities.filter((entity) =>
