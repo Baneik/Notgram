@@ -774,6 +774,24 @@ export class MockTelegramTransport implements TelegramTransport {
     this.publishFolders();
   }
 
+  async reorderChatFolders(folderIds: string[]) {
+    const reorderable = this.snapshot.folders.filter((folder) => folder.id !== "archive");
+    const uniqueIds = [...new Set(folderIds)];
+    if (
+      uniqueIds.length !== reorderable.length ||
+      uniqueIds.some((folderId) => !reorderable.some((folder) => folder.id === folderId))
+    ) {
+      throw new Error("文件夹顺序不完整");
+    }
+    const byId = new Map(reorderable.map((folder) => [folder.id, folder]));
+    const fixed = this.snapshot.folders.filter((folder) => folder.id === "archive");
+    this.snapshot.folders = [
+      ...uniqueIds.map((folderId) => byId.get(folderId)!),
+      ...fixed,
+    ];
+    this.publishFolders();
+  }
+
   async setChatFolderMembership(folderId: string, chatId: string, included: boolean) {
     this.requireCustomFolder(folderId);
     const chat = this.snapshot.chats.find((item) => item.id === chatId);

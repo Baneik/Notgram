@@ -3079,6 +3079,43 @@ describe("chat filtering", () => {
     expect(store.getState().folderManagementPending).toBe(false);
   });
 
+  it("changes folder order only through explicit reordering and rolls failures back", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const customerFolderId = await store.getState().createChatFolder("客户", ["chat-mia"]);
+    const reorderedIds = [customerFolderId!, "main", "folder:work"];
+
+    await expect(store.getState().reorderChatFolders(reorderedIds)).resolves.toBe(true);
+    expect(store.getState().folders.map((folder) => folder.id)).toEqual([
+      ...reorderedIds,
+      "archive",
+    ]);
+
+    await expect(store.getState().setChatFolderMembership("folder:work", "chat-mia", true))
+      .resolves.toBe(true);
+    await expect(store.getState().setChatPinned("main", "chat-mia", false))
+      .resolves.toBe(true);
+    expect(store.getState().folders.map((folder) => folder.id)).toEqual([
+      ...reorderedIds,
+      "archive",
+    ]);
+
+    class FailingReorderTransport extends MockTelegramTransport {
+      override async reorderChatFolders() {
+        throw new Error("文件夹排序同步失败");
+      }
+    }
+    const failingStore = createTelegramStore(new FailingReorderTransport());
+    await failingStore.getState().initialize();
+    const originalIds = failingStore.getState().folders.map((folder) => folder.id);
+    await expect(failingStore.getState().reorderChatFolders(["folder:work", "main"]))
+      .resolves.toBe(false);
+    expect(failingStore.getState().folders.map((folder) => folder.id)).toEqual(originalIds);
+    expect(failingStore.getState().folderManagementPending).toBe(false);
+    expect(failingStore.getState().operationError).toBe("文件夹排序同步失败");
+  });
+
   it("marks every unread chat in a folder as read", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();

@@ -175,6 +175,7 @@ export interface TelegramState {
   createChatFolder: (title: string, chatIds: string[]) => Promise<string | undefined>;
   renameChatFolder: (folderId: string, title: string) => Promise<boolean>;
   deleteChatFolder: (folderId: string) => Promise<boolean>;
+  reorderChatFolders: (folderIds: string[]) => Promise<boolean>;
   setChatFolderMembership: (
     folderId: string,
     chatId: string,

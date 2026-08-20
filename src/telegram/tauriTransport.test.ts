@@ -1609,6 +1609,43 @@ describe("TauriTelegramTransport startup", () => {
       .rejects.toThrow("1 至 12 个字符");
   });
 
+  it("reorders folders explicitly and keeps edited folders in place", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const folderOrders: string[][] = [];
+    internal.listener = (event) => {
+      if (event.type === "folders.replaced") {
+        folderOrders.push(event.folders.map((folder) => folder.id));
+      }
+    };
+    internal.handleUpdate({
+      "@type": "updateChatFolders",
+      chat_folders: [rawFolderInfo(12, "工作"), rawFolderInfo(13, "客户")],
+      main_chat_list_position: 1,
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getChatFolder") return rawFolder("工作");
+      if (request["@type"] === "editChatFolder") return rawFolderInfo(12, "项目");
+      if (request["@type"] === "getChat") return rawChat(Number(request.chat_id), 1_700_000_007);
+      return { "@type": "ok" };
+    };
+
+    await transport.renameChatFolder("folder:12", "项目");
+    expect(folderOrders.at(-1)).toEqual(["folder:12", "main", "folder:13", "archive"]);
+    await transport.setChatFolderMembership("folder:12", "7", true);
+    expect(folderOrders.at(-1)).toEqual(["folder:12", "main", "folder:13", "archive"]);
+
+    await transport.reorderChatFolders(["folder:13", "main", "folder:12"]);
+    expect(requests.at(-1)).toEqual({
+      "@type": "reorderChatFolders",
+      chat_folder_ids: [13, 12],
+      main_chat_list_position: 1,
+    });
+    expect(folderOrders.at(-1)).toEqual(["folder:13", "main", "folder:12", "archive"]);
+  });
+
   it("preserves folder rules while removing a chat and safely refreshes folder deletion", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

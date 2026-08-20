@@ -1,5 +1,5 @@
 use serde_json::{Value, json};
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -114,6 +114,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "processChatJoinRequest",
     "processChatJoinRequests",
     "reportChat",
+    "reorderChatFolders",
     "setMessageSenderBlockList",
     "setUserPrivacySettingRules",
     "terminateSession",
@@ -621,6 +622,26 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid report fields".to_string());
             }
             validate_message_ids(request, "message_ids", 100)?;
+        }
+        "reorderChatFolders" => {
+            let folder_ids = request
+                .get("chat_folder_ids")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "Chat folder identifiers are missing".to_string())?;
+            let mut unique_ids = HashSet::with_capacity(folder_ids.len());
+            if folder_ids.len() > 100
+                || folder_ids.iter().any(|value| {
+                    value
+                        .as_i64()
+                        .is_none_or(|id| id <= 0 || id > i32::MAX.into() || !unique_ids.insert(id))
+                })
+                || request
+                    .get("main_chat_list_position")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|position| position < 0 || position > folder_ids.len() as i64)
+            {
+                return Err("Invalid chat folder order".to_string());
+            }
         }
         "getActiveSessions" | "terminateAllOtherSessions" => {}
         "terminateSession" => {
@@ -1916,6 +1937,30 @@ mod tests {
             }),
         ] {
             assert!(validate_webview_tdlib_request(&request).is_ok());
+        }
+
+        let reorder = json!({
+            "@type": "reorderChatFolders",
+            "chat_folder_ids": [13, 12],
+            "main_chat_list_position": 1,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&reorder).is_ok());
+        for invalid in [
+            json!({
+                "@type": "reorderChatFolders",
+                "chat_folder_ids": [12, 12],
+                "main_chat_list_position": 0,
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "reorderChatFolders",
+                "chat_folder_ids": [12],
+                "main_chat_list_position": 2,
+                "@extra": EXTRA
+            }),
+        ] {
+            assert!(validate_webview_tdlib_request(&invalid).is_err());
         }
 
         let global_search = json!({

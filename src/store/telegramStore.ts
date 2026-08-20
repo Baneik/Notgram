@@ -1844,6 +1844,53 @@ export const createTelegramStore = (
         () => !get().folders.some((folder) => folder.id === folderId) &&
           [...get().chats.values()].every((chat) => !chat.folderIds.includes(folderId)),
       )),
+      reorderChatFolders: async (orderedFolderIds) => {
+        const state = get();
+        const reorderableFolders = state.folders.filter((folder) => folder.id !== "archive");
+        const currentIds = reorderableFolders.map((folder) => folder.id);
+        const uniqueIds = [...new Set(orderedFolderIds)];
+        if (
+          state.authorization.kind !== "ready" ||
+          state.folderManagementPending ||
+          uniqueIds.length !== currentIds.length ||
+          uniqueIds.some((folderId) => !currentIds.includes(folderId))
+        ) return false;
+        if (uniqueIds.every((folderId, index) => folderId === currentIds[index])) return true;
+
+        const originalFolders = state.folders;
+        const byId = new Map(reorderableFolders.map((folder) => [folder.id, folder]));
+        const optimisticFolders = [
+          ...uniqueIds.map((folderId) => byId.get(folderId)!),
+          ...state.folders.filter((folder) => folder.id === "archive"),
+        ];
+        set({
+          folders: optimisticFolders,
+          folderManagementPending: true,
+          operationError: undefined,
+        });
+        try {
+          await transport.reorderChatFolders(uniqueIds);
+          const confirmedIds = get().folders
+            .filter((folder) => folder.id !== "archive")
+            .map((folder) => folder.id);
+          if (!uniqueIds.every((folderId, index) => folderId === confirmedIds[index])) {
+            throw new Error("Telegram 未确认文件夹顺序");
+          }
+          await flushCachedSnapshot();
+          return true;
+        } catch (error) {
+          const latestIds = get().folders
+            .filter((folder) => folder.id !== "archive")
+            .map((folder) => folder.id);
+          if (uniqueIds.every((folderId, index) => folderId === latestIds[index])) {
+            set({ folders: originalFolders });
+          }
+          set({ operationError: errorMessage(error, "无法调整文件夹顺序") });
+          return false;
+        } finally {
+          set({ folderManagementPending: false });
+        }
+      },
       setChatFolderMembership: async (folderId, chatId, included) => Boolean(
         await manageFolder(
           "无法更新文件夹成员",

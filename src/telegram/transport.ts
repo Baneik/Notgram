@@ -151,6 +151,7 @@ export interface TelegramTransport {
   createChatFolder(title: string, chatIds: string[]): Promise<ChatFolder>;
   renameChatFolder(folderId: string, title: string): Promise<ChatFolder>;
   deleteChatFolder(folderId: string): Promise<void>;
+  reorderChatFolders(folderIds: string[]): Promise<void>;
   setChatFolderMembership(folderId: string, chatId: string, included: boolean): Promise<void>;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
   getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage>;

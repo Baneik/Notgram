@@ -1546,6 +1546,34 @@ export class TauriTelegramTransport implements TelegramTransport {
     await Promise.all(affectedChatIds.map((chatId) => this.refreshChat(chatId)));
   }
 
+  async reorderChatFolders(folderIds: string[]) {
+    const uniqueIds = [...new Set(folderIds)];
+    const customFolderIds = uniqueIds
+      .filter((folderId) => folderId !== "main")
+      .map(chatFolderNumericId);
+    const currentFolderIds = this.rawFolderInfos.map((info) => tdNumber(info.id));
+    if (
+      uniqueIds.length !== this.rawFolderInfos.length + 1 ||
+      !uniqueIds.includes("main") ||
+      currentFolderIds.some((folderId) =>
+        folderId === undefined || !customFolderIds.includes(folderId)
+      )
+    ) {
+      throw new Error("文件夹顺序不完整");
+    }
+    const mainChatListPosition = uniqueIds.indexOf("main");
+    await this.request({
+      "@type": "reorderChatFolders",
+      chat_folder_ids: customFolderIds,
+      main_chat_list_position: mainChatListPosition,
+    });
+
+    const infoById = new Map(this.rawFolderInfos.map((info) => [tdNumber(info.id), info]));
+    this.rawFolderInfos = customFolderIds.map((folderId) => infoById.get(folderId)!);
+    this.mainChatListPosition = mainChatListPosition;
+    this.emitFolders();
+  }
+
   async setChatFolderMembership(folderId: string, chatId: string, included: boolean) {
     const numericFolderId = chatFolderNumericId(folderId);
     const numericChatId = numericId(chatId);
@@ -2335,10 +2363,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   private upsertFolderInfo(info: TdObject): ChatFolder {
     const id = tdNumber(info.id);
     if (id === undefined) throw new Error("TDLib 未返回文件夹标识");
-    this.rawFolderInfos = [
-      ...this.rawFolderInfos.filter((item) => tdNumber(item.id) !== id),
-      info,
-    ];
+    const existingIndex = this.rawFolderInfos.findIndex((item) => tdNumber(item.id) === id);
+    if (existingIndex >= 0) {
+      this.rawFolderInfos = this.rawFolderInfos.map((item, index) =>
+        index === existingIndex ? info : item
+      );
+    } else {
+      this.rawFolderInfos = [...this.rawFolderInfos, info];
+    }
     this.emitFolders();
     const folder = mapTdChatFolders([info]).find((item) => item.id === `folder:${id}`);
     if (!folder) throw new Error("TDLib 未返回文件夹资料");

@@ -8215,6 +8215,69 @@ test("folder context menu edits, marks read, and deletes a custom folder", async
   await expect(workButton).toHaveCount(0);
 });
 
+test("folder buttons reorder by direct drag and stay fixed during chat organization", async ({ page }) => {
+  await page.goto("/");
+  const folderButtons = page.locator(".rail-button[data-folder-id]");
+  const mainButton = page.getByRole("button", { name: "全部聊天", exact: true });
+  const workButton = page.getByRole("button", { name: "工作", exact: true });
+  const mainBounds = await mainButton.boundingBox();
+  const workBounds = await workButton.boundingBox();
+  expect(mainBounds).not.toBeNull();
+  expect(workBounds).not.toBeNull();
+
+  await page.mouse.move(
+    (workBounds?.x ?? 0) + (workBounds?.width ?? 0) / 2,
+    (workBounds?.y ?? 0) + (workBounds?.height ?? 0) / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    (mainBounds?.x ?? 0) + (mainBounds?.width ?? 0) / 2,
+    (mainBounds?.y ?? 0) + 4,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+
+  const reorderedNames = ["工作", "全部聊天"];
+  await expect.poll(() => folderButtons.evaluateAll((buttons) =>
+    buttons.map((button) => button.getAttribute("aria-label"))
+  )).toEqual(reorderedNames);
+
+  await mainButton.click();
+  const miaRow = page.locator('.chat-row[data-chat-id="chat-mia"]');
+  await miaRow.click({ button: "right" });
+  await page.getByRole("menu", { name: "会话操作：Mia Chen" })
+    .getByRole("menuitem", { name: "分组" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "添加到工作" }).click();
+  await miaRow.click({ button: "right" });
+  await page.getByRole("menu", { name: "会话操作：Mia Chen" })
+    .getByRole("menuitem", { name: "取消置顶", exact: true }).click();
+
+  await expect.poll(() => folderButtons.evaluateAll((buttons) =>
+    buttons.map((button) => button.getAttribute("aria-label"))
+  )).toEqual(reorderedNames);
+
+  await page.setViewportSize({ width: 390, height: 700 });
+  const mobileMainBounds = await mainButton.boundingBox();
+  const mobileWorkBounds = await workButton.boundingBox();
+  expect(mobileMainBounds).not.toBeNull();
+  expect(mobileWorkBounds).not.toBeNull();
+  await page.mouse.move(
+    (mobileMainBounds?.x ?? 0) + (mobileMainBounds?.width ?? 0) / 2,
+    (mobileMainBounds?.y ?? 0) + (mobileMainBounds?.height ?? 0) / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    (mobileWorkBounds?.x ?? 0) + 4,
+    (mobileWorkBounds?.y ?? 0) + (mobileWorkBounds?.height ?? 0) / 2,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  await expect.poll(() => folderButtons.evaluateAll((buttons) =>
+    buttons.map((button) => button.getAttribute("aria-label"))
+  )).toEqual(["全部聊天", "工作"]);
+  expect(await horizontalOverflow(page)).toBe(false);
+});
+
 test("folder manager creates, edits, and deletes confirmed server folders", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "管理文件夹" }).click();

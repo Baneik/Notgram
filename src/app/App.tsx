@@ -221,6 +221,7 @@ export function App() {
   const createChatFolder = useTelegramStore((state) => state.createChatFolder);
   const renameChatFolder = useTelegramStore((state) => state.renameChatFolder);
   const deleteChatFolder = useTelegramStore((state) => state.deleteChatFolder);
+  const reorderChatFolders = useTelegramStore((state) => state.reorderChatFolders);
   const setChatFolderMembership = useTelegramStore((state) => state.setChatFolderMembership);
   const markChatFolderRead = useTelegramStore((state) => state.markChatFolderRead);
   const markActiveChatRead = useTelegramStore((state) => state.markActiveChatRead);
@@ -1454,6 +1455,7 @@ export function App() {
           }}
           onManageFolders={() => openFolderManager()}
           onEditFolder={openFolderManager}
+          onReorderFolders={(folderIds) => void reorderChatFolders(folderIds)}
           onMarkFolderRead={markChatFolderRead}
           onRequestDeleteFolder={(folder) => setPendingConfirmation({
             kind: "deleteFolder",
