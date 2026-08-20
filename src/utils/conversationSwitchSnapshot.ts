@@ -1,26 +1,10 @@
 import { copyCanvasContents } from "./copyCanvasContents";
+import { getConversationSnapshotStyleSheet } from "./conversationSnapshotStyles";
 
 export interface ConversationSwitchSnapshot {
   element: HTMLElement;
   content: HTMLElement;
 }
-
-let snapshotStyleSheet: CSSStyleSheet | undefined;
-
-const getSnapshotStyleSheet = () => {
-  if (snapshotStyleSheet) return snapshotStyleSheet;
-  const rules: string[] = [];
-  for (const sheet of document.styleSheets) {
-    try {
-      rules.push(...Array.from(sheet.cssRules, (rule) => rule.cssText));
-    } catch {
-      // Application styles are same-origin; inaccessible extension styles are irrelevant.
-    }
-  }
-  snapshotStyleSheet = new CSSStyleSheet();
-  snapshotStyleSheet.replaceSync(rules.join("\n"));
-  return snapshotStyleSheet;
-};
 
 export const captureConversationSwitchSnapshot = (
   targetIdentity: string,
@@ -69,7 +53,7 @@ export const captureConversationSwitchSnapshot = (
   });
 
   const shadow = element.attachShadow({ mode: "closed" });
-  shadow.adoptedStyleSheets = [getSnapshotStyleSheet()];
+  shadow.adoptedStyleSheets = [getConversationSnapshotStyleSheet()];
   const context = document.createElement("div");
   context.className = "conversation-jump-snapshot";
   Object.assign(context.style, {

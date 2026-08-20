@@ -30,6 +30,7 @@ import {
   conversationVirtuosoSnapshots,
   distanceFromBottom,
   registerConversationScrollStateCapture,
+  resolveConversationVirtualIndex,
   scrollMemoryKey,
   visibleAnchor,
   type ConversationLayoutSnapshot,
@@ -72,6 +73,7 @@ const ANCHOR_RECONCILE_STABLE_FRAMES = 6;
 const CONTENT_ANCHOR_RECONCILE_MAX_FRAMES = 18;
 const CONTENT_ANCHOR_RECONCILE_STABLE_FRAMES = 6;
 const NAVIGATION_RECONCILE_STABLE_FRAMES = 6;
+const HISTORY_SNAPSHOT_MAX_MS = 750;
 
 const bottomScrollTop = (element: HTMLElement) =>
   Math.max(0, element.scrollHeight - element.clientHeight);
@@ -99,6 +101,12 @@ interface BottomPinRequest {
   stableFrameCount: number;
   state: BottomReconcileState;
   onSettled: Set<() => void>;
+}
+
+interface HistorySnapshotState {
+  key: string;
+  snapshot: ConversationJumpSnapshot;
+  releaseTimer?: ReturnType<typeof globalThis.setTimeout>;
 }
 
 interface JumpToLatestOptions {
@@ -240,6 +248,7 @@ export const useConversationScroll = ({
     token: symbol;
     snapshot: ConversationJumpSnapshot;
   } | undefined>(undefined);
+  const historySnapshotRef = useRef<HistorySnapshotState | undefined>(undefined);
   const navigationRequestIdentityRef = useRef("");
   const initialLocationRef = useRef<InitialLocation | undefined>(undefined);
   const positionedIdentityRef = useRef<string | undefined>(undefined);
@@ -335,6 +344,16 @@ export const useConversationScroll = ({
   ].join(":");
   const virtuosoKey = `${currentScrollKey ?? scope}:${searchActive ? "search" : "conversation"}`;
   virtuosoKeyRef.current = virtuosoKey;
+  const pendingHistoryRestore = pendingHistoryRestoreRef.current;
+  let pendingHistoryAnchorId: string | undefined;
+  if (pendingHistoryRestore && pendingHistoryRestore.key === currentScrollKey) {
+    pendingHistoryAnchorId = pendingHistoryRestore.anchorMessageId;
+  }
+  const virtuosoFirstItemIndex = resolveConversationVirtualIndex(
+    virtuosoKey,
+    messageItemIndexes,
+    pendingHistoryAnchorId,
+  );
   if (currentScrollKey) {
     conversationLayouts.set(currentScrollKey, {
       firstMessageId: firstVisibleMessageId,
@@ -639,6 +658,19 @@ export const useConversationScroll = ({
     messageListRef.current?.classList.remove("is-jump-transitioning");
   }, []);
 
+  const clearHistorySnapshot = useCallback(() => {
+    const active = historySnapshotRef.current;
+    if (!active) return;
+    if (active.releaseTimer) globalThis.clearTimeout(active.releaseTimer);
+    removeConversationJumpSnapshot(active.snapshot);
+    historySnapshotRef.current = undefined;
+  }, []);
+
+  useLayoutEffect(() => {
+    const active = historySnapshotRef.current;
+    if (active && active.key !== currentScrollKey) clearHistorySnapshot();
+  }, [clearHistorySnapshot, currentScrollKey]);
+
   const interruptControlledPositioning = useCallback((
     mode: "following" | "detached",
     publishPositioned = true,
@@ -667,6 +699,7 @@ export const useConversationScroll = ({
     }
     revealTargetTokenRef.current = undefined;
     clearJumpTransition();
+    clearHistorySnapshot();
     positioningIdentityRef.current = undefined;
     const current = scrollControlRef.current;
     scrollControlRef.current = {
@@ -678,7 +711,7 @@ export const useConversationScroll = ({
       positionedIdentityRef.current = initialLocationIdentity;
       setPositionedIdentity(initialLocationIdentity);
     }
-  }, [clearJumpTransition, initialLocationIdentity]);
+  }, [clearHistorySnapshot, clearJumpTransition, initialLocationIdentity]);
 
   const adoptUserScrollMode = useCallback((mode: "following" | "detached") => {
     const current = scrollControlRef.current;
@@ -963,6 +996,13 @@ export const useConversationScroll = ({
     ) return false;
     const anchor = visibleAnchor(element);
     if (!anchor?.messageId) return false;
+    clearHistorySnapshot();
+    const historySnapshot = captureConversationJumpSnapshot(element, { isolate: true });
+    if (historySnapshot) {
+      historySnapshot.element.dataset.conversationHistorySnapshot = "true";
+      historySnapshot.element.remove();
+      historySnapshotRef.current = { key: currentScrollKey, snapshot: historySnapshot };
+    }
     olderLoadArmedRef.current = false;
     userIntentUntilRef.current = 0;
     trustedUserIntentUntilRef.current = 0;
@@ -992,9 +1032,14 @@ export const useConversationScroll = ({
       if (historyLoadKeyRef.current === currentScrollKey) {
         historyLoadKeyRef.current = undefined;
       }
+      const activeSnapshot = historySnapshotRef.current;
+      if (activeSnapshot?.key === currentScrollKey && !activeSnapshot.snapshot.element.isConnected) {
+        clearHistorySnapshot();
+      }
     });
     return true;
   }, [
+    clearHistorySnapshot,
     currentScrollKey,
     hasOlderMessages,
     historyLoading,
@@ -1594,12 +1639,28 @@ export const useConversationScroll = ({
       pendingHistory.previousFirstId !== firstVisibleMessageId
     ) {
       pendingHistoryRestoreRef.current = undefined;
+      const historySnapshot = historySnapshotRef.current;
+      if (historySnapshot?.key === currentScrollKey) {
+        const bounds = messageListElement.getBoundingClientRect();
+        Object.assign(historySnapshot.snapshot.element.style, {
+          left: `${bounds.left}px`,
+          top: `${bounds.top}px`,
+          width: `${bounds.width}px`,
+          height: `${bounds.height}px`,
+        });
+        document.body.append(historySnapshot.snapshot.element);
+        historySnapshot.releaseTimer = globalThis.setTimeout(
+          clearHistorySnapshot,
+          HISTORY_SNAPSHOT_MAX_MS,
+        );
+      }
       settleContentAnchorPosition(
         messageListElement,
         pendingHistory.anchorMessageId,
         pendingHistory.anchorOffset,
         virtuosoKey,
         () => {
+          clearHistorySnapshot();
           const anchor = messageListElement.querySelector<HTMLElement>(
             `[data-message-id="${CSS.escape(pendingHistory.anchorMessageId)}"]`,
           );
@@ -1626,6 +1687,7 @@ export const useConversationScroll = ({
       searchActive,
     };
   }, [
+    clearHistorySnapshot,
     currentScrollKey,
     firstVisibleMessageId,
     lastVisibleMessageId,
@@ -1824,9 +1886,10 @@ export const useConversationScroll = ({
     positioningIdentityRef.current = undefined;
     removeConversationJumpSnapshot(jumpSnapshotRef.current?.snapshot);
     jumpSnapshotRef.current = undefined;
+    clearHistorySnapshot();
     if (smoothScrollFrameRef.current !== undefined) cancelAnimationFrame(smoothScrollFrameRef.current);
     if (highlightTimerRef.current) globalThis.clearTimeout(highlightTimerRef.current);
-  }, []);
+  }, [clearHistorySnapshot]);
 
   const onTotalListHeightChanged = useCallback(() => {
     if (!currentScrollKey || searchActive) return;
@@ -2172,6 +2235,7 @@ export const useConversationScroll = ({
     virtuosoKey,
     initialTopMostItemIndex,
     initialAlignToBottom,
+    virtuosoFirstItemIndex,
     restoreStateFrom,
     highlightedMessageId: highlightedMessage && highlightedMessage.key === currentScrollKey
       ? highlightedMessage.messageId

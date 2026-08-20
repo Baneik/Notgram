@@ -7313,9 +7313,54 @@ test("loading older messages preserves the visible message anchor", async ({ pag
   });
 
   expect(before.id).toBeTruthy();
-  await page.evaluate(() => (
-    globalThis as typeof globalThis & { __notgramReleaseHistoryLoad: () => void }
-  ).__notgramReleaseHistoryLoad());
+  const frameTrace = await page.evaluate(async ({ messageId }) => {
+    const targetGlobal = globalThis as typeof globalThis & {
+      __notgramReleaseHistoryLoad: () => void;
+    };
+    const element = document.querySelector<HTMLElement>(".message-list")!;
+    const samples: Array<{
+      frame: number;
+      offset?: number;
+      scrollTop: number;
+      scrollHeight: number;
+      firstVisibleMessageId?: string;
+      snapshotCovered: boolean;
+    }> = [];
+    targetGlobal.__notgramReleaseHistoryLoad();
+    for (let frame = 0; frame < 45; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => {
+        globalThis.setTimeout(resolve, 0);
+      }));
+      const listBounds = element.getBoundingClientRect();
+      const target = element.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(messageId)}"]`,
+      );
+      const firstVisible = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+        .find((candidate) => {
+          const bounds = candidate.getBoundingClientRect();
+          return bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1;
+        });
+      samples.push({
+        frame,
+        offset: target
+          ? target.getBoundingClientRect().top - listBounds.top
+          : undefined,
+        scrollTop: element.scrollTop,
+        scrollHeight: element.scrollHeight,
+        firstVisibleMessageId: firstVisible?.dataset.messageId,
+        snapshotCovered: Boolean(document.querySelector("[data-conversation-history-snapshot]")),
+      });
+    }
+    return samples;
+  }, { messageId: before.id! });
+  const exposedUnstableFrames = frameTrace.filter((sample) => (
+    !sample.snapshotCovered &&
+    (sample.offset === undefined || Math.abs(sample.offset - before.offset) > 2)
+  ));
+  expect(exposedUnstableFrames, JSON.stringify(frameTrace)).toEqual([]);
+  expect(frameTrace.some((sample) => sample.snapshotCovered)).toBe(true);
+  expect(frameTrace.at(-1)?.snapshotCovered).toBe(false);
+  await expect(page.locator("[data-conversation-history-snapshot]")).toHaveCount(0);
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
       telegramStore: {

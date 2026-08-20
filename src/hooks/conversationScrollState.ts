@@ -47,6 +47,51 @@ export const conversationLayouts = new Map<string, {
   virtualItemCount: number;
 }>();
 
+const VIRTUAL_ITEM_INDEX_BASE = 1_000_000;
+
+interface ConversationVirtualIndexState {
+  firstItemIndex: number;
+  messageItemIndexes: ReadonlyMap<string, number>;
+}
+
+const conversationVirtualIndexes = new Map<string, ConversationVirtualIndexState>();
+
+// Virtuoso can retain measured geometry through prepends only while existing
+// blocks keep the same logical indexes.
+export const resolveConversationVirtualIndex = (
+  key: string,
+  messageItemIndexes: ReadonlyMap<string, number>,
+  preferredAnchorId?: string,
+) => {
+  const previous = conversationVirtualIndexes.get(key);
+  if (previous?.messageItemIndexes === messageItemIndexes) return previous.firstItemIndex;
+
+  let firstItemIndex = previous?.firstItemIndex ?? VIRTUAL_ITEM_INDEX_BASE;
+  if (previous && previous.messageItemIndexes.size > 0 && messageItemIndexes.size > 0) {
+    let sharedMessageId = preferredAnchorId &&
+      previous.messageItemIndexes.has(preferredAnchorId) &&
+      messageItemIndexes.has(preferredAnchorId)
+      ? preferredAnchorId
+      : undefined;
+    if (!sharedMessageId) {
+      for (const messageId of previous.messageItemIndexes.keys()) {
+        if (!messageItemIndexes.has(messageId)) continue;
+        sharedMessageId = messageId;
+        break;
+      }
+    }
+    if (sharedMessageId) {
+      firstItemIndex += previous.messageItemIndexes.get(sharedMessageId)! -
+        messageItemIndexes.get(sharedMessageId)!;
+    } else {
+      firstItemIndex = VIRTUAL_ITEM_INDEX_BASE;
+    }
+  }
+  firstItemIndex = Math.max(0, firstItemIndex);
+  conversationVirtualIndexes.set(key, { firstItemIndex, messageItemIndexes });
+  return firstItemIndex;
+};
+
 let activeConversationScrollStateCapture: (() => void) | undefined;
 
 export const registerConversationScrollStateCapture = (capture: () => void) => {

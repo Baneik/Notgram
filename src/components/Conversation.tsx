@@ -782,6 +782,7 @@ export function Conversation({
     virtuosoKey,
     initialTopMostItemIndex,
     initialAlignToBottom,
+    virtuosoFirstItemIndex,
     restoreStateFrom,
     highlightedMessageId,
     newMessageNotice,
@@ -1669,6 +1670,7 @@ export function Conversation({
           }
           tabIndex={0}
           alignToBottom={initialAlignToBottom}
+          firstItemIndex={virtuosoFirstItemIndex}
           components={pinnedViewOpen ? pinnedMessageListComponents : messageListComponents}
           computeItemKey={(_, block) => block.id}
           data={visibleMessageBlocks}

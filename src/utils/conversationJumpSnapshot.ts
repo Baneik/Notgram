@@ -1,12 +1,18 @@
 import { copyCanvasContents } from "./copyCanvasContents";
+import { getConversationSnapshotStyleSheet } from "./conversationSnapshotStyles";
 
 export interface ConversationJumpSnapshot {
   element: HTMLElement;
   content: HTMLElement;
 }
 
+interface ConversationJumpSnapshotOptions {
+  isolate?: boolean;
+}
+
 export const captureConversationJumpSnapshot = (
   scroller: HTMLElement,
+  options?: ConversationJumpSnapshotOptions,
 ): ConversationJumpSnapshot | undefined => {
   const bounds = scroller.getBoundingClientRect();
   if (bounds.width < 1 || bounds.height < 1) return undefined;
@@ -45,7 +51,21 @@ export const captureConversationJumpSnapshot = (
     margin: "0",
     pointerEvents: "none",
   });
-  element.append(clone);
+  if (options?.isolate) {
+    const shadow = element.attachShadow({ mode: "closed" });
+    shadow.adoptedStyleSheets = [getConversationSnapshotStyleSheet()];
+    const context = document.createElement("div");
+    context.className = "conversation-jump-snapshot";
+    Object.assign(context.style, {
+      width: "100%",
+      height: "100%",
+      overflow: "hidden",
+    });
+    context.append(clone);
+    shadow.append(context);
+  } else {
+    element.append(clone);
+  }
   document.body.append(element);
   clone.scrollTop = scroller.scrollTop;
   clone.scrollLeft = scroller.scrollLeft;
