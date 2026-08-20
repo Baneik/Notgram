@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
+import { telegramUrlDisplayText } from "../telegram/telegramLinks";
 import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { observeLayout } from "../utils/layoutObservation";
@@ -162,8 +163,11 @@ const wrapEntity = (
     case "email":
     case "phone": {
       const href = entityHref(entity, value);
+      const linkChildren = entity.kind === "url"
+        ? telegramUrlDisplayText(value) ?? children
+        : children;
       return href
-        ? <a key={key} href={href} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>{children}</a>
+        ? <a key={key} href={href} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>{linkChildren}</a>
         : <Fragment key={key}>{children}</Fragment>;
     }
     case "mention":
@@ -196,7 +200,10 @@ const renderInlineRange = (
     entity.offset < endOffset && entity.offset + entity.length > startOffset,
   );
   const atomicLinkRanges = overlapping.filter((entity) =>
-    entity.kind === "hashtag" || entity.kind === "mention" || entity.kind === "mentionName"
+    entity.kind === "hashtag" || entity.kind === "mention" || entity.kind === "mentionName" ||
+    (entity.kind === "url" && Boolean(telegramUrlDisplayText(
+      text.slice(entity.offset, entity.offset + entity.length),
+    )))
   );
   const boundaries = [...new Set([
     startOffset,

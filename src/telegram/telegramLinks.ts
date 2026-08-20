@@ -1,6 +1,8 @@
 import type { TelegramLinkTarget } from "./types";
 
 const TELEGRAM_WEB_HOSTS = new Set(["t.me", "telegram.me", "telegram.dog"]);
+const SCHEMELESS_TELEGRAM_URL = /^(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)(?=[/?#]|$)/i;
+const TELEGRAM_USERNAME = /^[A-Za-z0-9_]{5,32}$/;
 
 const WEB_ROUTE_TYPES = new Map<string, string>([
   ["addemoji", "internalLinkTypeStickerSet"],
@@ -40,12 +42,51 @@ const TG_ACTION_TYPES = new Map<string, string>([
 
 export const parseTelegramUrl = (value: string) => {
   try {
-    const parsed = new URL(value);
+    const parsed = new URL(SCHEMELESS_TELEGRAM_URL.test(value) ? `https://${value}` : value);
     const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-    return parsed.protocol === "tg:" || TELEGRAM_WEB_HOSTS.has(host) ? parsed : undefined;
+    if (parsed.protocol === "tg:") return parsed;
+    if (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      TELEGRAM_WEB_HOSTS.has(host) &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.port
+    ) return parsed;
+    return undefined;
   } catch {
     return undefined;
   }
+};
+
+export const telegramUsernameFromUrl = (value: string) => {
+  const parsed = parseTelegramUrl(value);
+  if (!parsed) return undefined;
+  if (parsed.protocol === "tg:") {
+    if (parsed.hostname.toLowerCase() !== "resolve") return undefined;
+    const parameters = [...parsed.searchParams.keys()];
+    const username = parsed.searchParams.get("domain") ?? "";
+    return parameters.length === 1 && parameters[0] === "domain" && TELEGRAM_USERNAME.test(username)
+      ? username
+      : undefined;
+  }
+  if (parsed.search || parsed.hash) return undefined;
+  const pathParts = parsed.pathname.split("/").filter(Boolean);
+  if (pathParts.length !== 1) return undefined;
+  let username: string;
+  try {
+    username = decodeURIComponent(pathParts[0]);
+  } catch {
+    return undefined;
+  }
+  if (WEB_ROUTE_TYPES.has(username.toLowerCase()) || !TELEGRAM_USERNAME.test(username)) {
+    return undefined;
+  }
+  return username;
+};
+
+export const telegramUrlDisplayText = (value: string) => {
+  const username = telegramUsernameFromUrl(value);
+  return username ? `@${username}` : undefined;
 };
 
 const incompatibleLabelFor = (linkType?: string) => {

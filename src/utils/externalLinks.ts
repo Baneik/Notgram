@@ -16,6 +16,8 @@ export const safeExternalHref = (value?: string) => {
   if ([...value].some((character) => /[\u0000-\u001f\u007f]/.test(character))) {
     return undefined;
   }
+  const telegramUrl = parseTelegramUrl(value);
+  if (telegramUrl) return telegramUrl.href;
   try {
     const parsed = new URL(value);
     return ALLOWED_PROTOCOLS.has(parsed.protocol.toLowerCase()) ? parsed.href : undefined;
@@ -37,8 +39,9 @@ export const openExternalLink = async (value: string) => {
 };
 
 export const openTelegramLinkInApp = async (value: string) => {
-  if (!parseTelegramUrl(value)) return false;
-  const target = await telegramStore.getState().resolveTelegramLink(value);
+  const parsed = parseTelegramUrl(value);
+  if (!parsed) return false;
+  const target = await telegramStore.getState().resolveTelegramLink(parsed.href);
   if (!target || isUnsupportedTelegramLink(target)) return true;
   globalThis.dispatchEvent(new CustomEvent("notgram:telegram-link-opened", { detail: target }));
   return true;

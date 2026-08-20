@@ -389,12 +389,16 @@ describe("TauriTelegramTransport startup", () => {
       return { "@type": "ok" };
     };
 
-    await expect(transport.resolveTelegramLink("https://t.me/mia_design"))
+    await expect(transport.resolveTelegramLink("t.me/mia_design"))
       .resolves.toEqual({ chatId: "92" });
     expect(requests.map((request) => request["@type"])).toEqual([
       "getInternalLinkType",
       "searchPublicChat",
     ]);
+    expect(requests[0]).toMatchObject({
+      "@type": "getInternalLinkType",
+      link: "https://t.me/mia_design",
+    });
   });
 
   it("resolves bot start links with the exact TDLib start parameter", async () => {

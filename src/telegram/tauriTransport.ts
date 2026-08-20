@@ -140,6 +140,7 @@ import {
 } from "./chatManagement";
 import {
   knownUnsupportedTelegramLink,
+  parseTelegramUrl,
   unsupportedTelegramLink,
 } from "./telegramLinks";
 
@@ -1289,15 +1290,10 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async resolveTelegramLink(url: string): Promise<TelegramLinkTarget | undefined> {
-    const parsed = (() => {
-      try { return new URL(url); } catch { return undefined; }
-    })();
+    const parsed = parseTelegramUrl(url);
     if (!parsed) return undefined;
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-    const isTelegram = parsed.protocol === "tg:" || host === "t.me" || host === "telegram.me" || host === "telegram.dog";
-    if (!isTelegram) return undefined;
 
-    const knownUnsupported = knownUnsupportedTelegramLink(url);
+    const knownUnsupported = knownUnsupportedTelegramLink(parsed.href);
     if (knownUnsupported) return knownUnsupported;
 
     if (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "user") {

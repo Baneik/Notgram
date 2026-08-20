@@ -6,6 +6,12 @@ describe("external links", () => {
     expect(safeExternalHref("https://example.com/path?q=1")).toBe("https://example.com/path?q=1");
     expect(safeExternalHref("mailto:user@example.com")).toBe("mailto:user@example.com");
     expect(safeExternalHref("tg://resolve?domain=telegram")).toBe("tg://resolve?domain=telegram");
+    expect(safeExternalHref("t.me/sylphiette_grayrat_bot"))
+      .toBe("https://t.me/sylphiette_grayrat_bot");
+    expect(safeExternalHref("telegram.me/mia_design"))
+      .toBe("https://telegram.me/mia_design");
+    expect(safeExternalHref("telegram.dog/mia_design"))
+      .toBe("https://telegram.dog/mia_design");
     expect(safeExternalHref("javascript:alert(1)")).toBeUndefined();
     expect(safeExternalHref("file:///C:/secret.txt")).toBeUndefined();
     expect(safeExternalHref(" https://example.com")).toBeUndefined();

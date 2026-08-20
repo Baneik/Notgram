@@ -83,6 +83,7 @@ import type {
 } from "./types";
 import {
   knownUnsupportedTelegramLink,
+  parseTelegramUrl,
   unsupportedTelegramLink,
 } from "./telegramLinks";
 import {
@@ -1459,11 +1460,9 @@ export class MockTelegramTransport implements TelegramTransport {
   async setPrivacySettingRules(setting: PrivacySettingKey, rules: PrivacyRule[]): Promise<void> { if (rules.length === 0 || rules.length > 10) throw new Error("隐私规则无效"); this.privacyRules[setting] = clone(rules); }
 
   async resolveTelegramLink(url: string) {
-    let parsed: URL;
-    try { parsed = new URL(url); } catch { return undefined; }
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-    if (parsed.protocol !== "tg:" && !["t.me", "telegram.me", "telegram.dog"].includes(host)) return undefined;
-    const knownUnsupported = knownUnsupportedTelegramLink(url);
+    const parsed = parseTelegramUrl(url);
+    if (!parsed) return undefined;
+    const knownUnsupported = knownUnsupportedTelegramLink(parsed.href);
     if (knownUnsupported) return knownUnsupported;
     const parts = parsed.pathname.split("/").filter(Boolean);
     if (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "user") {
