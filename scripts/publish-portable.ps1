@@ -70,6 +70,7 @@ if ($dirty -and -not $AllowDirty) {
 
 if (-not $SkipBuild) {
     Set-ReleaseEnvironment
+    & (Join-Path $PSScriptRoot "set-release-path-remapping.ps1")
     Push-Location $repositoryRoot
     try {
         if (-not $SkipChecks) {
@@ -173,6 +174,7 @@ foreach ($textFile in $textFiles) {
         throw "Portable release text contains a potentially sensitive value: $($textFile.Name)"
     }
 }
+& (Join-Path $PSScriptRoot "verify-release-privacy.ps1") -Path $portableDirectory
 
 $hashLines = Get-ChildItem -LiteralPath $portableDirectory -Recurse -File |
     Sort-Object FullName |

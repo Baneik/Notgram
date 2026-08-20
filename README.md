@@ -69,6 +69,8 @@ only from the process environment. Pass `-DestinationRoot` directly to
 `scripts/publish-portable.ps1` when a release needs a custom destination. The
 versioned ZIP contains `Notgram.exe`, TDLib and its runtime licenses, dependency
 inventory, build metadata, and per-file SHA-256 hashes.
+Release builds remap local source roots to stable placeholders and refuse to
+package files that still contain the build user's profile or repository path.
 Portable builds retain account data across ZIP replacement and do not run the
 NSIS auto-updater; installed builds use the signed channel configured at build
 time.

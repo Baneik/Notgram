@@ -40,6 +40,8 @@ foreach ($requiredTool in @($cmake, $vcpkg, $toolchain)) {
     }
 }
 
+& (Join-Path $PSScriptRoot "set-release-path-remapping.ps1")
+
 New-Item -ItemType Directory -Force (Split-Path -Parent $sourceDirectory), $buildDirectory, $installRoot, $runtimeDirectory, $licenseDirectory | Out-Null
 
 if (-not (Test-Path -LiteralPath (Join-Path $sourceDirectory ".git") -PathType Container)) {

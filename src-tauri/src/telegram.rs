@@ -958,6 +958,7 @@ fn library_candidates(app: &AppHandle) -> Vec<PathBuf> {
     {
         candidates.push(directory.join(file_name));
     }
+    #[cfg(debug_assertions)]
     candidates.push(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tdlib")

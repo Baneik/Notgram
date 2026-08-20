@@ -57,6 +57,7 @@ jobs:
           NOTGRAM_API_ID: ${{ secrets.NOTGRAM_API_ID }}
           NOTGRAM_API_HASH: ${{ secrets.NOTGRAM_API_HASH }}
         run: |
+          scripts/set-release-path-remapping.ps1
           $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
           $previousVersion = (Get-Content src-tauri/tauri.lifecycle.previous.conf.json -Raw | ConvertFrom-Json).version
           $fixtureRoot = Join-Path $env:RUNNER_TEMP "notgram-lifecycle-installers"
@@ -104,6 +105,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.NOTGRAM_UPDATER_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.NOTGRAM_UPDATER_PRIVATE_KEY_PASSWORD }}
         run: |
+          scripts/set-release-path-remapping.ps1
           $config = Join-Path $env:RUNNER_TEMP "notgram-signing.json"
           scripts/new-signing-config.ps1 -OutputPath $config
           npm run tauri build -- --config $config

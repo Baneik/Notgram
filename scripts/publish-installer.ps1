@@ -69,6 +69,12 @@ if ((Test-Path -LiteralPath $artifactDirectory)) {
     throw "Release destination already exists. Move it aside or choose another -DestinationRoot: $artifactName"
 }
 
+& (Join-Path $PSScriptRoot "verify-release-privacy.ps1") -Path @(
+    $releaseExecutable,
+    $runtimeDirectory,
+    $resolvedInstallerPath
+)
+
 $tdlib = & (Join-Path $PSScriptRoot "verify-tdlib.ps1") -RuntimeDirectory $runtimeDirectory | ConvertFrom-Json
 New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
 $publishedInstaller = Join-Path $artifactDirectory "Notgram-$version-windows-x64-setup.exe"

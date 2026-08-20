@@ -41,6 +41,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Rust tests failed." }
 
     if ($Release) {
+        & (Join-Path $PSScriptRoot "set-release-path-remapping.ps1")
         npm run tauri build -- --no-bundle
         if ($LASTEXITCODE -ne 0) { throw "Tauri release build failed." }
     }
