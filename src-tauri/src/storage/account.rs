@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 pub const DEFAULT_ACCOUNT_ID: &str = "default";
 
@@ -144,11 +144,7 @@ pub(super) fn account_database_directory(root: PathBuf, account_id: &str) -> Pat
 }
 
 fn clear_account_storage(app: &AppHandle, account_id: &str) -> Result<(), String> {
-    let app_data_root = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Unable to resolve app data directory: {error}"))?
-        .join("tdlib");
+    let app_data_root = crate::distribution::app_data_directory(app)?.join("tdlib");
     let preferences = super::resolve_preferences(app, super::load_preferences(app)?)?;
     let cache_root = PathBuf::from(preferences.cache_path);
 
@@ -206,10 +202,7 @@ pub(super) fn validate_account_id(value: &str) -> Result<(), String> {
 }
 
 fn account_registry_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| format!("Unable to resolve app config directory: {error}"))?;
+    let directory = crate::distribution::app_config_directory(app)?;
     fs::create_dir_all(&directory).map_err(|error| {
         format!(
             "Unable to create app config directory {}: {error}",

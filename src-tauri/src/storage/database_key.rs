@@ -4,7 +4,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const LEGACY_EMPTY_DATABASE_KEY_MARKER: &str = "notgram:legacy-empty-database-key:v1";
 
@@ -42,11 +42,7 @@ fn database_key_from_record(record: &str) -> String {
 
 fn database_key_path(app: &AppHandle, account_id: &str) -> Result<PathBuf, String> {
     super::account::validate_account_id(account_id)?;
-    let directory = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| format!("Unable to resolve app config directory: {error}"))?
-        .join("database-keys");
+    let directory = crate::distribution::app_config_directory(app)?.join("database-keys");
     fs::create_dir_all(&directory).map_err(|error| {
         format!(
             "Unable to create database key directory {}: {error}",

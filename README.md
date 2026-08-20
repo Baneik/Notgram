@@ -74,6 +74,21 @@ package files that still contain the build user's profile or repository path.
 Portable builds retain account data across ZIP replacement and do not run the
 NSIS auto-updater; installed builds use the signed channel configured at build
 time.
+On first start, a portable build creates a `data/` directory beside
+`Notgram.exe`. `data/config/` contains the encrypted account registry, database
+keys, proxy settings, storage settings, diagnostics consent, and window state;
+`data/tdlib/` contains the TDLib login databases, encrypted UI snapshots, and
+media cache; `data/webview/` contains WebView2 local storage and browser data.
+The default cache setting is stored as the relative path `data/tdlib`, so the
+whole portable directory can be moved without retaining an old absolute path.
+Preserve the existing `data/` directory when replacing the executable and
+runtime files with a newer ZIP. Release ZIPs never contain account data.
+
+Installed builds keep the existing locations: account configuration and TDLib
+login databases under `%APPDATA%/dev.notgram.desktop/`, and the TDLib cache plus
+WebView2 data under `%LOCALAPPDATA%/dev.notgram.desktop/`. Portable and installed
+profiles are intentionally separate; an existing installed profile is not
+copied into a portable directory automatically.
 After a bundled Tauri build, `npm run publish:installer` validates and stages
 the matching NSIS installer with the same dependency, metadata, and hash files.
 The signed release workflow also runs `scripts/test-release-lifecycle.ps1` on an

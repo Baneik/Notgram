@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Notgram",
         "width": 1220,
         "height": 780,

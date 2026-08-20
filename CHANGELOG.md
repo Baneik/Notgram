@@ -16,6 +16,9 @@ with prerelease identifiers used for release candidates.
 - Store cache and download locations as environment-variable paths, defaulting to
   `%LOCALAPPDATA%\dev.notgram.desktop\tdlib` and
   `%USERPROFILE%\Downloads\downloads` on Windows.
+- Store portable account configuration, TDLib login state, media cache, and
+  WebView2 data beside the executable under `data/`, while installed builds keep
+  their existing per-user application data locations.
 
 ### Fixed
 

@@ -280,6 +280,7 @@ fn notification_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         NOTIFICATION_WINDOW_LABEL,
         WebviewUrl::App("notification-window.html".into()),
     )
+    .data_directory(crate::distribution::webview_data_directory(app)?)
     .title("Notgram")
     .inner_size(NOTIFICATION_WINDOW_WIDTH, NOTIFICATION_WINDOW_MIN_HEIGHT)
     .resizable(false)

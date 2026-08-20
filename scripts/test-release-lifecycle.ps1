@@ -158,7 +158,6 @@ $previousInstallerHash = if ($resolvedPreviousInstaller) {
 }
 $checkRoot = Join-Path ([System.IO.Path]::GetTempPath()) "notgram-lifecycle-$([Guid]::NewGuid().ToString('N'))"
 $portableFirst = Join-Path $checkRoot "portable-first"
-$portableSecond = Join-Path $checkRoot "portable-second"
 $installDirectory = Join-Path $checkRoot "installed"
 $dataDirectory = if ($ExecuteInstaller) {
     Join-Path $env:APPDATA $DataIdentifier
@@ -206,11 +205,19 @@ try {
     Invoke-ReleaseProbe -Executable $portableExecutable -ExpectedDistribution "portable" -OutputDirectory $checkRoot -RequireSignature:$requireSignature | Out-Null
     $evidence.portable.startup = "passed"
 
-    Expand-CheckedArchive -ArchivePath $resolvedPortable -Destination $portableSecond
-    $replacementExecutable = Get-OnlyFile -Root $portableSecond -Filter "Notgram.exe"
+    $portableDataDirectory = Join-Path (Split-Path -Parent $portableExecutable) "data"
+    New-Item -ItemType Directory -Path $portableDataDirectory | Out-Null
+    $portableSentinel = Join-Path $portableDataDirectory "release-lifecycle.dat"
+    [System.IO.File]::WriteAllText(
+        $portableSentinel,
+        "notgram portable lifecycle sentinel`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    Expand-Archive -LiteralPath $resolvedPortable -DestinationPath $portableFirst -Force
+    $replacementExecutable = Get-OnlyFile -Root $portableFirst -Filter "Notgram.exe"
     Invoke-ReleaseProbe -Executable $replacementExecutable -ExpectedDistribution "portable" -OutputDirectory $checkRoot -RequireSignature:$requireSignature | Out-Null
     $evidence.portable.replacement = "passed"
-    if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) { throw "Portable replacement removed retained data." }
+    if (-not (Test-Path -LiteralPath $portableSentinel -PathType Leaf)) { throw "Portable replacement removed retained data." }
     $evidence.portable.dataRetained = "passed"
 
     if ($ExecuteInstaller) {

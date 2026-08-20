@@ -421,11 +421,7 @@ pub fn tdlib_cache_directory(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn tdlib_database_directory(app: &AppHandle) -> Result<PathBuf, String> {
-    let root = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Unable to resolve app data directory: {error}"))?
-        .join("tdlib");
+    let root = crate::distribution::app_data_directory(app)?.join("tdlib");
     Ok(account_database_directory(root, &active_account_id(app)?))
 }
 
@@ -645,10 +641,7 @@ fn create_directory(path: &str, label: &str) -> Result<(), String> {
 }
 
 fn preferences_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| format!("Unable to resolve app config directory: {error}"))?;
+    let directory = crate::distribution::app_config_directory(app)?;
     fs::create_dir_all(&directory).map_err(|error| {
         format!(
             "Unable to create app config directory {}: {error}",
@@ -689,9 +682,7 @@ fn save_preferences(app: &AppHandle, preferences: &StoragePreferences) -> Result
 }
 
 fn default_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(PathBuf::from(expand_environment_variables(
-        &default_cache_path_template(app),
-    )?))
+    crate::distribution::default_tdlib_cache_path(app)
 }
 
 fn default_download_path() -> Result<PathBuf, String> {
@@ -701,11 +692,7 @@ fn default_download_path() -> Result<PathBuf, String> {
 }
 
 fn default_cache_path_template(app: &AppHandle) -> String {
-    Path::new("%LOCALAPPDATA%")
-        .join(&app.config().identifier)
-        .join("tdlib")
-        .display()
-        .to_string()
+    crate::distribution::default_tdlib_cache_template(app)
 }
 
 fn default_download_path_template() -> String {

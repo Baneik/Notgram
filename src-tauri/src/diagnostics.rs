@@ -12,7 +12,7 @@ use std::{
     },
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
@@ -372,8 +372,12 @@ fn install_crash_hook(state: CrashHookState) {
 }
 
 pub fn setup(app: &AppHandle) -> Result<DiagnosticsState, Box<dyn Error>> {
-    let config_directory = app.path().app_config_dir()?.join("diagnostics");
-    let data_directory = app.path().app_data_dir()?.join("diagnostics");
+    let config_directory = crate::distribution::app_config_directory(app)
+        .map_err(std::io::Error::other)?
+        .join("diagnostics");
+    let data_directory = crate::distribution::app_data_directory(app)
+        .map_err(std::io::Error::other)?
+        .join("diagnostics");
     let settings_path = config_directory.join("settings.json");
     let crash_report_path = data_directory.join("crash-report.json");
     let settings = read_settings(&settings_path);

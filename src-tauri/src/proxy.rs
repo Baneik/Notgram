@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 #[cfg(not(target_os = "windows"))]
 use std::env;
 use std::{fs, path::PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -266,9 +266,7 @@ pub fn startup_proxy_request(app: &AppHandle) -> Result<Value, String> {
 }
 
 fn preferences_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_config_dir()
+    let directory = crate::distribution::app_config_directory(app)
         .map_err(|error| format!("无法解析应用配置目录: {error}"))?;
     fs::create_dir_all(&directory)
         .map_err(|error| format!("无法创建应用配置目录 {}: {error}", directory.display()))?;

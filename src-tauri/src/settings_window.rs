@@ -13,6 +13,7 @@ pub async fn notgram_open_settings_window(app: AppHandle) -> Result<(), String> 
 
     let url = WebviewUrl::App("settings-window.html".into());
     let mut builder = WebviewWindowBuilder::new(&app, "settings", url)
+        .data_directory(crate::distribution::webview_data_directory(&app)?)
         .title("")
         .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .min_inner_size(720.0, 540.0)

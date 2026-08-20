@@ -4,8 +4,12 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
+use tauri::{AppHandle, Manager};
 
 const PORTABLE_MARKER: &str = ".notgram-portable";
+const PORTABLE_DATA_DIRECTORY: &str = "data";
+const PORTABLE_CONFIG_DIRECTORY: &str = "config";
+const PORTABLE_WEBVIEW_DIRECTORY: &str = "webview";
 const RELEASE_PROBE_PREFIX: &str = "--notgram-release-probe=";
 const REQUIRED_RUNTIME_FILES: &[&str] = &[
     "tdjson.dll",
@@ -48,6 +52,100 @@ pub fn current_kind() -> DistributionKind {
 
 pub fn supports_native_updater() -> bool {
     current_kind() == DistributionKind::Installed
+}
+
+fn program_directory() -> Result<PathBuf, String> {
+    env::current_exe()
+        .map_err(|error| format!("Unable to resolve executable path: {error}"))?
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "Executable path has no parent directory".to_string())
+}
+
+fn portable_data_directory_for(program_directory: &Path) -> PathBuf {
+    program_directory.join(PORTABLE_DATA_DIRECTORY)
+}
+
+fn portable_data_directory() -> Result<PathBuf, String> {
+    Ok(portable_data_directory_for(&program_directory()?))
+}
+
+fn persistent_directory<Portable, Installed>(
+    kind: DistributionKind,
+    portable_directory: Portable,
+    installed_directory: Installed,
+) -> Result<PathBuf, String>
+where
+    Portable: FnOnce() -> Result<PathBuf, String>,
+    Installed: FnOnce() -> Result<PathBuf, String>,
+{
+    if kind == DistributionKind::Portable {
+        portable_directory()
+    } else {
+        installed_directory()
+    }
+}
+
+pub fn app_config_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    persistent_directory(
+        current_kind(),
+        || Ok(portable_data_directory()?.join(PORTABLE_CONFIG_DIRECTORY)),
+        || {
+            app.path()
+                .app_config_dir()
+                .map_err(|error| format!("Unable to resolve app config directory: {error}"))
+        },
+    )
+}
+
+pub fn app_data_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    persistent_directory(current_kind(), portable_data_directory, || {
+        app.path()
+            .app_data_dir()
+            .map_err(|error| format!("Unable to resolve app data directory: {error}"))
+    })
+}
+
+pub fn webview_data_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    persistent_directory(
+        current_kind(),
+        || Ok(portable_data_directory()?.join(PORTABLE_WEBVIEW_DIRECTORY)),
+        || {
+            app.path()
+                .app_local_data_dir()
+                .map_err(|error| format!("Unable to resolve local app data directory: {error}"))
+        },
+    )
+}
+
+pub fn default_tdlib_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
+    if current_kind() == DistributionKind::Portable {
+        Ok(portable_data_directory()?.join("tdlib"))
+    } else {
+        app.path()
+            .app_local_data_dir()
+            .map(|directory| directory.join("tdlib"))
+            .map_err(|error| format!("Unable to resolve local app data directory: {error}"))
+    }
+}
+
+fn tdlib_cache_template(kind: DistributionKind, identifier: &str) -> String {
+    if kind == DistributionKind::Portable {
+        Path::new(PORTABLE_DATA_DIRECTORY)
+            .join("tdlib")
+            .display()
+            .to_string()
+    } else {
+        Path::new("%LOCALAPPDATA%")
+            .join(identifier)
+            .join("tdlib")
+            .display()
+            .to_string()
+    }
+}
+
+pub fn default_tdlib_cache_template(app: &AppHandle) -> String {
+    tdlib_cache_template(current_kind(), &app.config().identifier)
 }
 
 fn requested_probe_path() -> Option<PathBuf> {
@@ -142,6 +240,75 @@ mod tests {
         assert_eq!(kind_for_directory(&directory), DistributionKind::Portable);
 
         fs::remove_dir_all(directory).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn portable_directories_stay_inside_the_distribution() {
+        let directory = test_directory();
+        let portable = portable_data_directory_for(&directory);
+        let installed = directory.join("installed");
+
+        assert_eq!(
+            portable.join(PORTABLE_CONFIG_DIRECTORY),
+            directory.join("data").join("config")
+        );
+        assert_eq!(
+            portable.join(PORTABLE_WEBVIEW_DIRECTORY),
+            directory.join("data").join("webview")
+        );
+        assert_eq!(portable.join("tdlib"), directory.join("data").join("tdlib"));
+        assert_eq!(
+            tdlib_cache_template(DistributionKind::Portable, "ignored"),
+            Path::new("data").join("tdlib").display().to_string()
+        );
+        assert_eq!(
+            tdlib_cache_template(DistributionKind::Installed, "dev.notgram.desktop"),
+            Path::new("%LOCALAPPDATA%")
+                .join("dev.notgram.desktop")
+                .join("tdlib")
+                .display()
+                .to_string()
+        );
+
+        assert_eq!(
+            persistent_directory(
+                DistributionKind::Portable,
+                || Ok(portable.clone()),
+                || Ok(installed.clone())
+            )
+            .unwrap(),
+            portable
+        );
+        assert_eq!(
+            persistent_directory(
+                DistributionKind::Installed,
+                || Ok(directory.join(PORTABLE_DATA_DIRECTORY)),
+                || Ok(installed.clone())
+            )
+            .unwrap(),
+            installed
+        );
+    }
+
+    #[test]
+    fn installed_path_errors_are_ignored_only_for_portable_builds() {
+        assert_eq!(
+            persistent_directory(
+                DistributionKind::Portable,
+                || Ok(PathBuf::from("portable")),
+                || Err("installed unavailable".to_string())
+            )
+            .unwrap(),
+            PathBuf::from("portable")
+        );
+        assert!(
+            persistent_directory(
+                DistributionKind::Installed,
+                || Ok(PathBuf::from("portable")),
+                || Err("installed unavailable".to_string())
+            )
+            .is_err()
+        );
     }
 
     #[test]

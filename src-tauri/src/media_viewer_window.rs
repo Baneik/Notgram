@@ -22,6 +22,7 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
 
     let url = WebviewUrl::App(format!("media-viewer-window.html?id={id}").into());
     let mut builder = WebviewWindowBuilder::new(&app, label, url)
+        .data_directory(crate::distribution::webview_data_directory(&app)?)
         .title("Notgram 图片")
         .inner_size(1280.0, 800.0)
         .resizable(false)

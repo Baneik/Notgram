@@ -15,7 +15,23 @@ mod video_window;
 mod webview_security;
 mod window_placement;
 
-use tauri::Manager;
+use tauri::{Manager, WebviewWindowBuilder};
+
+fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+        .ok_or("main window configuration is unavailable")?;
+    let data_directory =
+        distribution::webview_data_directory(app.handle()).map_err(std::io::Error::other)?;
+    WebviewWindowBuilder::from_config(app.handle(), config)?
+        .data_directory(data_directory)
+        .build()?;
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,6 +49,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            create_main_window(app)?;
             webview_security::setup(app)?;
             app.manage(diagnostics::setup(app.handle())?);
             window_placement::setup(app)?;

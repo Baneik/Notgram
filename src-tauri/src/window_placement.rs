@@ -274,9 +274,8 @@ fn capture_webview_window_placement(
 }
 
 pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    let path = app
-        .path()
-        .app_config_dir()?
+    let path = crate::distribution::app_config_directory(app.handle())
+        .map_err(std::io::Error::other)?
         .join(MAIN_WINDOW_PLACEMENT_FILE);
     let stored = read_placement(&path);
     let window = app

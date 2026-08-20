@@ -36,6 +36,7 @@ pub async fn notgram_open_video_window(
     let url = WebviewUrl::App(format!("video-window.html?id={id}").into());
     let show_fullscreen = fullscreen;
     let mut builder = WebviewWindowBuilder::new(&app, label, url)
+        .data_directory(crate::distribution::webview_data_directory(&app)?)
         .title("Notgram 视频")
         .inner_size(width, height)
         .min_inner_size(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)

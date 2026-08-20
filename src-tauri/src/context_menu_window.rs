@@ -70,6 +70,7 @@ fn context_menu_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         CONTEXT_MENU_WINDOW_LABEL,
         WebviewUrl::App("context-menu-window.html".into()),
     )
+    .data_directory(crate::distribution::webview_data_directory(app)?)
     .title("Notgram")
     .inner_size(MIN_WIDTH, MIN_HEIGHT)
     .resizable(false)
