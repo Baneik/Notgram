@@ -5182,6 +5182,10 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(page.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toHaveCount(0);
   await expect(popup.getByRole("dialog", { name: "图片查看器：界面预览.jpg" })).toBeVisible();
   const viewer = popup.locator(".media-viewer");
+  await expect.poll(() => viewer.evaluate((element) => {
+    const animations = element.getAnimations({ subtree: false });
+    return animations.length > 0 && animations.every((animation) => animation.playState === "finished");
+  })).toBe(true);
   const downloadButton = viewer.getByRole("button", { name: "下载图片" });
   await expect(viewer.locator(".media-viewer-toolbar")).toHaveCount(0);
   await expect(viewer.getByRole("button", { name: "关闭图片查看器" })).toHaveCount(0);
