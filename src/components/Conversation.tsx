@@ -42,6 +42,7 @@ import {
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
+import { useConversationActivityTracker } from "../hooks/useConversationActivityTracker";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import { formatMessageDay } from "../utils/formatters";
 import { Avatar } from "./Avatar";
@@ -373,6 +374,7 @@ export function Conversation({
   const seenRevealedGroupsRef = useRef(new Set<string>());
   const handledLocalBlockRevealRequestRef = useRef<number | undefined>(undefined);
   const mobileViewHidden = mobileViewport && !mobileChatOpen;
+  useConversationActivityTracker(activeAccountId, chat?.id, !mobileViewHidden);
   const knownNonBotUsernames = useMemo(() => {
     const usernames = new Set<string>();
     for (const user of users.values()) {

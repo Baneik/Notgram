@@ -70,6 +70,7 @@ import {
   describeOutgoingAttachments,
 } from "./attachmentOutbox";
 import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
+import { recordConversationSentMessages } from "./conversationActivity";
 
 export type {
   ChatFilter,
@@ -2349,12 +2350,12 @@ export const createTelegramStore = (
       },
 
       sendInlineQueryResultMessage: async (chatId, botUserId, queryId, resultId, replyToMessageId, topicId) => {
-        try { await transport.sendInlineQueryResultMessage(chatId, botUserId, queryId, resultId, replyToMessageId, topicId); set({ operationError: undefined }); return true; }
+        try { await transport.sendInlineQueryResultMessage(chatId, botUserId, queryId, resultId, replyToMessageId, topicId); recordConversationSentMessages(get().activeAccountId, chatId); set({ operationError: undefined }); return true; }
         catch (error) { set({ operationError: errorMessage(error, "无法发送 Inline 结果") }); return false; }
       },
 
       sendBotStartMessage: async (chatId, botUserId, parameter = "") => {
-        try { await transport.sendBotStartMessage(chatId, botUserId, parameter); set({ operationError: undefined }); return true; }
+        try { await transport.sendBotStartMessage(chatId, botUserId, parameter); recordConversationSentMessages(get().activeAccountId, chatId); set({ operationError: undefined }); return true; }
         catch (error) { set({ operationError: errorMessage(error, "无法启动机器人") }); return false; }
       },
 
@@ -2644,6 +2645,7 @@ export const createTelegramStore = (
         }
         try {
           await transport.sendSticker({ chatId, topicId, asset, replyToMessageId });
+          recordConversationSentMessages(get().activeAccountId, chatId);
           set({ operationError: undefined });
           scheduleCacheWrite();
           return true;
@@ -2663,6 +2665,7 @@ export const createTelegramStore = (
         }
         try {
           await transport.sendAnimation({ chatId, topicId, asset, replyToMessageId });
+          recordConversationSentMessages(get().activeAccountId, chatId);
           set({ operationError: undefined });
           scheduleCacheWrite();
           return true;
@@ -2837,6 +2840,7 @@ export const createTelegramStore = (
           });
           try {
             await flushCachedSnapshot();
+            recordConversationSentMessages(get().activeAccountId, chatId);
             return true;
           } catch (error) {
             draftSync.cancelExpectation(draftKey, clearGeneration);
@@ -2874,6 +2878,7 @@ export const createTelegramStore = (
             set({ operationError: undefined });
           }
           scheduleCacheWrite();
+          recordConversationSentMessages(get().activeAccountId, chatId);
           return true;
         } catch (error) {
           draftSync.cancelExpectation(draftKey, clearGeneration);
@@ -2954,6 +2959,9 @@ export const createTelegramStore = (
               ? `${result.forwardedCount} 条消息已转发，${result.failedMessageIds.length} 条失败`
               : undefined,
           });
+          if (result.forwardedCount > 0) {
+            recordConversationSentMessages(get().activeAccountId, toChatId, result.forwardedCount);
+          }
           scheduleCacheWrite();
           return result;
         } catch (error) {
@@ -3106,7 +3114,10 @@ export const createTelegramStore = (
         }
         try {
           const sent = await transport.sendFile({ chatId, topicId, file });
-          if (sent) set({ operationError: undefined });
+          if (sent) {
+            recordConversationSentMessages(get().activeAccountId, chatId);
+            set({ operationError: undefined });
+          }
           return sent;
         } catch (error) {
           set({ operationError: error instanceof Error ? error.message : "文件发送失败" });
@@ -3146,6 +3157,7 @@ export const createTelegramStore = (
               await attachmentOutbox.remove(id).catch(() => undefined);
               return false;
             }
+            recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);
             return true;
           } catch (error) {
             await attachmentOutbox.remove(id).catch(() => undefined);
@@ -3161,7 +3173,10 @@ export const createTelegramStore = (
             caption: formattedCaption.text || undefined,
             captionEntities: formattedCaption.entities,
           });
-          if (sent) set({ operationError: undefined });
+          if (sent) {
+            recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);
+            set({ operationError: undefined });
+          }
           return sent;
         } catch (error) {
           set({ operationError: error instanceof Error ? error.message : "附件发送失败" });
