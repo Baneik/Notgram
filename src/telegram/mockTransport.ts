@@ -1023,6 +1023,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const chat: Chat = {
       id,
       kind: input.kind === "channel" ? "channel" : "group",
+      canPinMessages: true,
       folderIds: ["main"],
       title,
       avatar: {
@@ -1812,13 +1813,24 @@ export class MockTelegramTransport implements TelegramTransport {
       (item) => item.chatId === chatId && item.id === messageId,
     );
     if (!message) throw new Error("找不到消息");
-    return clone(message.permissions ?? {
+    if (message.permissions) return clone(message.permissions);
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    const management = this.chatManagement.get(chatId);
+    const canPin = chat?.kind === "direct" || chat?.kind === "saved"
+      ? true
+      : management
+        ? management.capabilities.status === "owner" ||
+          (management.capabilities.status === "administrator"
+            ? management.capabilities.adminRights?.canPinMessages === true
+            : management.permissions.canPinMessages === true)
+        : chat?.canPinMessages === true;
+    return clone({
       canReply: true,
       canEdit: message.outgoing && message.content.kind === "text",
       canDeleteOnlyForSelf: !message.outgoing,
       canDeleteForAllUsers: message.outgoing,
       canForward: true,
-      canPin: true,
+      canPin,
     });
   }
 
@@ -1939,6 +1951,9 @@ export class MockTelegramTransport implements TelegramTransport {
       (item) => item.chatId === input.chatId && item.id === input.messageId,
     );
     if (!message) throw new Error("找不到需要置顶的消息");
+    if (!(await this.getMessageProperties(input.chatId, input.messageId)).canPin) {
+      throw new Error("当前账号没有置顶消息的权限");
+    }
     message.isPinned = true;
     delete message.permissions;
     this.listener?.({ type: "message.upsert", message: clone(message) });
@@ -1949,6 +1964,9 @@ export class MockTelegramTransport implements TelegramTransport {
       (item) => item.chatId === chatId && item.id === messageId,
     );
     if (!message) throw new Error("找不到需要取消置顶的消息");
+    if (!(await this.getMessageProperties(chatId, messageId)).canPin) {
+      throw new Error("当前账号没有置顶消息的权限");
+    }
     message.isPinned = false;
     delete message.permissions;
     this.listener?.({ type: "message.upsert", message: clone(message) });

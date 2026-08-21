@@ -1575,6 +1575,36 @@ describe("telegram store", () => {
     });
   });
 
+  it("blocks pin commands when the current message properties deny pinning", async () => {
+    class UnauthorizedPinTransport extends MockTelegramTransport {
+      pinCalls = 0;
+
+      override async getMessageProperties(): Promise<MessagePermissions> {
+        return {
+          canReply: true,
+          canEdit: false,
+          canDeleteOnlyForSelf: true,
+          canDeleteForAllUsers: false,
+          canForward: true,
+          canPin: false,
+        };
+      }
+
+      override async pinMessage(input: Parameters<MockTelegramTransport["pinMessage"]>[0]) {
+        this.pinCalls += 1;
+        return super.pinMessage(input);
+      }
+    }
+
+    const transport = new UnauthorizedPinTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await expect(store.getState().pinMessage("p-4", false, false)).resolves.toBe(false);
+    expect(transport.pinCalls).toBe(0);
+    expect(store.getState().operationError).toBe("当前账号没有置顶消息的权限");
+  });
+
   it("moves through phone, code, password, and ready authorization states", async () => {
     const store = createTelegramStore(
       new MockTelegramTransport({ authFlow: true }),

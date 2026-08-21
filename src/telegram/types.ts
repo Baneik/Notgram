@@ -471,6 +471,8 @@ export interface Chat {
   id: string;
   kind: ChatKind;
   isForum?: boolean;
+  /** Current member's server-reported ability to pin messages in this chat. */
+  canPinMessages?: boolean;
   canCreateTopics?: boolean;
   management?: ChatManagementCapabilities;
   folderIds: string[];

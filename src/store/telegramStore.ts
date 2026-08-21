@@ -193,6 +193,17 @@ export const createTelegramStore = (
       });
       return false;
     };
+    const verifyPinPermission = async (chatId: string, messageId: string) => {
+      try {
+        const permissions = await transport.getMessageProperties(chatId, messageId);
+        if (permissions.canPin === true) return true;
+      } catch (error) {
+        set({ operationError: errorMessage(error, "无法读取置顶权限") });
+        return false;
+      }
+      set({ operationError: "当前账号没有置顶消息的权限" });
+      return false;
+    };
     const messageEventKey = (message: Message) => `${message.chatId}:${message.id}`;
     const queueLiveMessageAttention = (message: Message, live: boolean) => {
       const key = messageEventKey(message);
@@ -2031,11 +2042,11 @@ export const createTelegramStore = (
           });
       },
 
-      loadMessageProperties: async (chatId, messageId) => {
+      loadMessageProperties: async (chatId, messageId, force = false) => {
         const requestedMessage = (get().messages.get(chatId) ?? [])
           .find((message) => message.id === messageId);
         if (!requestedMessage) return undefined;
-        if (requestedMessage.permissions) return requestedMessage.permissions;
+        if (requestedMessage.permissions && !force) return requestedMessage.permissions;
         try {
           const permissions = await transport.getMessageProperties(chatId, messageId);
           const currentMessages = get().messages.get(chatId) ?? [];
@@ -2464,6 +2475,7 @@ export const createTelegramStore = (
       pinMessage: async (messageId, disableNotification, onlyForSelf) => {
         const chatId = get().activeChatId;
         if (!chatId) return false;
+        if (!await verifyPinPermission(chatId, messageId)) return false;
         try {
           await transport.pinMessage({
             chatId,
@@ -2487,6 +2499,7 @@ export const createTelegramStore = (
       unpinMessage: async (messageId) => {
         const chatId = get().activeChatId;
         if (!chatId) return false;
+        if (!await verifyPinPermission(chatId, messageId)) return false;
         try {
           await transport.unpinMessage(chatId, messageId);
           const messages = new Map(get().messages);

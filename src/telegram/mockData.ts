@@ -86,6 +86,7 @@ const chats: Chat[] = [
   {
     id: "chat-product",
     kind: "group",
+    canPinMessages: true,
     folderIds: ["main", "folder:work"],
     title: "产品讨论",
     avatar: { label: "产", color: "#207d75" },
@@ -104,6 +105,7 @@ const chats: Chat[] = [
   {
     id: "chat-forum",
     kind: "group",
+    canPinMessages: false,
     isForum: true,
     canCreateTopics: true,
     folderIds: ["main", "folder:work"],
@@ -168,6 +170,7 @@ const chats: Chat[] = [
   {
     id: "chat-release",
     kind: "channel",
+    canPinMessages: false,
     folderIds: ["main", "folder:work"],
     title: "Release Notes",
     avatar: { label: "R", color: "#b76a3a" },
@@ -182,6 +185,7 @@ const chats: Chat[] = [
   {
     id: "chat-archive",
     kind: "group",
+    canPinMessages: false,
     folderIds: ["archive"],
     title: "旧项目同步",
     avatar: { label: "旧", color: "#687477" },

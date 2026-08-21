@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  BellOff,
   Check,
   Copy,
   ChevronLeft,
@@ -18,6 +19,7 @@ import {
   MessageCircle,
   Search,
   Trash2,
+  UserRound,
   UserRoundX,
   UsersRound,
   X,
@@ -180,8 +182,8 @@ export function MessageActionMenu({
     ...(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers
       ? [{ id: "delete", label: "删除", icon: "trash" as const, danger: true }]
       : []),
-    ...(message.isPinned ? (onUnpin ? [{ id: "unpin", label: "取消置顶", icon: "pin" as const }] : [])
-      : (onPin ? [{ id: "pin-message", label: "置顶消息", icon: "pin" as const }] : [])),
+    ...(!loading && message.isPinned ? (onUnpin ? [{ id: "unpin", label: "取消置顶", icon: "pin" as const }] : [])
+      : !loading && onPin ? [{ id: "pin-message", label: "置顶消息", icon: "pin" as const }] : []),
     ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
     ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true }] : []),
   ] : [
@@ -197,12 +199,6 @@ export function MessageActionMenu({
       ? [{ id: "edit", label: "编辑", icon: "edit" as const, disabled: true }]
       : []),
     { id: "delete", label: "删除", icon: "trash", danger: true, disabled: true },
-    {
-      id: message.isPinned ? "unpin" : "pin-message",
-      label: message.isPinned ? "取消置顶" : "置顶消息",
-      icon: "pin",
-      disabled: true,
-    },
     ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
     ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true, disabled: true }] : []),
   ];
@@ -366,12 +362,12 @@ export function MessageActionMenu({
               <span>删除</span>
             </button>
           )}
-          {message.isPinned ? onUnpin && (
+          {!loading && message.isPinned ? onUnpin && (
             <button type="button" role="menuitem" onClick={onUnpin}>
               <PinOff size={16} strokeWidth={1.9} />
               <span>取消置顶</span>
             </button>
-          ) : onPin && (
+          ) : !loading && onPin && (
             <button type="button" role="menuitem" onClick={onPin}>
               <Pin size={16} strokeWidth={1.9} />
               <span>置顶消息</span>
@@ -493,21 +489,32 @@ export function PinMessageDialog({ message, pending, allowOnlyForSelf, allowNoti
   const [disableNotification, setDisableNotification] = useState(false);
   const [onlyForSelf, setOnlyForSelf] = useState(false);
   return (
-    <div className="message-delete-backdrop" role="presentation">
+    <div className="message-delete-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !pending) onClose();
+    }}>
       <section ref={dialogRef} className="message-pin-dialog" role="dialog" aria-modal="true" aria-labelledby="pin-message-title" tabIndex={-1}>
-        <header className="message-forward-heading">
-          <span className="message-forward-heading-icon"><Pin size={18} strokeWidth={1.9} /></span>
-          <div><h3 id="pin-message-title">置顶消息</h3><p>{message.content.kind === "text" ? message.content.text : "这条消息"}</p></div>
+        <header className="message-pin-heading">
+          <span className="message-pin-heading-icon"><Pin size={19} strokeWidth={2} /></span>
+          <div><h3 id="pin-message-title">置顶消息</h3><p>让这条消息显示在会话顶部</p></div>
         </header>
+        <p className="message-pin-preview">{message.content.kind === "text" ? message.content.text : "这条消息"}</p>
         <div className="message-pin-options">
-          {allowOnlyForSelf && <label><input type="checkbox" checked={onlyForSelf} onChange={(event) => setOnlyForSelf(event.target.checked)} />仅为我置顶</label>}
-          {allowNotification && !onlyForSelf && <label><input type="checkbox" checked={disableNotification} onChange={(event) => setDisableNotification(event.target.checked)} />静音置顶通知</label>}
+          {allowOnlyForSelf && <label className={`message-pin-option${onlyForSelf ? " is-selected" : ""}`}>
+            <input type="checkbox" checked={onlyForSelf} onChange={(event) => setOnlyForSelf(event.target.checked)} />
+            <span className="message-pin-option-icon"><UserRound size={17} strokeWidth={1.9} /></span>
+            <span><strong>仅为我置顶</strong><small>其他成员不会看到这条置顶</small></span>
+          </label>}
+          {allowNotification && !onlyForSelf && <label className={`message-pin-option${disableNotification ? " is-selected" : ""}`}>
+            <input type="checkbox" checked={disableNotification} onChange={(event) => setDisableNotification(event.target.checked)} />
+            <span className="message-pin-option-icon"><BellOff size={17} strokeWidth={1.9} /></span>
+            <span><strong>静音置顶通知</strong><small>不会向群成员发送置顶提醒</small></span>
+          </label>}
         </div>
         <div className="message-delete-actions">
-          <button className="dialog-primary" type="button" disabled={pending} onClick={() => onConfirm(disableNotification, onlyForSelf)}>
-            {pending ? <LoaderCircle className="spin" size={16} /> : <Pin size={16} />}置顶
-          </button>
           <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
+          <button className="dialog-primary message-pin-confirm" type="button" disabled={pending} onClick={() => onConfirm(disableNotification, onlyForSelf)}>
+            {pending ? <LoaderCircle className="spin" size={16} /> : <Pin size={16} />}置顶消息
+          </button>
         </div>
       </section>
     </div>

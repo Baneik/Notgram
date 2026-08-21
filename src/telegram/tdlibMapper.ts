@@ -1877,6 +1877,9 @@ export const mapTdChat = (
     id,
     kind,
     isForum: supergroup?.is_forum === true,
+    ...(typeof asTdObject(raw.permissions)?.can_pin_messages === "boolean"
+      ? { canPinMessages: asTdObject(raw.permissions)?.can_pin_messages === true }
+      : {}),
     canCreateTopics: management?.canManageTopics === true || asTdObject(raw.permissions)?.can_create_topics === true,
     management,
     folderIds: [...folderIds],

@@ -221,6 +221,7 @@ interface ConversationProps {
   onLoadMessageProperties: (
     chatId: string,
     messageId: string,
+    force?: boolean,
   ) => Promise<MessagePermissions | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
   onGetMessageReactionSenders: (
@@ -1535,9 +1536,9 @@ export function Conversation({
       returnFocus,
       replyQuote: selectedReplyQuote,
     });
-    if (message.permissions || actionLoadingId === message.id) return;
+    if (actionLoadingId === message.id) return;
     setActionLoadingId(message.id);
-    await onLoadMessageProperties(message.chatId, message.id);
+    await onLoadMessageProperties(message.chatId, message.id, true);
     setActionLoadingId((current) => current === message.id ? undefined : current);
   }, [actionLoadingId, activeAccountId, forwardTargets, onLoadMessageProperties]);
 
@@ -1645,8 +1646,24 @@ export function Conversation({
     if (succeeded) setPinTarget(undefined);
   };
 
+  const openPinDialog = async (message: Message) => {
+    if (pinPending) return;
+    setActionMenu(undefined);
+    setPinPending(true);
+    const permissions = await onLoadMessageProperties(message.chatId, message.id, true);
+    setPinPending(false);
+    if (permissions?.canPin === true) {
+      setPinTarget({ ...message, permissions });
+    }
+  };
+
   const unpinFromMenu = async (message: Message) => {
-    if (pinnedUnpinId) return;
+    if (pinnedUnpinId || pinPending) return;
+    setActionMenu(undefined);
+    setPinPending(true);
+    const permissions = await onLoadMessageProperties(message.chatId, message.id, true);
+    setPinPending(false);
+    if (permissions?.canPin !== true) return;
     setPinnedUnpinId(message.id);
     const succeeded = await onUnpinMessage(message.id);
     if (succeeded) {
@@ -2259,14 +2276,8 @@ export function Conversation({
             setDeleteTarget(actionMessage);
             setActionMenu(undefined);
           }}
-          onPin={actionMessage.permissions?.canPin ? () => {
-            setPinTarget(actionMessage);
-            setActionMenu(undefined);
-          } : undefined}
-          onUnpin={actionMessage.permissions?.canPin ? () => {
-            setActionMenu(undefined);
-            void unpinFromMenu(actionMessage);
-          } : undefined}
+          onPin={actionMessage.permissions?.canPin ? () => { void openPinDialog(actionMessage); } : undefined}
+          onUnpin={actionMessage.permissions?.canPin ? () => { void unpinFromMenu(actionMessage); } : undefined}
           onPlayInWindow={actionMessage.content.kind === "media" &&
             ["video", "videoNote"].includes(actionMessage.content.mediaType)
             ? () => {
