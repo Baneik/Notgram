@@ -528,6 +528,19 @@ export interface ChatDraft {
   pending?: boolean;
 }
 
+export type AttachmentSendMode = "media" | "file";
+
+export interface LocalAttachmentDraft {
+  draftKey: string;
+  chatId: string;
+  batchId: string;
+  attachments: QueuedOutgoingAttachment[];
+  mode: AttachmentSendMode;
+  hasSpoiler: boolean;
+  muteVideos: boolean;
+  updatedAt: string;
+}
+
 export type MessageTextEntityKind =
   | "bold"
   | "italic"
@@ -905,6 +918,7 @@ export interface CachedTelegramSnapshot {
   chats: Chat[];
   messages: Message[];
   drafts?: ChatDraft[];
+  localAttachmentDrafts?: LocalAttachmentDraft[];
   outbox?: QueuedOutgoingMessage[];
   activeChatId?: string;
   chatFilter?: string;

@@ -1,6 +1,7 @@
 import {
   Check,
   Edit3,
+  FileText,
   LoaderCircle,
   Paperclip,
   Reply,
@@ -13,16 +14,23 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  type DragEvent,
   type RefObject,
 } from "react";
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { useStableVisibility } from "../hooks/useStableVisibility";
-import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
+import {
+  canPreviewOutgoingAttachment,
+  canSendAttachmentAsMedia,
+  classifyOutgoingAttachment,
+  inspectOutgoingAttachment,
+} from "../media/outgoingAttachments";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
-import type { BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment } from "../telegram/types";
+import type { AttachmentSendMode, BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
 import { motionLifecycleTiming } from "../utils/motionTokens";
 import {
@@ -38,8 +46,10 @@ import {
 } from "../utils/composerMentions";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
+import { ComposerMediaPreview } from "./ComposerMediaPreview";
 import { EmojiPicker } from "./EmojiPicker";
 import { MotionPresence } from "./MotionPresence";
+import { MediaSpoiler } from "./Spoiler";
 import { StableImage } from "./StableImage";
 
 interface ConversationComposerProps {
@@ -83,6 +93,28 @@ interface PendingAttachment {
   previewUrl?: string;
 }
 
+const ATTACHMENT_KIND_LABELS: Record<OutgoingAttachment["kind"], string> = {
+  photo: "图片",
+  video: "视频",
+  audio: "音频",
+  animation: "GIF",
+  document: "文件",
+};
+
+const attachmentSizeLabel = (size: number) => {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const pendingAttachmentFrom = (attachment: OutgoingAttachment): PendingAttachment => ({
+  id: crypto.randomUUID(),
+  attachment,
+  previewUrl: canPreviewOutgoingAttachment(attachment.kind)
+    ? URL.createObjectURL(attachment.file)
+    : undefined,
+});
+
 export const ConversationComposer = memo(function ConversationComposer({
   chatId,
   draftKey = chatId,
@@ -114,6 +146,11 @@ export const ConversationComposer = memo(function ConversationComposer({
   onSendBotStart,
 }: ConversationComposerProps) {
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
+  const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(draftKey));
+  const loadLocalAttachmentDraft = useTelegramStore((state) => state.loadLocalAttachmentDraft);
+  const saveLocalAttachmentDraft = useTelegramStore((state) => state.saveLocalAttachmentDraft);
+  const updateLocalAttachmentDraftOptions = useTelegramStore((state) => state.updateLocalAttachmentDraftOptions);
+  const clearLocalAttachmentDraft = useTelegramStore((state) => state.clearLocalAttachmentDraft);
   const activeReplyQuote = replyingTo ? replyQuote : chatDraft?.replyQuote;
   const composerContextMessage = editingMessage ?? replyingTo;
   const composerContextKey = editingMessage
@@ -127,10 +164,11 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [attachmentPending, setAttachmentPending] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentNotice, setAttachmentNotice] = useState<string>();
-  const [attachmentMode, setAttachmentMode] = useState<"media" | "file">("media");
-  const [attachmentSpoiler, setAttachmentSpoiler] = useState(false);
-  const [attachmentCaptionAbove, setAttachmentCaptionAbove] = useState(false);
-  const [muteVideos, setMuteVideos] = useState(false);
+  const [attachmentMode, setAttachmentMode] = useState<AttachmentSendMode>(localAttachmentDraft?.mode ?? "media");
+  const [attachmentSpoiler, setAttachmentSpoiler] = useState(localAttachmentDraft?.hasSpoiler ?? false);
+  const [muteVideos, setMuteVideos] = useState(localAttachmentDraft?.muteVideos ?? false);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const [previewAttachmentId, setPreviewAttachmentId] = useState<string>();
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [botSuggestions, setBotSuggestions] = useState<BotCommandSuggestion[]>([]);
   const [activeBotSuggestionIndex, setActiveBotSuggestionIndex] = useState(0);
@@ -168,10 +206,33 @@ export const ConversationComposer = memo(function ConversationComposer({
   const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const emojiOpenedByHoverRef = useRef(false);
   const pendingAttachmentsRef = useRef(pendingAttachments);
+  const pendingAttachmentDraftKeyRef = useRef<string | undefined>(undefined);
+  const localAttachmentBatchIdRef = useRef<string | undefined>(undefined);
+  const attachmentModeRef = useRef(attachmentMode);
+  const attachmentSpoilerRef = useRef(attachmentSpoiler);
+  const muteVideosRef = useRef(muteVideos);
+  const fileDragDepthRef = useRef(0);
   const appliedTextInsertionRef = useRef<string | undefined>(undefined);
   const previousComposerContextKeyRef = useRef(composerContextKey);
+  const mediaModeAvailable = pendingAttachments.length > 0 && pendingAttachments.every(
+    ({ attachment }) => canSendAttachmentAsMedia(attachment.kind),
+  );
+  const previewableAttachments = useMemo(() => pendingAttachments.flatMap((pending) =>
+    pending.previewUrl && canPreviewOutgoingAttachment(pending.attachment.kind)
+      ? [{
+          id: pending.id,
+          name: pending.attachment.file.name,
+          size: pending.attachment.file.size,
+          kind: pending.attachment.kind,
+          previewUrl: pending.previewUrl,
+        }]
+      : [],
+  ), [pendingAttachments]);
 
   pendingAttachmentsRef.current = pendingAttachments;
+  attachmentModeRef.current = attachmentMode;
+  attachmentSpoilerRef.current = attachmentSpoiler;
+  muteVideosRef.current = muteVideos;
 
   useEffect(() => {
     const generation = ++botQueryGenerationRef.current;
@@ -513,43 +574,139 @@ export const ConversationComposer = memo(function ConversationComposer({
     }
   }, []);
 
+  useEffect(() => {
+    const switchedDraft = pendingAttachmentDraftKeyRef.current !== draftKey;
+    const batchChanged = localAttachmentBatchIdRef.current !== localAttachmentDraft?.batchId;
+    if (
+      !switchedDraft &&
+      !batchChanged &&
+      (!localAttachmentDraft || pendingAttachmentsRef.current.length > 0)
+    ) return;
+    pendingAttachmentDraftKeyRef.current = draftKey;
+    localAttachmentBatchIdRef.current = localAttachmentDraft?.batchId;
+    if (!switchedDraft && localAttachmentDraft && pendingAttachmentsRef.current.length > 0) return;
+
+    for (const pending of pendingAttachmentsRef.current) {
+      if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+    }
+    pendingAttachmentsRef.current = [];
+    setPendingAttachments([]);
+    setPreviewAttachmentId(undefined);
+    setAttachmentNotice(undefined);
+    setAttachmentMode(localAttachmentDraft?.mode ?? "media");
+    setAttachmentSpoiler(localAttachmentDraft?.hasSpoiler ?? false);
+    setMuteVideos(localAttachmentDraft?.muteVideos ?? false);
+    if (!localAttachmentDraft) return;
+
+    let cancelled = false;
+    setAttachmentPending(true);
+    void loadLocalAttachmentDraft(draftKey).then((attachments) => {
+      if (cancelled) return;
+      const restored = attachments.map(pendingAttachmentFrom);
+      pendingAttachmentsRef.current = restored;
+      setPendingAttachments(restored);
+    }).finally(() => {
+      if (!cancelled) setAttachmentPending(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draftKey, loadLocalAttachmentDraft, localAttachmentDraft]);
+
+  const persistPendingAttachments = useCallback((next: PendingAttachment[]) => {
+    if (next.length === 0) {
+      void clearLocalAttachmentDraft(draftKey);
+      return;
+    }
+    void saveLocalAttachmentDraft(
+      draftKey,
+      chatId,
+      next.map(({ attachment }) => attachment),
+      {
+        mode: attachmentModeRef.current,
+        hasSpoiler: attachmentSpoilerRef.current,
+        muteVideos: muteVideosRef.current,
+      },
+    ).then((saved) => {
+      if (!saved) return;
+      updateLocalAttachmentDraftOptions(draftKey, {
+        mode: attachmentModeRef.current,
+        hasSpoiler: attachmentSpoilerRef.current,
+        muteVideos: muteVideosRef.current,
+      });
+    });
+  }, [chatId, clearLocalAttachmentDraft, draftKey, saveLocalAttachmentDraft, updateLocalAttachmentDraftOptions]);
+
+  const updateAttachmentOptions = useCallback((options: Partial<{
+    mode: AttachmentSendMode;
+    hasSpoiler: boolean;
+    muteVideos: boolean;
+  }>) => {
+    if (options.mode !== undefined) {
+      attachmentModeRef.current = options.mode;
+      setAttachmentMode(options.mode);
+    }
+    if (options.hasSpoiler !== undefined) {
+      attachmentSpoilerRef.current = options.hasSpoiler;
+      setAttachmentSpoiler(options.hasSpoiler);
+    }
+    if (options.muteVideos !== undefined) {
+      muteVideosRef.current = options.muteVideos;
+      setMuteVideos(options.muteVideos);
+    }
+    updateLocalAttachmentDraftOptions(draftKey, options);
+  }, [draftKey, updateLocalAttachmentDraftOptions]);
+
   const addPendingAttachments = useCallback((files: File[]) => {
     if (files.length === 0) return;
-    setPendingAttachments((current) => {
-      const available = Math.max(0, TELEGRAM_ALBUM_MAX_ITEMS - current.length);
-      const accepted = files.slice(0, available).map((file) => ({
-        id: crypto.randomUUID(),
-        attachment: {
-          file,
-          kind: "document" as const,
-        },
-        previewUrl: file.type.startsWith("image/") || file.type.startsWith("video/")
-          ? URL.createObjectURL(file)
-          : undefined,
-      }));
-      for (const pending of accepted) {
-        void inspectOutgoingAttachment(pending.attachment.file).then((attachment) => {
-          setPendingAttachments((latest) => latest.map((candidate) =>
-            candidate.id === pending.id ? { ...candidate, attachment } : candidate,
-          ));
-        });
-      }
-      setAttachmentNotice(files.length > available
-        ? `一次最多发送 ${TELEGRAM_ALBUM_MAX_ITEMS} 个附件`
-        : undefined);
-      return [...current, ...accepted];
-    });
-  }, []);
+    const current = pendingAttachmentsRef.current;
+    const available = Math.max(0, TELEGRAM_ALBUM_MAX_ITEMS - current.length);
+    const accepted = files.slice(0, available).map((file) => pendingAttachmentFrom({
+      file,
+      kind: classifyOutgoingAttachment(file),
+    }));
+    const next = [...current, ...accepted];
+    const mediaEligible = next.every(({ attachment }) => canSendAttachmentAsMedia(attachment.kind));
+    if (!mediaEligible) {
+      updateAttachmentOptions({ mode: "file", hasSpoiler: false, muteVideos: false });
+    } else if (current.length === 0) {
+      updateAttachmentOptions({ mode: "media" });
+    }
+    pendingAttachmentsRef.current = next;
+    setPendingAttachments(next);
+    setAttachmentNotice(files.length > available
+      ? `一次最多发送 ${TELEGRAM_ALBUM_MAX_ITEMS} 个附件`
+      : undefined);
+    persistPendingAttachments(next);
+
+    for (const pending of accepted) {
+      void inspectOutgoingAttachment(pending.attachment.file).then((attachment) => {
+        const latest = pendingAttachmentsRef.current;
+        if (!latest.some((candidate) => candidate.id === pending.id)) return;
+        const inspected = latest.map((candidate) =>
+          candidate.id === pending.id ? { ...candidate, attachment } : candidate,
+        );
+        pendingAttachmentsRef.current = inspected;
+        setPendingAttachments(inspected);
+      });
+    }
+  }, [persistPendingAttachments, updateAttachmentOptions]);
 
   const removePendingAttachment = useCallback((id: string) => {
-    setPendingAttachments((current) => {
-      const removed = current.find((attachment) => attachment.id === id);
-      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-      return current.filter((attachment) => attachment.id !== id);
-    });
+    const current = pendingAttachmentsRef.current;
+    const removed = current.find((attachment) => attachment.id === id);
+    if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+    const next = current.filter((attachment) => attachment.id !== id);
+    pendingAttachmentsRef.current = next;
+    setPendingAttachments(next);
+    if (previewAttachmentId === id) setPreviewAttachmentId(undefined);
+    if (next.some(({ attachment }) => !canSendAttachmentAsMedia(attachment.kind))) {
+      updateAttachmentOptions({ mode: "file", hasSpoiler: false, muteVideos: false });
+    }
+    persistPendingAttachments(next);
     setAttachmentNotice(undefined);
     focusComposer();
-  }, [focusComposer]);
+  }, [focusComposer, persistPendingAttachments, previewAttachmentId, updateAttachmentOptions]);
 
   const sendPendingAttachments = async () => {
     if (attachmentPending || pendingAttachments.length === 0) return;
@@ -567,8 +724,9 @@ export const ConversationComposer = memo(function ConversationComposer({
             : muteVideos && attachment.kind === "video"
               ? "animation"
               : attachment.kind,
-          hasSpoiler: attachmentMode === "media" && attachmentSpoiler,
-          showCaptionAboveMedia: attachmentMode === "media" && attachmentCaptionAbove,
+          hasSpoiler: attachmentMode === "media" &&
+            canPreviewOutgoingAttachment(attachment.kind) &&
+            attachmentSpoiler,
         })),
         caption.text || undefined,
         caption.entities,
@@ -577,12 +735,14 @@ export const ConversationComposer = memo(function ConversationComposer({
       for (const attachment of pendingAttachments) {
         if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
       }
+      pendingAttachmentsRef.current = [];
       setPendingAttachments([]);
+      setPreviewAttachmentId(undefined);
       setAttachmentNotice(undefined);
       setAttachmentMode("media");
       setAttachmentSpoiler(false);
-      setAttachmentCaptionAbove(false);
       setMuteVideos(false);
+      await clearLocalAttachmentDraft(draftKey);
       if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
       draftTimerRef.current = undefined;
       pendingDraftRef.current = undefined;
@@ -698,8 +858,42 @@ export const ConversationComposer = memo(function ConversationComposer({
     focusComposer();
   }, [chatId, focusComposer, onCancelReply, onDraftChange]);
 
+  const handleFileDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (composerContextMessage || !event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    fileDragDepthRef.current += 1;
+    setDraggingFiles(true);
+  }, [composerContextMessage]);
+
+  const handleFileDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (composerContextMessage || !event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, [composerContextMessage]);
+
+  const handleFileDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+    if (fileDragDepthRef.current === 0) setDraggingFiles(false);
+  }, []);
+
+  const handleFileDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (composerContextMessage || !event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    fileDragDepthRef.current = 0;
+    setDraggingFiles(false);
+    addPendingAttachments(Array.from(event.dataTransfer.files));
+    focusComposer();
+  }, [addPendingAttachments, composerContextMessage, focusComposer]);
+
   return (
-    <div className="composer-wrap">
+    <div
+      className={`composer-wrap ${draggingFiles ? "is-file-dragging" : ""}`}
+      onDragEnter={handleFileDragEnter}
+      onDragOver={handleFileDragOver}
+      onDragLeave={handleFileDragLeave}
+      onDrop={handleFileDrop}
+    >
       <MotionPresence present={emojiPickerOpen && !editingMessage} variant="popover">
         {emojiPickerOpen && !editingMessage ? (
           <EmojiPicker
@@ -731,29 +925,59 @@ export const ConversationComposer = memo(function ConversationComposer({
       />
       {pendingAttachments.length > 0 && (
         <section className="composer-attachment-preview" aria-label="待发送附件">
+          <header className="composer-attachment-header">
+            <strong>待发送</strong>
+            <span>{pendingAttachments.length} 项</span>
+          </header>
           <div className="composer-attachment-grid" data-count={pendingAttachments.length}>
-            {pendingAttachments.map((attachment) => (
-              <article className="composer-attachment-item" key={attachment.id}>
-                {attachment.previewUrl ? (
-                  attachment.attachment.kind === "video" ? (
-                    <video src={attachment.previewUrl} aria-label={attachment.attachment.file.name} muted />
-                  ) : (
-                    <StableImage src={attachment.previewUrl} alt={attachment.attachment.file.name} />
-                  )
-                ) : (
-                  <span className="composer-file-preview"><Paperclip size={22} /></span>
-                )}
-                <span className="composer-attachment-kind">{attachment.attachment.kind}</span>
-                <span className="composer-attachment-name">{attachment.attachment.file.name}</span>
-                <button
-                  type="button"
-                  aria-label={`移除 ${attachment.attachment.file.name}`}
-                  onClick={() => removePendingAttachment(attachment.id)}
-                >
-                  <X size={14} />
-                </button>
-              </article>
-            ))}
+            {pendingAttachments.map((pending) => {
+              const { attachment } = pending;
+              const concealed = attachmentMode === "media" &&
+                attachmentSpoiler &&
+                canPreviewOutgoingAttachment(attachment.kind);
+              return (
+                <article className="composer-attachment-item" key={pending.id}>
+                  <div className="composer-attachment-open">
+                    {pending.previewUrl ? (
+                      <MediaSpoiler
+                        active={concealed}
+                        resetKey={`${draftKey}:${pending.id}:${attachmentSpoiler ? "concealed" : "plain"}`}
+                      >
+                        <button
+                          className="composer-attachment-media-button"
+                          type="button"
+                          aria-label={`预览 ${attachment.file.name}`}
+                          title="预览附件"
+                          onClick={() => setPreviewAttachmentId(pending.id)}
+                        >
+                          {attachment.kind === "video" ? (
+                            <video src={pending.previewUrl} aria-hidden="true" muted />
+                          ) : (
+                            <StableImage src={pending.previewUrl} alt="" />
+                          )}
+                        </button>
+                      </MediaSpoiler>
+                    ) : (
+                      <span className="composer-file-preview"><FileText size={25} /></span>
+                    )}
+                    <span className="composer-attachment-kind">{ATTACHMENT_KIND_LABELS[attachment.kind]}</span>
+                  </div>
+                  <span className="composer-attachment-copy">
+                    <strong>{attachment.file.name}</strong>
+                    <small>{attachmentSizeLabel(attachment.file.size)}</small>
+                  </span>
+                  <button
+                    className="composer-attachment-remove"
+                    type="button"
+                    aria-label={`移除 ${attachment.file.name}`}
+                    title="移除附件"
+                    onClick={() => removePendingAttachment(pending.id)}
+                  >
+                    <X size={14} />
+                  </button>
+                </article>
+              );
+            })}
           </div>
           <div className="composer-attachment-options">
             <fieldset className="attachment-mode-control">
@@ -763,7 +987,8 @@ export const ConversationComposer = memo(function ConversationComposer({
                   type="radio"
                   name="attachment-mode"
                   checked={attachmentMode === "media"}
-                  onChange={() => setAttachmentMode("media")}
+                  disabled={!mediaModeAvailable}
+                  onChange={() => updateAttachmentOptions({ mode: "media" })}
                 />
                 <span>媒体</span>
               </label>
@@ -772,7 +997,11 @@ export const ConversationComposer = memo(function ConversationComposer({
                   type="radio"
                   name="attachment-mode"
                   checked={attachmentMode === "file"}
-                  onChange={() => setAttachmentMode("file")}
+                  onChange={() => updateAttachmentOptions({
+                    mode: "file",
+                    hasSpoiler: false,
+                    muteVideos: false,
+                  })}
                 />
                 <span>原文件</span>
               </label>
@@ -781,19 +1010,10 @@ export const ConversationComposer = memo(function ConversationComposer({
               <input
                 type="checkbox"
                 checked={attachmentSpoiler}
-                disabled={attachmentMode === "file"}
-                onChange={(event) => setAttachmentSpoiler(event.target.checked)}
+                disabled={attachmentMode === "file" || !previewableAttachments.length}
+                onChange={(event) => updateAttachmentOptions({ hasSpoiler: event.target.checked })}
               />
               剧透
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={attachmentCaptionAbove}
-                disabled={attachmentMode === "file"}
-                onChange={(event) => setAttachmentCaptionAbove(event.target.checked)}
-              />
-              说明置顶
             </label>
             {pendingAttachments.some(({ attachment }) => attachment.kind === "video") && (
               <label>
@@ -801,7 +1021,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                   type="checkbox"
                   checked={muteVideos}
                   disabled={attachmentMode === "file"}
-                  onChange={(event) => setMuteVideos(event.target.checked)}
+                  onChange={(event) => updateAttachmentOptions({ muteVideos: event.target.checked })}
                 />
                 作为静音动画
               </label>
@@ -1012,6 +1232,20 @@ export const ConversationComposer = memo(function ConversationComposer({
               : <Send size={19} strokeWidth={2} />}
         </button>
       </div>
+      {draggingFiles && (
+        <div className="composer-file-drop-overlay" role="status">
+          <Paperclip size={24} />
+          <strong>添加到待发送附件</strong>
+        </div>
+      )}
+      {previewAttachmentId && (
+        <ComposerMediaPreview
+          items={previewableAttachments}
+          activeId={previewAttachmentId}
+          onActiveChange={setPreviewAttachmentId}
+          onClose={() => setPreviewAttachmentId(undefined)}
+        />
+      )}
     </div>
   );
 });

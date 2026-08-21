@@ -589,7 +589,13 @@ const ChatRow = memo(function ChatRow({
   onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
   const draft = useTelegramStore((state) => state.drafts.get(chat.id));
+  const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(chat.id));
   const visibleDraft = active ? undefined : listDraft(draft);
+  const visibleAttachmentDraft = active ? undefined : localAttachmentDraft;
+  const draftPreview = visibleDraft?.text || (visibleDraft?.replyToMessageId ? "回复消息" : undefined) ||
+    (visibleAttachmentDraft
+      ? `${visibleAttachmentDraft.attachments.length} 个附件`
+      : undefined);
   const hasUnreadAttention = chat.unreadMentionCount > 0;
   const unreadBadgeClassName = `unread-count ${chat.muted ? "is-muted" : ""} ${hasUnreadAttention ? "has-attention" : ""}`;
   const unreadBadgeLabel = hasUnreadAttention
@@ -647,9 +653,9 @@ const ChatRow = memo(function ChatRow({
           <time dateTime={chat.updatedAt}>{formatChatTime(chat.updatedAt)}</time>
         </span>
         <span className="chat-row-bottomline">
-          <span className={`chat-preview ${visibleDraft ? "is-draft" : ""}`}>
-            {visibleDraft ? (
-              <span className="chat-preview-message">草稿：{visibleDraft.text || "回复消息"}</span>
+          <span className={`chat-preview ${draftPreview ? "is-draft" : ""}`}>
+            {draftPreview ? (
+              <span className="chat-preview-message">草稿：{draftPreview}</span>
             ) : (
               <>
                 {chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}

@@ -39,6 +39,7 @@ interface DraftSyncDependencies {
   sendDraft: (chatId: string, draft?: ChatDraft) => Promise<void>;
   reportError: (message: string) => void;
   scheduleCacheWrite: () => void;
+  discardLocalAttachments?: (draftKey: string) => void;
 }
 
 export class DraftSyncController {
@@ -97,10 +98,19 @@ export class DraftSyncController {
   acceptServerDraft(chatId: string, draft?: ChatDraft) {
     const incoming = draftForSync(draft);
     const expected = this.syncs.get(chatId);
-    if (expected && draftSignature(incoming) !== draftSignature(expected.draft)) return false;
+    const current = this.dependencies.getDrafts().get(chatId);
+    if (expected && draftSignature(incoming) !== draftSignature(expected.draft)) {
+      if (!incoming || draftSignature(incoming) !== draftSignature(current)) {
+        this.dependencies.discardLocalAttachments?.(chatId);
+      }
+      return false;
+    }
     if (expected) {
       clearDraftSyncTimers(expected);
       this.syncs.delete(chatId);
+    }
+    if (!expected && (!incoming || draftSignature(incoming) !== draftSignature(current))) {
+      this.dependencies.discardLocalAttachments?.(chatId);
     }
     const drafts = new Map(this.dependencies.getDrafts());
     if (incoming) drafts.set(chatId, { ...incoming, pending: false });
@@ -114,8 +124,12 @@ export class DraftSyncController {
     const incoming = new Map(incomingDrafts.map((draft) => [draft.chatId, draft]));
     const drafts = new Map(this.dependencies.getDrafts());
     for (const chatId of chatIds) {
-      if (drafts.get(chatId)?.pending) continue;
+      const current = drafts.get(chatId);
+      if (current?.pending) continue;
       const draft = incoming.get(chatId);
+      if (draftSignature(draft) !== draftSignature(current)) {
+        this.dependencies.discardLocalAttachments?.(chatId);
+      }
       if (draft) drafts.set(chatId, { ...draft, pending: false });
       else drafts.delete(chatId);
     }

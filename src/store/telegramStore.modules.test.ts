@@ -287,4 +287,38 @@ describe("draft sync controller", () => {
     expect(drafts.has(local.chatId)).toBe(false);
     controller.clear();
   });
+
+  it("discards local attachments when a remote draft changes or is removed", () => {
+    const local: ChatDraft = {
+      chatId: "chat-product",
+      text: "local caption",
+      updatedAt: "2026-08-02T08:00:00Z",
+    };
+    let drafts = new Map([[local.chatId, local]]);
+    const discardLocalAttachments = vi.fn();
+    const controller = new DraftSyncController({
+      isReady: () => true,
+      getDrafts: () => drafts,
+      setDrafts: (next) => { drafts = next; },
+      sendDraft: vi.fn(async () => undefined),
+      reportError: vi.fn(),
+      scheduleCacheWrite: vi.fn(),
+      discardLocalAttachments,
+    });
+
+    expect(controller.acceptServerDraft(local.chatId, { ...local })).toBe(true);
+    expect(discardLocalAttachments).not.toHaveBeenCalled();
+    expect(controller.acceptServerDraft(local.chatId, { ...local, text: "remote caption" })).toBe(true);
+    expect(discardLocalAttachments).toHaveBeenCalledWith(local.chatId);
+
+    discardLocalAttachments.mockClear();
+    expect(controller.acceptServerDraft(local.chatId)).toBe(true);
+    expect(discardLocalAttachments).toHaveBeenCalledWith(local.chatId);
+
+    discardLocalAttachments.mockClear();
+    drafts = new Map();
+    controller.replaceServerDrafts([{ ...local, text: "remote snapshot" }], [local.chatId]);
+    expect(discardLocalAttachments).toHaveBeenCalledWith(local.chatId);
+    controller.clear();
+  });
 });

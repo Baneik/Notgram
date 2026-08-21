@@ -4756,7 +4756,7 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await expect(preview.getByRole("radio", { name: "媒体" })).toBeChecked();
   await expect(preview.getByRole("radio", { name: "原文件" })).not.toBeChecked();
   await expect(preview.getByRole("checkbox", { name: "剧透" })).toBeEnabled();
-  await expect(preview.getByRole("checkbox", { name: "说明置顶" })).toBeEnabled();
+  await expect(preview.getByRole("checkbox", { name: "说明置顶" })).toHaveCount(0);
   for (let index = 10; index >= 3; index -= 1) {
     await preview.getByRole("button", { name: `移除 paste-${index}.png` }).click();
   }
@@ -4801,6 +4801,81 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await expect(preview).toContainText("pasted-notes.txt");
   await composer.press("Enter");
   await expect(page.locator(".file-message", { hasText: "pasted-notes.txt" })).toBeVisible();
+});
+
+test("attachment entry points share classification, previews, spoilers, and local drafts", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  const preview = page.getByRole("region", { name: "待发送附件" });
+
+  await composer.evaluate((element) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["export const value = 1;"], "clipboard-script.ts", {
+      type: "video/mp2t",
+    }));
+    element.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    }));
+  });
+  await expect(preview.getByText("clipboard-script.ts", { exact: true })).toBeVisible();
+  await expect(preview.getByRole("radio", { name: "原文件" })).toBeChecked();
+  await expect(preview.getByRole("radio", { name: "媒体" })).toBeDisabled();
+  await expect(preview.locator("video")).toHaveCount(0);
+  await expect(preview.getByRole("button", { name: "预览 clipboard-script.ts" })).toHaveCount(0);
+  await preview.getByRole("button", { name: "移除 clipboard-script.ts" }).click();
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "selected-archive.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("archive"),
+  });
+  await expect(preview.getByText("selected-archive.zip", { exact: true })).toBeVisible();
+  await expect(preview.getByRole("radio", { name: "原文件" })).toBeChecked();
+  await preview.getByRole("button", { name: "移除 selected-archive.zip" }).click();
+
+  const composerWrap = page.locator(".composer-wrap");
+  await composerWrap.evaluate((element) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["drag probe"], "probe.txt", { type: "text/plain" }));
+    element.dispatchEvent(new DragEvent("dragenter", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: data,
+    }));
+  });
+  await expect(page.getByText("添加到待发送附件", { exact: true })).toBeVisible();
+  await composerWrap.evaluate((element) => {
+    const data = new DataTransfer();
+    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (character) => character.charCodeAt(0));
+    data.items.add(new File([bytes], "dropped-image.png", { type: "image/png" }));
+    element.dispatchEvent(new DragEvent("drop", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: data,
+    }));
+  });
+  await expect(preview.getByText("dropped-image.png", { exact: true })).toBeVisible();
+  await expect(preview.getByRole("radio", { name: "媒体" })).toBeChecked();
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(page.locator('[data-chat-id="chat-product"] .chat-preview-message'))
+    .toHaveText("草稿：1 个附件");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(preview.getByText("dropped-image.png", { exact: true })).toBeVisible();
+
+  await preview.getByRole("checkbox", { name: "剧透" }).check();
+  const stagedSpoiler = preview.locator(".media-spoiler");
+  await expect(stagedSpoiler).toHaveClass(/is-concealed/);
+  await preview.getByRole("button", { name: "显示遮罩媒体" }).click();
+  await expect(stagedSpoiler).toHaveClass(/is-revealed/);
+  await preview.getByRole("button", { name: "预览 dropped-image.png" }).click();
+  const mediaPreview = page.getByRole("dialog", { name: "附件预览：dropped-image.png" });
+  await expect(mediaPreview).toBeVisible();
+  await expect(mediaPreview.locator("img")).toBeVisible();
+  await mediaPreview.getByRole("button", { name: "关闭附件预览" }).click();
+  await expect(mediaPreview).toBeHidden();
 });
 
 test("poll messages support voting, results, and revoking an answer", async ({ page }) => {

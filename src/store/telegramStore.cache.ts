@@ -1,7 +1,6 @@
-import type { CachedTelegramSnapshot, Chat, ChatProfile, ForumTopic, Message } from "../telegram/types";
+import type { CachedTelegramSnapshot, Chat, ChatProfile, ForumTopic, LocalAttachmentDraft, Message, QueuedOutgoingAttachment } from "../telegram/types";
 import { logPerformance } from "../utils/performanceMonitor";
 import type { TelegramState } from "./telegramStore.types";
-import type { QueuedOutgoingAttachment } from "../telegram/types";
 
 export const TELEGRAM_CACHE_VERSION = 3 as const;
 const MAX_CACHED_MESSAGES_PER_CHAT = 60;
@@ -44,6 +43,19 @@ const isQueuedAttachment = (value: unknown): value is QueuedOutgoingAttachment =
   (value.hasSpoiler === undefined || typeof value.hasSpoiler === "boolean") &&
   (value.showCaptionAboveMedia === undefined || typeof value.showCaptionAboveMedia === "boolean");
 
+const isLocalAttachmentDraft = (value: unknown): value is LocalAttachmentDraft =>
+  isRecord(value) &&
+  hasStringKey(value, "draftKey") &&
+  hasStringKey(value, "chatId") &&
+  hasStringKey(value, "batchId") &&
+  hasStringKey(value, "updatedAt") &&
+  (value.mode === "media" || value.mode === "file") &&
+  typeof value.hasSpoiler === "boolean" &&
+  typeof value.muteVideos === "boolean" &&
+  Array.isArray(value.attachments) &&
+  value.attachments.length > 0 &&
+  value.attachments.every(isQueuedAttachment);
+
 export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration => {
   if (value === undefined || value === null) return { health: "empty" };
   if (!isRecord(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3)) {
@@ -66,6 +78,10 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     (value.drafts !== undefined && (
       !Array.isArray(value.drafts) ||
       !value.drafts.every((draft) => hasStringKey(draft, "chatId"))
+    )) ||
+    (value.localAttachmentDrafts !== undefined && (
+      !Array.isArray(value.localAttachmentDrafts) ||
+      !value.localAttachmentDrafts.every(isLocalAttachmentDraft)
     )) ||
     (value.outbox !== undefined && (
       !Array.isArray(value.outbox) ||
@@ -285,6 +301,7 @@ export const cachedSnapshotFrom = (
     chats: [...state.chats.values()].map(cacheableChat),
     messages: recentMessagesForCache(state),
     drafts: [...state.drafts.values()],
+    localAttachmentDrafts: [...(state.localAttachmentDrafts ?? new Map()).values()],
     outbox: state.outbox ?? [],
     activeChatId: state.activeChatId,
     chatFilter: state.chatFilter,

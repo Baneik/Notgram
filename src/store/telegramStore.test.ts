@@ -1178,6 +1178,35 @@ describe("telegram store", () => {
     }
   });
 
+  it("persists local attachment drafts independently from TDLib text drafts", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const file = new File(["const value = 1;"], "sample.ts", {
+      type: "video/mp2t",
+      lastModified: 1_775_000_000_000,
+    });
+
+    await expect(store.getState().saveLocalAttachmentDraft(
+      "chat-product",
+      "chat-product",
+      [{ file, kind: "document" }],
+      { mode: "file", hasSpoiler: false, muteVideos: false },
+    )).resolves.toBe(true);
+
+    expect(store.getState().localAttachmentDrafts.get("chat-product")).toMatchObject({
+      chatId: "chat-product",
+      mode: "file",
+      attachments: [{ name: "sample.ts", kind: "document" }],
+    });
+    await expect(store.getState().loadLocalAttachmentDraft("chat-product"))
+      .resolves.toMatchObject([{ file: { name: "sample.ts", type: "video/mp2t" }, kind: "document" }]);
+    expect(cachedSnapshotFrom(store.getState()).localAttachmentDrafts).toHaveLength(1);
+
+    await store.getState().clearLocalAttachmentDraft("chat-product");
+    expect(store.getState().localAttachmentDrafts.has("chat-product")).toBe(false);
+  });
+
   it("keeps passive inline bot lookup misses out of the global error toast", async () => {
     class MissingInlineBotTransport extends MockTelegramTransport {
       override async getInlineQueryResults(): Promise<InlineQueryResultPage> {

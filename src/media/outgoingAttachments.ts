@@ -3,23 +3,55 @@ import type {
   OutgoingAttachmentKind,
 } from "../telegram/types";
 
-const PHOTO_EXTENSIONS = /\.(?:jpe?g|png)$/i;
-const ANIMATION_EXTENSIONS = /\.(?:gif)$/i;
-const VIDEO_EXTENSIONS = /\.(?:mp4|m4v|mov|webm|mkv)$/i;
-const AUDIO_EXTENSIONS = /\.(?:mp3|m4a|aac|ogg|oga|opus|flac|wav)$/i;
+const PHOTO_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
+const ANIMATION_EXTENSIONS = new Set(["gif"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
+const AUDIO_EXTENSIONS = new Set(["mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav"]);
+const PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png"]);
+const ANIMATION_MIME_TYPES = new Set(["image/gif"]);
+const VIDEO_MIME_TYPES = new Set([
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "video/x-matroska",
+]);
+const AUDIO_MIME_TYPES = new Set([
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/aac",
+  "audio/ogg",
+  "audio/opus",
+  "audio/flac",
+  "audio/wav",
+  "audio/x-wav",
+]);
 const PROBE_TIMEOUT_MS = 8_000;
 const THUMBNAIL_MAX_EDGE = 320;
 const HAVE_METADATA = 1;
 const HAVE_CURRENT_DATA = 2;
 
+const fileExtension = (name: string) => {
+  const match = name.toLowerCase().match(/\.([^.]+)$/);
+  return match?.[1];
+};
+
 export const classifyOutgoingAttachment = (file: Pick<File, "name" | "type" | "size">): OutgoingAttachmentKind => {
-  if ((file.type === "image/jpeg" || file.type === "image/png" || PHOTO_EXTENSIONS.test(file.name)) &&
-    file.size <= 10 * 1024 * 1024) return "photo";
-  if (file.type === "image/gif" || ANIMATION_EXTENSIONS.test(file.name)) return "animation";
-  if (file.type.startsWith("video/") || VIDEO_EXTENSIONS.test(file.name)) return "video";
-  if (file.type.startsWith("audio/") || AUDIO_EXTENSIONS.test(file.name)) return "audio";
+  const extension = fileExtension(file.name);
+  const mimeType = file.type.toLowerCase();
+  const matches = (extensions: ReadonlySet<string>, mimeTypes: ReadonlySet<string>) =>
+    extension ? extensions.has(extension) : mimeTypes.has(mimeType);
+
+  if (matches(PHOTO_EXTENSIONS, PHOTO_MIME_TYPES) && file.size <= 10 * 1024 * 1024) return "photo";
+  if (matches(ANIMATION_EXTENSIONS, ANIMATION_MIME_TYPES)) return "animation";
+  if (matches(VIDEO_EXTENSIONS, VIDEO_MIME_TYPES)) return "video";
+  if (matches(AUDIO_EXTENSIONS, AUDIO_MIME_TYPES)) return "audio";
   return "document";
 };
+
+export const canSendAttachmentAsMedia = (kind: OutgoingAttachmentKind) => kind !== "document";
+
+export const canPreviewOutgoingAttachment = (kind: OutgoingAttachmentKind) =>
+  kind === "photo" || kind === "video" || kind === "animation";
 
 const waitForMediaState = (
   element: HTMLMediaElement,

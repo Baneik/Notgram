@@ -152,6 +152,7 @@ export const createTelegramStore = (
     const groupManagementLoads = new Map<string, Promise<ChatManagement | undefined>>();
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const localAttachmentDraftGenerations = new Map<string, number>();
     const liveAttentionCandidates = new Set<string>();
     // Visibility observers can fire repeatedly before TDLib publishes the mention-read update.
     const attentionReadRequests = new Set<string>();
@@ -331,6 +332,20 @@ export const createTelegramStore = (
       }, delay);
     };
 
+    const discardLocalAttachmentDraft = (draftKey: string) => {
+      localAttachmentDraftGenerations.set(
+        draftKey,
+        (localAttachmentDraftGenerations.get(draftKey) ?? 0) + 1,
+      );
+      const current = get().localAttachmentDrafts.get(draftKey);
+      if (!current) return;
+      const localAttachmentDrafts = new Map(get().localAttachmentDrafts);
+      localAttachmentDrafts.delete(draftKey);
+      set({ localAttachmentDrafts });
+      void attachmentOutbox.remove(current.batchId).catch(() => undefined);
+      scheduleCacheWrite();
+    };
+
     const draftSync = new DraftSyncController({
       isReady: () => get().authorization.kind === "ready",
       getDrafts: () => get().drafts,
@@ -345,12 +360,14 @@ export const createTelegramStore = (
       }),
       reportError: (operationError) => set({ operationError }),
       scheduleCacheWrite,
+      discardLocalAttachments: discardLocalAttachmentDraft,
     });
 
     const clearCachedData = (clearSnapshot = true) => {
       cancelScheduledCacheWrite();
       cachedMessageIds.clear();
       draftSync.clear();
+      localAttachmentDraftGenerations.clear();
       clearTypingUsers();
       liveAttentionCandidates.clear();
       attentionReadRequests.clear();
@@ -374,6 +391,7 @@ export const createTelegramStore = (
         removingMessages: new Map(),
         unreadAttentionMessageIds: new Map(),
         drafts: new Map(),
+        localAttachmentDrafts: new Map(),
         typingUserIds: new Map(),
         outbox: [],
         histories: new Map(),
@@ -468,6 +486,9 @@ export const createTelegramStore = (
       );
       let messages = messageMapFrom(snapshot.messages);
       const drafts = new Map((snapshot.drafts ?? []).map((draft) => [topicKey(draft.chatId, draft.topicId), draft]));
+      const localAttachmentDrafts = new Map(
+        (snapshot.localAttachmentDrafts ?? []).map((draft) => [draft.draftKey, draft]),
+      );
       const outbox = snapshot.outbox ?? [];
       cachedMessageIds.clear();
       for (const message of snapshot.messages) {
@@ -483,6 +504,9 @@ export const createTelegramStore = (
       }
       for (const [chatId, draft] of current.drafts) {
         if (draft.pending || !drafts.has(chatId)) drafts.set(chatId, draft);
+      }
+      for (const [draftKey, draft] of current.localAttachmentDrafts) {
+        localAttachmentDrafts.set(draftKey, draft);
       }
       for (const [chatId, chatMessages] of current.messages) {
         for (const message of chatMessages) {
@@ -517,6 +541,7 @@ export const createTelegramStore = (
         chatListReady: true,
         messages,
         drafts,
+        localAttachmentDrafts,
         outbox,
         forumTopics,
         lastForumTopicIds,
@@ -1048,11 +1073,7 @@ export const createTelegramStore = (
       if (event.type === "chat.draftChanged") {
         if (event.draft?.topicId) {
           const key = topicKey(event.chatId, event.draft.topicId);
-          const drafts = new Map(get().drafts);
-          if (draftForSync(event.draft)) drafts.set(key, { ...event.draft, pending: false });
-          else drafts.delete(key);
-          set({ drafts });
-          scheduleCacheWrite();
+          draftSync.acceptServerDraft(key, event.draft);
           return;
         }
         draftSync.acceptServerDraft(event.chatId, event.draft);
@@ -1299,6 +1320,7 @@ export const createTelegramStore = (
       removingMessages: new Map(),
       unreadAttentionMessageIds: new Map(),
       drafts: new Map(),
+      localAttachmentDrafts: new Map(),
       typingUserIds: new Map(),
       outbox: [],
       histories: new Map(),
@@ -2678,6 +2700,93 @@ export const createTelegramStore = (
         set({ drafts });
         draftSync.expect(key, draftForSync(next), DRAFT_SYNC_DELAY_MS);
         scheduleCacheWrite();
+      },
+
+      loadLocalAttachmentDraft: async (draftKey) => {
+        const localDraft = get().localAttachmentDrafts.get(draftKey);
+        if (!localDraft) return [];
+        try {
+          const stored = await attachmentOutbox.get(localDraft.batchId);
+          if (stored && stored.attachments.length === localDraft.attachments.length) {
+            return stored.attachments;
+          }
+        } catch {
+          // Invalid local attachment drafts are discarded below.
+        }
+        discardLocalAttachmentDraft(draftKey);
+        set({ operationError: "附件草稿已失效，请重新选择文件" });
+        return [];
+      },
+
+      saveLocalAttachmentDraft: async (draftKey, chatId, attachments, options) => {
+        if (!get().chats.has(chatId) || attachments.length === 0) return false;
+        const generation = (localAttachmentDraftGenerations.get(draftKey) ?? 0) + 1;
+        localAttachmentDraftGenerations.set(draftKey, generation);
+        const batchId = `draft:${globalThis.crypto.randomUUID()}`;
+        const updatedAt = new Date().toISOString();
+        try {
+          const metadata = await describeOutgoingAttachments(batchId, attachments);
+          await attachmentOutbox.put({
+            id: batchId,
+            createdAt: updatedAt,
+            persistent: true,
+            attachments,
+            metadata,
+          });
+          if (localAttachmentDraftGenerations.get(draftKey) !== generation) {
+            await attachmentOutbox.remove(batchId).catch(() => undefined);
+            return false;
+          }
+          const previous = get().localAttachmentDrafts.get(draftKey);
+          const localAttachmentDrafts = new Map(get().localAttachmentDrafts);
+          localAttachmentDrafts.set(draftKey, {
+            draftKey,
+            chatId,
+            batchId,
+            attachments: metadata,
+            ...options,
+            updatedAt,
+          });
+          set({ localAttachmentDrafts, operationError: undefined });
+          scheduleCacheWrite();
+          if (previous?.batchId && previous.batchId !== batchId) {
+            await attachmentOutbox.remove(previous.batchId).catch(() => undefined);
+          }
+          return true;
+        } catch (error) {
+          await attachmentOutbox.remove(batchId).catch(() => undefined);
+          if (localAttachmentDraftGenerations.get(draftKey) === generation) {
+            set({ operationError: errorMessage(error, "无法保存附件草稿") });
+          }
+          return false;
+        }
+      },
+
+      updateLocalAttachmentDraftOptions: (draftKey, options) => {
+        const current = get().localAttachmentDrafts.get(draftKey);
+        if (!current) return;
+        const localAttachmentDrafts = new Map(get().localAttachmentDrafts);
+        localAttachmentDrafts.set(draftKey, {
+          ...current,
+          ...options,
+          updatedAt: new Date().toISOString(),
+        });
+        set({ localAttachmentDrafts });
+        scheduleCacheWrite();
+      },
+
+      clearLocalAttachmentDraft: async (draftKey) => {
+        const current = get().localAttachmentDrafts.get(draftKey);
+        localAttachmentDraftGenerations.set(
+          draftKey,
+          (localAttachmentDraftGenerations.get(draftKey) ?? 0) + 1,
+        );
+        if (!current) return;
+        const localAttachmentDrafts = new Map(get().localAttachmentDrafts);
+        localAttachmentDrafts.delete(draftKey);
+        set({ localAttachmentDrafts });
+        scheduleCacheWrite();
+        await attachmentOutbox.remove(current.batchId).catch(() => undefined);
       },
 
       setChatTyping: async (chatId, typing) => {

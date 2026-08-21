@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   attachmentAlbumFamily,
+  canPreviewOutgoingAttachment,
+  canSendAttachmentAsMedia,
   classifyOutgoingAttachment,
   inspectOutgoingAttachment,
 } from "./outgoingAttachments";
@@ -26,6 +28,23 @@ describe("outgoing attachment classification", () => {
       "image/png",
       10 * 1024 * 1024 + 1,
     ))).toBe("document");
+  });
+
+  it("does not trust misleading media MIME types for named files", () => {
+    expect(classifyOutgoingAttachment(fileLike("component.ts", "video/mp2t"))).toBe("document");
+    expect(classifyOutgoingAttachment(fileLike("archive.zip", "application/zip"))).toBe("document");
+    expect(classifyOutgoingAttachment(fileLike("payload.bin", "image/png"))).toBe("document");
+    expect(classifyOutgoingAttachment(fileLike("clipboard", "image/png"))).toBe("photo");
+  });
+
+  it("only enables media sending and visual previews for supported kinds", () => {
+    expect(canSendAttachmentAsMedia("photo")).toBe(true);
+    expect(canSendAttachmentAsMedia("audio")).toBe(true);
+    expect(canSendAttachmentAsMedia("document")).toBe(false);
+    expect(canPreviewOutgoingAttachment("photo")).toBe(true);
+    expect(canPreviewOutgoingAttachment("animation")).toBe(true);
+    expect(canPreviewOutgoingAttachment("audio")).toBe(false);
+    expect(canPreviewOutgoingAttachment("document")).toBe(false);
   });
 
   it("allows photos and videos to share a visual album", () => {

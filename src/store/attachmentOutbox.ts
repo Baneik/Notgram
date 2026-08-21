@@ -22,6 +22,7 @@ interface StoredBatch {
   version: 1;
   id: string;
   createdAt: string;
+  persistent?: boolean;
   metadata: QueuedOutgoingAttachment[];
   files: StoredFile[];
 }
@@ -29,6 +30,7 @@ interface StoredBatch {
 interface AttachmentBatchInput {
   id: string;
   createdAt: string;
+  persistent?: boolean;
   attachments: OutgoingAttachment[];
   metadata: QueuedOutgoingAttachment[];
 }
@@ -57,7 +59,7 @@ const totalBytes = (batch: StoredBatch) => batch.files.reduce((sum, file) => sum
 const deleteExpiredMemoryBatches = () => {
   const cutoff = Date.now() - EXPIRED_AFTER_MS;
   for (const [id, batch] of memoryBatches) {
-    if (Date.parse(batch.createdAt) < cutoff) memoryBatches.delete(id);
+    if (!batch.persistent && Date.parse(batch.createdAt) < cutoff) memoryBatches.delete(id);
   }
 };
 
@@ -106,9 +108,11 @@ const readAllIndexedDb = async (database: IDBDatabase) => new Promise<StoredBatc
 });
 
 const putIndexedDb = async (database: IDBDatabase, batch: StoredBatch) => new Promise<void>((resolve, reject) => {
-  const request = database.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME).put(batch);
-  request.onsuccess = () => resolve();
-  request.onerror = () => reject(request.error ?? new Error("无法保存附件发件箱"));
+  const transaction = database.transaction(STORE_NAME, "readwrite");
+  const request = transaction.objectStore(STORE_NAME).put(batch);
+  transaction.oncomplete = () => resolve();
+  transaction.onerror = () => reject(transaction.error ?? request.error ?? new Error("无法保存附件发件箱"));
+  transaction.onabort = () => reject(transaction.error ?? new Error("附件发件箱写入已取消"));
 });
 
 const getIndexedDb = async (database: IDBDatabase, id: string) => new Promise<StoredBatch | undefined>((resolve, reject) => {
@@ -118,17 +122,21 @@ const getIndexedDb = async (database: IDBDatabase, id: string) => new Promise<St
 });
 
 const deleteIndexedDb = async (database: IDBDatabase, id: string) => new Promise<void>((resolve, reject) => {
-  const request = database.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME).delete(id);
-  request.onsuccess = () => resolve();
-  request.onerror = () => reject(request.error ?? new Error("无法清理附件发件箱"));
+  const transaction = database.transaction(STORE_NAME, "readwrite");
+  const request = transaction.objectStore(STORE_NAME).delete(id);
+  transaction.oncomplete = () => resolve();
+  transaction.onerror = () => reject(transaction.error ?? request.error ?? new Error("无法清理附件发件箱"));
+  transaction.onabort = () => reject(transaction.error ?? new Error("附件发件箱清理已取消"));
 });
 
 const purgeIndexedDb = async (database: IDBDatabase) => {
   const batches = await readAllIndexedDb(database);
   const cutoff = Date.now() - EXPIRED_AFTER_MS;
-  const expired = batches.filter((batch) => Date.parse(batch.createdAt) < cutoff);
+  const expired = batches.filter((batch) =>
+    !batch.persistent && Date.parse(batch.createdAt) < cutoff,
+  );
   await Promise.all(expired.map((batch) => deleteIndexedDb(database, batch.id)));
-  return batches.filter((batch) => Date.parse(batch.createdAt) >= cutoff);
+  return batches.filter((batch) => batch.persistent || Date.parse(batch.createdAt) >= cutoff);
 };
 
 export class AttachmentOutboxStore {
@@ -161,6 +169,7 @@ export class AttachmentOutboxStore {
       version: 1,
       id: input.id,
       createdAt: input.createdAt,
+      persistent: input.persistent,
       metadata: input.metadata.map((value) => ({ ...value })),
       files,
     };

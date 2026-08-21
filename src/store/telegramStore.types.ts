@@ -41,6 +41,7 @@ import type {
   ChatMessageSearchInput,
   GetChatInviteLinksInput,
   GetChatJoinRequestsInput,
+  LocalAttachmentDraft,
   Message,
   MessagePermissions,
   MessageReactionSenderPage,
@@ -116,6 +117,7 @@ export interface TelegramState {
   removingMessages: Map<string, Message[]>;
   unreadAttentionMessageIds: Map<string, string[]>;
   drafts: Map<string, ChatDraft>;
+  localAttachmentDrafts: Map<string, LocalAttachmentDraft>;
   typingUserIds: Map<string, string[]>;
   outbox: QueuedOutgoingMessage[];
   histories: Map<string, HistoryState>;
@@ -270,6 +272,18 @@ export interface TelegramState {
   editMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
   updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
+  loadLocalAttachmentDraft: (draftKey: string) => Promise<import("../telegram/types").OutgoingAttachment[]>;
+  saveLocalAttachmentDraft: (
+    draftKey: string,
+    chatId: string,
+    attachments: import("../telegram/types").OutgoingAttachment[],
+    options: Pick<LocalAttachmentDraft, "mode" | "hasSpoiler" | "muteVideos">,
+  ) => Promise<boolean>;
+  updateLocalAttachmentDraftOptions: (
+    draftKey: string,
+    options: Partial<Pick<LocalAttachmentDraft, "mode" | "hasSpoiler" | "muteVideos">>,
+  ) => void;
+  clearLocalAttachmentDraft: (draftKey: string) => Promise<void>;
   setChatTyping: (chatId: string, typing: boolean) => Promise<void>;
   forwardMessages: (
     fromChatId: string,
