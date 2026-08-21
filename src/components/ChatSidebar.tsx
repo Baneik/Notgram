@@ -589,9 +589,7 @@ const ChatRow = memo(function ChatRow({
   onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
   const draft = useTelegramStore((state) => state.drafts.get(chat.id));
-  const visibleDraftRef = useRef<ChatDraft | undefined>(listDraft(draft));
-  if (!active) visibleDraftRef.current = listDraft(draft);
-  const visibleDraft = visibleDraftRef.current;
+  const visibleDraft = active ? undefined : listDraft(draft);
   const hasUnreadAttention = chat.unreadMentionCount > 0;
   const unreadBadgeClassName = `unread-count ${chat.muted ? "is-muted" : ""} ${hasUnreadAttention ? "has-attention" : ""}`;
   const unreadBadgeLabel = hasUnreadAttention

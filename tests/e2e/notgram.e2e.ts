@@ -1589,7 +1589,7 @@ test("composer coalesces resizing and persists drafts without blocking input", a
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 });
 
-test("chat list updates a draft preview only after leaving the conversation", async ({ page }) => {
+test("chat list shows draft previews only for inactive conversations", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });
   const productPreview = page.locator('[data-chat-id="chat-product"] .chat-preview');
@@ -1614,6 +1614,8 @@ test("chat list updates a draft preview only after leaving the conversation", as
 
   await page.locator('[data-chat-id="chat-product"]').click();
   await expect(composer).toHaveValue(firstDraft);
+  await expect(productPreview).not.toHaveClass(/is-draft/);
+  await expect(productPreview).not.toContainText("草稿：");
   await composer.fill(secondDraft);
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
@@ -1623,13 +1625,16 @@ test("chat list updates a draft preview only after leaving the conversation", as
     };
     return storeModule.telegramStore.getState().drafts.get("chat-product")?.text;
   }, "/src/store/telegramStore.ts")).toBe(secondDraft);
-  await expect(productPreview).toContainText(`草稿：${firstDraft}`);
+  await expect(productPreview).not.toHaveClass(/is-draft/);
+  await expect(productPreview).not.toContainText(firstDraft);
   await expect(productPreview).not.toContainText(secondDraft);
 
   await page.locator('[data-chat-id="chat-mia"]').click();
   await expect(productPreview).toContainText(`草稿：${secondDraft}`);
 
   await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(productPreview).not.toHaveClass(/is-draft/);
+  await expect(productPreview).not.toContainText("草稿：");
   await composer.fill(" \n\t");
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
