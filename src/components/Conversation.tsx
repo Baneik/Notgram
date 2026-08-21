@@ -973,7 +973,7 @@ export function Conversation({
       globalThis.removeEventListener("resize", scheduleReset);
       mutationObserver.disconnect();
     };
-  }, [messageListElement]);
+  }, [messageListElement, revealedLocalBlockGroups, revealedLocalBlockMessages]);
   useEffect(() => {
     if (!messageListElement) return;
     const hideAtBottom = () => {
@@ -1875,7 +1875,9 @@ export function Conversation({
                   <span className="message-group-avatar">
                     {showSenderAvatar && (
                       <button
-                        className="message-sender-avatar"
+                        className={`message-sender-avatar ${localBlockedUser && !localBlockGroupRevealed
+                          ? "is-local-block-alias"
+                          : ""}`}
                         type="button"
                         aria-label={localBlockedUser && !localBlockGroupRevealed
                           ? `显示 ${localBlockedUser.alias} 的连续消息和真实身份`

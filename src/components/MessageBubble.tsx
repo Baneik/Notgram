@@ -1153,6 +1153,19 @@ function MessageBubbleComponent({
               {messageMeta}
             </div>
           )}
+          {locallyConcealed && onRevealLocallyBlocked ? (
+            <button
+              className="local-block-message-reveal"
+              type="button"
+              aria-label={`显示一条来自${senderName}的消息`}
+              title="临时显示这条消息"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onRevealLocallyBlocked();
+              }}
+            />
+          ) : null}
         </div>
         {!albumItem && !selectionMode && message.replyMarkup && (
           <InlineKeyboard
@@ -1163,19 +1176,6 @@ function MessageBubbleComponent({
           />
         )}
         {cornerAction}
-        {locallyConcealed && onRevealLocallyBlocked ? (
-          <button
-            className="local-block-message-reveal"
-            type="button"
-            aria-label={`显示一条来自${senderName}的消息`}
-            title="临时显示这条消息"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onRevealLocallyBlocked();
-            }}
-          />
-        ) : null}
       </div>
     </article>
   );

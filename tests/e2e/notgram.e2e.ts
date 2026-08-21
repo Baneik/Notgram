@@ -3192,6 +3192,18 @@ test("locally masks a group member and reveals messages at the requested scope",
   await expect(page.locator('.message-list[aria-busy="false"]')).toBeVisible();
   await expect(page.locator(".message-bubble-shell.is-local-block-concealed").first()).toBeVisible();
 
+  const keyboardRow = await revealVirtualMessage(page, "p-bot-keyboard");
+  const concealedBounds = await keyboardRow.evaluate((row) => {
+    const bubble = row.querySelector<HTMLElement>(":scope > .message-bubble-shell > .message-bubble")!;
+    const overlay = bubble.querySelector<HTMLElement>(":scope > .local-block-message-reveal")!;
+    return {
+      bubble: bubble.getBoundingClientRect().toJSON(),
+      overlay: overlay.getBoundingClientRect().toJSON(),
+    };
+  });
+  expect(Math.abs(concealedBounds.bubble.width - concealedBounds.overlay.width)).toBeLessThan(0.5);
+  expect(Math.abs(concealedBounds.bubble.height - concealedBounds.overlay.height)).toBeLessThan(0.5);
+
   await openConversationMessageSearch(page);
   await page.getByRole("searchbox", { name: "搜索会话和消息" })
     .fill("desktop-layout-review.pdf");
@@ -3225,6 +3237,9 @@ test("locally masks a group member and reveals messages at the requested scope",
     name: /显示 小熊 的连续消息和真实身份/,
   }).last();
   await animalAvatar.scrollIntoViewIfNeeded();
+  await expect.poll(() => animalAvatar.locator(".avatar > span").evaluate((label) =>
+    Number.parseFloat(getComputedStyle(label).fontSize)
+  )).toBeGreaterThanOrEqual(24);
   const groupId = await animalAvatar
     .locator("xpath=ancestor::*[contains(@class, 'message-group')]")
     .locator("[data-local-block-group]")
