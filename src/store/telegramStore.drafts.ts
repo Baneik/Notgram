@@ -1,4 +1,5 @@
 import type { ChatDraft } from "../telegram/types";
+import { hasChatDraftContent } from "../telegram/chatDraft";
 
 export const DRAFT_SYNC_DELAY_MS = 450;
 const DRAFT_ACK_TIMEOUT_MS = 5_000;
@@ -14,7 +15,7 @@ interface DraftSyncEntry {
 }
 
 export const draftForSync = (draft?: ChatDraft) =>
-  draft && (draft.text.length > 0 || draft.replyToMessageId) ? draft : undefined;
+  hasChatDraftContent(draft) ? draft : undefined;
 
 export const draftSignature = (draft?: ChatDraft) => JSON.stringify([
   draft?.text ?? "",

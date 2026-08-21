@@ -2940,7 +2940,7 @@ describe("TauriTelegramTransport message operations", () => {
       replyToMessageId: "12",
       replyQuote: { text: "draft quote", position: 7 },
     });
-    await transport.setChatDraft({ chatId: "7", text: "" });
+    await transport.setChatDraft({ chatId: "7", text: " \n\t" });
 
     expect(requests).toEqual([
       {

@@ -22,6 +22,7 @@ import {
   inputMessageText,
   numericId,
 } from "./tdlibRequests";
+import { hasChatDraftContent } from "./chatDraft";
 import {
   attachmentAlbumFamily,
   inspectOutgoingAttachment,
@@ -605,7 +606,7 @@ export class TauriMessageMediaService {
   }
 
   async setChatDraft(input: SetChatDraftInput) {
-    const hasDraft = input.text.length > 0 || Boolean(input.replyToMessageId);
+    const hasDraft = hasChatDraftContent(input);
     await this.context.request({
       "@type": "setChatDraftMessage",
       chat_id: numericId(input.chatId),

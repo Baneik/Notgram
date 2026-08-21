@@ -259,4 +259,32 @@ describe("draft sync controller", () => {
     expect(drafts.get(local.chatId)?.pending).toBe(false);
     controller.clear();
   });
+
+  it("clears drafts whose text contains only whitespace", async () => {
+    vi.useFakeTimers();
+    const local: ChatDraft = {
+      chatId: "chat-product",
+      text: " \n\t",
+      updatedAt: "2026-08-02T08:00:00Z",
+      pending: true,
+    };
+    let drafts = new Map([[local.chatId, local]]);
+    const sendDraft = vi.fn(async () => undefined);
+    const controller = new DraftSyncController({
+      isReady: () => true,
+      getDrafts: () => drafts,
+      setDrafts: (next) => { drafts = next; },
+      sendDraft,
+      reportError: vi.fn(),
+      scheduleCacheWrite: vi.fn(),
+    });
+
+    controller.expect(local.chatId, local, 0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sendDraft).toHaveBeenCalledWith(local.chatId, undefined);
+    expect(controller.acceptServerDraft(local.chatId)).toBe(true);
+    expect(drafts.has(local.chatId)).toBe(false);
+    controller.clear();
+  });
 });

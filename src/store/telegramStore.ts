@@ -1049,7 +1049,7 @@ export const createTelegramStore = (
         if (event.draft?.topicId) {
           const key = topicKey(event.chatId, event.draft.topicId);
           const drafts = new Map(get().drafts);
-          if (event.draft.text || event.draft.replyToMessageId) drafts.set(key, { ...event.draft, pending: false });
+          if (draftForSync(event.draft)) drafts.set(key, { ...event.draft, pending: false });
           else drafts.delete(key);
           set({ drafts });
           scheduleCacheWrite();

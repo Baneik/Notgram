@@ -1628,6 +1628,28 @@ test("chat list updates a draft preview only after leaving the conversation", as
 
   await page.locator('[data-chat-id="chat-mia"]').click();
   await expect(productPreview).toContainText(`草稿：${secondDraft}`);
+
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await composer.fill(" \n\t");
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, { text: string }> };
+      };
+    };
+    return storeModule.telegramStore.getState().drafts.get("chat-product")?.text;
+  }, "/src/store/telegramStore.ts")).toBe(" \n\t");
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await expect(productPreview).not.toHaveClass(/is-draft/);
+  await expect(productPreview).not.toContainText("草稿：");
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const storeModule = await import(modulePath) as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, unknown> };
+      };
+    };
+    return storeModule.telegramStore.getState().drafts.has("chat-product");
+  }, "/src/store/telegramStore.ts")).toBe(false);
 });
 
 test("member mentions stay in their chat and the resulting draft can be cleared", async ({ page }) => {

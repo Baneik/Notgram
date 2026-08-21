@@ -1,5 +1,6 @@
 import type { TelegramTransport } from "../telegram/transport";
 import type { ForumTopic, ForumTopicPage } from "../telegram/types";
+import { hasChatDraftContent } from "../telegram/chatDraft";
 import type { TelegramState } from "./telegramStore.types";
 
 type ForumStoreState = Pick<
@@ -58,7 +59,7 @@ export const createForumController = ({
         for (const topic of page.topics) {
           const key = topicKey(chatId, topic.id);
           if (drafts.get(key)?.pending) continue;
-          if (topic.draft) drafts.set(key, { ...topic.draft, pending: false });
+          if (hasChatDraftContent(topic.draft)) drafts.set(key, { ...topic.draft, pending: false });
           else drafts.delete(key);
         }
         set({ forumTopics, drafts, operationError: undefined });

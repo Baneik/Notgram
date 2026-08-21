@@ -5,6 +5,7 @@ import {
   wideMediaPreviewUrl,
 } from "./mockData";
 import { messageContentText } from "./messageContent";
+import { hasChatDraftContent } from "./chatDraft";
 import { messageSearchMatches } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
@@ -2174,7 +2175,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (!this.snapshot.chats.some((chat) => chat.id === chatId)) {
       throw new Error("找不到需要保存草稿的会话");
     }
-    const draft = text.length > 0 || replyToMessageId
+    const draft = hasChatDraftContent({ text, replyToMessageId })
       ? {
           chatId,
           topicId,

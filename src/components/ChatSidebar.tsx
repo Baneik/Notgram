@@ -13,6 +13,7 @@ import {
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { useTelegramStore } from "../store/telegramStore";
 import type { Chat, ChatDraft, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
+import { hasChatDraftContent } from "../telegram/chatDraft";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { SidebarSearchScope } from "../hooks/useSidebarSearch";
 import { formatChatTime } from "../utils/formatters";
@@ -75,7 +76,7 @@ const MAX_SIDEBAR_WIDTH = 560;
 const MIN_CONVERSATION_WIDTH = 340;
 
 const listDraft = (draft?: ChatDraft) => (
-  draft && (draft.text.length > 0 || draft.replyToMessageId) ? draft : undefined
+  hasChatDraftContent(draft) ? draft : undefined
 );
 
 export function ChatSidebar({
