@@ -12,6 +12,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type RefObject,
@@ -52,6 +53,7 @@ interface ConversationComposerProps {
   textInsertion?: ComposerTextInsertion;
   knownNonBotUsernames?: ReadonlySet<string>;
   onTextInsertionApplied?: (id: string) => void;
+  onGeometryChange?: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
@@ -92,6 +94,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   textInsertion,
   knownNonBotUsernames,
   onTextInsertionApplied,
+  onGeometryChange,
   inputRef,
   connectionStatus,
   queuedMessageCount,
@@ -112,6 +115,12 @@ export const ConversationComposer = memo(function ConversationComposer({
 }: ConversationComposerProps) {
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
   const activeReplyQuote = replyingTo ? replyQuote : chatDraft?.replyQuote;
+  const composerContextMessage = editingMessage ?? replyingTo;
+  const composerContextKey = editingMessage
+    ? `edit:${editingMessage.id}`
+    : replyingTo
+      ? `reply:${replyingTo.id}`
+      : "";
   const [draft, setDraft] = useState(chatDraft?.text ?? "");
   const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);
@@ -160,6 +169,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const emojiOpenedByHoverRef = useRef(false);
   const pendingAttachmentsRef = useRef(pendingAttachments);
   const appliedTextInsertionRef = useRef<string | undefined>(undefined);
+  const previousComposerContextKeyRef = useRef(composerContextKey);
 
   pendingAttachmentsRef.current = pendingAttachments;
 
@@ -215,7 +225,13 @@ export const ConversationComposer = memo(function ConversationComposer({
     };
   }, [defaultBotUsername, draft, editingMessage, knownNonBotUsernames, onGetBotCommands, onGetInlineResults]);
 
-  useComposerAutoResize(inputRef, draft, !composing, chatId);
+  useComposerAutoResize(inputRef, draft, !composing, chatId, onGeometryChange);
+
+  useLayoutEffect(() => {
+    if (previousComposerContextKeyRef.current === composerContextKey) return;
+    previousComposerContextKeyRef.current = composerContextKey;
+    onGeometryChange?.();
+  }, [composerContextKey, onGeometryChange]);
 
   const focusComposer = useCallback(() => {
     globalThis.setTimeout(() => inputRef.current?.focus(), 0);
@@ -681,8 +697,6 @@ export const ConversationComposer = memo(function ConversationComposer({
     onCancelReply();
     focusComposer();
   }, [chatId, focusComposer, onCancelReply, onDraftChange]);
-
-  const composerContextMessage = editingMessage ?? replyingTo;
 
   return (
     <div className="composer-wrap">

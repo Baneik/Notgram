@@ -9,6 +9,11 @@ export interface BottomReconcileStep {
   settled: boolean;
 }
 
+export interface BottomReconcileRestart {
+  state: BottomReconcileState;
+  verificationPassCount: number;
+}
+
 export type LatestScrollMode = "near" | "far";
 
 export const latestScrollMode = (
@@ -46,5 +51,19 @@ export const advanceBottomReconcile = (
   return {
     state,
     settled: stableFrames >= stableFrameCount || state.remainingFrames <= 0,
+  };
+};
+
+/** A final scroll write can change virtual-list geometry, so verify it in a bounded new pass. */
+export const restartBottomReconcileAfterWrite = (
+  wrote: boolean,
+  verificationPassCount: number,
+  maxVerificationPasses: number,
+  maxFrames: number,
+): BottomReconcileRestart | undefined => {
+  if (!wrote || verificationPassCount >= maxVerificationPasses) return undefined;
+  return {
+    state: startBottomReconcile(maxFrames),
+    verificationPassCount: verificationPassCount + 1,
   };
 };

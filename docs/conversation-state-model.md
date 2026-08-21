@@ -75,12 +75,16 @@ Bottom following has one writer: the coordinator in `useConversationScroll`.
 - Requests with the same identity and generation are coalesced; notifications do not restart the
   quiet window.
 - The coordinator samples geometry until two quiet animation frames or an eight-frame bound.
-- It may correct the first rendered mount and performs one final conditional bottom write after
-  Virtuoso has stopped changing geometry.
+- Tracking requests keep the bottom aligned while viewport or content geometry changes. A final
+  conditional write starts a bounded verification pass because that write can trigger another
+  Virtuoso measurement correction.
 - User upward intent, pointer control, a detached scroll mode, or a destination generation change
   cancels the request.
-- Content and last-item observers are not allowed to compete with the viewport observer and Virtuoso's
-  `totalListHeightChanged` signal.
+- The viewport observer, composer resize callback, message-mount callback, and Virtuoso's
+  `totalListHeightChanged` signal may report committed geometry, but only the coordinator may write
+  `scrollTop`. Observer notifications coalesce into the active request.
+- Do not observe the virtualized content node to request bottom pins. Its size can change in response
+  to a pin, creating a resize-pin-measurement feedback loop even when no application content changed.
 
 Anchor and explicit message navigation use longer quiet windows because virtual rows can mount several
 frames after the target first appears.
@@ -97,4 +101,5 @@ frames after the target first appears.
 - Async history results cannot restore an older selection or viewport command.
 
 The focused unit and browser tests cover command consistency, source-row isolation, unread-marker
-settlement, repeated warm switching, bounded geometry reads, and idle bottom stability.
+settlement, repeated warm switching, bounded geometry reads, idle bottom stability, long-message edit
+entry/cancel/save, and detached edit anchoring.

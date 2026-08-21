@@ -106,6 +106,8 @@
 - App 只维护一个带单调 `requestId` 的 `ConversationScrollRequest`，语义为 `entry`、`latest` 或 `message`。
 - 所有入口先解析目标和视口意图，再在同一个同步 React 事务中提交命令与选择；异步历史、已读和缓存工作带 generation，迟到结果失效。
 - `useConversationScroll` 是底部跟随唯一写入者。ResizeObserver、总高度变化和消息挂载只能请求合并协调，不能直接竞争 `scrollTop`。
+- 编辑/回复上下文与 textarea 高度变化必须在布局提交时通知协调器；最终贴底写入后还要经过有界的稳定性核验，不能把“已写入”当成“已稳定”。
+- 不要观察虚拟内容节点的尺寸来触发贴底；贴底本身会改变虚拟化测量，形成 resize → pin → measure 的反馈环。只观察 viewport，并使用明确的编辑器几何通知与 Virtuoso 总高度回调。
 - 底部协调器等待安静帧并做有界最终贴齐；用户向上意图、主/中键控制、detached 模式或 identity/generation 变化立即取消跟随。
 - 热会话恢复 Virtuoso `StateSnapshot` 前校验首尾消息和虚拟块身份；输入高度测量每动画帧最多一次，草稿订阅收敛到当前会话/单行。
 - 当前切换视觉快照克隆已有消息壳并复制 canvas 像素，放在 closed ShadowRoot 中，`aria-hidden`、`inert`、无 pointer events；目标 viewport ready 后 90ms 释放，最长 1500ms 强制清理，resize/卸载/新事务可中断。它不能读取、修改或决定目标状态。

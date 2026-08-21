@@ -882,6 +882,7 @@ export function Conversation({
     appendMountMessageId,
     revealAttentionMessage,
     collapseExpandedQuote,
+    reconcileBottomViewport,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,
@@ -2270,6 +2271,7 @@ export function Conversation({
         textInsertion={composerTextInsertion}
         knownNonBotUsernames={knownNonBotUsernames}
         onTextInsertionApplied={consumeComposerTextInsertion}
+        onGeometryChange={reconcileBottomViewport}
         inputRef={composerInputRef}
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { ChatProfile, Message } from "../../src/telegram/types";
 
 interface ConversationSwitchRecord {
@@ -166,6 +166,60 @@ test("authorization defaults to QR login and exposes proxy-only settings", async
   await expect(page.getByRole("combobox", { name: "国家或地区" })).toBeVisible();
   await expect(horizontalOverflow(page)).resolves.toBe(false);
 });
+
+interface BottomGeometrySample {
+  context: string;
+  distanceBottom: number;
+  latestGap: number;
+}
+
+const traceBottomGeometryWhileClicking = (
+  trigger: Locator,
+  frameCount = 30,
+): Promise<BottomGeometrySample[]> => trigger.evaluate(async (element, frames) => {
+  const read = (): BottomGeometrySample => {
+    const list = document.querySelector<HTMLElement>(".message-list");
+    const rows = list?.querySelectorAll<HTMLElement>("[data-message-id]");
+    const latest = rows?.item((rows?.length ?? 1) - 1);
+    const listBounds = list?.getBoundingClientRect();
+    return {
+      context: document.querySelector<HTMLElement>(".composer-context")?.className ?? "",
+      distanceBottom: list
+        ? list.scrollHeight - list.clientHeight - list.scrollTop
+        : Number.POSITIVE_INFINITY,
+      latestGap: listBounds && latest
+        ? listBounds.bottom - latest.getBoundingClientRect().bottom
+        : Number.POSITIVE_INFINITY,
+    };
+  };
+  const samples = [read()];
+  (element as HTMLElement).click();
+  for (let frame = 0; frame < frames; frame += 1) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => {
+      globalThis.setTimeout(resolve, 0);
+    }));
+    samples.push(read());
+  }
+  return samples;
+}, frameCount);
+
+const expectStableFollowingGeometry = (
+  samples: BottomGeometrySample[],
+  contextClass: "is-editing" | "",
+) => {
+  const matching = samples.filter(({ context }) => contextClass
+    ? context.includes(contextClass)
+    : context === "");
+  expect(matching.length, JSON.stringify(samples)).toBeGreaterThan(2);
+  expect(
+    Math.max(...matching.map(({ distanceBottom }) => Math.abs(distanceBottom))),
+    JSON.stringify(samples),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.max(...matching.map(({ latestGap }) => Math.abs(latestGap - 12))),
+    JSON.stringify(samples),
+  ).toBeLessThanOrEqual(1.5);
+};
 
 test("forum groups reopen the last topic and expose compact horizontal navigation", async ({ page }) => {
   await page.goto("/");
@@ -5826,6 +5880,85 @@ test("reply context resizes the latest viewport without moving a detached anchor
   const anchorAfterReply = await visibleMessageAnchor(page);
   expect(anchorAfterReply.id).toBe(anchorBeforeReply.id);
   expect(Math.abs(anchorAfterReply.offset - anchorBeforeReply.offset)).toBeLessThanOrEqual(1);
+});
+
+test("long message editing keeps the bottom stable through cancel and save", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+
+  const longText = Array.from(
+    { length: 18 },
+    (_, index) => `编辑稳定性第 ${index + 1} 行：保持末条消息贴底`,
+  ).join("\n");
+  await composer.fill(longText);
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const sent = page.locator(".message-row.is-outgoing", {
+    hasText: "编辑稳定性第 18 行",
+  }).last();
+  await expect(sent).toBeVisible();
+  await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+    .toBeLessThanOrEqual(1);
+
+  const openEditor = async () => {
+    await sent.locator(".message-bubble-shell").click({ button: "right" });
+    const edit = page.getByRole("menuitem", { name: "编辑", exact: true });
+    await expect(edit).toBeVisible();
+    const samples = await traceBottomGeometryWhileClicking(edit);
+    await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+    expectStableFollowingGeometry(samples, "is-editing");
+  };
+
+  await openEditor();
+  const cancelSamples = await traceBottomGeometryWhileClicking(
+    page.getByRole("button", { name: "取消编辑", exact: true }),
+  );
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  expectStableFollowingGeometry(cancelSamples, "");
+
+  await openEditor();
+  const savedText = `${longText}\n保存后仍保持稳定`;
+  await composer.fill(savedText);
+  const saveSamples = await traceBottomGeometryWhileClicking(
+    page.getByRole("button", { name: "保存编辑", exact: true }),
+    40,
+  );
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await expect(sent).toContainText("保存后仍保持稳定");
+  expectStableFollowingGeometry(saveSamples, "");
+});
+
+test("editing while detached preserves the visible message anchor", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await scrollAwayFromBottom(page);
+  const anchorBefore = await visibleMessageAnchor(page);
+  const editableMessageId = await messageList.evaluate((list) => {
+    const bounds = list.getBoundingClientRect();
+    return [...list.querySelectorAll<HTMLElement>(".message-row.is-outgoing[data-message-id]")]
+      .find((row) => {
+        const rowBounds = row.getBoundingClientRect();
+        return row.querySelector(".message-rich-text") &&
+          rowBounds.top >= bounds.top + 40 && rowBounds.bottom <= bounds.bottom - 40;
+      })?.dataset.messageId;
+  });
+  expect(editableMessageId).toBeTruthy();
+
+  const editable = page.locator(`[data-message-id="${editableMessageId}"]`);
+  await editable.locator(".message-bubble-shell").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
+  await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+  const anchorDuring = await visibleMessageAnchor(page);
+  expect(anchorDuring.id).toBe(anchorBefore.id);
+  expect(Math.abs(anchorDuring.offset - anchorBefore.offset)).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: "取消编辑", exact: true }).click();
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  const anchorAfter = await visibleMessageAnchor(page);
+  expect(anchorAfter.id).toBe(anchorBefore.id);
+  expect(Math.abs(anchorAfter.offset - anchorBefore.offset)).toBeLessThanOrEqual(1);
 });
 
 test("reply context survives concurrent message updates and is sent", async ({ page }) => {

@@ -56,6 +56,7 @@ import {
   advanceBottomReconcile,
   latestScrollMode,
   latestScrollProgress,
+  restartBottomReconcileAfterWrite,
   startBottomReconcile,
   type BottomReconcileState,
 } from "./conversationBottomState";
@@ -67,6 +68,7 @@ const BOTTOM_WHEEL_GUARD_PX = 13;
 const HISTORY_TRIGGER_PX = 64;
 const BOTTOM_RECONCILE_MAX_FRAMES = 8;
 const BOTTOM_RECONCILE_STABLE_FRAMES = 2;
+const BOTTOM_RECONCILE_MAX_VERIFICATION_PASSES = 2;
 const BOTTOM_MOTION_RECONCILE_MAX_FRAMES = 36;
 const BOTTOM_MOTION_RECONCILE_STABLE_FRAMES = BOTTOM_MOTION_RECONCILE_MAX_FRAMES + 1;
 const ANCHOR_RECONCILE_STABLE_FRAMES = 6;
@@ -80,6 +82,7 @@ const bottomScrollTop = (element: HTMLElement) =>
 
 type ScrollControlMode = "following" | "detached" | "restoring" | "navigating";
 type UserScrollDirection = "up" | "down";
+type BottomPinMode = "settle" | "track" | "motion";
 
 export interface ConversationUserScroll {
   element: HTMLDivElement;
@@ -97,8 +100,10 @@ interface BottomPinRequest {
   identity: string;
   generation: number;
   mountCommitted: boolean;
-  continuous: boolean;
+  mode: BottomPinMode;
+  maxFrames: number;
   stableFrameCount: number;
+  verificationPassCount: number;
   state: BottomReconcileState;
   onSettled: Set<() => void>;
 }
@@ -505,13 +510,18 @@ export const useConversationScroll = ({
 
   const pinToBottom = useCallback(() => {
     const element = messageListRef.current;
-    if (!element || !currentScrollKey || searchActive) return;
-    if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return;
+    if (!element || !currentScrollKey || searchActive) return false;
+    if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return false;
     const target = bottomScrollTop(element);
-    if (Math.abs(element.scrollTop - target) > 0.5) element.scrollTop = target;
+    if (Math.abs(element.scrollTop - target) <= 0.5) return false;
+    element.scrollTop = target;
+    return true;
   }, [currentScrollKey, searchActive]);
 
-  const scheduleBottomPin = useCallback((onSettled?: () => void, continuous = false) => {
+  const scheduleBottomPin = useCallback((
+    onSettled?: () => void,
+    mode: BottomPinMode = "settle",
+  ) => {
     if (!currentScrollKey || searchActive) return false;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return false;
     if (performance.now() < smoothScrollUntilRef.current) return false;
@@ -526,42 +536,60 @@ export const useConversationScroll = ({
     ) return false;
     const control = scrollControlRef.current;
     const pendingRequest = bottomPinRequestRef.current;
+    const maxFrames = mode === "motion"
+      ? BOTTOM_MOTION_RECONCILE_MAX_FRAMES
+      : BOTTOM_RECONCILE_MAX_FRAMES;
+    const stableFrameCount = mode === "motion"
+      ? BOTTOM_MOTION_RECONCILE_STABLE_FRAMES
+      : BOTTOM_RECONCILE_STABLE_FRAMES;
+    const modePriority: Record<BottomPinMode, number> = {
+      settle: 0,
+      track: 1,
+      motion: 2,
+    };
     if (
       pendingRequest?.identity === control.identity &&
       pendingRequest.generation === control.generation
     ) {
       const element = messageListRef.current;
+      let shouldPinImmediately = false;
       if (
         !pendingRequest.mountCommitted &&
         element?.querySelector("[data-message-id]")
       ) {
         pendingRequest.mountCommitted = true;
-        pinToBottom();
+        shouldPinImmediately = true;
       }
-      if (continuous && !pendingRequest.continuous) {
-        pendingRequest.continuous = true;
-        pendingRequest.stableFrameCount = BOTTOM_MOTION_RECONCILE_STABLE_FRAMES;
-        pendingRequest.state = startBottomReconcile(BOTTOM_MOTION_RECONCILE_MAX_FRAMES);
+      if (modePriority[mode] > modePriority[pendingRequest.mode]) {
+        pendingRequest.mode = mode;
+        pendingRequest.maxFrames = maxFrames;
+        pendingRequest.stableFrameCount = stableFrameCount;
+        pendingRequest.verificationPassCount = 0;
+        pendingRequest.state = startBottomReconcile(maxFrames);
+        shouldPinImmediately = pendingRequest.mountCommitted && mode !== "settle";
       }
       if (onSettled) pendingRequest.onSettled.add(onSettled);
+      if (shouldPinImmediately) pinToBottom();
     } else {
       if (bottomFrameRef.current !== undefined) {
         cancelAnimationFrame(bottomFrameRef.current);
         bottomFrameRef.current = undefined;
       }
+      const mountCommitted = Boolean(
+        messageListRef.current?.querySelector("[data-message-id]"),
+      );
       bottomPinRequestRef.current = {
         identity: control.identity,
         generation: control.generation,
-        mountCommitted: false,
-        continuous,
-        stableFrameCount: continuous
-          ? BOTTOM_MOTION_RECONCILE_STABLE_FRAMES
-          : BOTTOM_RECONCILE_STABLE_FRAMES,
-        state: startBottomReconcile(
-          continuous ? BOTTOM_MOTION_RECONCILE_MAX_FRAMES : BOTTOM_RECONCILE_MAX_FRAMES,
-        ),
+        mountCommitted,
+        mode,
+        maxFrames,
+        stableFrameCount,
+        verificationPassCount: 0,
+        state: startBottomReconcile(maxFrames),
         onSettled: new Set(onSettled ? [onSettled] : []),
       };
+      if (mountCommitted && mode !== "settle") pinToBottom();
     }
     if (bottomFrameRef.current !== undefined) return true;
     const reconcile = () => {
@@ -585,11 +613,12 @@ export const useConversationScroll = ({
         }
         return;
       }
-      if (!request.mountCommitted && element.querySelector("[data-message-id]")) {
+      const mountedThisFrame = !request.mountCommitted &&
+        Boolean(element.querySelector("[data-message-id]"));
+      if (mountedThisFrame) {
         request.mountCommitted = true;
-        pinToBottom();
       }
-      if (request.continuous) pinToBottom();
+      if (mountedThisFrame || request.mode !== "settle") pinToBottom();
       const signature = [
         element.scrollHeight,
         element.clientHeight,
@@ -602,9 +631,18 @@ export const useConversationScroll = ({
       );
       request.state = step.state;
       if (step.settled) {
-        // Virtuoso has finished applying its own measurement correction. One
-        // final write is enough to align the end sentinel with the viewport.
-        pinToBottom();
+        const restart = restartBottomReconcileAfterWrite(
+          pinToBottom(),
+          request.verificationPassCount,
+          BOTTOM_RECONCILE_MAX_VERIFICATION_PASSES,
+          request.maxFrames,
+        );
+        if (restart) {
+          request.verificationPassCount = restart.verificationPassCount;
+          request.state = restart.state;
+          bottomFrameRef.current = requestAnimationFrame(reconcile);
+          return;
+        }
         bottomPinRequestRef.current = undefined;
         request.onSettled.forEach((callback) => callback());
       } else {
@@ -644,28 +682,32 @@ export const useConversationScroll = ({
     if (!scheduleBottomPin(onSettled)) releasePositioning();
   }, [currentScrollKey, scheduleBottomPin, searchActive]);
 
+  const reconcileBottomViewport = useCallback(() => {
+    const control = scrollControlRef.current;
+    const followsLatest = control.mode === "following" ||
+      (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom");
+    const memory = currentScrollKey
+      ? conversationScrollMemory.get(currentScrollKey)
+      : undefined;
+    if (memory?.followLatest === false || !followsLatest) return false;
+    return scheduleBottomPin(undefined, "track");
+  }, [currentScrollKey, scheduleBottomPin]);
+
   useLayoutEffect(() => {
     if (!messageListElement) return;
     const viewport = messageListElement.closest<HTMLElement>(".message-list-shell") ??
       messageListElement;
-    let previousHeight = viewport.clientHeight;
+    let previousViewportHeight = viewport.clientHeight;
     const observer = new ResizeObserver(() => {
-      const nextHeight = viewport.clientHeight;
-      if (Math.abs(nextHeight - previousHeight) <= 0.5) return;
-      previousHeight = nextHeight;
-      const control = scrollControlRef.current;
-      const followsLatest = control.mode === "following" ||
-        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom");
-      const memory = currentScrollKey
-        ? conversationScrollMemory.get(currentScrollKey)
-        : undefined;
-      if (memory?.followLatest === false || !followsLatest) return;
-      pinToBottom();
-      scheduleBottomPin();
+      const nextViewportHeight = viewport.clientHeight;
+      const viewportChanged = Math.abs(nextViewportHeight - previousViewportHeight) > 0.5;
+      previousViewportHeight = nextViewportHeight;
+      if (!viewportChanged) return;
+      reconcileBottomViewport();
     });
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [currentScrollKey, messageListElement, pinToBottom, scheduleBottomPin]);
+  }, [messageListElement, reconcileBottomViewport]);
 
   const clearJumpTransition = useCallback((token?: symbol) => {
     const active = jumpSnapshotRef.current;
@@ -813,7 +855,7 @@ export const useConversationScroll = ({
         if (!valid()) return;
         smoothScrollUntilRef.current = 0;
         pinToBottom();
-        scheduleBottomPin(options?.onSettled, true);
+        scheduleBottomPin(options?.onSettled, "motion");
       };
       const animateSegment = (
         duration: number,
@@ -889,11 +931,10 @@ export const useConversationScroll = ({
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest !== true) return false;
     // The mounted row is already measurable, so expose it after the first pin.
     // The coordinator continues reconciling later Virtuoso measurements.
-    pinToBottom();
-    scheduleBottomPin();
+    scheduleBottomPin(undefined, "track");
     onSettled?.();
     return true;
-  }, [currentScrollKey, pinToBottom, scheduleBottomPin, searchActive]);
+  }, [currentScrollKey, scheduleBottomPin, searchActive]);
 
   const restoreAnchor = useCallback((
     element: HTMLElement,
@@ -1948,8 +1989,7 @@ export const useConversationScroll = ({
       (control.mode === "following" ||
         (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom"))
     ) {
-      pinToBottom();
-      scheduleBottomPin();
+      scheduleBottomPin(undefined, "track");
       return;
     }
     if (
@@ -1973,7 +2013,7 @@ export const useConversationScroll = ({
       ) return;
       restoreAnchor(element, latestMemory.anchorMessageId, latestMemory.anchorOffset);
     });
-  }, [currentScrollKey, pinToBottom, restoreAnchor, scheduleBottomPin, searchActive]);
+  }, [currentScrollKey, restoreAnchor, scheduleBottomPin, searchActive]);
 
   const onInitialRangeChanged = useCallback(() => {
     markConversationSwitch(
@@ -2155,7 +2195,7 @@ export const useConversationScroll = ({
       if (currentScrollKey) {
         adoptUserScrollMode("following");
         writeMemory(currentScrollKey, event.currentTarget, true, 0, false);
-        scheduleBottomPin();
+        scheduleBottomPin(undefined, "track");
         publishJumpHistory(currentScrollKey, []);
       }
       userIntentUntilRef.current = performance.now() + 320;
@@ -2190,7 +2230,24 @@ export const useConversationScroll = ({
       userScrollDirectionRef.current !== undefined &&
       performance.now() <= userIntentUntilRef.current;
     const userInitiated = pointerInitiated || timedIntent;
-    if (!userInitiated) return;
+    if (!userInitiated) {
+      const control = scrollControlRef.current;
+      const pendingRequest = bottomPinRequestRef.current;
+      const followsLatest = current?.followLatest !== false && (
+        control.mode === "following" ||
+        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom")
+      );
+      if (
+        followsLatest &&
+        pendingRequest?.identity === control.identity &&
+        pendingRequest.generation === control.generation &&
+        pendingRequest.mode !== "settle" &&
+        distanceFromBottom(element) > 0.5
+      ) {
+        scheduleBottomPin(undefined, "track");
+      }
+      return;
+    }
     if (
       !pointerInitiated &&
       performance.now() <= anchorCorrectionUntilRef.current
@@ -2304,6 +2361,7 @@ export const useConversationScroll = ({
     appendMountMessageId,
     revealAttentionMessage,
     collapseExpandedQuote,
+    reconcileBottomViewport,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,

@@ -39,12 +39,14 @@ const resizeComposerInput = (input: HTMLTextAreaElement) => {
     COMPOSER_TEXTAREA_MAX_HEIGHT,
     Math.max(COMPOSER_TEXTAREA_MIN_HEIGHT, contentHeight),
   );
-  if (input.getBoundingClientRect().height !== nextHeight) {
+  const resized = input.getBoundingClientRect().height !== nextHeight;
+  if (resized) {
     input.style.height = `${nextHeight}px`;
   }
   input.style.overflowY = contentHeight > COMPOSER_TEXTAREA_MAX_HEIGHT
     ? "auto"
     : "hidden";
+  return resized;
 };
 
 export const useComposerAutoResize = (
@@ -52,24 +54,28 @@ export const useComposerAutoResize = (
   content: string,
   enabled: boolean,
   scope?: string,
+  onResize?: () => void,
 ) => {
   const resizeFrameRef = useRef<number | undefined>(undefined);
   const resizeTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const resizeAndNotify = useCallback((input: HTMLTextAreaElement) => {
+    if (resizeComposerInput(input)) onResize?.();
+  }, [onResize]);
   const scheduleResize = useCallback((input: HTMLTextAreaElement) => {
     if (resizeFrameRef.current !== undefined) {
       globalThis.cancelAnimationFrame(resizeFrameRef.current);
     }
     resizeFrameRef.current = globalThis.requestAnimationFrame(() => {
       resizeFrameRef.current = undefined;
-      resizeComposerInput(input);
+      resizeAndNotify(input);
     });
-  }, []);
+  }, [resizeAndNotify]);
 
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input || !enabled) return;
-    resizeComposerInput(input);
-  }, [content, enabled, inputRef, scope]);
+    resizeAndNotify(input);
+  }, [content, enabled, inputRef, resizeAndNotify, scope]);
 
   useEffect(() => {
     const input = inputRef.current;

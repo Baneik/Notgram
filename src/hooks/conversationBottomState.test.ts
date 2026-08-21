@@ -3,6 +3,7 @@ import {
   advanceBottomReconcile,
   latestScrollMode,
   latestScrollProgress,
+  restartBottomReconcileAfterWrite,
   startBottomReconcile,
 } from "./conversationBottomState";
 
@@ -33,6 +34,19 @@ describe("conversation bottom reconcile state", () => {
     const step = advanceBottomReconcile(state, "1240:800:440", 2);
     expect(step.state.stableFrames).toBe(0);
     expect(step.settled).toBe(false);
+  });
+
+  it("starts a fresh quiet window after a final scroll write", () => {
+    const restart = restartBottomReconcileAfterWrite(true, 0, 2, 8);
+    expect(restart).toEqual({
+      state: startBottomReconcile(8),
+      verificationPassCount: 1,
+    });
+  });
+
+  it("bounds write verification and skips it when no write occurred", () => {
+    expect(restartBottomReconcileAfterWrite(false, 0, 2, 8)).toBeUndefined();
+    expect(restartBottomReconcileAfterWrite(true, 2, 2, 8)).toBeUndefined();
   });
 
   it("uses one smooth phase near the bottom and two phases for distant content", () => {
