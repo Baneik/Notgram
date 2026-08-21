@@ -28,6 +28,7 @@ import { StickerSetPreview } from "../components/StickerSetPreview";
 import { senderNameForMessage } from "../components/conversationMessages";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
+import { localUserBlocksStore } from "../store/localUserBlocks";
 import { messageContentText } from "../telegram/messageContent";
 import type { Message, TelegramLinkTarget } from "../telegram/types";
 import { isTelegramBotStartLink, isTelegramUserLink } from "../telegram/telegramLinks";
@@ -373,6 +374,12 @@ export function App() {
       if (state.activeAccountId !== accountId) return;
       const preferences = preferencesStore.getState();
       const chat = state.chats.get(message.chatId);
+      if (
+        chat?.kind === "group" &&
+        localUserBlocksStore.getState().users.some((user) =>
+          user.accountId === accountId && user.userId === message.senderId
+        )
+      ) return;
       if (!shouldNotifyMessage({
         outgoing: message.outgoing,
         notificationsEnabled: preferences.notificationsEnabled,
@@ -947,6 +954,7 @@ export function App() {
       loadContext?: boolean;
       recordNavigation?: boolean;
       preserveSearch?: boolean;
+      revealLocallyBlocked?: boolean;
     },
   ) => {
     const generation = chatOpenGenerationRef.current + 1;
@@ -1006,6 +1014,7 @@ export function App() {
         performanceTraceId,
         behavior: options?.behavior,
         highlight: options?.highlight,
+        revealLocallyBlocked: options?.revealLocallyBlocked,
       });
       if (!destinationAlreadyActive) {
         loadedState.selectChat(chatId, { forumTopicId: targetTopicId });
@@ -1482,7 +1491,10 @@ export function App() {
           onLoadMoreSearchMessages={loadMoreGlobalSearch}
           onCancelMessageSearch={cancelGlobalSearch}
           onOpenSearchMessage={(chatId, messageId) => {
-            void openGlobalSearchMessage(chatId, messageId, { preserveSearch: true });
+            void openGlobalSearchMessage(chatId, messageId, {
+              preserveSearch: true,
+              revealLocallyBlocked: true,
+            });
           }}
           searchScope={sidebarSearchScope}
           chatMessageSearch={chatMessageSearch}

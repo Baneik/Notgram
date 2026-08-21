@@ -77,6 +77,7 @@ export interface ReplyPreview {
   chatId?: string;
   messageId?: string;
   isCurrentUser?: boolean;
+  concealed?: boolean;
 }
 
 interface MessageBubbleProps {
@@ -146,6 +147,9 @@ interface MessageBubbleProps {
   albumItem?: boolean;
   autoplayAnimations: boolean;
   autoDownloadPolicy: AutoDownloadPolicy;
+  locallyConcealed?: boolean;
+  localBlockGroupId?: string;
+  onRevealLocallyBlocked?: () => void;
 }
 
 function MessageBubbleComponent({
@@ -200,6 +204,9 @@ function MessageBubbleComponent({
   albumItem = false,
   autoplayAnimations,
   autoDownloadPolicy,
+  locallyConcealed = false,
+  localBlockGroupId,
+  onRevealLocallyBlocked,
 }: MessageBubbleProps) {
   const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
   const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
@@ -666,6 +673,7 @@ function MessageBubbleComponent({
       ref={setMessageRowRef}
       className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
+      data-local-block-group={localBlockGroupId}
       onAnimationEnd={(event) => {
         if (
           event.target === event.currentTarget &&
@@ -693,9 +701,9 @@ function MessageBubbleComponent({
         </button>
       )}
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
         style={visualShellStyle}
-        tabIndex={!selectionMode && !isService ? 0 : undefined}
+        tabIndex={!locallyConcealed && !selectionMode && !isService ? 0 : undefined}
         onPointerDown={(event) => {
           contextReplyQuoteRef.current = event.button === 2
             ? selectedReplyQuoteFor(event.currentTarget)
@@ -755,7 +763,7 @@ function MessageBubbleComponent({
           )}
           {!albumItem && !isService && replyPreview && (
             <button
-              className={`message-reply-preview ${replyPreview.isCurrentUser ? "is-current-user" : ""}`}
+              className={`message-reply-preview ${replyPreview.isCurrentUser ? "is-current-user" : ""} ${replyPreview.concealed ? "is-local-block-concealed" : ""}`}
               type="button"
               disabled={!replyPreview.messageId}
               onClick={() => {
@@ -1155,6 +1163,19 @@ function MessageBubbleComponent({
           />
         )}
         {cornerAction}
+        {locallyConcealed && onRevealLocallyBlocked ? (
+          <button
+            className="local-block-message-reveal"
+            type="button"
+            aria-label={`显示一条来自${senderName}的消息`}
+            title="临时显示这条消息"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRevealLocallyBlocked();
+            }}
+          />
+        ) : null}
       </div>
     </article>
   );

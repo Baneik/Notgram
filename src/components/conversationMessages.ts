@@ -7,6 +7,7 @@ export interface ReplyPreview {
   chatId?: string;
   messageId?: string;
   isCurrentUser?: boolean;
+  concealed?: boolean;
 }
 
 export type ForwardSourceNavigation =

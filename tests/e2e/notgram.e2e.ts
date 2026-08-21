@@ -575,7 +575,8 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   await expect(page.getByRole("button", { name: "导出诊断包" })).toBeDisabled();
   await expect(page.getByRole("switch", { name: "保留脱敏崩溃报告" })).toBeDisabled();
   await expect(page.getByText("浏览器预览不生成诊断包")).toBeVisible();
-  const blockedList = page.locator(".blocked-sender-list");
+  const blockedList = page.locator(".settings-section", { hasText: "Telegram 黑名单" })
+    .locator(".blocked-sender-list");
   await expect(blockedList).toHaveAttribute("aria-busy", "false");
   await expect(blockedList.locator(".blocked-sender-row")).toHaveCount(8);
   const blockedListHeight = await blockedList
@@ -3147,6 +3148,9 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
   await profile.getByRole("button", { name: "屏蔽", exact: true }).click();
   await expect(profile.getByRole("button", { name: "解除屏蔽", exact: true })).toBeVisible();
   await profile.getByRole("button", { name: "解除屏蔽", exact: true }).click();
+  await profile.getByRole("button", { name: "加入黑名单", exact: true }).click();
+  await expect(profile.getByRole("button", { name: "移出黑名单", exact: true })).toBeVisible();
+  await profile.getByRole("button", { name: "移出黑名单", exact: true }).click();
   await profile.getByRole("button", { name: "关闭资料" }).click();
   await expect(page.locator(".conversation-profile-trigger")).toBeFocused();
 
@@ -3167,6 +3171,83 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
   expect(reportLayout).toEqual({ dialogFits: true, bodyFits: true, bodyOverflow: "visible" });
   await messageReport.getByRole("button", { name: "提交举报" }).click();
   await expect(messageReport).toBeHidden();
+});
+
+test("locally masks a group member and reveals messages at the requested scope", async ({ page }) => {
+  await page.addInitScript((storageKey) => {
+    localStorage.setItem(storageKey, JSON.stringify([{
+      accountId: "default",
+      userId: "u-mia",
+      realName: "Mia Chen",
+      realAvatar: { label: "MC", color: "#8d6cab" },
+      alias: "小熊",
+      aliasAvatar: { label: "🐻", color: "#8b6b55" },
+      identityId: "bear",
+      blockedAt: "2026-08-21T00:00:00.000Z",
+    }]));
+  }, "notgram:local-user-blocks:v1");
+
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  await expect(page.locator('.message-list[aria-busy="false"]')).toBeVisible();
+  await expect(page.locator(".message-bubble-shell.is-local-block-concealed").first()).toBeVisible();
+
+  await openConversationMessageSearch(page);
+  await page.getByRole("searchbox", { name: "搜索会话和消息" })
+    .fill("desktop-layout-review.pdf");
+  const searchResult = page.locator('[data-search-message-id="p-3"]');
+  await expect(searchResult).toContainText("desktop-layout-review.pdf");
+  await searchResult.click();
+  const searchTarget = page.locator('[data-message-id="p-3"]');
+  await expect(searchTarget.locator(":scope > .message-bubble-shell"))
+    .not.toHaveClass(/is-local-block-concealed/);
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  await expect(messageList).not.toHaveClass(/is-jump-transitioning/);
+  await messageList.hover();
+  await page.mouse.wheel(0, 100_000);
+  await expect.poll(() => messageList.evaluate((element, messageId) => {
+    const row = element.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+    if (!row) return true;
+    const listBounds = element.getBoundingClientRect();
+    const rowBounds = row.getBoundingClientRect();
+    return rowBounds.bottom <= listBounds.top + 1 || rowBounds.top >= listBounds.bottom - 1;
+  }, "p-3")).toBe(true);
+
+  const targetRow = await revealVirtualMessage(page, "p-3");
+  await expect(targetRow.locator(":scope > .message-bubble-shell"))
+    .toHaveClass(/is-local-block-concealed/);
+  await targetRow.locator(".local-block-message-reveal").click();
+  await expect(targetRow.locator(":scope > .message-bubble-shell"))
+    .not.toHaveClass(/is-local-block-concealed/);
+  await expect(page.locator(".message-bubble-shell.is-local-block-concealed").first()).toBeVisible();
+
+  const animalAvatar = page.getByRole("button", {
+    name: /显示 小熊 的连续消息和真实身份/,
+  }).last();
+  await animalAvatar.scrollIntoViewIfNeeded();
+  const groupId = await animalAvatar
+    .locator("xpath=ancestor::*[contains(@class, 'message-group')]")
+    .locator("[data-local-block-group]")
+    .first()
+    .getAttribute("data-local-block-group");
+  expect(groupId).toBeTruthy();
+  await animalAvatar.click();
+  await expect(page.locator(`[data-local-block-group="${groupId}"]`)
+    .locator(".message-bubble-shell.is-local-block-concealed"))
+    .toHaveCount(0);
+
+  await page.getByRole("button", { name: "查看 Mia Chen 资料" }).last().click();
+  await expect(page.getByRole("dialog", { name: "资料" })).toBeVisible();
+  await page.getByRole("button", { name: "关闭资料" }).click();
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await settings.getByRole("button", { name: /诊断与隐私/ }).click();
+  const localBlockSection = settings.locator(".settings-section", { hasText: "屏蔽管理" });
+  await expect(localBlockSection.getByText("Mia Chen", { exact: true })).toBeVisible();
+  await expect(localBlockSection.getByText(/群聊中显示为 小熊/)).toBeVisible();
+  await localBlockSection.getByRole("button", { name: "解除屏蔽" }).click();
+  await expect(localBlockSection.getByText("暂无屏蔽用户", { exact: true })).toBeVisible();
 });
 
 test("manages device sessions and Telegram privacy rules", async ({ page }) => {

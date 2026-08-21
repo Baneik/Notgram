@@ -3,6 +3,8 @@ import {
   AtSign,
   Ban,
   ChevronRight,
+  Eye,
+  EyeOff,
   Fingerprint,
   Flag,
   Headphones,
@@ -22,6 +24,7 @@ import { useStableVisibility } from "../hooks/useStableVisibility";
 import { openMediaViewerWindow, syncMediaViewerWindow } from "../media/mediaViewerWindowBridge";
 import type { ProfileState } from "../store/profileState";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { useLocalUserBlocks } from "../store/localUserBlocks";
 import { useTelegramStore } from "../store/telegramStore";
 import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
 import type { ChatReportOptions, ReportChatInput } from "../telegram/types";
@@ -118,8 +121,17 @@ export function ProfileDrawer({
   const [reportOpen, setReportOpen] = useState(false);
   const cacheFile = useTelegramStore((store) => store.cacheFile);
   const saveFileToDownloads = useTelegramStore((store) => store.saveFileToDownloads);
+  const activeAccountId = useTelegramStore((store) => store.activeAccountId);
+  const localBlockedUsers = useLocalUserBlocks((store) => store.users);
+  const blockLocalUser = useLocalUserBlocks((store) => store.blockUser);
+  const unblockLocalUser = useLocalUserBlocks((store) => store.unblockUser);
   const colorTheme = usePreferencesStore((store) => colorThemeForThemeId(store.themeId));
   const profile = state.value;
+  const localBlockedUser = profile?.userId
+    ? localBlockedUsers.find((user) =>
+        user.accountId === activeAccountId && user.userId === profile.userId
+      )
+    : undefined;
   const waitingForProfile = state.loading && !profile;
   const showProfileLoading = useStableVisibility(waitingForProfile);
   const showProfileSkeleton = waitingForProfile || showProfileLoading;
@@ -360,8 +372,27 @@ export function ProfileDrawer({
                       </button>
                     ) : null}
                     {profile.userId && profile.kind === "user" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (localBlockedUser) {
+                            unblockLocalUser(activeAccountId, profile.userId!);
+                          } else {
+                            blockLocalUser(activeAccountId, {
+                              id: profile.userId!,
+                              displayName: profile.title,
+                              avatar: profile.avatar,
+                            });
+                          }
+                        }}
+                      >
+                        {localBlockedUser ? <Eye size={18} /> : <EyeOff size={18} />}
+                        <span>{localBlockedUser ? "解除屏蔽" : "屏蔽"}</span>
+                      </button>
+                    ) : null}
+                    {profile.userId && profile.kind === "user" ? (
                       <button type="button" onClick={() => void onToggleBlock(profile.userId!, "user", !isBlocked)}>
-                        <Ban size={18} /><span>{isBlocked ? "解除屏蔽" : "屏蔽"}</span>
+                        <Ban size={18} /><span>{isBlocked ? "移出黑名单" : "加入黑名单"}</span>
                       </button>
                     ) : null}
                     {profile.chatId && profile.kind === "channel" ? (

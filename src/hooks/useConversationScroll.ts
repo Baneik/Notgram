@@ -142,6 +142,7 @@ export interface MessageConversationScrollRequest {
   performanceTraceId?: number;
   behavior?: "auto" | "smooth";
   highlight?: boolean;
+  revealLocallyBlocked?: boolean;
 }
 
 export type ConversationScrollRequest =

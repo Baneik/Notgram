@@ -90,6 +90,7 @@ import {
   type SelectionPointerPosition,
 } from "../utils/messageTextSelection";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
+import { useLocalUserBlocks } from "../store/localUserBlocks";
 import {
   isConversationSwitchActive,
   logPerformance,
@@ -112,11 +113,15 @@ import {
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
 import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
+import {
+  localBlockedMessageGroups,
+  replySenderId,
+} from "../utils/localBlockedMessages";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 type MessageNavigationOptions = Pick<
   MessageConversationScrollRequest,
-  "behavior" | "highlight"
+  "behavior" | "highlight" | "revealLocallyBlocked"
 > & { loadContext?: boolean };
 
 const MessageSourceLocateButton = ({
@@ -345,6 +350,28 @@ export function Conversation({
   const conversationIdentity = chat
     ? topic ? `${chat.id}:topic:${topic.id}` : chat.id
     : undefined;
+  const activeAccountId = useTelegramStore((state) => state.activeAccountId);
+  const localBlockedUsers = useLocalUserBlocks((state) => state.users);
+  const localBlockedUsersById = useMemo(() => new Map(
+    chat?.kind === "group"
+      ? localBlockedUsers
+          .filter((user) => user.accountId === activeAccountId)
+          .map((user) => [user.userId, user] as const)
+      : [],
+  ), [activeAccountId, chat?.kind, localBlockedUsers]);
+  const localBlockedUserIds = useMemo(
+    () => new Set(localBlockedUsersById.keys()),
+    [localBlockedUsersById],
+  );
+  const [revealedLocalBlockMessages, setRevealedLocalBlockMessages] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [revealedLocalBlockGroups, setRevealedLocalBlockGroups] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const seenRevealedMessagesRef = useRef(new Set<string>());
+  const seenRevealedGroupsRef = useRef(new Set<string>());
+  const handledLocalBlockRevealRequestRef = useRef<number | undefined>(undefined);
   const mobileViewHidden = mobileViewport && !mobileChatOpen;
   const knownNonBotUsernames = useMemo(() => {
     const usernames = new Set<string>();
@@ -510,6 +537,46 @@ export function Conversation({
     },
     [allPinnedMessages, displayMessages, pinnedViewOpen],
   );
+  const localBlockGroupByMessageId = useMemo(
+    () => localBlockedMessageGroups(
+      renderedMessages,
+      localBlockedUserIds,
+      !pinnedViewOpen,
+    ),
+    [localBlockedUserIds, pinnedViewOpen, renderedMessages],
+  );
+  const revealLocalBlockedMessage = useCallback((messageId: string) => {
+    seenRevealedMessagesRef.current.add(messageId);
+    setRevealedLocalBlockMessages((current) => current.has(messageId)
+      ? current
+      : new Set([...current, messageId]));
+  }, []);
+  const revealLocalBlockedGroup = useCallback((groupId: string) => {
+    seenRevealedGroupsRef.current.add(groupId);
+    setRevealedLocalBlockGroups((current) => current.has(groupId)
+      ? current
+      : new Set([...current, groupId]));
+  }, []);
+
+  useEffect(() => {
+    setRevealedLocalBlockMessages(new Set());
+    setRevealedLocalBlockGroups(new Set());
+    seenRevealedMessagesRef.current.clear();
+    seenRevealedGroupsRef.current.clear();
+  }, [conversationIdentity, localBlockedUserIds, pinnedViewOpen]);
+
+  useEffect(() => {
+    if (
+      scrollRequest?.kind !== "message" ||
+      scrollRequest.revealLocallyBlocked !== true ||
+      handledLocalBlockRevealRequestRef.current === scrollRequest.requestId ||
+      !localBlockGroupByMessageId.has(scrollRequest.messageId)
+    ) return;
+    handledLocalBlockRevealRequestRef.current = scrollRequest.requestId;
+    setRevealedLocalBlockMessages((current) => current.has(scrollRequest.messageId)
+      ? current
+      : new Set([...current, scrollRequest.messageId]));
+  }, [localBlockGroupByMessageId, scrollRequest]);
   const attentionMessageIdsToObserve = useMemo(() => {
     if (pinnedViewOpen) return EMPTY_ATTENTION_MESSAGE_IDS;
     const messageIds = new Set(attentionMessageIds);
@@ -632,11 +699,35 @@ export function Conversation({
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [chatMenuOpen, closeChatMenu]);
 
+  const forwardTargetsById = useMemo(
+    () => new Map(forwardTargets.map((target) => [target.id, target])),
+    [forwardTargets],
+  );
   const messagesById = useMemo(() => new Map(
     [...displayMessages, ...allPinnedMessages, ...renderedMessages].map((message) => [message.id, message]),
   ), [allPinnedMessages, displayMessages, renderedMessages]);
   const messagesByIdRef = useRef(messagesById);
   messagesByIdRef.current = messagesById;
+  const replyPreviewForMessage = useCallback((message: Message) => {
+    if (!chat) return undefined;
+    const preview = replyPreviewFor(
+      message,
+      messagesById,
+      users,
+      chat,
+      forwardTargetsById,
+      currentUserId,
+    );
+    if (!preview) return undefined;
+    const blockedReplyUser = localBlockedUsersById.get(replySenderId(message, messagesById) ?? "");
+    return blockedReplyUser
+      ? {
+          ...preview,
+          author: blockedReplyUser.alias,
+          concealed: true,
+        }
+      : preview;
+  }, [chat, currentUserId, forwardTargetsById, localBlockedUsersById, messagesById, users]);
   const audioPlaybackNeighborsByMessage = useMemo(() => {
     const audioMessages = renderedMessages.filter((message) =>
       message.content.kind === "media" && ["audio", "voice"].includes(message.content.mediaType)
@@ -694,10 +785,6 @@ export function Conversation({
     audioPlaybackController.registerTracks(audioTrackQueue);
   }, [audioTrackQueue]);
 
-  const forwardTargetsById = useMemo(
-    () => new Map(forwardTargets.map((target) => [target.id, target])),
-    [forwardTargets],
-  );
   const forwarding = useMessageForwarding({
     chatId: chat?.id,
     conversationIdentity,
@@ -824,6 +911,69 @@ export function Conversation({
     hideDateIndicator();
     return hideDateIndicator;
   }, [chat?.id, hideDateIndicator, pinnedViewOpen]);
+  useEffect(() => {
+    if (!messageListElement) return;
+    let frame: number | undefined;
+    const resetRevealsOutsideViewport = () => {
+      frame = undefined;
+      if (messageListElement.classList.contains("is-jump-transitioning")) {
+        scheduleReset();
+        return;
+      }
+      const rootBounds = messageListElement.getBoundingClientRect();
+      const visibleMessageIds = new Set<string>();
+      const visibleGroupIds = new Set<string>();
+      for (const row of messageListElement.querySelectorAll<HTMLElement>("[data-message-id]")) {
+        const bounds = row.getBoundingClientRect();
+        if (bounds.bottom <= rootBounds.top + 1 || bounds.top >= rootBounds.bottom - 1) continue;
+        if (row.dataset.messageId) visibleMessageIds.add(row.dataset.messageId);
+        if (row.dataset.localBlockGroup) visibleGroupIds.add(row.dataset.localBlockGroup);
+      }
+      setRevealedLocalBlockMessages((current) => {
+        let changed = false;
+        const next = new Set(current);
+        for (const messageId of current) {
+          if (visibleMessageIds.has(messageId)) {
+            seenRevealedMessagesRef.current.add(messageId);
+          } else if (seenRevealedMessagesRef.current.has(messageId)) {
+            next.delete(messageId);
+            seenRevealedMessagesRef.current.delete(messageId);
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+      setRevealedLocalBlockGroups((current) => {
+        let changed = false;
+        const next = new Set(current);
+        for (const groupId of current) {
+          if (visibleGroupIds.has(groupId)) {
+            seenRevealedGroupsRef.current.add(groupId);
+          } else if (seenRevealedGroupsRef.current.has(groupId)) {
+            next.delete(groupId);
+            seenRevealedGroupsRef.current.delete(groupId);
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+    };
+    const scheduleReset = () => {
+      if (frame !== undefined) return;
+      frame = requestAnimationFrame(resetRevealsOutsideViewport);
+    };
+    scheduleReset();
+    messageListElement.addEventListener("scroll", scheduleReset, { passive: true });
+    globalThis.addEventListener("resize", scheduleReset);
+    const mutationObserver = new MutationObserver(scheduleReset);
+    mutationObserver.observe(messageListElement, { childList: true, subtree: true });
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      messageListElement.removeEventListener("scroll", scheduleReset);
+      globalThis.removeEventListener("resize", scheduleReset);
+      mutationObserver.disconnect();
+    };
+  }, [messageListElement]);
   useEffect(() => {
     if (!messageListElement) return;
     const hideAtBottom = () => {
@@ -1290,7 +1440,9 @@ export function Conversation({
     : replyingTo
       ? `回复 ${senderNameForMessage(replyingTo, users, chat, forwardTargetsById)}`
       : undefined;
-  const typingNames = typingUserIds.map((userId) => users.get(userId)?.displayName ?? "成员");
+  const typingNames = typingUserIds.map((userId) =>
+    localBlockedUsersById.get(userId)?.alias ?? users.get(userId)?.displayName ?? "成员"
+  );
   const typingStatus = typingUserIds.length === 0 || chat.kind === "saved" || chat.kind === "channel"
     ? undefined
     : chat.kind === "direct"
@@ -1694,12 +1846,23 @@ export function Conversation({
             const sender = users.get(firstMessage.senderId);
             const senderChat = senderChatId(firstMessage.senderId);
             const senderChatDetails = senderChat ? forwardTargetsById.get(senderChat) : undefined;
-            const senderName = sender?.displayName ??
+            const realSenderName = sender?.displayName ??
               senderChatDetails?.title ??
               (chat.kind === "direct" ? chat.title : "Telegram 用户");
-            const senderAvatar = sender?.avatar ??
+            const realSenderAvatar = sender?.avatar ??
               senderChatDetails?.avatar ??
               (chat.kind === "direct" ? chat.avatar : undefined);
+            const localBlockedUser = localBlockedUsersById.get(firstMessage.senderId);
+            const localBlockGroup = localBlockGroupByMessageId.get(firstMessage.id);
+            const localBlockGroupRevealed = Boolean(
+              localBlockGroup && revealedLocalBlockGroups.has(localBlockGroup.id)
+            );
+            const senderName = localBlockedUser && !localBlockGroupRevealed
+              ? localBlockedUser.alias
+              : realSenderName;
+            const senderAvatar = localBlockedUser && !localBlockGroupRevealed
+              ? localBlockedUser.aliasAvatar
+              : realSenderAvatar;
             return (
               <Fragment key={firstMessage.id}>
               {startsNewDay && (
@@ -1714,11 +1877,23 @@ export function Conversation({
                       <button
                         className="message-sender-avatar"
                         type="button"
-                        aria-label={`查看 ${senderName} 资料`}
-                        onClick={() => onOpenSenderProfile(firstMessage.senderId)}
+                        aria-label={localBlockedUser && !localBlockGroupRevealed
+                          ? `显示 ${localBlockedUser.alias} 的连续消息和真实身份`
+                          : `查看 ${senderName} 资料`}
+                        title={localBlockedUser && !localBlockGroupRevealed
+                          ? "临时显示这个消息组"
+                          : "查看资料"}
+                        onClick={() => {
+                          if (localBlockedUser && localBlockGroup && !localBlockGroupRevealed) {
+                            revealLocalBlockedGroup(localBlockGroup.id);
+                            return;
+                          }
+                          onOpenSenderProfile(firstMessage.senderId);
+                        }}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
+                          if (localBlockedUser && !localBlockGroupRevealed) return;
                           setSenderMenu({
                             senderId: firstMessage.senderId,
                             senderName,
@@ -1729,6 +1904,7 @@ export function Conversation({
                         onKeyDown={(event) => {
                           if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
                           event.preventDefault();
+                          if (localBlockedUser && !localBlockGroupRevealed) return;
                           const bounds = event.currentTarget.getBoundingClientRect();
                           setSenderMenu({
                             senderId: firstMessage.senderId,
@@ -1761,31 +1937,46 @@ export function Conversation({
                       );
                       const forwardSource = forwardSourceFor(message, users, forwardTargetsById);
                       const forwardNavigation = forwardSource?.navigation;
+                      const blockedUser = localBlockedUsersById.get(message.senderId);
+                      const blockedGroup = localBlockGroupByMessageId.get(message.id);
+                      const blockedGroupRevealed = Boolean(
+                        blockedGroup && revealedLocalBlockGroups.has(blockedGroup.id)
+                      );
+                      const locallyConcealed = Boolean(
+                        blockedUser &&
+                        !blockedGroupRevealed &&
+                        !revealedLocalBlockMessages.has(message.id)
+                      );
+                      const displayedSenderName = blockedUser && !blockedGroupRevealed
+                        ? blockedUser.alias
+                        : senderName;
                       return <RichMessageBubble
                         key={message.renderKey ?? message.id}
                         message={message}
                         entrance={entrance}
-                        senderName={senderName}
-                        senderLabel={message.senderTag || memberLabels.get(message.senderId)}
-                        senderProfileAvailable={!message.outgoing && message.senderId !== "unknown"}
+                        senderName={displayedSenderName}
+                        senderLabel={blockedUser && !blockedGroupRevealed
+                          ? undefined
+                          : message.senderTag || memberLabels.get(message.senderId)}
+                        senderProfileAvailable={
+                          !message.outgoing &&
+                          message.senderId !== "unknown" &&
+                          (!blockedUser || blockedGroupRevealed)
+                        }
                         channelAuthor={channelAuthorFor(message)}
                         showChannelMetadata={displaysChannelMetadata(message)}
                         serviceMembers={message.content.kind === "service"
-                          ? message.content.memberUserIds?.map((userId) => ({
-                              id: userId,
-                              name: users.get(userId)?.displayName ?? "Telegram 用户",
-                              profileAvailable: users.has(userId),
-                            }))
+                          ? message.content.memberUserIds?.map((userId) => {
+                              const blockedMember = localBlockedUsersById.get(userId);
+                              return {
+                                id: userId,
+                                name: blockedMember?.alias ?? users.get(userId)?.displayName ?? "Telegram 用户",
+                                profileAvailable: !blockedMember && users.has(userId),
+                              };
+                            })
                           : undefined}
                         groupPosition={positions.get(message.id) ?? "single"}
-                        replyPreview={replyPreviewFor(
-                          message,
-                          messagesById,
-                          users,
-                          chat,
-                          forwardTargetsById,
-                          currentUserId,
-                        )}
+                        replyPreview={replyPreviewForMessage(message)}
                         forwardLabel={forwardSource?.label}
                         onOpenForwardSource={!selectionMode && forwardNavigation ? () => {
                           if (forwardNavigation.kind === "message") {
@@ -1841,18 +2032,16 @@ export function Conversation({
                         albumItem={albumItem}
                         autoplayAnimations={autoplayAnimations}
                         autoDownloadPolicy={autoDownloadPolicy}
+                        locallyConcealed={locallyConcealed}
+                        localBlockGroupId={blockedGroup?.id}
+                        onRevealLocallyBlocked={blockedUser
+                          ? () => revealLocalBlockedMessage(message.id)
+                          : undefined}
                       />;
                     };
                     if (segment.kind === "message") return renderBubble(segment.message);
 
-                    const albumReply = segment.messages.map((message) => replyPreviewFor(
-                      message,
-                      messagesById,
-                      users,
-                      chat,
-                      forwardTargetsById,
-                      currentUserId,
-                    )).find(Boolean);
+                    const albumReply = segment.messages.map(replyPreviewForMessage).find(Boolean);
                     const albumRows = layoutMediaAlbum(segment.messages);
                     return (
                       <div
@@ -1864,7 +2053,7 @@ export function Conversation({
                       >
                         {albumReply && (
                           <button
-                            className={`message-reply-preview media-album-reply ${albumReply.isCurrentUser ? "is-current-user" : ""}`}
+                            className={`message-reply-preview media-album-reply ${albumReply.isCurrentUser ? "is-current-user" : ""} ${albumReply.concealed ? "is-local-block-concealed" : ""}`}
                             type="button"
                             disabled={!albumReply.messageId}
                             onClick={() => {

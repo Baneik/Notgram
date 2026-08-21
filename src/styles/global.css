@@ -1048,6 +1048,24 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-bubble-shell.has-inline-keyboard { width: 440px; }
 .message-bubble-shell.is-visual-shell { width: min(var(--visual-card-width, 390px), 100%); }
 .message-bubble-shell.is-visual-shell .message-bubble { width: 100%; }
+.message-bubble-shell.is-local-block-concealed { overflow: hidden; border-radius: 6px; }
+.message-bubble-shell.is-local-block-concealed > .message-bubble > :not(.message-sender-row),
+.message-bubble-shell.is-local-block-concealed > .message-inline-keyboard,
+.message-bubble-shell.is-local-block-concealed > .message-source-locate {
+  filter: blur(5px); opacity: .58; pointer-events: none; user-select: none; -webkit-user-select: none;
+}
+.message-bubble-shell.is-local-block-concealed.is-visual-shell > .message-bubble .photo-preview,
+.message-bubble-shell.is-local-block-concealed.is-sticker-shell > .message-bubble .photo-preview {
+  filter: blur(15px) saturate(.72); transform: scale(1.06); transform-origin: center;
+}
+.local-block-message-reveal {
+  position: absolute; z-index: 45; inset: 0; width: 100%; height: 100%; padding: 0;
+  border: 0; border-radius: inherit; cursor: pointer;
+  background-color: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='.16'/%3E%3C/svg%3E");
+}
+.local-block-message-reveal:hover { background-color: color-mix(in srgb, var(--color-text-primary) 12%, transparent); }
+.local-block-message-reveal:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
 .media-album { width: min(74%, 540px); margin: 1px 0; align-self: flex-start; overflow: hidden; background: var(--color-message-incoming); border-radius: 8px; box-shadow: 0 1px 2px var(--color-shadow); }
 .media-album.is-outgoing { align-self: flex-end; background: var(--outgoing); }
 .media-album-grid { display: grid; gap: 2px; overflow: hidden; background: var(--line); }
@@ -1161,6 +1179,8 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-reply-preview strong { color: var(--color-text-link); font-size: 11px; }
 .message-reply-preview small { color: var(--muted); font-size: 11px; }
 .message-reply-preview.is-current-user { border-left-color: var(--color-status-success); background: color-mix(in srgb, var(--color-status-success) 8%, transparent); }
+.message-reply-preview.is-local-block-concealed strong,
+.message-reply-preview.is-local-block-concealed small { filter: blur(3px); opacity: .64; }
 .message-reply-preview.is-current-user strong { color: var(--color-status-success); }
 .message-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--chat-font-size); line-height: 1.48; }
 .message-rich-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--chat-font-size); line-height: 1.48; user-select: text; -webkit-user-select: text; }

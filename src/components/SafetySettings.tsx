@@ -1,5 +1,6 @@
-import { Ban, Check, LoaderCircle, LogOut, MonitorSmartphone, ShieldAlert, UserRoundX } from "lucide-react";
+import { Ban, Check, EyeOff, LoaderCircle, LogOut, MonitorSmartphone, ShieldAlert, UserRoundX } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useLocalUserBlocks } from "../store/localUserBlocks";
 import { useTelegramStore } from "../store/telegramStore";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { ChatReportOptions, DeviceSession, PrivacyRule, PrivacySettingKey, ReportChatInput } from "../telegram/types";
@@ -60,6 +61,10 @@ export function ReportDialog({ chatId, messageIds, title, onGetOptions, onSubmit
 }
 
 export function SafetySettings() {
+  const activeAccountId = useTelegramStore((state) => state.activeAccountId);
+  const localBlockedUsers = useLocalUserBlocks((state) => state.users)
+    .filter((user) => user.accountId === activeAccountId);
+  const unblockLocalUser = useLocalUserBlocks((state) => state.unblockUser);
   const blockedSenders = useTelegramStore((state) => state.blockedSenders);
   const loading = useTelegramStore((state) => state.blockedSendersLoading);
   const showLoading = useStableVisibility(loading);
@@ -100,11 +105,41 @@ export function SafetySettings() {
   };
   return (
     <div className="settings-group safety-settings">
+      <section className="settings-section" aria-labelledby="local-blocked-users-heading">
+        <div className="settings-section-heading">
+          <EyeOff size={18} />
+          <div>
+            <h4 id="local-blocked-users-heading">屏蔽管理</h4>
+            <span>在所有群聊中用动物身份遮罩这些用户</span>
+          </div>
+        </div>
+        <div className="blocked-sender-list local-blocked-user-list">
+          {localBlockedUsers.length === 0 ? (
+            <p className="settings-empty">暂无屏蔽用户</p>
+          ) : localBlockedUsers.map((user) => (
+            <div className="blocked-sender-row" key={`${user.accountId}:${user.userId}`}>
+              <Avatar avatar={user.realAvatar} size="small" />
+              <span>
+                <strong>{user.realName}</strong>
+                <small>群聊中显示为 {user.alias} {user.aliasAvatar.label}</small>
+              </span>
+              <button
+                className="dialog-secondary"
+                type="button"
+                onClick={() => unblockLocalUser(activeAccountId, user.userId)}
+              >
+                <UserRoundX size={14} />
+                解除屏蔽
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
       <section className="settings-section" aria-labelledby="blocked-senders-heading">
         <div className="settings-section-heading">
           <Ban size={18} />
           <div>
-            <h4 id="blocked-senders-heading">黑名单</h4>
+            <h4 id="blocked-senders-heading">Telegram 黑名单</h4>
             <span>屏蔽对象不会再出现在消息通知中</span>
           </div>
         </div>
