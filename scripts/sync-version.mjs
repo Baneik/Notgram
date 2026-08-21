@@ -30,7 +30,7 @@ function updateJson(relativePath, update) {
 
 function updatePackageSection(relativePath) {
   const currentText = readText(relativePath);
-  const sectionStart = currentText.search(/^\[package\]\s*$/m);
+  const sectionStart = currentText.search(/^\[package\][ \t]*\r?$/m);
   if (sectionStart < 0) {
     throw new Error(`${relativePath} does not contain a [package] section.`);
   }
@@ -39,14 +39,15 @@ function updatePackageSection(relativePath) {
   const nextSectionOffset = currentText.slice(sectionBodyStart).search(/^\[/m);
   const sectionEnd = nextSectionOffset < 0 ? currentText.length : sectionBodyStart + nextSectionOffset;
   const section = currentText.slice(sectionBodyStart, sectionEnd);
-  const matches = [...section.matchAll(/^version\s*=\s*"([^"]+)"\s*$/gm)];
+  const packageVersionPattern = /^version[ \t]*=[ \t]*"([^"]+)"[ \t]*(\r?)$/gm;
+  const matches = [...section.matchAll(packageVersionPattern)];
   if (matches.length !== 1) {
     throw new Error(`${relativePath} must contain exactly one package version.`);
   }
 
   const nextSection = section.replace(
-    /^version\s*=\s*"[^"]+"\s*$/m,
-    `version = "${version}"`,
+    packageVersionPattern,
+    (_match, _currentVersion, carriageReturn) => `version = "${version}"${carriageReturn}`,
   );
   const nextText = `${currentText.slice(0, sectionBodyStart)}${nextSection}${currentText.slice(sectionEnd)}`;
   if (nextText !== currentText) {
@@ -56,9 +57,9 @@ function updatePackageSection(relativePath) {
 
 function updateCargoLock(relativePath) {
   const currentText = readText(relativePath);
-  const packageBlocks = currentText.split(/(?=^\[\[package\]\]\s*$)/m);
+  const packageBlocks = currentText.split(/(?=^\[\[package\]\][ \t]*\r?$)/m);
   const matchingIndexes = packageBlocks
-    .map((block, index) => (/^name\s*=\s*"notgram"\s*$/m.test(block) ? index : -1))
+    .map((block, index) => (/^name[ \t]*=[ \t]*"notgram"[ \t]*\r?$/m.test(block) ? index : -1))
     .filter((index) => index >= 0);
 
   if (matchingIndexes.length !== 1) {
@@ -66,9 +67,10 @@ function updateCargoLock(relativePath) {
   }
 
   const index = matchingIndexes[0];
+  const packageVersionPattern = /^version[ \t]*=[ \t]*"([^"]+)"[ \t]*(\r?)$/gm;
   packageBlocks[index] = packageBlocks[index].replace(
-    /^version\s*=\s*"[^"]+"\s*$/m,
-    `version = "${version}"`,
+    packageVersionPattern,
+    (_match, _currentVersion, carriageReturn) => `version = "${version}"${carriageReturn}`,
   );
   const nextText = packageBlocks.join("");
   if (nextText !== currentText) {
