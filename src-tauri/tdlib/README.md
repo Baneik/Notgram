@@ -1,8 +1,10 @@
 # TDLib runtime
 
-Run `powershell -ExecutionPolicy Bypass -File scripts/build-tdlib.ps1` from the
-repository root to build the pinned official TDLib source and populate this
-directory. The runtime files are intentionally ignored by Git.
+Run `npm run tdlib:fetch` from the repository root to download the pinned
+Windows x64 runtime from the matching GitHub Release. The archive and each DLL
+are checked against `scripts/tdlib/version.json` before this directory changes.
+Run `npm run tdlib:build` instead to build the pinned official TDLib source and
+populate this directory locally. Runtime files remain ignored by Git.
 
 Expected JSON dynamic library names:
 
@@ -14,6 +16,6 @@ You can instead set `NOTGRAM_TDLIB_PATH` to the dynamic library or its containin
 
 Windows builds also include the OpenSSL and zlib runtime DLLs required by
 `tdjson.dll`. Dependency licenses are stored in `licenses/` and packaged with
-the application. The pinned TDLib commit, vcpkg baseline, and required runtime
-files are recorded in `scripts/tdlib/version.json`; verify a populated runtime
-with `powershell -File scripts/verify-tdlib.ps1`.
+the application. The pinned TDLib commit, vcpkg baseline, prebuilt archive, and
+required runtime files are recorded in `scripts/tdlib/version.json`; verify a
+populated runtime with `npm run verify:tdlib`.

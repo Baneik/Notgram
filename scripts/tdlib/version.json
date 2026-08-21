@@ -2,26 +2,37 @@
   "repository": "https://github.com/tdlib/td.git",
   "commit": "022d60202e446ad1287b9fb68e687c8a0760788b",
   "vcpkgBaseline": "bf144d19bbc8b6961b61b8eac107750b698a454a",
+  "prebuilt": {
+    "target": "x86_64-pc-windows-msvc",
+    "releaseTag": "v0.5.0-rc.3",
+    "asset": "Notgram-TDLib-022d6020-windows-x64.zip",
+    "url": "https://github.com/Baneik/Notgram/releases/download/v0.5.0-rc.3/Notgram-TDLib-022d6020-windows-x64.zip",
+    "sha256": "71ed83e4c679f6d80530e9022677729b4d8b729600b6d7240d231e3dc0ba2bdc"
+  },
   "runtime": [
     {
       "file": "tdjson.dll",
       "component": "TDLib",
-      "license": "TDLib-LICENSE_1_0.txt"
+      "license": "TDLib-LICENSE_1_0.txt",
+      "sha256": "8ba07273dd4f56c707f7b2c7722251bc378d04115d1e7dd2f6b9a7f09cc319aa"
     },
     {
       "file": "libcrypto-3-x64.dll",
       "component": "OpenSSL",
-      "license": "OpenSSL.txt"
+      "license": "OpenSSL.txt",
+      "sha256": "ad164fe481d14b99110a76a5fee04fac377a261d47425f6d32fb91d2b26d3199"
     },
     {
       "file": "libssl-3-x64.dll",
       "component": "OpenSSL",
-      "license": "OpenSSL.txt"
+      "license": "OpenSSL.txt",
+      "sha256": "48d9309690987b376c5d868dd02940ce2248ebf1c9febb3b04fe282ebb013fc0"
     },
     {
       "file": "z.dll",
       "component": "zlib",
-      "license": "zlib.txt"
+      "license": "zlib.txt",
+      "sha256": "bf871d3b251c31daf020694270bdd2373cb2202c8c848de18ff2a7005574236f"
     }
   ]
 }

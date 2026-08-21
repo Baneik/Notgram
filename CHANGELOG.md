@@ -36,10 +36,12 @@ with prerelease identifiers used for release candidates.
   selecting compact rows from item count and source proportions so mixed albums
   no longer leave an empty grid cell.
 
-## [0.5.0-rc.3] - 2026-08-12
+## [0.5.0-rc.3] - 2026-08-21
 
 ### Added
 
+- Offer a hash-pinned Windows x64 TDLib runtime package alongside source builds,
+  with verified Release download and selectable CI preparation paths.
 - Start Notgram automatically after Windows sign-in through an explicit desktop
   setting, keeping automatic launches quietly available from the system tray.
 - Restore the main window's last normal position, size, and maximized state on the

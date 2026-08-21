@@ -13,16 +13,26 @@ Set `VITE_TELEGRAM_TRANSPORT=mock`, then open `http://127.0.0.1:1420`. Use `http
 
 ## Native TDLib development
 
-On Windows with Visual Studio 2022 Build Tools installed, build the pinned
-official TDLib source and copy its runtime dependencies with:
+The native application needs a Windows x64 TDLib runtime. The fastest setup is
+to download the pinned prebuilt package from the matching GitHub Release:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-tdlib.ps1
+npm run tdlib:fetch
 ```
 
-The initial build downloads the source and dependencies and can take several
-minutes. Subsequent builds reuse `vendor/`. You can alternatively put a
-compatible library in `src-tauri/tdlib/`, or set `NOTGRAM_TDLIB_PATH` to the
+The download is accepted only when the archive SHA-256 and all four runtime
+file hashes match `scripts/tdlib/version.json`. To build the same pinned TDLib
+commit from official source instead, install Visual Studio 2022 Build Tools with
+the Desktop development with C++ workload and run:
+
+```powershell
+npm run tdlib:build
+```
+
+The initial source build downloads TDLib and vcpkg dependencies and can take
+several minutes. Subsequent builds reuse `vendor/`. Source builds are validated
+for required files and exports but are not required to be byte-identical to the
+published package. You can also set `NOTGRAM_TDLIB_PATH` to a compatible custom
 library or its containing directory.
 
 Create `.env` from `.env.example`, set the native transport and API credentials,
@@ -32,7 +42,6 @@ then start the application:
 VITE_TELEGRAM_TRANSPORT=tauri
 NOTGRAM_API_ID=123456
 NOTGRAM_API_HASH=replace_with_your_value
-NOTGRAM_TDLIB_PATH=C:\path\to\tdjson.dll
 ```
 
 ```powershell
@@ -41,8 +50,9 @@ npm run tauri dev
 
 `NOTGRAM_API_ID` and `NOTGRAM_API_HASH` are consumed by Rust and are not sent to
 the webview. `.env`, TDLib binaries, source, dependencies, and build outputs are
-ignored by Git. The build script pins TDLib and vcpkg revisions in
-`scripts/build-tdlib.ps1` and `scripts/tdlib/vcpkg.json`.
+ignored by Git. TDLib source revisions, prebuilt Release location, runtime
+hashes, and the vcpkg baseline are pinned in `scripts/tdlib/version.json` and
+`scripts/tdlib/vcpkg.json`.
 
 New account databases receive a random per-account encryption key protected for
 the current Windows user. `NOTGRAM_DATABASE_KEY_BASE64` is only an explicit
@@ -121,6 +131,9 @@ npm run test:e2e  # Headless Chromium desktop/mobile flows
 npm run test:native-smoke -- -Profile Clean # Prepare an isolated native smoke run
 npm run check     # Frontend plus Rust formatting, lint, and tests
 npm run check:release # Full check plus a native release build
+npm run tdlib:fetch # Download and verify the pinned Windows x64 runtime
+npm run tdlib:build # Build the pinned TDLib source locally
+npm run verify:tdlib # Inspect the installed TDLib runtime and hashes
 npm run tauri dev # Native desktop shell
 npm run build:portable # Fast local portable build using .env; never replaces artifacts
 npm run publish:portable # Build a traceable portable ZIP in artifacts/

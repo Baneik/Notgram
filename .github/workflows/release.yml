@@ -2,6 +2,15 @@ name: Windows release
 
 on:
   workflow_dispatch:
+    inputs:
+      tdlib_source:
+        description: TDLib runtime source
+        required: true
+        default: prebuilt
+        type: choice
+        options:
+          - prebuilt
+          - source
   push:
     tags:
       - "v*"
@@ -44,10 +53,18 @@ jobs:
         run: scripts/release-preflight.ps1 -RequireTag
       - run: npm run check
       - run: npm run test:e2e
-      - name: Build pinned TDLib
+      - name: Prepare pinned TDLib
         shell: pwsh
+        env:
+          NOTGRAM_TDLIB_SOURCE: ${{ inputs.tdlib_source || 'source' }}
         run: |
-          scripts/build-tdlib.ps1
+          if ($env:NOTGRAM_TDLIB_SOURCE -eq "prebuilt") {
+            scripts/fetch-tdlib.ps1
+          } elseif ($env:NOTGRAM_TDLIB_SOURCE -eq "source") {
+            scripts/build-tdlib.ps1
+          } else {
+            throw "Unsupported TDLib source: $env:NOTGRAM_TDLIB_SOURCE"
+          }
           cargo test --manifest-path src-tauri/Cargo.toml bundled_tdjson_exports_current_json_api
           if ($LASTEXITCODE -ne 0) { throw "Bundled TDLib export test failed." }
       - name: Verify isolated version upgrade
@@ -141,14 +158,19 @@ jobs:
             Get-ChildItem artifacts/Notgram-*-installer -File
           )
           if ($assets.Count -eq 0) { throw "No release assets were staged." }
-          $arguments = @(
-            "release", "create", $env:GITHUB_REF_NAME,
-            "--verify-tag",
-            "--title", "Notgram $env:GITHUB_REF_NAME",
-            "--generate-notes"
-          )
-          $arguments += $assets.FullName
-          & gh @arguments
+          & gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            & gh release upload $env:GITHUB_REF_NAME --clobber @($assets.FullName)
+          } else {
+            $arguments = @(
+              "release", "create", $env:GITHUB_REF_NAME,
+              "--verify-tag",
+              "--title", "Notgram $env:GITHUB_REF_NAME",
+              "--generate-notes"
+            )
+            $arguments += $assets.FullName
+            & gh @arguments
+          }
           if ($LASTEXITCODE -ne 0) { throw "GitHub release publication failed." }
       - name: Remove signing certificate
         if: always()
