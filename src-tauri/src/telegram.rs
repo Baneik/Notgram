@@ -1119,6 +1119,17 @@ mod tests {
             Ok("info")
         );
     }
+
+    #[test]
+    fn pasted_upload_paths_isolate_repeated_file_names() {
+        let cache_root = PathBuf::from(r"C:\cache\pasted-uploads");
+        let first = pasted_upload_path(&cache_root, "image.png", 0);
+        let second = pasted_upload_path(&cache_root, "image.png", 1);
+
+        assert_ne!(first, second);
+        assert_eq!(first.file_name(), second.file_name());
+        assert_ne!(first.parent(), second.parent());
+    }
 }
 
 #[tauri::command]
@@ -1245,6 +1256,12 @@ fn pasted_upload_file_name(name: &str, index: usize) -> String {
     }
 }
 
+fn pasted_upload_path(cache_root: &std::path::Path, name: &str, index: usize) -> PathBuf {
+    cache_root
+        .join(format!("attachment-{}", index + 1))
+        .join(pasted_upload_file_name(name, index))
+}
+
 fn decode_pasted_upload(
     data_base64: String,
     label: &str,
@@ -1319,7 +1336,12 @@ pub async fn telegram_send_pasted_files(
             return Err("Invalid pasted file MIME type".to_string());
         }
         let bytes = decode_pasted_upload(file.data_base64, "Pasted file", MAX_PASTED_UPLOAD_BYTES)?;
-        let path = cache_root.join(pasted_upload_file_name(&file.name, index));
+        let path = pasted_upload_path(&cache_root, &file.name, index);
+        fs::create_dir_all(
+            path.parent()
+                .ok_or_else(|| "Unable to resolve pasted upload cache directory".to_string())?,
+        )
+        .map_err(|error| format!("Unable to create pasted upload cache: {error}"))?;
         fs::write(&path, bytes)
             .map_err(|error| format!("Unable to cache pasted upload: {error}"))?;
         let thumbnail = if let Some(thumbnail) = file.thumbnail {

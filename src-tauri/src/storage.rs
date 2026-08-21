@@ -246,20 +246,41 @@ pub fn telegram_clear_media_cache(
 }
 
 fn remove_empty_sent_media_directories(root: &Path, modified_before: SystemTime) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
+    fn prune(directory: &Path, modified_before: SystemTime) {
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
         };
-        let old_enough = entry
+        let child_directories = entries
+            .flatten()
+            .filter_map(|entry| {
+                let file_type = entry.file_type().ok()?;
+                (file_type.is_dir() && !file_type.is_symlink()).then(|| entry.path())
+            })
+            .collect::<Vec<_>>();
+        for child in child_directories {
+            prune(&child, modified_before);
+        }
+        let old_enough = directory
             .metadata()
             .and_then(|metadata| metadata.modified())
             .is_ok_and(|modified| modified <= modified_before);
-        if file_type.is_dir() && !file_type.is_symlink() && old_enough {
-            let _ = fs::remove_dir(entry.path());
+        if old_enough {
+            let _ = fs::remove_dir(directory);
         }
+    }
+
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    let batch_directories = entries
+        .flatten()
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            (file_type.is_dir() && !file_type.is_symlink()).then(|| entry.path())
+        })
+        .collect::<Vec<_>>();
+    for directory in batch_directories {
+        prune(&directory, modified_before);
     }
 }
 
@@ -1020,6 +1041,23 @@ mod tests {
         )
         .unwrap();
         assert!(expired.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn removes_nested_empty_sent_media_directories() {
+        let root = unique_test_directory("nested-sent-media-cleanup");
+        let attachment_directory = root.join("batch-1").join("attachment-1");
+        fs::create_dir_all(&attachment_directory).unwrap();
+
+        remove_empty_sent_media_directories(
+            &root,
+            SystemTime::now()
+                .checked_add(Duration::from_secs(60))
+                .unwrap(),
+        );
+
+        assert!(!root.join("batch-1").exists());
         fs::remove_dir_all(root).unwrap();
     }
 

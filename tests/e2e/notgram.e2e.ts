@@ -4737,11 +4737,22 @@ test("media cards preserve media width while giving captions a stable reading wi
 test("pasted images preview, respect Telegram's album limit, and send as one album", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });
-  await composer.evaluate((element) => {
+  await composer.evaluate(async (element) => {
     const data = new DataTransfer();
-    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (character) => character.charCodeAt(0));
     for (let index = 1; index <= 11; index += 1) {
-      data.items.add(new File([bytes], `paste-${index}.png`, { type: "image/png" }));
+      const canvas = document.createElement("canvas");
+      canvas.width = 2;
+      canvas.height = 2;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Missing canvas context");
+      context.fillStyle = `hsl(${index * 31} 90% 50%)`;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Unable to encode PNG")), "image/png");
+      });
+      data.items.add(new File([blob], index <= 2 ? "paste.png" : `paste-${index}.png`, {
+        type: "image/png",
+      }));
     }
     element.dispatchEvent(new ClipboardEvent("paste", {
       bubbles: true,
@@ -4766,6 +4777,9 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await expect(composer).toHaveValue("");
   const sentAlbum = page.locator(".media-album.is-outgoing").last();
   await expect(sentAlbum.locator(".media-album-grid img")).toHaveCount(2);
+  await expect.poll(() => sentAlbum.locator(".media-album-grid img").evaluateAll((images) =>
+    new Set(images.map((image) => (image as HTMLImageElement).currentSrc)).size,
+  )).toBe(2);
   await expect(sentAlbum.locator(".media-album-captions")).toHaveCount(0);
   await expect(sentAlbum).not.toContainText("粘贴图片说明");
   await expect(composer).toBeFocused();
