@@ -3255,9 +3255,22 @@ test("locally masks a group member and reveals messages at the requested scope",
     name: /显示 小熊 的连续消息和真实身份/,
   }).last();
   await animalAvatar.scrollIntoViewIfNeeded();
-  await expect.poll(() => animalAvatar.locator(".avatar > span").evaluate((label) =>
-    Number.parseFloat(getComputedStyle(label).fontSize)
-  )).toBeGreaterThanOrEqual(24);
+  const animalAvatarLayout = await animalAvatar.evaluate((button) => {
+    const avatar = button.querySelector<HTMLElement>(".avatar")!;
+    const label = button.querySelector<HTMLElement>(".avatar > span")!;
+    const avatarBounds = avatar.getBoundingClientRect();
+    const labelBounds = label.getBoundingClientRect();
+    const labelStyle = getComputedStyle(label);
+    return {
+      fontSize: Number.parseFloat(labelStyle.fontSize),
+      horizontalCenterDelta: (labelBounds.left + labelBounds.width / 2)
+        - (avatarBounds.left + avatarBounds.width / 2),
+      translateY: new DOMMatrix(labelStyle.transform).m42,
+    };
+  });
+  expect(animalAvatarLayout.fontSize).toBeGreaterThanOrEqual(24);
+  expect(Math.abs(animalAvatarLayout.horizontalCenterDelta)).toBeLessThan(0.1);
+  expect(animalAvatarLayout.translateY).toBe(-1);
   const groupId = await animalAvatar
     .locator("xpath=ancestor::*[contains(@class, 'message-group')]")
     .locator("[data-local-block-group]")

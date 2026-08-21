@@ -1167,7 +1167,7 @@ button.message-sender:hover { text-decoration: none; }
 .message-sender-avatar { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .message-sender-avatar.is-local-block-alias .avatar > span {
   font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
-  font-size: 24px; line-height: 1; font-weight: 400;
+  font-size: 24px; line-height: 1; font-weight: 400; transform: translateY(-1px);
 }
 .message-forward-label {
   max-width: 100%; margin-bottom: 3px; padding: 0; display: flex; align-items: center; gap: 4px; color: var(--color-text-link); font-size: 11px; font-weight: 650;
