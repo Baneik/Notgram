@@ -1605,6 +1605,31 @@ describe("telegram store", () => {
     expect(store.getState().operationError).toBe("当前账号没有置顶消息的权限");
   });
 
+  it("normalizes a server-side admin error instead of surfacing TDLib details", async () => {
+    class ServerRejectingPinTransport extends MockTelegramTransport {
+      override async getMessageProperties(): Promise<MessagePermissions> {
+        return {
+          canReply: true,
+          canEdit: false,
+          canDeleteOnlyForSelf: true,
+          canDeleteForAllUsers: false,
+          canForward: true,
+          canPin: true,
+        };
+      }
+
+      override async pinMessage(): Promise<void> {
+        throw new Error("CHAT_ADMIN_REQUIRED (400)");
+      }
+    }
+
+    const store = createTelegramStore(new ServerRejectingPinTransport());
+    await store.getState().initialize();
+
+    await expect(store.getState().pinMessage("p-4", false, false)).resolves.toBe(false);
+    expect(store.getState().operationError).toBe("当前账号没有置顶消息的权限");
+  });
+
   it("moves through phone, code, password, and ready authorization states", async () => {
     const store = createTelegramStore(
       new MockTelegramTransport({ authFlow: true }),

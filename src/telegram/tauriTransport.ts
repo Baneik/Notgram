@@ -1656,7 +1656,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatId: string,
     messageId: string,
   ): Promise<MessagePermissions> {
-    return this.messageMediaService.getMessageProperties(chatId, messageId);
+    const properties = await this.messageMediaService.getMessageProperties(chatId, messageId);
+    const chatPinPermission = await this.chatPinPermission(chatId);
+    return chatPinPermission === false
+      ? { ...properties, canPin: false }
+      : properties;
   }
 
   async setMessageReaction(input: SetMessageReactionInput) {
@@ -2625,6 +2629,57 @@ export class TauriTelegramTransport implements TelegramTransport {
   private emitForumTopicsChanged(chatIdValue: unknown) {
     const chatId = tdId(chatIdValue);
     if (chatId) this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
+  /**
+   * `messageProperties.can_be_pinned` describes the message, but TDLib can
+   * still reject `pinChatMessage` when a group member lacks the chat-level
+   * pin right. Keep the menu and command guard aligned with that right.
+   */
+  private async chatPinPermission(chatId: string): Promise<boolean | undefined> {
+    const rawChat = this.rawChats.get(chatId);
+    if (!rawChat) return undefined;
+    const type = asTdObject(rawChat.type);
+    if (!type) return undefined;
+    if (type["@type"] === "chatTypePrivate" || type["@type"] === "chatTypeSecret") return true;
+    const groupId = type["@type"] === "chatTypeBasicGroup"
+      ? tdId(type.basic_group_id)
+      : type["@type"] === "chatTypeSupergroup"
+        ? tdId(type.supergroup_id)
+        : undefined;
+    if (!groupId) return undefined;
+    let group = type["@type"] === "chatTypeBasicGroup"
+      ? this.rawBasicGroups.get(groupId)
+      : this.rawSupergroups.get(groupId);
+    if (!group) {
+      try {
+        group = type["@type"] === "chatTypeBasicGroup"
+          ? await this.request({ "@type": "getBasicGroup", basic_group_id: numericId(groupId) })
+          : await this.request({ "@type": "getSupergroup", supergroup_id: numericId(groupId) });
+        if (type["@type"] === "chatTypeBasicGroup") this.upsertBasicGroup(group);
+        else this.upsertSupergroup(group);
+      } catch {
+        return undefined;
+      }
+    }
+    const status = asTdObject(group?.status);
+    if (status?.["@type"] === "chatMemberStatusCreator") return true;
+    if (status?.["@type"] === "chatMemberStatusAdministrator") {
+      return asTdObject(status.rights)?.can_pin_messages === true;
+    }
+    if (status?.["@type"] === "chatMemberStatusBanned" || status?.["@type"] === "chatMemberStatusLeft") {
+      return false;
+    }
+    if (status?.["@type"] === "chatMemberStatusRestricted") {
+      const restrictedPermissions = asTdObject(status.permissions);
+      if (typeof restrictedPermissions?.can_pin_messages === "boolean") {
+        return restrictedPermissions.can_pin_messages === true;
+      }
+    }
+    const chatPermissions = asTdObject(rawChat.permissions);
+    return typeof chatPermissions?.can_pin_messages === "boolean"
+      ? chatPermissions.can_pin_messages === true
+      : status?.["@type"] === "chatMemberStatusMember" ? false : undefined;
   }
 
   private updateForumTopic(update: TdObject) {

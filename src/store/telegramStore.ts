@@ -204,6 +204,12 @@ export const createTelegramStore = (
       set({ operationError: "当前账号没有置顶消息的权限" });
       return false;
     };
+    const pinOperationError = (error: unknown, fallback: string) => {
+      const detail = error instanceof Error ? error.message : String(error ?? "");
+      return /CHAT_ADMIN_REQUIRED|CHAT_WRITE_FORBIDDEN|not enough rights/i.test(detail)
+        ? "当前账号没有置顶消息的权限"
+        : errorMessage(error, fallback);
+    };
     const messageEventKey = (message: Message) => `${message.chatId}:${message.id}`;
     const queueLiveMessageAttention = (message: Message, live: boolean) => {
       const key = messageEventKey(message);
@@ -2491,7 +2497,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法置顶消息") });
+          set({ operationError: pinOperationError(error, "无法置顶消息") });
           return false;
         }
       },
@@ -2510,7 +2516,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法取消置顶消息") });
+          set({ operationError: pinOperationError(error, "无法取消置顶消息") });
           return false;
         }
       },

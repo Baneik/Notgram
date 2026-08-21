@@ -2246,6 +2246,39 @@ describe("TauriTelegramTransport message operations", () => {
     }]);
   });
 
+  it("does not expose pin permission when the current group member lacks the chat right", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & {
+      rawChats: Map<string, TdObject>;
+      rawSupergroups: Map<string, TdObject>;
+    };
+    internal.rawChats.set("7", {
+      "@type": "chat",
+      id: 7,
+      permissions: { can_pin_messages: false },
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+    internal.rawSupergroups.set("91", {
+      "@type": "supergroup",
+      id: 91,
+      status: { "@type": "chatMemberStatusMember" },
+    });
+    internal.request = async () => ({
+      "@type": "messageProperties",
+      can_be_replied: true,
+      can_be_edited: false,
+      can_be_deleted_only_for_self: true,
+      can_be_deleted_for_all_users: false,
+      can_be_forwarded: true,
+      can_be_pinned: true,
+    });
+
+    await expect(transport.getMessageProperties("7", "12")).resolves.toMatchObject({
+      canReply: true,
+      canPin: false,
+    });
+  });
+
   it("loads an exact notification target through TDLib", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
