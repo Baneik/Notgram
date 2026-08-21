@@ -5,6 +5,7 @@ import {
   BellOff,
   Clock3,
   LoaderCircle,
+  ListChecks,
   Pin,
   PinOff,
   Search,
@@ -23,6 +24,7 @@ interface ChatActionMenuProps {
   onSetArchived: (archived: boolean) => Promise<boolean>;
   onOpenPinned: () => void;
   onOpenMessageSearch: () => void;
+  onStartSelection: () => void;
   onOpenAutoDelete: () => void;
   onClose: () => void;
 }
@@ -39,6 +41,7 @@ export function ChatActionMenu({
   onSetArchived,
   onOpenPinned,
   onOpenMessageSearch,
+  onStartSelection,
   onOpenAutoDelete,
   onClose,
 }: ChatActionMenuProps) {
@@ -102,6 +105,18 @@ export function ChatActionMenu({
       >
         <Search size={16} strokeWidth={1.9} />
         <span>搜索消息</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy}
+        onClick={() => {
+          onClose();
+          onStartSelection();
+        }}
+      >
+        <ListChecks size={16} strokeWidth={1.9} />
+        <span>多选</span>
       </button>
       <button
         type="button"

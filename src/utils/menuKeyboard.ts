@@ -1,7 +1,12 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 
-const enabledButtons = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLButtonElement>("button:not([disabled])")];
+const enabledButtons = (container: HTMLElement) => {
+  const ownerMenu = container.matches('[role="menu"]')
+    ? container
+    : container.querySelector<HTMLElement>('[role="menu"]');
+  return [...container.querySelectorAll<HTMLButtonElement>("button:not([disabled])")]
+    .filter((button) => !ownerMenu || button.closest('[role="menu"]') === ownerMenu);
+};
 
 export const focusFirstMenuButton = (container: HTMLElement | null) => {
   if (!container) return false;

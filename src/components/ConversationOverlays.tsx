@@ -3,11 +3,11 @@ import {
   Check,
   Copy,
   ChevronLeft,
+  ChevronRight,
   Download,
   Edit3,
   Flag,
   Forward,
-  Hash,
   LoaderCircle,
   Pin,
   PinOff,
@@ -27,7 +27,7 @@ import { useNativeContextMenu, type NativeContextMenuItem } from "../contextMenu
 import { ContextMenuPanel, ContextMenuSurface, type ContextMenuPoint } from "./ContextMenuSurface";
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
-import type { Chat, ForumTopic, ForumTopicPage, Message } from "../telegram/types";
+import type { Chat, Message } from "../telegram/types";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { currentColorTheme } from "../theme/theme";
 import { Avatar } from "./Avatar";
@@ -84,7 +84,6 @@ export function SenderActionMenu({
     </ContextMenuSurface>
   );
 }
-
 interface MessageActionMenuProps {
   position: { left: number; top: number };
   message: Message;
@@ -92,6 +91,10 @@ interface MessageActionMenuProps {
   onReply: () => void;
   onEdit: () => void;
   onForward: () => void;
+  forwardTargets: Chat[];
+  onQuickForward: (target: Chat) => void;
+  onForwardAlbum?: () => void;
+  onQuickForwardAlbum?: (target: Chat) => void;
   onRepeat?: () => void;
   onDelete: () => void;
   onPin?: () => void;
@@ -111,6 +114,10 @@ export function MessageActionMenu({
   onReply,
   onEdit,
   onForward,
+  forwardTargets,
+  onQuickForward,
+  onForwardAlbum,
+  onQuickForwardAlbum,
   onRepeat,
   onDelete,
   onPin,
@@ -124,13 +131,40 @@ export function MessageActionMenu({
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
   const menuRef = useRef<HTMLDivElement>(null);
+  const [expandedForwardAction, setExpandedForwardAction] = useState<"forward" | "merge-forward">();
   const fallbackPosition = {
     left: Math.max(8, Math.min(position.left, window.innerWidth - 184 - 8)),
     top: Math.max(8, Math.min(position.top - 21, window.innerHeight - 326 - 8)),
   };
+  const fallbackSubmenuSide = fallbackPosition.left + 184 + 6 + 204 <= window.innerWidth - 8
+    ? "right"
+    : "left";
+  const quickForwardItems = forwardTargets.slice(0, 7).map((target) => ({
+    id: `quick-forward:${encodeURIComponent(target.id)}`,
+    label: target.title,
+    icon: "message" as const,
+  }));
+  const quickMergeForwardItems = forwardTargets.slice(0, 7).map((target) => ({
+    id: `quick-merge-forward:${encodeURIComponent(target.id)}`,
+    label: target.title,
+    icon: "message" as const,
+  }));
   const nativeItems: NativeContextMenuItem[] = permissions ? [
     ...(permissions.canReply ? [{ id: "reply", label: "回复", icon: "reply" as const }] : []),
-    ...(permissions.canForward ? [{ id: "forward", label: "转发", icon: "forward" as const }] : []),
+    ...(permissions.canForward ? [{
+      id: "forward",
+      label: "转发",
+      icon: "forward" as const,
+      actionable: true,
+      children: quickForwardItems,
+    }] : []),
+    ...(permissions.canForward && onForwardAlbum ? [{
+      id: "merge-forward",
+      label: "合并转发",
+      icon: "forward" as const,
+      actionable: true,
+      children: quickMergeForwardItems,
+    }] : []),
     ...(permissions.canForward && onRepeat
       ? [{ id: "repeat", label: "复读", icon: "repeat" as const }]
       : []),
@@ -149,6 +183,9 @@ export function MessageActionMenu({
   ] : [
     { id: "reply", label: "回复", icon: "reply", disabled: true },
     { id: "forward", label: "转发", icon: "forward", disabled: true },
+    ...(onForwardAlbum
+      ? [{ id: "merge-forward", label: "合并转发", icon: "forward" as const, disabled: true }]
+      : []),
     ...(onRepeat ? [{ id: "repeat", label: "复读", icon: "repeat" as const, disabled: true }] : []),
     { id: "copy", label: "复制", icon: "copy" },
     ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
@@ -172,6 +209,16 @@ export function MessageActionMenu({
   }, { x: position.left, y: position.top }, (actionId) => {
     if (actionId === "reply") onReply();
     else if (actionId === "forward") onForward();
+    else if (actionId === "merge-forward") onForwardAlbum?.();
+    else if (actionId.startsWith("quick-forward:")) {
+      const targetId = decodeURIComponent(actionId.slice("quick-forward:".length));
+      const target = forwardTargets.find((candidate) => candidate.id === targetId);
+      if (target) onQuickForward(target);
+    } else if (actionId.startsWith("quick-merge-forward:")) {
+      const targetId = decodeURIComponent(actionId.slice("quick-merge-forward:".length));
+      const target = forwardTargets.find((candidate) => candidate.id === targetId);
+      if (target) onQuickForwardAlbum?.(target);
+    }
     else if (actionId === "repeat") onRepeat?.();
     else if (actionId === "copy") onCopy();
     else if (actionId === "edit") onEdit();
@@ -198,8 +245,10 @@ export function MessageActionMenu({
       aria-label="消息操作"
       tabIndex={-1}
       style={fallbackPosition}
+      data-submenu-side={fallbackSubmenuSide}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => handleMenuKeyboard(event, onClose)}
+      onMouseLeave={() => setExpandedForwardAction(undefined)}
     >
       {!permissions ? (
         <>
@@ -230,10 +279,48 @@ export function MessageActionMenu({
             </button>
           )}
           {permissions.canForward && (
-            <button type="button" role="menuitem" onClick={onForward}>
-              <Forward size={16} strokeWidth={1.9} />
-              <span>转发</span>
-            </button>
+            <div
+              className="message-action-menu-group"
+              onMouseEnter={() => setExpandedForwardAction("forward")}
+            >
+              <button className="has-submenu" type="button" role="menuitem" aria-haspopup="menu" onClick={onForward}>
+                <Forward size={16} strokeWidth={1.9} />
+                <span>转发</span>
+                <ChevronRight size={15} strokeWidth={1.9} />
+              </button>
+              {expandedForwardAction === "forward" && (
+                <div className="message-action-submenu" role="menu" aria-label="快速转发">
+                  {forwardTargets.slice(0, 7).map((target) => (
+                    <button type="button" role="menuitem" key={target.id} onClick={() => onQuickForward(target)}>
+                      <Avatar avatar={target.avatar} size="small" />
+                      <span>{target.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {permissions.canForward && onForwardAlbum && (
+            <div
+              className="message-action-menu-group"
+              onMouseEnter={() => setExpandedForwardAction("merge-forward")}
+            >
+              <button className="has-submenu" type="button" role="menuitem" aria-haspopup="menu" onClick={onForwardAlbum}>
+                <Forward size={16} strokeWidth={1.9} />
+                <span>合并转发</span>
+                <ChevronRight size={15} strokeWidth={1.9} />
+              </button>
+              {expandedForwardAction === "merge-forward" && (
+                <div className="message-action-submenu" role="menu" aria-label="快速合并转发">
+                  {forwardTargets.slice(0, 7).map((target) => (
+                    <button type="button" role="menuitem" key={target.id} onClick={() => onQuickForwardAlbum?.(target)}>
+                      <Avatar avatar={target.avatar} size="small" />
+                      <span>{target.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           {permissions.canForward && onRepeat && (
             <button type="button" role="menuitem" onClick={onRepeat}>
@@ -286,7 +373,6 @@ export function MessageActionMenu({
     </div>
   );
 }
-
 interface DeleteMessagesDialogProps {
   count: number;
   batch?: boolean;
@@ -297,7 +383,6 @@ interface DeleteMessagesDialogProps {
   onConfirm: (revoke: boolean) => void;
   onClose: () => void;
 }
-
 export function DeleteMessagesDialog({
   count,
   batch = false,
@@ -453,177 +538,6 @@ export function AutoDeleteDialog({ currentTime, pending, onConfirm, onClose }: A
         <div className="message-delete-actions">
           <button className="dialog-primary" type="button" disabled={pending || !valid} onClick={() => onConfirm(seconds)}>{pending ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}保存</button>
           <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-interface ForwardMessagesDialogProps {
-  selectedCount: number;
-  targets: Chat[];
-  topicsByChat: Map<string, ForumTopic[]>;
-  currentChatId: string;
-  query: string;
-  pending: boolean;
-  pendingTargetId?: string;
-  onQueryChange: (query: string) => void;
-  onLoadTopics: (chatId: string) => Promise<ForumTopicPage | undefined>;
-  onConfirm: (target: Chat, topicId?: string) => void;
-  onClose: () => void;
-}
-
-export function ForwardMessagesDialog({
-  selectedCount,
-  targets,
-  topicsByChat,
-  currentChatId,
-  query,
-  pending,
-  pendingTargetId,
-  onQueryChange,
-  onLoadTopics,
-  onConfirm,
-  onClose,
-}: ForwardMessagesDialogProps) {
-  const searchRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useModalFocus<HTMLElement>(onClose, pending, searchRef);
-  const [forumTarget, setForumTarget] = useState<Chat>();
-  const [topicQuery, setTopicQuery] = useState("");
-  const [topicsLoading, setTopicsLoading] = useState(false);
-  const topics = forumTarget
-    ? (topicsByChat.get(forumTarget.id) ?? []).filter((topic) => {
-        const normalized = topicQuery.trim().toLocaleLowerCase();
-        return !topic.isHidden && (!normalized || topic.name.toLocaleLowerCase().includes(normalized));
-      })
-    : [];
-
-  useEffect(() => {
-    if (!forumTarget || topicsByChat.has(forumTarget.id)) return;
-    setTopicsLoading(true);
-    void onLoadTopics(forumTarget.id).finally(() => setTopicsLoading(false));
-  }, [forumTarget, onLoadTopics, topicsByChat]);
-
-  const chooseTarget = (target: Chat) => {
-    if (!target.isForum) {
-      onConfirm(target);
-      return;
-    }
-    setForumTarget(target);
-    setTopicQuery("");
-  };
-  return (
-    <div
-      className="message-delete-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose();
-      }}
-    >
-      <section
-        ref={dialogRef}
-        className="message-forward-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="message-forward-title"
-        tabIndex={-1}
-      >
-        <header className="message-forward-heading">
-          {forumTarget ? (
-            <button className="message-forward-heading-icon" type="button" aria-label="返回会话选择" title="返回" disabled={pending} onClick={() => setForumTarget(undefined)}>
-              <ChevronLeft size={18} strokeWidth={1.9} />
-            </button>
-          ) : (
-            <span className="message-forward-heading-icon"><Forward size={18} strokeWidth={1.9} /></span>
-          )}
-          <div>
-            <h3 id="message-forward-title">转发 {selectedCount} 条消息</h3>
-            <p>{forumTarget ? `选择“${forumTarget.title}”中的话题` : "选择目标会话"}</p>
-          </div>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="关闭转发"
-            title="关闭"
-            disabled={pending}
-            onClick={onClose}
-          >
-            <X size={18} strokeWidth={1.9} />
-          </button>
-        </header>
-        <label className="forward-target-search">
-          <Search size={16} strokeWidth={1.8} />
-          <span className="sr-only">{forumTarget ? "搜索目标话题" : "搜索目标会话"}</span>
-          <input
-            ref={searchRef}
-            value={forumTarget ? topicQuery : query}
-            onChange={(event) => forumTarget ? setTopicQuery(event.target.value) : onQueryChange(event.target.value)}
-            placeholder={forumTarget ? "搜索话题" : "搜索会话"}
-            type="search"
-            disabled={pending}
-            onKeyDown={(event) => {
-              if (event.key !== "ArrowDown") return;
-              event.preventDefault();
-              event.currentTarget.closest(".message-forward-dialog")
-                ?.querySelector<HTMLButtonElement>(".forward-target-row:not([disabled])")
-                ?.focus();
-            }}
-          />
-        </label>
-        <div
-          className="forward-target-list"
-          onKeyDown={(event) => {
-            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-            const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(
-              ".forward-target-row:not([disabled])",
-            )];
-            if (rows.length === 0) return;
-            event.preventDefault();
-            const index = rows.indexOf(document.activeElement as HTMLButtonElement);
-            if (event.key === "ArrowUp" && index <= 0) {
-              searchRef.current?.focus();
-              return;
-            }
-            const nextIndex = event.key === "Home"
-              ? 0
-              : event.key === "End"
-                ? rows.length - 1
-                : event.key === "ArrowDown"
-                  ? Math.min(rows.length - 1, index + 1)
-                  : Math.max(0, index - 1);
-            rows[nextIndex].focus();
-          }}
-        >
-          {forumTarget ? topicsLoading && topics.length === 0 ? (
-            <div className="forward-target-empty"><LoaderCircle className="spin" size={18} />正在加载话题</div>
-          ) : topics.length === 0 ? (
-            <div className="forward-target-empty">没有匹配的话题</div>
-          ) : topics.map((topic) => (
-            <button className="forward-target-row" type="button" key={topic.id} disabled={pending || topic.isClosed} onClick={() => onConfirm(forumTarget, topic.id)}>
-              <span className="forward-topic-icon"><Hash size={17} /></span>
-              <span><strong>{topic.name}</strong><small>{topic.isClosed ? "话题已关闭" : topic.lastMessage ? messageSummary(topic.lastMessage.content) : "暂无消息"}</small></span>
-              {pending && pendingTargetId === forumTarget.id ? <LoaderCircle className="spin" size={16} /> : <ChevronLeft className="forward-target-arrow" size={18} strokeWidth={1.8} />}
-            </button>
-          )) : targets.length === 0 ? (
-            <div className="forward-target-empty">没有匹配的会话</div>
-          ) : targets.map((target) => (
-            <button
-              className="forward-target-row"
-              type="button"
-              key={target.id}
-              disabled={pending}
-              onClick={() => chooseTarget(target)}
-            >
-              <Avatar avatar={target.avatar} size="medium" />
-              <span>
-                <strong>{target.title}</strong>
-                <small>{target.id === currentChatId ? "当前会话" : target.preview}</small>
-              </span>
-              {pending && pendingTargetId === target.id
-                ? <LoaderCircle className="spin" size={16} />
-                : <ChevronLeft className="forward-target-arrow" size={18} strokeWidth={1.8} />}
-            </button>
-          ))}
         </div>
       </section>
     </div>

@@ -3424,14 +3424,12 @@ test("keyboard navigation closes modals and completes message workflows", async 
   actionTrigger = await focusEditableMessage();
   await page.keyboard.press("Shift+F10");
   await chooseMessageMenuItem(page, "转发");
-  const forwardButton = page.getByRole("button", { name: "转发", exact: true });
-  await expect(forwardButton).toBeFocused();
-  await page.keyboard.press("Enter");
   const forwardDialog = page.getByRole("dialog", { name: /转发 1 条消息/ });
   await expect(forwardDialog.getByRole("searchbox")).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(forwardDialog.locator(".forward-target-row").first()).toBeFocused();
   await page.keyboard.press("Enter");
+  await forwardDialog.getByRole("button", { name: /转发到 1 个会话/ }).click();
   await expect(forwardDialog).toBeHidden();
 
   actionTrigger = await focusEditableMessage();
@@ -3444,6 +3442,107 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Escape");
   await expect(reactionMenu).toBeHidden();
   await expect(actionTrigger).toBeFocused();
+});
+
+test("forwarding ranks quick targets and sends to multiple chats with a description", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("notgram:conversation-activity:v1", JSON.stringify([
+      {
+        accountId: "default",
+        chatId: "chat-mia",
+        sentMessageCount: 20,
+        activeDurationMs: 600_000,
+        updatedAt: "2026-08-22T10:00:00Z",
+      },
+      {
+        accountId: "default",
+        chatId: "chat-product",
+        sentMessageCount: 1,
+        activeDurationMs: 1_000,
+        updatedAt: "2026-08-22T10:00:00Z",
+      },
+    ]));
+  });
+  await page.goto("/");
+
+  const source = await revealVirtualMessage(page, "p-2");
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "消息操作" });
+  await menu.getByRole("menuitem", { name: "转发", exact: true }).hover();
+  const quickForward = page.getByRole("menu", { name: "快速转发" });
+  await expect(quickForward.getByRole("menuitem").first()).toContainText("Mia Chen");
+  await page.keyboard.press("Escape");
+
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "转发");
+  const dialog = page.getByRole("dialog", { name: "转发 1 条消息" });
+  await expect(dialog.getByRole("searchbox")).toBeFocused();
+  await dialog.locator(".forward-target-row").filter({ hasText: "Mia Chen" }).click();
+  await dialog.locator(".forward-target-row").filter({ hasText: "产品讨论" }).click();
+  await dialog.getByLabel("描述").fill("请一起查看这条更新");
+  await dialog.getByRole("button", { name: "转发到 2 个会话" }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect.poll(() => page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: { getState: () => { messages: Map<string, Message[]> } };
+    };
+    const messages = module.telegramStore.getState().messages;
+    return ["chat-mia", "chat-product"].map((chatId) => ({
+      forwarded: messages.get(chatId)?.some((message) =>
+        message.outgoing && message.forwardInfo?.source?.messageId === "p-2"
+      ),
+      described: messages.get(chatId)?.some((message) =>
+        message.outgoing && message.content.kind === "text" &&
+        message.content.text === "请一起查看这条更新"
+      ),
+    }));
+  }, "/src/store/telegramStore.ts")).toEqual([
+    { forwarded: true, described: true },
+    { forwarded: true, described: true },
+  ]);
+});
+
+test("conversation multi-select uses full message rows and albums can merge-forward", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "更多操作" }).click();
+  await page.getByRole("menu", { name: "会话操作" })
+    .getByRole("menuitem", { name: "多选", exact: true }).click();
+  await expect(page.getByText("已选择 0 条", { exact: true })).toBeVisible();
+
+  const first = await revealVirtualMessage(page, "p-2");
+  await first.click({ position: { x: 4, y: Math.max(2, Math.floor((await first.boundingBox())!.height / 2)) } });
+  await expect(first).toHaveClass(/is-selected/);
+  expect(await first.evaluate((element) => getComputedStyle(element, "::after").backgroundColor))
+    .not.toBe("rgba(0, 0, 0, 0)");
+  const second = await revealVirtualMessage(page, "p-4");
+  await second.click({ position: { x: 4, y: Math.max(2, Math.floor((await second.boundingBox())!.height / 2)) } });
+  await expect(page.getByText("已选择 2 条", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "转发已选消息" }).click();
+  await expect(page.getByRole("dialog", { name: "转发 2 条消息" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "取消选择", exact: true }).click();
+
+  const albumItem = await revealVirtualMessage(page, "p-tall");
+  await albumItem.locator(".message-bubble-shell").click({ button: "right" });
+  await page.getByRole("menu", { name: "消息操作" })
+    .getByRole("menuitem", { name: "合并转发", exact: true }).click();
+  const albumDialog = page.getByRole("dialog", { name: "转发 2 条消息" });
+  await albumDialog.locator(".forward-target-row").filter({ hasText: "Mia Chen" }).click();
+  await albumDialog.getByRole("button", { name: "转发到 1 个会话" }).click();
+  await expect(albumDialog).toBeHidden();
+
+  await expect.poll(() => page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: { getState: () => { messages: Map<string, Message[]> } };
+    };
+    return module.telegramStore.getState().messages.get("chat-mia")
+      ?.filter((message) => message.outgoing &&
+        ["p-tall", "p-5"].includes(message.forwardInfo?.source?.messageId ?? ""))
+      .map((message) => message.forwardInfo?.source?.messageId)
+      .sort();
+  }, "/src/store/telegramStore.ts")).toEqual(["p-5", "p-tall"]);
 });
 
 test("message reactions stay in the bubble and reveal the reacting users", async ({ page }) => {

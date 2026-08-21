@@ -54,3 +54,14 @@ export const segmentMediaAlbums = (messages: Message[]): MediaAlbumSegment[] => 
 
   return segments;
 };
+
+export const mediaAlbumMessagesFor = (
+  messages: readonly Message[],
+  source: Message,
+) => source.mediaAlbumId
+  ? messages.filter((message) =>
+      message.chatId === source.chatId &&
+      message.mediaAlbumId === source.mediaAlbumId &&
+      isVisualAlbumMessage(message)
+    )
+  : [];

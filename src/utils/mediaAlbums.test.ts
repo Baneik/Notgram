@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
-import { segmentMediaAlbums } from "./mediaAlbums";
+import { mediaAlbumMessagesFor, segmentMediaAlbums } from "./mediaAlbums";
 
 const message = (
   id: string,
@@ -77,5 +77,16 @@ describe("media album segmentation", () => {
       message("1", "album-a", "audio"),
       message("2", "album-a", "audio"),
     ]).map((segment) => segment.kind)).toEqual(["message", "message"]);
+  });
+
+  it("resolves the complete visual album for a context-menu message", () => {
+    const source = message("2", "album-a", "video");
+    expect(ids(mediaAlbumMessagesFor([
+      message("1", "album-a"),
+      source,
+      message("3", "album-b"),
+      message("4", "album-a", "photo", { chatId: "other-chat" }),
+    ], source))).toEqual(["1", "2"]);
+    expect(mediaAlbumMessagesFor([source], { ...source, mediaAlbumId: undefined })).toEqual([]);
   });
 });

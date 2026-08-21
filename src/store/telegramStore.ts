@@ -2944,7 +2944,7 @@ export const createTelegramStore = (
         }
       },
 
-      forwardMessages: async (fromChatId, messageIds, toChatId, toTopicId) => {
+      forwardMessages: async (fromChatId, messageIds, toChatId, toTopicId, description) => {
         if (!get().chats.has(fromChatId) || !get().chats.has(toChatId)) return undefined;
         const uniqueMessageIds = [...new Set(messageIds)];
         if (uniqueMessageIds.length === 0) return undefined;
@@ -2954,13 +2954,32 @@ export const createTelegramStore = (
         }
         try {
           const result = await transport.forwardMessages({ fromChatId, toChatId, toTopicId, messageIds: uniqueMessageIds });
+          const normalizedDescription = description?.trim();
+          let descriptionError: string | undefined;
+          if (result.forwardedCount > 0 && normalizedDescription) {
+            try {
+              await transport.sendMessage({
+                chatId: toChatId,
+                topicId: toTopicId,
+                text: normalizedDescription,
+                entities: [],
+                clearDraft: false,
+              });
+            } catch (error) {
+              descriptionError = errorMessage(error, "转发成功，但描述发送失败");
+            }
+          }
           set({
-            operationError: result.failedMessageIds.length > 0
+            operationError: descriptionError ?? (result.failedMessageIds.length > 0
               ? `${result.forwardedCount} 条消息已转发，${result.failedMessageIds.length} 条失败`
-              : undefined,
+              : undefined),
           });
           if (result.forwardedCount > 0) {
-            recordConversationSentMessages(get().activeAccountId, toChatId, result.forwardedCount);
+            recordConversationSentMessages(
+              get().activeAccountId,
+              toChatId,
+              result.forwardedCount + (normalizedDescription && !descriptionError ? 1 : 0),
+            );
           }
           scheduleCacheWrite();
           return result;

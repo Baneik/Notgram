@@ -290,6 +290,7 @@ export interface TelegramState {
     messageIds: string[],
     toChatId: string,
     toTopicId?: string,
+    description?: string,
   ) => Promise<ForwardMessagesResult | undefined>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
   recoverFile: (fileId: number, priority?: number) => Promise<boolean>;

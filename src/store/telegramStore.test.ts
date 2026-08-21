@@ -1926,6 +1926,40 @@ describe("telegram store", () => {
     });
   });
 
+  it("sends a forwarding description after the forwarded content", async () => {
+    class DescriptionTransport extends MockTelegramTransport {
+      sentMessages: SendMessageInput[] = [];
+
+      override async sendMessage(input: SendMessageInput) {
+        this.sentMessages.push(structuredClone(input));
+        return super.sendMessage(input);
+      }
+    }
+    const transport = new DescriptionTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    await expect(store.getState().forwardMessages(
+      "chat-product",
+      ["p-1"],
+      "chat-mia",
+      undefined,
+      "  转发说明  ",
+    )).resolves.toEqual({ forwardedCount: 1, failedMessageIds: [] });
+
+    expect(transport.sentMessages.at(-1)).toMatchObject({
+      chatId: "chat-mia",
+      text: "转发说明",
+      clearDraft: false,
+    });
+    const targetMessages = store.getState().messages.get("chat-mia") ?? [];
+    expect(targetMessages.at(-2)?.forwardInfo?.source?.messageId).toBe("p-1");
+    expect(targetMessages.at(-1)?.content).toEqual({
+      kind: "text",
+      text: "转发说明",
+    });
+  });
+
   it("preserves forum attention counts when only the message read boundary advances", async () => {
     class TopicReadTransport extends MockTelegramTransport {
       override async markForumTopicRead() {}

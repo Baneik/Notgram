@@ -238,7 +238,10 @@ export function ContextMenuWindow() {
                 aria-haspopup={item.children ? "menu" : undefined}
                 aria-expanded={item.children ? expanded : undefined}
                 onMouseEnter={() => setExpandedId(item.children ? item.id : undefined)}
-                onClick={() => item.children ? setExpandedId(expanded ? undefined : item.id) : select(item.id)}
+                onClick={() => {
+                  if (item.actionable || !item.children) select(item.id);
+                  else setExpandedId(expanded ? undefined : item.id);
+                }}
               >
                 {item.avatar ? (
                   <span

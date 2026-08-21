@@ -48,12 +48,12 @@ import { formatMessageDay } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 import {
   DeleteMessagesDialog,
-  ForwardMessagesDialog,
   MessageActionMenu,
   AutoDeleteDialog,
   PinMessageDialog,
   SenderActionMenu,
 } from "./ConversationOverlays";
+import { ForwardMessagesDialog } from "./ForwardMessagesDialog";
 import {
   forwardSourceFor,
   channelAuthorFor,
@@ -114,6 +114,7 @@ import {
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
 import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
+import { mediaAlbumMessagesFor } from "../utils/mediaAlbums";
 import {
   localBlockedMessageGroups,
   replySenderId,
@@ -209,6 +210,7 @@ interface ConversationProps {
     messageIds: string[],
     toChatId: string,
     toTopicId?: string,
+    description?: string,
   ) => Promise<ForwardMessagesResult | undefined>;
   onLoadForumTopics: (chatId: string) => Promise<import("../telegram/types").ForumTopicPage | undefined>;
   onLoadMessageProperties: (
@@ -801,6 +803,8 @@ export function Conversation({
     loadingIds: selectionLoadingIds,
     selectionMode,
     dialogOpen: forwardDialogOpen,
+    forwardMessageIds,
+    initialTargetId: initialForwardTargetId,
     query: forwardQuery,
     pending: forwardPending,
     pendingTargetId: forwardPendingTargetId,
@@ -1132,6 +1136,9 @@ export function Conversation({
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
+  const actionAlbumMessageIds = actionMessage
+    ? mediaAlbumMessagesFor(renderedMessages, actionMessage).map((message) => message.id)
+    : [];
   const preservePositioningFrame = Boolean(
     !pinnedViewOpen &&
     renderedMessages.length > 0 &&
@@ -1634,13 +1641,12 @@ export function Conversation({
     if (succeeded) setAutoDeleteDialogOpen(false);
   };
 
-  const startForwardSelection = (message: Message) => {
+  const openForwardDialog = (messageIds: Iterable<string>) => {
     if (editingMessage) {
       setEditingMessage(undefined);
     }
     setActionMenu(undefined);
-    forwarding.startSelection(message);
-    globalThis.setTimeout(() => selectionForwardButtonRef.current?.focus(), 0);
+    forwarding.openDialogForMessages(messageIds);
   };
 
   const toggleMessageSelection = forwarding.toggleSelection;
@@ -1678,6 +1684,60 @@ export function Conversation({
             <div className="message-selection-title">
               <strong>已选择 {selectedMessageIds.size} 条</strong>
               <span>最多可同时转发 100 条消息</span>
+            </div>
+            <div className="conversation-actions">
+              <button
+                ref={selectionForwardButtonRef}
+                className="icon-button"
+                type="button"
+                aria-label="转发已选消息"
+                title="转发"
+                disabled={selectedMessageIds.size === 0}
+                onClick={forwarding.openSelectedDialog}
+              >
+                <Forward size={19} strokeWidth={1.9} />
+              </button>
+              <button
+                ref={chatMenuButtonRef}
+                className={`icon-button ${chatMenuOpen ? "is-active" : ""}`}
+                type="button"
+                aria-label="更多操作"
+                title="更多操作"
+                aria-haspopup="menu"
+                aria-expanded={chatMenuOpen}
+                disabled={chatManagementPending}
+                onClick={() => setChatMenuOpen((open) => !open)}
+              >
+                <MoreVertical size={20} strokeWidth={1.8} />
+              </button>
+              <MotionPresence present={chatMenuOpen} variant="popover">
+                {chatMenuOpen ? (
+                  <ChatActionMenu
+                    chat={chat}
+                    chatListId={chatListId}
+                    pending={chatManagementPending}
+                    canSetAutoDelete={chat.kind === "direct" || chat.management?.canChangeInfo === true}
+                    onSetPinned={onSetChatPinned}
+                    onSetMuted={onSetChatMuted}
+                    onSetArchived={onSetChatArchived}
+                    onOpenPinned={() => {
+                      forwarding.clearSelection();
+                      openPinnedMessages();
+                    }}
+                    onOpenMessageSearch={() => {
+                      forwarding.clearSelection();
+                      onOpenMessageSearch();
+                    }}
+                    onStartSelection={() => forwarding.startSelection()}
+                    onOpenAutoDelete={() => {
+                      setChatMenuOpen(false);
+                      forwarding.clearSelection();
+                      setAutoDeleteDialogOpen(true);
+                    }}
+                    onClose={() => closeChatMenu(true)}
+                  />
+                ) : null}
+              </MotionPresence>
             </div>
           </>
         ) : pinnedViewOpen ? (
@@ -1752,6 +1812,7 @@ export function Conversation({
                     onSetArchived={onSetChatArchived}
                     onOpenPinned={() => openPinnedMessages()}
                     onOpenMessageSearch={() => onOpenMessageSearch()}
+                    onStartSelection={() => forwarding.startSelection()}
                     onOpenAutoDelete={() => {
                       setChatMenuOpen(false);
                       setAutoDeleteDialogOpen(true);
@@ -2154,7 +2215,21 @@ export function Conversation({
           loading={actionLoadingId === actionMessage.id}
           onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessage)}
-          onForward={() => startForwardSelection(actionMessage)}
+          onForward={() => openForwardDialog([actionMessage.id])}
+          forwardTargets={forwardTargets}
+          onQuickForward={(target) => {
+            closeActionMenu(false);
+            void forwarding.quickForward([actionMessage.id], target);
+          }}
+          onForwardAlbum={actionAlbumMessageIds.length > 1
+            ? () => openForwardDialog(actionAlbumMessageIds)
+            : undefined}
+          onQuickForwardAlbum={actionAlbumMessageIds.length > 1
+            ? (target) => {
+                closeActionMenu(false);
+                void forwarding.quickForward(actionAlbumMessageIds, target);
+              }
+            : undefined}
           onRepeat={chat.kind === "group" && topic?.isClosed !== true && !actionMessage.outgoing
             ? () => void repeatMessage(actionMessage)
             : undefined}
@@ -2231,16 +2306,7 @@ export function Conversation({
 
       {pinnedViewOpen ? null : selectionMode ? (
         <div className="message-selection-bar">
-          <span>{selectedMessageIds.size} 条消息</span>
-          <button
-            ref={selectionForwardButtonRef}
-            className="selection-forward-button"
-            type="button"
-            onClick={forwarding.openDialog}
-          >
-            <Forward size={18} strokeWidth={1.9} />
-            转发
-          </button>
+          <span>{selectedMessageIds.size > 0 ? `${selectedMessageIds.size} 条消息已选择` : "点击消息任意位置进行选择"}</span>
         </div>
       ) : botStartPending ? (
         <div className="bot-start-bar">
@@ -2326,18 +2392,19 @@ export function Conversation({
         /> : null}
       </MotionPresence>
 
-      <MotionPresence present={Boolean(forwardDialogOpen && selectionMode)}>
-        {forwardDialogOpen && selectionMode ? <ForwardMessagesDialog
-          selectedCount={selectedMessageIds.size}
+      <MotionPresence present={Boolean(forwardDialogOpen && forwardMessageIds.length > 0)}>
+        {forwardDialogOpen && forwardMessageIds.length > 0 ? <ForwardMessagesDialog
+          selectedCount={forwardMessageIds.length}
           targets={filteredForwardTargets}
           topicsByChat={forumTopics}
           currentChatId={chat.id}
+          initialTargetId={initialForwardTargetId}
           query={forwardQuery}
           pending={forwardPending}
           pendingTargetId={forwardPendingTargetId}
           onQueryChange={forwarding.setQuery}
           onLoadTopics={onLoadForumTopics}
-          onConfirm={(target, topicId) => void confirmForward(target, topicId)}
+          onConfirm={(targets, description) => void confirmForward(targets, description)}
           onClose={forwarding.closeDialog}
         /> : null}
       </MotionPresence>

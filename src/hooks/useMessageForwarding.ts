@@ -6,6 +6,11 @@ import type {
   MessagePermissions,
 } from "../telegram/types";
 
+export interface ForwardTargetSelection {
+  chat: Chat;
+  topicId?: string;
+}
+
 interface MessageForwardingOptions {
   chatId?: string;
   conversationIdentity?: string;
@@ -21,8 +26,12 @@ interface MessageForwardingOptions {
     messageIds: string[],
     toChatId: string,
     toTopicId?: string,
+    description?: string,
   ) => Promise<ForwardMessagesResult | undefined>;
 }
+
+export const forwardTargetKey = (target: Pick<ForwardTargetSelection, "chat" | "topicId">) =>
+  `${target.chat.id}\u0000${target.topicId ?? ""}`;
 
 export const useMessageForwarding = ({
   chatId,
@@ -33,13 +42,15 @@ export const useMessageForwarding = ({
   onLoadMessageProperties,
   onForwardMessages,
 }: MessageForwardingOptions) => {
+  const [selectionActive, setSelectionActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [forwardMessageIds, setForwardMessageIds] = useState<string[]>([]);
+  const [initialTargetId, setInitialTargetId] = useState<string>();
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [pendingTargetId, setPendingTargetId] = useState<string>();
-  const selectionMode = selectedIds.size > 0;
 
   const filteredTargets = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -49,9 +60,12 @@ export const useMessageForwarding = ({
   }, [query, targets]);
 
   useEffect(() => {
+    setSelectionActive(false);
     setSelectedIds(new Set());
     setLoadingIds(new Set());
     setDialogOpen(false);
+    setForwardMessageIds([]);
+    setInitialTargetId(undefined);
     setQuery("");
     setPending(false);
     setPendingTargetId(undefined);
@@ -62,30 +76,43 @@ export const useMessageForwarding = ({
       const available = new Set([...current].filter((messageId) => messagesById.has(messageId)));
       return available.size === current.size ? current : available;
     });
+    setForwardMessageIds((current) => {
+      const available = current.filter((messageId) => messagesById.has(messageId));
+      return available.length === current.length ? current : available;
+    });
   }, [messagesById]);
 
   useEffect(() => {
-    if (!selectionMode) return;
+    if (!selectionActive) return;
     const closeWithKeyboard = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (dialogOpen && !pending) {
         setDialogOpen(false);
+        setForwardMessageIds([]);
+        setInitialTargetId(undefined);
         setQuery("");
       } else if (!pending) {
+        setSelectionActive(false);
         setSelectedIds(new Set());
       }
     };
     document.addEventListener("keydown", closeWithKeyboard);
     return () => document.removeEventListener("keydown", closeWithKeyboard);
-  }, [dialogOpen, pending, selectionMode]);
+  }, [dialogOpen, pending, selectionActive]);
 
-  const clearSelection = () => setSelectedIds(new Set());
+  const clearSelection = useCallback(() => {
+    setSelectionActive(false);
+    setSelectedIds(new Set());
+  }, []);
 
-  const startSelection = (message: Message) => {
+  const startSelection = useCallback((message?: Message) => {
     setDialogOpen(false);
+    setForwardMessageIds([]);
+    setInitialTargetId(undefined);
     setQuery("");
-    setSelectedIds(new Set([message.id]));
-  };
+    setSelectionActive(true);
+    setSelectedIds(message ? new Set([message.id]) : new Set());
+  }, []);
 
   const toggleSelection = useCallback(async (message: Message) => {
     if (selectedIds.has(message.id)) {
@@ -114,37 +141,98 @@ export const useMessageForwarding = ({
       : new Set(current).add(message.id));
   }, [loadingIds, onLoadMessageProperties, selectedIds]);
 
-  const confirm = async (target: Chat, toTopicId?: string) => {
-    if (!chatId || pending) return;
-    const messageIds = messages
-      .filter((message) => selectedIds.has(message.id))
-      .map((message) => message.id);
-    if (messageIds.length === 0) return;
+  const orderedMessageIds = useCallback((messageIds: Iterable<string>) => {
+    const requested = new Set(messageIds);
+    return messages
+      .filter((message) => requested.has(message.id))
+      .map((message) => message.id)
+      .slice(0, 100);
+  }, [messages]);
+
+  const openDialogForMessages = useCallback((
+    messageIds: Iterable<string>,
+    targetId?: string,
+  ) => {
+    const ordered = orderedMessageIds(messageIds);
+    if (ordered.length === 0 || pending) return;
+    setForwardMessageIds(ordered);
+    setInitialTargetId(targetId);
+    setQuery("");
+    setDialogOpen(true);
+  }, [orderedMessageIds, pending]);
+
+  const openSelectedDialog = useCallback(() => {
+    openDialogForMessages(selectedIds);
+  }, [openDialogForMessages, selectedIds]);
+
+  const quickForward = useCallback(async (
+    messageIds: Iterable<string>,
+    target: Chat,
+  ) => {
+    const ordered = orderedMessageIds(messageIds);
+    if (!chatId || ordered.length === 0 || pending) return;
+    if (target.isForum) {
+      openDialogForMessages(ordered, target.id);
+      return;
+    }
     setPending(true);
     setPendingTargetId(target.id);
-    const result = await onForwardMessages(chatId, messageIds, target.id, toTopicId);
+    await onForwardMessages(chatId, ordered, target.id);
+    setPending(false);
+    setPendingTargetId(undefined);
+  }, [chatId, onForwardMessages, openDialogForMessages, orderedMessageIds, pending]);
+
+  const confirm = useCallback(async (
+    selectedTargets: ForwardTargetSelection[],
+    description: string,
+  ) => {
+    if (!chatId || pending || forwardMessageIds.length === 0 || selectedTargets.length === 0) return;
+    setPending(true);
+    const failedMessageIds = new Set<string>();
+    for (const target of selectedTargets) {
+      setPendingTargetId(forwardTargetKey(target));
+      const result = await onForwardMessages(
+        chatId,
+        forwardMessageIds,
+        target.chat.id,
+        target.topicId,
+        description.trim() || undefined,
+      );
+      if (!result) {
+        forwardMessageIds.forEach((messageId) => failedMessageIds.add(messageId));
+      } else {
+        result.failedMessageIds.forEach((messageId) => failedMessageIds.add(messageId));
+      }
+    }
     setPending(false);
     setPendingTargetId(undefined);
     setDialogOpen(false);
+    setForwardMessageIds([]);
+    setInitialTargetId(undefined);
     setQuery("");
-    if (!result) return;
-    if (result.failedMessageIds.length > 0) {
-      setSelectedIds(new Set(result.failedMessageIds));
+    if (!selectionActive) return;
+    if (failedMessageIds.size > 0) {
+      setSelectedIds(failedMessageIds);
       return;
     }
-    setSelectedIds(new Set());
-  };
+    clearSelection();
+  }, [chatId, clearSelection, forwardMessageIds, onForwardMessages, pending, selectionActive]);
 
-  const closeDialog = () => {
+  const closeDialog = useCallback(() => {
+    if (pending) return;
     setDialogOpen(false);
+    setForwardMessageIds([]);
+    setInitialTargetId(undefined);
     setQuery("");
-  };
+  }, [pending]);
 
   return {
     selectedIds,
     loadingIds,
-    selectionMode,
+    selectionMode: selectionActive,
     dialogOpen,
+    forwardMessageIds,
+    initialTargetId,
     query,
     pending,
     pendingTargetId,
@@ -152,7 +240,9 @@ export const useMessageForwarding = ({
     clearSelection,
     startSelection,
     toggleSelection,
-    openDialog: () => setDialogOpen(true),
+    openDialogForMessages,
+    openSelectedDialog,
+    quickForward,
     closeDialog,
     setQuery,
     confirm,

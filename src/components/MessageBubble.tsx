@@ -674,6 +674,11 @@ function MessageBubbleComponent({
       className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       data-local-block-group={localBlockGroupId}
+      onClick={() => {
+        if (selectionMode && !isService && !selectionDisabled) {
+          void onToggleSelection(message);
+        }
+      }}
       onAnimationEnd={(event) => {
         if (
           event.target === event.currentTarget &&
@@ -693,7 +698,10 @@ function MessageBubbleComponent({
           aria-pressed={selected}
           title={message.permissions?.canForward === false ? "此消息不可转发" : selected ? "取消选择" : "选择消息"}
           disabled={selectionDisabled}
-          onClick={() => void onToggleSelection(message)}
+          onClick={(event) => {
+            event.stopPropagation();
+            void onToggleSelection(message);
+          }}
         >
           {showSelectionPending
             ? <LoaderCircle className="spin" size={15} />

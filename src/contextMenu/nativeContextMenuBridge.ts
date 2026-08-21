@@ -36,6 +36,7 @@ export interface NativeContextMenuItem {
   checked?: boolean;
   avatar?: Avatar;
   separatorBefore?: boolean;
+  actionable?: boolean;
   children?: NativeContextMenuItem[];
 }
 
