@@ -28,10 +28,21 @@ import {
   classifyOutgoingAttachment,
   inspectOutgoingAttachment,
 } from "../media/outgoingAttachments";
+import {
+  closeMediaViewerWindowSession,
+  openMediaViewerWindow,
+  syncMediaViewerWindowSession,
+} from "../media/mediaViewerWindowBridge";
+import {
+  closeVideoPreviewWindow,
+  openVideoPreviewWindow,
+} from "../media/videoWindowBridge";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
+import { colorThemeForThemeId } from "../theme/theme";
 import type { AttachmentSendMode, BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
+import type { PhotoMessage } from "../utils/mediaViewerModel";
 import { motionLifecycleTiming } from "../utils/motionTokens";
 import {
   composerInlineQueryForDraft,
@@ -46,7 +57,6 @@ import {
 } from "../utils/composerMentions";
 import { messageSummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
-import { ComposerMediaPreview } from "./ComposerMediaPreview";
 import { EmojiPicker } from "./EmojiPicker";
 import { MotionPresence } from "./MotionPresence";
 import { MediaSpoiler } from "./Spoiler";
@@ -93,6 +103,10 @@ interface PendingAttachment {
   previewUrl?: string;
 }
 
+type AttachmentPreviewSession =
+  | { kind: "photo"; id: string; draftKey: string }
+  | { kind: "video"; id: string; draftKey: string; attachmentId: string };
+
 const ATTACHMENT_KIND_LABELS: Record<OutgoingAttachment["kind"], string> = {
   photo: "图片",
   video: "视频",
@@ -114,6 +128,8 @@ const pendingAttachmentFrom = (attachment: OutgoingAttachment): PendingAttachmen
     ? URL.createObjectURL(attachment.file)
     : undefined,
 });
+
+const ignoreViewerFileAction = async () => undefined;
 
 export const ConversationComposer = memo(function ConversationComposer({
   chatId,
@@ -168,7 +184,6 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [attachmentSpoiler, setAttachmentSpoiler] = useState(localAttachmentDraft?.hasSpoiler ?? false);
   const [muteVideos, setMuteVideos] = useState(localAttachmentDraft?.muteVideos ?? false);
   const [draggingFiles, setDraggingFiles] = useState(false);
-  const [previewAttachmentId, setPreviewAttachmentId] = useState<string>();
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [botSuggestions, setBotSuggestions] = useState<BotCommandSuggestion[]>([]);
   const [activeBotSuggestionIndex, setActiveBotSuggestionIndex] = useState(0);
@@ -182,6 +197,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const botQueryGenerationRef = useRef(0);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
+  const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(draft);
   const mentionEntitiesRef = useRef<MessageTextEntity[]>(chatDraft?.entities ?? []);
@@ -208,6 +224,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   const pendingAttachmentsRef = useRef(pendingAttachments);
   const pendingAttachmentDraftKeyRef = useRef<string | undefined>(undefined);
   const localAttachmentBatchIdRef = useRef<string | undefined>(undefined);
+  const attachmentPreviewSessionRef = useRef<AttachmentPreviewSession | undefined>(undefined);
+  const attachmentPreviewGenerationRef = useRef(0);
   const attachmentModeRef = useRef(attachmentMode);
   const attachmentSpoilerRef = useRef(attachmentSpoiler);
   const muteVideosRef = useRef(muteVideos);
@@ -217,17 +235,94 @@ export const ConversationComposer = memo(function ConversationComposer({
   const mediaModeAvailable = pendingAttachments.length > 0 && pendingAttachments.every(
     ({ attachment }) => canSendAttachmentAsMedia(attachment.kind),
   );
-  const previewableAttachments = useMemo(() => pendingAttachments.flatMap((pending) =>
-    pending.previewUrl && canPreviewOutgoingAttachment(pending.attachment.kind)
+  const hasPreviewableAttachments = pendingAttachments.some(
+    ({ attachment, previewUrl }) => previewUrl && canPreviewOutgoingAttachment(attachment.kind),
+  );
+  const photoPreviewMessages = useMemo<PhotoMessage[]>(() => pendingAttachments.flatMap((pending) =>
+    pending.previewUrl && ["photo", "animation"].includes(pending.attachment.kind)
       ? [{
           id: pending.id,
-          name: pending.attachment.file.name,
-          size: pending.attachment.file.size,
-          kind: pending.attachment.kind,
-          previewUrl: pending.previewUrl,
+          chatId: `attachment-draft:${draftKey}`,
+          senderId: "self",
+          outgoing: true,
+          sentAt: new Date(pending.attachment.file.lastModified || 0).toISOString(),
+          delivery: "read",
+          content: {
+            kind: "media",
+            mediaType: "photo",
+            fileName: pending.attachment.file.name,
+            mimeType: pending.attachment.file.type || undefined,
+            size: pending.attachment.file.size,
+            sizeLabel: attachmentSizeLabel(pending.attachment.file.size),
+            width: pending.attachment.width,
+            height: pending.attachment.height,
+            previewDataUrl: pending.previewUrl,
+          },
         }]
       : [],
-  ), [pendingAttachments]);
+  ), [draftKey, pendingAttachments]);
+
+  const closeAttachmentPreviewSession = useCallback(() => {
+    attachmentPreviewGenerationRef.current += 1;
+    const session = attachmentPreviewSessionRef.current;
+    attachmentPreviewSessionRef.current = undefined;
+    if (!session) return;
+    if (session.kind === "photo") closeMediaViewerWindowSession(session.id);
+    else closeVideoPreviewWindow(session.id);
+  }, []);
+
+  const openPendingAttachmentPreview = useCallback((pending: PendingAttachment) => {
+    const { attachment, previewUrl } = pending;
+    if (!previewUrl || !canPreviewOutgoingAttachment(attachment.kind)) return;
+    closeAttachmentPreviewSession();
+    const generation = attachmentPreviewGenerationRef.current;
+
+    if (attachment.kind === "photo" || attachment.kind === "animation") {
+      if (!photoPreviewMessages.some((message) => message.id === pending.id)) return;
+      void openMediaViewerWindow({
+        messages: photoPreviewMessages,
+        activeMessageId: pending.id,
+        colorTheme,
+      }, ignoreViewerFileAction, ignoreViewerFileAction).then((id) => {
+        if (!id) return;
+        const stillStaged = generation === attachmentPreviewGenerationRef.current &&
+          pendingAttachmentDraftKeyRef.current === draftKey &&
+          pendingAttachmentsRef.current.some((candidate) => candidate.id === pending.id);
+        if (!stillStaged) {
+          closeMediaViewerWindowSession(id);
+          return;
+        }
+        attachmentPreviewSessionRef.current = { kind: "photo", id, draftKey };
+      });
+      return;
+    }
+
+    if (attachment.kind === "video") {
+      void openVideoPreviewWindow({
+        source: previewUrl,
+        label: attachment.file.name,
+        width: attachment.width,
+        height: attachment.height,
+        duration: attachment.duration,
+        colorTheme,
+      }).then((id) => {
+        if (!id) return;
+        const stillStaged = generation === attachmentPreviewGenerationRef.current &&
+          pendingAttachmentDraftKeyRef.current === draftKey &&
+          pendingAttachmentsRef.current.some((candidate) => candidate.id === pending.id);
+        if (!stillStaged) {
+          closeVideoPreviewWindow(id);
+          return;
+        }
+        attachmentPreviewSessionRef.current = {
+          kind: "video",
+          id,
+          draftKey,
+          attachmentId: pending.id,
+        };
+      });
+    }
+  }, [closeAttachmentPreviewSession, colorTheme, draftKey, photoPreviewMessages]);
 
   pendingAttachmentsRef.current = pendingAttachments;
   attachmentModeRef.current = attachmentMode;
@@ -569,10 +664,32 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [editingMessage, flushDraft, stopTyping]);
 
   useEffect(() => () => {
+    closeAttachmentPreviewSession();
     for (const attachment of pendingAttachmentsRef.current) {
       if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
     }
-  }, []);
+  }, [closeAttachmentPreviewSession]);
+
+  useEffect(() => {
+    const session = attachmentPreviewSessionRef.current;
+    if (!session) return;
+    if (session.draftKey !== draftKey) {
+      closeAttachmentPreviewSession();
+      return;
+    }
+    if (session.kind === "photo") {
+      if (
+        photoPreviewMessages.length === 0 ||
+        !syncMediaViewerWindowSession(session.id, photoPreviewMessages, colorTheme)
+      ) {
+        attachmentPreviewSessionRef.current = undefined;
+      }
+      return;
+    }
+    if (!pendingAttachments.some((pending) => pending.id === session.attachmentId)) {
+      closeAttachmentPreviewSession();
+    }
+  }, [closeAttachmentPreviewSession, colorTheme, draftKey, pendingAttachments, photoPreviewMessages]);
 
   useEffect(() => {
     const switchedDraft = pendingAttachmentDraftKeyRef.current !== draftKey;
@@ -586,12 +703,12 @@ export const ConversationComposer = memo(function ConversationComposer({
     localAttachmentBatchIdRef.current = localAttachmentDraft?.batchId;
     if (!switchedDraft && localAttachmentDraft && pendingAttachmentsRef.current.length > 0) return;
 
+    closeAttachmentPreviewSession();
     for (const pending of pendingAttachmentsRef.current) {
       if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
     }
     pendingAttachmentsRef.current = [];
     setPendingAttachments([]);
-    setPreviewAttachmentId(undefined);
     setAttachmentNotice(undefined);
     setAttachmentMode(localAttachmentDraft?.mode ?? "media");
     setAttachmentSpoiler(localAttachmentDraft?.hasSpoiler ?? false);
@@ -611,7 +728,7 @@ export const ConversationComposer = memo(function ConversationComposer({
     return () => {
       cancelled = true;
     };
-  }, [draftKey, loadLocalAttachmentDraft, localAttachmentDraft]);
+  }, [closeAttachmentPreviewSession, draftKey, loadLocalAttachmentDraft, localAttachmentDraft]);
 
   const persistPendingAttachments = useCallback((next: PendingAttachment[]) => {
     if (next.length === 0) {
@@ -693,20 +810,20 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [persistPendingAttachments, updateAttachmentOptions]);
 
   const removePendingAttachment = useCallback((id: string) => {
+    closeAttachmentPreviewSession();
     const current = pendingAttachmentsRef.current;
     const removed = current.find((attachment) => attachment.id === id);
     if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
     const next = current.filter((attachment) => attachment.id !== id);
     pendingAttachmentsRef.current = next;
     setPendingAttachments(next);
-    if (previewAttachmentId === id) setPreviewAttachmentId(undefined);
     if (next.some(({ attachment }) => !canSendAttachmentAsMedia(attachment.kind))) {
       updateAttachmentOptions({ mode: "file", hasSpoiler: false, muteVideos: false });
     }
     persistPendingAttachments(next);
     setAttachmentNotice(undefined);
     focusComposer();
-  }, [focusComposer, persistPendingAttachments, previewAttachmentId, updateAttachmentOptions]);
+  }, [closeAttachmentPreviewSession, focusComposer, persistPendingAttachments, updateAttachmentOptions]);
 
   const sendPendingAttachments = async () => {
     if (attachmentPending || pendingAttachments.length === 0) return;
@@ -732,12 +849,12 @@ export const ConversationComposer = memo(function ConversationComposer({
         caption.entities,
       );
       if (!sent) return;
+      closeAttachmentPreviewSession();
       for (const attachment of pendingAttachments) {
         if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
       }
       pendingAttachmentsRef.current = [];
       setPendingAttachments([]);
-      setPreviewAttachmentId(undefined);
       setAttachmentNotice(undefined);
       setAttachmentMode("media");
       setAttachmentSpoiler(false);
@@ -948,7 +1065,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                           type="button"
                           aria-label={`预览 ${attachment.file.name}`}
                           title="预览附件"
-                          onClick={() => setPreviewAttachmentId(pending.id)}
+                          onClick={() => openPendingAttachmentPreview(pending)}
                         >
                           {attachment.kind === "video" ? (
                             <video src={pending.previewUrl} aria-hidden="true" muted />
@@ -1010,7 +1127,7 @@ export const ConversationComposer = memo(function ConversationComposer({
               <input
                 type="checkbox"
                 checked={attachmentSpoiler}
-                disabled={attachmentMode === "file" || !previewableAttachments.length}
+                disabled={attachmentMode === "file" || !hasPreviewableAttachments}
                 onChange={(event) => updateAttachmentOptions({ hasSpoiler: event.target.checked })}
               />
               剧透
@@ -1237,14 +1354,6 @@ export const ConversationComposer = memo(function ConversationComposer({
           <Paperclip size={24} />
           <strong>添加到待发送附件</strong>
         </div>
-      )}
-      {previewAttachmentId && (
-        <ComposerMediaPreview
-          items={previewableAttachments}
-          activeId={previewAttachmentId}
-          onActiveChange={setPreviewAttachmentId}
-          onClose={() => setPreviewAttachmentId(undefined)}
-        />
       )}
     </div>
   );

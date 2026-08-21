@@ -4870,12 +4870,31 @@ test("attachment entry points share classification, previews, spoilers, and loca
   await expect(stagedSpoiler).toHaveClass(/is-concealed/);
   await preview.getByRole("button", { name: "显示遮罩媒体" }).click();
   await expect(stagedSpoiler).toHaveClass(/is-revealed/);
+  const popupPromise = page.waitForEvent("popup");
   await preview.getByRole("button", { name: "预览 dropped-image.png" }).click();
-  const mediaPreview = page.getByRole("dialog", { name: "附件预览：dropped-image.png" });
-  await expect(mediaPreview).toBeVisible();
-  await expect(mediaPreview.locator("img")).toBeVisible();
-  await mediaPreview.getByRole("button", { name: "关闭附件预览" }).click();
-  await expect(mediaPreview).toBeHidden();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  await expect(page.getByRole("dialog", { name: "图片查看器：dropped-image.png" })).toHaveCount(0);
+  await expect(popup.getByRole("dialog", { name: "图片查看器：dropped-image.png" })).toBeVisible();
+  await expect(popup.locator('.media-viewer-image[alt="dropped-image.png"]')).toBeVisible();
+  const popupClosed = popup.waitForEvent("close");
+  await popup.keyboard.down("Escape");
+  await popupClosed;
+  await expect(preview.getByText("dropped-image.png", { exact: true })).toBeVisible();
+
+  await preview.getByRole("checkbox", { name: "剧透" }).uncheck();
+  await preview.getByRole("button", { name: "移除 dropped-image.png" }).click();
+  await page.locator('input[type="file"]').setInputFiles("public/mock-video.mp4");
+  await expect(preview.getByText("mock-video.mp4", { exact: true })).toBeVisible();
+  const videoPopupPromise = page.waitForEvent("popup");
+  await preview.getByRole("button", { name: "预览 mock-video.mp4" }).click();
+  const videoPopup = await videoPopupPromise;
+  await videoPopup.waitForLoadState("domcontentloaded");
+  await expect(videoPopup.locator(".video-window")).toHaveClass(/is-fullscreen/);
+  await expect(videoPopup.locator("video")).toHaveAttribute("src", /^blob:/);
+  const videoPopupClosed = videoPopup.waitForEvent("close");
+  await videoPopup.keyboard.down("Escape");
+  await videoPopupClosed;
 });
 
 test("poll messages support voting, results, and revoking an answer", async ({ page }) => {

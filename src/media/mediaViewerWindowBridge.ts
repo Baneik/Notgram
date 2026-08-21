@@ -76,6 +76,23 @@ export const syncMediaViewerWindow = (
   } satisfies MediaViewerWindowMessage);
 };
 
+export const syncMediaViewerWindowSession = (
+  id: string,
+  messages: PhotoMessage[],
+  colorTheme: MediaViewerWindowDescriptor["colorTheme"],
+) => {
+  const session = activeSession;
+  if (!session || session.id !== id || messages.length === 0) return false;
+  session.descriptor = { ...session.descriptor, messages, colorTheme };
+  session.channel.postMessage({
+    type: "sync",
+    id,
+    messages,
+    colorTheme,
+  } satisfies MediaViewerWindowMessage);
+  return true;
+};
+
 const disposeSession = (session: MediaViewerSession, requestClose: boolean) => {
   if (session.initializationTimer !== undefined) {
     globalThis.clearTimeout(session.initializationTimer);
@@ -91,6 +108,12 @@ const disposeSession = (session: MediaViewerSession, requestClose: boolean) => {
   }
   session.channel.close();
   if (activeSession === session) activeSession = undefined;
+};
+
+export const closeMediaViewerWindowSession = (id: string) => {
+  const session = activeSession;
+  if (!session || session.id !== id) return;
+  disposeSession(session, true);
 };
 
 export const openMediaViewerWindow = async (
@@ -149,7 +172,9 @@ export const openMediaViewerWindow = async (
       globalThis.clearTimeout(session.initializationTimer);
       session.initializationTimer = undefined;
     }
+    return id;
   } catch {
     if (activeSession === session) disposeSession(session, true);
+    return undefined;
   }
 };
