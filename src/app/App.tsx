@@ -29,10 +29,6 @@ import { senderNameForMessage } from "../components/conversationMessages";
 import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { localUserBlocksStore } from "../store/localUserBlocks";
-import {
-  sortChatsByConversationActivity,
-  useConversationActivity,
-} from "../store/conversationActivity";
 import { messageContentText } from "../telegram/messageContent";
 import type { Message, TelegramLinkTarget } from "../telegram/types";
 import { isTelegramBotStartLink, isTelegramUserLink } from "../telegram/telegramLinks";
@@ -238,7 +234,6 @@ export function App() {
   const updateChatDraft = useTelegramStore((state) => state.updateChatDraft);
   const setChatTyping = useTelegramStore((state) => state.setChatTyping);
   const forwardMessages = useTelegramStore((state) => state.forwardMessages);
-  const conversationActivity = useConversationActivity((state) => state.records);
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
   const getMessageReactionSenders = useTelegramStore((state) => state.getMessageReactionSenders);
@@ -1252,10 +1247,7 @@ export function App() {
     () => filterAndSortChats(chats.values(), chatFilter, searchQuery),
     [chatFilter, chats, searchQuery],
   );
-  const forwardTargets = useMemo(
-    () => sortChatsByConversationActivity(chats.values(), activeAccountId, conversationActivity),
-    [activeAccountId, chats, conversationActivity],
-  );
+  const forwardTargets = useMemo(() => [...chats.values()], [chats]);
   const chatSearchSenderOptions = useMemo<SidebarSearchSenderOption[]>(() => {
     if (!sidebarSearchChatId) return [];
     const seen = new Set<string>();

@@ -17,6 +17,7 @@ interface MessageForwardingOptions {
   messages: Message[];
   messagesById: Map<string, Message>;
   targets: Chat[];
+  getTargetsSnapshot?: () => Chat[];
   onLoadMessageProperties: (
     chatId: string,
     messageId: string,
@@ -39,6 +40,7 @@ export const useMessageForwarding = ({
   messages,
   messagesById,
   targets,
+  getTargetsSnapshot,
   onLoadMessageProperties,
   onForwardMessages,
 }: MessageForwardingOptions) => {
@@ -51,13 +53,19 @@ export const useMessageForwarding = ({
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [pendingTargetId, setPendingTargetId] = useState<string>();
+  const [targetSnapshot, setTargetSnapshot] = useState<Chat[]>(() => getTargetsSnapshot?.() ?? targets);
+
+  const captureTargets = useCallback(
+    () => getTargetsSnapshot?.() ?? targets,
+    [getTargetsSnapshot, targets],
+  );
 
   const filteredTargets = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return normalized
-      ? targets.filter((target) => target.title.toLocaleLowerCase().includes(normalized))
-      : targets;
-  }, [query, targets]);
+      ? targetSnapshot.filter((target) => target.title.toLocaleLowerCase().includes(normalized))
+      : targetSnapshot;
+  }, [query, targetSnapshot]);
 
   useEffect(() => {
     setSelectionActive(false);
@@ -69,6 +77,7 @@ export const useMessageForwarding = ({
     setQuery("");
     setPending(false);
     setPendingTargetId(undefined);
+    setTargetSnapshot(captureTargets());
   }, [conversationIdentity ?? chatId]);
 
   useEffect(() => {
@@ -106,13 +115,14 @@ export const useMessageForwarding = ({
   }, []);
 
   const startSelection = useCallback((message?: Message) => {
+    setTargetSnapshot(captureTargets());
     setDialogOpen(false);
     setForwardMessageIds([]);
     setInitialTargetId(undefined);
     setQuery("");
     setSelectionActive(true);
     setSelectedIds(message ? new Set([message.id]) : new Set());
-  }, []);
+  }, [captureTargets]);
 
   const toggleSelection = useCallback(async (message: Message) => {
     if (selectedIds.has(message.id)) {
@@ -155,11 +165,12 @@ export const useMessageForwarding = ({
   ) => {
     const ordered = orderedMessageIds(messageIds);
     if (ordered.length === 0 || pending) return;
+    setTargetSnapshot(captureTargets());
     setForwardMessageIds(ordered);
     setInitialTargetId(targetId);
     setQuery("");
     setDialogOpen(true);
-  }, [orderedMessageIds, pending]);
+  }, [captureTargets, orderedMessageIds, pending]);
 
   const openSelectedDialog = useCallback(() => {
     openDialogForMessages(selectedIds);

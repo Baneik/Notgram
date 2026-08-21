@@ -43,6 +43,11 @@ import {
 } from "../hooks/useConversationScroll";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { useConversationActivityTracker } from "../hooks/useConversationActivityTracker";
+import {
+  getConversationActivityRecords,
+  quickForwardChatsAt,
+  sortChatsByConversationActivity,
+} from "../store/conversationActivity";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import { formatMessageDay } from "../utils/formatters";
 import { Avatar } from "./Avatar";
@@ -400,6 +405,7 @@ export function Conversation({
     returnFocus?: HTMLElement;
     replyQuote?: MessageReplyQuote;
   }>();
+  const [actionForwardTargets, setActionForwardTargets] = useState<Chat[]>([]);
   const [senderMenu, setSenderMenu] = useState<{
     senderId: string;
     senderName: string;
@@ -789,12 +795,22 @@ export function Conversation({
     audioPlaybackController.registerTracks(audioTrackQueue);
   }, [audioTrackQueue]);
 
+  const getForwardTargetsSnapshot = useCallback(
+    () => sortChatsByConversationActivity(
+      forwardTargets,
+      activeAccountId,
+      getConversationActivityRecords(),
+    ),
+    [activeAccountId, forwardTargets],
+  );
+
   const forwarding = useMessageForwarding({
     chatId: chat?.id,
     conversationIdentity,
     messages: renderedMessages,
     messagesById,
     targets: forwardTargets,
+    getTargetsSnapshot: getForwardTargetsSnapshot,
     onLoadMessageProperties,
     onForwardMessages,
   });
@@ -1366,6 +1382,7 @@ export function Conversation({
 
   useEffect(() => {
     setActionMenu(undefined);
+    setActionForwardTargets([]);
     setActionLoadingId(undefined);
     setComposerTextInsertion(undefined);
     setReplyingTo(undefined);
@@ -1506,6 +1523,11 @@ export function Conversation({
       : undefined) ?? (selectedReplyQuoteSnapshotRef.current?.messageId === message.id
         ? selectedReplyQuoteSnapshotRef.current.quote
         : undefined);
+    setActionForwardTargets(quickForwardChatsAt(
+      forwardTargets,
+      activeAccountId,
+      getConversationActivityRecords(),
+    ));
     setActionMenu({
       messageId: message.id,
       left,
@@ -1517,7 +1539,7 @@ export function Conversation({
     setActionLoadingId(message.id);
     await onLoadMessageProperties(message.chatId, message.id);
     setActionLoadingId((current) => current === message.id ? undefined : current);
-  }, [actionLoadingId, onLoadMessageProperties]);
+  }, [actionLoadingId, activeAccountId, forwardTargets, onLoadMessageProperties]);
 
   const copyMessage = async (message: Message) => {
     try {
@@ -2216,7 +2238,7 @@ export function Conversation({
           onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessage)}
           onForward={() => openForwardDialog([actionMessage.id])}
-          forwardTargets={forwardTargets}
+          forwardTargets={actionForwardTargets}
           onQuickForward={(target) => {
             closeActionMenu(false);
             void forwarding.quickForward([actionMessage.id], target);

@@ -76,6 +76,7 @@ export function ContextMenuWindow() {
   const closingRef = useRef(false);
   const blurArmedRef = useRef(false);
   const blurTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const expandedCloseTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const [session, setSession] = useState<ContextMenuSession>();
   const [expandedId, setExpandedId] = useState<string>();
 
@@ -85,6 +86,7 @@ export function ContextMenuWindow() {
     closingRef.current = true;
     blurArmedRef.current = false;
     if (blurTimerRef.current !== undefined) globalThis.clearTimeout(blurTimerRef.current);
+    if (expandedCloseTimerRef.current !== undefined) globalThis.clearTimeout(expandedCloseTimerRef.current);
     channelRef.current?.postMessage({ type: "closed", id } satisfies NativeContextMenuMessage);
     if (isTauri()) {
       await invoke("notgram_close_context_menu_window", { id }).catch(() => undefined);
@@ -98,6 +100,19 @@ export function ContextMenuWindow() {
     setSession(undefined);
     closingRef.current = false;
   }, []);
+
+  const cancelExpandedClose = () => {
+    if (expandedCloseTimerRef.current === undefined) return;
+    globalThis.clearTimeout(expandedCloseTimerRef.current);
+    expandedCloseTimerRef.current = undefined;
+  };
+  const scheduleExpandedClose = () => {
+    cancelExpandedClose();
+    expandedCloseTimerRef.current = globalThis.setTimeout(() => {
+      expandedCloseTimerRef.current = undefined;
+      setExpandedId(undefined);
+    }, 90);
+  };
 
   useEffect(() => {
     document.documentElement.classList.add("context-menu-window-page");
@@ -123,6 +138,7 @@ export function ContextMenuWindow() {
       if (initSignatureRef.current === signature) return;
       initSignatureRef.current = signature;
       if (activeIdRef.current !== message.id) {
+        cancelExpandedClose();
         shownIdRef.current = undefined;
         setExpandedId(undefined);
       }
@@ -146,6 +162,7 @@ export function ContextMenuWindow() {
     return () => {
       stopReady();
       if (blurTimerRef.current !== undefined) globalThis.clearTimeout(blurTimerRef.current);
+      if (expandedCloseTimerRef.current !== undefined) globalThis.clearTimeout(expandedCloseTimerRef.current);
       unlisten?.();
       channel.close();
       channelRef.current = undefined;
@@ -237,7 +254,10 @@ export function ContextMenuWindow() {
                 disabled={item.disabled}
                 aria-haspopup={item.children ? "menu" : undefined}
                 aria-expanded={item.children ? expanded : undefined}
-                onMouseEnter={() => setExpandedId(item.children ? item.id : undefined)}
+                onMouseEnter={() => {
+                  cancelExpandedClose();
+                  setExpandedId(item.children ? item.id : undefined);
+                }}
                 onClick={() => {
                   if (item.actionable || !item.children) select(item.id);
                   else setExpandedId(expanded ? undefined : item.id);
@@ -273,12 +293,20 @@ export function ContextMenuWindow() {
           className="native-context-menu-children context-menu-panel"
           role="menu"
           aria-label={expandedItem.label}
+          onMouseEnter={cancelExpandedClose}
+          onMouseLeave={scheduleExpandedClose}
         >
           {expandedItem.children.map((child) => {
             const ChildIcon = icons[child.icon];
+            const childAvatarSource = child.avatar?.imagePath
+              ? isTauri() ? convertFileSrc(child.avatar.imagePath) : child.avatar.imagePath
+              : undefined;
             return (
               <button
-                className={child.danger ? "is-danger" : undefined}
+                className={[
+                  child.danger ? "is-danger" : "",
+                  child.avatar ? "native-context-menu-child-item" : "",
+                ].filter(Boolean).join(" ") || undefined}
                 type="button"
                 role="menuitemcheckbox"
                 aria-checked={child.checked}
@@ -286,7 +314,16 @@ export function ContextMenuWindow() {
                 key={child.id}
                 onClick={() => select(child.id)}
               >
-                {child.checked ? <Check size={17} strokeWidth={2.1} /> : <ChildIcon size={17} strokeWidth={1.9} />}
+                {child.avatar ? (
+                  <span
+                    className="native-context-menu-child-avatar avatar"
+                    style={{ backgroundColor: child.avatar.color }}
+                    aria-hidden="true"
+                  >
+                    <span>{child.avatar.label}</span>
+                    {childAvatarSource && <StableImage src={childAvatarSource} alt="" />}
+                  </span>
+                ) : child.checked ? <Check size={17} strokeWidth={2.1} /> : <ChildIcon size={17} strokeWidth={1.9} />}
                 <span>{child.label}</span>
               </button>
             );

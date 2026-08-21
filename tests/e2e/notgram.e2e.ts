@@ -3429,7 +3429,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("ArrowDown");
   await expect(forwardDialog.locator(".forward-target-row").first()).toBeFocused();
   await page.keyboard.press("Enter");
-  await forwardDialog.getByRole("button", { name: /转发到 1 个会话/ }).click();
+  await forwardDialog.getByRole("button", { name: "转发", exact: true }).click();
   await expect(forwardDialog).toBeHidden();
 
   actionTrigger = await focusEditableMessage();
@@ -3449,14 +3449,14 @@ test("forwarding ranks quick targets and sends to multiple chats with a descript
     localStorage.setItem("notgram:conversation-activity:v1", JSON.stringify([
       {
         accountId: "default",
-        chatId: "chat-mia",
+        chatId: "chat-product",
         sentMessageCount: 20,
         activeDurationMs: 600_000,
         updatedAt: "2026-08-22T10:00:00Z",
       },
       {
         accountId: "default",
-        chatId: "chat-product",
+        chatId: "chat-mia",
         sentMessageCount: 1,
         activeDurationMs: 1_000,
         updatedAt: "2026-08-22T10:00:00Z",
@@ -3470,17 +3470,29 @@ test("forwarding ranks quick targets and sends to multiple chats with a descript
   const menu = page.getByRole("menu", { name: "消息操作" });
   await menu.getByRole("menuitem", { name: "转发", exact: true }).hover();
   const quickForward = page.getByRole("menu", { name: "快速转发" });
-  await expect(quickForward.getByRole("menuitem").first()).toContainText("Mia Chen");
-  await page.keyboard.press("Escape");
+  await expect(quickForward.getByRole("menuitem").first()).toContainText("产品讨论");
+  await expect(quickForward.getByRole("menuitem").first().locator(".avatar")).toBeVisible();
+  expect(await quickForward.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { overflowY: style.overflowY, scrollbarWidth: style.scrollbarWidth };
+  })).toEqual({ overflowY: "auto", scrollbarWidth: "none" });
+  await page.mouse.move(8, 8);
+  await expect(quickForward).toBeHidden();
 
   await source.locator(".message-bubble-shell").click({ button: "right" });
   await chooseMessageMenuItem(page, "转发");
   const dialog = page.getByRole("dialog", { name: "转发 1 条消息" });
   await expect(dialog.getByRole("searchbox")).toBeFocused();
+  await expect(dialog.getByText("描述", { exact: true })).toHaveCount(0);
+  const forwardButton = dialog.getByRole("button", { name: "转发", exact: true });
+  await expect(forwardButton).not.toHaveClass(/is-ready/);
+  await expect(dialog.getByRole("textbox", { name: "转发附言" }))
+    .toHaveAttribute("placeholder", "附带一条消息（可选）");
   await dialog.locator(".forward-target-row").filter({ hasText: "Mia Chen" }).click();
   await dialog.locator(".forward-target-row").filter({ hasText: "产品讨论" }).click();
-  await dialog.getByLabel("描述").fill("请一起查看这条更新");
-  await dialog.getByRole("button", { name: "转发到 2 个会话" }).click();
+  await expect(forwardButton).toHaveClass(/is-ready/);
+  await dialog.getByLabel("转发附言").fill("请一起查看这条更新");
+  await dialog.getByRole("button", { name: "转发", exact: true }).click();
   await expect(dialog).toBeHidden();
 
   await expect.poll(() => page.evaluate(async (storePath) => {
@@ -3530,7 +3542,7 @@ test("conversation multi-select uses full message rows and albums can merge-forw
     .getByRole("menuitem", { name: "合并转发", exact: true }).click();
   const albumDialog = page.getByRole("dialog", { name: "转发 2 条消息" });
   await albumDialog.locator(".forward-target-row").filter({ hasText: "Mia Chen" }).click();
-  await albumDialog.getByRole("button", { name: "转发到 1 个会话" }).click();
+  await albumDialog.getByRole("button", { name: "转发", exact: true }).click();
   await expect(albumDialog).toBeHidden();
 
   await expect.poll(() => page.evaluate(async (storePath) => {
@@ -8508,6 +8520,51 @@ test("native context menu entry renders account avatars and the trailing add act
   await expect(add).toHaveClass(/has-separator/);
   await expect(add.locator("svg")).toBeVisible();
   await expect(menu.getByRole("menuitem").last()).toHaveText("添加新账号");
+});
+
+test("native forwarding submenu shows avatars and scrolls after five visible rows", async ({ page }) => {
+  await page.goto("/context-menu-window.html");
+  await page.evaluate(async () => {
+    const channel = new BroadcastChannel("notgram-context-menu-v2");
+    channel.postMessage({
+      type: "init",
+      id: "forward-session",
+      descriptor: {
+        label: "消息操作",
+        colorTheme: "light",
+        items: [{
+          id: "forward",
+          label: "转发",
+          icon: "forward",
+          children: Array.from({ length: 10 }, (_, index) => ({
+            id: `target-${index}`,
+            label: `群组${index + 1}`,
+            icon: "message",
+            avatar: { label: String(index + 1), color: "#397a78" },
+          })),
+        }],
+      },
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    channel.close();
+  });
+
+  const menu = page.getByRole("menu", { name: "消息操作" });
+  await menu.getByRole("menuitem", { name: "转发", exact: true }).click();
+  const submenu = page.getByRole("menu", { name: "转发" });
+  await expect(submenu.getByRole("menuitemcheckbox")).toHaveCount(10);
+  await expect(submenu.getByRole("menuitemcheckbox").first().locator(".native-context-menu-child-avatar"))
+    .toContainText("1");
+  expect(await submenu.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      overflowY: style.overflowY,
+      scrollbarWidth: style.scrollbarWidth,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    };
+  })).toMatchObject({ overflowY: "auto", scrollbarWidth: "none" });
+  expect(await submenu.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 });
 
 test("chat context menu manages folders, pinning, and group exit", async ({ page }) => {

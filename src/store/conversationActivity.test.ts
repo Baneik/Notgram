@@ -3,13 +3,14 @@ import type { Chat } from "../telegram/types";
 import {
   conversationActivityScore,
   conversationActivityStore,
+  quickForwardChatsAt,
   sortChatsByConversationActivity,
 } from "./conversationActivity";
 
-const chat = (id: string, updatedAt: string): Chat => ({
+const chat = (id: string, updatedAt: string, kind: Chat["kind"] = "direct"): Chat => ({
   id,
   title: id,
-  kind: "direct",
+  kind,
   avatar: { label: id[0] ?? "?", color: "#567" },
   preview: "",
   updatedAt,
@@ -39,7 +40,7 @@ describe("conversation activity", () => {
     expect(conversationActivityScore(record)).toBe(150_000);
   });
 
-  it("sorts within the active account and falls back to chat recency", () => {
+  it("sorts only by local activity within the active account", () => {
     const chats = [
       chat("recent", "2026-08-22T10:00:00Z"),
       chat("active", "2026-08-20T10:00:00Z"),
@@ -51,6 +52,22 @@ describe("conversation activity", () => {
     ];
 
     expect(sortChatsByConversationActivity(chats, "account-a", records).map(({ id }) => id))
-      .toEqual(["active", "recent", "other-account"]);
+      .toEqual(["active", "other-account", "recent"]);
+  });
+
+  it("limits quick forwarding to the ten most active groups", () => {
+    const chats = Array.from({ length: 11 }, (_, index) =>
+      chat(`group-${index}`, `2026-08-01T${String(index).padStart(2, "0")}:00:00Z`, "group"));
+    chats.push(chat("private", "2026-08-23T10:00:00Z"));
+    const records = chats.map((candidate, index) => ({
+      accountId: "account-a",
+      chatId: candidate.id,
+      sentMessageCount: 11 - index,
+      activeDurationMs: 0,
+      updatedAt: "2026-08-22T10:00:00Z",
+    }));
+
+    expect(quickForwardChatsAt(chats, "account-a", records).map(({ id }) => id))
+      .toEqual(Array.from({ length: 10 }, (_, index) => `group-${index}`));
   });
 });

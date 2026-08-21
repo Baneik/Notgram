@@ -244,24 +244,24 @@ export function ForwardMessagesDialog({
         </div>
         <footer className="forward-dialog-footer">
           <label className="forward-description-field">
-            <span>描述</span>
             <textarea
               value={description}
               maxLength={1024}
               rows={2}
-              placeholder="在转发内容后附带一条消息"
+              aria-label="转发附言"
+              placeholder="附带一条消息（可选）"
               disabled={pending}
               onChange={(event) => setDescription(event.target.value)}
             />
           </label>
           <button
-            className="dialog-primary forward-confirm-button"
+            className={`forward-confirm-button ${selectedTargets.length > 0 ? "is-ready" : ""}`}
             type="button"
             disabled={pending || selectedTargets.length === 0}
             onClick={() => onConfirm(selectedTargets, description)}
           >
             {pending ? <LoaderCircle className="spin" size={16} /> : <Forward size={16} />}
-            转发到 {selectedTargets.length} 个会话
+            转发
           </button>
         </footer>
       </section>

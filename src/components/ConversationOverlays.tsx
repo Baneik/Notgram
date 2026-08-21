@@ -28,6 +28,7 @@ import { ContextMenuPanel, ContextMenuSurface, type ContextMenuPoint } from "./C
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, Message } from "../telegram/types";
+import { MAX_QUICK_FORWARD_TARGETS } from "../store/conversationActivity";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { currentColorTheme } from "../theme/theme";
 import { Avatar } from "./Avatar";
@@ -132,6 +133,7 @@ export function MessageActionMenu({
   const permissions = message.permissions;
   const menuRef = useRef<HTMLDivElement>(null);
   const [expandedForwardAction, setExpandedForwardAction] = useState<"forward" | "merge-forward">();
+  const quickForwardTargets = forwardTargets.slice(0, MAX_QUICK_FORWARD_TARGETS);
   const fallbackPosition = {
     left: Math.max(8, Math.min(position.left, window.innerWidth - 184 - 8)),
     top: Math.max(8, Math.min(position.top - 21, window.innerHeight - 326 - 8)),
@@ -139,15 +141,17 @@ export function MessageActionMenu({
   const fallbackSubmenuSide = fallbackPosition.left + 184 + 6 + 204 <= window.innerWidth - 8
     ? "right"
     : "left";
-  const quickForwardItems = forwardTargets.slice(0, 7).map((target) => ({
+  const quickForwardItems = quickForwardTargets.map((target) => ({
     id: `quick-forward:${encodeURIComponent(target.id)}`,
     label: target.title,
     icon: "message" as const,
+    avatar: target.avatar,
   }));
-  const quickMergeForwardItems = forwardTargets.slice(0, 7).map((target) => ({
+  const quickMergeForwardItems = quickForwardTargets.map((target) => ({
     id: `quick-merge-forward:${encodeURIComponent(target.id)}`,
     label: target.title,
     icon: "message" as const,
+    avatar: target.avatar,
   }));
   const nativeItems: NativeContextMenuItem[] = permissions ? [
     ...(permissions.canReply ? [{ id: "reply", label: "回复", icon: "reply" as const }] : []),
@@ -156,14 +160,14 @@ export function MessageActionMenu({
       label: "转发",
       icon: "forward" as const,
       actionable: true,
-      children: quickForwardItems,
+      children: quickForwardItems.length > 0 ? quickForwardItems : undefined,
     }] : []),
     ...(permissions.canForward && onForwardAlbum ? [{
       id: "merge-forward",
       label: "合并转发",
       icon: "forward" as const,
       actionable: true,
-      children: quickMergeForwardItems,
+      children: quickMergeForwardItems.length > 0 ? quickMergeForwardItems : undefined,
     }] : []),
     ...(permissions.canForward && onRepeat
       ? [{ id: "repeat", label: "复读", icon: "repeat" as const }]
@@ -212,11 +216,11 @@ export function MessageActionMenu({
     else if (actionId === "merge-forward") onForwardAlbum?.();
     else if (actionId.startsWith("quick-forward:")) {
       const targetId = decodeURIComponent(actionId.slice("quick-forward:".length));
-      const target = forwardTargets.find((candidate) => candidate.id === targetId);
+      const target = quickForwardTargets.find((candidate) => candidate.id === targetId);
       if (target) onQuickForward(target);
     } else if (actionId.startsWith("quick-merge-forward:")) {
       const targetId = decodeURIComponent(actionId.slice("quick-merge-forward:".length));
-      const target = forwardTargets.find((candidate) => candidate.id === targetId);
+      const target = quickForwardTargets.find((candidate) => candidate.id === targetId);
       if (target) onQuickForwardAlbum?.(target);
     }
     else if (actionId === "repeat") onRepeat?.();
@@ -278,10 +282,11 @@ export function MessageActionMenu({
               <span>回复</span>
             </button>
           )}
-          {permissions.canForward && (
+          {permissions.canForward && quickForwardTargets.length > 0 ? (
             <div
               className="message-action-menu-group"
               onMouseEnter={() => setExpandedForwardAction("forward")}
+              onMouseLeave={() => setExpandedForwardAction(undefined)}
             >
               <button className="has-submenu" type="button" role="menuitem" aria-haspopup="menu" onClick={onForward}>
                 <Forward size={16} strokeWidth={1.9} />
@@ -290,7 +295,7 @@ export function MessageActionMenu({
               </button>
               {expandedForwardAction === "forward" && (
                 <div className="message-action-submenu" role="menu" aria-label="快速转发">
-                  {forwardTargets.slice(0, 7).map((target) => (
+                  {quickForwardTargets.map((target) => (
                     <button type="button" role="menuitem" key={target.id} onClick={() => onQuickForward(target)}>
                       <Avatar avatar={target.avatar} size="small" />
                       <span>{target.title}</span>
@@ -299,11 +304,17 @@ export function MessageActionMenu({
                 </div>
               )}
             </div>
-          )}
-          {permissions.canForward && onForwardAlbum && (
+          ) : permissions.canForward ? (
+            <button type="button" role="menuitem" onClick={onForward}>
+              <Forward size={16} strokeWidth={1.9} />
+              <span>转发</span>
+            </button>
+          ) : null}
+          {permissions.canForward && onForwardAlbum && quickForwardTargets.length > 0 ? (
             <div
               className="message-action-menu-group"
               onMouseEnter={() => setExpandedForwardAction("merge-forward")}
+              onMouseLeave={() => setExpandedForwardAction(undefined)}
             >
               <button className="has-submenu" type="button" role="menuitem" aria-haspopup="menu" onClick={onForwardAlbum}>
                 <Forward size={16} strokeWidth={1.9} />
@@ -312,7 +323,7 @@ export function MessageActionMenu({
               </button>
               {expandedForwardAction === "merge-forward" && (
                 <div className="message-action-submenu" role="menu" aria-label="快速合并转发">
-                  {forwardTargets.slice(0, 7).map((target) => (
+                  {quickForwardTargets.map((target) => (
                     <button type="button" role="menuitem" key={target.id} onClick={() => onQuickForwardAlbum?.(target)}>
                       <Avatar avatar={target.avatar} size="small" />
                       <span>{target.title}</span>
@@ -321,7 +332,12 @@ export function MessageActionMenu({
                 </div>
               )}
             </div>
-          )}
+          ) : permissions.canForward && onForwardAlbum ? (
+            <button type="button" role="menuitem" onClick={onForwardAlbum}>
+              <Forward size={16} strokeWidth={1.9} />
+              <span>合并转发</span>
+            </button>
+          ) : null}
           {permissions.canForward && onRepeat && (
             <button type="button" role="menuitem" onClick={onRepeat}>
               <Repeat2 size={16} strokeWidth={1.9} />

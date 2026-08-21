@@ -4,6 +4,7 @@ export const NATIVE_CONTEXT_MENU_WINDOW_INSET = 12;
 export const NATIVE_CONTEXT_MENU_PANEL_GAP = 6;
 export const NATIVE_CONTEXT_MENU_MIN_PANEL_WIDTH = 120;
 export const NATIVE_CONTEXT_MENU_MAX_PANEL_WIDTH = 204;
+export const NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS = 5;
 
 const NATIVE_CONTEXT_MENU_ITEM_CHROME_WIDTH = 56;
 const NATIVE_CONTEXT_MENU_SUBMENU_INDICATOR_WIDTH = 16;
@@ -73,10 +74,16 @@ export const calculateNativeContextMenuGeometry = (
   const primaryRows = Math.max(1, items.length);
   const expandedIndex = items.findIndex((item) => item.id === expandedId && item.children?.length);
   const expandedRows = expandedIndex >= 0
-    ? Math.max(primaryRows, expandedIndex + (items[expandedIndex].children?.length ?? 0))
+    ? Math.max(primaryRows, expandedIndex + Math.min(
+      items[expandedIndex].children?.length ?? 0,
+      NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS,
+    ))
     : primaryRows;
   const maximumExpandedRows = items.reduce(
-    (maximum, item, index) => Math.max(maximum, index + (item.children?.length ?? 0)),
+    (maximum, item, index) => Math.max(maximum, index + Math.min(
+      item.children?.length ?? 0,
+      NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS,
+    )),
     primaryRows,
   );
   const hasSubmenu = items.some((item) => item.children?.length);

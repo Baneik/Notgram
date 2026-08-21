@@ -52,4 +52,17 @@ describe("native context menu layout", () => {
     expect(expanded.submenuOffsetX).toBe(188);
     expect(expanded.submenuOffsetY).toBe(42);
   });
+
+  it("caps a long submenu at five visible rows", () => {
+    const children = Array.from({ length: 10 }, (_, index) =>
+      item(`child-${index}`, `会话${index + 1}`));
+    const geometry = calculateNativeContextMenuGeometry(
+      [item("reply", "回复"), item("forward", "转发", children), item("copy", "复制")],
+      "forward",
+      measureLabel,
+    );
+
+    expect(geometry.height).toBe(278);
+    expect(geometry.maximumExpandedHeight).toBe(278);
+  });
 });

@@ -834,11 +834,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .native-context-menu { left: 12px; top: 12px; width: var(--native-context-primary-width); }
 .native-context-menu-group { display: contents; }
 .native-context-menu-children {
-  left: var(--native-context-submenu-x); top: calc(12px + var(--native-context-submenu-y));
+  left: var(--native-context-submenu-x); top: calc(12px + var(--native-context-submenu-y)); max-height: 212px;
   width: var(--native-context-submenu-width);
+  overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain;
 }
+.native-context-menu-children::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .native-context-menu button,
 .native-context-menu-children button { min-height: 42px; border-radius: 0; }
+.native-context-menu-children button.native-context-menu-child-item { grid-template-columns: 30px minmax(0, 1fr); padding-right: 10px; }
+.native-context-menu-child-avatar { width: 28px; height: 28px; font-size: 9px; }
 .native-context-menu button.has-separator { box-shadow: inset 0 1px 0 var(--line); }
 .native-context-menu button.native-account-menu-item {
   grid-template-columns: 30px minmax(0, 1fr) 18px; padding-right: 10px;
@@ -1179,9 +1183,11 @@ button.message-sender:hover { text-decoration: none; }
 .message-action-menu button.has-submenu { grid-template-columns: 20px minmax(0, 1fr) 16px; }
 .message-action-submenu {
   position: absolute; z-index: 1; top: -5px; left: calc(100% + 6px); width: 204px; padding: 5px;
-  display: grid; gap: 2px; color: var(--ink); background: var(--color-bg-elevated);
+  max-height: 230px; display: grid; align-content: start; gap: 2px; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain;
+  color: var(--ink); background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default); border-radius: 7px; box-shadow: 0 8px 28px var(--color-shadow);
 }
+.message-action-submenu::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .message-action-menu[data-submenu-side="left"] .message-action-submenu { right: calc(100% + 6px); left: auto; }
 .message-action-submenu button { min-height: 42px; grid-template-columns: 28px minmax(0, 1fr); }
 .message-action-submenu .avatar { width: 28px; height: 28px; font-size: 9px; }
@@ -2274,14 +2280,23 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   padding: 11px 14px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px;
   background: var(--color-bg-elevated); border-top: 1px solid var(--line);
 }
-.forward-description-field { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+.forward-description-field { min-width: 0; display: grid; }
 .forward-description-field textarea {
-  width: 100%; min-height: 48px; max-height: 96px; padding: 8px 9px; resize: vertical;
-  color: var(--ink); background: var(--color-bg-control); border: 1px solid var(--color-border-default); border-radius: 7px;
-  font: inherit; font-size: 12px; line-height: 1.4; outline: 0;
+  width: 100%; min-height: 54px; max-height: 112px; padding: 10px 11px; resize: vertical;
+  color: var(--ink); background: var(--color-bg-control-hover); border: 1px solid var(--color-border-default); border-radius: 9px;
+  font: inherit; font-size: 12px; line-height: 1.45; outline: 0;
 }
 .forward-description-field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.forward-confirm-button { min-width: 150px; min-height: 40px; }
+.forward-description-field textarea::placeholder { color: var(--subtle); }
+.forward-confirm-button {
+  min-width: 78px; height: 40px; padding: 0 16px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  color: var(--color-text-tertiary); background: var(--color-bg-control); border: 1px solid var(--color-border-default); border-radius: 7px;
+  cursor: default; font-size: 12px; font-weight: 650;
+}
+.forward-confirm-button.is-ready { color: var(--color-text-on-accent); background: var(--accent); border-color: var(--accent); cursor: pointer; }
+.forward-confirm-button.is-ready:hover:not(:disabled), .forward-confirm-button.is-ready:focus-visible { background: var(--accent-strong); }
+.forward-confirm-button:disabled { opacity: 1; }
+.forward-confirm-button.is-ready:disabled { opacity: .66; cursor: default; }
 .message-pin-dialog, .auto-delete-dialog {
   width: min(420px, calc(100vw - 40px)); padding: 0 18px 18px; display: grid; gap: 15px;
   color: var(--ink); background: var(--color-bg-elevated); border-radius: 8px; box-shadow: 0 16px 48px var(--color-shadow);

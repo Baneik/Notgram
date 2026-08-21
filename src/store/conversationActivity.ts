@@ -19,6 +19,7 @@ interface ConversationActivityState {
 const STORAGE_KEY = "notgram:conversation-activity:v1";
 const MESSAGE_ACTIVITY_WEIGHT_MS = 60_000;
 const MAX_RECORDS = 1_000;
+export const MAX_QUICK_FORWARD_TARGETS = 10;
 
 const isActivityRecord = (value: unknown): value is ConversationActivityRecord => {
   if (!value || typeof value !== "object") return false;
@@ -94,10 +95,19 @@ export const sortChatsByConversationActivity = (
     .map((record) => [record.chatId, conversationActivityScore(record)] as const));
   return [...chats].sort((left, right) =>
     (scores.get(right.id) ?? 0) - (scores.get(left.id) ?? 0) ||
-    Date.parse(right.updatedAt) - Date.parse(left.updatedAt) ||
     left.id.localeCompare(right.id)
   );
 };
+
+export const getConversationActivityRecords = () => conversationActivityStore.getState().records;
+
+export const quickForwardChatsAt = (
+  chats: Iterable<Chat>,
+  accountId: string,
+  records: readonly ConversationActivityRecord[],
+) => sortChatsByConversationActivity(chats, accountId, records)
+  .filter((chat) => chat.kind === "group")
+  .slice(0, MAX_QUICK_FORWARD_TARGETS);
 
 export const conversationActivityStore = createStore<ConversationActivityState>((set, get) => ({
   records: readRecords(),
