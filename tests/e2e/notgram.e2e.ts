@@ -3204,6 +3204,24 @@ test("locally masks a group member and reveals messages at the requested scope",
   expect(Math.abs(concealedBounds.bubble.width - concealedBounds.overlay.width)).toBeLessThan(0.5);
   expect(Math.abs(concealedBounds.bubble.height - concealedBounds.overlay.height)).toBeLessThan(0.5);
 
+  const richRow = await revealVirtualMessage(page, "p-rich-message");
+  const maskLayering = await richRow.evaluate((row) => {
+    const bubble = row.querySelector<HTMLElement>(":scope > .message-bubble-shell > .message-bubble")!;
+    const sender = bubble.querySelector<HTMLElement>(":scope > .message-sender-row")!;
+    const overlay = bubble.querySelector<HTMLElement>(":scope > .local-block-message-reveal")!;
+    const unclippedBlurredChildren = [...bubble.children].filter((child) => {
+      const style = getComputedStyle(child);
+      return style.filter !== "none" && style.clipPath === "none";
+    });
+    return {
+      senderZIndex: Number.parseInt(getComputedStyle(sender).zIndex, 10),
+      overlayZIndex: Number.parseInt(getComputedStyle(overlay).zIndex, 10),
+      unclippedBlurredChildren: unclippedBlurredChildren.length,
+    };
+  });
+  expect(maskLayering.unclippedBlurredChildren).toBe(0);
+  expect(maskLayering.senderZIndex).toBeGreaterThan(maskLayering.overlayZIndex);
+
   await openConversationMessageSearch(page);
   await page.getByRole("searchbox", { name: "搜索会话和消息" })
     .fill("desktop-layout-review.pdf");

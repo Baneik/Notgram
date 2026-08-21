@@ -1052,7 +1052,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-bubble-shell.is-local-block-concealed > .message-bubble > :not(.message-sender-row):not(.local-block-message-reveal),
 .message-bubble-shell.is-local-block-concealed > .message-inline-keyboard,
 .message-bubble-shell.is-local-block-concealed > .message-source-locate {
-  filter: blur(5px); opacity: .58; pointer-events: none; user-select: none; -webkit-user-select: none;
+  filter: blur(5px); clip-path: inset(0); opacity: .58; pointer-events: none; user-select: none; -webkit-user-select: none;
+}
+.message-bubble-shell.is-local-block-concealed > .message-bubble > .message-sender-row {
+  position: relative; z-index: 46;
 }
 .message-bubble-shell.is-local-block-concealed.is-visual-shell > .message-bubble .photo-preview,
 .message-bubble-shell.is-local-block-concealed.is-sticker-shell > .message-bubble .photo-preview {
