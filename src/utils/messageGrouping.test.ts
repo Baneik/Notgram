@@ -18,13 +18,16 @@ const message = (
   content: { kind: "text", text: id },
 });
 
+const localIso = (day: number, hour: number, minute: number, second = 0) =>
+  new Date(2026, 7, day, hour, minute, second).toISOString();
+
 describe("message grouping", () => {
   it("collects consecutive messages into sender-scoped groups", () => {
     const messages = [
-      message("1", "alice", "2026-08-01T09:00:00+08:00"),
-      message("2", "alice", "2026-08-01T09:01:00+08:00"),
-      message("3", "self", "2026-08-01T09:02:00+08:00", true),
-      message("4", "alice", "2026-08-01T09:03:00+08:00"),
+      message("1", "alice", localIso(1, 9, 0)),
+      message("2", "alice", localIso(1, 9, 1)),
+      message("3", "self", localIso(1, 9, 2), true),
+      message("4", "alice", localIso(1, 9, 3)),
     ];
 
     expect(groupConsecutiveMessages(messages).map((group) => group.map(({ id }) => id)))
@@ -33,9 +36,9 @@ describe("message grouping", () => {
 
   it("marks consecutive messages from one sender as first, middle, and last", () => {
     const messages = [
-      message("1", "mia", "2026-08-01T09:18:01+08:00"),
-      message("2", "mia", "2026-08-01T11:32:02+08:00"),
-      message("3", "mia", "2026-08-01T18:45:03+08:00"),
+      message("1", "mia", localIso(1, 9, 18, 1)),
+      message("2", "mia", localIso(1, 11, 32, 2)),
+      message("3", "mia", localIso(1, 18, 45, 3)),
     ];
 
     expect(messages.map((_, index) => messageGroupPosition(messages, index)))
@@ -44,10 +47,10 @@ describe("message grouping", () => {
 
   it("breaks groups when sender, direction, or local date changes", () => {
     const messages = [
-      message("1", "mia", "2026-08-01T23:59:58+08:00"),
-      message("2", "mia", "2026-08-02T00:00:01+08:00"),
-      message("3", "mia", "2026-08-02T00:00:02+08:00", true),
-      message("4", "jules", "2026-08-02T00:00:03+08:00", true),
+      message("1", "mia", localIso(1, 23, 59, 58)),
+      message("2", "mia", localIso(2, 0, 0, 1)),
+      message("3", "mia", localIso(2, 0, 0, 2), true),
+      message("4", "jules", localIso(2, 0, 0, 3), true),
     ];
 
     expect(messages.map((_, index) => messageGroupPosition(messages, index)))
@@ -56,13 +59,13 @@ describe("message grouping", () => {
 
   it("keeps service notices separate from adjacent messages", () => {
     const service: Message = {
-      ...message("service", "mia", "2026-08-01T09:01:00+08:00"),
+      ...message("service", "mia", localIso(1, 9, 1)),
       content: { kind: "service", text: "Mia 加入了群聊" },
     };
     const messages = [
-      message("1", "mia", "2026-08-01T09:00:00+08:00"),
+      message("1", "mia", localIso(1, 9, 0)),
       service,
-      message("2", "mia", "2026-08-01T09:02:00+08:00"),
+      message("2", "mia", localIso(1, 9, 2)),
     ];
 
     expect(groupConsecutiveMessages(messages).map((group) => group.map(({ id }) => id)))
