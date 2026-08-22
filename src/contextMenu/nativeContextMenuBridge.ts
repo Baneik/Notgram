@@ -56,6 +56,7 @@ export type NativeContextMenuMessage =
 export const NATIVE_CONTEXT_MENU_CHANNEL = "notgram-context-menu-v2";
 const MENU_SCREEN_GAP = 4;
 const MENU_FIRST_ITEM_CENTER_OFFSET = 33;
+const NATIVE_CONTEXT_MENU_OPEN_TIMEOUT_MS = 10_000;
 
 let preparation: Promise<void> | undefined;
 
@@ -197,7 +198,7 @@ const showNativeContextMenu = async (
       finish();
     }
   };
-  timeout = globalThis.setTimeout(abort, 10_000);
+  timeout = globalThis.setTimeout(abort, NATIVE_CONTEXT_MENU_OPEN_TIMEOUT_MS);
   try {
     await prepareNativeContextMenuWindow().catch(() => undefined);
     if (signal.aborted) return result;
@@ -208,6 +209,10 @@ const showNativeContextMenu = async (
       x: menuPosition.x,
       y: menuPosition.y,
     });
+    if (timeout !== undefined) {
+      globalThis.clearTimeout(timeout);
+      timeout = undefined;
+    }
     opened = true;
     if (signal.aborted) {
       await invoke("notgram_close_context_menu_window", { id }).catch(() => undefined);
