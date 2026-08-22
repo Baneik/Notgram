@@ -8,6 +8,7 @@ import type {
   ManagedChatType,
   ManagedMemberStatus,
 } from "./types";
+import { identityTextField } from "./identityText";
 
 export const CHAT_PERMISSION_LABELS: Record<ChatPermissionKey, string> = {
   canSendBasicMessages: "发送文字",
@@ -152,6 +153,11 @@ const CHAT_MEMBER_TAG_EMOJI = /(?:\p{Extended_Pictographic}|\p{Regional_Indicato
 export const chatMemberTagError = (value: string) => {
   const tag = value.trim();
   if (Array.from(tag).length > 16 || /[\r\n]/.test(value) || CHAT_MEMBER_TAG_EMOJI.test(tag)) {
+    return "成员标签需要包含 0 至 16 个非表情字符且不能换行";
+  }
+  try {
+    identityTextField(value, 16, "成员标签");
+  } catch {
     return "成员标签需要包含 0 至 16 个非表情字符且不能换行";
   }
   return undefined;

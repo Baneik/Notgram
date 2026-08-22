@@ -1,4 +1,15 @@
-import type { CachedTelegramSnapshot, Chat, ChatProfile, ForumTopic, LocalAttachmentDraft, Message, QueuedOutgoingAttachment } from "../telegram/types";
+import type {
+  CachedTelegramSnapshot,
+  Chat,
+  ChatProfile,
+  ForumTopic,
+  LocalAttachmentDraft,
+  Message,
+  MessageOrigin,
+  QueuedOutgoingAttachment,
+  User,
+} from "../telegram/types";
+import { normalizeIdentityText, sanitizeIdentityText } from "../telegram/identityText";
 import { logPerformance } from "../utils/performanceMonitor";
 import type { TelegramState } from "./telegramStore.types";
 
@@ -10,6 +21,129 @@ const MAX_CACHED_TOPICS_PER_FORUM = 100;
 const MAX_CACHED_FORUM_TOPIC_BYTES = 256 * 1_024;
 const MAX_CACHED_FORUM_SELECTIONS = 100;
 const CACHE_SNAPSHOT_LOG_THRESHOLD_MS = 8;
+
+const avatarLabel = (label: string, displayName: string) => sanitizeIdentityText(
+  label,
+  [...displayName].slice(0, 2).join("") || "?",
+  2,
+);
+
+const sanitizeCachedUser = (user: User): User => {
+  const firstName = user.firstName === undefined
+    ? undefined
+    : sanitizeIdentityText(user.firstName, "", 64);
+  const lastName = user.lastName === undefined
+    ? undefined
+    : sanitizeIdentityText(user.lastName, "", 64);
+  const displayName = sanitizeIdentityText(
+    user.displayName,
+    sanitizeIdentityText(`${firstName ?? ""} ${lastName ?? ""}`, "Telegram 用户", 128),
+    128,
+  );
+  return {
+    ...user,
+    displayName,
+    firstName,
+    lastName,
+    avatar: {
+      ...user.avatar,
+      label: avatarLabel(user.avatar.label, displayName),
+    },
+  };
+};
+
+const sanitizeCachedChat = (chat: Chat): Chat => {
+  const title = sanitizeIdentityText(chat.title, "未命名会话", 128);
+  return {
+    ...chat,
+    title,
+    avatar: {
+      ...chat.avatar,
+      label: avatarLabel(chat.avatar.label, title),
+    },
+  };
+};
+
+const sanitizeMessageOrigin = (origin?: MessageOrigin): MessageOrigin | undefined => {
+  if (!origin) return undefined;
+  if (origin.kind === "hiddenUser") {
+    return {
+      ...origin,
+      senderName: sanitizeIdentityText(origin.senderName, "Telegram 用户", 64),
+    };
+  }
+  if (origin.kind === "chat" || origin.kind === "channel") {
+    const authorSignature = origin.authorSignature === undefined
+      ? undefined
+      : normalizeIdentityText(origin.authorSignature) || undefined;
+    return { ...origin, authorSignature };
+  }
+  return origin;
+};
+
+const sanitizeCachedMessage = (message: Message): Message => ({
+  ...message,
+  senderTag: message.senderTag === undefined
+    ? undefined
+    : normalizeIdentityText(message.senderTag) || undefined,
+  authorSignature: message.authorSignature === undefined
+    ? undefined
+    : normalizeIdentityText(message.authorSignature) || undefined,
+  replyTo: message.replyTo?.kind === "message"
+    ? { ...message.replyTo, origin: sanitizeMessageOrigin(message.replyTo.origin) }
+    : message.replyTo,
+  forwardInfo: message.forwardInfo
+    ? {
+        ...message.forwardInfo,
+        origin: sanitizeMessageOrigin(message.forwardInfo.origin),
+        source: message.forwardInfo.source
+          ? {
+              ...message.forwardInfo.source,
+              senderName: message.forwardInfo.source.senderName === undefined
+                ? undefined
+                : sanitizeIdentityText(
+                    message.forwardInfo.source.senderName,
+                    "Telegram 用户",
+                    64,
+                  ),
+            }
+          : undefined,
+      }
+    : undefined,
+});
+
+const sanitizeCachedProfile = (profile: ChatProfile): ChatProfile => {
+  const title = sanitizeIdentityText(
+    profile.title,
+    profile.kind === "group" || profile.kind === "channel" ? "未命名会话" : "Telegram 用户",
+    128,
+  );
+  return {
+    ...profile,
+    title,
+    firstName: profile.firstName === undefined
+      ? undefined
+      : sanitizeIdentityText(profile.firstName, "", 64),
+    lastName: profile.lastName === undefined
+      ? undefined
+      : sanitizeIdentityText(profile.lastName, "", 64),
+    avatar: {
+      ...profile.avatar,
+      label: avatarLabel(profile.avatar.label, title),
+    },
+    members: profile.members.map((member) => ({
+      ...member,
+      user: sanitizeCachedUser(member.user),
+    })),
+    groupsInCommon: profile.groupsInCommon?.map(sanitizeCachedChat),
+  };
+};
+
+const sanitizeCachedTopic = (topic: ForumTopic): ForumTopic => ({
+  ...topic,
+  name: sanitizeIdentityText(topic.name, "未命名话题", 128),
+  lastMessage: topic.lastMessage ? sanitizeCachedMessage(topic.lastMessage) : undefined,
+});
 
 export type CacheHealth = "empty" | "healthy" | "migrated" | "invalid" | "rebuilt";
 
@@ -147,9 +281,14 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       ...(value as unknown as CachedTelegramSnapshot),
       version: TELEGRAM_CACHE_VERSION,
       outbox: value.version === 1 ? [] : (value.outbox ?? []),
+      users: (value.users as unknown as User[]).map(sanitizeCachedUser),
+      folders: (value.folders as CachedTelegramSnapshot["folders"]).map((folder) => ({
+        ...folder,
+        title: sanitizeIdentityText(folder.title, "聊天文件夹", 12),
+      })),
       chats: (value.chats as unknown as Chat[]).map((chat) => {
         const result = {
-          ...chat,
+          ...sanitizeCachedChat(chat),
           unreadMentionCount: Number.isFinite(chat.unreadMentionCount)
             ? Math.max(0, chat.unreadMentionCount)
             : 0,
@@ -158,7 +297,14 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
         delete result.canCreateTopics;
         return result;
       }),
-      forumTopics: value.version === 3 ? (value.forumTopics ?? []) : [],
+      messages: (value.messages as unknown as Message[]).map(sanitizeCachedMessage),
+      profiles: (value.profiles as ChatProfile[] | undefined)?.map(sanitizeCachedProfile),
+      forumTopics: value.version === 3
+        ? (value.forumTopics ?? []).map((entry) => ({
+            ...entry,
+            topics: entry.topics.map(sanitizeCachedTopic),
+          }))
+        : [],
       lastForumTopicIds: value.version === 3 ? (value.lastForumTopicIds ?? []) : [],
     },
   };
@@ -182,7 +328,7 @@ const stripTransferState = (value: unknown): unknown => {
 };
 
 const cacheableMessage = (message: Message): Message => {
-  const result = { ...message };
+  const result = sanitizeCachedMessage(message);
   if (
     result.content.kind === "file" ||
     result.content.kind === "media" ||
@@ -205,7 +351,7 @@ const cacheableMessage = (message: Message): Message => {
 };
 
 const cacheableChat = (chat: Chat): Chat => {
-  const result = { ...chat };
+  const result = sanitizeCachedChat(chat);
   delete result.management;
   delete result.canCreateTopics;
   return result;
@@ -236,7 +382,7 @@ const forumTopicsForCache = (state: TelegramState) => {
     let groupBytes = byteLength({ chatId, topics: [] });
     const groupSeparatorBytes = cachedGroups.length > 0 ? 1 : 0;
     for (const topic of topics.slice(0, MAX_CACHED_TOPICS_PER_FORUM)) {
-      const cachedTopic = { ...topic };
+      const cachedTopic = sanitizeCachedTopic(topic);
       delete cachedTopic.lastMessage;
       delete cachedTopic.draft;
       const topicBytes = byteLength(cachedTopic) + (cachedTopics.length > 0 ? 1 : 0);
@@ -296,8 +442,11 @@ export const cachedSnapshotFrom = (
     version: TELEGRAM_CACHE_VERSION,
     savedAt: new Date().toISOString(),
     currentUserId: state.currentUserId ?? "",
-    users: [...state.users.values()],
-    folders: state.folders,
+    users: [...state.users.values()].map(sanitizeCachedUser),
+    folders: state.folders.map((folder) => ({
+      ...folder,
+      title: sanitizeIdentityText(folder.title, "聊天文件夹", 12),
+    })),
     chats: [...state.chats.values()].map(cacheableChat),
     messages: recentMessagesForCache(state),
     drafts: [...state.drafts.values()],
@@ -305,7 +454,7 @@ export const cachedSnapshotFrom = (
     outbox: state.outbox ?? [],
     activeChatId: state.activeChatId,
     chatFilter: state.chatFilter,
-    profiles,
+    profiles: profiles.map(sanitizeCachedProfile),
     forumTopics: forumTopicsForCache(state),
     lastForumTopicIds: lastForumTopicIdsForCache(state),
   };

@@ -1,4 +1,5 @@
 import type { TelegramAccount, TelegramAccountState, User } from "../telegram/types";
+import { sanitizeIdentityText } from "../telegram/identityText";
 import type { TelegramState } from "./telegramStore.types";
 
 type AccountRegistrationState = Pick<
@@ -24,7 +25,21 @@ const registrationKey = (accountId: string, user: User) =>
   `${accountId}:${user.id}:${user.displayName}:${user.avatar.label}:${user.avatar.color}:${user.avatar.fileId ?? ""}:${user.avatar.imagePath ?? ""}`;
 
 export const accountStatePatch = (accountState: TelegramAccountState) => ({
-  accounts: accountState.accounts,
+  accounts: accountState.accounts.map((account) => {
+    const displayName = sanitizeIdentityText(account.displayName, "Telegram 账号", 128);
+    return {
+      ...account,
+      displayName,
+      avatar: {
+        ...account.avatar,
+        label: sanitizeIdentityText(
+          account.avatar.label,
+          [...displayName].slice(0, 2).join("") || "?",
+          2,
+        ),
+      },
+    };
+  }),
   activeAccountId: accountState.activeAccountId,
   accountPending: false,
   accountError: undefined,

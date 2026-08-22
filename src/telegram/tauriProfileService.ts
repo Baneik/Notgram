@@ -10,6 +10,7 @@ import {
 } from "./tdlibMapper";
 import { numericId } from "./tdlibRequests";
 import { resolveTdlibDataCenter } from "./fileDataCenter";
+import { identityTextField, sanitizeIdentityText } from "./identityText";
 import type {
   Chat,
   ChatProfile,
@@ -75,8 +76,8 @@ export class TauriProfileService {
   }
 
   async updateCurrentUserProfile(input: UpdateCurrentUserProfileInput): Promise<ChatProfile> {
-    const firstName = profileField(input.firstName, 64, "名字", true);
-    const lastName = profileField(input.lastName, 64, "姓氏");
+    const firstName = identityTextField(input.firstName, 64, "名字", true);
+    const lastName = identityTextField(input.lastName, 64, "姓氏");
     const username = profileField(input.username, 32, "用户名");
     const bio = profileField(input.bio, 140, "签名");
     if (username && (!/^[A-Za-z0-9_]+$/.test(username) || username.length < 5)) {
@@ -249,9 +250,11 @@ export class TauriProfileService {
     return Object.fromEntries(asTdObjects(result.administrators).flatMap((administrator) => {
       const userId = tdId(administrator.user_id);
       if (!userId) return [];
-      const customTitle = typeof administrator.custom_title === "string"
-        ? administrator.custom_title.trim()
-        : "";
+      const customTitle = sanitizeIdentityText(
+        typeof administrator.custom_title === "string" ? administrator.custom_title : "",
+        "",
+        16,
+      );
       return [[userId, customTitle || (administrator.is_owner === true ? "群主" : "管理员")]];
     }));
   }

@@ -44,6 +44,11 @@ import { routeTdUpdate, type TdUpdateHandlers } from "./tdUpdateRouter";
 import { TauriSearchService } from "./tauriSearchService";
 import { TauriForumTopicService } from "./tauriForumTopicService";
 import {
+  identityTextField,
+  normalizeIdentityText,
+  sanitizeIdentityText,
+} from "./identityText";
+import {
   PROFILE_ADMIN_PAGE_SIZE,
   PROFILE_MEMBER_PAGE_SIZE,
   TauriProfileService,
@@ -640,8 +645,8 @@ export class TauriTelegramTransport implements TelegramTransport {
       case "registration":
         await this.request({
           "@type": "registerUser",
-          first_name: action.firstName,
-          last_name: action.lastName,
+          first_name: identityTextField(action.firstName, 64, "名字", true),
+          last_name: identityTextField(action.lastName, 64, "姓氏"),
           disable_notification: false,
         });
     }
@@ -743,7 +748,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async createChat(input: CreateChatInput) {
-    const title = profileField(input.title, 128, "名称", true);
+    const title = identityTextField(input.title, 128, "名称", true);
     const description = profileField(input.description ?? "", 255, "简介");
     const username = profileField(input.username ?? "", 32, "公开用户名");
     if (input.isPublic && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(username)) {
@@ -952,7 +957,12 @@ export class TauriTelegramTransport implements TelegramTransport {
   async setChatMemberTag(chatId: string, userId: string, tag: string): Promise<void> {
     const validationError = chatMemberTagError(tag);
     if (validationError) throw new Error(validationError);
-    await this.request({ "@type": "setChatMemberTag", chat_id: numericId(chatId), user_id: numericId(userId), tag: tag.trim() });
+    await this.request({
+      "@type": "setChatMemberTag",
+      chat_id: numericId(chatId),
+      user_id: numericId(userId),
+      tag: normalizeIdentityText(tag),
+    });
   }
 
   async setChatPermissions(chatId: string, permissions: ChatPermissions): Promise<void> {
@@ -1252,7 +1262,13 @@ export class TauriTelegramTransport implements TelegramTransport {
       if (type === "messageSenderChat") {
         const id = tdId(raw.chat_id);
         const chat = id ? this.rawChats.get(id) ?? await this.request({ "@type": "getChat", chat_id: numericId(id) }) : undefined;
-        return chat && id ? { id, kind: "chat" as const, title: typeof chat.title === "string" ? chat.title : "已屏蔽频道", avatar: this.mapChat(chat)?.avatar ?? { label: "?", color: "#73808c" } } : undefined;
+        const mappedChat = chat ? this.mapChat(chat) : undefined;
+        return chat && id ? {
+          id,
+          kind: "chat" as const,
+          title: mappedChat?.title ?? "已屏蔽频道",
+          avatar: mappedChat?.avatar ?? { label: "?", color: "#73808c" },
+        } : undefined;
       }
       return undefined;
     }));
@@ -2265,7 +2281,9 @@ export class TauriTelegramTransport implements TelegramTransport {
         adminRights: statusKind === "administrator" ? mapChatAdminRightsFromTd(status?.rights) : undefined,
         permissions: statusKind === "restricted" ? mapChatPermissionsFromTd(status?.permissions) : undefined,
         untilDate: tdNumber(status?.restricted_until_date ?? status?.banned_until_date ?? status?.member_until_date),
-        customTitle: typeof member.tag === "string" && member.tag.trim() ? member.tag.trim() : undefined,
+        customTitle: typeof member.tag === "string"
+          ? sanitizeIdentityText(member.tag, "", 16) || undefined
+          : undefined,
         canBeEdited: statusKind === "administrator" ? status?.can_be_edited === true : true,
       }];
     });
@@ -2339,9 +2357,11 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private folderName(title: string): TdObject {
-    const normalized = title.trim();
-    if ([...normalized].length < 1 || [...normalized].length > 12 || /[\r\n]/.test(normalized)) {
-      throw new Error("文件夹名称需要包含 1 至 12 个字符");
+    let normalized: string;
+    try {
+      normalized = identityTextField(title, 12, "文件夹名称", true);
+    } catch {
+      throw new Error("文件夹名称需要包含 1 至 12 个字符，且只能使用受支持字符");
     }
     return {
       "@type": "chatFolderName",

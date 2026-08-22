@@ -1,5 +1,6 @@
 import { mapTdForumTopic, asTdObject, asTdObjects, tdId, tdNumber } from "./tdlibMapper";
 import { numericId } from "./tdlibRequests";
+import { identityTextField } from "./identityText";
 import type {
   ChatHistoryPage,
   CreateForumTopicInput,
@@ -152,8 +153,7 @@ export class TauriForumTopicService {
   }
 
   async createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic> {
-    const name = input.name.trim();
-    if (!name || [...name].length > 128) throw new Error("话题名称需包含 1 至 128 个字符");
+    const name = identityTextField(input.name, 128, "话题名称", true);
     const iconColor = input.iconColor ?? 0x6fb9f0;
     const info = await this.context.request({
       "@type": "createForumTopic",
@@ -185,8 +185,7 @@ export class TauriForumTopicService {
   }
 
   async editForumTopic(chatId: string, topicId: string, name: string) {
-    const normalized = name.trim();
-    if (!normalized || [...normalized].length > 128) throw new Error("话题名称需包含 1 至 128 个字符");
+    const normalized = identityTextField(name, 128, "话题名称", true);
     await this.context.request({
       "@type": "editForumTopic",
       chat_id: numericId(chatId),

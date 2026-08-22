@@ -190,6 +190,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
+  const blockZalgoText = usePreferencesStore((state) => state.blockZalgoText);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
   const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
@@ -212,6 +213,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     notificationPreview,
     sendOnEnter,
     sendTypingStatus,
+    blockZalgoText,
     autoplayAnimations,
     autoDownloadImages,
     autoDownloadVideos,
@@ -310,6 +312,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
       return;
     }
     setPreference(key, value);
+    if (key === "blockZalgoText") globalThis.location.reload();
   };
 
   return (
@@ -487,6 +490,7 @@ function PreferenceSettings({
     disabled?: boolean;
   }> = category === "notgram"
     ? [
+        { key: "blockZalgoText" as const, label: "屏蔽 Zalgo 文本" },
         { key: "sendTypingStatus" as const, label: "发送输入状态" },
       ]
     : category === "notifications"

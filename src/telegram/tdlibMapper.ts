@@ -29,6 +29,7 @@ import type {
 import { messageContentText } from "./messageContent";
 import { deriveChatManagementCapabilitiesFromTd } from "./chatManagement";
 import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
+import { sanitizeIdentityText } from "./identityText";
 
 export type TdObject = Record<string, unknown>;
 
@@ -90,6 +91,12 @@ const optionalUnixDate = (value: unknown) => {
   const seconds = tdNumber(value) ?? 0;
   return seconds > 0 ? new Date(seconds * 1000).toISOString() : undefined;
 };
+
+const optionalIdentityText = (value: unknown, maximum: number) => (
+  typeof value === "string"
+    ? sanitizeIdentityText(value, "", maximum) || undefined
+    : undefined
+);
 
 const dateTimePartPrecision = (value: unknown) => {
   switch (asTdObject(value)?.["@type"]) {
@@ -1466,19 +1473,17 @@ const mapTdMessageOrigin = (value: unknown): MessageOrigin | undefined => {
       const userId = tdId(origin.sender_user_id);
       return userId ? { kind: "user", userId } : undefined;
     }
-    case "messageOriginHiddenUser":
-      return typeof origin.sender_name === "string" && origin.sender_name
-        ? { kind: "hiddenUser", senderName: origin.sender_name }
-        : undefined;
+    case "messageOriginHiddenUser": {
+      const senderName = optionalIdentityText(origin.sender_name, 64);
+      return senderName ? { kind: "hiddenUser", senderName } : undefined;
+    }
     case "messageOriginChat": {
       const chatId = tdId(origin.sender_chat_id);
       return chatId
         ? {
             kind: "chat",
             chatId,
-            authorSignature: typeof origin.author_signature === "string" && origin.author_signature
-              ? origin.author_signature
-              : undefined,
+            authorSignature: optionalIdentityText(origin.author_signature, 64),
           }
         : undefined;
     }
@@ -1490,9 +1495,7 @@ const mapTdMessageOrigin = (value: unknown): MessageOrigin | undefined => {
             kind: "channel",
             chatId,
             messageId: messageId && messageId !== "0" ? messageId : undefined,
-            authorSignature: typeof origin.author_signature === "string" && origin.author_signature
-              ? origin.author_signature
-              : undefined,
+            authorSignature: optionalIdentityText(origin.author_signature, 64),
           }
         : undefined;
     }
@@ -1542,9 +1545,7 @@ const mapTdForwardInfo = (value: unknown): MessageForwardInfo | undefined => {
           chatId: sourceChatId && sourceChatId !== "0" ? sourceChatId : undefined,
           messageId: sourceMessageId && sourceMessageId !== "0" ? sourceMessageId : undefined,
           senderId: sourceSenderId || undefined,
-          senderName: typeof source.sender_name === "string" && source.sender_name
-            ? source.sender_name
-            : undefined,
+          senderName: optionalIdentityText(source.sender_name, 64),
           sentAt: optionalUnixDate(source.date),
           outgoing: source.is_outgoing === true,
         }
@@ -1734,12 +1735,8 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     topicId: topicId || undefined,
     mediaAlbumId: mediaAlbumId && mediaAlbumId !== "0" ? mediaAlbumId : undefined,
     senderId,
-    senderTag: typeof raw.sender_tag === "string" && raw.sender_tag.trim()
-      ? raw.sender_tag.trim()
-      : undefined,
-    authorSignature: typeof raw.author_signature === "string" && raw.author_signature.trim()
-      ? raw.author_signature.trim()
-      : undefined,
+    senderTag: optionalIdentityText(raw.sender_tag, 16),
+    authorSignature: optionalIdentityText(raw.author_signature, 64),
     isChannelPost: raw.is_channel_post === true,
     outgoing: raw.is_outgoing === true,
     sentAt: unixDate(raw.date),
@@ -1802,7 +1799,7 @@ export const mapTdChatFolders = (
     const icon = asTdObject(value.icon);
     return [{
       id: `folder:${id}`,
-      title: folderName(value.name) || "聊天文件夹",
+      title: sanitizeIdentityText(folderName(value.name), "聊天文件夹", 12),
       iconName: typeof icon?.name === "string" ? icon.name : "Custom",
     }];
   });
@@ -1843,7 +1840,11 @@ export const mapTdChat = (
         : type?.["@type"] === "chatTypeSupergroup" && type.is_channel === true
           ? "channel"
           : "group";
-  const title = typeof raw.title === "string" && raw.title.trim() ? raw.title : "未命名会话";
+  const title = sanitizeIdentityText(
+    typeof raw.title === "string" ? raw.title : "",
+    "未命名会话",
+    128,
+  );
   const positions = asTdObjects(raw.positions);
   const chatLists = asTdObjects(raw.chat_lists);
   const folderIds = new Set<string>();
@@ -1971,7 +1972,11 @@ export const mapTdForumTopic = (value: unknown): ForumTopic | undefined => {
   return {
     id,
     chatId,
-    name: typeof info.name === "string" && info.name.trim() ? info.name.trim() : "未命名话题",
+    name: sanitizeIdentityText(
+      typeof info.name === "string" ? info.name : "",
+      "未命名话题",
+      128,
+    ),
     iconColor: tdNumber(icon?.color) ?? 0x6fb9f0,
     iconCustomEmojiId: customEmojiId && customEmojiId !== "0" ? customEmojiId : undefined,
     createdAt: unixDate(info.creation_date),
@@ -1996,9 +2001,21 @@ export const mapTdForumTopic = (value: unknown): ForumTopic | undefined => {
 export const mapTdUser = (raw: TdObject): User | undefined => {
   const id = tdId(raw.id);
   if (!id) return undefined;
-  const firstName = typeof raw.first_name === "string" ? raw.first_name : "";
-  const lastName = typeof raw.last_name === "string" ? raw.last_name : "";
-  const displayName = `${firstName} ${lastName}`.trim() || "Telegram 用户";
+  const firstName = sanitizeIdentityText(
+    typeof raw.first_name === "string" ? raw.first_name : "",
+    "",
+    64,
+  );
+  const lastName = sanitizeIdentityText(
+    typeof raw.last_name === "string" ? raw.last_name : "",
+    "",
+    64,
+  );
+  const displayName = sanitizeIdentityText(
+    `${firstName} ${lastName}`,
+    "Telegram 用户",
+    128,
+  );
   const status = asTdObject(raw.status);
   const online = status?.["@type"] === "userStatusOnline";
   const lastSeen = status?.["@type"] === "userStatusOffline" ? tdNumber(status.was_online) : undefined;

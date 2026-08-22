@@ -95,6 +95,7 @@ import {
   chatMemberTagError,
   deriveChatManagementCapabilities,
 } from "./chatManagement";
+import { identityTextField, normalizeIdentityText } from "./identityText";
 
 const clone = <T,>(value: T): T => structuredClone(value);
 const CACHE_KEY = "notgram:ui-cache:v1";
@@ -431,11 +432,11 @@ export class MockTelegramTransport implements TelegramTransport {
   };
 
   private folderTitle(title: string) {
-    const normalized = title.trim();
-    if ([...normalized].length < 1 || [...normalized].length > 12 || /[\r\n]/.test(normalized)) {
-      throw new Error("文件夹名称需要包含 1 至 12 个字符");
+    try {
+      return identityTextField(title, 12, "文件夹名称", true);
+    } catch {
+      throw new Error("文件夹名称需要包含 1 至 12 个字符，且只能使用受支持字符");
     }
-    return normalized;
   }
 
   private requireCustomFolder(folderId: string) {
@@ -635,6 +636,10 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async authenticate(action: AuthorizationAction) {
     if (!this.authFlow) return;
+    if (action.kind === "registration") {
+      identityTextField(action.firstName, 64, "名字", true);
+      identityTextField(action.lastName, 64, "姓氏");
+    }
     const next =
       action.kind === "qr"
         ? { kind: "waitOtherDeviceConfirmation" as const, link: "tg://login?token=notgram-demo" }
@@ -872,8 +877,8 @@ export class MockTelegramTransport implements TelegramTransport {
   async updateCurrentUserProfile(input: UpdateCurrentUserProfileInput): Promise<ChatProfile> {
     const user = this.snapshot.users.find((item) => item.id === this.snapshot.currentUserId);
     if (!user) throw new Error("找不到当前账号资料");
-    const firstName = input.firstName.trim();
-    const lastName = input.lastName.trim();
+    const firstName = identityTextField(input.firstName, 64, "名字", true);
+    const lastName = identityTextField(input.lastName, 64, "姓氏");
     const username = input.username.trim();
     const bio = input.bio.trim();
     if (!firstName) throw new Error("名字不能为空");
@@ -1011,12 +1016,9 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async createChat(input: CreateChatInput): Promise<Chat> {
-    const title = input.title.trim();
+    const title = identityTextField(input.title, 128, "名称", true);
     const description = input.description?.trim() ?? "";
     const username = input.username?.trim() ?? "";
-    if (!title || [...title].length > 128 || /[\r\n]/.test(title)) {
-      throw new Error("群组或频道名称需包含 1 至 128 个字符");
-    }
     if ([...description].length > 255) throw new Error("简介最多 255 个字符");
     if (input.isPublic && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(username)) {
       throw new Error("公开用户名需包含 5 至 32 个英文字母、数字或下划线，并以字母开头");
@@ -1216,7 +1218,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (validationError) throw new Error(validationError);
     const member = value.members.find((item) => item.user.id === userId);
     if (!member) throw new Error("找不到群成员");
-    member.customTitle = tag.trim() || undefined;
+    member.customTitle = normalizeIdentityText(tag) || undefined;
     this.appendChatAudit(chatId, `更新成员标签：${member.user.displayName}`, "memberTagChange");
   }
 
@@ -1755,7 +1757,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const topic: ForumTopic = {
       id,
       chatId: input.chatId,
-      name: input.name.trim(),
+      name: identityTextField(input.name, 128, "话题名称", true),
       iconColor: input.iconColor ?? 0x6fb9f0,
       createdAt: new Date().toISOString(),
       isGeneral: false,
@@ -1777,7 +1779,7 @@ export class MockTelegramTransport implements TelegramTransport {
   async editForumTopic(chatId: string, topicId: string, name: string) {
     const topic = this.ensureForumTopics(chatId).find((candidate) => candidate.id === topicId);
     if (!topic) throw new Error("找不到话题");
-    topic.name = name.trim();
+    topic.name = identityTextField(name, 128, "话题名称", true);
     this.listener?.({ type: "forumTopics.changed", chatId });
   }
 

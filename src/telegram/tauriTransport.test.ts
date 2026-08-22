@@ -1093,6 +1093,20 @@ describe("TauriTelegramTransport startup", () => {
     }
   });
 
+  it("rejects unsupported identity characters before updating the account", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.request = vi.fn();
+
+    await expect(transport.updateCurrentUserProfile({
+      firstName: "Lin\u0334\u035f",
+      lastName: "Ran",
+      username: "linran",
+      bio: "Desktop client",
+    })).rejects.toThrow("名字包含不支持的字符");
+    expect(internal.request).not.toHaveBeenCalled();
+  });
+
   it("rotates custom proxies after repeated recovery failures", async () => {
     vi.useFakeTimers();
     try {

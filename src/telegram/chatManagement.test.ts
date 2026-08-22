@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CHAT_ADMIN_RIGHTS,
   DEFAULT_CHAT_PERMISSIONS,
+  chatMemberTagError,
   deriveChatManagementCapabilities,
   mapChatAdminRightsFromTd,
   mapChatPermissionsFromTd,
@@ -9,6 +10,12 @@ import {
 import { MockTelegramTransport } from "./mockTransport";
 
 describe("chat management", () => {
+  it("rejects combining marks and decorative characters in member tags", () => {
+    expect(chatMemberTagError("值\u0334\u035f班")).toContain("非表情字符");
+    expect(chatMemberTagError("值班🔥")).toContain("非表情字符");
+    expect(chatMemberTagError("值班")).toBeUndefined();
+  });
+
   it("derives a closed capability set for regular members", () => {
     const capabilities = deriveChatManagementCapabilities("supergroup", "member");
     expect(capabilities).toMatchObject({

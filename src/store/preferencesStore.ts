@@ -11,6 +11,7 @@ import {
   type ThemeId,
 } from "../theme/theme";
 import { effectiveReduceMotion } from "../utils/motionPreference";
+import { setZalgoTextBlockingEnabled } from "../telegram/identityText";
 
 export type ColorTheme = ColorScheme;
 export type UnreadBadgePosition = "right" | "avatar";
@@ -21,6 +22,7 @@ export interface AppPreferences {
   notificationPreview: boolean;
   sendOnEnter: boolean;
   sendTypingStatus: boolean;
+  blockZalgoText: boolean;
   autoplayAnimations: boolean;
   autoDownloadImages: boolean;
   autoDownloadVideos: boolean;
@@ -55,6 +57,7 @@ const defaults: AppPreferences = {
   notificationPreview: true,
   sendOnEnter: true,
   sendTypingStatus: true,
+  blockZalgoText: true,
   autoplayAnimations: true,
   autoDownloadImages: true,
   autoDownloadVideos: false,
@@ -93,6 +96,7 @@ const readPreferences = (): AppPreferences => {
       notificationPreview: stored.notificationPreview ?? defaults.notificationPreview,
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       sendTypingStatus: stored.sendTypingStatus ?? defaults.sendTypingStatus,
+      blockZalgoText: stored.blockZalgoText ?? defaults.blockZalgoText,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
       autoDownloadImages: stored.autoDownloadImages ?? defaults.autoDownloadImages,
       autoDownloadVideos: stored.autoDownloadVideos ?? defaults.autoDownloadVideos,
@@ -148,6 +152,7 @@ const readPreferences = (): AppPreferences => {
 };
 
 const initialPreferences = readPreferences();
+setZalgoTextBlockingEnabled(initialPreferences.blockZalgoText);
 const readSystemReduceMotion = () => typeof window !== "undefined" &&
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -176,6 +181,7 @@ export const preferencesStore = createStore<PreferencesState>((set) => ({
 }));
 
 const applyPreferences = (preferences: AppPreferences, systemMotionReduced: boolean) => {
+  setZalgoTextBlockingEnabled(preferences.blockZalgoText);
   if (typeof document === "undefined") return;
   const reduceMotion = effectiveReduceMotion({
     reduceMotion: preferences.reduceMotion,
@@ -232,6 +238,7 @@ preferencesStore.subscribe((state) => {
     notificationPreview: state.notificationPreview,
     sendOnEnter: state.sendOnEnter,
     sendTypingStatus: state.sendTypingStatus,
+    blockZalgoText: state.blockZalgoText,
     autoplayAnimations: state.autoplayAnimations,
     autoDownloadImages: state.autoDownloadImages,
     autoDownloadVideos: state.autoDownloadVideos,
@@ -281,6 +288,7 @@ if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
     if (event.key !== STORAGE_KEY || !event.newValue) return;
     const next = readPreferences();
+    const identityPolicyChanged = preferencesStore.getState().blockZalgoText !== next.blockZalgoText;
     preferencesStore.setState((state) => ({
       ...next,
       effectiveReduceMotion: effectiveReduceMotion({
@@ -288,6 +296,9 @@ if (typeof window !== "undefined") {
         systemReduceMotion: state.systemReduceMotion,
       }),
     }));
+    const mainEntry = globalThis.location.pathname === "/" ||
+      globalThis.location.pathname.endsWith("/index.html");
+    if (identityPolicyChanged && mainEntry) globalThis.location.reload();
   });
 }
 

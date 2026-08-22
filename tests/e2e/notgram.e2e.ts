@@ -712,6 +712,7 @@ test("composer keeps focus, typing status is visible, and previews name the send
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /Notgram/ }).click();
+  await expect(page.getByRole("switch", { name: "屏蔽 Zalgo 文本" })).toBeChecked();
   const typingSwitch = page.getByRole("switch", { name: "发送输入状态" });
   await expect(typingSwitch).toBeChecked();
   await typingSwitch.uncheck();
