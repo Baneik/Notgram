@@ -6,6 +6,7 @@ export interface MediaViewerWindowDescriptor {
   messages: PhotoMessage[];
   activeMessageId: string;
   colorTheme: "light" | "dark";
+  allowSave?: boolean;
 }
 
 export type MediaViewerWindowMessage =

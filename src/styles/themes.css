@@ -12,6 +12,7 @@
   --color-bg-control: #fafcfb;
   --color-bg-control-hover: #e8edef;
   --color-bg-selected: #dcecf8;
+  --color-avatar-alias-background: #ffffff;
   --color-text-primary: #252a2d;
   --color-text-secondary: #687277;
   --color-text-tertiary: #8e999e;
@@ -56,6 +57,7 @@
   --color-bg-control: #292e34;
   --color-bg-control-hover: #30363d;
   --color-bg-selected: #2d3b46;
+  --color-avatar-alias-background: #ffffff;
   --color-text-primary: #d0d4d9;
   --color-text-secondary: #a0a7af;
   --color-text-tertiary: #89919a;
@@ -103,6 +105,7 @@
     --color-bg-control: Canvas;
     --color-bg-control-hover: Canvas;
     --color-bg-selected: Highlight;
+    --color-avatar-alias-background: Canvas;
     --color-text-primary: CanvasText;
     --color-text-secondary: CanvasText;
     --color-text-tertiary: GrayText;

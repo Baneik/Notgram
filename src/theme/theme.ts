@@ -22,6 +22,7 @@ export const THEME_COLOR_TOKENS = [
   "--color-bg-control",
   "--color-bg-control-hover",
   "--color-bg-selected",
+  "--color-avatar-alias-background",
   "--color-text-primary",
   "--color-text-secondary",
   "--color-text-tertiary",

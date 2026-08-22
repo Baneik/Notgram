@@ -1059,13 +1059,16 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-bubble-shell.is-visual-shell { width: min(var(--visual-card-width, 390px), 100%); }
 .message-bubble-shell.is-visual-shell .message-bubble { width: 100%; }
 .message-bubble-shell.is-local-block-concealed { overflow: hidden; border-radius: 6px; }
-.message-bubble-shell.is-local-block-concealed > .message-bubble > :not(.message-sender-row):not(.local-block-message-reveal),
+.message-bubble-shell.is-local-block-concealed > .message-bubble > :not(.message-sender-row):not(.message-forward-label):not(.local-block-message-reveal),
 .message-bubble-shell.is-local-block-concealed > .message-inline-keyboard,
 .message-bubble-shell.is-local-block-concealed > .message-source-locate {
   filter: blur(5px); clip-path: inset(0); opacity: .58; pointer-events: none; user-select: none; -webkit-user-select: none;
 }
 .message-bubble-shell.is-local-block-concealed > .message-bubble > .message-sender-row {
   position: relative; z-index: 46;
+}
+.message-bubble-shell.is-local-block-concealed > .message-bubble > .message-forward-label {
+  position: relative; z-index: 46; pointer-events: auto;
 }
 .message-bubble-shell.is-local-block-concealed.is-visual-shell > .message-bubble .photo-preview,
 .message-bubble-shell.is-local-block-concealed.is-sticker-shell > .message-bubble .photo-preview {
@@ -1179,8 +1182,9 @@ button.message-sender:hover { text-decoration: none; }
 .message-sender-avatar { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .message-sender-avatar.is-local-block-alias .avatar > span {
   font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
-  font-size: 24px; line-height: 1; font-weight: 400; transform: translateY(-1px);
+  font-size: 24px; line-height: 1; font-weight: 400; transform: translateY(-3px);
 }
+.message-sender-avatar.is-local-block-alias .avatar { background-color: var(--color-avatar-alias-background) !important; }
 .message-action-menu-group { position: relative; }
 .message-action-menu button.has-submenu { grid-template-columns: 20px minmax(0, 1fr) 16px; }
 .message-action-submenu {

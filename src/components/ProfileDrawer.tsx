@@ -122,7 +122,6 @@ export function ProfileDrawer({
   const [page, setPage] = useState<ProfilePage>("main");
   const [reportOpen, setReportOpen] = useState(false);
   const cacheFile = useTelegramStore((store) => store.cacheFile);
-  const saveFileToDownloads = useTelegramStore((store) => store.saveFileToDownloads);
   const activeAccountId = useTelegramStore((store) => store.activeAccountId);
   const localBlockedUsers = useLocalUserBlocks((store) => store.users);
   const blockLocalUser = useLocalUserBlocks((store) => store.blockUser);
@@ -156,10 +155,10 @@ export function ProfileDrawer({
     delivery: "read",
     content: photo.content,
   })), [profile?.id, profile?.kind, profile?.profilePhotos, profile?.userId]);
-  const downloadProfilePhoto = useCallback(async (fileId: number, fileName: string) => {
-    await onDownloadFile(fileId, fileName);
+  const cacheProfilePhoto = useCallback(async (fileId: number, _fileName: string) => {
+    await cacheFile(fileId, 24);
     onRetry();
-  }, [onDownloadFile, onRetry]);
+  }, [cacheFile, onRetry]);
   const openProfileAvatar = useCallback(() => {
     const active = profilePhotoMessages[0];
     if (!active) return;
@@ -178,7 +177,8 @@ export function ProfileDrawer({
       messages: profilePhotoMessages,
       activeMessageId: active.id,
       colorTheme,
-    }, downloadProfilePhoto, saveFileToDownloads);
+      allowSave: false,
+    }, cacheProfilePhoto, async () => undefined);
     const content = active.content;
     if (
       content.fileId !== undefined &&
@@ -186,9 +186,9 @@ export function ProfileDrawer({
       !content.isDownloading &&
       !content.isDownloaded
     ) {
-      void downloadProfilePhoto(content.fileId, content.fileName);
+      void cacheProfilePhoto(content.fileId, content.fileName);
     }
-  }, [cacheFile, colorTheme, downloadProfilePhoto, profilePhotoMessages, saveFileToDownloads]);
+  }, [cacheFile, cacheProfilePhoto, colorTheme, profilePhotoMessages]);
   const openCommonGroup = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     const chatId = event.currentTarget.dataset.chatId;
     if (chatId) onOpenChat(chatId);

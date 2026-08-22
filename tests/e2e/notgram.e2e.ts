@@ -3251,6 +3251,36 @@ test("locally masks a group member and reveals messages at the requested scope",
   await expect(page.locator('.message-list[aria-busy="false"]')).toBeVisible();
   await expect(page.locator(".message-bubble-shell.is-local-block-concealed").first()).toBeVisible();
 
+  await page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<Record<string, unknown>>> };
+        setState: (partial: { messages: Map<string, Array<Record<string, unknown>>> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) =>
+      message.id === "p-channel-reply"
+        ? {
+            ...message,
+            senderId: "u-mia",
+            forwardInfo: {
+              origin: { kind: "user", userId: "u-mia" },
+              source: { chatId: "chat-product", messageId: "p-3", senderId: "u-mia", outgoing: false },
+            },
+          }
+        : message,
+    ));
+    module.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const concealedForward = page.locator('[data-message-id="p-channel-reply"]');
+  await concealedForward.scrollIntoViewIfNeeded();
+  await expect(concealedForward.locator(".message-forward-label")).toHaveText(/转发自 受限来源/);
+  await expect(concealedForward.locator("button.message-forward-label")).toHaveCount(0);
+  await expect(concealedForward.locator(".message-forward-label")).toHaveCSS("filter", "none");
+
   const keyboardRow = await revealVirtualMessage(page, "p-bot-keyboard");
   const concealedBounds = await keyboardRow.evaluate((row) => {
     const bubble = row.querySelector<HTMLElement>(":scope > .message-bubble-shell > .message-bubble")!;
@@ -3320,16 +3350,19 @@ test("locally masks a group member and reveals messages at the requested scope",
     const avatarBounds = avatar.getBoundingClientRect();
     const labelBounds = label.getBoundingClientRect();
     const labelStyle = getComputedStyle(label);
+    const avatarStyle = getComputedStyle(avatar);
     return {
       fontSize: Number.parseFloat(labelStyle.fontSize),
       horizontalCenterDelta: (labelBounds.left + labelBounds.width / 2)
         - (avatarBounds.left + avatarBounds.width / 2),
       translateY: new DOMMatrix(labelStyle.transform).m42,
+      backgroundColor: avatarStyle.backgroundColor,
     };
   });
   expect(animalAvatarLayout.fontSize).toBeGreaterThanOrEqual(24);
   expect(Math.abs(animalAvatarLayout.horizontalCenterDelta)).toBeLessThan(0.1);
-  expect(animalAvatarLayout.translateY).toBe(-1);
+  expect(animalAvatarLayout.translateY).toBe(-3);
+  expect(animalAvatarLayout.backgroundColor).toBe("rgb(255, 255, 255)");
   const groupId = await animalAvatar
     .locator("xpath=ancestor::*[contains(@class, 'message-group')]")
     .locator("[data-local-block-group]")
@@ -3894,6 +3927,7 @@ test("chat profiles expose compact detail pages, rich bios, profile music, and s
   await avatarPopup.waitForLoadState("domcontentloaded");
   await expect(avatarPopup.getByRole("dialog", { name: /Mia Chen 的当前头像/ })).toBeVisible();
   await expect(avatarPopup.getByRole("navigation", { name: "会话图片预览" }).getByRole("button")).toHaveCount(3);
+  await expect(avatarPopup.getByRole("button", { name: "下载图片" })).toBeDisabled();
   await avatarPopup.close();
   await page.evaluate(() => {
     (window as unknown as { __notgramProfileAudioPlayCalls: string[] }).__notgramProfileAudioPlayCalls = [];

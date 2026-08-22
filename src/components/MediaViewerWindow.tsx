@@ -102,6 +102,7 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
       activeMessageId={activeMessageId}
       onActiveMessageChange={setActiveMessageId}
       onClose={() => void closeWindow()}
+      allowSave={descriptor.allowSave}
       onDownload={async (fileId, fileName) => {
         channelRef.current?.postMessage({
           type: "download",

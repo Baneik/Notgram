@@ -126,7 +126,7 @@ export const localUserBlocksStore = createStore<LocalUserBlocksState>((set, get)
       alias: `${identity.name}${identity.suffix}`,
       aliasAvatar: {
         label: identity.emoji,
-        color: identity.color,
+        color: "#fff",
       },
       identityId: identity.id,
       blockedAt: new Date().toISOString(),

@@ -22,6 +22,7 @@ interface MediaViewerProps {
   activeMessageId: string;
   onActiveMessageChange: (messageId: string) => void;
   onClose: () => void;
+  allowSave?: boolean;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onSave: (sourcePath: string, fileName: string) => Promise<void>;
 }
@@ -103,6 +104,7 @@ export function MediaViewer({
   activeMessageId,
   onActiveMessageChange,
   onClose,
+  allowSave = true,
   onDownload,
   onSave,
 }: MediaViewerProps) {
@@ -175,7 +177,7 @@ export function MediaViewer({
     content.canDownload !== false &&
     !content.isDownloading &&
     !content.isDownloaded;
-  const canSave = Boolean(content.localPath);
+  const canSave = allowSave && Boolean(content.localPath);
   const downloadUnavailable = !canSave && !canDownload && !content.isDownloading;
   const imageDetails = [
     `数据中心：${content.dataCenterId ? `DC${content.dataCenterId}` : "Telegram 自动选择"}`,
@@ -183,7 +185,7 @@ export function MediaViewer({
     `大小：${content.sizeLabel}`,
   ];
   const handleDownload = () => {
-    if (content.localPath) return onSave(content.localPath, content.fileName);
+    if (allowSave && content.localPath) return onSave(content.localPath, content.fileName);
     if (canDownload) return onDownload(content.fileId!, content.fileName);
     return Promise.resolve();
   };

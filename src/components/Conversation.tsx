@@ -2061,6 +2061,9 @@ export function Conversation({
                         !blockedGroupRevealed &&
                         !revealedLocalBlockMessages.has(message.id)
                       );
+                      const displayedForwardLabel = locallyConcealed && forwardSource?.label
+                        ? "转发自 受限来源"
+                        : forwardSource?.label;
                       const displayedSenderName = blockedUser && !blockedGroupRevealed
                         ? blockedUser.alias
                         : senderName;
@@ -2094,8 +2097,8 @@ export function Conversation({
                           : undefined}
                         groupPosition={positions.get(message.id) ?? "single"}
                         replyPreview={replyPreviewForMessage(message)}
-                        forwardLabel={forwardSource?.label}
-                        onOpenForwardSource={!selectionMode && forwardNavigation ? () => {
+                        forwardLabel={displayedForwardLabel}
+                        onOpenForwardSource={!selectionMode && !locallyConcealed && forwardNavigation ? () => {
                           if (forwardNavigation.kind === "message") {
                             openMessageInHistory(forwardNavigation.chatId, forwardNavigation.messageId);
                           } else if (forwardNavigation.kind === "chat") {
