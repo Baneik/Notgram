@@ -361,7 +361,7 @@ export function ProfileDrawer({
                     </button>
                   ) : <span className="profile-avatar-static"><Avatar avatar={profile.avatar} size="large" /></span>}
                   <h3 id="profile-name" className={isAdministrator ? "is-administrator" : undefined}>{profile.title}</h3>
-                  <span className={`profile-status ${profileIsBot ? "is-bot" : ""} ${isAdministrator ? "is-administrator" : ""}`.trim()}>
+                  <span className={`profile-status ${profileIsBot ? "is-bot" : ""}`.trim()}>
                     {profileIsBot && isAdministrator
                       ? "机器人 · 管理员"
                       : profileIsBot ? "机器人" : isAdministrator ? "管理员" : profile.statusLabel}

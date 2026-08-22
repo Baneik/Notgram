@@ -7,6 +7,7 @@ export interface ReplyPreview {
   chatId?: string;
   messageId?: string;
   isCurrentUser?: boolean;
+  isAdministrator?: boolean;
   concealed?: boolean;
 }
 

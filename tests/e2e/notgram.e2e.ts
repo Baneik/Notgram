@@ -1,5 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import type { ChatProfile, Message } from "../../src/telegram/types";
+
+const versionSource = JSON.parse(readFileSync(new URL("../../version.json", import.meta.url), "utf8")) as {
+  version: string;
+};
 
 interface ConversationSwitchRecord {
   durationMs?: number;
@@ -623,7 +628,7 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   await expect(page.locator(".settings-dialog .cache-health"))
     .toContainText("缓存状态：刚刚重建");
   await page.getByRole("button", { name: /软件更新/ }).click();
-  await expect(page.getByRole("heading", { name: /Notgram 0\.5\.0-rc\.3/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Notgram ${versionSource.version}` })).toBeVisible();
   await expect(page.getByRole("button", { name: "检查更新" })).toBeDisabled();
   await page.getByRole("button", { name: /诊断与隐私/ }).click();
   await expect(page.getByRole("button", { name: "导出诊断包" })).toBeDisabled();
@@ -4377,6 +4382,8 @@ test("TDLib mentions open user and bot profiles without leaving the conversation
   const profile = page.getByRole("dialog", { name: "资料" });
   await expect(profile.getByRole("heading", { name: "Mia Chen" })).toBeVisible();
   await expect(profile.locator(".profile-status")).toHaveText("管理员");
+  await expect(profile.locator(".profile-status")).not.toHaveClass(/is-administrator/);
+  await expect(profile.locator(".profile-status")).toHaveCSS("color", "rgb(73, 131, 99)");
   await expect(profile.locator("#profile-name")).toHaveClass(/is-administrator/);
   await profile.getByRole("button", { name: "关闭资料" }).click();
 
@@ -4412,6 +4419,38 @@ test("administrator names and tags use the role color in light and dark themes",
   const profile = page.getByRole("dialog", { name: "资料" });
   await expect(profile.locator("#profile-name")).toHaveCSS("color", "rgb(199, 154, 221)");
   await expect(profile.locator(".profile-status")).toHaveText("管理员");
+  await expect(profile.locator(".profile-status")).not.toHaveClass(/is-administrator/);
+  await expect(profile.locator(".profile-status")).toHaveCSS("color", "rgb(127, 175, 145)");
+});
+
+test("administrator names use the role color in reply contexts", async ({ page }) => {
+  await page.goto("/");
+  const source = await revealVirtualMessage(page, "p-rich-message");
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+
+  const contextName = page.locator(".composer-context-subject");
+  await expect(contextName).toHaveText("Mia Chen");
+  await expect(contextName).toHaveClass(/is-administrator/);
+  await expect(contextName).toHaveCSS("color", "rgb(138, 90, 166)");
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "notgram-dark";
+  });
+  await expect(contextName).toHaveCSS("color", "rgb(199, 154, 221)");
+
+  await page.getByRole("textbox", { name: "消息内容" }).fill("确认管理员引用标识");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const sent = page.locator(".message-row.is-outgoing", { hasText: "确认管理员引用标识" }).last();
+  const quotedName = sent.locator(".message-reply-preview strong");
+  await expect(quotedName).toHaveText("Mia Chen");
+  await expect(quotedName).toHaveClass(/is-administrator/);
+  await expect(quotedName).toHaveCSS("color", "rgb(199, 154, 221)");
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "notgram-light";
+  });
+  await expect(quotedName).toHaveCSS("color", "rgb(138, 90, 166)");
 });
 
 test("visible mentions follow nickname changes without changing their user target", async ({ page }) => {

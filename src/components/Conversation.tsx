@@ -727,15 +727,19 @@ export function Conversation({
       currentUserId,
     );
     if (!preview) return undefined;
-    const blockedReplyUser = localBlockedUsersById.get(replySenderId(message, messagesById) ?? "");
+    const repliedSenderId = replySenderId(message, messagesById);
+    const blockedReplyUser = localBlockedUsersById.get(repliedSenderId ?? "");
     return blockedReplyUser
       ? {
           ...preview,
           author: blockedReplyUser.alias,
           concealed: true,
         }
-      : preview;
-  }, [chat, currentUserId, forwardTargetsById, localBlockedUsersById, messagesById, users]);
+      : {
+          ...preview,
+          isAdministrator: Boolean(repliedSenderId && memberLabels.has(repliedSenderId)),
+        };
+  }, [chat, currentUserId, forwardTargetsById, localBlockedUsersById, memberLabels, messagesById, users]);
   const audioPlaybackNeighborsByMessage = useMemo(() => {
     const audioMessages = renderedMessages.filter((message) =>
       message.content.kind === "media" && ["audio", "voice"].includes(message.content.mediaType)
@@ -1463,8 +1467,16 @@ export function Conversation({
   const composerContextTitle = editingMessage
     ? "编辑消息"
     : replyingTo
-      ? `回复 ${senderNameForMessage(replyingTo, users, chat, forwardTargetsById)}`
+      ? "回复"
       : undefined;
+  const composerContextSubject = replyingTo
+    ? senderNameForMessage(replyingTo, users, chat, forwardTargetsById)
+    : undefined;
+  const composerContextSubjectIsAdministrator = Boolean(
+    replyingTo &&
+    !localBlockedUsersById.has(replyingTo.senderId) &&
+    memberLabels.has(replyingTo.senderId),
+  );
   const typingNames = typingUserIds.map((userId) =>
     localBlockedUsersById.get(userId)?.alias ?? users.get(userId)?.displayName ?? "成员"
   );
@@ -2366,6 +2378,8 @@ export function Conversation({
         replyingTo={replyingTo}
         replyQuote={replyQuote}
         contextTitle={composerContextTitle}
+        contextSubject={composerContextSubject}
+        contextSubjectIsAdministrator={composerContextSubjectIsAdministrator}
         defaultBotUsername={chat.kind === "direct" && chat.peerId && users.get(chat.peerId)?.isBot
           ? users.get(chat.peerId)?.username
           : undefined}

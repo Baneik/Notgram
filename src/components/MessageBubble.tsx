@@ -77,6 +77,7 @@ export interface ReplyPreview {
   chatId?: string;
   messageId?: string;
   isCurrentUser?: boolean;
+  isAdministrator?: boolean;
   concealed?: boolean;
 }
 
@@ -786,7 +787,9 @@ function MessageBubbleComponent({
                 }
               }}
             >
-              <strong>{replyPreview.author}</strong>
+              <strong className={replyPreview.isAdministrator ? "is-administrator" : undefined}>
+                {replyPreview.author}
+              </strong>
               <small>{replyPreview.text}</small>
             </button>
           )}

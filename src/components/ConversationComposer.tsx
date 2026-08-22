@@ -69,6 +69,8 @@ interface ConversationComposerProps {
   replyingTo?: Message;
   replyQuote?: MessageReplyQuote;
   contextTitle?: string;
+  contextSubject?: string;
+  contextSubjectIsAdministrator?: boolean;
   defaultBotUsername?: string;
   textInsertion?: ComposerTextInsertion;
   knownNonBotUsernames?: ReadonlySet<string>;
@@ -138,6 +140,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   replyingTo,
   replyQuote,
   contextTitle,
+  contextSubject,
+  contextSubjectIsAdministrator = false,
   defaultBotUsername,
   textInsertion,
   knownNonBotUsernames,
@@ -1184,7 +1188,12 @@ export const ConversationComposer = memo(function ConversationComposer({
               : <Reply size={18} strokeWidth={1.9} />}
           </span>
           <span className="composer-context-copy">
-            <strong>{contextTitle}</strong>
+            <strong>
+              {contextTitle}
+              {contextSubject ? (
+                <> <span className={`composer-context-subject ${contextSubjectIsAdministrator ? "is-administrator" : ""}`.trim()}>{contextSubject}</span></>
+              ) : null}
+            </strong>
             <small>{editingMessage
               ? messageSummary(composerContextMessage.content)
               : activeReplyQuote?.text ?? messageSummary(composerContextMessage.content)}</small>
