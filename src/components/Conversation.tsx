@@ -438,7 +438,9 @@ export function Conversation({
   const [autoDeleteDialogOpen, setAutoDeleteDialogOpen] = useState(false);
   const [autoDeletePending, setAutoDeletePending] = useState(false);
   const groupManagement = useTelegramStore((state) => state.groupManagement);
+  const chatAdministratorLabels = useTelegramStore((state) => state.chatAdministratorLabels);
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
+  const loadChatAdministratorLabels = useTelegramStore((state) => state.loadChatAdministratorLabels);
   const draftReplyToMessageId = useTelegramStore((state) =>
     chat ? state.drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id)?.replyToMessageId : undefined,
   );
@@ -499,21 +501,16 @@ export function Conversation({
   }, [chat?.id]);
 
   useEffect(() => {
-    if (!chat?.management?.canOpenManagement) return;
-    void loadChatManagement(chat.id);
-  }, [chat?.id, chat?.management?.canOpenManagement, loadChatManagement]);
+    if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return;
+    if (chat.management?.canOpenManagement) {
+      void loadChatManagement(chat.id);
+    } else {
+      void loadChatAdministratorLabels(chat.id, true);
+    }
+  }, [chat?.id, chat?.kind, chat?.management?.canOpenManagement, loadChatAdministratorLabels, loadChatManagement]);
   const memberLabels = useMemo(() => new Map(
-    groupManagement?.chatId === chat?.id
-      ? [
-          ...Object.entries(groupManagement?.administratorLabels ?? {}),
-          ...(groupManagement?.members ?? []).flatMap((member) => {
-            const label = member.customTitle ||
-              (member.status === "owner" ? "群主" : member.status === "administrator" ? "管理员" : undefined);
-            return label ? [[member.user.id, label] as const] : [];
-          }),
-        ]
-      : [],
-  ), [chat?.id, groupManagement]);
+    Object.entries(chat ? chatAdministratorLabels.get(chat.id) ?? {} : {}),
+  ), [chat, chatAdministratorLabels]);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const conversationRef = useRef<HTMLElement>(null);
   const selectionMessageRef = useRef<HTMLElement | null>(null);
@@ -2055,6 +2052,8 @@ export function Conversation({
                       const displayedSenderName = blockedUser && !blockedGroupRevealed
                         ? blockedUser.alias
                         : senderName;
+                      const senderIsAdministrator = (!blockedUser || blockedGroupRevealed) &&
+                        memberLabels.has(message.senderId);
                       return <RichMessageBubble
                         key={message.renderKey ?? message.id}
                         message={message}
@@ -2063,6 +2062,7 @@ export function Conversation({
                         senderLabel={blockedUser && !blockedGroupRevealed
                           ? undefined
                           : message.senderTag || memberLabels.get(message.senderId)}
+                        senderIsAdministrator={senderIsAdministrator}
                         senderProfileAvailable={
                           !message.outgoing &&
                           message.senderId !== "unknown" &&

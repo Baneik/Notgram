@@ -507,6 +507,33 @@ describe("TauriTelegramTransport startup", () => {
     expect(management.administratorLabels).toEqual({ "901": "值班", "902": "群主" });
   });
 
+  it("loads administrator labels without requiring management rights", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as {
+      request: (request: TdObject) => Promise<TdObject>;
+    };
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "chatAdministrators",
+        administrators: [
+          { user_id: 901, custom_title: "值班", is_owner: false },
+          { user_id: 902, custom_title: "", is_owner: true },
+        ],
+      };
+    };
+
+    await expect(transport.getChatAdministratorLabels("72")).resolves.toEqual({
+      "901": "值班",
+      "902": "群主",
+    });
+    expect(requests).toEqual([{
+      "@type": "getChatAdministrators",
+      chat_id: 72,
+    }]);
+  });
+
   it("starts independent group management requests in parallel", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as {

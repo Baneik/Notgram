@@ -110,6 +110,7 @@ export interface TelegramState {
   userIdsByUsername: Map<string, string>;
   folders: ChatFolder[];
   chats: Map<string, Chat>;
+  chatAdministratorLabels: Map<string, Record<string, string>>;
   chatListReady: boolean;
   chatLists: Map<string, ChatListState>;
   messages: Map<string, Message[]>;
@@ -212,6 +213,7 @@ export interface TelegramState {
   startPrivateChat: (userId: string) => Promise<string | undefined>;
   createChat: (input: CreateChatInput) => Promise<string | undefined>;
   loadChatManagement: (chatId: string, memberOffset?: number) => Promise<ChatManagement | undefined>;
+  loadChatAdministratorLabels: (chatId: string, force?: boolean) => Promise<Record<string, string>>;
   addChatMembers: (chatId: string, userIds: string[]) => Promise<boolean>;
   setChatMemberStatus: (chatId: string, userId: string, status: ChatMemberStatusInput) => Promise<boolean>;
   setChatMemberTag: (chatId: string, userId: string, tag: string) => Promise<boolean>;

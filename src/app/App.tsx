@@ -161,6 +161,7 @@ export function App() {
   const histories = useTelegramStore((state) => state.histories);
   const globalSearch = useTelegramStore((state) => state.globalSearch);
   const profile = useTelegramStore((state) => state.profile);
+  const chatAdministratorLabels = useTelegramStore((state) => state.chatAdministratorLabels);
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const chatManagementPending = useTelegramStore((state) => state.chatManagementPending);
   const folderManagementPending = useTelegramStore((state) => state.folderManagementPending);
@@ -1860,6 +1861,11 @@ export function App() {
           onStartPrivateChat={openProfilePrivateChat}
           onManageChat={openChatManagement}
           canManageChat={profile.value?.chatId ? chats.get(profile.value.chatId)?.management?.canOpenManagement === true : false}
+          isAdministrator={Boolean(
+            activeChatId &&
+            profile.value?.userId &&
+            chatAdministratorLabels.get(activeChatId)?.[profile.value.userId]
+          )}
           isBlocked={profile.value?.userId ? blockedSenders.some((sender) => sender.kind === "user" && sender.id === profile.value?.userId) : profile.value?.chatId ? blockedSenders.some((sender) => sender.kind === "chat" && sender.id === profile.value?.chatId) : false}
           onToggleBlock={toggleProfileBlock}
           onGetReportOptions={getChatReportOptions}

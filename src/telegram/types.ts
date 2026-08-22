@@ -387,6 +387,7 @@ export interface ChatProfile {
   kind: ProfileKind;
   chatId?: string;
   userId?: string;
+  isBot?: boolean;
   title: string;
   avatar: Avatar;
   statusLabel: string;

@@ -28,6 +28,8 @@
   --color-status-warning: #9a7229;
   --color-status-danger: #ae554d;
   --color-status-info: #477da4;
+  --color-admin: #8a5aa6;
+  --color-admin-soft: #f0e4f5;
   --color-attention-badge: #be6258;
   --color-attention-badge-text: #ffffff;
   --color-text-link: #4278a5;
@@ -70,6 +72,8 @@
   --color-status-warning: #c1a667;
   --color-status-danger: #d48781;
   --color-status-info: #78a7c8;
+  --color-admin: #c79add;
+  --color-admin-soft: #413448;
   --color-attention-badge: #f2b84b;
   --color-attention-badge-text: #231700;
   --color-text-link: #78a7c8;
@@ -115,6 +119,8 @@
     --color-status-warning: CanvasText;
     --color-status-danger: CanvasText;
     --color-status-info: CanvasText;
+    --color-admin: Highlight;
+    --color-admin-soft: Canvas;
     --color-attention-badge: Highlight;
     --color-attention-badge-text: HighlightText;
     --color-text-link: LinkText;

@@ -1170,9 +1170,11 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-action-status { min-height: 42px; padding: 0 9px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .message-sender-row { width: 100%; min-width: 0; margin-bottom: 3px; display: flex; align-items: flex-start; justify-content: flex-start; gap: 8px; }
 .message-sender { width: fit-content; min-width: 0; max-width: 100%; padding: 0; overflow: hidden; flex: 0 1 auto; color: var(--color-text-link); text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; font-size: 12px; font-weight: 700; }
+.message-sender.is-administrator { color: var(--color-admin); }
 button.message-sender { cursor: pointer; }
 button.message-sender, span.message-sender { display: block; }
 .message-sender-label { max-width: min(200px, 42vw); margin-inline-start: auto; padding: 2px 6px; overflow: hidden; flex: 0 0 auto; color: var(--color-text-link); text-overflow: ellipsis; white-space: nowrap; background: var(--color-accent-soft); border-radius: 4px; font-size: 11px; line-height: 1.25; font-weight: 650; }
+.message-sender-label.is-administrator { color: var(--color-admin); background: var(--color-admin-soft); }
 button.message-sender:hover { text-decoration: none; }
 .message-sender-avatar { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .message-sender-avatar.is-local-block-alias .avatar > span {
@@ -2968,7 +2970,10 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   box-shadow: 0 0 0 4px var(--color-bg-elevated), 0 8px 22px color-mix(in srgb, var(--color-shadow) 44%, transparent);
 }
 .profile-hero h3 { margin: 5px 0 0; max-width: 100%; overflow-wrap: anywhere; font-size: 20px; font-weight: 680; }
+.profile-hero h3.is-administrator { color: var(--color-admin); }
 .profile-status { color: var(--color-status-success); font-size: 12px; }
+.profile-status.is-bot { color: var(--muted); }
+.profile-status.is-administrator { color: var(--color-admin); }
 .profile-bio { max-width: 320px; margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
 .profile-bio a { color: var(--accent); text-decoration: none; }
 .profile-bio a:hover { text-decoration: underline; }
@@ -3027,6 +3032,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .profile-member-row strong, .profile-member-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .profile-member-row strong { font-size: 12px; }
 .profile-member-row small { color: var(--muted); font-size: 10px; }
+.profile-member-row .is-administrator { color: var(--color-admin); }
 .profile-member-row > button:not(.profile-member-identity) { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; color: var(--accent); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .profile-member-row > button:not(.profile-member-identity):hover { background: var(--accent-soft); }
 .profile-member-more { width: 100%; margin-top: 10px; justify-content: center; }

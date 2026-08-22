@@ -241,6 +241,21 @@ export class TauriProfileService {
     };
   }
 
+  async getChatAdministratorLabels(chatId: string): Promise<Record<string, string>> {
+    const result = await this.context.request({
+      "@type": "getChatAdministrators",
+      chat_id: numericId(chatId),
+    });
+    return Object.fromEntries(asTdObjects(result.administrators).flatMap((administrator) => {
+      const userId = tdId(administrator.user_id);
+      if (!userId) return [];
+      const customTitle = typeof administrator.custom_title === "string"
+        ? administrator.custom_title.trim()
+        : "";
+      return [[userId, customTitle || (administrator.is_owner === true ? "群主" : "管理员")]];
+    }));
+  }
+
   async getUserProfile(userId: string): Promise<ChatProfile> {
     return this.loadUserProfile(
       userId,
@@ -284,9 +299,12 @@ export class TauriProfileService {
       id: `user:${user.id}`,
       kind,
       userId: user.id,
+      isBot: user.isBot,
       title: user.displayName,
       avatar: user.avatar,
-      statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
+      statusLabel: user.isBot
+        ? "机器人"
+        : user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
       bio: bio.text || undefined,
       bioEntities: bio.entities,
       firstName: user.firstName,

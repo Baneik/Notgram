@@ -85,6 +85,7 @@ interface MessageBubbleProps {
   entrance?: MessageEntrance;
   senderName: string;
   senderLabel?: string;
+  senderIsAdministrator?: boolean;
   senderProfileAvailable: boolean;
   channelAuthor?: string;
   showChannelMetadata?: boolean;
@@ -157,6 +158,7 @@ function MessageBubbleComponent({
   entrance,
   senderName,
   senderLabel,
+  senderIsAdministrator = false,
   senderProfileAvailable,
   channelAuthor,
   showChannelMetadata = false,
@@ -759,14 +761,18 @@ function MessageBubbleComponent({
             <div className="message-sender-row">
               {senderProfileAvailable ? (
                 <button
-                  className="message-sender"
+                  className={`message-sender ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}
                   type="button"
                   onClick={() => onOpenSenderProfile(message.senderId)}
                 >
                   <span>{senderName}</span>
                 </button>
-              ) : <span className="message-sender"><span>{senderName}</span></span>}
-              {senderLabel && <small className="message-sender-label">{senderLabel}</small>}
+              ) : <span className={`message-sender ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}><span>{senderName}</span></span>}
+              {senderLabel && (
+                <small className={`message-sender-label ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}>
+                  {senderLabel}
+                </small>
+              )}
             </div>
           )}
           {!albumItem && !isService && replyPreview && (

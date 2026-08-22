@@ -49,6 +49,7 @@ interface ProfileDrawerProps {
   onStartPrivateChat: (userId: string) => Promise<void>;
   onManageChat: (chatId: string) => void;
   canManageChat?: boolean;
+  isAdministrator?: boolean;
   isBlocked?: boolean;
   onToggleBlock: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
   onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportOptions | undefined>;
@@ -94,6 +95,7 @@ export function ProfileDrawer({
   onStartPrivateChat,
   onManageChat,
   canManageChat,
+  isAdministrator = false,
   isBlocked,
   onToggleBlock,
   onGetReportOptions,
@@ -127,6 +129,10 @@ export function ProfileDrawer({
   const unblockLocalUser = useLocalUserBlocks((store) => store.unblockUser);
   const colorTheme = usePreferencesStore((store) => colorThemeForThemeId(store.themeId));
   const profile = state.value;
+  const users = useTelegramStore((store) => store.users);
+  const profileIsBot = profile?.isBot === true || Boolean(
+    profile?.userId && users.get(profile.userId)?.isBot,
+  );
   const localBlockedUser = profile?.userId
     ? localBlockedUsers.find((user) =>
         user.accountId === activeAccountId && user.userId === profile.userId
@@ -236,7 +242,14 @@ export function ProfileDrawer({
                     <div className="profile-member-row" key={member.user.id}>
                       <button className="profile-member-identity" type="button" onClick={() => onOpenUserProfile(member.user.id)}>
                         <Avatar avatar={member.user.avatar} size="small" />
-                        <span><strong>{member.user.displayName}</strong><small>{roleLabel(member.role)}</small></span>
+                        <span>
+                          <strong className={member.role === "owner" || member.role === "administrator" ? "is-administrator" : undefined}>
+                            {member.user.displayName}
+                          </strong>
+                          <small className={member.role === "owner" || member.role === "administrator" ? "is-administrator" : undefined}>
+                            {roleLabel(member.role)}
+                          </small>
+                        </span>
                       </button>
                       {member.user.id !== currentUserId ? (
                         <button
@@ -347,8 +360,12 @@ export function ProfileDrawer({
                       <Avatar avatar={profile.avatar} size="large" />
                     </button>
                   ) : <span className="profile-avatar-static"><Avatar avatar={profile.avatar} size="large" /></span>}
-                  <h3 id="profile-name">{profile.title}</h3>
-                  <span className="profile-status">{profile.statusLabel}</span>
+                  <h3 id="profile-name" className={isAdministrator ? "is-administrator" : undefined}>{profile.title}</h3>
+                  <span className={`profile-status ${profileIsBot ? "is-bot" : ""} ${isAdministrator ? "is-administrator" : ""}`.trim()}>
+                    {profileIsBot && isAdministrator
+                      ? "机器人 · 管理员"
+                      : profileIsBot ? "机器人" : isAdministrator ? "管理员" : profile.statusLabel}
+                  </span>
                   {profile.bio ? (
                     <MessageRichText
                       className="profile-bio"

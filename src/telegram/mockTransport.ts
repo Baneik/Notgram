@@ -816,9 +816,10 @@ export class MockTelegramTransport implements TelegramTransport {
       id: `user:${user.id}`,
       kind: "self",
       userId: user.id,
+      isBot: user.isBot,
       title: user.displayName,
       avatar: clone(user.avatar),
-      statusLabel: "在线",
+      statusLabel: user.isBot ? "机器人" : "在线",
       bio: this.mockCurrentUserBio,
       firstName: user.firstName,
       lastName: user.lastName,
@@ -843,9 +844,12 @@ export class MockTelegramTransport implements TelegramTransport {
       id: `user:${user.id}`,
       kind: user.id === this.snapshot.currentUserId ? "self" : "user",
       userId: user.id,
+      isBot: user.isBot,
       title: user.displayName,
       avatar: clone(user.avatar),
-      statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
+      statusLabel: user.isBot
+        ? "机器人"
+        : user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
       ...mockProfileBio(user),
       firstName: user.firstName,
       lastName: user.lastName,
@@ -909,9 +913,12 @@ export class MockTelegramTransport implements TelegramTransport {
         kind: chat.kind === "saved" ? "self" : "user",
         chatId: chat.id,
         userId: user.id,
+        isBot: user.isBot,
         title: user.displayName,
         avatar: clone(user.avatar),
-        statusLabel: user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
+        statusLabel: user.isBot
+          ? "机器人"
+          : user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
         ...mockProfileBio(user),
         firstName: user.firstName,
         lastName: user.lastName,
@@ -1909,6 +1916,16 @@ export class MockTelegramTransport implements TelegramTransport {
       })),
       nextOffset,
     };
+  }
+
+  async getChatAdministratorLabels(chatId: string): Promise<Record<string, string>> {
+    const profile = await this.getChatProfile(chatId);
+    return Object.fromEntries(profile.members.flatMap((member) => {
+      const label = member.role === "owner"
+        ? "群主"
+        : member.role === "administrator" ? "管理员" : "";
+      return label ? [[member.user.id, label]] : [];
+    }));
   }
 
   async setPollAnswer(input: SetPollAnswerInput) {

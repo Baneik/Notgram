@@ -2944,6 +2944,33 @@ describe("chat filtering", () => {
     expect(store.getState().groupManagementLoading).toBe(false);
   });
 
+  it("deduplicates and caches read-only administrator labels", async () => {
+    let release: () => void = () => undefined;
+    class DeferredAdministratorTransport extends MockTelegramTransport {
+      calls = 0;
+
+      override async getChatAdministratorLabels(chatId: string) {
+        this.calls += 1;
+        await new Promise<void>((resolve) => { release = resolve; });
+        return super.getChatAdministratorLabels(chatId);
+      }
+    }
+
+    const transport = new DeferredAdministratorTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const first = store.getState().loadChatAdministratorLabels("chat-product");
+    const second = store.getState().loadChatAdministratorLabels("chat-product");
+
+    expect(transport.calls).toBe(1);
+    expect(first).toBe(second);
+    release();
+    await expect(first).resolves.toEqual({ self: "群主", "u-mia": "管理员" });
+    await expect(store.getState().loadChatAdministratorLabels("chat-product"))
+      .resolves.toEqual({ self: "群主", "u-mia": "管理员" });
+    expect(transport.calls).toBe(1);
+  });
+
   it("clears stale management state and blocks every management request after a live role downgrade", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

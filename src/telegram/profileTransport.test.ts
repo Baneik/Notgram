@@ -38,6 +38,8 @@ describe("profile transport", () => {
     const transport = new MockTelegramTransport();
     const account = await transport.getCurrentUserProfile();
     const group = await transport.getChatProfile("chat-product");
+    const bot = await transport.getUserProfile("u-notgram-bot");
+    const administratorLabels = await transport.getChatAdministratorLabels("chat-product");
     const contacts = await transport.getContacts();
     const privateChat = await transport.createPrivateChat("u-jules");
 
@@ -49,6 +51,8 @@ describe("profile transport", () => {
       "member",
       "member",
     ]);
+    expect(bot).toMatchObject({ isBot: true, statusLabel: "机器人" });
+    expect(administratorLabels).toEqual({ self: "群主", "u-mia": "管理员" });
     expect(contacts.map(({ id }) => id)).toContain("u-jules");
     expect(privateChat).toMatchObject({ kind: "direct", peerId: "u-jules" });
   });

@@ -104,6 +104,7 @@ export interface TelegramTransport {
   setCurrentUserAvatar(file?: File): Promise<ChatProfile | undefined>;
   getChatProfile(chatId: string): Promise<ChatProfile>;
   getChatProfileMembers(chatId: string, offset: number, limit?: number): Promise<ChatProfileMembersPage>;
+  getChatAdministratorLabels(chatId: string): Promise<Record<string, string>>;
   getUserProfile(userId: string): Promise<ChatProfile>;
   getContacts(): Promise<User[]>;
   createPrivateChat(userId: string): Promise<Chat>;

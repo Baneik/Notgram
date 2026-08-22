@@ -4376,13 +4376,42 @@ test("TDLib mentions open user and bot profiles without leaving the conversation
   await userMention.click();
   const profile = page.getByRole("dialog", { name: "资料" });
   await expect(profile.getByRole("heading", { name: "Mia Chen" })).toBeVisible();
+  await expect(profile.locator(".profile-status")).toHaveText("管理员");
+  await expect(profile.locator("#profile-name")).toHaveClass(/is-administrator/);
   await profile.getByRole("button", { name: "关闭资料" }).click();
 
   const botRow = await revealVirtualMessage(page, "p-rich-entities");
   await botRow.getByRole("link", { name: "@Notgram Bot" }).click();
   await expect(profile.getByRole("heading", { name: "Notgram Bot" })).toBeVisible();
+  await expect(profile.locator(".profile-status")).toHaveText("机器人");
+  await expect(profile.locator(".profile-status")).toHaveClass(/is-bot/);
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   expect(context.pages()).toHaveLength(initialPageCount);
+});
+
+test("administrator names and tags use the role color in light and dark themes", async ({ page }) => {
+  await page.goto("/");
+  const row = await revealVirtualMessage(page, "p-rich-message");
+  const sender = row.locator(".message-sender");
+  const tag = row.locator(".message-sender-label");
+
+  await expect(sender).toHaveText("Mia Chen");
+  await expect(tag).toHaveText("管理员");
+  await expect(sender).toHaveClass(/is-administrator/);
+  await expect(tag).toHaveClass(/is-administrator/);
+  await expect(sender).toHaveCSS("color", "rgb(138, 90, 166)");
+  await expect(tag).toHaveCSS("background-color", "rgb(240, 228, 245)");
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "notgram-dark";
+  });
+  await expect(sender).toHaveCSS("color", "rgb(199, 154, 221)");
+  await expect(tag).toHaveCSS("background-color", "rgb(65, 52, 72)");
+
+  await sender.click();
+  const profile = page.getByRole("dialog", { name: "资料" });
+  await expect(profile.locator("#profile-name")).toHaveCSS("color", "rgb(199, 154, 221)");
+  await expect(profile.locator(".profile-status")).toHaveText("管理员");
 });
 
 test("visible mentions follow nickname changes without changing their user target", async ({ page }) => {
@@ -6509,6 +6538,8 @@ test("Markdown and TDLib rich text render as structured message content", async 
   const senderRow = botQuoteRow.locator(".message-sender-row");
   await expect(senderRow.locator(".message-sender-label")).toHaveText("热点机器人");
   await expect(senderRow).not.toContainText("管理员");
+  await expect(senderRow.locator(".message-sender")).toHaveClass(/is-administrator/);
+  await expect(senderRow.locator(".message-sender-label")).toHaveClass(/is-administrator/);
   const senderGeometry = await senderRow.evaluate((element) => {
     const label = element.querySelector<HTMLElement>(".message-sender-label")!;
     const bubble = element.closest<HTMLElement>(".message-bubble")!;

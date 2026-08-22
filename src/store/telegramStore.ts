@@ -151,6 +151,8 @@ export const createTelegramStore = (
     const readRequestChains = new Map<string, Promise<void>>();
     const forumTopicsRefreshedAt = new Map<string, number>();
     const groupManagementLoads = new Map<string, Promise<ChatManagement | undefined>>();
+    const chatAdministratorLabelLoads = new Map<string, Promise<Record<string, string>>>();
+    let chatAdministratorLabelsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const localAttachmentDraftGenerations = new Map<string, number>();
@@ -394,6 +396,8 @@ export const createTelegramStore = (
       for (const timer of readTimers.values()) globalThis.clearTimeout(timer);
       readTimers.clear();
       readRequestChains.clear();
+      chatAdministratorLabelLoads.clear();
+      chatAdministratorLabelsGeneration += 1;
       forumTopicsRefreshedAt.clear();
       searchController.reset();
       profileController.reset();
@@ -403,6 +407,7 @@ export const createTelegramStore = (
         userIdsByUsername: new Map(),
         folders: [],
         chats: new Map(),
+        chatAdministratorLabels: new Map(),
         chatListReady: false,
         chatLists: new Map(),
         messages: new Map(),
@@ -1328,6 +1333,7 @@ export const createTelegramStore = (
       userIdsByUsername: new Map(),
       folders: [],
       chats: new Map(),
+      chatAdministratorLabels: new Map(),
       chatListReady: false,
       chatLists: new Map(),
       messages: new Map(),
@@ -2164,7 +2170,14 @@ export const createTelegramStore = (
             const chats = new Map(get().chats);
             const chat = chats.get(chatId);
             if (chat) chats.set(chatId, { ...chat, management: value.capabilities });
-            set({ chats, groupManagement: merged, groupManagementLoading: false });
+            const chatAdministratorLabels = new Map(get().chatAdministratorLabels);
+            chatAdministratorLabels.set(chatId, value.administratorLabels ?? {});
+            set({
+              chats,
+              chatAdministratorLabels,
+              groupManagement: merged,
+              groupManagementLoading: false,
+            });
             return merged;
           } catch (error) {
             set({ groupManagementLoading: false, groupManagementError: errorMessage(error, "无法读取群组管理资料") });
@@ -2174,6 +2187,31 @@ export const createTelegramStore = (
           }
         })();
         groupManagementLoads.set(key, request);
+        return request;
+      },
+
+      loadChatAdministratorLabels: (chatId, force = false) => {
+        const chat = get().chats.get(chatId);
+        if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) {
+          return Promise.resolve({});
+        }
+        const cached = get().chatAdministratorLabels.get(chatId);
+        if (cached && !force) return Promise.resolve(cached);
+        const existing = chatAdministratorLabelLoads.get(chatId);
+        if (existing) return existing;
+        const generation = chatAdministratorLabelsGeneration;
+        const request = transport.getChatAdministratorLabels(chatId).catch(() => ({})).then((labels) => {
+          if (generation !== chatAdministratorLabelsGeneration) return labels;
+          const chatAdministratorLabels = new Map(get().chatAdministratorLabels);
+          chatAdministratorLabels.set(chatId, labels);
+          set({ chatAdministratorLabels });
+          return labels;
+        }).finally(() => {
+          if (chatAdministratorLabelLoads.get(chatId) === request) {
+            chatAdministratorLabelLoads.delete(chatId);
+          }
+        });
+        chatAdministratorLabelLoads.set(chatId, request);
         return request;
       },
 

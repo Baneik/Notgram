@@ -699,6 +699,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.profileService.getChatProfileMembers(chatId, offset, limit);
   }
 
+  async getChatAdministratorLabels(chatId: string): Promise<Record<string, string>> {
+    return this.profileService.getChatAdministratorLabels(chatId);
+  }
+
   async getUserProfile(userId: string): Promise<ChatProfile> {
     return this.profileService.getUserProfile(userId);
   }
@@ -841,15 +845,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const capabilities = deriveChatManagementCapabilities(chatType, status, adminRights);
     if (!capabilities.canOpenManagement) throw new Error("当前账号没有群组管理权限");
     const offset = Math.max(0, memberOffset);
-    const administratorLabelsPromise = this.request({
-      "@type": "getChatAdministrators",
-      chat_id: numericId(chatId),
-    }).then((result) => Object.fromEntries(asTdObjects(result.administrators).flatMap((raw) => {
-      const userId = tdId(raw.user_id);
-      if (!userId) return [];
-      const customTitle = typeof raw.custom_title === "string" ? raw.custom_title.trim() : "";
-      return [[userId, customTitle || (raw.is_owner === true ? "群主" : "管理员")]];
-    }))).catch((): Record<string, string> => {
+    const administratorLabelsPromise = this.getChatAdministratorLabels(chatId).catch((): Record<string, string> => {
       // Member data remains usable on chats where the administrator list is unavailable.
       return {};
     });
