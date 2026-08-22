@@ -36,6 +36,13 @@ with prerelease identifiers used for release candidates.
   selecting compact rows from item count and source proportions so mixed albums
   no longer leave an empty grid cell.
 
+## [0.5.0-rc.4] - 2026-08-22
+
+This candidate contains the latest conversation, forwarding, attachment,
+activity tracking, and native context-menu fixes. The release includes the
+Windows installer and portable package only; the standalone prebuilt TDLib
+runtime archive is intentionally not published.
+
 ## [0.5.0-rc.3] - 2026-08-21
 
 ### Added

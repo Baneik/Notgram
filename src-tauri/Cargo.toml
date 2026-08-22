@@ -1,6 +1,6 @@
 [package]
 name = "notgram"
-version = "0.5.0-rc.3"
+version = "0.5.0-rc.4"
 description = "A focused third-party Telegram client"
 authors = ["Notgram contributors"]
 license = "MIT"
