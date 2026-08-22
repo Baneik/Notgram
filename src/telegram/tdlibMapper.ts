@@ -1009,21 +1009,27 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
           ? document.file_name
           : caption || "文档";
       const mimeType = typeof document?.mime_type === "string" ? document.mime_type : undefined;
+      const thumbnail = asTdObject(document?.thumbnail);
+      const minithumbnail = asTdObject(document?.minithumbnail);
       const options = {
         ...formattedCaption(content.caption),
         mimeType,
         ...thumbnailDetails(document?.thumbnail),
         includePendingUpload,
       };
-      return isDisplayableImageDocument(fileName, mimeType)
-        ? mediaContent("photo", fileName, document?.document, {
-            ...options,
-            previewDataUrl: minithumbnailDataUrl(document?.minithumbnail),
-          })
-        : fileContent(fileName, document?.document, options);
+      if (isDisplayableImageDocument(fileName, mimeType)) {
+        return mediaContent("photo", fileName, document?.document, {
+          ...options,
+          previewDataUrl: minithumbnailDataUrl(document?.minithumbnail),
+          width: tdNumber(thumbnail?.width) ?? tdNumber(minithumbnail?.width),
+          height: tdNumber(thumbnail?.height) ?? tdNumber(minithumbnail?.height),
+        });
+      }
+      return fileContent(fileName, document?.document, options);
     }
     case "messagePhoto": {
       const photo = asTdObject(content.photo);
+      const minithumbnail = asTdObject(photo?.minithumbnail);
       const sizes = asTdObjects(photo?.sizes);
       const largest = sizes.reduce<TdObject | undefined>((best, candidate) => {
         const area = (tdNumber(candidate.width) ?? 0) * (tdNumber(candidate.height) ?? 0);
@@ -1046,8 +1052,8 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         ...formattedCaption(content.caption),
         ...previewDetails,
         previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
-        width: tdNumber(largest?.width),
-        height: tdNumber(largest?.height),
+        width: tdNumber(largest?.width) ?? tdNumber(minithumbnail?.width),
+        height: tdNumber(largest?.height) ?? tdNumber(minithumbnail?.height),
         hasSpoiler: content.has_spoiler === true,
         includePendingUpload,
       });

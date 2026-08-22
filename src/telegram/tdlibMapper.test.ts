@@ -551,6 +551,44 @@ describe("TDLib mapper", () => {
     })).toMatchObject({ fileName: "录像.webm" });
   });
 
+  it("keeps a photo aspect ratio when only a minithumbnail is available", () => {
+    expect(mapTdMessageContent({
+      "@type": "messagePhoto",
+      caption: { "@type": "formattedText", text: "", entities: [] },
+      photo: {
+        minithumbnail: { width: 24, height: 16, data: "aGVsbG8=" },
+        sizes: [],
+      },
+    })).toMatchObject({
+      kind: "media",
+      mediaType: "photo",
+      width: 24,
+      height: 16,
+    });
+  });
+
+  it("uses image document thumbnail dimensions before the document is downloaded", () => {
+    expect(mapTdMessageContent({
+      "@type": "messageDocument",
+      caption: { "@type": "formattedText", text: "", entities: [] },
+      document: {
+        file_name: "photo.jpg",
+        mime_type: "image/jpeg",
+        document: { "@type": "file", id: 44 },
+        thumbnail: {
+          width: 320,
+          height: 180,
+          file: { "@type": "file", id: 45 },
+        },
+      },
+    })).toMatchObject({
+      kind: "media",
+      mediaType: "photo",
+      width: 320,
+      height: 180,
+    });
+  });
+
   it("uses local downloaded bytes instead of the completed remote upload", () => {
     expect(mapTdMessageContent({
       "@type": "messageVideo",

@@ -3625,6 +3625,80 @@ describe("TauriTelegramTransport history", () => {
 });
 
 describe("TauriTelegramTransport media", () => {
+  it("coalesces file updates for one message within a TDLib batch", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    const file = (id: number) => ({
+      "@type": "file",
+      id,
+      size: 4_000,
+      local: {
+        can_be_downloaded: true,
+        is_downloading_active: false,
+        is_downloading_completed: false,
+        downloaded_size: 0,
+      },
+      remote: {},
+    });
+
+    internal.emitMessage({
+      ...rawMessage(13),
+      content: {
+        "@type": "messagePhoto",
+        caption: { "@type": "formattedText", text: "", entities: [] },
+        photo: {
+          sizes: [
+            { width: 640, height: 480, photo: file(91) },
+            { width: 1280, height: 720, photo: file(92) },
+          ],
+        },
+      },
+    });
+    events.length = 0;
+
+    internal.handleUpdateBatch([
+      {
+        "@type": "updateFile",
+        file: {
+          ...file(91),
+          local: {
+            ...file(91).local,
+            is_downloading_active: true,
+            downloaded_size: 2_000,
+          },
+        },
+      },
+      {
+        "@type": "updateFile",
+        file: {
+          ...file(92),
+          local: {
+            ...file(92).local,
+            is_downloading_completed: true,
+            downloaded_size: 4_000,
+            path: "C:\\cache\\photo.jpg",
+          },
+        },
+      },
+    ]);
+
+    expect(events.filter((event) => event.type === "message.upsert")).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "messages.upserted",
+      messages: [{
+        id: "13",
+        content: {
+          fileId: 92,
+          isDownloaded: true,
+          localPath: "C:\\cache\\photo.jpg",
+        },
+      }],
+    });
+  });
+
   it("marks file progress as transient but keeps completion cache-relevant", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

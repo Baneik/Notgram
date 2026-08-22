@@ -1089,7 +1089,7 @@ export const createTelegramStore = (
         )) {
           scheduleChatRead(activeChatId);
         }
-        scheduleCacheWrite();
+        if (event.cacheRelevant !== false) scheduleCacheWrite();
         return;
       }
 

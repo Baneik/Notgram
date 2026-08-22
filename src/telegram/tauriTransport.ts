@@ -349,6 +349,11 @@ export class TauriTelegramTransport implements TelegramTransport {
   private pendingDownloads = new Map<number, PendingDownload>();
   private rawMessageFileIds = new Map<string, Set<number>>();
   private fileMessageReferences = new Map<number, Set<string>>();
+  private handlingUpdateBatch = false;
+  private pendingFileMessageUpdates = new Map<string, {
+    fileUpdates: Map<number, TdObject>;
+    cacheRelevant: boolean;
+  }>();
   private exhaustedHistories = new Set<string>();
   private historyCursors = new Map<string, number>();
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
@@ -514,7 +519,19 @@ export class TauriTelegramTransport implements TelegramTransport {
   private handleUpdateBatch(updates: TdObject[]) {
     if (updates.length === 0) return;
     const startedAt = performance.now();
-    for (const update of updates) this.handleUpdate(update);
+    const nestedBatch = this.handlingUpdateBatch;
+    const shouldBatchFileUpdates = updates.length > 1;
+    this.handlingUpdateBatch = nestedBatch || shouldBatchFileUpdates;
+    try {
+      for (const update of updates) this.handleUpdate(update);
+    } finally {
+      if (!nestedBatch) {
+        this.handlingUpdateBatch = false;
+        if (shouldBatchFileUpdates) this.flushPendingFileMessageUpdates();
+      } else {
+        this.handlingUpdateBatch = true;
+      }
+    }
     const durationMs = performance.now() - startedAt;
     if (durationMs >= 4 || updates.length >= 32) {
       const traceId = getActiveConversationTraceId();
@@ -2580,7 +2597,21 @@ export class TauriTelegramTransport implements TelegramTransport {
       if (!raw) continue;
       const replaced = replaceFileReference(raw, fileId, file);
       if (replaced.changed) {
-        this.emitMessage(asTdObject(replaced.value), false, cacheRelevant);
+        const nextRaw = asTdObject(replaced.value);
+        if (!nextRaw) continue;
+        if (this.handlingUpdateBatch) {
+          const chatMessages = this.rawMessages.get(chatId);
+          chatMessages?.set(messageId, nextRaw);
+          const pending = this.pendingFileMessageUpdates.get(reference) ?? {
+            fileUpdates: new Map<number, TdObject>(),
+            cacheRelevant: false,
+          };
+          pending.fileUpdates.set(fileId, file);
+          pending.cacheRelevant ||= cacheRelevant;
+          this.pendingFileMessageUpdates.set(reference, pending);
+        } else {
+          this.emitMessage(nextRaw, false, cacheRelevant);
+        }
       }
     }
 
@@ -2602,6 +2633,18 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private emitMessage(raw?: TdObject, animateEntrance = false, cacheRelevant = true) {
     if (!raw) return;
+    const reference = `${tdId(raw.chat_id)}:${tdId(raw.id)}`;
+    const pending = this.pendingFileMessageUpdates.get(reference);
+    if (pending) {
+      let merged = raw;
+      for (const [fileId, file] of pending.fileUpdates) {
+        const replaced = replaceFileReference(merged, fileId, file);
+        if (replaced.changed) merged = asTdObject(replaced.value) ?? merged;
+      }
+      raw = merged;
+      cacheRelevant &&= pending.cacheRelevant;
+      this.pendingFileMessageUpdates.delete(reference);
+    }
     if (raw.is_outgoing !== true && raw.is_pending !== true) this.clearPendingBotDrafts(tdId(raw.chat_id));
     const message = this.mapMessage(raw);
     if (!message) return;
@@ -2683,7 +2726,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (changed) this.listener?.({ type: "forumTopics.changed", ...changed });
   }
 
-  private emitMessages(rawMessages: TdObject[]) {
+  private emitMessages(rawMessages: TdObject[], cacheRelevant = true) {
     const messages = new Map<string, Message>();
     const uniqueRawMessages = new Map<string, TdObject>();
     for (const raw of rawMessages) {
@@ -2699,10 +2742,32 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.ensureMessageSenderChat(raw);
     }
     if (messages.size > 0) {
-      this.listener?.({ type: "messages.upserted", messages: [...messages.values()] });
+      this.listener?.({
+        type: "messages.upserted",
+        messages: [...messages.values()],
+        ...(cacheRelevant ? {} : { cacheRelevant: false }),
+      });
     }
     for (const raw of uniqueRawMessages.values()) this.ensureReplyContent(raw);
     for (const raw of uniqueRawMessages.values()) this.ensureFullRichMessage(raw);
+  }
+
+  private flushPendingFileMessageUpdates() {
+    if (this.pendingFileMessageUpdates.size === 0) return;
+    const pending = this.pendingFileMessageUpdates;
+    this.pendingFileMessageUpdates = new Map();
+    const transientRawMessages: TdObject[] = [];
+    const durableRawMessages: TdObject[] = [];
+    for (const [reference, update] of pending) {
+      const separator = reference.indexOf(":");
+      const chatId = reference.slice(0, separator);
+      const messageId = reference.slice(separator + 1);
+      const raw = this.rawMessages.get(chatId)?.get(messageId);
+      if (!raw) continue;
+      (update.cacheRelevant ? durableRawMessages : transientRawMessages).push(raw);
+    }
+    if (transientRawMessages.length > 0) this.emitMessages(transientRawMessages, false);
+    if (durableRawMessages.length > 0) this.emitMessages(durableRawMessages);
   }
 
   private ensureMessageSenderChat(raw: TdObject) {
@@ -3079,6 +3144,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.clear();
     this.rawMessageFileIds.clear();
     this.fileMessageReferences.clear();
+    this.handlingUpdateBatch = false;
+    this.pendingFileMessageUpdates.clear();
     this.exhaustedHistories.clear();
     this.historyCursors.clear();
     this.historyLoads.clear();
