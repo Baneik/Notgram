@@ -3143,7 +3143,7 @@ describe("TauriTelegramTransport message operations", () => {
         chat_id: 7,
         topic_id: null,
         business_connection_id: "",
-        action: { "@type": "chatActionCancel" },
+        action: null,
       },
     ]);
     expect(events).toContainEqual({

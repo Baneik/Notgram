@@ -102,6 +102,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "searchMessages",
     "searchPublicChat",
     "searchPublicChats",
+    "sendChatAction",
     "sendMessage",
     "sendInlineQueryResultMessage",
     "sendBotStartMessage",
@@ -793,6 +794,7 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid message date".to_string());
             }
         }
+        "sendChatAction" => validate_chat_action(request)?,
         "searchChatMessages" => {
             validate_nonzero_identifier(request, "chat_id")?;
             validate_profile_text(request, "query", 1_024, false, false)?;
@@ -919,6 +921,34 @@ fn validate_message_target(request: &Value) -> Result<(), String> {
         .ok_or_else(|| "Message identifier is missing".to_string())?;
     if chat_id == 0 || message_id <= 0 {
         return Err("Invalid message target".to_string());
+    }
+    Ok(())
+}
+
+fn validate_chat_action(request: &Value) -> Result<(), String> {
+    validate_nonzero_identifier(request, "chat_id")?;
+    if request
+        .get("business_connection_id")
+        .and_then(Value::as_str)
+        != Some("")
+    {
+        return Err("Business chat actions are not allowed".to_string());
+    }
+    match request.get("topic_id") {
+        Some(Value::Null) => {}
+        Some(topic)
+            if topic.get("@type").and_then(Value::as_str) == Some("messageTopicForum")
+                && topic
+                    .get("forum_topic_id")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|id| id > 0) => {}
+        _ => return Err("Invalid chat action topic".to_string()),
+    }
+    match request.get("action") {
+        Some(Value::Null) => {}
+        Some(action) if action.get("@type").and_then(Value::as_str) == Some("chatActionTyping") => {
+        }
+        _ => return Err("Only typing chat actions are allowed".to_string()),
     }
     Ok(())
 }
@@ -2121,6 +2151,53 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&local_file).is_err());
+    }
+
+    #[test]
+    fn validates_typing_chat_actions_and_uses_null_to_cancel() {
+        let typing = json!({
+            "@type": "sendChatAction",
+            "chat_id": 7,
+            "topic_id": { "@type": "messageTopicForum", "forum_topic_id": 12 },
+            "business_connection_id": "",
+            "action": { "@type": "chatActionTyping" },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&typing).is_ok());
+
+        let mut cancel = typing.clone();
+        cancel["topic_id"] = Value::Null;
+        cancel["action"] = Value::Null;
+        assert!(validate_webview_tdlib_request(&cancel).is_ok());
+
+        for invalid in [
+            json!({
+                "@type": "sendChatAction",
+                "chat_id": 7,
+                "topic_id": null,
+                "business_connection_id": "",
+                "action": { "@type": "chatActionCancel" },
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "sendChatAction",
+                "chat_id": 7,
+                "topic_id": null,
+                "business_connection_id": "business",
+                "action": { "@type": "chatActionTyping" },
+                "@extra": EXTRA
+            }),
+            json!({
+                "@type": "sendChatAction",
+                "chat_id": 7,
+                "topic_id": { "@type": "messageTopicForum", "forum_topic_id": 0 },
+                "business_connection_id": "",
+                "action": { "@type": "chatActionTyping" },
+                "@extra": EXTRA
+            }),
+        ] {
+            assert!(validate_webview_tdlib_request(&invalid).is_err());
+        }
     }
 
     #[test]

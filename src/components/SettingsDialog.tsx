@@ -189,7 +189,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
-  const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
+  const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const blockZalgoText = usePreferencesStore((state) => state.blockZalgoText);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
@@ -212,7 +212,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     notificationSound,
     notificationPreview,
     sendOnEnter,
-    sendTypingStatus,
+    blockTypingStatus,
     blockZalgoText,
     autoplayAnimations,
     autoDownloadImages,
@@ -491,7 +491,7 @@ function PreferenceSettings({
   }> = category === "notgram"
     ? [
         { key: "blockZalgoText" as const, label: "屏蔽 Zalgo 文本" },
-        { key: "sendTypingStatus" as const, label: "发送输入状态" },
+        { key: "blockTypingStatus" as const, label: "屏蔽输入状态" },
       ]
     : category === "notifications"
     ? [

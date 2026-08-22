@@ -634,7 +634,7 @@ export class TauriMessageMediaService {
       chat_id: numericId(chatId),
       topic_id: forumTopicObject(topicId),
       business_connection_id: "",
-      action: { "@type": typing ? "chatActionTyping" : "chatActionCancel" },
+      action: typing ? { "@type": "chatActionTyping" } : null,
     });
   }
 

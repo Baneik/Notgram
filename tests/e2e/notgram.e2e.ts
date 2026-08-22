@@ -713,10 +713,52 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /Notgram/ }).click();
   await expect(page.getByRole("switch", { name: "屏蔽 Zalgo 文本" })).toBeChecked();
-  const typingSwitch = page.getByRole("switch", { name: "发送输入状态" });
+  const typingSwitch = page.getByRole("switch", { name: "屏蔽输入状态" });
   await expect(typingSwitch).toBeChecked();
   await typingSwitch.uncheck();
   await expect(typingSwitch).not.toBeChecked();
+});
+
+test("typing status is blocked by default and reaches the transport when unblocked", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const storePath = "/src/store/telegramStore.ts";
+    const { telegramStore } = await import(storePath);
+    const runtime = globalThis as typeof globalThis & {
+      __notgramTypingCalls?: Array<{ typing: boolean }>;
+    };
+    runtime.__notgramTypingCalls = [];
+    telegramStore.setState({
+      setChatTyping: async (_chatId: string, typing: boolean) => {
+        runtime.__notgramTypingCalls?.push({ typing });
+      },
+    });
+  });
+
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("默认不会发送输入状态");
+  await page.waitForTimeout(50);
+  await expect.poll(() => page.evaluate(() => (
+    (globalThis as typeof globalThis & { __notgramTypingCalls?: Array<{ typing: boolean }> })
+      .__notgramTypingCalls ?? []
+  ))).toEqual([]);
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await settings.getByRole("button", { name: /Notgram/ }).click();
+  await settings.getByRole("switch", { name: "屏蔽输入状态" }).uncheck();
+  await settings.getByRole("button", { name: "关闭" }).click();
+
+  await composer.fill("取消屏蔽后发送输入状态");
+  await expect.poll(() => page.evaluate(() => (
+    (globalThis as typeof globalThis & { __notgramTypingCalls?: Array<{ typing: boolean }> })
+      .__notgramTypingCalls ?? []
+  ))).toContainEqual({ typing: true });
+  await composer.fill("");
+  await expect.poll(() => page.evaluate(() => (
+    (globalThis as typeof globalThis & { __notgramTypingCalls?: Array<{ typing: boolean }> })
+      .__notgramTypingCalls ?? []
+  ))).toContainEqual({ typing: false });
 });
 
 test("multiline composer keeps the latest message visible and hides its scrollbar", async ({ page }) => {

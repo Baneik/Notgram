@@ -200,7 +200,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const botQueryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const botQueryGenerationRef = useRef(0);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
-  const sendTypingStatus = usePreferencesStore((state) => state.sendTypingStatus);
+  const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(draft);
@@ -505,7 +505,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [chatId, onTypingChange]);
 
   const keepTyping = useCallback((text: string) => {
-    if (!sendTypingStatus || editingMessage || !text.trim()) {
+    if (blockTypingStatus || editingMessage || !text.trim()) {
       stopTyping();
       return;
     }
@@ -518,7 +518,7 @@ export const ConversationComposer = memo(function ConversationComposer({
     }
     if (typingIdleRef.current) globalThis.clearTimeout(typingIdleRef.current);
     typingIdleRef.current = globalThis.setTimeout(stopTyping, TYPING_IDLE_MS);
-  }, [chatId, editingMessage, onTypingChange, sendTypingStatus, stopTyping]);
+  }, [blockTypingStatus, chatId, editingMessage, onTypingChange, stopTyping]);
 
   const commitInputSideEffects = useCallback((value: string) => {
     if (editingMessage) return;
@@ -640,8 +640,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [activeReplyQuote, chatDraft?.replyToMessageId, editingMessage, replyingTo?.id, scheduleDraft]);
 
   useEffect(() => {
-    if (!sendTypingStatus || editingMessage) stopTyping();
-  }, [editingMessage, sendTypingStatus, stopTyping]);
+    if (blockTypingStatus || editingMessage) stopTyping();
+  }, [blockTypingStatus, editingMessage, stopTyping]);
 
   useEffect(() => {
     if (editingMessage) closeEmojiPicker();

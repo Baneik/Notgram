@@ -21,7 +21,7 @@ export interface AppPreferences {
   notificationSound: boolean;
   notificationPreview: boolean;
   sendOnEnter: boolean;
-  sendTypingStatus: boolean;
+  blockTypingStatus: boolean;
   blockZalgoText: boolean;
   autoplayAnimations: boolean;
   autoDownloadImages: boolean;
@@ -56,7 +56,7 @@ const defaults: AppPreferences = {
   notificationSound: true,
   notificationPreview: true,
   sendOnEnter: true,
-  sendTypingStatus: true,
+  blockTypingStatus: true,
   blockZalgoText: true,
   autoplayAnimations: true,
   autoDownloadImages: true,
@@ -88,14 +88,20 @@ const readPreferences = (): AppPreferences => {
     const stored = JSON.parse(serialized) as Partial<AppPreferences> & {
       colorTheme?: ColorTheme;
       compactMode?: boolean;
+      sendTypingStatus?: boolean;
     };
     const legacyCompact = stored.compactMode === true;
+    const blockTypingStatus = stored.blockTypingStatus ?? (
+      stored.sendTypingStatus === undefined
+        ? defaults.blockTypingStatus
+        : !stored.sendTypingStatus
+    );
     return {
       notificationsEnabled: stored.notificationsEnabled ?? defaults.notificationsEnabled,
       notificationSound: stored.notificationSound ?? defaults.notificationSound,
       notificationPreview: stored.notificationPreview ?? defaults.notificationPreview,
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
-      sendTypingStatus: stored.sendTypingStatus ?? defaults.sendTypingStatus,
+      blockTypingStatus,
       blockZalgoText: stored.blockZalgoText ?? defaults.blockZalgoText,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
       autoDownloadImages: stored.autoDownloadImages ?? defaults.autoDownloadImages,
@@ -237,7 +243,7 @@ preferencesStore.subscribe((state) => {
     notificationSound: state.notificationSound,
     notificationPreview: state.notificationPreview,
     sendOnEnter: state.sendOnEnter,
-    sendTypingStatus: state.sendTypingStatus,
+    blockTypingStatus: state.blockTypingStatus,
     blockZalgoText: state.blockZalgoText,
     autoplayAnimations: state.autoplayAnimations,
     autoDownloadImages: state.autoDownloadImages,
