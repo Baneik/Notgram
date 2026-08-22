@@ -602,7 +602,7 @@ test("desktop messaging, context actions, and preferences remain usable", async 
   const lightTheme = page.getByRole("button", { name: "浅色", exact: true });
   const darkTheme = page.getByRole("button", { name: "深色", exact: true });
   await expect(lightTheme).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(232, 239, 237)");
+  await expect(page.locator(".conversation")).toHaveCSS("background-color", "rgb(225, 233, 230)");
   await darkTheme.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "notgram-dark");
   await expect(page.locator("html")).not.toHaveClass(/theme-dark/);
@@ -694,7 +694,7 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await expect(page.locator('[data-chat-id="chat-product"] .chat-preview'))
     .toContainText("Jules: 我把交互稿更新到最新版本了");
   await expect(previewSender).toHaveText("Jules:");
-  await expect(previewSender).toHaveCSS("color", "rgb(66, 120, 165)");
+  await expect(previewSender).toHaveCSS("color", "rgb(55, 109, 153)");
   await expect(page.locator('[data-chat-id="chat-mia"] .chat-preview-sender')).toHaveCount(0);
   await page.evaluate(() => {
     document.documentElement.dataset.theme = "notgram-dark";
@@ -4116,7 +4116,7 @@ test("message hashtags open and retain scoped search", async ({ page }) => {
   const hashtag = message.getByRole("link", { name: "#release" });
   await expect(hashtag).toBeVisible();
   await expect(hashtag).toHaveCSS("text-decoration-line", "none");
-  await expect(hashtag).toHaveCSS("color", "rgb(66, 120, 165)");
+  await expect(hashtag).toHaveCSS("color", "rgb(55, 109, 153)");
   await expect.poll(() => hashtag.evaluate((link) => getComputedStyle(link, "::after").transform))
     .toBe("matrix(0, 0, 0, 1, 0, 0)");
 
@@ -4268,6 +4268,49 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
   await expect(settings.locator(".settings-categories")).toHaveCSS("background-color", "rgb(41, 47, 53)");
 });
 
+test("light mode keeps surfaces, borders, and supporting text distinguishable", async ({ page }) => {
+  await page.goto("/");
+
+  const contrast = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    const parseColor = (value: string) => {
+      if (value.startsWith("#")) {
+        const hex = value.slice(1);
+        const expanded = hex.length === 3 ? hex.split("").map((channel) => `${channel}${channel}`).join("") : hex;
+        return [0, 2, 4].map((offset) => Number.parseInt(expanded.slice(offset, offset + 2), 16) / 255);
+      }
+      const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      return channels.map((channel) => channel / 255);
+    };
+    const luminance = (value: string) => {
+      const [red, green, blue] = parseColor(value).map((channel) => (
+        channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+      ));
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    };
+    const ratio = (foreground: string, background: string) => {
+      const foregroundLuminance = luminance(foreground);
+      const backgroundLuminance = luminance(background);
+      return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
+        / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+    };
+    const token = (name: string) => style.getPropertyValue(name).trim();
+    return {
+      canvasSurface: ratio(token("--color-bg-canvas"), token("--color-bg-surface")),
+      surfaceBorder: ratio(token("--color-border-default"), token("--color-bg-surface")),
+      surfaceStrongBorder: ratio(token("--color-border-strong"), token("--color-bg-surface")),
+      secondaryText: ratio(token("--color-text-secondary"), token("--color-bg-surface")),
+      accentText: ratio(token("--color-accent"), token("--color-bg-surface")),
+    };
+  });
+
+  expect(contrast.canvasSurface).toBeGreaterThanOrEqual(1.2);
+  expect(contrast.surfaceBorder).toBeGreaterThanOrEqual(1.45);
+  expect(contrast.surfaceStrongBorder).toBeGreaterThanOrEqual(1.8);
+  expect(contrast.secondaryText).toBeGreaterThanOrEqual(4.5);
+  expect(contrast.accentText).toBeGreaterThanOrEqual(4.5);
+});
+
 test("channel posts expose views, forwards, and author metadata without a sync forward label", async ({ page }) => {
   await page.goto("/");
   const linked = page.locator('[data-message-id="p-channel-reply"]');
@@ -4417,7 +4460,7 @@ test("TDLib mentions open user and bot profiles without leaving the conversation
   await expect(profile.getByRole("heading", { name: "Mia Chen" })).toBeVisible();
   await expect(profile.locator(".profile-status")).toHaveText("管理员");
   await expect(profile.locator(".profile-status")).not.toHaveClass(/is-administrator/);
-  await expect(profile.locator(".profile-status")).toHaveCSS("color", "rgb(73, 131, 99)");
+  await expect(profile.locator(".profile-status")).toHaveCSS("color", "rgb(63, 118, 90)");
   await expect(profile.locator("#profile-name")).toHaveClass(/is-administrator/);
   await profile.getByRole("button", { name: "关闭资料" }).click();
 
@@ -6409,8 +6452,8 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
   const regularBadge = regularRow.locator(".unread-count");
 
   await expect(mutedBadge).toHaveClass(/is-muted/);
-  await expect(mutedBadge).toHaveCSS("background-color", "rgb(167, 178, 183)");
-  await expect(regularBadge).not.toHaveCSS("background-color", "rgb(167, 178, 183)");
+  await expect(mutedBadge).toHaveCSS("background-color", "rgb(154, 167, 171)");
+  await expect(regularBadge).not.toHaveCSS("background-color", "rgb(154, 167, 171)");
   await expect(page.locator(".chat-row .lucide-volume-x")).toHaveCount(0);
 });
 
@@ -6956,7 +6999,7 @@ test("photo albums stay compact while keeping captions in the media viewer", asy
   await expect(tallRow).toHaveClass(/group-first/);
   await expect(squareRow).toHaveClass(/group-last/);
   await expect(album.locator(".media-album-grid")).toHaveCSS("gap", "2px");
-  await expect(album.locator(".media-album-grid")).toHaveCSS("background-color", "rgb(211, 221, 223)");
+  await expect(album.locator(".media-album-grid")).toHaveCSS("background-color", "rgb(200, 212, 215)");
   const albumTime = squareRow.locator(".message-meta");
   await expect(albumTime).toHaveCSS("opacity", "0");
   await page.locator(".message-list").evaluate((element) => {
