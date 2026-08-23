@@ -243,6 +243,8 @@ export const useConversationScroll = ({
   // Chromium keeps middle-button autoscroll active after pointerup.
   const middleAutoScrollRef = useRef(false);
   const trustedMiddleAutoScrollRef = useRef(false);
+  const middleFocusRestoreRef = useRef<HTMLElement | null>(null);
+  const middleFocusRestoreFrameRef = useRef<number | undefined>(undefined);
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const olderLoadArmedRef = useRef(false);
   const handledEntryRequestRef = useRef(0);
@@ -329,6 +331,11 @@ export const useConversationScroll = ({
     trustedPointerActiveRef.current = false;
     middleAutoScrollRef.current = false;
     trustedMiddleAutoScrollRef.current = false;
+    middleFocusRestoreRef.current = null;
+    if (middleFocusRestoreFrameRef.current !== undefined) {
+      cancelAnimationFrame(middleFocusRestoreFrameRef.current);
+      middleFocusRestoreFrameRef.current = undefined;
+    }
     anchorCorrectionUntilRef.current = 0;
     olderLoadArmedRef.current = false;
     setJumpHistoryState(currentScrollKey ? { key: currentScrollKey, count: 0 } : undefined);
@@ -2107,6 +2114,37 @@ export const useConversationScroll = ({
     const interactiveTarget = event.target instanceof Element && event.target.closest(
       "a, button, input, textarea, select, video, audio, [role='button']",
     );
+    if (
+      event.pointerType === "mouse" &&
+      event.button === 1 &&
+      !interactiveTarget
+    ) {
+      const active = document.activeElement;
+      const editable = active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLInputElement &&
+          !["checkbox", "radio", "range", "file"].includes(active.type)) ||
+        (active instanceof HTMLElement && active.isContentEditable);
+      const listElement = event.currentTarget;
+      middleFocusRestoreRef.current = editable ? active : null;
+      if (middleFocusRestoreFrameRef.current !== undefined) {
+        cancelAnimationFrame(middleFocusRestoreFrameRef.current);
+      }
+      middleFocusRestoreFrameRef.current = requestAnimationFrame(() => {
+        middleFocusRestoreFrameRef.current = undefined;
+        const target = middleFocusRestoreRef.current;
+        const current = document.activeElement;
+        if (
+          !target?.isConnected ||
+          (current !== listElement &&
+            current !== document.body &&
+            current !== document.documentElement)
+        ) return;
+        target.focus({ preventScroll: true });
+        middleFocusRestoreRef.current = null;
+      });
+    } else {
+      middleFocusRestoreRef.current = null;
+    }
     if (
       event.pointerType === "mouse" &&
       event.button === 1 &&

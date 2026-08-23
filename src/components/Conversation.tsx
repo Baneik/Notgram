@@ -633,7 +633,9 @@ export function Conversation({
       messages: viewerPhotos,
       activeMessageId: messageId,
       colorTheme,
-    }, onDownloadFile, onSaveFileToDownloads);
+    }, onDownloadFile, onSaveFileToDownloads, () => {
+      globalThis.setTimeout(() => composerInputRef.current?.focus({ preventScroll: true }), 0);
+    });
     if (
       activeContent.fileId !== undefined &&
       activeContent.canDownload !== false &&
@@ -1315,6 +1317,7 @@ export function Conversation({
     const selection = globalThis.getSelection();
     if (selection && !selection.isCollapsed) return;
     const active = document.activeElement;
+    if (active === composerInputRef.current) return;
     const activeChatRow = active instanceof Element && Boolean(active.closest(".chat-row"));
     if (active && active !== document.body && active !== document.documentElement &&
       active !== composerInputRef.current &&

@@ -1294,15 +1294,18 @@ test("blank message viewport clicks never force a bottom correction", async ({ p
 test("middle mouse scrolling detaches instead of fighting bottom following", async ({ page }) => {
   await page.goto("/");
   const messageList = page.getByRole("log", { name: "消息列表" });
+  const composer = page.getByRole("textbox", { name: "消息内容" });
   await expect(messageList).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await page.waitForTimeout(400);
+  await composer.focus();
   const bounds = await messageList.boundingBox();
   if (!bounds) throw new Error("Message viewport is not visible");
 
   await page.mouse.click(bounds.x + 3, bounds.y + bounds.height * 0.45, {
     button: "middle",
   });
+  await expect(composer).toBeFocused();
   await messageList.evaluate((element) => {
     const maximum = element.scrollHeight - element.clientHeight;
     element.scrollTop = Math.max(0, maximum - 420);
@@ -1562,6 +1565,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await page.setViewportSize({ width: 1280, height: 720 });
   await stickerSetPreview.getByRole("button", { name: "添加贴纸" }).click();
   await expect(stickerSetPreview).toBeHidden();
+  await expect(composer).toBeFocused();
 
   await page.getByRole("button", { name: "表情" }).click();
   await picker.getByRole("tab", { name: "GIF 动态图" }).click();
@@ -5788,6 +5792,8 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
     });
   }, "/src/store/telegramStore.ts");
   const sourcePhoto = await revealVirtualMessage(page, "p-5");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.focus();
   const popupPromise = page.waitForEvent("popup");
   await sourcePhoto.locator(".photo-open").click();
   const popup = await popupPromise;
@@ -5919,6 +5925,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await popup.mouse.click(finalStageBounds!.x + 8, finalStageBounds!.y + 8);
   await closed;
   await expect(page.locator(".conversation")).toBeVisible();
+  await expect(composer).toBeFocused();
 });
 
 test("captioned albums keep descriptions in the fullscreen viewer", async ({ page }) => {

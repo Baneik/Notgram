@@ -27,6 +27,7 @@ interface MediaViewerSession {
   id: string;
   channel: BroadcastChannel;
   descriptor: MediaViewerWindowDescriptor;
+  onClosed?: () => void;
   initializationTimer?: ReturnType<typeof globalThis.setTimeout>;
 }
 
@@ -121,13 +122,14 @@ export const openMediaViewerWindow = async (
   input: Omit<MediaViewerWindowDescriptor, "id">,
   onDownload: (fileId: number, fileName: string) => Promise<void>,
   onSave: (sourcePath: string, fileName: string) => Promise<void>,
+  onClosed?: () => void,
 ) => {
   if (activeSession) disposeSession(activeSession, true);
 
   const id = createMediaViewerWindowId();
   const descriptor: MediaViewerWindowDescriptor = { ...input, id };
   const channel = new BroadcastChannel(MEDIA_VIEWER_WINDOW_CHANNEL);
-  const session: MediaViewerSession = { id, channel, descriptor };
+  const session: MediaViewerSession = { id, channel, descriptor, onClosed };
   activeSession = session;
   let resolveInitialized: (() => void) | undefined;
   const initialized = new Promise<void>((resolve) => {
@@ -150,6 +152,7 @@ export const openMediaViewerWindow = async (
     } else if (message.type === "save") {
       void onSave(message.sourcePath, message.fileName);
     } else if (message.type === "closed") {
+      session.onClosed?.();
       disposeSession(session, false);
     }
   };

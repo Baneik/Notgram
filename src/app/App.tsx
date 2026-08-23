@@ -1821,7 +1821,12 @@ export function App() {
       <MotionPresence present={Boolean(stickerSetPreviewId)}>
         {stickerSetPreviewId ? <StickerSetPreview
           stickerSetId={stickerSetPreviewId}
-          onClose={() => setStickerSetPreviewId(undefined)}
+          onClose={() => {
+            setStickerSetPreviewId(undefined);
+            globalThis.setTimeout(() => {
+              document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus({ preventScroll: true });
+            }, 0);
+          }}
         /> : null}
       </MotionPresence>
       <MotionPresence present={folderManagerOpen}>

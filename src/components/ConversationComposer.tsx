@@ -622,7 +622,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [chatDraft?.entities, chatDraft?.text, editingMessage, flushDraft, focusComposer, stopTyping]);
 
   useEffect(() => {
-    if (editingMessage || localDraftDirtyRef.current) return;
+    if (editingMessage || localDraftDirtyRef.current || composingRef.current) return;
     const incoming = chatDraft?.text ?? "";
     mentionEntitiesRef.current = chatDraft?.entities ?? [];
     if (incoming === draftRef.current) return;
@@ -1267,7 +1267,8 @@ export const ConversationComposer = memo(function ConversationComposer({
             );
             draftRef.current = value;
             setDraft(value);
-            if (!composingRef.current) commitInputSideEffects(value);
+            if (composingRef.current) return;
+            commitInputSideEffects(value);
           }}
           onPaste={(event) => {
             if (editingMessage || replyingTo) return;
