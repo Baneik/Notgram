@@ -2,8 +2,10 @@ import {
   ArrowDown,
   ArrowUpRight,
   AtSign,
+  Check,
   Heart,
   ChevronLeft,
+  Copy,
   Forward,
   MoreVertical,
   LoaderCircle,
@@ -91,6 +93,7 @@ import { MotionPresence } from "./MotionPresence";
 import { motionLifecycleTiming } from "../utils/motionTokens";
 import { ForumTopicStrip } from "./ForumTopicStrip";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
+import { formatSelectedMessages } from "../utils/messageClipboard";
 import {
   clampSelectionToMessageText,
   replyQuoteFromSelection,
@@ -517,17 +520,36 @@ export function Conversation({
   const selectionMessageRef = useRef<HTMLElement | null>(null);
   const selectionPointerRef = useRef<SelectionPointerPosition | undefined>(undefined);
   const selectionClampActiveRef = useRef(false);
+  const selectionDragRef = useRef<{
+    anchorIndex: number;
+    pointerId: number;
+    moved: boolean;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+  } | undefined>(undefined);
+  const suppressSelectionClickRef = useRef(false);
+  const selectionAutoScrollFrameRef = useRef<number | undefined>(undefined);
+  const selectionCopyResetTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const [selectionCopying, setSelectionCopying] = useState(false);
+  const [selectionCopied, setSelectionCopied] = useState(false);
   const selectedReplyQuoteSnapshotRef = useRef<{
     messageId: string;
     quote: MessageReplyQuote;
   } | undefined>(undefined);
-  const selectionForwardButtonRef = useRef<HTMLButtonElement>(null);
   const chatMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [messageListScrolling, setMessageListScrolling] = useState(false);
   const [historyScrollbarSettling, setHistoryScrollbarSettling] = useState(false);
   const performanceTraceId = chat && scrollRequest?.chatId === chat.id
     ? scrollRequest.performanceTraceId
     : undefined;
+
+  useEffect(() => () => {
+    if (selectionCopyResetTimerRef.current !== undefined) {
+      globalThis.clearTimeout(selectionCopyResetTimerRef.current);
+    }
+  }, []);
 
   const displayMessages = useMemo(
     () => chat?.kind === "saved"
@@ -546,6 +568,8 @@ export function Conversation({
     },
     [allPinnedMessages, displayMessages, pinnedViewOpen],
   );
+  const renderedMessagesRef = useRef(renderedMessages);
+  renderedMessagesRef.current = renderedMessages;
   const localBlockGroupByMessageId = useMemo(
     () => localBlockedMessageGroups(
       renderedMessages,
@@ -840,7 +864,10 @@ export function Conversation({
     pending: forwardPending,
     pendingTargetId: forwardPendingTargetId,
     filteredTargets: filteredForwardTargets,
+    selectMessages,
   } = forwarding;
+  const selectMessagesRef = useRef(selectMessages);
+  selectMessagesRef.current = selectMessages;
   const pinnedBannerVisible = !pinnedViewOpen && !selectionMode &&
     (chat?.kind === "group" || chat?.kind === "channel") &&
     allPinnedMessages.length > 0;
@@ -1226,6 +1253,10 @@ export function Conversation({
     };
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
+      if (selectionMode) {
+        clearSelectionSurface();
+        return;
+      }
       const target = event.target instanceof Element ? event.target : null;
       const surface = target?.closest<HTMLElement>(".message-rich-text") ?? null;
       const selection = globalThis.getSelection();
@@ -1304,7 +1335,123 @@ export function Conversation({
       selectionMessageRef.current = null;
       selectionPointerRef.current = undefined;
     };
-  }, []);
+  }, [selectionMode]);
+
+  useEffect(() => {
+    if (!selectionMode || pinnedViewOpen || !messageListElement) return;
+    const list = messageListElement;
+    const drag = selectionDragRef;
+    const findMessageIndex = (target: EventTarget | null) => {
+      const element = target instanceof Element
+        ? target.closest<HTMLElement>("[data-message-id]")
+        : null;
+      const id = element?.dataset.messageId;
+      if (!id) return undefined;
+      const message = messagesByIdRef.current.get(id);
+      if (!message || message.content.kind === "service" || message.content.kind === "unsupported") return undefined;
+      const index = renderedMessagesRef.current.findIndex((candidate) => candidate.id === id);
+      return index >= 0 ? index : undefined;
+    };
+    const selectBetween = (index: number) => {
+      const anchor = drag.current;
+      if (!anchor) return;
+      const start = Math.min(anchor.anchorIndex, index);
+      const end = Math.max(anchor.anchorIndex, index);
+      void selectMessagesRef.current(renderedMessagesRef.current.slice(start, end + 1));
+    };
+    const updateFromPoint = (x: number, y: number) => {
+      const target = document.elementFromPoint(x, y);
+      const index = findMessageIndex(target);
+      if (index !== undefined) selectBetween(index);
+    };
+    const stopAutoScroll = () => {
+      if (selectionAutoScrollFrameRef.current !== undefined) {
+        cancelAnimationFrame(selectionAutoScrollFrameRef.current);
+        selectionAutoScrollFrameRef.current = undefined;
+      }
+    };
+    const scheduleAutoScroll = () => {
+      if (selectionAutoScrollFrameRef.current !== undefined) return;
+      const tick = () => {
+        selectionAutoScrollFrameRef.current = undefined;
+        const active = drag.current;
+        if (!active) return;
+        const bounds = list.getBoundingClientRect();
+        const outsideTop = Math.max(0, bounds.top - active.lastY);
+        const outsideBottom = Math.max(0, active.lastY - bounds.bottom);
+        const distance = Math.max(outsideTop, outsideBottom);
+        if (distance <= 0) return;
+        const direction = outsideTop > 0 ? -1 : 1;
+        const speed = Math.min(28, Math.max(2, distance * 0.28));
+        list.scrollTop += direction * speed;
+        updateFromPoint(active.lastX, Math.min(bounds.bottom - 2, Math.max(bounds.top + 2, active.lastY)));
+        selectionAutoScrollFrameRef.current = requestAnimationFrame(tick);
+      };
+      selectionAutoScrollFrameRef.current = requestAnimationFrame(tick);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || event.pointerType === "touch") return;
+      const index = findMessageIndex(event.target);
+      if (index === undefined) return;
+      const element = event.target instanceof Element
+        ? event.target.closest<HTMLElement>("[data-message-id]")
+        : null;
+      if (element?.closest("button, a, input, textarea, select, video, audio, [role='button']")) return;
+      drag.current = {
+        anchorIndex: index,
+        pointerId: event.pointerId,
+        moved: false,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+      };
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      const active = drag.current;
+      if (!active || active.pointerId !== event.pointerId || (event.buttons & 1) === 0) return;
+      active.lastX = event.clientX;
+      active.lastY = event.clientY;
+      active.moved = active.moved || Math.hypot(
+        event.clientX - active.startX,
+        event.clientY - active.startY,
+      ) > 3;
+      if (active.moved) event.preventDefault();
+      const index = findMessageIndex(event.target);
+      if (index !== undefined) selectBetween(index);
+      scheduleAutoScroll();
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      const active = drag.current;
+      if (!active || active.pointerId !== event.pointerId) return;
+      if (active.moved) {
+        suppressSelectionClickRef.current = true;
+      }
+      drag.current = undefined;
+      stopAutoScroll();
+    };
+    const onClick = (event: MouseEvent) => {
+      if (!suppressSelectionClickRef.current) return;
+      suppressSelectionClickRef.current = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerUp, true);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      drag.current = undefined;
+      suppressSelectionClickRef.current = false;
+      stopAutoScroll();
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointermove", onPointerMove, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerUp, true);
+      document.removeEventListener("click", onClick, true);
+    };
+  }, [messageListElement, pinnedViewOpen, selectionMode]);
 
   useLayoutEffect(() => {
     if (
@@ -1574,6 +1721,29 @@ export function Conversation({
     }
   };
 
+  const copySelectedMessages = useCallback(async () => {
+    if (!chat || selectedMessageIds.size === 0 || selectionCopying) return;
+    const ordered = renderedMessages.filter((message) => selectedMessageIds.has(message.id));
+    if (ordered.length === 0) return;
+    setSelectionCopying(true);
+    try {
+      const text = formatSelectedMessages(ordered, users, chat, forwardTargetsById, messagesById);
+      await writeClipboardText(text);
+      setSelectionCopied(true);
+      if (selectionCopyResetTimerRef.current !== undefined) {
+        globalThis.clearTimeout(selectionCopyResetTimerRef.current);
+      }
+      selectionCopyResetTimerRef.current = globalThis.setTimeout(() => {
+        selectionCopyResetTimerRef.current = undefined;
+        setSelectionCopied(false);
+      }, 1600);
+    } catch {
+      setSelectionCopied(false);
+    } finally {
+      setSelectionCopying(false);
+    }
+  }, [chat, forwardTargetsById, renderedMessages, selectedMessageIds, selectionCopying, users]);
+
   const cancelEditing = () => {
     setEditingMessage(undefined);
     focusComposer();
@@ -1748,17 +1918,6 @@ export function Conversation({
               <span>最多可同时转发 100 条消息</span>
             </div>
             <div className="conversation-actions">
-              <button
-                ref={selectionForwardButtonRef}
-                className="icon-button"
-                type="button"
-                aria-label="转发已选消息"
-                title="转发"
-                disabled={selectedMessageIds.size === 0}
-                onClick={forwarding.openSelectedDialog}
-              >
-                <Forward size={19} strokeWidth={1.9} />
-              </button>
               <button
                 ref={chatMenuButtonRef}
                 className={`icon-button ${chatMenuOpen ? "is-active" : ""}`}
@@ -2367,8 +2526,30 @@ export function Conversation({
       </MotionPresence>
 
       {pinnedViewOpen ? null : selectionMode ? (
-        <div className="message-selection-bar">
-          <span>{selectedMessageIds.size > 0 ? `${selectedMessageIds.size} 条消息已选择` : "点击消息任意位置进行选择"}</span>
+        <div className="message-selection-bar" role="toolbar" aria-label="消息选择操作">
+          <span>{selectedMessageIds.size > 0 ? "复制或转发所选消息" : "点击或拖动选择消息"}</span>
+          <div className="message-selection-actions">
+            <button
+              className={`icon-button ${selectionCopied ? "is-confirmed" : ""}`}
+              type="button"
+              aria-label="复制已选消息"
+              title={selectionCopied ? "已复制" : "复制文本"}
+              disabled={selectedMessageIds.size === 0 || selectionCopying}
+              onClick={() => void copySelectedMessages()}
+            >
+              {selectionCopied ? <Check size={18} strokeWidth={2.2} /> : <Copy size={18} strokeWidth={1.9} />}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="转发已选消息"
+              title="转发"
+              disabled={selectedMessageIds.size === 0}
+              onClick={forwarding.openSelectedDialog}
+            >
+              <Forward size={19} strokeWidth={1.9} />
+            </button>
+          </div>
         </div>
       ) : botStartPending ? (
         <div className="bot-start-bar">

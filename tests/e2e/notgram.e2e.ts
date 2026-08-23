@@ -3607,12 +3607,26 @@ test("conversation multi-select uses full message rows and albums can merge-forw
   await page.getByRole("menu", { name: "会话操作" })
     .getByRole("menuitem", { name: "多选", exact: true }).click();
   await expect(page.getByText("已选择 0 条", { exact: true })).toBeVisible();
+  await expect(page.locator(".message-selection-toggle")).toHaveCount(0);
+  expect(await page.getByRole("toolbar", { name: "消息选择操作" }).evaluate(
+    (element) => element.getBoundingClientRect().height,
+  )).toBe(50);
 
   const first = await revealVirtualMessage(page, "p-2");
   await first.click({ position: { x: 4, y: Math.max(2, Math.floor((await first.boundingBox())!.height / 2)) } });
   await expect(first).toHaveClass(/is-selected/);
   expect(await first.evaluate((element) => getComputedStyle(element, "::after").backgroundColor))
     .not.toBe("rgba(0, 0, 0, 0)");
+  await expect.poll(() => first.evaluate((element) => {
+    const list = element.closest(".message-list");
+    const overlay = getComputedStyle(element, "::after");
+    if (!list) return false;
+    const row = element.getBoundingClientRect();
+    const bounds = list.getBoundingClientRect();
+    return Math.abs(row.left + Number.parseFloat(overlay.left) - bounds.left) < 1 &&
+      row.right - Number.parseFloat(overlay.right) >= bounds.right - 1 &&
+      overlay.borderTopWidth === "0px";
+  })).toBe(true);
   const second = await revealVirtualMessage(page, "p-4");
   await second.click({ position: { x: 4, y: Math.max(2, Math.floor((await second.boundingBox())!.height / 2)) } });
   await expect(page.getByText("已选择 2 条", { exact: true })).toBeVisible();
@@ -5928,6 +5942,51 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await closed;
   await expect(page.locator(".conversation")).toBeVisible();
   await expect(composer).toBeFocused();
+});
+
+test("conversation multi-select copies a readable transcript and drag-scrolls at the list edge", async ({ page }) => {
+  await page.addInitScript(() => {
+    const clipboardState = { text: "" };
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: async (text: string) => { clipboardState.text = text; } },
+    });
+    Object.assign(globalThis, { __notgramSelectionClipboard: clipboardState });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "更多操作" }).click();
+  await page.getByRole("menu", { name: "会话操作" })
+    .getByRole("menuitem", { name: "多选", exact: true }).click();
+
+  const first = await revealVirtualMessage(page, "p-2");
+  await first.click({ position: { x: 4, y: Math.max(2, Math.floor((await first.boundingBox())!.height / 2)) } });
+  await page.getByRole("button", { name: "复制已选消息" }).click();
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramSelectionClipboard: { text: string } }
+  ).__notgramSelectionClipboard.text)).toMatch(/\[\d{4}\/\d{1,2}\/\d{1,2} \d{2}:\d{2}\].*:\n看到了。消息区再留一点呼吸感，信息密度就比较平衡。/);
+
+  const list = page.getByRole("log", { name: "消息列表" });
+  await scrollAwayFromBottom(page);
+  const startId = await list.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return [...element.querySelectorAll<HTMLElement>(".message-row:not(.is-service)")]
+      .find((row) => {
+        const rowBounds = row.getBoundingClientRect();
+        return rowBounds.top >= bounds.top + 4 && rowBounds.bottom <= bounds.bottom - 4;
+      })?.dataset.messageId;
+  });
+  expect(startId).toBeTruthy();
+  const start = page.locator(`[data-message-id="${startId}"]`);
+  const startBox = await start.locator(".message-bubble-shell").boundingBox();
+  const listBox = await list.boundingBox();
+  expect(startBox).not.toBeNull();
+  expect(listBox).not.toBeNull();
+  const before = await messageListMetrics(page);
+  await page.mouse.move(startBox!.x + startBox!.width / 2, startBox!.y + startBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(startBox!.x + startBox!.width / 2, listBox!.y + listBox!.height + 16, { steps: 8 });
+  await page.waitForTimeout(360);
+  await page.mouse.up();
+  await expect.poll(async () => (await messageListMetrics(page)).scrollTop).toBeGreaterThan(before.scrollTop);
 });
 
 test("captioned albums keep descriptions in the fullscreen viewer", async ({ page }) => {

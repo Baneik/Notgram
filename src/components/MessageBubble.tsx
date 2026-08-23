@@ -215,7 +215,6 @@ function MessageBubbleComponent({
   const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
   const showDeliveryPending = useStableVisibility(message.delivery === "sending", { minimumVisible: 220 });
-  const showSelectionPending = useStableVisibility(selectionPending, { minimumVisible: 220 });
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -674,7 +673,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       data-local-block-group={localBlockGroupId}
       onClick={() => {
@@ -693,24 +692,6 @@ function MessageBubbleComponent({
         }
       }}
     >
-      {selectionMode && !isService && (
-        <button
-          className="message-selection-toggle"
-          type="button"
-          aria-label={selected ? "取消选择消息" : "选择消息"}
-          aria-pressed={selected}
-          title={message.permissions?.canForward === false ? "此消息不可转发" : selected ? "取消选择" : "选择消息"}
-          disabled={selectionDisabled}
-          onClick={(event) => {
-            event.stopPropagation();
-            void onToggleSelection(message);
-          }}
-        >
-          {showSelectionPending
-            ? <LoaderCircle className="spin" size={15} />
-            : selected && <Check size={15} strokeWidth={2.4} />}
-        </button>
-      )}
       <div
         className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
         style={visualShellStyle}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Chat,
   ForwardMessagesResult,
@@ -54,6 +54,7 @@ export const useMessageForwarding = ({
   const [pending, setPending] = useState(false);
   const [pendingTargetId, setPendingTargetId] = useState<string>();
   const [targetSnapshot, setTargetSnapshot] = useState<Chat[]>(() => getTargetsSnapshot?.() ?? targets);
+  const selectionPermissionRequestsRef = useRef(new Set<string>());
 
   const captureTargets = useCallback(
     () => getTargetsSnapshot?.() ?? targets,
@@ -78,6 +79,7 @@ export const useMessageForwarding = ({
     setPending(false);
     setPendingTargetId(undefined);
     setTargetSnapshot(captureTargets());
+    selectionPermissionRequestsRef.current.clear();
   }, [conversationIdentity ?? chatId]);
 
   useEffect(() => {
@@ -150,6 +152,48 @@ export const useMessageForwarding = ({
       ? current
       : new Set(current).add(message.id));
   }, [loadingIds, onLoadMessageProperties, selectedIds]);
+
+  const selectMessages = useCallback(async (range: Message[]) => {
+    if (range.length === 0) return;
+    const candidates = range.filter((message) => message.content.kind !== "service" &&
+      message.content.kind !== "unsupported" &&
+      !message.isRemoving &&
+      message.permissions?.canForward !== false);
+    if (candidates.length === 0) return;
+
+    const unresolved = candidates.filter((message) => !message.permissions &&
+      !selectionPermissionRequestsRef.current.has(message.id));
+    const resolvedPermissions = new Map<string, MessagePermissions | undefined>();
+    if (unresolved.length > 0) {
+      unresolved.forEach((message) => selectionPermissionRequestsRef.current.add(message.id));
+      setLoadingIds((current) => new Set([...current, ...unresolved.map((message) => message.id)]));
+      const permissions = await Promise.all(unresolved.map(async (message) => ({
+        message,
+        permissions: await onLoadMessageProperties(message.chatId, message.id),
+      })));
+      setLoadingIds((current) => {
+        const next = new Set(current);
+        unresolved.forEach((message) => next.delete(message.id));
+        return next;
+      });
+      permissions.forEach(({ message, permissions }) => {
+        selectionPermissionRequestsRef.current.delete(message.id);
+        resolvedPermissions.set(message.id, permissions);
+      });
+    }
+    const permitted = candidates.filter((message) =>
+      (message.permissions ?? resolvedPermissions.get(message.id))?.canForward === true
+    );
+    if (permitted.length === 0) return;
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const message of permitted) {
+        if (next.size >= 100) break;
+        next.add(message.id);
+      }
+      return next;
+    });
+  }, [onLoadMessageProperties]);
 
   const orderedMessageIds = useCallback((messageIds: Iterable<string>) => {
     const requested = new Set(messageIds);
@@ -251,6 +295,7 @@ export const useMessageForwarding = ({
     clearSelection,
     startSelection,
     toggleSelection,
+    selectMessages,
     openDialogForMessages,
     openSelectedDialog,
     quickForward,
