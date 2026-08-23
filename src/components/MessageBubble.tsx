@@ -676,10 +676,11 @@ function MessageBubbleComponent({
       className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       data-local-block-group={localBlockGroupId}
-      onClick={() => {
-        if (selectionMode && !isService && !selectionDisabled) {
-          void onToggleSelection(message);
-        }
+      onClick={(event) => {
+        if (!selectionMode || isService || selectionDisabled) return;
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest("button, a, input, textarea, select, video, audio, [role='button']")) return;
+        void onToggleSelection(message);
       }}
       onAnimationEnd={(event) => {
         if (

@@ -5962,7 +5962,19 @@ test("conversation multi-select copies a readable transcript and drag-scrolls at
   await page.getByRole("button", { name: "复制已选消息" }).click();
   await expect.poll(() => page.evaluate(() => (
     globalThis as typeof globalThis & { __notgramSelectionClipboard: { text: string } }
-  ).__notgramSelectionClipboard.text)).toMatch(/\[\d{4}\/\d{1,2}\/\d{1,2} \d{2}:\d{2}\].*:\n看到了。消息区再留一点呼吸感，信息密度就比较平衡。/);
+  ).__notgramSelectionClipboard.text)).toMatch(/\[\d{4}\/\d{1,2}\/\d{1,2} \d{2}:\d{2}\].*:\s+看到了。消息区再留一点呼吸感，信息密度就比较平衡。/);
+  await expect(page.getByRole("toolbar", { name: "消息选择操作" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "更多操作" }).click();
+  await page.getByRole("menu", { name: "会话操作" })
+    .getByRole("menuitem", { name: "多选", exact: true }).click();
+  const shortcutMessage = await revealVirtualMessage(page, "p-2");
+  await shortcutMessage.click({ position: { x: 4, y: Math.max(2, Math.floor((await shortcutMessage.boundingBox())!.height / 2)) } });
+  await page.keyboard.press("Control+c");
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramSelectionClipboard: { text: string } }
+  ).__notgramSelectionClipboard.text)).toContain("看到了。消息区再留一点呼吸感，信息密度就比较平衡。");
+  await expect(page.getByRole("toolbar", { name: "消息选择操作" })).toHaveCount(0);
 
   const list = page.getByRole("log", { name: "消息列表" });
   await scrollAwayFromBottom(page);

@@ -944,7 +944,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list-content {
   position: relative;
   width: calc(100% - var(--message-list-inline-padding) - var(--message-list-inline-padding));
-  min-width: 0; max-width: 100%; overflow-x: clip;
+  min-width: 0; max-width: 100%; overflow-x: visible;
 }
 .message-list-end-sentinel { height: 12px; }
 .conversation-jump-button {
@@ -1033,11 +1033,13 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-row.is-selected::after,
 .message-row.is-selection-pending::after {
   content: ""; position: absolute; z-index: -1;
-  inset: -4px calc(-2 * var(--message-list-inline-padding)) -4px calc(-1 * var(--message-list-inline-padding));
+  inset: 0 calc(-2 * var(--message-list-inline-padding)) 0 calc(-1 * var(--message-list-inline-padding));
   pointer-events: none; border-radius: 0;
 }
 .message-row.is-selected::after { background: color-mix(in srgb, var(--accent) 13%, transparent); }
-.message-row.is-incoming:is(.is-selected, .is-selection-pending)::after { left: calc(-1 * (var(--message-list-inline-padding) + 44px)); }
+.message-group:has(.message-group-avatar) .message-row:is(.is-selected, .is-selection-pending)::after {
+  left: calc(-1 * (var(--message-list-inline-padding) + 44px));
+}
 .message-row.is-selection-pending::after { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .conversation.is-selecting-messages .message-row:not(.is-service) { cursor: pointer; }
 .conversation.is-selecting-messages .message-rich-text { user-select: none; -webkit-user-select: none; }
@@ -3195,7 +3197,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .message-bubble-shell.is-audio-shell { width: min(360px, 88%); max-width: min(360px, 88%); }
   .composer-wrap { min-height: 50px; padding: 0; }
   .composer-attachment-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .message-selection-bar { min-height: 67px; padding: 7px 10px 9px; }
+  .message-selection-bar { height: 50px; min-height: 50px; padding: 0 10px; }
   .auth-shell { min-height: 520px; padding: 22px 18px 66px; }
   .auth-panel { gap: 18px; }
   .auth-back { top: 10px; left: 10px; }

@@ -865,6 +865,7 @@ export function Conversation({
     pendingTargetId: forwardPendingTargetId,
     filteredTargets: filteredForwardTargets,
     selectMessages,
+    clearSelection,
   } = forwarding;
   const selectMessagesRef = useRef(selectMessages);
   selectMessagesRef.current = selectMessages;
@@ -1417,6 +1418,7 @@ export function Conversation({
         event.clientY - active.startY,
       ) > 3;
       if (active.moved) event.preventDefault();
+      if (!active.moved) return;
       const index = findMessageIndex(event.target);
       if (index !== undefined) selectBetween(index);
       scheduleAutoScroll();
@@ -1737,12 +1739,26 @@ export function Conversation({
         selectionCopyResetTimerRef.current = undefined;
         setSelectionCopied(false);
       }, 1600);
+      clearSelection();
     } catch {
       setSelectionCopied(false);
     } finally {
       setSelectionCopying(false);
     }
-  }, [chat, forwardTargetsById, renderedMessages, selectedMessageIds, selectionCopying, users]);
+  }, [chat, clearSelection, forwardTargetsById, messagesById, renderedMessages, selectedMessageIds, selectionCopying, users]);
+
+  useEffect(() => {
+    if (!selectionMode) return;
+    const onCopyShortcut = (event: KeyboardEvent) => {
+      if (event.key.toLocaleLowerCase() !== "c" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (selectedMessageIds.size === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void copySelectedMessages();
+    };
+    document.addEventListener("keydown", onCopyShortcut, true);
+    return () => document.removeEventListener("keydown", onCopyShortcut, true);
+  }, [copySelectedMessages, selectedMessageIds.size, selectionMode]);
 
   const cancelEditing = () => {
     setEditingMessage(undefined);

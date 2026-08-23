@@ -70,7 +70,10 @@ export const formatSelectedMessages = (
     const quote = quoteForCopy(message, messagesById);
     if (quote) lines.push(...quoteLines(quote));
     const body = messageContentText(message.content).trim();
-    if (body) lines.push(body);
+    if (body) {
+      if (quote) lines.push(body);
+      else return `${prefix}  ${body}`;
+    }
     return lines.join("\n");
   }).join("\n");
 };
