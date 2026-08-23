@@ -278,7 +278,7 @@ export function ContextMenuWindow() {
                   <Icon size={17} strokeWidth={1.9} />
                 )}
                 <span>{item.label}</span>
-                {item.children ? (
+                {item.children && !item.hideSubmenuIndicator ? (
                   <ChevronRight className="context-menu-chevron" size={16} />
                 ) : item.avatar && item.checked ? (
                   <Check className="account-switcher-check" size={16} strokeWidth={2.2} />

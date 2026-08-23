@@ -17,7 +17,7 @@ import type { Chat, ChatDraft, ChatFolder, GlobalSearchFilter, User } from "../t
 import { hasChatDraftContent } from "../telegram/chatDraft";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { SidebarSearchScope } from "../hooks/useSidebarSearch";
-import { formatChatTime } from "../utils/formatters";
+import { formatChatTime, formatUnreadCount } from "../utils/formatters";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
 import { ChatSearchResults, GlobalSearchResults, type SidebarSearchSenderOption } from "./GlobalSearchView";
@@ -661,7 +661,7 @@ const ChatRow = memo(function ChatRow({
             aria-label={unreadBadgeLabel}
             title={hasUnreadAttention ? "包含未读的提及或回复" : hasUnreadReaction ? "包含未读的回应" : undefined}
           >
-            {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
+            {formatUnreadCount(displayUnreadCount)}
           </span>
         )}
       </span>
@@ -695,7 +695,7 @@ const ChatRow = memo(function ChatRow({
                 aria-label={unreadBadgeLabel}
                 title={hasUnreadAttention ? "包含未读的提及或回复" : hasUnreadReaction ? "包含未读的回应" : undefined}
               >
-                {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
+                {formatUnreadCount(displayUnreadCount)}
               </span>
             )}
           </span>

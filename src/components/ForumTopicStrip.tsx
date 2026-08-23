@@ -2,6 +2,7 @@ import { Hash } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { ForumTopic } from "../telegram/types";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { formatUnreadCount } from "../utils/formatters";
 
 interface ForumTopicStripProps {
   topics: ForumTopic[];
@@ -110,7 +111,7 @@ export function ForumTopicStrip({
               <span className="forum-topic-tab-name">{topic.name}</span>
               {topic.unreadCount > 0 && (
                 <strong className="forum-topic-tab-count">
-                  {topic.unreadCount > 99 ? "99+" : topic.unreadCount}
+                  {formatUnreadCount(topic.unreadCount)}
                 </strong>
               )}
             </button>

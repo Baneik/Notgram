@@ -1,4 +1,4 @@
-import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, UserRound, Users } from "lucide-react";
+import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -221,9 +221,9 @@ export function NavigationRail({
       <button
         className="rail-account"
         type="button"
-        aria-label="设置"
+        aria-label="切换账号"
         title={`当前账号：${accountName}`}
-        onClick={onOpenSettings}
+        onClick={(event) => openAccountMenu(event.currentTarget)}
         onContextMenu={(event) => {
           event.preventDefault();
           openAccountMenu(event.currentTarget);
@@ -261,6 +261,11 @@ export function NavigationRail({
         ))}
         <button className="rail-button" type="button" aria-label="管理文件夹" title="管理文件夹" onClick={onManageFolders}>
           <span className="rail-icon"><FolderCog size={23} strokeWidth={1.8} /></span><span>管理</span>
+        </button>
+      </div>
+      <div className="rail-footer">
+        <button className="rail-button rail-settings" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
+          <span className="rail-icon"><Settings size={23} strokeWidth={1.8} /></span><span>设置</span>
         </button>
       </div>
     </nav>

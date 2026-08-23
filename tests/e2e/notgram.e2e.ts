@@ -285,15 +285,17 @@ test("non-forum group conversations keep messages that belong to a message threa
   await expect(page.getByText("群组线程消息也应显示在主会话中。", { exact: true })).toBeVisible();
 });
 
-test("the top bar keeps only window controls and the account entry opens settings", async ({ page }) => {
+test("the navigation rail separates account switching from the bottom settings entry", async ({ page }) => {
   await page.goto("/");
 
-  const settingsButton = page.locator(".rail-account");
-  await expect(settingsButton).toHaveRole("button");
-  await expect(settingsButton).toHaveAccessibleName("设置");
-  await expect(settingsButton).toContainText("林然");
-  await expect(settingsButton.locator(".avatar")).toBeVisible();
-  await expect(page.locator(".rail-footer")).toHaveCount(0);
+  const accountButton = page.locator(".rail-account");
+  const settingsButton = page.getByRole("button", { name: "设置", exact: true });
+  await expect(accountButton).toHaveRole("button");
+  await expect(accountButton).toHaveAccessibleName("切换账号");
+  await expect(accountButton).toContainText("林然");
+  await expect(accountButton.locator(".avatar")).toBeVisible();
+  await expect(page.locator(".rail-footer")).toBeVisible();
+  expect((await settingsButton.boundingBox())!.y).toBeGreaterThan((await accountButton.boundingBox())!.y);
   await expect(page.locator(".rail-brand")).toHaveCount(0);
   await expect(page.locator(".window-chrome")).toBeVisible();
   await expect(page.locator(".window-chrome")).not.toContainText("Notgram");
@@ -301,7 +303,8 @@ test("the top bar keeps only window controls and the account entry opens setting
   await expect(page.getByRole("button", { name: "最小化窗口" })).toBeVisible();
   await expect(page.getByRole("button", { name: "最大化窗口" })).toBeVisible();
   await expect(page.getByRole("button", { name: "关闭窗口" })).toBeVisible();
-  await expect(page.locator(".rail-settings, .rail-connection")).toHaveCount(0);
+  await expect(page.locator(".rail-settings")).toHaveCount(1);
+  await expect(page.locator(".rail-connection")).toHaveCount(0);
   await expect(page.locator(".sidebar-heading .connection-status")).toHaveCount(0);
   const conversationStatus = page.locator(".conversation-title > .conversation-header-status");
   await expect(conversationStatus).toHaveCount(1);
@@ -334,6 +337,9 @@ test("the top bar keeps only window controls and the account entry opens setting
   });
   expect(shortcut).toEqual({ defaultPrevented: true, dispatched: false, propagated: false });
 
+  await accountButton.click();
+  await expect(page.getByRole("menu", { name: "切换账号" })).toBeVisible();
+  await page.keyboard.press("Escape");
   await settingsButton.click();
   await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
 });
@@ -362,7 +368,7 @@ test("the account avatar opens a fixed account switcher with add account last", 
   await page.goto("/");
 
   const accountEntry = page.locator(".rail-account");
-  await accountEntry.click({ button: "right", position: { x: 8, y: 8 } });
+  await accountEntry.click();
   let menu = page.getByRole("menu", { name: "切换账号" });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitemradio")).toHaveCount(2);
@@ -371,7 +377,10 @@ test("the account avatar opens a fixed account switcher with add account last", 
   const menuItems = menu.getByRole("menuitemradio").or(menu.getByRole("menuitem"));
   await expect(menuItems.last()).toHaveText("添加新账号");
   const firstPosition = await menu.boundingBox();
+  const accountPosition = await accountEntry.boundingBox();
   expect(firstPosition).not.toBeNull();
+  expect(accountPosition).not.toBeNull();
+  expect(Math.abs((firstPosition?.y ?? 0) - (accountPosition?.y ?? 0))).toBeLessThan(1);
 
   await page.keyboard.press("Escape");
   await accountEntry.click({ button: "right", position: { x: 60, y: 60 } });
@@ -471,6 +480,7 @@ test("account settings only show and edit the current profile", async ({ page })
   });
   expect(categoryLayout.navWidth).toBeLessThan(180);
   expect(new Set(categoryLayout.buttonWidths.map(Math.round)).size).toBe(1);
+  await expect(page.locator(".settings-category .lucide-chevron-right")).toHaveCount(0);
   await expect(page.getByText("已登录账号", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "添加账号" })).toHaveCount(0);
   await expect(page.getByText("切换到此账号", { exact: true })).toHaveCount(0);
@@ -2066,7 +2076,7 @@ test("message viewport reaches the composer and keeps a scrollable bottom gap", 
   )).toBeLessThanOrEqual(0.5);
 });
 
-test("a 99+ unread entry positions once without exposing intermediate jumps", async ({ page }) => {
+test("a three-digit unread entry positions once without exposing intermediate jumps", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await page.evaluate(async (modulePath) => {
@@ -2082,6 +2092,11 @@ test("a 99+ unread entry positions once without exposing intermediate jumps", as
     if (chat) chats.set("chat-chen", { ...chat, unreadCount: 120 });
     storeModule.telegramStore.setState({ chats });
   }, "/src/store/telegramStore.ts");
+  const serverChat = page.locator('[data-chat-id="chat-chen"]');
+  const unreadBadge = serverChat.locator(".unread-count");
+  await expect(unreadBadge).toHaveText("120");
+  await expect(unreadBadge).toHaveCSS("font-size", "11px");
+  expect((await unreadBadge.boundingBox())!.height).toBe(18);
   await page.evaluate(() => {
     const diagnosticWindow = window as typeof window & {
       __notgramEntryFrames?: Array<{
@@ -2126,7 +2141,6 @@ test("a 99+ unread entry positions once without exposing intermediate jumps", as
     requestAnimationFrame(sample);
   });
 
-  const serverChat = page.locator('[data-chat-id="chat-chen"]');
   await serverChat.click();
   await expect(serverChat).toHaveAttribute("aria-current", "true");
   const messageList = page.locator(".message-list");
@@ -3585,6 +3599,8 @@ test("forwarding ranks quick targets and sends to multiple chats with a descript
   const source = await revealVirtualMessage(page, "p-2");
   await source.locator(".message-bubble-shell").click({ button: "right" });
   const menu = page.getByRole("menu", { name: "消息操作" });
+  await expect(menu.getByRole("menuitem", { name: "转发", exact: true }).locator(".lucide-chevron-right"))
+    .toHaveCount(0);
   await menu.getByRole("menuitem", { name: "转发", exact: true }).hover();
   const quickForward = page.getByRole("menu", { name: "快速转发" });
   await expect(quickForward.getByRole("menuitem").first()).toContainText("产品讨论");
@@ -3659,6 +3675,20 @@ test("conversation multi-select uses full message rows and albums can merge-forw
       row.right - Number.parseFloat(overlay.right) >= bounds.right - 1 &&
       overlay.borderTopWidth === "0px";
   })).toBe(true);
+  const adjacent = await revealVirtualMessage(page, "p-3");
+  await adjacent.click({ position: { x: 4, y: Math.max(2, Math.floor((await adjacent.boundingBox())!.height / 2)) } });
+  await expect(first).toHaveClass(/joins-selection-after/);
+  await expect(adjacent).toHaveClass(/joins-selection-before/);
+  const selectionOverlays = await Promise.all([first, adjacent].map((row) => row.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const overlay = getComputedStyle(element, "::after");
+    return {
+      top: bounds.top + Number.parseFloat(overlay.top),
+      bottom: bounds.bottom - Number.parseFloat(overlay.bottom),
+    };
+  })));
+  expect(selectionOverlays[0].bottom).toBeGreaterThanOrEqual(selectionOverlays[1].top - 0.5);
+  await adjacent.click({ position: { x: 4, y: Math.max(2, Math.floor((await adjacent.boundingBox())!.height / 2)) } });
   const second = await revealVirtualMessage(page, "p-4");
   await second.click({ position: { x: 4, y: Math.max(2, Math.floor((await second.boundingBox())!.height / 2)) } });
   await expect(page.getByText("已选择 2 条", { exact: true })).toBeVisible();
@@ -8838,6 +8868,7 @@ test("native forwarding submenu shows avatars and scrolls after five visible row
           id: "forward",
           label: "转发",
           icon: "forward",
+          hideSubmenuIndicator: true,
           children: Array.from({ length: 10 }, (_, index) => ({
             id: `target-${index}`,
             label: `群组${index + 1}`,
@@ -8852,6 +8883,8 @@ test("native forwarding submenu shows avatars and scrolls after five visible row
   });
 
   const menu = page.getByRole("menu", { name: "消息操作" });
+  await expect(menu.getByRole("menuitem", { name: "转发", exact: true }).locator(".lucide-chevron-right"))
+    .toHaveCount(0);
   await menu.getByRole("menuitem", { name: "转发", exact: true }).click();
   const submenu = page.getByRole("menu", { name: "转发" });
   await expect(submenu.getByRole("menuitemcheckbox")).toHaveCount(10);

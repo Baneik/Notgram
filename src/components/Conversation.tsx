@@ -52,7 +52,7 @@ import {
   sortChatsByConversationActivity,
 } from "../store/conversationActivity";
 import { useStableVisibility } from "../hooks/useStableVisibility";
-import { formatMessageDay } from "../utils/formatters";
+import { formatMessageDay, formatUnreadCount, localDateKey } from "../utils/formatters";
 import { Avatar } from "./Avatar";
 import {
   DeleteMessagesDialog,
@@ -570,6 +570,10 @@ export function Conversation({
   );
   const renderedMessagesRef = useRef(renderedMessages);
   renderedMessagesRef.current = renderedMessages;
+  const renderedMessageIndexes = useMemo(
+    () => new Map(renderedMessages.map((message, index) => [message.id, index])),
+    [renderedMessages],
+  );
   const localBlockGroupByMessageId = useMemo(
     () => localBlockedMessageGroups(
       renderedMessages,
@@ -2258,6 +2262,22 @@ export function Conversation({
                         : senderName;
                       const senderIsAdministrator = (!blockedUser || blockedGroupRevealed) &&
                         memberLabels.has(message.senderId);
+                      const messageIndex = renderedMessageIndexes.get(message.id) ?? -1;
+                      const previousMessage = renderedMessages[messageIndex - 1];
+                      const nextMessage = renderedMessages[messageIndex + 1];
+                      const selected = selectedMessageIds.has(message.id);
+                      const selectionPending = selectionLoadingIds.has(message.id);
+                      const selectionHighlighted = selected || selectionPending;
+                      const joinsSelectionBefore = selectionHighlighted && Boolean(
+                        previousMessage &&
+                        localDateKey(previousMessage.sentAt) === localDateKey(message.sentAt) &&
+                        (selectedMessageIds.has(previousMessage.id) || selectionLoadingIds.has(previousMessage.id)),
+                      );
+                      const joinsSelectionAfter = selectionHighlighted && Boolean(
+                        nextMessage &&
+                        localDateKey(nextMessage.sentAt) === localDateKey(message.sentAt) &&
+                        (selectedMessageIds.has(nextMessage.id) || selectionLoadingIds.has(nextMessage.id)),
+                      );
                       return <RichMessageBubble
                         key={message.renderKey ?? message.id}
                         message={message}
@@ -2297,9 +2317,11 @@ export function Conversation({
                           }
                         } : undefined}
                         selectionMode={selectionMode}
-                        selected={selectedMessageIds.has(message.id)}
+                        selected={selected}
                         highlighted={highlightedMessageId === message.id}
-                        selectionPending={selectionLoadingIds.has(message.id)}
+                        selectionPending={selectionPending}
+                        joinsSelectionBefore={joinsSelectionBefore}
+                        joinsSelectionAfter={joinsSelectionAfter}
                         selectionLimitReached={selectedMessageIds.size >= 100}
                         onToggleSelection={toggleMessageSelection}
                         onOpenActions={openActionMenu}
@@ -2424,7 +2446,7 @@ export function Conversation({
             }}
           >
             {hasPrimaryAttention ? <AtSign size={19} strokeWidth={2.1} /> : <Heart size={18} strokeWidth={2.1} />}
-            <span>{attentionMessageIds.length > 99 ? "99+" : attentionMessageIds.length}</span>
+            <span>{formatUnreadCount(attentionMessageIds.length)}</span>
           </button>
         )}
         {!pinnedViewOpen && currentScrollKey && (jumpHistoryCount > 0 || awayFromLatest) && (
@@ -2445,7 +2467,7 @@ export function Conversation({
             >
               <ArrowDown size={19} strokeWidth={2.1} />
               {newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0 && (
-                <span>{newMessageNotice.count > 99 ? "99+" : newMessageNotice.count}</span>
+                <span>{formatUnreadCount(newMessageNotice.count)}</span>
               )}
             </button>
           )}

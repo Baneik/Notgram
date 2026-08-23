@@ -16,6 +16,7 @@ import type { Chat, ForumTopic } from "../telegram/types";
 import { Avatar } from "./Avatar";
 import { MotionPresence } from "./MotionPresence";
 import { useFlipListMotion } from "../hooks/useFlipListMotion";
+import { formatUnreadCount } from "../utils/formatters";
 
 interface ForumTopicsViewProps {
   chat: Chat;
@@ -177,7 +178,7 @@ export function ForumTopicsView({
                       <span className="forum-topic-meta">
                         {topic.isPinned && <Pin size={14} strokeWidth={1.9} aria-label="已置顶" />}
                         {topic.isClosed && <LockKeyhole size={14} strokeWidth={1.9} aria-label="已关闭" />}
-                        {topic.unreadCount > 0 && <strong>{topic.unreadCount > 99 ? "99+" : topic.unreadCount}</strong>}
+                        {topic.unreadCount > 0 && <strong>{formatUnreadCount(topic.unreadCount)}</strong>}
                       </span>
                     </button>
                     {(canManage || topic.isOutgoing) && <div className="forum-topic-actions">

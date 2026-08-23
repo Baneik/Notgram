@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
-import { formatCompactCount, formatMessageDay, formatMessageTime, localDateKey } from "./formatters";
+import { formatCompactCount, formatMessageDay, formatMessageTime, formatUnreadCount, localDateKey } from "./formatters";
 import { groupConsecutiveMessages, messageGroupPosition } from "./messageGrouping";
 
 const message = (
@@ -82,6 +82,12 @@ describe("message grouping", () => {
     expect(formatCompactCount(23)).toBe("23");
     expect(formatCompactCount(22_200)).toBe("22.2K");
     expect(formatCompactCount(1_240_000)).toBe("1.2M");
+  });
+
+  it("keeps unread counters at three digits before using an overflow marker", () => {
+    expect(formatUnreadCount(8)).toBe("8");
+    expect(formatUnreadCount(999)).toBe("999");
+    expect(formatUnreadCount(1_000)).toBe("999+");
   });
 
   it("formats message day separators against the local calendar", () => {

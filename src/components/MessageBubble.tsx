@@ -100,6 +100,8 @@ interface MessageBubbleProps {
   highlighted: boolean;
   searchQuery?: string;
   selectionPending: boolean;
+  joinsSelectionBefore: boolean;
+  joinsSelectionAfter: boolean;
   selectionLimitReached: boolean;
   onToggleSelection: (message: Message) => Promise<void>;
   onOpenActions: (
@@ -173,6 +175,8 @@ function MessageBubbleComponent({
   highlighted,
   searchQuery,
   selectionPending,
+  joinsSelectionBefore,
+  joinsSelectionAfter,
   selectionLimitReached,
   onToggleSelection,
   onOpenActions,
@@ -673,7 +677,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${joinsSelectionBefore ? "joins-selection-before" : ""} ${joinsSelectionAfter ? "joins-selection-after" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       data-local-block-group={localBlockGroupId}
       onClick={(event) => {

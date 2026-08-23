@@ -65,4 +65,23 @@ describe("native context menu layout", () => {
     expect(geometry.height).toBe(278);
     expect(geometry.maximumExpandedHeight).toBe(278);
   });
+
+  it("does not reserve trailing indicator width when a submenu arrow is hidden", () => {
+    const children = [item("target", "目标")];
+    const withIndicator = calculateNativeContextMenuGeometry(
+      [item("forward", "转发消息", children)],
+      undefined,
+      measureLabel,
+    );
+    const withoutIndicator = calculateNativeContextMenuGeometry(
+      [{
+        ...item("forward", "转发消息", children),
+        hideSubmenuIndicator: true,
+      }],
+      undefined,
+      measureLabel,
+    );
+
+    expect(withoutIndicator.primaryPanelWidth).toBeLessThan(withIndicator.primaryPanelWidth);
+  });
 });

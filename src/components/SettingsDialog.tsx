@@ -5,7 +5,6 @@ import {
   BatteryCharging,
   Bell,
   Camera,
-  ChevronRight,
   CloudDownload,
   Gauge,
   FileText,
@@ -401,7 +400,6 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               >
                 <Icon size={21} strokeWidth={1.8} />
                 <span>{category.label}</span>
-                <ChevronRight className="settings-category-chevron" size={17} />
               </button>
             );
           })}

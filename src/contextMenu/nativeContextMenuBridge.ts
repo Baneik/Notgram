@@ -6,6 +6,7 @@ import type { ContextMenuPoint } from "../utils/contextMenuLayout";
 import {
   calculateNativeContextMenuGeometry,
   measureNativeContextMenuLabel,
+  NATIVE_CONTEXT_MENU_WINDOW_INSET,
 } from "./nativeContextMenuLayout";
 
 export type NativeContextMenuIcon =
@@ -37,6 +38,7 @@ export interface NativeContextMenuItem {
   avatar?: Avatar;
   separatorBefore?: boolean;
   actionable?: boolean;
+  hideSubmenuIndicator?: boolean;
   children?: NativeContextMenuItem[];
 }
 
@@ -125,8 +127,11 @@ const menuPlacement = async (
   const marginPx = 6 * targetScale;
   const right = workPosition.x + workSize.width;
   const bottom = workPosition.y + workSize.height;
-  let x = anchor.x + (placement === "cursor" ? gapPx : 0);
-  let y = anchor.y - (placement === "cursor" ? MENU_FIRST_ITEM_CENTER_OFFSET * targetScale : 0);
+  const panelInsetPx = NATIVE_CONTEXT_MENU_WINDOW_INSET * targetScale;
+  let x = anchor.x + (placement === "cursor" ? gapPx : -panelInsetPx);
+  let y = anchor.y - (placement === "cursor"
+    ? MENU_FIRST_ITEM_CENTER_OFFSET * targetScale
+    : panelInsetPx);
   if (x + widthPx + marginPx > right) x = anchor.x - widthPx - gapPx;
   if (y + heightPx + marginPx > bottom) y = anchor.y - heightPx - gapPx;
   x = Math.max(workPosition.x + marginPx, Math.min(x, right - widthPx - marginPx));

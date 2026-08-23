@@ -44,6 +44,7 @@ export interface NativeContextMenuGeometry {
 interface NativeContextMenuLayoutItem {
   id: string;
   label: string;
+  hideSubmenuIndicator?: boolean;
   children?: NativeContextMenuLayoutItem[];
 }
 
@@ -57,7 +58,9 @@ const panelWidthFor = (
     maximum,
     measureLabel(item.label) +
       NATIVE_CONTEXT_MENU_ITEM_CHROME_WIDTH +
-      (item.children?.length ? NATIVE_CONTEXT_MENU_SUBMENU_INDICATOR_WIDTH : 0) +
+      (item.children?.length && !item.hideSubmenuIndicator
+        ? NATIVE_CONTEXT_MENU_SUBMENU_INDICATOR_WIDTH
+        : 0) +
       NATIVE_CONTEXT_MENU_EXTRA_WIDTH,
   ), 0);
   return Math.ceil(Math.min(

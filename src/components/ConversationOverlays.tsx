@@ -162,6 +162,7 @@ export function MessageActionMenu({
       label: "转发",
       icon: "forward" as const,
       actionable: true,
+      hideSubmenuIndicator: true,
       children: quickForwardItems.length > 0 ? quickForwardItems : undefined,
     }] : []),
     ...(permissions.canForward && onForwardAlbum ? [{
@@ -284,10 +285,9 @@ export function MessageActionMenu({
               onMouseEnter={() => setExpandedForwardAction("forward")}
               onMouseLeave={() => setExpandedForwardAction(undefined)}
             >
-              <button className="has-submenu" type="button" role="menuitem" aria-haspopup="menu" onClick={onForward}>
+              <button className="has-submenu no-submenu-indicator" type="button" role="menuitem" aria-haspopup="menu" onClick={onForward}>
                 <Forward size={16} strokeWidth={1.9} />
                 <span>转发</span>
-                <ChevronRight size={15} strokeWidth={1.9} />
               </button>
               {expandedForwardAction === "forward" && (
                 <div className="message-action-submenu" role="menu" aria-label="快速转发">

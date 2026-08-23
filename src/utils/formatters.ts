@@ -59,3 +59,8 @@ export const formatCompactCount = (value: number) => {
   const digits = scaled < 100 ? 1 : 0;
   return `${scaled.toFixed(digits).replace(/\.0$/, "")}${unit.suffix}`;
 };
+
+export const formatUnreadCount = (value: number) => {
+  const count = Math.max(0, Math.trunc(Number.isFinite(value) ? value : 0));
+  return count > 999 ? "999+" : String(count);
+};
