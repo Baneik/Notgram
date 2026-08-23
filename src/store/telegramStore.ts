@@ -297,11 +297,12 @@ export const createTelegramStore = (
     const markMessageRemoving = (chatId: string, messageId: string) => {
       const key = `${chatId}:${messageId}`;
       const previous = removalTimers.get(key);
-      if (previous) globalThis.clearTimeout(previous);
       const messages = new Map(get().messages);
       const current = messages.get(chatId) ?? [];
       const removed = current.find((message) => message.id === messageId);
       if (!removed) return;
+      if (previous) globalThis.clearTimeout(previous);
+      removalTimers.delete(key);
       messages.set(chatId, current.filter((message) => message.id !== messageId));
       const removingMessages = new Map(get().removingMessages);
       const ghosts = removingMessages.get(chatId) ?? [];
@@ -316,6 +317,22 @@ export const createTelegramStore = (
         set({ removingMessages: nextRemoving });
         scheduleCacheWrite();
       }, 180));
+    };
+    const removeMessageImmediately = (chatId: string, messageId: string) => {
+      const key = `${chatId}:${messageId}`;
+      const previous = removalTimers.get(key);
+      if (previous) globalThis.clearTimeout(previous);
+      removalTimers.delete(key);
+
+      const messages = new Map(get().messages);
+      messages.set(chatId, (messages.get(chatId) ?? []).filter((message) => message.id !== messageId));
+      const removingMessages = new Map(get().removingMessages);
+      const ghosts = (removingMessages.get(chatId) ?? []).filter((message) => message.id !== messageId);
+      if (ghosts.length > 0) removingMessages.set(chatId, ghosts);
+      else removingMessages.delete(chatId);
+      sharedMediaIndex.remove(chatId, [messageId]);
+      set({ messages, removingMessages });
+      publishMessageChange({ type: "remove", chatId, messageIds: [messageId] });
     };
 
     const setTypingUser = (chatId: string, senderId: string, typing: boolean) => {
@@ -1223,17 +1240,8 @@ export const createTelegramStore = (
         else unreadAttentionMessageIds.delete(event.chatId);
         liveAttentionCandidates.delete(`${event.chatId}:${event.messageId}`);
         if (event.immediate) {
-          const messages = new Map(get().messages);
-          messages.set(event.chatId, (messages.get(event.chatId) ?? []).filter((message) => message.id !== event.messageId));
-          const removingMessages = new Map(get().removingMessages);
-          removingMessages.set(event.chatId, (removingMessages.get(event.chatId) ?? []).filter((message) => message.id !== event.messageId));
-          if (removingMessages.get(event.chatId)?.length === 0) removingMessages.delete(event.chatId);
-          set({ messages, removingMessages, unreadAttentionMessageIds });
-          publishMessageChange({
-            type: "remove",
-            chatId: event.chatId,
-            messageIds: [event.messageId],
-          });
+          set({ unreadAttentionMessageIds });
+          removeMessageImmediately(event.chatId, event.messageId);
           return;
         }
         set({ unreadAttentionMessageIds });
@@ -3505,7 +3513,9 @@ export const createTelegramStore = (
         }
         try {
           await transport.cancelFileUpload(chatId, messageId);
-          markMessageRemoving(chatId, messageId);
+          // A cancelled upload is not a user-visible deletion. Remove it from
+          // the projection immediately so the virtual list can reclaim its row.
+          removeMessageImmediately(chatId, messageId);
           set({ operationError: undefined });
           scheduleCacheWrite();
         } catch (error) {

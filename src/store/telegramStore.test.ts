@@ -1385,6 +1385,41 @@ describe("telegram store", () => {
     ).toBe(false);
   });
 
+  it("reclaims the row when cancelling an upload races with its removal update", async () => {
+    vi.useFakeTimers();
+    try {
+      class DuplicateRemovalTransport extends MockTelegramTransport {
+        private eventListener?: TelegramEventListener;
+
+        override async connect(listener: TelegramEventListener) {
+          this.eventListener = listener;
+          return super.connect(listener);
+        }
+
+        override async cancelFileUpload(chatId: string, messageId: string) {
+          await super.cancelFileUpload(chatId, messageId);
+          this.eventListener?.({ type: "message.remove", chatId, messageId });
+        }
+      }
+
+      const store = createTelegramStore(new DuplicateRemovalTransport());
+      await store.getState().initialize();
+      const file = new File(["upload"], "upload.mp4", { type: "video/mp4" });
+      await expect(store.getState().sendFile(file)).resolves.toBe(true);
+      const sent = store.getState().messages.get("chat-product")?.at(-1);
+      expect(sent).toBeDefined();
+
+      await store.getState().cancelFileUpload(sent!.id);
+
+      expect(store.getState().messages.get("chat-product")).not.toContainEqual(sent);
+      expect(store.getState().removingMessages.get("chat-product") ?? []).toEqual([]);
+      await vi.advanceTimersByTimeAsync(180);
+      expect(store.getState().removingMessages.get("chat-product") ?? []).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("preserves message state when edit or delete is rejected", async () => {
     class FailingOperationsTransport extends MockTelegramTransport {
       override async editMessage() {
