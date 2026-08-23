@@ -3448,4 +3448,15 @@ describe("chat filtering", () => {
     });
     expect(store.getState().operationError).toBe("Telegram 主题链接与 Notgram 不兼容");
   });
+
+  it("does not select a conversation that is missing from the current chat list", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+    const previousChatId = store.getState().activeChatId;
+
+    store.getState().selectChat("deleted-chat");
+
+    expect(store.getState().activeChatId).toBe(previousChatId);
+    expect(store.getState().operationError).toBe("会话不存在或当前账号无权访问");
+  });
 });

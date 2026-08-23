@@ -87,6 +87,7 @@ const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
 const EMPTY_MESSAGES: Message[] = [];
 const ADD_ACCOUNT_RETURN_STORAGE_KEY = "notgram:add-account-return";
+const UNAVAILABLE_CHAT_ERROR = "会话不存在或当前账号无权访问";
 
 const readAddAccountReturnId = () => {
   try {
@@ -796,6 +797,10 @@ export function App() {
     }));
     if (location.chatId) {
       const state = telegramStore.getState();
+      if (!state.chats.has(location.chatId)) {
+        telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+        return;
+      }
       const targetChat = state.chats.get(location.chatId);
       beginConversationSnapshot(
         conversationIdentityFor(location.chatId, location.topicId),
@@ -872,6 +877,10 @@ export function App() {
     preserveSearch = false,
   ) => {
     const state = telegramStore.getState();
+    if (!state.chats.has(chatId)) {
+      telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+      return;
+    }
     const targetTopicId = state.chats.get(chatId)?.isForum
       ? state.lastForumTopicIds.get(chatId) ?? state.forumTopics.get(chatId)?.find((topic) => !topic.isHidden)?.id
       : undefined;
@@ -961,6 +970,10 @@ export function App() {
     const generation = chatOpenGenerationRef.current + 1;
     chatOpenGenerationRef.current = generation;
     const state = telegramStore.getState();
+    if (!state.chats.has(chatId)) {
+      telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+      return;
+    }
     const cachedTarget = state.messages.get(chatId)?.find((message) => message.id === messageId);
     const targetMessages = (state.messages.get(chatId) ?? [])
       .filter((message) => !cachedTarget?.topicId || message.topicId === cachedTarget.topicId);
@@ -986,6 +999,10 @@ export function App() {
     }
     if (chatOpenGenerationRef.current !== generation) return;
     const loadedState = telegramStore.getState();
+    if (!loadedState.chats.has(chatId)) {
+      telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+      return;
+    }
     const targetTopicId = loadedState.chats.get(chatId)?.isForum
       ? loadedState.messages.get(chatId)?.find((message) => message.id === messageId)?.topicId
       : undefined;
@@ -1162,6 +1179,11 @@ export function App() {
     if (route.accountId !== state.activeAccountId) {
       savePendingNotificationRoute(route);
       if (!await state.switchAccount(route.accountId)) clearPendingNotificationRoute();
+      return;
+    }
+    if (!state.chats.has(route.chatId)) {
+      telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+      clearPendingNotificationRoute();
       return;
     }
 

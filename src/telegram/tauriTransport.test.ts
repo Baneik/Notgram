@@ -347,6 +347,43 @@ describe("TauriTelegramTransport startup", () => {
     ]);
   });
 
+  it("rejects message links whose target chat was deleted or is inaccessible", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.rawChats.set("-10072", {
+      "@type": "chat",
+      id: -10072,
+      title: "Stale release channel",
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 72, is_channel: true },
+    });
+    internal.request = async (request) => {
+      if (request["@type"] === "getInternalLinkType") {
+        return { "@type": "internalLinkTypeMessage", url: request.link };
+      }
+      if (request["@type"] === "getMessageLinkInfo") {
+        return {
+          "@type": "messageLinkInfo",
+          chat_id: -10072,
+          message: {
+            ...rawMessage(128_974_848),
+            chat_id: -10072,
+          },
+        };
+      }
+      if (request["@type"] === "getChat") {
+        throw new Error("CHAT_NOT_FOUND");
+      }
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.resolveTelegramLink("https://t.me/release_channel/123"))
+      .resolves.toEqual({
+        kind: "unsupported",
+        linkType: "internalLinkTypeMessage",
+        reason: "链接目标会话不存在或当前账号无权访问",
+      });
+  });
+
   it("rejects Telegram theme routes without searching for a public chat", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

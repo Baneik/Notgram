@@ -1904,6 +1904,10 @@ export const createTelegramStore = (
       },
 
       selectChat: (chatId, options) => {
+        if (!get().chats.has(chatId)) {
+          set({ operationError: "会话不存在或当前账号无权访问" });
+          return;
+        }
         const previousChatId = get().activeChatId;
         const previousTopicId = get().activeTopicId;
         if (previousChatId && previousChatId !== chatId) {

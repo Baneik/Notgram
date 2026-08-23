@@ -1429,21 +1429,33 @@ export class TauriTelegramTransport implements TelegramTransport {
       }).catch(() => undefined);
       const linkedMessage = asTdObject(linkInfo?.message);
       const linkedChatId = tdId(linkInfo?.chat_id) || tdId(linkedMessage?.chat_id);
-      if (linkedChatId) {
-        const rawChat = this.rawChats.get(linkedChatId) ?? await this.request({
+      const linkedMessageId = tdId(linkedMessage?.id);
+      if (linkedChatId && linkedMessageId) {
+        // Always refresh the target chat for a deep link. rawChats may contain a
+        // stale entry after a group/channel was deleted during this session.
+        const rawChat = await this.request({
           "@type": "getChat",
           chat_id: numericId(linkedChatId),
         }).catch(() => undefined);
-        if (rawChat) this.upsertChat(rawChat);
-        if (linkedMessage) this.emitMessage(linkedMessage);
-        return { chatId: linkedChatId, messageId: tdId(linkedMessage?.id) || undefined };
+        // TDLib can still return the numeric chat_id for a message link after the
+        // group/channel has been deleted or is no longer accessible. Do not expose
+        // that stale id to the UI, otherwise it becomes an empty active conversation.
+        if (!rawChat) {
+          return unsupportedTelegramLink(linkType, "链接目标会话不存在或当前账号无权访问");
+        }
+        if (!this.mapChat(rawChat)) {
+          return unsupportedTelegramLink(linkType, "链接目标会话不存在或当前账号无权访问");
+        }
+        this.upsertChat(rawChat);
+        this.emitMessage(linkedMessage);
+        return { chatId: linkedChatId, messageId: linkedMessageId };
       }
       return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 消息，或当前账号无权访问");
     }
     if (parsed.protocol !== "tg:" && path[0]?.toLowerCase() === "c" && /^\d+$/.test(path[1] ?? "")) {
       const internalChatId = `-100${path[1]}`;
-      const raw = this.rawChats.get(internalChatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(internalChatId) }).catch(() => undefined);
-      if (raw) {
+      const raw = await this.request({ "@type": "getChat", chat_id: numericId(internalChatId) }).catch(() => undefined);
+      if (raw && this.mapChat(raw)) {
         this.upsertChat(raw);
         return { chatId: internalChatId };
       }
