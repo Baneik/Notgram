@@ -135,6 +135,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "toggleForumTopicIsClosed",
     "toggleForumTopicIsPinned",
     "unpinChatMessage",
+    "readAllChatReactions",
     "viewMessages",
 ];
 

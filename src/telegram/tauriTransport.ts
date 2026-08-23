@@ -1889,13 +1889,27 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatId = this.canonicalChatId(chatId);
     const uniqueMessageIds = [...new Set(messageIds.map(numericId))];
     if (uniqueMessageIds.length === 0) return;
-    await this.request({
-      "@type": "viewMessages",
-      chat_id: numericId(chatId),
-      message_ids: uniqueMessageIds,
-      source: { "@type": "messageSourceChatHistory" },
-      force_read: true,
+    const rawMessageMap = this.rawMessages.get(chatId);
+    const reactionMessageIds = uniqueMessageIds.filter((messageId) => {
+      const raw = rawMessageMap?.get(String(messageId));
+      return Array.isArray(raw?.unread_reactions) && raw.unread_reactions.length > 0;
     });
+    const mentionMessageIds = uniqueMessageIds.filter((messageId) => !reactionMessageIds.includes(messageId));
+    if (mentionMessageIds.length > 0) {
+      await this.request({
+        "@type": "viewMessages",
+        chat_id: numericId(chatId),
+        message_ids: mentionMessageIds,
+        source: { "@type": "messageSourceChatHistory" },
+        force_read: true,
+      });
+    }
+    if (reactionMessageIds.length > 0) {
+      await this.request({
+        "@type": "readAllChatReactions",
+        chat_id: numericId(chatId),
+      });
+    }
   }
 
   private async loadNextHistoryPage(

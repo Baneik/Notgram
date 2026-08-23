@@ -1783,6 +1783,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     replyMarkup: mapTdReplyMarkup(raw.reply_markup),
     isPending: raw.is_pending === true,
     containsUnreadMention: raw.contains_unread_mention === true,
+    containsUnreadReaction: Array.isArray(raw.unread_reactions) && raw.unread_reactions.length > 0,
     content,
   };
 };
@@ -1923,6 +1924,7 @@ export const mapTdChat = (
     updatedAt: unixDate(lastMessage?.date),
     unreadCount: tdNumber(raw.unread_count) ?? 0,
     unreadMentionCount: Math.max(0, tdNumber(raw.unread_mention_count) ?? 0),
+    unreadReactionCount: Math.max(0, tdNumber(raw.unread_reaction_count) ?? 0),
     lastReadInboxMessageId: tdId(raw.last_read_inbox_message_id) || undefined,
     pinned: pinnedFolderIds.length > 0,
     pinnedFolderIds,

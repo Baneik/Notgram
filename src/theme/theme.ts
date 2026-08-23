@@ -43,6 +43,8 @@ export const THEME_COLOR_TOKENS = [
   "--color-admin-soft",
   "--color-attention-badge",
   "--color-attention-badge-text",
+  "--color-reaction-badge",
+  "--color-reaction-badge-text",
   "--color-text-link",
   "--color-text-code",
   "--color-bg-code",

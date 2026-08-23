@@ -487,6 +487,7 @@ export interface Chat {
   updatedAt: string;
   unreadCount: number;
   unreadMentionCount: number;
+  unreadReactionCount?: number;
   lastReadInboxMessageId?: string;
   pinned: boolean;
   pinnedFolderIds?: string[];
@@ -898,6 +899,7 @@ export interface Message {
   isRemoving?: boolean;
   isPending?: boolean;
   containsUnreadMention?: boolean;
+  containsUnreadReaction?: boolean;
   replyMarkup?: MessageInlineKeyboard;
   content: MessageContent;
 }

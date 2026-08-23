@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUpRight,
   AtSign,
+  Heart,
   ChevronLeft,
   Forward,
   MoreVertical,
@@ -589,11 +590,10 @@ export function Conversation({
     if (pinnedViewOpen) return EMPTY_ATTENTION_MESSAGE_IDS;
     const messageIds = new Set(attentionMessageIds);
     for (const message of renderedMessages) {
-      if (message.containsUnreadMention) messageIds.add(message.id);
+      if (message.containsUnreadMention || message.containsUnreadReaction) messageIds.add(message.id);
     }
     return [...messageIds];
   }, [attentionMessageIds, pinnedViewOpen, renderedMessages]);
-
   const focusComposer = useCallback(() => {
     globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
   }, []);
@@ -716,6 +716,17 @@ export function Conversation({
   ), [allPinnedMessages, displayMessages, renderedMessages]);
   const messagesByIdRef = useRef(messagesById);
   messagesByIdRef.current = messagesById;
+  const hasPrimaryAttention = useMemo(() => attentionMessageIds.some((messageId) => {
+    const message = messagesById.get(messageId);
+    return Boolean(message?.containsUnreadMention || (
+      message?.replyTo?.kind === "message" && (
+        message.replyTo.outgoing === true || (
+          message.replyTo.messageId !== undefined &&
+          messagesById.get(message.replyTo.messageId)?.outgoing === true
+        )
+      )
+    ));
+  }), [attentionMessageIds, messagesById]);
   const replyPreviewForMessage = useCallback((message: Message) => {
     if (!chat) return undefined;
     const preview = replyPreviewFor(
@@ -2225,16 +2236,16 @@ export function Conversation({
         />
         {!pinnedViewOpen && currentScrollKey && attentionMessageIds.length > 0 && (
           <button
-            className={`conversation-jump-button jump-to-attention ${awayFromLatest || jumpHistoryCount > 0 ? "is-stacked" : ""}`}
+            className={`conversation-jump-button jump-to-attention ${!hasPrimaryAttention ? "has-reaction" : ""} ${awayFromLatest || jumpHistoryCount > 0 ? "is-stacked" : ""}`}
             type="button"
-            aria-label={`跳到提及或引用，${attentionMessageIds.length} 条待查看`}
-            title="跳到提及或引用"
+            aria-label={`${hasPrimaryAttention ? "跳到提及或引用" : "跳到回应"}，${attentionMessageIds.length} 条待查看`}
+            title={hasPrimaryAttention ? "跳到提及或引用" : "跳到回应"}
             onClick={() => {
               const messageId = attentionMessageIds.at(-1);
               if (chat && messageId) revealAttentionMessage(messageId);
             }}
           >
-            <AtSign size={19} strokeWidth={2.1} />
+            {hasPrimaryAttention ? <AtSign size={19} strokeWidth={2.1} /> : <Heart size={18} strokeWidth={2.1} />}
             <span>{attentionMessageIds.length > 99 ? "99+" : attentionMessageIds.length}</span>
           </button>
         )}

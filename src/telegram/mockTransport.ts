@@ -2378,15 +2378,21 @@ export class MockTelegramTransport implements TelegramTransport {
   async markMessageAttentionRead(chatId: string, messageIds: string[]) {
     const requestedIds = new Set(messageIds);
     const readMessages = this.snapshot.messages.filter(
-      (message) => message.chatId === chatId && requestedIds.has(message.id) && message.containsUnreadMention,
+      (message) => message.chatId === chatId && requestedIds.has(message.id) && (
+        message.containsUnreadMention || message.containsUnreadReaction
+      ),
     );
+    const mentionCount = readMessages.filter((message) => message.containsUnreadMention).length;
+    const reactionCount = readMessages.filter((message) => message.containsUnreadReaction).length;
     for (const message of readMessages) {
       message.containsUnreadMention = false;
+      message.containsUnreadReaction = false;
       this.listener?.({ type: "message.upsert", message: clone(message) });
     }
     const chat = this.snapshot.chats.find((item) => item.id === chatId);
     if (!chat || readMessages.length === 0) return;
-    chat.unreadMentionCount = Math.max(0, chat.unreadMentionCount - readMessages.length);
+    chat.unreadMentionCount = Math.max(0, chat.unreadMentionCount - mentionCount);
+    chat.unreadReactionCount = Math.max(0, (chat.unreadReactionCount ?? 0) - reactionCount);
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 

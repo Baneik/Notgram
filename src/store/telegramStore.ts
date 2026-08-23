@@ -262,11 +262,12 @@ export const createTelegramStore = (
     const messageEventKey = (message: Message) => `${message.chatId}:${message.id}`;
     const queueLiveMessageAttention = (message: Message, live: boolean) => {
       const key = messageEventKey(message);
-      if (message.outgoing) {
+      if (message.outgoing && message.containsUnreadReaction !== true) {
         liveAttentionCandidates.delete(key);
         return;
       }
-      if (live) {
+      const hasUnreadReaction = message.containsUnreadReaction === true;
+      if (live || hasUnreadReaction) {
         liveAttentionCandidates.add(key);
         if (liveAttentionCandidates.size > 512) {
           liveAttentionCandidates.delete(liveAttentionCandidates.values().next().value!);
@@ -280,6 +281,7 @@ export const createTelegramStore = (
         ? get().messages.get(replyChatId)?.find((candidate) => candidate.id === reply.messageId)
         : undefined;
       const needsAttention = message.containsUnreadMention === true ||
+        message.containsUnreadReaction === true ||
         reply?.outgoing === true || repliedMessage?.outgoing === true;
       const replyResolved = !reply || reply.outgoing !== undefined || repliedMessage !== undefined;
       if (!needsAttention && !replyResolved) return;

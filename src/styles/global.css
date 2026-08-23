@@ -498,6 +498,10 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .chat-row.is-active .unread-count.has-attention {
   color: var(--color-attention-badge-text); background: var(--color-attention-badge);
 }
+.unread-count.has-reaction,
+.chat-row.is-active .unread-count.has-reaction {
+  color: var(--color-reaction-badge-text); background: var(--color-reaction-badge);
+}
 .unread-count-avatar {
   position: absolute; right: -3px; bottom: -3px;
   min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; font-size: 11px;
@@ -951,10 +955,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .jump-to-attention.is-stacked { transform: translateY(-54px); }
 .conversation-jump-button:hover, .conversation-jump-button:focus-visible { color: var(--accent); background: var(--accent-soft); }
+.conversation-jump-button.has-reaction { color: var(--color-reaction-badge); }
+.conversation-jump-button.has-reaction:hover, .conversation-jump-button.has-reaction:focus-visible { color: var(--color-reaction-badge); background: color-mix(in srgb, var(--color-reaction-badge) 16%, var(--color-bg-elevated)); }
 .conversation-jump-button span {
   position: absolute; top: -5px; right: -5px; min-width: 20px; height: 20px; padding: 0 5px;
   display: inline-grid; place-items: center; color: var(--color-text-on-accent); background: var(--accent); border: 2px solid var(--color-bg-elevated);
   border-radius: 10px; font-size: 10px; font-weight: 700;
+}
+.conversation-jump-button.has-reaction span {
+  color: var(--color-reaction-badge-text); background: var(--color-reaction-badge);
 }
 .history-loading { position: absolute; top: 6px; left: 50%; z-index: 4; width: 32px; height: 24px; display: grid; place-items: center; color: var(--color-on-media); background: var(--color-message-service); border-radius: 12px; transform: translateX(-50%); }
 .message-list-shell.has-pinned-message-banner .history-loading { top: 54px; }

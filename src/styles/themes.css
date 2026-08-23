@@ -33,6 +33,8 @@
   --color-admin-soft: #f0e4f5;
   --color-attention-badge: #be6258;
   --color-attention-badge-text: #ffffff;
+  --color-reaction-badge: #6f8f9a;
+  --color-reaction-badge-text: #ffffff;
   --color-text-link: #376d99;
   --color-text-code: #303b40;
   --color-bg-code: rgba(48, 64, 72, 0.12);
@@ -78,6 +80,8 @@
   --color-admin-soft: #413448;
   --color-attention-badge: #f2b84b;
   --color-attention-badge-text: #231700;
+  --color-reaction-badge: #78a6a5;
+  --color-reaction-badge-text: #142323;
   --color-text-link: #78a7c8;
   --color-text-code: #cfd4d9;
   --color-bg-code: rgba(0, 0, 0, 0.18);
@@ -126,6 +130,8 @@
     --color-admin-soft: Canvas;
     --color-attention-badge: Highlight;
     --color-attention-badge-text: HighlightText;
+    --color-reaction-badge: Highlight;
+    --color-reaction-badge-text: HighlightText;
     --color-text-link: LinkText;
     --color-text-code: CanvasText;
     --color-bg-code: Canvas;

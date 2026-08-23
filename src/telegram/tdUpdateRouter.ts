@@ -107,6 +107,11 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
         unread_mention_count: update.unread_mention_count,
       });
       return;
+    case "updateChatUnreadReactionCount":
+      handlers.patchChat(update.chat_id, {
+        unread_reaction_count: update.unread_reaction_count,
+      });
+      return;
     case "updateChatIsMarkedAsUnread":
       handlers.patchChat(update.chat_id, {
         is_marked_as_unread: update.is_marked_as_unread,
@@ -160,6 +165,14 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
       });
       handlers.patchMessage(update.chat_id, update.message_id, {
         contains_unread_mention: false,
+      });
+      return;
+    case "updateMessageUnreadReactions":
+      handlers.patchChat(update.chat_id, {
+        unread_reaction_count: update.unread_reaction_count,
+      });
+      handlers.patchMessage(update.chat_id, update.message_id, {
+        unread_reactions: update.unread_reactions,
       });
       return;
     case "updateChatReadOutbox":

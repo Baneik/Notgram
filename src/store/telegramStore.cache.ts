@@ -292,6 +292,9 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
           unreadMentionCount: Number.isFinite(chat.unreadMentionCount)
             ? Math.max(0, chat.unreadMentionCount)
             : 0,
+          unreadReactionCount: Number.isFinite(chat.unreadReactionCount ?? NaN)
+            ? Math.max(0, chat.unreadReactionCount ?? 0)
+            : 0,
         };
         delete result.management;
         delete result.canCreateTopics;

@@ -597,9 +597,13 @@ const ChatRow = memo(function ChatRow({
       ? `${visibleAttachmentDraft.attachments.length} 个附件`
       : undefined);
   const hasUnreadAttention = chat.unreadMentionCount > 0;
-  const unreadBadgeClassName = `unread-count ${chat.muted ? "is-muted" : ""} ${hasUnreadAttention ? "has-attention" : ""}`;
+  const hasUnreadReaction = (chat.unreadReactionCount ?? 0) > 0;
+  const displayUnreadCount = chat.unreadCount > 0 ? chat.unreadCount : (chat.unreadReactionCount ?? 0);
+  const unreadBadgeClassName = `unread-count ${chat.muted ? "is-muted" : ""} ${hasUnreadAttention ? "has-attention" : ""} ${!hasUnreadAttention && hasUnreadReaction ? "has-reaction" : ""}`;
   const unreadBadgeLabel = hasUnreadAttention
-    ? `${chat.unreadCount} 条未读消息，其中包含提及或回复`
+    ? `${displayUnreadCount} 条未读消息，其中包含提及或回复`
+    : hasUnreadReaction
+      ? `${displayUnreadCount} 条未读消息，其中包含回应`
     : undefined;
   return (
     <button
@@ -637,13 +641,13 @@ const ChatRow = memo(function ChatRow({
     >
       <span className="chat-avatar-wrap">
         <Avatar avatar={chat.avatar} />
-        {unreadBadgePosition === "avatar" && chat.unreadCount > 0 && (
+        {unreadBadgePosition === "avatar" && displayUnreadCount > 0 && (
           <span
             className={`${unreadBadgeClassName} unread-count-avatar`}
             aria-label={unreadBadgeLabel}
-            title={hasUnreadAttention ? "包含未读的提及或回复" : undefined}
+            title={hasUnreadAttention ? "包含未读的提及或回复" : hasUnreadReaction ? "包含未读的回应" : undefined}
           >
-            {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
+            {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
           </span>
         )}
       </span>
@@ -671,13 +675,13 @@ const ChatRow = memo(function ChatRow({
           <span className="chat-row-meta">
             {isChatPinnedInFolder(chat, folderId) && <Pin size={13} strokeWidth={2} />}
             {chat.folderIds.includes("archive") && <Archive size={13} strokeWidth={2} />}
-            {unreadBadgePosition === "right" && chat.unreadCount > 0 && (
+            {unreadBadgePosition === "right" && displayUnreadCount > 0 && (
               <span
                 className={unreadBadgeClassName}
                 aria-label={unreadBadgeLabel}
-                title={hasUnreadAttention ? "包含未读的提及或回复" : undefined}
+                title={hasUnreadAttention ? "包含未读的提及或回复" : hasUnreadReaction ? "包含未读的回应" : undefined}
               >
-                {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
+                {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
               </span>
             )}
           </span>
