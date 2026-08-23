@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { calculateNativeContextMenuGeometry } from "./nativeContextMenuLayout";
+import {
+  calculateNativeContextMenuGeometry,
+  calculateNativeContextMenuPosition,
+} from "./nativeContextMenuLayout";
 
 interface TestMenuItem {
   id: string;
@@ -83,5 +86,31 @@ describe("native context menu layout", () => {
     );
 
     expect(withoutIndicator.primaryPanelWidth).toBeLessThan(withIndicator.primaryPanelWidth);
+  });
+
+  it("keeps the collapsed menu beside a right-edge cursor when submenus are available", () => {
+    const geometry = calculateNativeContextMenuGeometry(
+      [
+        item("reply", "回复"),
+        {
+          ...item("forward", "转发", [item("target", "快速转发目标")]),
+          hideSubmenuIndicator: true,
+        },
+        item("copy", "复制"),
+      ],
+      undefined,
+      measureLabel,
+    );
+    const anchor = { x: 920, y: 240 };
+    const position = calculateNativeContextMenuPosition(
+      anchor,
+      geometry,
+      { position: { x: 0, y: 0 }, size: { width: 1000, height: 700 } },
+      1,
+      "cursor",
+    );
+
+    expect(geometry.expandedWidth).toBeGreaterThan(geometry.width);
+    expect(position.x + geometry.width).toBe(anchor.x - 4);
   });
 });

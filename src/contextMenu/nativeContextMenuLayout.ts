@@ -6,6 +6,10 @@ export const NATIVE_CONTEXT_MENU_MIN_PANEL_WIDTH = 120;
 export const NATIVE_CONTEXT_MENU_MAX_PANEL_WIDTH = 204;
 export const NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS = 5;
 
+const NATIVE_CONTEXT_MENU_SCREEN_GAP = 4;
+const NATIVE_CONTEXT_MENU_SCREEN_MARGIN = 6;
+const NATIVE_CONTEXT_MENU_FIRST_ITEM_CENTER_OFFSET = 33;
+
 const NATIVE_CONTEXT_MENU_ITEM_CHROME_WIDTH = 56;
 const NATIVE_CONTEXT_MENU_SUBMENU_INDICATOR_WIDTH = 16;
 const NATIVE_CONTEXT_MENU_EXTRA_WIDTH = 30;
@@ -40,6 +44,46 @@ export interface NativeContextMenuGeometry {
   submenuOffsetX: number;
   submenuOffsetY: number;
 }
+
+interface NativeContextMenuScreenPoint {
+  x: number;
+  y: number;
+}
+
+interface NativeContextMenuScreenArea {
+  position: NativeContextMenuScreenPoint;
+  size: {
+    width: number;
+    height: number;
+  };
+}
+
+export const calculateNativeContextMenuPosition = (
+  anchor: NativeContextMenuScreenPoint,
+  menu: Pick<NativeContextMenuGeometry, "width" | "height">,
+  workArea: NativeContextMenuScreenArea,
+  scale: number,
+  placement: "cursor" | "anchor",
+) => {
+  const width = menu.width * scale;
+  const height = menu.height * scale;
+  const gap = NATIVE_CONTEXT_MENU_SCREEN_GAP * scale;
+  const margin = NATIVE_CONTEXT_MENU_SCREEN_MARGIN * scale;
+  const panelInset = NATIVE_CONTEXT_MENU_WINDOW_INSET * scale;
+  const right = workArea.position.x + workArea.size.width;
+  const bottom = workArea.position.y + workArea.size.height;
+  let x = anchor.x + (placement === "cursor" ? gap : -panelInset);
+  let y = anchor.y - (placement === "cursor"
+    ? NATIVE_CONTEXT_MENU_FIRST_ITEM_CENTER_OFFSET * scale
+    : panelInset);
+
+  if (x + width + margin > right) x = anchor.x - width - gap;
+  if (y + height + margin > bottom) y = anchor.y - height - gap;
+  x = Math.max(workArea.position.x + margin, Math.min(x, right - width - margin));
+  y = Math.max(workArea.position.y + margin, Math.min(y, bottom - height - margin));
+
+  return { x: Math.round(x), y: Math.round(y) };
+};
 
 interface NativeContextMenuLayoutItem {
   id: string;

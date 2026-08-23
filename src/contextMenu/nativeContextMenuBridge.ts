@@ -5,8 +5,9 @@ import type { Avatar } from "../telegram/types";
 import type { ContextMenuPoint } from "../utils/contextMenuLayout";
 import {
   calculateNativeContextMenuGeometry,
+  calculateNativeContextMenuPosition,
   measureNativeContextMenuLabel,
-  NATIVE_CONTEXT_MENU_WINDOW_INSET,
+  type NativeContextMenuGeometry,
 } from "./nativeContextMenuLayout";
 
 export type NativeContextMenuIcon =
@@ -56,8 +57,6 @@ export type NativeContextMenuMessage =
   | { type: "closed"; id: string };
 
 export const NATIVE_CONTEXT_MENU_CHANNEL = "notgram-context-menu-v2";
-const MENU_SCREEN_GAP = 4;
-const MENU_FIRST_ITEM_CENTER_OFFSET = 33;
 const NATIVE_CONTEXT_MENU_OPEN_TIMEOUT_MS = 10_000;
 
 let preparation: Promise<void> | undefined;
@@ -98,8 +97,7 @@ type NativeContextMenuPlacement = "cursor" | "anchor";
 
 const menuPlacement = async (
   point: ContextMenuPoint,
-  width: number,
-  height: number,
+  geometry: Pick<NativeContextMenuGeometry, "width" | "height">,
   placement: NativeContextMenuPlacement,
 ) => {
   const currentWindow = getCurrentWindow();
@@ -121,22 +119,13 @@ const menuPlacement = async (
     width: globalThis.screen.availWidth * targetScale,
     height: globalThis.screen.availHeight * targetScale,
   };
-  const widthPx = width * targetScale;
-  const heightPx = height * targetScale;
-  const gapPx = MENU_SCREEN_GAP * targetScale;
-  const marginPx = 6 * targetScale;
-  const right = workPosition.x + workSize.width;
-  const bottom = workPosition.y + workSize.height;
-  const panelInsetPx = NATIVE_CONTEXT_MENU_WINDOW_INSET * targetScale;
-  let x = anchor.x + (placement === "cursor" ? gapPx : -panelInsetPx);
-  let y = anchor.y - (placement === "cursor"
-    ? MENU_FIRST_ITEM_CENTER_OFFSET * targetScale
-    : panelInsetPx);
-  if (x + widthPx + marginPx > right) x = anchor.x - widthPx - gapPx;
-  if (y + heightPx + marginPx > bottom) y = anchor.y - heightPx - gapPx;
-  x = Math.max(workPosition.x + marginPx, Math.min(x, right - widthPx - marginPx));
-  y = Math.max(workPosition.y + marginPx, Math.min(y, bottom - heightPx - marginPx));
-  return { x: Math.round(x), y: Math.round(y) };
+  return calculateNativeContextMenuPosition(
+    anchor,
+    geometry,
+    { position: workPosition, size: workSize },
+    targetScale,
+    placement,
+  );
 };
 
 type DescriptorUpdater = (descriptor: NativeContextMenuDescriptor) => void;
@@ -156,8 +145,7 @@ const showNativeContextMenu = async (
   );
   const menuPosition = await menuPlacement(
     point,
-    geometry.expandedWidth,
-    geometry.maximumExpandedHeight,
+    geometry,
     placement,
   );
   if (signal.aborted) return undefined;
