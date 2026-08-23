@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatIdFromBasicGroupId,
+  chatIdFromSupergroupId,
   mapTdChat,
   mapTdChatDraft,
   mapTdChatFolders,
@@ -12,6 +14,13 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("encodes legacy and upgraded group chat identifiers", () => {
+    expect(chatIdFromBasicGroupId(53)).toBe("-53");
+    expect(chatIdFromSupergroupId(91)).toBe("-1000000000091");
+    expect(chatIdFromBasicGroupId(0)).toBeUndefined();
+    expect(chatIdFromSupergroupId("not-a-number")).toBeUndefined();
+  });
+
   it("sanitizes identity fields before they enter the application model", () => {
     const dirtyName = "所\u0334\u035f謂\u034f星\u0361Ⓥ🔥\u202e";
     const user = mapTdUser({

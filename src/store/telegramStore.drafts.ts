@@ -160,6 +160,46 @@ export class DraftSyncController {
     this.requestChains.clear();
   }
 
+  migrateChat(fromChatId: string, toChatId: string) {
+    if (fromChatId === toChatId) return;
+    const migrateKey = (key: string) => key === fromChatId
+      ? toChatId
+      : key.startsWith(`${fromChatId}:topic:`)
+        ? `${toChatId}${key.slice(fromChatId.length)}`
+        : key;
+    const oldKey = fromChatId;
+    const newKey = toChatId;
+    const entry = this.syncs.get(oldKey);
+    if (entry) {
+      this.syncs.delete(oldKey);
+      const previous = this.syncs.get(newKey);
+      if (previous) clearDraftSyncTimers(previous);
+      clearDraftSyncTimers(entry);
+      if (entry.draft?.chatId === fromChatId) entry.draft = { ...entry.draft, chatId: toChatId };
+      this.syncs.set(newKey, entry);
+      if (!entry.sent) void this.perform(newKey, entry.generation);
+    }
+    const chain = this.requestChains.get(oldKey);
+    if (chain) {
+      this.requestChains.delete(oldKey);
+      this.requestChains.set(newKey, chain);
+    }
+    for (const [key, value] of [...this.syncs]) {
+      const migratedKey = migrateKey(key);
+      if (migratedKey === key) continue;
+      this.syncs.delete(key);
+      if (this.syncs.has(migratedKey)) clearDraftSyncTimers(this.syncs.get(migratedKey)!);
+      if (value.draft?.chatId === fromChatId) value.draft = { ...value.draft, chatId: toChatId };
+      this.syncs.set(migratedKey, value);
+    }
+    for (const [key, chainValue] of [...this.requestChains]) {
+      const migratedKey = migrateKey(key);
+      if (migratedKey === key) continue;
+      this.requestChains.delete(key);
+      this.requestChains.set(migratedKey, chainValue);
+    }
+  }
+
   private settleWithoutServerUpdate(chatId: string, generation: number) {
     const entry = this.syncs.get(chatId);
     if (!entry || entry.generation !== generation) return;

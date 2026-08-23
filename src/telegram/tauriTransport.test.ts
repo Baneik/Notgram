@@ -24,6 +24,7 @@ type TestableTransport = {
   handleUpdate: (update: TdObject) => void;
   handleUpdateBatch: (updates: TdObject[]) => void;
   upsertChat: (chat: TdObject) => void;
+  upsertBasicGroup: (basicGroup: TdObject) => void;
   upsertSupergroup: (supergroup: TdObject) => void;
   upsertUser: (user: TdObject) => void;
   finishInitialChatSync: () => void;
@@ -32,6 +33,7 @@ type TestableTransport = {
   proxySettings?: ProxySettings;
   runtimeProxyProfileId?: string;
   dataCenterId?: number;
+  rawChats: Map<string, TdObject>;
 };
 
 const rawMessage = (id: number): TdObject => ({
@@ -861,6 +863,41 @@ describe("TauriTelegramTransport startup", () => {
       type: "chats.upserted",
       chats: [{ id: "72", isForum: true, canCreateTopics: true }],
     });
+  });
+
+  it("publishes a migration when a basic group is upgraded", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+    internal.rawChats.set("-53", {
+      "@type": "chat",
+      id: -53,
+      title: "Legacy group",
+      type: { "@type": "chatTypeBasicGroup", basic_group_id: 53 },
+    });
+    internal.rawChats.set("-1000000000091", {
+      "@type": "chat",
+      id: -1000000000091,
+      title: "Legacy group",
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+
+    internal.upsertBasicGroup({
+      "@type": "basicGroup",
+      id: 53,
+      member_count: 0,
+      upgraded_to_supergroup_id: 91,
+    });
+
+    expect(events).toContainEqual({
+      type: "chat.migrated",
+      fromChatId: "-53",
+      toChatId: "-1000000000091",
+    });
+
+    internal.emitMessage({ ...rawMessage(1), chat_id: -53 });
+    expect(events.at(-1)).toMatchObject({ type: "message.upsert", message: { chatId: "-1000000000091" } });
   });
 
   it("publishes live management capability changes from group status updates", () => {

@@ -973,6 +973,7 @@ export type TelegramEvent =
   | { type: "messages.upserted"; messages: Message[]; cacheRelevant?: boolean }
   | { type: "message.remove"; chatId: string; messageId: string; immediate?: boolean }
   | { type: "folders.replaced"; folders: ChatFolder[] }
+  | { type: "chat.migrated"; fromChatId: string; toChatId: string }
   | { type: "chats.upserted"; chats: Chat[] }
   | { type: "chat.upsert"; chat: Chat; cacheRelevant?: boolean }
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }

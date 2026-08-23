@@ -124,6 +124,53 @@ const errorMessage = (error: unknown, fallback: string) => {
 
 const topicKey = (chatId: string, topicId?: string) => topicId ? `${chatId}:topic:${topicId}` : chatId;
 
+const migrateMessageChatId = (message: Message, fromChatId: string, toChatId: string): Message => {
+  const replyTo = message.replyTo?.kind === "message"
+    ? {
+        ...message.replyTo,
+        ...(message.replyTo.chatId === fromChatId ? { chatId: toChatId } : {}),
+        origin: message.replyTo.origin && (message.replyTo.origin.kind === "chat" || message.replyTo.origin.kind === "channel")
+          ? {
+              ...message.replyTo.origin,
+              ...(message.replyTo.origin.chatId === fromChatId ? { chatId: toChatId } : {}),
+            }
+          : message.replyTo.origin,
+      }
+    : message.replyTo?.kind === "story" && message.replyTo.chatId === fromChatId
+      ? { ...message.replyTo, chatId: toChatId }
+      : message.replyTo;
+  const forwardInfo = message.forwardInfo
+    ? {
+        ...message.forwardInfo,
+        origin: message.forwardInfo.origin && (message.forwardInfo.origin.kind === "chat" || message.forwardInfo.origin.kind === "channel")
+          ? {
+              ...message.forwardInfo.origin,
+              ...(message.forwardInfo.origin.chatId === fromChatId ? { chatId: toChatId } : {}),
+            }
+          : message.forwardInfo.origin,
+        source: message.forwardInfo.source
+          ? {
+              ...message.forwardInfo.source,
+              ...(message.forwardInfo.source.chatId === fromChatId ? { chatId: toChatId } : {}),
+            }
+          : message.forwardInfo.source,
+      }
+    : message.forwardInfo;
+  return {
+    ...message,
+    chatId: toChatId,
+    replyTo,
+    forwardInfo,
+  };
+};
+
+const migrateChatKey = (key: string, fromChatId: string, toChatId: string) =>
+  key === fromChatId
+    ? toChatId
+    : key.startsWith(`${fromChatId}:topic:`)
+      ? `${toChatId}${key.slice(fromChatId.length)}`
+      : key;
+
 const reloadCurrentApplication = () => {
   if (typeof window === "undefined") return;
   if (isTauri()) {
@@ -808,6 +855,178 @@ export const createTelegramStore = (
       return markChatRead(chatId);
     };
 
+    const migrateChatState = (fromChatId: string, toChatId: string) => {
+      if (!fromChatId || !toChatId || fromChatId === toChatId) return;
+      const current = get();
+      const chats = new Map(current.chats);
+      const oldChat = chats.get(fromChatId);
+      const newChat = chats.get(toChatId);
+      if (oldChat) {
+        chats.set(toChatId, newChat ? { ...oldChat, ...newChat, id: toChatId } : { ...oldChat, id: toChatId });
+      }
+      chats.delete(fromChatId);
+
+      const messages = new Map(current.messages);
+      const migratedMessages = (messages.get(fromChatId) ?? [])
+        .map((message) => migrateMessageChatId(message, fromChatId, toChatId));
+      messages.delete(fromChatId);
+      if (migratedMessages.length > 0 || messages.has(toChatId)) {
+        messages.set(toChatId, upsertMessages(messages.get(toChatId) ?? [], migratedMessages));
+      }
+      const cachedIds = cachedMessageIds.get(fromChatId);
+      if (cachedIds) {
+        const mergedCachedIds = new Set([...(cachedMessageIds.get(toChatId) ?? []), ...cachedIds]);
+        cachedMessageIds.delete(fromChatId);
+        cachedMessageIds.set(toChatId, mergedCachedIds);
+      }
+
+      const removingMessages = new Map(current.removingMessages);
+      const migratedRemoving = (removingMessages.get(fromChatId) ?? [])
+        .map((message) => migrateMessageChatId(message, fromChatId, toChatId));
+      removingMessages.delete(fromChatId);
+      if (migratedRemoving.length > 0) {
+        removingMessages.set(toChatId, upsertMessages(removingMessages.get(toChatId) ?? [], migratedRemoving));
+      }
+
+      const unreadAttentionMessageIds = new Map(current.unreadAttentionMessageIds);
+      const migratedAttention = [
+        ...(unreadAttentionMessageIds.get(toChatId) ?? []),
+        ...(unreadAttentionMessageIds.get(fromChatId) ?? []),
+      ];
+      unreadAttentionMessageIds.delete(fromChatId);
+      if (migratedAttention.length > 0) {
+        unreadAttentionMessageIds.set(toChatId, [...new Set(migratedAttention)]);
+      }
+
+      const drafts = new Map(current.drafts);
+      for (const [key, draft] of current.drafts) {
+        const migratedKey = migrateChatKey(key, fromChatId, toChatId);
+        const migratedDraft = draft.chatId === fromChatId ? { ...draft, chatId: toChatId } : draft;
+        if (migratedKey !== key) drafts.delete(key);
+        const previous = drafts.get(migratedKey);
+        if (!previous || Date.parse(migratedDraft.updatedAt) >= Date.parse(previous.updatedAt)) {
+          drafts.set(migratedKey, migratedDraft);
+        }
+      }
+
+      const localAttachmentDrafts = new Map(current.localAttachmentDrafts);
+      for (const [key, draft] of [...localAttachmentDrafts]) {
+        if (draft.chatId !== fromChatId) continue;
+        const migratedKey = migrateChatKey(key, fromChatId, toChatId);
+        localAttachmentDrafts.delete(key);
+        localAttachmentDrafts.set(migratedKey, {
+          ...draft,
+          draftKey: migratedKey,
+          chatId: toChatId,
+        });
+      }
+
+      const outbox = current.outbox.map((item) => item.chatId === fromChatId
+        ? { ...item, chatId: toChatId }
+        : item);
+      const histories = new Map(current.histories);
+      const oldHistory = histories.get(fromChatId);
+      const newHistory = histories.get(toChatId);
+      histories.delete(fromChatId);
+      if (oldHistory || newHistory) {
+        histories.set(toChatId, {
+          loading: Boolean(oldHistory?.loading || newHistory?.loading),
+          hasMore: Boolean(oldHistory?.hasMore || newHistory?.hasMore),
+          initialized: Boolean(oldHistory?.initialized || newHistory?.initialized),
+        });
+      }
+
+      const forumTopics = new Map(current.forumTopics);
+      const oldTopics = forumTopics.get(fromChatId);
+      if (oldTopics && !forumTopics.has(toChatId)) forumTopics.set(toChatId, oldTopics);
+      forumTopics.delete(fromChatId);
+      const forumTopicsLoading = new Set(current.forumTopicsLoading);
+      if (forumTopicsLoading.delete(fromChatId)) forumTopicsLoading.add(toChatId);
+      const topicHistories = new Map(current.topicHistories);
+      topicHistories.clear();
+      for (const [key, history] of current.topicHistories) topicHistories.set(migrateChatKey(key, fromChatId, toChatId), history);
+      const lastForumTopicIds = new Map(current.lastForumTopicIds);
+      const oldTopicId = lastForumTopicIds.get(fromChatId);
+      lastForumTopicIds.delete(fromChatId);
+      if (oldTopicId && !lastForumTopicIds.has(toChatId)) lastForumTopicIds.set(toChatId, oldTopicId);
+
+      const typingUserIds = new Map(current.typingUserIds);
+      const oldTyping = typingUserIds.get(fromChatId);
+      typingUserIds.delete(fromChatId);
+      if (oldTyping?.length) typingUserIds.set(toChatId, [...new Set([...(typingUserIds.get(toChatId) ?? []), ...oldTyping])]);
+
+      const chatAdministratorLabels = new Map(current.chatAdministratorLabels);
+      const labels = chatAdministratorLabels.get(fromChatId);
+      chatAdministratorLabels.delete(fromChatId);
+      if (labels && !chatAdministratorLabels.has(toChatId)) chatAdministratorLabels.set(toChatId, labels);
+
+      for (const [key, timer] of [...readTimers]) {
+        if (key === fromChatId) {
+          globalThis.clearTimeout(timer);
+          readTimers.delete(key);
+        }
+      }
+      for (const [key, timer] of [...typingTimers]) {
+        if (key.startsWith(`${fromChatId}:`)) {
+          globalThis.clearTimeout(timer);
+          typingTimers.delete(key);
+        }
+      }
+      readRequestChains.delete(fromChatId);
+      groupManagementLoads.delete(fromChatId);
+      chatAdministratorLabelLoads.delete(fromChatId);
+      forumTopicsRefreshedAt.delete(fromChatId);
+      sharedMediaIndex.clearChat(fromChatId);
+      sharedMediaIndex.clearChat(toChatId);
+
+      const activeChatId = current.activeChatId === fromChatId ? toChatId : current.activeChatId;
+      const oldAttachmentGenerationKeys = [...localAttachmentDraftGenerations.keys()]
+        .filter((key) => migrateChatKey(key, fromChatId, toChatId) !== key);
+      for (const key of oldAttachmentGenerationKeys) {
+        const migratedKey = migrateChatKey(key, fromChatId, toChatId);
+        const generation = localAttachmentDraftGenerations.get(key);
+        localAttachmentDraftGenerations.delete(key);
+        if (generation !== undefined) localAttachmentDraftGenerations.set(migratedKey, generation);
+      }
+      for (const collection of [attentionReadRequests, acknowledgedAttentionMessages, liveAttentionCandidates]) {
+        for (const key of [...collection]) {
+          if (!key.startsWith(`${fromChatId}:`)) continue;
+          collection.delete(key);
+          collection.add(`${toChatId}:${key.slice(fromChatId.length + 1)}`);
+        }
+      }
+      const profile = current.profile.target?.kind === "chat" && current.profile.target.chatId === fromChatId
+        ? emptyProfileState()
+        : current.profile;
+      const groupManagement = current.groupManagement?.chatId === fromChatId
+        ? undefined
+        : current.groupManagement;
+      set({
+        chats,
+        messages,
+        removingMessages,
+        unreadAttentionMessageIds,
+        drafts,
+        localAttachmentDrafts,
+        outbox,
+        histories,
+        forumTopics,
+        forumTopicsLoading,
+        topicHistories,
+        lastForumTopicIds,
+        typingUserIds,
+        chatAdministratorLabels,
+        activeChatId,
+        profile,
+        groupManagement,
+        groupManagementLoading: groupManagement ? current.groupManagementLoading : false,
+        groupManagementError: groupManagement ? current.groupManagementError : undefined,
+      });
+      draftSync.migrateChat(fromChatId, toChatId);
+      publishMessageChange({ type: "reset", messages });
+      scheduleCacheWrite();
+    };
+
     const scheduleChatRead = (chatId: string, delayMs = 120) => {
       const currentTimer = readTimers.get(chatId);
       if (currentTimer) globalThis.clearTimeout(currentTimer);
@@ -894,6 +1113,11 @@ export const createTelegramStore = (
             : (folders[0]?.id ?? "main"),
         });
         scheduleCacheWrite();
+        return;
+      }
+
+      if (event.type === "chat.migrated") {
+        migrateChatState(event.fromChatId, event.toChatId);
         return;
       }
 

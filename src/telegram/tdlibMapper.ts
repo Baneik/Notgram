@@ -69,6 +69,25 @@ export const tdNumber = (value: unknown): number | undefined => {
   return undefined;
 };
 
+// TDLib encodes group chat identifiers from their entity identifiers. Keeping
+// this conversion here lets the migration path work even when the legacy chat
+// is no longer returned by getChats after an upgrade.
+const SUPERGROUP_CHAT_ID_OFFSET = 1_000_000_000_000;
+
+export const chatIdFromBasicGroupId = (value: unknown): string | undefined => {
+  const id = tdNumber(value);
+  return id !== undefined && Number.isSafeInteger(id) && id > 0
+    ? String(-id)
+    : undefined;
+};
+
+export const chatIdFromSupergroupId = (value: unknown): string | undefined => {
+  const id = tdNumber(value);
+  return id !== undefined && Number.isSafeInteger(id) && id >= 0 && id <= Number.MAX_SAFE_INTEGER - SUPERGROUP_CHAT_ID_OFFSET
+    ? String(-SUPERGROUP_CHAT_ID_OFFSET - id)
+    : undefined;
+};
+
 const initials = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";

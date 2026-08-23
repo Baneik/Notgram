@@ -36,6 +36,51 @@ import {
 } from "../telegram/chatManagement";
 
 describe("telegram store", () => {
+  it("moves cached history and pending state when a group is upgraded", async () => {
+    class MigrationTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      dispatch(event: TelegramEvent) {
+        this.eventListener?.(event);
+      }
+    }
+
+    const transport = new MigrationTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const previousMessages = store.getState().messages.get("chat-product") ?? [];
+    const previousChat = store.getState().chats.get("chat-product")!;
+    store.getState().updateChatDraft("chat-product", "升级前的草稿");
+
+    transport.dispatch({
+      type: "chat.migrated",
+      fromChatId: "chat-product",
+      toChatId: "chat-upgraded",
+    });
+    transport.dispatch({
+      type: "chat.upsert",
+      chat: {
+        ...previousChat,
+        id: "chat-upgraded",
+        memberCount: 42,
+      },
+    });
+
+    expect(store.getState().chats.has("chat-product")).toBe(false);
+    expect(store.getState().chats.get("chat-upgraded")?.memberCount).toBe(42);
+    expect(store.getState().messages.get("chat-product")).toBeUndefined();
+    expect(store.getState().messages.get("chat-upgraded")).toHaveLength(previousMessages.length);
+    expect(store.getState().messages.get("chat-upgraded")?.every((message) => message.chatId === "chat-upgraded")).toBe(true);
+    expect(store.getState().drafts.get("chat-upgraded")?.text).toBe("升级前的草稿");
+    expect(store.getState().drafts.has("chat-product")).toBe(false);
+    expect(store.getState().activeChatId).toBe("chat-upgraded");
+  });
+
   it("publishes incremental message changes and marks only first live arrivals", async () => {
     class MessageChangeTransport extends MockTelegramTransport {
       private eventListener?: TelegramEventListener;

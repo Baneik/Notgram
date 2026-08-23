@@ -3,6 +3,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   asTdObject,
   asTdObjects,
+  chatIdFromBasicGroupId,
+  chatIdFromSupergroupId,
   mapTdChat,
   mapTdChatDraft,
   mapTdChatFolders,
@@ -339,6 +341,10 @@ export class TauriTelegramTransport implements TelegramTransport {
   });
   private rawBasicGroups = new Map<string, TdObject>();
   private rawSupergroups = new Map<string, TdObject>();
+  private basicGroupUpgrades = new Map<string, string>();
+  private chatIdAliases = new Map<string, string>();
+  private emittedChatMigrations = new Set<string>();
+  private basicGroupLoads = new Map<string, Promise<void>>();
   private profileService = new TauriProfileService({
     request: (request) => this.request(request),
     rawChats: this.rawChats,
@@ -1633,6 +1639,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
+    chatId = this.canonicalChatId(chatId);
     if (this.exhaustedHistories.has(chatId)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
     }
@@ -1831,6 +1838,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
 
   async markChatRead(chatId: string) {
+    chatId = this.canonicalChatId(chatId);
     const rawChat = this.rawChats.get(chatId) ?? await this.refreshChat(chatId);
     const unreadCount = tdNumber(rawChat.unread_count) ?? 0;
     const isMarkedAsUnread = rawChat.is_marked_as_unread === true;
@@ -1866,6 +1874,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async markForumTopicRead(chatId: string, topicId: string, messageId: string) {
+    chatId = this.canonicalChatId(chatId);
     numericId(topicId);
     await this.request({
       "@type": "viewMessages",
@@ -1877,6 +1886,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async markMessageAttentionRead(chatId: string, messageIds: string[]) {
+    chatId = this.canonicalChatId(chatId);
     const uniqueMessageIds = [...new Set(messageIds.map(numericId))];
     if (uniqueMessageIds.length === 0) return;
     await this.request({
@@ -2235,6 +2245,7 @@ export class TauriTelegramTransport implements TelegramTransport {
           chat_id: numericId(id),
         });
         this.rawChats.set(id, raw);
+        await this.ensureBasicGroupMetadata(raw);
         return this.mapChat(raw);
       }));
       fetchedChats.push(...batch.filter((chat): chat is Chat => Boolean(chat)));
@@ -2263,6 +2274,24 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private async loadUser(userId: string) {
     return this.profileService.loadUser(userId);
+  }
+
+  private ensureBasicGroupMetadata(raw?: TdObject) {
+    const type = asTdObject(raw?.type);
+    const groupId = type?.["@type"] === "chatTypeBasicGroup" ? tdId(type.basic_group_id) : "";
+    if (!groupId || this.rawBasicGroups.has(groupId)) return Promise.resolve();
+    const pending = this.basicGroupLoads.get(groupId);
+    if (pending) return pending;
+    const load = this.request({
+      "@type": "getBasicGroup",
+      basic_group_id: numericId(groupId),
+    }).then((basicGroup) => {
+      this.upsertBasicGroup(basicGroup);
+    }).catch(() => undefined).finally(() => {
+      if (this.basicGroupLoads.get(groupId) === load) this.basicGroupLoads.delete(groupId);
+    });
+    this.basicGroupLoads.set(groupId, load);
+    return load;
   }
 
 
@@ -2316,11 +2345,87 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
+  private canonicalChatId(chatId: string) {
+    let current = chatId;
+    const visited = new Set<string>();
+    while (!visited.has(current)) {
+      visited.add(current);
+      const next = this.chatIdAliases.get(current);
+      if (!next) break;
+      current = next;
+    }
+    return current;
+  }
+
+  private canonicalizeRawMessage(raw: TdObject) {
+    const chatId = tdId(raw.chat_id);
+    const canonicalChatId = chatId ? this.canonicalChatId(chatId) : chatId;
+    return chatId && canonicalChatId && chatId !== canonicalChatId
+      ? { ...raw, chat_id: numericId(canonicalChatId) }
+      : raw;
+  }
+
+  private rawChatIdForBasicGroup(groupId: string) {
+    for (const raw of this.rawChats.values()) {
+      const type = asTdObject(raw.type);
+      if (type?.["@type"] === "chatTypeBasicGroup" && tdId(type.basic_group_id) === groupId) {
+        return tdId(raw.id);
+      }
+    }
+    return chatIdFromBasicGroupId(groupId);
+  }
+
+  private rawChatIdForSupergroup(groupId: string) {
+    for (const raw of this.rawChats.values()) {
+      const type = asTdObject(raw.type);
+      if (type?.["@type"] === "chatTypeSupergroup" && tdId(type.supergroup_id) === groupId) {
+        return tdId(raw.id);
+      }
+    }
+    return chatIdFromSupergroupId(groupId);
+  }
+
+  private migrateRawMessages(fromChatId: string, toChatId: string) {
+    const previous = this.rawMessages.get(fromChatId);
+    if (!previous || previous.size === 0) return;
+    const next = this.rawMessages.get(toChatId) ?? new Map<string, TdObject>();
+    for (const [messageId, raw] of previous) {
+      this.unindexMessageFiles(fromChatId, messageId);
+      const migrated = { ...raw, chat_id: numericId(toChatId) };
+      next.set(messageId, migrated);
+      this.indexMessageFiles(toChatId, messageId, migrated);
+    }
+    this.rawMessages.delete(fromChatId);
+    this.rawMessages.set(toChatId, next);
+  }
+
+  private reconcileBasicGroupUpgrade(basicGroupId: string, supergroupId: string) {
+    const fromChatId = this.rawChatIdForBasicGroup(basicGroupId);
+    const toChatId = this.rawChatIdForSupergroup(supergroupId);
+    if (!fromChatId || !toChatId || fromChatId === toChatId) return;
+    const canonicalTarget = this.canonicalChatId(toChatId);
+    this.chatIdAliases.set(fromChatId, canonicalTarget);
+    this.migrateRawMessages(fromChatId, canonicalTarget);
+    const key = `${fromChatId}->${canonicalTarget}`;
+    if (this.emittedChatMigrations.has(key)) return;
+    this.emittedChatMigrations.add(key);
+    this.listener?.({
+      type: "chat.migrated",
+      fromChatId,
+      toChatId: canonicalTarget,
+    });
+  }
+
   private upsertBasicGroup(raw?: TdObject) {
     if (!raw) return;
     const id = tdId(raw.id);
     if (!id) return;
     this.rawBasicGroups.set(id, raw);
+    const upgradedTo = tdId(raw.upgraded_to_supergroup_id);
+    if (upgradedTo && upgradedTo !== "0") {
+      this.basicGroupUpgrades.set(id, upgradedTo);
+      this.reconcileBasicGroupUpgrade(id, upgradedTo);
+    }
     for (const chat of this.rawChats.values()) {
       const type = asTdObject(chat.type);
       if (type?.["@type"] === "chatTypeBasicGroup" && tdId(type.basic_group_id) === id) {
@@ -2334,6 +2439,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     const id = tdId(raw.id);
     if (!id) return;
     this.rawSupergroups.set(id, raw);
+    const upgradedFrom = tdId(raw.upgraded_from_basic_group_id);
+    if (upgradedFrom && upgradedFrom !== "0") {
+      this.basicGroupUpgrades.set(upgradedFrom, id);
+      this.reconcileBasicGroupUpgrade(upgradedFrom, id);
+    }
     for (const chat of this.rawChats.values()) {
       const type = asTdObject(chat.type);
       if (type?.["@type"] === "chatTypeSupergroup" && tdId(type.supergroup_id) === id) {
@@ -2353,6 +2463,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     const id = tdId(raw.id);
     if (!id) return;
     this.rawChats.set(id, raw);
+    const type = asTdObject(raw.type);
+    if (type?.["@type"] === "chatTypeBasicGroup") void this.ensureBasicGroupMetadata(raw);
+    if (type?.["@type"] === "chatTypeSupergroup") {
+      const supergroupId = tdId(type.supergroup_id);
+      for (const [basicGroupId, upgradedTo] of this.basicGroupUpgrades) {
+        if (upgradedTo === supergroupId) this.reconcileBasicGroupUpgrade(basicGroupId, supergroupId);
+      }
+    }
     this.emitChat(raw, cacheRelevant);
   }
 
@@ -2415,6 +2533,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private async refreshChat(chatId: string) {
+    chatId = this.canonicalChatId(chatId);
     const raw = await this.request({
       "@type": "getChat",
       chat_id: numericId(chatId),
@@ -2424,7 +2543,12 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private mapChat(raw: TdObject) {
-    const type = asTdObject(raw.type);
+    const rawId = tdId(raw.id);
+    const canonicalId = rawId ? this.canonicalChatId(rawId) : rawId;
+    const mappedRaw = rawId && canonicalId && rawId !== canonicalId
+      ? { ...raw, id: numericId(canonicalId) }
+      : raw;
+    const type = asTdObject(mappedRaw.type);
     const basicGroupId = type?.["@type"] === "chatTypeBasicGroup"
       ? tdId(type.basic_group_id)
       : undefined;
@@ -2432,7 +2556,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       ? tdId(type.supergroup_id)
       : undefined;
     return mapTdChat(
-      raw,
+      mappedRaw,
       this.currentUserId,
       supergroupId ? this.rawSupergroups.get(supergroupId) : undefined,
       basicGroupId ? this.rawBasicGroups.get(basicGroupId) : undefined,
@@ -2440,6 +2564,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private emitChat(raw: TdObject, cacheRelevant = true) {
+    const rawId = tdId(raw.id);
+    if (rawId && this.canonicalChatId(rawId) !== rawId) return;
     const chat = this.mapChat(raw);
     if (chat && !this.initialChatSyncPending) {
       this.listener?.({
@@ -2455,6 +2581,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.initialChatSyncPending = false;
     const chats: Chat[] = [];
     for (const raw of this.rawChats.values()) {
+      const rawId = tdId(raw.id);
+      if (rawId && this.canonicalChatId(rawId) !== rawId) continue;
       const chat = this.mapChat(raw);
       if (chat) chats.push(chat);
     }
@@ -2653,6 +2781,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private emitMessage(raw?: TdObject, animateEntrance = false, cacheRelevant = true) {
     if (!raw) return;
+    raw = this.canonicalizeRawMessage(raw);
     const reference = `${tdId(raw.chat_id)}:${tdId(raw.id)}`;
     const pending = this.pendingFileMessageUpdates.get(reference);
     if (pending) {
@@ -2749,7 +2878,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   private emitMessages(rawMessages: TdObject[], cacheRelevant = true) {
     const messages = new Map<string, Message>();
     const uniqueRawMessages = new Map<string, TdObject>();
-    for (const raw of rawMessages) {
+    for (const inputRaw of rawMessages) {
+      const raw = this.canonicalizeRawMessage(inputRaw);
       const message = this.mapMessage(raw);
       if (!message) continue;
       const chatMessages = this.rawMessages.get(message.chatId) ?? new Map<string, TdObject>();
@@ -2895,6 +3025,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private mapMessage(raw: TdObject) {
+    raw = this.canonicalizeRawMessage(raw);
     const mapped = mapTdMessage(raw);
     const message = mapped &&
       this.dataCenterId !== undefined &&
@@ -3007,8 +3138,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private replaceSentMessage(update: TdObject) {
-    const raw = asTdObject(update.message);
-    if (!raw) return;
+    const rawValue = asTdObject(update.message);
+    if (!rawValue) return;
+    const raw = this.canonicalizeRawMessage(rawValue);
     const message = this.mapMessage(raw);
     if (!message) return;
     const chatId = tdId(raw.chat_id);
@@ -3053,7 +3185,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private updatePendingMessage(update: TdObject) {
-    const chatId = tdId(update.chat_id);
+    const chatId = this.canonicalChatId(tdId(update.chat_id));
     const draftId = tdId(update.draft_id);
     if (!chatId || !draftId || !update.content) return;
     const topicId = tdId(update.forum_topic_id);
@@ -3096,14 +3228,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private patchMessage(chatIdValue: unknown, messageIdValue: unknown, patch: TdObject) {
-    const chatId = tdId(chatIdValue);
+    const chatId = this.canonicalChatId(tdId(chatIdValue));
     const messageId = tdId(messageIdValue);
     const raw = this.rawMessages.get(chatId)?.get(messageId);
     if (raw) this.emitMessage({ ...raw, ...patch });
   }
 
   private updateReadOutbox(update: TdObject) {
-    const chatId = tdId(update.chat_id);
+    const chatId = this.canonicalChatId(tdId(update.chat_id));
     const lastReadId = tdId(update.last_read_outbox_message_id);
     const chat = this.rawChats.get(chatId);
     if (chat && lastReadId) {
@@ -3121,7 +3253,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private deleteMessages(update: TdObject) {
-    const chatId = tdId(update.chat_id);
+    const chatId = this.canonicalChatId(tdId(update.chat_id));
     const ids = Array.isArray(update.message_ids) ? update.message_ids.map(tdId) : [];
     if (update.from_cache === true && update.is_permanent !== true) return;
     for (const messageId of ids) {
@@ -3160,6 +3292,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawChats.clear();
     this.rawBasicGroups.clear();
     this.rawSupergroups.clear();
+    this.basicGroupUpgrades.clear();
+    this.chatIdAliases.clear();
+    this.emittedChatMigrations.clear();
+    this.basicGroupLoads.clear();
     this.rawUsers.clear();
     this.rawMessages.clear();
     this.rawMessageFileIds.clear();
