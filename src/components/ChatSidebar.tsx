@@ -3,6 +3,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type RefObject,
@@ -123,6 +124,7 @@ export function ChatSidebar({
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const sidebarRef = useRef<HTMLElement>(null);
   const chatListRef = useRef<HTMLDivElement>(null);
+  const chatListScrollTopByFolderRef = useRef(new Map<string, number>());
   const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const resizeStartRef = useRef<{ x: number; width: number } | undefined>(undefined);
   const resizeFrameRef = useRef<number | undefined>(undefined);
@@ -341,6 +343,15 @@ export function ChatSidebar({
     return () => document.documentElement.classList.remove("is-reordering-pinned");
   }, [draggedPinnedChatId]);
 
+  // The list element is shared between folders, so preserve its viewport per folder
+  // before React swaps the rows and restore the target after the new rows are mounted.
+  useLayoutEffect(() => {
+    const list = chatListRef.current;
+    if (!list) return;
+    const previousScrollTop = chatListScrollTopByFolderRef.current.get(folderId) ?? 0;
+    list.scrollTop = previousScrollTop;
+  }, [folderId]);
+
   useEffect(() => {
     const list = chatListRef.current;
     if (
@@ -452,10 +463,12 @@ export function ChatSidebar({
         />
       ) : (
         <div
+          key={folderId}
           className="chat-list"
           ref={chatListRef}
           onScroll={(event) => {
             const list = event.currentTarget;
+            chatListScrollTopByFolderRef.current.set(folderId, list.scrollTop);
             if (
               list.scrollHeight - list.clientHeight - list.scrollTop <= 96 &&
               hasMore &&

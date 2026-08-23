@@ -9019,6 +9019,39 @@ test("folder buttons reorder by direct drag and stay fixed during chat organizat
   expect(await horizontalOverflow(page)).toBe(false);
 });
 
+test("conversation list keeps an independent scroll position for each folder", async ({ page }) => {
+  await page.setViewportSize({ width: 1080, height: 520 });
+  await page.goto("/");
+  await page.addStyleTag({
+    content: ".chat-list { height: 120px !important; min-height: 120px !important; max-height: 120px !important; }",
+  });
+  const chatList = page.locator(".chat-list");
+  await chatList.evaluate((element) => {
+    const list = element as HTMLElement;
+    list.scrollTop = 30;
+    list.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  const mainScrollTop = await chatList.evaluate((element) => element.scrollTop);
+  expect(mainScrollTop).toBeGreaterThan(0);
+
+  await page.getByRole("button", { name: "工作", exact: true }).click();
+  await expect(chatList).toBeVisible();
+  await expect(chatList.locator(".chat-row")).toHaveCount(3);
+  await chatList.evaluate((element) => {
+    const list = element as HTMLElement;
+    list.scrollTop = 18;
+    list.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  const workScrollTop = await chatList.evaluate((element) => element.scrollTop);
+  expect(workScrollTop).toBeGreaterThan(0);
+  expect(workScrollTop).not.toBe(mainScrollTop);
+
+  await page.getByRole("button", { name: "全部聊天", exact: true }).click();
+  await expect.poll(() => chatList.evaluate((element) => element.scrollTop)).toBe(mainScrollTop);
+  await page.getByRole("button", { name: "工作", exact: true }).click();
+  await expect.poll(() => chatList.evaluate((element) => element.scrollTop)).toBe(workScrollTop);
+});
+
 test("folder manager creates, edits, and deletes confirmed server folders", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "管理文件夹" }).click();
