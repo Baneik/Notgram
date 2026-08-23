@@ -31,6 +31,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
 import {
   useEffect,
   useRef,
@@ -59,8 +60,10 @@ import type {
   User,
 } from "../telegram/types";
 import { Avatar } from "./Avatar";
+import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { DesktopStartupSettings } from "./DesktopStartupSettings";
+import { MotionPresence } from "./MotionPresence";
 import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
 import { SafetySettings } from "./SafetySettings";
@@ -238,6 +241,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const [draft, setDraft] = useState<ProxySettings>(emptySettings);
   const [storageDraft, setStorageDraft] = useState<StorageSettings>(emptyStorageSettings);
   const [preferenceError, setPreferenceError] = useState<string>();
+  const [pendingZalgoTextPreference, setPendingZalgoTextPreference] = useState<boolean>();
 
   useEffect(() => {
     void load();
@@ -286,7 +290,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const settingsBackRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLFormElement>(
     onClose,
-    busy,
+    busy || pendingZalgoTextPreference !== undefined,
     standalone ? settingsTitleRef : undefined,
   );
 
@@ -311,31 +315,55 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
       setPreferenceError("系统通知权限未开启");
       return;
     }
+    if (key === "blockZalgoText") {
+      setPendingZalgoTextPreference(Boolean(value));
+      return;
+    }
     setPreference(key, value);
-    if (key === "blockZalgoText") globalThis.location.reload();
+  };
+
+  const confirmZalgoTextPreference = async () => {
+    if (pendingZalgoTextPreference === undefined) return false;
+    setPreference("blockZalgoText", pendingZalgoTextPreference);
+    try {
+      if (isTauri()) {
+        const { relaunch } = await import("@tauri-apps/plugin-process");
+        await relaunch();
+      } else {
+        globalThis.location.reload();
+      }
+      return true;
+    } catch {
+      setPendingZalgoTextPreference(undefined);
+      setPreferenceError("设置已保存，请手动重启 Notgram 后生效");
+      return false;
+    }
   };
 
   return (
-    <div
-      className={standalone ? "settings-window-shell" : "dialog-backdrop"}
-      role="presentation"
-      onWheel={standalone ? undefined : (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      onMouseDown={standalone ? undefined : (event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
-      }}
-    >
-      <form
-        ref={dialogRef}
-        className={`settings-dialog ${detailOpen ? "show-detail" : ""}`}
-        role="dialog"
-        aria-modal={standalone ? undefined : "true"}
-        aria-labelledby="settings-title"
-        tabIndex={-1}
-        onSubmit={submit}
+    <>
+      <div
+        className={standalone ? "settings-window-shell" : "dialog-backdrop"}
+        role="presentation"
+        onWheel={standalone ? undefined : (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onMouseDown={standalone ? undefined : (event) => {
+          if (event.target === event.currentTarget && !busy) onClose();
+        }}
       >
+        <form
+          ref={dialogRef}
+          className={`settings-dialog ${detailOpen ? "show-detail" : ""}`}
+          role="dialog"
+          aria-modal={standalone ? undefined : "true"}
+          aria-labelledby="settings-title"
+          aria-hidden={pendingZalgoTextPreference !== undefined || undefined}
+          inert={pendingZalgoTextPreference !== undefined || undefined}
+          tabIndex={-1}
+          onSubmit={submit}
+        >
         <header className="settings-dialog-header">
           <h2
             ref={settingsTitleRef}
@@ -461,8 +489,20 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
             />
           )}
         </main>
-      </form>
-    </div>
+        </form>
+      </div>
+      <MotionPresence present={pendingZalgoTextPreference !== undefined}>
+        {pendingZalgoTextPreference !== undefined ? (
+          <ConfirmActionDialog
+            title={`${pendingZalgoTextPreference ? "开启" : "关闭"} Zalgo 文本屏蔽？`}
+            description="更改此设置后需要重启 Notgram。确认后软件将立即重启并应用新设置。"
+            confirmLabel="重启 Notgram"
+            onConfirm={confirmZalgoTextPreference}
+            onClose={() => setPendingZalgoTextPreference(undefined)}
+          />
+        ) : null}
+      </MotionPresence>
+    </>
   );
 }
 

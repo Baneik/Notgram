@@ -9,10 +9,11 @@ import {
 afterEach(() => setZalgoTextBlockingEnabled(true));
 
 describe("identity text", () => {
-  it("removes stacked marks, controls, emoji, and decorative symbols", () => {
+  it("removes stacked marks and controls without stripping ordinary symbols", () => {
     const zalgo = "所\u0334\u035f\u030d謂\u034f\u035c星\u0337\u0361Ⓥ\u200d🔥\u202e";
 
-    expect(normalizeIdentityText(zalgo)).toBe("所謂星V");
+    expect(normalizeIdentityText(zalgo)).toBe("所謂星V🔥");
+    expect(normalizeIdentityText("(●—●) |")).toBe("(●—●) |");
   });
 
   it("preserves ordinary letters and canonical accents after compatibility normalization", () => {
@@ -21,15 +22,15 @@ describe("identity text", () => {
   });
 
   it("provides a bounded fallback for display values", () => {
-    expect(sanitizeIdentityText("🔥\u200d", "Telegram 用户", 64)).toBe("Telegram 用户");
+    expect(sanitizeIdentityText("\u200d", "Telegram 用户", 64)).toBe("Telegram 用户");
+    expect(sanitizeIdentityText("🔥\u200d", "Telegram 用户", 64)).toBe("🔥");
     expect(sanitizeIdentityText("abcdef", "用户", 4)).toBe("abcd");
   });
 
   it("rejects unsupported input instead of silently changing user edits", () => {
     expect(() => identityTextField("林\u0334\u035f然", 64, "名字", true))
       .toThrow("名字包含不支持的字符");
-    expect(() => identityTextField("Lin🔥", 64, "名字", true))
-      .toThrow("名字包含不支持的字符");
+    expect(identityTextField("Lin🔥 | (●—●)", 64, "名字", true)).toBe("Lin🔥 | (●—●)");
     expect(identityTextField(" Ｌｉｎ  Ran ", 64, "名字", true)).toBe("Lin Ran");
     expect(() => identityTextField("", 64, "名字", true)).toThrow("名字格式不正确");
     expect(() => identityTextField("abc", 2, "名字", true)).toThrow("名字格式不正确");

@@ -22,7 +22,7 @@ describe("TDLib mapper", () => {
   });
 
   it("sanitizes identity fields before they enter the application model", () => {
-    const dirtyName = "所\u0334\u035f謂\u034f星\u0361Ⓥ🔥\u202e";
+    const dirtyName = "所\u0334\u035f謂\u034f星\u0361Ⓥ🔥(●—●)|\u202e";
     const user = mapTdUser({
       id: 7,
       first_name: dirtyName,
@@ -48,16 +48,16 @@ describe("TDLib mapper", () => {
     });
 
     expect(user).toMatchObject({
-      displayName: "所謂星V",
-      firstName: "所謂星V",
+      displayName: "所謂星V🔥(●—●)|",
+      firstName: "所謂星V🔥(●—●)|",
       avatar: { label: "所謂" },
     });
-    expect(chat).toMatchObject({ title: "所謂星V", avatar: { label: "所謂" } });
-    expect(topic?.name).toBe("所謂星V");
-    expect(folders.find(({ id }) => id === "folder:1")?.title).toBe("所謂星V");
+    expect(chat).toMatchObject({ title: "所謂星V🔥(●—●)|", avatar: { label: "所謂" } });
+    expect(topic?.name).toBe("所謂星V🔥(●—●)|");
+    expect(folders.find(({ id }) => id === "folder:1")?.title).toBe("所謂星V🔥(●—●)|");
     expect(message).toMatchObject({
-      senderTag: "所謂星V",
-      authorSignature: "所謂星V",
+      senderTag: "所謂星V🔥(●—●)|",
+      authorSignature: "所謂星V🔥(●—●)|",
       content: { kind: "text", text: "原始消息保留 🔥" },
     });
   });

@@ -187,7 +187,6 @@ export const preferencesStore = createStore<PreferencesState>((set) => ({
 }));
 
 const applyPreferences = (preferences: AppPreferences, systemMotionReduced: boolean) => {
-  setZalgoTextBlockingEnabled(preferences.blockZalgoText);
   if (typeof document === "undefined") return;
   const reduceMotion = effectiveReduceMotion({
     reduceMotion: preferences.reduceMotion,
@@ -294,7 +293,6 @@ if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
     if (event.key !== STORAGE_KEY || !event.newValue) return;
     const next = readPreferences();
-    const identityPolicyChanged = preferencesStore.getState().blockZalgoText !== next.blockZalgoText;
     preferencesStore.setState((state) => ({
       ...next,
       effectiveReduceMotion: effectiveReduceMotion({
@@ -302,9 +300,6 @@ if (typeof window !== "undefined") {
         systemReduceMotion: state.systemReduceMotion,
       }),
     }));
-    const mainEntry = globalThis.location.pathname === "/" ||
-      globalThis.location.pathname.endsWith("/index.html");
-    if (identityPolicyChanged && mainEntry) globalThis.location.reload();
   });
 }
 

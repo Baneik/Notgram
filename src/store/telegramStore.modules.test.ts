@@ -261,7 +261,7 @@ describe("draft sync controller", () => {
   });
 
   it("sanitizes cached identity fields while preserving message content", () => {
-    const dirtyName = "所\u0334\u035f謂\u034f星\u0361Ⓥ🔥\u202e";
+    const dirtyName = "所\u0334\u035f謂\u034f星\u0361Ⓥ🔥(●—●)|\u202e";
     const cached = {
       version: 3,
       savedAt: "2026-08-01T10:00:00Z",
@@ -300,14 +300,17 @@ describe("draft sync controller", () => {
 
     const snapshot = migrateCachedSnapshot(cached).snapshot;
 
-    expect(snapshot?.users[0]).toMatchObject({ displayName: "所謂星V", firstName: "所謂星V" });
-    expect(snapshot?.folders[0]?.title).toBe("所謂星V");
-    expect(snapshot?.chats[0]?.title).toBe("所謂星V");
+    expect(snapshot?.users[0]).toMatchObject({
+      displayName: "所謂星V🔥(●—●)|",
+      firstName: "所謂星V🔥(●—●)|",
+    });
+    expect(snapshot?.folders[0]?.title).toBe("所謂星V🔥(●—●)|");
+    expect(snapshot?.chats[0]?.title).toBe("所謂星V🔥(●—●)|");
     expect(snapshot?.messages[0]).toMatchObject({
-      senderTag: "所謂星V",
+      senderTag: "所謂星V🔥(●—●)|",
       content: { kind: "text", text: "正文保留 🔥" },
     });
-    expect(snapshot?.forumTopics?.[0]?.topics[0]?.name).toBe("所謂星V");
+    expect(snapshot?.forumTopics?.[0]?.topics[0]?.name).toBe("所謂星V🔥(●—●)|");
   });
 
   it("clears drafts whose text contains only whitespace", async () => {

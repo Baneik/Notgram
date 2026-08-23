@@ -1,5 +1,4 @@
 const UNSAFE_IDENTITY_CHARACTERS = /[\p{M}\p{C}]/gu;
-const UNSUPPORTED_IDENTITY_CHARACTERS = /[^\p{L}\p{N} ._'’·-]/gu;
 const REPEATED_SPACES = / +/g;
 
 let zalgoTextBlockingEnabled = true;
@@ -18,7 +17,6 @@ export const normalizeIdentityText = (value: string) => {
   return value
     .normalize("NFKC")
     .replace(UNSAFE_IDENTITY_CHARACTERS, "")
-    .replace(UNSUPPORTED_IDENTITY_CHARACTERS, "")
     .trim()
     .replace(REPEATED_SPACES, " ");
 };

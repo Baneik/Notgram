@@ -719,6 +719,38 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await expect(typingSwitch).not.toBeChecked();
 });
 
+test("Zalgo blocking changes only after restart confirmation", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /Notgram/ }).click();
+
+  const zalgoSwitch = page.getByRole("switch", { name: "屏蔽 Zalgo 文本" });
+  await expect(zalgoSwitch).toBeChecked();
+  await zalgoSwitch.click();
+
+  const confirmation = page.getByRole("dialog", { name: "关闭 Zalgo 文本屏蔽？" });
+  await expect(confirmation).toBeVisible();
+  await expect(page.locator("label.preference-row", { hasText: "屏蔽 Zalgo 文本" })
+    .locator('input[role="switch"]')).toBeChecked();
+  await confirmation.getByRole("button", { name: "取消" }).click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(zalgoSwitch).toBeChecked();
+
+  await zalgoSwitch.click();
+  await page.getByRole("dialog", { name: "关闭 Zalgo 文本屏蔽？" })
+    .getByRole("button", { name: "重启 Notgram" })
+    .click();
+
+  await expect(page.getByRole("button", { name: "设置", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => {
+    const preferences = JSON.parse(localStorage.getItem("notgram:preferences:v1") ?? "{}");
+    return preferences.blockZalgoText;
+  })).toBe(false);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: /Notgram/ }).click();
+  await expect(page.getByRole("switch", { name: "屏蔽 Zalgo 文本" })).not.toBeChecked();
+});
+
 test("typing status is blocked by default and reaches the transport when unblocked", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(async () => {
