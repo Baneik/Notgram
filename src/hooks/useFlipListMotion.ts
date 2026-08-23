@@ -6,6 +6,7 @@ interface UseFlipListMotionOptions {
   containerRef: RefObject<HTMLElement | null>;
   itemSelector: string;
   dependencies: readonly unknown[];
+  resetKey?: unknown;
 }
 
 interface ListMotionBounds {
@@ -28,16 +29,19 @@ export const useFlipListMotion = ({
   containerRef,
   itemSelector,
   dependencies,
+  resetKey,
 }: UseFlipListMotionOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const previousPositionRef = useRef(new Map<string, { left: number; top: number }>());
   const animationsRef = useRef(new Map<string, Animation>());
+  const previousResetKeyRef = useRef(resetKey);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const items = [...container.querySelectorAll<HTMLElement>(itemSelector)];
     const previousPosition = previousPositionRef.current;
+    const resetMotion = previousResetKeyRef.current !== resetKey;
     const nextPosition = new Map<string, { left: number; top: number }>();
     const containerBounds = container.getBoundingClientRect();
     items.forEach((item) => {
@@ -50,7 +54,7 @@ export const useFlipListMotion = ({
         container.scrollTop,
       ));
     });
-    if (previousPosition.size > 0 && !reduceMotion && typeof HTMLElement.prototype.animate === "function") {
+    if (!resetMotion && previousPosition.size > 0 && !reduceMotion && typeof HTMLElement.prototype.animate === "function") {
       items.forEach((item) => {
         const key = item.dataset.motionKey;
         if (!key) return;
@@ -81,11 +85,12 @@ export const useFlipListMotion = ({
       });
     }
     previousPositionRef.current = nextPosition;
+    previousResetKeyRef.current = resetKey;
     return () => {
       animationsRef.current.forEach((animation) => animation.cancel());
       animationsRef.current.clear();
     };
     // The caller owns the dependency values; they describe when list geometry changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerRef, itemSelector, reduceMotion, ...dependencies]);
+  }, [containerRef, itemSelector, reduceMotion, resetKey, ...dependencies]);
 };

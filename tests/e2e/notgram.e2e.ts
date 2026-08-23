@@ -9033,10 +9033,25 @@ test("conversation list keeps an independent scroll position for each folder", a
   });
   const mainScrollTop = await chatList.evaluate((element) => element.scrollTop);
   expect(mainScrollTop).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const diagnosticWindow = window as typeof window & { __notgramFolderSwitchMotion?: string[] };
+    const originalAnimate = Element.prototype.animate;
+    diagnosticWindow.__notgramFolderSwitchMotion = [];
+    Element.prototype.animate = function (keyframes, options) {
+      if (this instanceof HTMLElement && this.matches(".chat-row[data-motion-key]")) {
+        const frames = Array.isArray(keyframes) ? keyframes : [];
+        diagnosticWindow.__notgramFolderSwitchMotion?.push(String(frames[0]?.transform ?? ""));
+      }
+      return originalAnimate.call(this, keyframes, options);
+    };
+  });
 
   await page.getByRole("button", { name: "工作", exact: true }).click();
   await expect(chatList).toBeVisible();
   await expect(chatList.locator(".chat-row")).toHaveCount(3);
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __notgramFolderSwitchMotion?: string[] }
+  ).__notgramFolderSwitchMotion)).toEqual([]);
   await chatList.evaluate((element) => {
     const list = element as HTMLElement;
     list.scrollTop = 18;
@@ -9050,6 +9065,9 @@ test("conversation list keeps an independent scroll position for each folder", a
   await expect.poll(() => chatList.evaluate((element) => element.scrollTop)).toBe(mainScrollTop);
   await page.getByRole("button", { name: "工作", exact: true }).click();
   await expect.poll(() => chatList.evaluate((element) => element.scrollTop)).toBe(workScrollTop);
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __notgramFolderSwitchMotion?: string[] }
+  ).__notgramFolderSwitchMotion)).toEqual([]);
 });
 
 test("folder manager creates, edits, and deletes confirmed server folders", async ({ page }) => {

@@ -376,7 +376,8 @@ export function ChatSidebar({
   useFlipListMotion({
     containerRef: chatListRef,
     itemSelector: ".chat-row[data-motion-key]",
-    dependencies: [chats, folderId, searchQuery, searchScope.type],
+    dependencies: [chats, searchQuery, searchScope.type],
+    resetKey: folderId,
   });
 
   return (
