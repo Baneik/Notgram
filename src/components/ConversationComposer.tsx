@@ -287,7 +287,9 @@ export const ConversationComposer = memo(function ConversationComposer({
         messages: photoPreviewMessages,
         activeMessageId: pending.id,
         colorTheme,
-      }, ignoreViewerFileAction, ignoreViewerFileAction).then((id) => {
+      }, ignoreViewerFileAction, ignoreViewerFileAction, () => {
+        globalThis.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
+      }).then((id) => {
         if (!id) return;
         const stillStaged = generation === attachmentPreviewGenerationRef.current &&
           pendingAttachmentDraftKeyRef.current === draftKey &&
@@ -326,7 +328,7 @@ export const ConversationComposer = memo(function ConversationComposer({
         };
       });
     }
-  }, [closeAttachmentPreviewSession, colorTheme, draftKey, photoPreviewMessages]);
+  }, [closeAttachmentPreviewSession, colorTheme, draftKey, inputRef, photoPreviewMessages]);
 
   pendingAttachmentsRef.current = pendingAttachments;
   attachmentModeRef.current = attachmentMode;

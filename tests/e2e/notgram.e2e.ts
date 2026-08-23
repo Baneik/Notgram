@@ -5187,6 +5187,7 @@ test("attachment entry points share classification, previews, spoilers, and loca
   await expect(stagedSpoiler).toHaveClass(/is-concealed/);
   await preview.getByRole("button", { name: "显示遮罩媒体" }).click();
   await expect(stagedSpoiler).toHaveClass(/is-revealed/);
+  await composer.focus();
   const popupPromise = page.waitForEvent("popup");
   await preview.getByRole("button", { name: "预览 dropped-image.png" }).click();
   const popup = await popupPromise;
@@ -5198,6 +5199,7 @@ test("attachment entry points share classification, previews, spoilers, and loca
   await popup.keyboard.down("Escape");
   await popupClosed;
   await expect(preview.getByText("dropped-image.png", { exact: true })).toBeVisible();
+  await expect(composer).toBeFocused();
 
   await preview.getByRole("checkbox", { name: "剧透" }).uncheck();
   await preview.getByRole("button", { name: "移除 dropped-image.png" }).click();
