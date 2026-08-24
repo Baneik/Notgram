@@ -116,6 +116,7 @@ interface HistorySnapshotState {
 
 interface JumpToLatestOptions {
   onSettled?: () => void;
+  preserveVisualBottom?: boolean;
   publishPositioned?: boolean;
 }
 
@@ -131,6 +132,7 @@ export interface LatestConversationScrollRequest {
   chatId: string;
   requestId: number;
   performanceTraceId?: number;
+  preserveVisualBottom?: boolean;
 }
 
 export interface EntryConversationScrollRequest {
@@ -163,6 +165,7 @@ export type ConversationScrollRequest =
       chatId: string;
       requestId: number;
       performanceTraceId?: number;
+      preserveVisualBottom?: boolean;
     }
   | (MessageConversationScrollRequest & { kind: "message" });
 
@@ -837,7 +840,16 @@ export const useConversationScroll = ({
       reduceMotion,
       systemReduceMotion: false,
     });
-    const needsConvergence = converge || distanceFromBottom(element) > BOTTOM_PROXIMITY_PX;
+    const distance = distanceFromBottom(element);
+    // The footer sentinel is part of the scrollable area, so Virtuoso may
+    // leave the raw scroll position up to 12px before its browser maximum
+    // while the latest message is already visually at the viewport bottom.
+    // Treat that bounded interval as settled instead of rewriting scrollTop.
+    const alreadyAtVisualBottom = options?.preserveVisualBottom === true &&
+      distance <= BOTTOM_WHEEL_GUARD_PX;
+    const needsConvergence = !alreadyAtVisualBottom && (
+      converge || distance > BOTTOM_PROXIMITY_PX
+    );
     interruptControlledPositioning("following", options?.publishPositioned !== false);
     const generation = scrollControlRef.current.generation;
     userIntentUntilRef.current = 0;
@@ -882,7 +894,6 @@ export const useConversationScroll = ({
         smoothScrollFrameRef.current = requestAnimationFrame(animate);
       };
       const bottomTarget = () => bottomScrollTop(element);
-      const distance = distanceFromBottom(element);
       if (latestScrollMode(distance, element.clientHeight) === "near") {
         animateSegment(motionDuration.standard + motionDuration.fast, bottomTarget, finishSmoothScroll);
       } else {
@@ -910,8 +921,12 @@ export const useConversationScroll = ({
           behavior: "auto",
         });
       }
-      pinToBottom();
+      if (!alreadyAtVisualBottom) pinToBottom();
       if (needsConvergence || options?.onSettled) {
+        if (alreadyAtVisualBottom) {
+          options?.onSettled?.();
+          return;
+        }
         settleBottomPosition(
           initialLocationIdentity,
           virtuosoKey,
@@ -1227,9 +1242,12 @@ export const useConversationScroll = ({
           return;
         }
         if (initialLocationRef.current.mode === "bottom") {
-          pinToBottom();
-          if (bottomAlreadySettled) finishPositioning();
-          else settleBottomPosition(identity, expectedVirtuosoKey, generation, finishPositioning);
+          if (bottomAlreadySettled) {
+            finishPositioning();
+          } else {
+            pinToBottom();
+            settleBottomPosition(identity, expectedVirtuosoKey, generation, finishPositioning);
+          }
         } else if (
           initialLocationRef.current.mode === "anchor" &&
           initialLocationRef.current.targetMessageId &&
@@ -1825,6 +1843,7 @@ export const useConversationScroll = ({
     ) return;
     handledLatestRequestRef.current = matchingLatestRequest.requestId;
     jumpToLatest("auto", true, {
+      preserveVisualBottom: matchingLatestRequest.preserveVisualBottom,
       publishPositioned: false,
       onSettled: () => completePositioning(true),
     });

@@ -1321,6 +1321,7 @@ export function App() {
         kind: "latest",
         chatId,
         performanceTraceId,
+        preserveVisualBottom: true,
       });
     });
     requestAnimationFrame(() => {

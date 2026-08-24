@@ -8253,6 +8253,32 @@ test("clicking the selected conversation repeatedly converges to its latest mess
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   const messageList = page.locator(".message-list");
+  const settledBottomTrace = await product.evaluate((button) => new Promise<{
+    initialDistance: number;
+    samples: number[];
+  }>((resolve) => {
+    const element = document.querySelector<HTMLElement>(".message-list")!;
+    const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
+    element.scrollTop = Math.max(0, maximum - 12);
+    const initialDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
+    const samples: number[] = [element.scrollTop];
+    let frames = 0;
+    const sample = () => {
+      samples.push(element.scrollTop);
+      frames += 1;
+      if (frames < 24) requestAnimationFrame(sample);
+      else resolve({ initialDistance, samples });
+    };
+    (button as HTMLButtonElement).click();
+    requestAnimationFrame(sample);
+  }));
+  expect(settledBottomTrace.initialDistance).toBeGreaterThanOrEqual(11);
+  expect(settledBottomTrace.initialDistance).toBeLessThanOrEqual(13);
+  expect(
+    Math.max(...settledBottomTrace.samples) - Math.min(...settledBottomTrace.samples),
+    JSON.stringify(settledBottomTrace.samples),
+  ).toBeLessThanOrEqual(0.5);
+
   for (let iteration = 0; iteration < 3; iteration += 1) {
     await scrollAwayFromBottom(page);
     const listNode = await messageList.elementHandle();
