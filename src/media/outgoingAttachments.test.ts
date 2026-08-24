@@ -5,6 +5,7 @@ import {
   canSendAttachmentAsMedia,
   classifyOutgoingAttachment,
   inspectOutgoingAttachment,
+  prepareHighQualityPhoto,
 } from "./outgoingAttachments";
 
 const fileLike = (name: string, type: string, size = 100) => ({ name, type, size });
@@ -112,5 +113,73 @@ describe("outgoing attachment classification", () => {
     });
     expect(result.thumbnail).toMatchObject({ name: "clip-cover.jpg", type: "image/jpeg" });
     expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 320, 180);
+  });
+
+  it("resizes oversized photos to the high-quality Telegram limit", async () => {
+    class FakeImage {
+      naturalWidth = 4000;
+      naturalHeight = 2000;
+      onload?: () => void;
+      onerror?: () => void;
+      set src(_value: string) { queueMicrotask(() => this.onload?.()); }
+      removeAttribute() {}
+    }
+    const drawImage = vi.fn();
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage }),
+      toBlob: (callback: BlobCallback) => callback(new Blob(["hq"], { type: "image/jpeg" })),
+    };
+    vi.stubGlobal("Image", FakeImage);
+    vi.stubGlobal("document", { createElement: () => canvas });
+    vi.stubGlobal("URL", {
+      createObjectURL: () => "blob:photo",
+      revokeObjectURL: vi.fn(),
+    });
+
+    const original = new File(["photo"], "large.jpg", { type: "image/jpeg" });
+    const result = await prepareHighQualityPhoto(original);
+
+    expect(result).not.toBe(original);
+    expect(result.name).toBe("large.jpg");
+    expect(result.type).toBe("image/jpeg");
+    expect(canvas.width).toBe(2560);
+    expect(canvas.height).toBe(1280);
+    expect(drawImage).toHaveBeenCalledWith(expect.any(FakeImage), 0, 0, 2560, 1280);
+  });
+
+  it("re-encodes smaller photos so the default path is also high quality", async () => {
+    class SmallImage {
+      naturalWidth = 800;
+      naturalHeight = 600;
+      onload?: () => void;
+      set src(_value: string) { queueMicrotask(() => this.onload?.()); }
+      removeAttribute() {}
+    }
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage: vi.fn() }),
+      toBlob: (callback: BlobCallback) => callback(new Blob(["hq"], { type: "image/jpeg" })),
+    };
+    vi.stubGlobal("Image", SmallImage);
+    vi.stubGlobal("document", { createElement: () => canvas });
+    vi.stubGlobal("URL", {
+      createObjectURL: () => "blob:small-photo",
+      revokeObjectURL: vi.fn(),
+    });
+
+    const original = new File(["photo"], "small.jpg", { type: "image/jpeg" });
+    const result = await prepareHighQualityPhoto(original);
+
+    expect(result).not.toBe(original);
+    expect(canvas.width).toBe(800);
+    expect(canvas.height).toBe(600);
+  });
+
+  it("falls back to the original photo when browser encoding is unavailable", async () => {
+    const original = new File(["photo"], "large.jpg", { type: "image/jpeg" });
+    await expect(prepareHighQualityPhoto(original)).resolves.toBe(original);
   });
 });

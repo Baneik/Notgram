@@ -26,7 +26,7 @@ import type {
   MessageTextEntityKind,
   User,
 } from "./types";
-import { messageContentText } from "./messageContent";
+import { messagePreviewText } from "./messageContent";
 import { deriveChatManagementCapabilitiesFromTd } from "./chatManagement";
 import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
 import { sanitizeIdentityText } from "./identityText";
@@ -1472,7 +1472,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
 
 export const messagePreview = (value: unknown) => {
   const content = mapTdMessageContent(asTdObject(value)?.content ?? value);
-  return messageContentText(content);
+  return messagePreviewText(content);
 };
 
 export const messageSenderId = (value: unknown) => {

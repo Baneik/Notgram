@@ -26,6 +26,7 @@ import { hasChatDraftContent } from "./chatDraft";
 import {
   attachmentAlbumFamily,
   inspectOutgoingAttachment,
+  prepareHighQualityPhoto,
 } from "../media/outgoingAttachments";
 import type {
   DeleteMessageInput,
@@ -837,18 +838,26 @@ export class TauriMessageMediaService {
 
   private preparePastedAttachment = async (
     attachment: SendFilesInput["attachments"][number],
-  ): Promise<PreparedPastedAttachment> => ({
-    ...await this.preparePastedFile(attachment.file),
-    kind: attachment.kind,
-    width: attachment.width,
-    height: attachment.height,
-    duration: attachment.duration,
-    title: attachment.title,
-    performer: attachment.performer,
-    thumbnail: attachment.thumbnail
-      ? await this.preparePastedFile(attachment.thumbnail)
-      : undefined,
-    hasSpoiler: attachment.hasSpoiler,
-    showCaptionAboveMedia: attachment.showCaptionAboveMedia,
-  });
+  ): Promise<PreparedPastedAttachment> => {
+    const file = attachment.kind === "photo"
+      ? await prepareHighQualityPhoto(attachment.file)
+      : attachment.file;
+    return {
+      ...await this.preparePastedFile(file),
+      kind: attachment.kind,
+      width: attachment.width,
+      height: attachment.height,
+      duration: attachment.duration,
+      title: attachment.title,
+      performer: attachment.performer,
+      thumbnail: attachment.thumbnail
+        ? await this.preparePastedFile(attachment.thumbnail)
+        : undefined,
+      fallback: file === attachment.file
+        ? undefined
+        : await this.preparePastedFile(attachment.file),
+      hasSpoiler: attachment.hasSpoiler,
+      showCaptionAboveMedia: attachment.showCaptionAboveMedia,
+    };
+  };
 }

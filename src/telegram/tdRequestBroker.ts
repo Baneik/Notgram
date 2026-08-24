@@ -28,6 +28,8 @@ export interface PreparedPastedAttachment extends PreparedPastedFile {
   title?: string;
   performer?: string;
   thumbnail?: PreparedPastedFile;
+  /** Original photo bytes used if the high-quality upload is rejected. */
+  fallback?: PreparedPastedFile;
   hasSpoiler?: boolean;
   showCaptionAboveMedia?: boolean;
 }

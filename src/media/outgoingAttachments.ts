@@ -27,6 +27,8 @@ const AUDIO_MIME_TYPES = new Set([
 ]);
 const PROBE_TIMEOUT_MS = 8_000;
 const THUMBNAIL_MAX_EDGE = 320;
+const HIGH_QUALITY_PHOTO_MAX_EDGE = 2560;
+const HIGH_QUALITY_JPEG_QUALITY = 0.99;
 const HAVE_METADATA = 1;
 const HAVE_CURRENT_DATA = 2;
 
@@ -195,6 +197,56 @@ const probePhoto = async (file: File): Promise<Partial<OutgoingAttachment>> => {
       height: finiteInteger(image.naturalHeight),
     };
   } finally {
+    URL.revokeObjectURL(source);
+  }
+};
+
+/**
+ * Telegram's high-quality photo mode prepares a larger, high-quality photo
+ * before handing it to the photo sender. Keep smaller originals untouched and
+ * only resize oversized images; a preparation failure deliberately falls back
+ * to the original file so sending remains available.
+ */
+export const prepareHighQualityPhoto = async (file: File): Promise<File> => {
+  const extension = fileExtension(file.name);
+  const isPhoto = file.type.startsWith("image/") || PHOTO_EXTENSIONS.has(extension ?? "");
+  if (!isPhoto || file.type === "image/gif" || typeof Image === "undefined" ||
+    typeof document === "undefined" || typeof URL.createObjectURL !== "function") return file;
+  const source = URL.createObjectURL(file);
+  const image = new Image();
+  image.src = source;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = globalThis.setTimeout(() => reject(new Error("图片高清准备超时")), PROBE_TIMEOUT_MS);
+      image.onload = () => {
+        globalThis.clearTimeout(timer);
+        resolve();
+      };
+      image.onerror = () => {
+        globalThis.clearTimeout(timer);
+        reject(new Error("无法读取图片高清尺寸"));
+      };
+    });
+    const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
+    if (!longestEdge) return file;
+    const scale = Math.min(1, HIGH_QUALITY_PHOTO_MAX_EDGE / longestEdge);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const mimeType = file.type === "image/png" || extension === "png" ? "image/png" : "image/jpeg";
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, mimeType, HIGH_QUALITY_JPEG_QUALITY);
+    });
+    return blob
+      ? new File([blob], file.name, { type: file.type || mimeType, lastModified: file.lastModified })
+      : file;
+  } catch {
+    return file;
+  } finally {
+    image.removeAttribute("src");
     URL.revokeObjectURL(source);
   }
 };

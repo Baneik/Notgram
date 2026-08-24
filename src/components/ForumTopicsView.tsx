@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { FormEvent, useMemo, useRef, useState } from "react";
-import { messageContentText } from "../telegram/messageContent";
+import { messagePreviewText } from "../telegram/messageContent";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { Chat, ForumTopic } from "../telegram/types";
 import { Avatar } from "./Avatar";
@@ -173,7 +173,7 @@ export function ForumTopicsView({
                       <span className="forum-topic-icon" style={{ backgroundColor: topicIconColor(topic.iconColor) }}><Hash size={17} /></span>
                       <span className="forum-topic-copy">
                         <span className="forum-topic-name">{topic.name}</span>
-                        <span className="forum-topic-preview">{topic.lastMessage ? messageContentText(topic.lastMessage.content) : "暂无消息"}</span>
+                        <span className="forum-topic-preview">{topic.lastMessage ? messagePreviewText(topic.lastMessage.content) : "暂无消息"}</span>
                       </span>
                       <span className="forum-topic-meta">
                         {topic.isPinned && <Pin size={14} strokeWidth={1.9} aria-label="已置顶" />}

@@ -50,9 +50,19 @@ pub struct PastedUploadFile {
     performer: Option<String>,
     thumbnail: Option<PastedUploadThumbnail>,
     #[serde(default)]
+    fallback: Option<PastedUploadFallback>,
+    #[serde(default)]
     has_spoiler: bool,
     #[serde(default)]
     show_caption_above_media: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PastedUploadFallback {
+    name: String,
+    mime_type: String,
+    data_base64: String,
 }
 
 #[derive(Deserialize)]
@@ -305,9 +315,15 @@ struct RuntimeInner {
     last_error: Option<String>,
 }
 
+struct RequestTracking {
+    types: Arc<Mutex<HashMap<String, String>>>,
+    fallbacks: Arc<Mutex<HashMap<String, Value>>>,
+}
+
 pub struct TelegramRuntime {
     inner: Mutex<RuntimeInner>,
     request_types: Arc<Mutex<HashMap<String, String>>>,
+    fallback_requests: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 impl TelegramRuntime {
@@ -322,6 +338,7 @@ impl TelegramRuntime {
                 last_error: None,
             }),
             request_types: Arc::new(Mutex::new(HashMap::new())),
+            fallback_requests: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -400,7 +417,10 @@ impl TelegramRuntime {
             .lock()
             .expect("request type mutex poisoned")
             .clear();
-        let request_types = Arc::clone(&self.request_types);
+        let request_tracking = RequestTracking {
+            types: Arc::clone(&self.request_types),
+            fallbacks: Arc::clone(&self.fallback_requests),
+        };
         thread::Builder::new()
             .name("tdlib-receive".to_string())
             .spawn(move || {
@@ -411,7 +431,7 @@ impl TelegramRuntime {
                     client_id,
                     stop,
                     configuration,
-                    request_types,
+                    request_tracking,
                 );
             })
             .map_err(|error| format!("无法启动 TDLib 接收线程: {error}"))?;
@@ -419,6 +439,14 @@ impl TelegramRuntime {
     }
 
     fn send(&self, request: &Value) -> Result<(), String> {
+        self.send_internal(request, None)
+    }
+
+    fn send_with_fallback(&self, request: &Value, fallback: Value) -> Result<(), String> {
+        self.send_internal(request, Some(fallback))
+    }
+
+    fn send_internal(&self, request: &Value, fallback: Option<Value>) -> Result<(), String> {
         let inner = self.inner.lock().expect("telegram runtime mutex poisoned");
         let running = inner
             .running
@@ -447,6 +475,12 @@ impl TelegramRuntime {
                 .lock()
                 .expect("request type mutex poisoned")
                 .insert(correlation.clone(), request_type.to_string());
+            if let Some(fallback) = fallback {
+                self.fallback_requests
+                    .lock()
+                    .expect("telegram fallback request mutex poisoned")
+                    .insert(correlation.clone(), fallback);
+            }
         }
         let result = engine.send_value(running.client_id, request);
         if result.is_err()
@@ -455,6 +489,10 @@ impl TelegramRuntime {
             self.request_types
                 .lock()
                 .expect("request type mutex poisoned")
+                .remove(&correlation);
+            self.fallback_requests
+                .lock()
+                .expect("telegram fallback request mutex poisoned")
                 .remove(&correlation);
         }
         result
@@ -522,6 +560,10 @@ impl TelegramRuntime {
         self.request_types
             .lock()
             .expect("request type mutex poisoned")
+            .clear();
+        self.fallback_requests
+            .lock()
+            .expect("telegram fallback request mutex poisoned")
             .clear();
     }
 
@@ -697,7 +739,7 @@ fn receive_loop(
     client_id: i32,
     stop: Arc<AtomicBool>,
     configuration: TdlibConfiguration,
-    request_types: Arc<Mutex<HashMap<String, String>>>,
+    request_tracking: RequestTracking,
 ) {
     let mut stats_started = Instant::now();
     let mut poll_count = 0_u64;
@@ -745,18 +787,59 @@ fn receive_loop(
                         request_type_from_extra(correlation)
                             .map(str::to_owned)
                             .or_else(|| {
-                                request_types
+                                request_tracking
+                                    .types
                                     .lock()
                                     .expect("request type mutex poisoned")
                                     .remove(correlation)
                             })
                     });
-                    if update.get("@type").and_then(Value::as_str) == Some("error") {
+                    let is_error = update.get("@type").and_then(Value::as_str) == Some("error");
+                    if !is_error && let Some(correlation) = request {
+                        request_tracking
+                            .fallbacks
+                            .lock()
+                            .expect("telegram fallback request mutex poisoned")
+                            .remove(correlation);
+                    }
+                    if is_error {
+                        let mut fallback_sent = false;
+                        let fallback = request
+                            .filter(|_| request_type.as_deref() == Some("sendMessage"))
+                            .and_then(|correlation| {
+                                request_tracking
+                                    .fallbacks
+                                    .lock()
+                                    .expect("telegram fallback request mutex poisoned")
+                                    .remove(correlation)
+                            });
+                        if let (Some(correlation), Some(mut fallback_request)) = (request, fallback)
+                        {
+                            fallback_request["@extra"] = json!(correlation);
+                            if engine.send_value(client_id, &fallback_request).is_ok() {
+                                request_tracking
+                                    .types
+                                    .lock()
+                                    .expect("request type mutex poisoned")
+                                    .insert(correlation.to_string(), "sendMessage".to_string());
+                                emit_update = false;
+                                fallback_sent = true;
+                                if let Some(logger) = &logger {
+                                    logger.write(
+                                        "warn",
+                                        "photo_upload_fallback",
+                                        json!({ "requestType": "sendMessage" }),
+                                    );
+                                }
+                            }
+                        }
                         let code = update.get("code").and_then(Value::as_i64);
                         let expected = (code == Some(404)
                             && request_type.as_deref() == Some("loadChats"))
                             || (code == Some(401) && authorization_closing);
-                        if let Some(logger) = &logger {
+                        if let Some(logger) = &logger
+                            && !fallback_sent
+                        {
                             logger.write(
                                 if expected { "debug" } else { "error" },
                                 if expected {
@@ -1381,11 +1464,16 @@ pub async fn telegram_send_pasted_files(
     let mut cache_guard = SentMediaCacheGuard::new(cache_root.clone());
 
     let mut prepared = Vec::with_capacity(files.len());
+    let mut fallback_files = Vec::with_capacity(files.len());
     for (index, file) in files.into_iter().enumerate() {
         if file.mime_type.len() > 255 || file.mime_type.chars().any(char::is_control) {
             return Err("Invalid pasted file MIME type".to_string());
         }
-        let bytes = decode_pasted_upload(file.data_base64, "Pasted file", MAX_PASTED_UPLOAD_BYTES)?;
+        let bytes = decode_pasted_upload(
+            file.data_base64.clone(),
+            "Pasted file",
+            MAX_PASTED_UPLOAD_BYTES,
+        )?;
         let path = pasted_upload_path(&cache_root, &file.name, index);
         fs::create_dir_all(
             path.parent()
@@ -1394,6 +1482,30 @@ pub async fn telegram_send_pasted_files(
         .map_err(|error| format!("Unable to create pasted upload cache: {error}"))?;
         fs::write(&path, bytes)
             .map_err(|error| format!("Unable to cache pasted upload: {error}"))?;
+        let fallback_file = if let Some(fallback) = file.fallback.as_ref() {
+            if fallback.mime_type.len() > 255 || fallback.mime_type.chars().any(char::is_control) {
+                return Err("Invalid fallback file MIME type".to_string());
+            }
+            let bytes = decode_pasted_upload(
+                fallback.data_base64.clone(),
+                "Fallback pasted file",
+                MAX_PASTED_UPLOAD_BYTES,
+            )?;
+            let fallback_path = cache_root
+                .join(format!("fallback-{}", index + 1))
+                .join(pasted_upload_file_name(&fallback.name, index));
+            fs::create_dir_all(
+                fallback_path.parent().ok_or_else(|| {
+                    "Unable to resolve fallback upload cache directory".to_string()
+                })?,
+            )
+            .map_err(|error| format!("Unable to create fallback upload cache: {error}"))?;
+            fs::write(&fallback_path, bytes)
+                .map_err(|error| format!("Unable to cache fallback upload: {error}"))?;
+            Some(crate::storage::prepare_upload_file(&fallback_path)?)
+        } else {
+            None
+        };
         let thumbnail = if let Some(thumbnail) = file.thumbnail {
             if thumbnail.mime_type != "image/jpeg" && thumbnail.mime_type != "image/png" {
                 return Err("Invalid media thumbnail MIME type".to_string());
@@ -1423,6 +1535,7 @@ pub async fn telegram_send_pasted_files(
             has_spoiler: file.has_spoiler,
             show_caption_above_media: file.show_caption_above_media,
         });
+        fallback_files.push(fallback_file);
     }
 
     let request = if prepared.len() == 1 {
@@ -1444,7 +1557,45 @@ pub async fn telegram_send_pasted_files(
             topic_id,
         )?
     };
-    runtime.send(&request)?;
+    let fallback_request = if fallback_files.iter().any(Option::is_some) {
+        let fallback_uploads = prepared
+            .iter()
+            .zip(fallback_files.iter())
+            .map(|(upload, fallback_file)| {
+                let mut fallback_upload = upload.clone();
+                if let Some(fallback_file) = fallback_file {
+                    fallback_upload.file = fallback_file.clone();
+                }
+                fallback_upload
+            })
+            .collect::<Vec<_>>();
+        if fallback_uploads.len() == 1 {
+            Some(prepared_upload_request_with_caption_and_topic(
+                chat_id,
+                &extra,
+                &fallback_uploads[0],
+                &caption.text,
+                &caption.entities,
+                topic_id,
+            )?)
+        } else {
+            Some(prepared_upload_album_request_with_caption_and_topic(
+                chat_id,
+                &extra,
+                &fallback_uploads,
+                &caption.text,
+                &caption.entities,
+                topic_id,
+            )?)
+        }
+    } else {
+        None
+    };
+    if let Some(fallback_request) = fallback_request {
+        runtime.send_with_fallback(&request, fallback_request)?;
+    } else {
+        runtime.send(&request)?;
+    }
     cache_guard.keep();
     Ok(true)
 }

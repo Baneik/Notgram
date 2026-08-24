@@ -4,7 +4,7 @@ import {
   tallMediaPreviewUrl,
   wideMediaPreviewUrl,
 } from "./mockData";
-import { messageContentText } from "./messageContent";
+import { messageContentText, messagePreviewText } from "./messageContent";
 import { hasChatDraftContent } from "./chatDraft";
 import { messageSearchMatches } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
@@ -2405,7 +2405,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
     const updatedChat: Chat = {
       ...chat,
-      preview: messageContentText(message.content),
+      preview: messagePreviewText(message.content),
       previewSenderId: message.senderId,
       updatedAt: message.sentAt,
       unreadCount: 0,
@@ -2487,7 +2487,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (!latest) return;
     const updatedChat: Chat = {
       ...chat,
-      preview: messageContentText(latest.content),
+      preview: messagePreviewText(latest.content),
       previewSenderId: latest.senderId,
       updatedAt: latest.sentAt,
     };
