@@ -1406,6 +1406,8 @@ export const createTelegramStore = (
       if (accountId === current.activeAccountId && current.authorization.kind === "ready") {
         return true;
       }
+      const accountSwitching = current.authorization.kind === "ready" &&
+        current.accounts.some((account) => account.id === accountId);
       const previousAccountId = current.activeAccountId;
       const discardPreviousAccount = shouldDiscardUnregisteredAccount(
         current.accounts,
@@ -1418,6 +1420,7 @@ export const createTelegramStore = (
       registeredAccountKey = undefined;
       set({
         accountPending: true,
+        accountSwitching,
         accountError: undefined,
         error: undefined,
         operationError: undefined,
@@ -1444,6 +1447,7 @@ export const createTelegramStore = (
           authorizationPending: false,
           authorizationError: undefined,
           accountPending: true,
+          accountSwitching,
           accountError: undefined,
           error: undefined,
           operationError: undefined,
@@ -1459,6 +1463,7 @@ export const createTelegramStore = (
         accountTransition = false;
         set({
           accountPending: false,
+          accountSwitching: false,
           accountError: error instanceof Error ? error.message : "无法切换账号",
         });
         if (disconnected) reloadApplication();
@@ -1596,6 +1601,7 @@ export const createTelegramStore = (
       accounts: [],
       activeAccountId: "default",
       accountPending: false,
+      accountSwitching: false,
       proxyPending: false,
       storagePending: false,
       cacheUsage: undefined,
@@ -1705,6 +1711,7 @@ export const createTelegramStore = (
               phase: current.phase === "error" ? "error" : "ready",
               authorization,
               accountPending: false,
+              accountSwitching: false,
             });
             return;
           }
@@ -1730,6 +1737,7 @@ export const createTelegramStore = (
                 ? current.chatFilter
                 : (folders[0]?.id ?? "main"),
             accountPending: false,
+            accountSwitching: false,
           });
           publishMessageChange({ type: "reset", messages });
           void registerCurrentAccount();
@@ -1759,6 +1767,7 @@ export const createTelegramStore = (
             phase: "error",
             connectionStatus: "offline",
             accountPending: false,
+            accountSwitching: false,
             error: errorMessage(error, "无法启动 Telegram runtime"),
           });
         }
@@ -1934,6 +1943,7 @@ export const createTelegramStore = (
         registeredAccountKey = undefined;
         set({
           accountPending: true,
+          accountSwitching: false,
           accountError: undefined,
           error: undefined,
           operationError: undefined,
@@ -1952,6 +1962,7 @@ export const createTelegramStore = (
           accountTransition = false;
           set({
             accountPending: false,
+            accountSwitching: false,
             accountError: error instanceof Error ? error.message : "退出登录失败",
           });
           if (disconnected) reloadApplication();

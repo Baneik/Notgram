@@ -195,7 +195,7 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 }
 
 .main-window-frame { width: 100%; height: 100%; display: grid; grid-template-rows: 32px minmax(0, 1fr); overflow: hidden; background: var(--surface); }
-.main-window-content { min-width: 0; min-height: 0; overflow: hidden; }
+.main-window-content { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 .window-chrome {
   height: 32px; display: flex; align-items: stretch; justify-content: flex-end; color: var(--muted);
   background: var(--color-bg-surface-hover); border-bottom: 1px solid var(--line); user-select: none;
@@ -399,6 +399,13 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   grid-template-columns: 86px clamp(250px, var(--chat-sidebar-width, 360px), min(560px, calc(100vw - 376px))) minmax(0, 1fr);
   background: var(--color-bg-surface);
 }
+.account-switch-overlay {
+  position: absolute; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; gap: 9px;
+  color: var(--muted); background: color-mix(in srgb, var(--color-bg-surface) 94%, transparent);
+  user-select: none;
+}
+.account-switch-overlay > svg { color: var(--accent); flex: 0 0 auto; }
+.account-switch-overlay > span { font-size: 13px; }
 .navigation-rail {
   grid-column: 1; height: 100%; min-height: 0; display: flex; flex-direction: column; align-items: stretch;
   padding: 12px 7px 10px; background: var(--color-bg-surface-hover); border-right: 1px solid var(--line);

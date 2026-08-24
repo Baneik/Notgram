@@ -30,6 +30,7 @@ interface ChatSidebarProps {
   chats: Chat[];
   allChats: Map<string, Chat>;
   users: Map<string, User>;
+  accountId: string;
   folders: ChatFolder[];
   activeChatId?: string;
   folderId: string;
@@ -84,6 +85,7 @@ export function ChatSidebar({
   chats,
   allChats,
   users,
+  accountId,
   folders,
   activeChatId,
   folderId,
@@ -342,6 +344,14 @@ export function ChatSidebar({
     document.documentElement.classList.toggle("is-reordering-pinned", Boolean(draggedPinnedChatId));
     return () => document.documentElement.classList.remove("is-reordering-pinned");
   }, [draggedPinnedChatId]);
+
+  useEffect(() => {
+    chatListScrollTopByFolderRef.current.clear();
+    autoFillAttemptRef.current = undefined;
+    setContextMenu(undefined);
+    setDraggedPinnedChatId(undefined);
+    setDropTarget(undefined);
+  }, [accountId, setDropTarget]);
 
   // The list element is shared between folders, so preserve its viewport per folder
   // before React swaps the rows and restore the target after the new rows are mounted.

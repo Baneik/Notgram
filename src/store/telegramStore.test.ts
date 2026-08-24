@@ -1810,6 +1810,7 @@ describe("telegram store", () => {
       "select:account-secondary",
     ]);
     expect(store.getState().activeAccountId).toBe("account-secondary");
+    expect(store.getState().accountSwitching).toBe(false);
     expect(reload).not.toHaveBeenCalled();
   });
 
@@ -1865,6 +1866,55 @@ describe("telegram store", () => {
       "select:default",
     ]);
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("marks a registered account switch as in-place until reconnect completes", async () => {
+    const accounts: TelegramAccount[] = [
+      {
+        id: "default",
+        userId: "self",
+        displayName: "林遥",
+        avatar: { label: "遥", color: "#3390ec" },
+      },
+      {
+        id: "account-secondary",
+        userId: "secondary",
+        displayName: "工作账号",
+        avatar: { label: "工", color: "#26a269" },
+      },
+    ];
+
+    class DelayedAccountSwitchTransport extends MockTelegramTransport {
+      resolveSelection?: () => void;
+
+      override async getAccountState() {
+        return { activeAccountId: "default", accounts: structuredClone(accounts) };
+      }
+
+      override async registerCurrentAccount() {
+        return { activeAccountId: "default", accounts: structuredClone(accounts) };
+      }
+
+      override async selectAccount(accountId: string) {
+        await new Promise<void>((resolve) => {
+          this.resolveSelection = () => resolve();
+        });
+        return { activeAccountId: accountId, accounts: structuredClone(accounts) };
+      }
+    }
+
+    const transport = new DelayedAccountSwitchTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    const switching = store.getState().switchAccount("account-secondary");
+    await vi.waitFor(() => expect(transport.resolveSelection).toBeTypeOf("function"));
+    expect(store.getState().accountPending).toBe(true);
+    expect(store.getState().accountSwitching).toBe(true);
+
+    transport.resolveSelection?.();
+    await expect(switching).resolves.toBe(true);
+    expect(store.getState().accountSwitching).toBe(false);
   });
 
   it("logs out, removes only the active account, and reloads the fallback account", async () => {

@@ -404,12 +404,23 @@ test("the account avatar expands an inline account switcher with add account las
 
   let pageLoads = 0;
   page.on("load", () => { pageLoads += 1; });
+  await page.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    if (!shell) throw new Error("Workspace shell is unavailable before account switch");
+    (window as typeof window & { __notgramAccountSwitchShell?: HTMLElement }).__notgramAccountSwitchShell = shell;
+  });
   await menu.getByRole("menuitemradio", { name: "工作账号" }).click();
   await expect.poll(() => page.evaluate(() => {
     const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");
     return state.activeAccountId;
   })).toBe("account-secondary");
   expect(pageLoads).toBe(0);
+  await expect(page.locator(".app-shell")).toBeVisible();
+  await expect(page.locator(".startup-screen")).toHaveCount(0);
+  expect(await page.evaluate(() => {
+    const previous = (window as typeof window & { __notgramAccountSwitchShell?: HTMLElement }).__notgramAccountSwitchShell;
+    return Boolean(previous && document.querySelector(".app-shell") === previous);
+  })).toBe(true);
 
   const previousAccountId = await page.evaluate(() => {
     const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");

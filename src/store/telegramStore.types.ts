@@ -105,6 +105,8 @@ export interface TelegramState {
   accounts: TelegramAccount[];
   activeAccountId: string;
   accountPending: boolean;
+  /** True only while switching between two already-authorized accounts in place. */
+  accountSwitching: boolean;
   accountError?: string;
   users: Map<string, User>;
   userIdsByUsername: Map<string, string>;

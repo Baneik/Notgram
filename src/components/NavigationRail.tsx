@@ -124,6 +124,15 @@ export function NavigationRail({
     };
   }, [accountMenu, closeAccountMenu]);
 
+  useEffect(() => {
+    if (!accountPending) return;
+    closeContextMenu();
+    closeAccountMenu();
+    setDraggedFolderId(undefined);
+    folderDropTargetRef.current = undefined;
+    setFolderDropTarget(undefined);
+  }, [accountPending, closeAccountMenu, closeContextMenu]);
+
   const openFromKeyboard = (
     event: KeyboardEvent<HTMLButtonElement>,
     folderId: string,

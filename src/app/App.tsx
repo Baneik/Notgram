@@ -50,6 +50,7 @@ import {
   savePendingNotificationRoute,
 } from "../notifications/notificationRouting";
 import { mediaPlaybackCoordinator } from "../media/mediaPlayback";
+import { audioPlaybackController } from "../media/audioPlayback";
 import {
   captureActiveConversationScrollState,
   hasConversationScrollMemory,
@@ -145,6 +146,7 @@ export function App() {
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const accounts = useTelegramStore((state) => state.accounts);
   const accountPending = useTelegramStore((state) => state.accountPending);
+  const accountSwitching = useTelegramStore((state) => state.accountSwitching);
   const chats = useTelegramStore((state) => state.chats);
   const chatListReady = useTelegramStore((state) => state.chatListReady);
   const chatLists = useTelegramStore((state) => state.chatLists);
@@ -674,6 +676,26 @@ export function App() {
       discardConversationSnapshot();
     };
   }, [discardConversationSnapshot]);
+
+  useEffect(() => {
+    if (!accountSwitching) return;
+    setMobileChatOpen(false);
+    setPendingBotStart(undefined);
+    setBotStartSending(false);
+    setSettingsOpen(false);
+    setDownloadManagerOpen(false);
+    setStickerSetPreviewId(undefined);
+    setFolderManagerOpen(false);
+    setFolderManagerInitialId(undefined);
+    setNewChatOpen(false);
+    setManagementChatId(undefined);
+    setPendingConfirmation(undefined);
+    setConversationScrollRequest(undefined);
+    chatOpenGenerationRef.current += 1;
+    discardConversationSnapshot();
+    audioPlaybackController.close();
+    audioPlaybackController.clear();
+  }, [accountSwitching, discardConversationSnapshot]);
   const openSettings = useCallback(() => {
     void openSettingsWindow()
       .then((opened) => { if (!opened) setSettingsOpen(true); })
@@ -1416,7 +1438,15 @@ export function App() {
     [activeMessages, activeRemovingMessages],
   );
 
-  if (!chatListReady && (authorization.kind === "preparing" || authorization.kind === "ready")) {
+  const preserveWorkspaceShell = accountSwitching && (
+    authorization.kind === "preparing" || authorization.kind === "ready"
+  );
+
+  if (
+    !chatListReady &&
+    (authorization.kind === "preparing" || authorization.kind === "ready") &&
+    !preserveWorkspaceShell
+  ) {
     return phase === "error" ? (
       <div className="startup-screen startup-error" role="alert">
         <CircleAlert size={19} />
@@ -1464,8 +1494,8 @@ export function App() {
   return (
     <>
       <main
-        inert={settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId)}
-        aria-hidden={settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
+        inert={accountSwitching || settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId)}
+        aria-hidden={accountSwitching || settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
         <NavigationRail
@@ -1498,6 +1528,7 @@ export function App() {
           chats={visibleChats}
           allChats={chats}
           users={users}
+          accountId={activeAccountId}
           folders={folders}
           activeChatId={activeChatId}
           folderId={chatFilter}
@@ -1679,7 +1710,9 @@ export function App() {
             }}
           >
             <Conversation
-              key={activeTopicId ? `${activeChatId}:topic:${activeTopicId}` : activeChatId ?? "empty-conversation"}
+              key={activeTopicId
+                ? `${activeAccountId}:${activeChatId}:topic:${activeTopicId}`
+                : `${activeAccountId}:${activeChatId ?? "empty-conversation"}`}
               chat={activeChat}
           topic={activeTopic}
           topics={activeTopics}
@@ -1791,6 +1824,12 @@ export function App() {
           </Profiler>
         )}
       </main>
+      {accountSwitching && (
+        <div className="account-switch-overlay" role="status" aria-live="polite">
+          <LoaderCircle className="spin" size={20} />
+          <span>正在切换账号</span>
+        </div>
+      )}
       <AudioPlaybackHost />
       <MotionPresence present={Boolean(error)} variant="toast">
         {error ? <div className="runtime-error" role="alert">
