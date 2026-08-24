@@ -1,4 +1,4 @@
-import { ChevronRight, LoaderCircle, UserPlus } from "lucide-react";
+import { LoaderCircle, UserPlus } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { TelegramAccount, User } from "../telegram/types";
 import { Avatar } from "./Avatar";
@@ -82,8 +82,7 @@ export function AccountSwitcherMenu({
             onClick={() => select(`${ACCOUNT_ACTION_PREFIX}${account.id}`)}
           >
             <Avatar avatar={account.avatar} size="small" />
-            <span>{account.displayName}</span>
-            <ChevronRight className="account-switcher-next" size={16} strokeWidth={1.9} />
+            <span className="account-switcher-name">{account.displayName}</span>
           </button>
         ))}
       </div>

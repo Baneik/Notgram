@@ -360,7 +360,11 @@ test("the account avatar expands an inline account switcher with add account las
           id: "account-secondary",
           userId: "secondary",
           displayName: "工作账号",
-          avatar: { label: "工", color: "#4477aa" },
+          avatar: {
+            label: "工",
+            color: "#4477aa",
+            imagePath: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+          },
         },
       ],
     }));
@@ -376,6 +380,11 @@ test("the account avatar expands an inline account switcher with add account las
   await expect(menu.getByRole("menuitemradio", { name: "工作账号" }))
     .toHaveAttribute("aria-checked", "false");
   await expect(menu.getByRole("menuitemradio", { name: "工作账号" }).locator(".avatar")).toContainText("工");
+  await expect(menu.getByRole("menuitemradio", { name: "工作账号" }).locator(".avatar img"))
+    .toHaveAttribute("src", /^data:image\/png;base64,/);
+  const menuWidth = await menu.evaluate((element) => element.getBoundingClientRect().width);
+  const accountWidth = await accountEntry.evaluate((element) => element.getBoundingClientRect().width);
+  expect(Math.abs(menuWidth - accountWidth)).toBeLessThan(1);
   const menuItems = menu.getByRole("menuitemradio").or(menu.getByRole("menuitem"));
   await expect(menuItems.last()).toHaveText("添加新账号");
   const firstPosition = await menu.boundingBox();

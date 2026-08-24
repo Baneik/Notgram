@@ -12,6 +12,14 @@ pub const DEFAULT_ACCOUNT_ID: &str = "default";
 pub struct AccountAvatar {
     pub label: String,
     pub color: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_download: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_downloading: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -322,5 +330,29 @@ mod tests {
         assert!(validate_account_id("../account").is_err());
         assert!(validate_account_id("account/child").is_err());
         assert!(validate_account_id(&"a".repeat(81)).is_err());
+    }
+
+    #[test]
+    fn keeps_avatar_media_metadata_and_reads_legacy_records() {
+        let avatar = AccountAvatar {
+            label: "工".to_string(),
+            color: "#4477aa".to_string(),
+            image_path: Some("C:\\avatars\\work.jpg".to_string()),
+            file_id: Some(42),
+            can_download: Some(true),
+            is_downloading: Some(false),
+        };
+        let serialized = serde_json::to_value(&avatar).expect("avatar should serialize");
+        assert_eq!(serialized["imagePath"], "C:\\avatars\\work.jpg");
+        assert_eq!(serialized["fileId"], 42);
+        assert_eq!(
+            serde_json::from_value::<AccountAvatar>(serde_json::json!({
+                "label": "工",
+                "color": "#4477aa"
+            }))
+            .expect("legacy avatar should remain readable")
+            .image_path,
+            None,
+        );
     }
 }
