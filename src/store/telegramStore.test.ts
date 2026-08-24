@@ -1756,7 +1756,7 @@ describe("telegram store", () => {
     ]);
   });
 
-  it("flushes the active snapshot before switching accounts and reloading", async () => {
+  it("flushes the active snapshot before switching accounts without reloading", async () => {
     const accounts: TelegramAccount[] = [
       {
         id: "default",
@@ -1810,7 +1810,7 @@ describe("telegram store", () => {
       "select:account-secondary",
     ]);
     expect(store.getState().activeAccountId).toBe("account-secondary");
-    expect(reload).toHaveBeenCalledOnce();
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it("cleans an unfinished account slot before returning to a registered account", async () => {
@@ -1864,7 +1864,7 @@ describe("telegram store", () => {
       "remove:account-unfinished",
       "select:default",
     ]);
-    expect(reload).toHaveBeenCalledOnce();
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it("logs out, removes only the active account, and reloads the fallback account", async () => {

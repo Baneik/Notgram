@@ -61,10 +61,10 @@ export function NavigationRail({
   }>();
   const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
   const [accountMenu, setAccountMenu] = useState<{
-    point: ContextMenuPoint;
     anchor: HTMLButtonElement;
   }>();
   const closeAccountMenu = useCallback(() => setAccountMenu(undefined), []);
+  const accountSwitcherRef = useRef<HTMLDivElement>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string>();
   const [folderDropTarget, setFolderDropTarget] = useState<{
     folderId: string;
@@ -98,13 +98,31 @@ export function NavigationRail({
   ) => setContextMenu({ folderId, point, anchor });
 
   const openAccountMenu = (anchor: HTMLButtonElement) => {
-    const bounds = anchor.getBoundingClientRect();
     setContextMenu(undefined);
-    setAccountMenu({
-      point: { x: bounds.right + 4, y: bounds.top },
-      anchor,
-    });
+    setAccountMenu((current) => current ? undefined : { anchor });
   };
+
+  useEffect(() => {
+    if (!accountMenu) return;
+    const dismissOutside = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Node) || !accountSwitcherRef.current?.contains(target)) {
+        closeAccountMenu();
+      }
+    };
+    const dismissOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeAccountMenu();
+      globalThis.setTimeout(() => accountMenu.anchor.focus(), 0);
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside, true);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [accountMenu, closeAccountMenu]);
 
   const openFromKeyboard = (
     event: KeyboardEvent<HTMLButtonElement>,
@@ -218,25 +236,39 @@ export function NavigationRail({
   return (
     <>
     <nav className="navigation-rail" aria-label="聊天文件夹">
-      <button
-        className="rail-account"
-        type="button"
-        aria-label="切换账号"
-        title={`当前账号：${accountName}`}
-        onClick={(event) => openAccountMenu(event.currentTarget)}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          openAccountMenu(event.currentTarget);
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
-          event.preventDefault();
-          openAccountMenu(event.currentTarget);
-        }}
-      >
-        <Avatar avatar={accountAvatar} size="small" />
-        <span>{accountName}</span>
-      </button>
+      <div ref={accountSwitcherRef} className={`rail-account-switcher ${accountMenu ? "is-open" : ""}`}>
+        <button
+          className="rail-account"
+          type="button"
+          aria-label="切换账号"
+          aria-expanded={Boolean(accountMenu)}
+          title={`当前账号：${accountName}`}
+          onClick={(event) => openAccountMenu(event.currentTarget)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            openAccountMenu(event.currentTarget);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+            event.preventDefault();
+            openAccountMenu(event.currentTarget);
+          }}
+        >
+          <Avatar avatar={accountAvatar} size="small" />
+          <span>{accountName}</span>
+        </button>
+        {accountMenu && (
+          <AccountSwitcherMenu
+            accounts={accounts}
+            activeAccountId={activeAccountId}
+            currentAccount={account}
+            pending={accountPending}
+            onAdd={onAddAccount}
+            onSwitch={onSwitchAccount}
+            onClose={closeAccountMenu}
+          />
+        )}
+      </div>
       <div className="rail-actions">
         {reorderableFolders.map((folder) => (
           <button
@@ -282,19 +314,6 @@ export function NavigationRail({
         onMarkRead={() => onMarkFolderRead(contextFolder.id)}
         onRequestDelete={() => onRequestDeleteFolder(contextFolder)}
         onClose={closeContextMenu}
-      />
-    )}
-    {accountMenu && (
-      <AccountSwitcherMenu
-        accounts={accounts}
-        activeAccountId={activeAccountId}
-        currentAccount={account}
-        pending={accountPending}
-        point={accountMenu.point}
-        restoreFocus={() => accountMenu.anchor.focus()}
-        onAdd={onAddAccount}
-        onSwitch={onSwitchAccount}
-        onClose={closeAccountMenu}
       />
     )}
     </>

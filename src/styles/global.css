@@ -237,12 +237,12 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .auth-content { width: 100%; display: grid; justify-items: center; text-align: center; }
 .auth-content h1, .auth-form h1 { margin: 0; font-size: 21px; line-height: 1.25; font-weight: 680; }
 .auth-back, .auth-settings {
-  position: fixed; z-index: 2; width: 40px; height: 40px; color: var(--muted);
+  z-index: 2; width: 36px; height: 36px; color: var(--muted);
   background: var(--color-bg-elevated); border: 1px solid var(--line); box-shadow: 0 6px 18px var(--color-shadow);
 }
-.auth-back { top: 18px; left: 18px; }
+.auth-back { position: absolute; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); }
 .auth-settings {
-  right: 20px; bottom: 18px;
+  position: fixed; right: 20px; bottom: 18px;
 }
 .auth-back:hover:not(:disabled), .auth-settings:hover { color: var(--ink); background: var(--surface-hover); }
 .auth-disclaimer { position: fixed; bottom: 22px; left: 22px; color: var(--subtle); font-size: 11px; }
@@ -403,13 +403,45 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   grid-column: 1; height: 100%; min-height: 0; display: flex; flex-direction: column; align-items: stretch;
   padding: 12px 7px 10px; background: var(--color-bg-surface-hover); border-right: 1px solid var(--line);
 }
+.rail-account-switcher { position: relative; width: 100%; min-width: 0; flex: 0 0 auto; }
+.rail-account-switcher.is-open { z-index: 80; }
 .rail-account {
   width: 100%; min-height: 72px; margin: 0 0 8px; padding: 6px 2px; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 5px; flex: 0 0 auto; overflow: hidden;
   color: var(--muted); background: transparent; border: 0; border-radius: 7px; cursor: pointer; font: inherit;
 }
 .rail-account > span:last-child { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
-.rail-account:hover, .rail-account:focus-visible { color: var(--accent); background: var(--accent-soft); }
+.rail-account:hover, .rail-account:focus-visible, .rail-account-switcher.is-open .rail-account { color: var(--accent); background: var(--accent-soft); }
+.account-switcher-inline {
+  width: min(230px, calc(100vw - 20px)); max-height: min(390px, calc(100vh - 176px)); padding: 4px; display: grid; gap: 2px;
+  overflow-y: auto; scrollbar-width: thin; color: var(--ink); background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default); border-radius: 7px;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--color-shadow) 64%, transparent);
+  animation: account-switcher-expand var(--motion-duration-standard) var(--motion-ease-enter) both;
+}
+.account-switcher-list { display: grid; gap: 2px; }
+.account-switcher-item, .account-switcher-add {
+  width: 100%; min-width: 0; min-height: 42px; padding: 4px 7px; display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 16px; align-items: center; gap: 7px;
+  color: var(--ink); background: transparent; border: 0; border-radius: 5px;
+  text-align: left; cursor: pointer; font: inherit;
+}
+.account-switcher-item:hover:not(:disabled), .account-switcher-item:focus-visible,
+.account-switcher-add:hover:not(:disabled), .account-switcher-add:focus-visible { background: var(--surface-hover); }
+.account-switcher-item:disabled, .account-switcher-add:disabled { opacity: 0.48; cursor: default; }
+.account-switcher-item > span, .account-switcher-add > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 620; }
+.account-switcher-item .avatar { width: 29px; height: 29px; font-size: 10px; }
+.account-switcher-next { color: var(--subtle); justify-self: end; }
+.account-switcher-add {
+  grid-template-columns: 30px minmax(0, 1fr); margin-top: 2px; border-top: 1px solid var(--line); border-radius: 0 0 5px 5px;
+  color: var(--accent); font-size: 11px;
+}
+.account-switcher-add > svg { justify-self: center; }
+@keyframes account-switcher-expand {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.reduce-motion .account-switcher-inline { animation: none; }
 .rail-actions { min-height: 0; display: grid; align-content: start; gap: 4px; flex: 1 1 auto; overflow-y: auto; scrollbar-width: none; }
 .rail-footer { flex: 0 0 auto; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
 .rail-button {
@@ -3136,9 +3168,11 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 @media (max-width: 720px) {
   .app-shell { min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 62px; }
   .navigation-rail { grid-column: 1; grid-row: 2; height: 62px; padding: 4px 8px; flex-direction: row; border-top: 1px solid var(--line); border-right: 0; }
-  .rail-account { width: min(72px, 18vw); min-height: 54px; height: 54px; margin: 0 4px 0 0; padding: 3px 2px; flex: 0 0 auto; }
+  .rail-account-switcher { width: min(72px, 18vw); min-height: 54px; height: 54px; margin-right: 4px; }
+  .rail-account { width: 100%; min-height: 54px; height: 54px; margin: 0; padding: 3px 2px; flex: 0 0 auto; }
   .rail-account .avatar { width: 30px; height: 30px; }
   .rail-account > span:last-child { font-size: 10px; }
+  .account-switcher-inline { position: absolute; z-index: 30; bottom: calc(100% + 6px); left: 0; width: min(220px, calc(100vw - 16px)); max-height: min(360px, calc(100vh - 88px)); }
   .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
   .rail-footer { margin: 0 0 0 4px; padding: 0; border-top: 0; border-left: 1px solid var(--line); }
   .rail-button.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
@@ -3207,7 +3241,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .message-selection-bar { height: 50px; min-height: 50px; padding: 0 10px; }
   .auth-shell { min-height: 520px; padding: 22px 18px 66px; }
   .auth-panel { gap: 18px; }
-  .auth-back { top: 10px; left: 10px; }
+  .auth-back { top: max(6px, env(safe-area-inset-top)); left: max(6px, env(safe-area-inset-left)); }
   .auth-settings { top: auto; right: 10px; bottom: 10px; }
   .auth-disclaimer { bottom: 15px; left: 14px; }
 }

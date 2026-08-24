@@ -192,6 +192,7 @@ export const createTelegramStore = (
     let cacheWrite = Promise.resolve();
     const cachedMessageIds = new Map<string, Set<string>>();
     let accountTransition = false;
+    let accountGeneration = 0;
     let registeredAccountKey: string | undefined;
     let accountRegistration = Promise.resolve();
     const readTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -526,7 +527,11 @@ export const createTelegramStore = (
       if (registeredAccountKey === key) return accountRegistration;
       registeredAccountKey = key;
       const request = transport.registerCurrentAccount(account).then((accountState) => {
-        if (!accountTransition && get().activeAccountId === accountId) {
+        if (
+          !accountTransition &&
+          get().activeAccountId === accountId &&
+          accountState.activeAccountId === accountId
+        ) {
           applyAccountState(accountState);
         }
       }).catch((error) => {
@@ -648,6 +653,7 @@ export const createTelegramStore = (
         get().connectionStatus !== "online"
       ) return;
       const current = get().histories.get(chatId);
+      const generation = accountGeneration;
       if (
         current?.loading ||
         current?.hasMore === false ||
@@ -667,6 +673,7 @@ export const createTelegramStore = (
       markConversationSwitch(performanceTraceId, "asyncWaitStarted");
       try {
         let page = await transport.loadChatHistory(chatId, 30);
+        if (generation !== accountGeneration) return;
         const pendingCachedIds = cachedMessageIds.get(chatId);
         if (pendingCachedIds) {
           const confirmedIds = new Set(page.messageIds);
@@ -675,6 +682,7 @@ export const createTelegramStore = (
           );
           if (hasUnconfirmedCache && page.hasMore) {
             const continuation = await transport.loadChatHistory(chatId, 30);
+            if (generation !== accountGeneration) return;
             for (const messageId of continuation.messageIds) confirmedIds.add(messageId);
             page = {
               loadedCount: page.loadedCount + continuation.loadedCount,
@@ -713,6 +721,7 @@ export const createTelegramStore = (
         });
         scheduleCacheWrite();
       } catch (error) {
+        if (generation !== accountGeneration) return;
         const nextHistories = new Map(get().histories);
         nextHistories.set(chatId, {
           loading: false,
@@ -745,6 +754,7 @@ export const createTelegramStore = (
         get().connectionStatus !== "online"
       ) return;
       const key = topicKey(chatId, topicId);
+      const generation = accountGeneration;
       const current = get().topicHistories.get(key);
       if (current?.loading || current?.hasMore === false || (mode === "ensure" && current?.initialized)) return;
       const topicHistories = new Map(get().topicHistories);
@@ -752,11 +762,13 @@ export const createTelegramStore = (
       set({ topicHistories });
       try {
         const page = await transport.loadForumTopicHistory(chatId, topicId, 30);
+        if (generation !== accountGeneration) return;
         const next = new Map(get().topicHistories);
         next.set(key, { loading: false, hasMore: page.hasMore, initialized: true });
         set({ topicHistories: next, operationError: undefined });
         scheduleCacheWrite();
       } catch (error) {
+        if (generation !== accountGeneration) return;
         const next = new Map(get().topicHistories);
         next.set(key, { loading: false, hasMore: true, initialized: current?.initialized ?? false });
         set({ topicHistories: next, operationError: errorMessage(error, "无法加载话题消息") });
@@ -766,6 +778,7 @@ export const createTelegramStore = (
     const loadChats = async (chatListId = get().chatFilter) => {
       if (get().authorization.kind !== "ready") return;
       const current = get().chatLists.get(chatListId);
+      const generation = accountGeneration;
       if (current?.loading || current?.hasMore === false) return;
 
       const chatLists = new Map(get().chatLists);
@@ -773,11 +786,13 @@ export const createTelegramStore = (
       set({ chatLists });
       try {
         const page = await transport.loadMoreChats(chatListId, 50);
+        if (generation !== accountGeneration) return;
         const nextChatLists = new Map(get().chatLists);
         nextChatLists.set(chatListId, { loading: false, hasMore: page.hasMore });
         set({ chatLists: nextChatLists, operationError: undefined });
         scheduleCacheWrite();
       } catch (error) {
+        if (generation !== accountGeneration) return;
         const nextChatLists = new Map(get().chatLists);
         nextChatLists.set(chatListId, { loading: false, hasMore: true });
         set({
@@ -1385,8 +1400,9 @@ export const createTelegramStore = (
       };
     }
 
-    const selectAccountAndReload = async (accountId: string) => {
+    const selectAccountAndReconnect = async (accountId: string) => {
       const current = get();
+      if (current.accountPending) return false;
       if (accountId === current.activeAccountId && current.authorization.kind === "ready") {
         return true;
       }
@@ -1398,6 +1414,7 @@ export const createTelegramStore = (
       );
       let disconnected = false;
       accountTransition = true;
+      accountGeneration += 1;
       registeredAccountKey = undefined;
       set({
         accountPending: true,
@@ -1406,16 +1423,37 @@ export const createTelegramStore = (
         operationError: undefined,
       });
       try {
-        await accountRegistration;
-        await draftSync.flushPending();
-        await flushCachedSnapshot();
+        await Promise.all([
+          accountRegistration,
+          draftSync.flushPending(),
+          flushCachedSnapshot(),
+        ]);
         await transport.disconnect();
         disconnected = true;
         if (discardPreviousAccount) {
           await transport.removeAccount(previousAccountId);
         }
         applyAccountState(await transport.selectAccount(accountId));
-        reloadApplication();
+        // Reconnect the selected TDLib database in the existing Store. Keeping the
+        // WebView mounted avoids a full-page reload and its repeated blank flashes.
+        clearCachedData(false);
+        set({
+          phase: "idle",
+          connectionStatus: "offline",
+          authorization: { kind: "preparing" },
+          authorizationPending: false,
+          authorizationError: undefined,
+          accountPending: true,
+          accountError: undefined,
+          error: undefined,
+          operationError: undefined,
+        });
+        await get().initialize({ preserveAccountPending: true, skipAccountState: true });
+        if (get().phase === "error") {
+          throw new Error(get().error ?? "无法切换账号");
+        }
+        accountTransition = false;
+        void registerCurrentAccount();
         return true;
       } catch (error) {
         accountTransition = false;
@@ -1607,6 +1645,8 @@ export const createTelegramStore = (
       initialize: async (options = {}) => {
         if (get().phase !== "idle") return;
         const settingsOnly = options.settingsOnly === true;
+        const preserveAccountPending = options.preserveAccountPending === true;
+        const skipAccountState = options.skipAccountState === true;
         set({
           phase: "loading",
           connectionStatus: "connecting",
@@ -1614,7 +1654,12 @@ export const createTelegramStore = (
           operationError: undefined,
         });
         try {
-          applyAccountState(await transport.getAccountState());
+          if (!skipAccountState) {
+            applyAccountState(await transport.getAccountState());
+            if (preserveAccountPending) set({ accountPending: true });
+          } else if (preserveAccountPending) {
+            set({ accountPending: true });
+          }
           if (!settingsOnly) {
             try {
               hydrateCachedSnapshot(await transport.loadCachedSnapshot());
@@ -1659,6 +1704,7 @@ export const createTelegramStore = (
             set({
               phase: current.phase === "error" ? "error" : "ready",
               authorization,
+              accountPending: false,
             });
             return;
           }
@@ -1683,6 +1729,7 @@ export const createTelegramStore = (
               )
                 ? current.chatFilter
                 : (folders[0]?.id ?? "main"),
+            accountPending: false,
           });
           publishMessageChange({ type: "reset", messages });
           void registerCurrentAccount();
@@ -1711,6 +1758,7 @@ export const createTelegramStore = (
           set({
             phase: "error",
             connectionStatus: "offline",
+            accountPending: false,
             error: errorMessage(error, "无法启动 Telegram runtime"),
           });
         }
@@ -1874,10 +1922,10 @@ export const createTelegramStore = (
 
       addAccount: async () => {
         const accountId = `account-${globalThis.crypto.randomUUID()}`;
-        return selectAccountAndReload(accountId);
+        return selectAccountAndReconnect(accountId);
       },
 
-      switchAccount: selectAccountAndReload,
+      switchAccount: selectAccountAndReconnect,
 
       logOutCurrentAccount: async () => {
         const accountId = get().activeAccountId;

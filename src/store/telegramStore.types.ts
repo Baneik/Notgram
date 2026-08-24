@@ -146,7 +146,11 @@ export interface TelegramState {
   groupManagementError?: string;
   blockedSenders: BlockedSender[];
   blockedSendersLoading: boolean;
-  initialize: (options?: { settingsOnly?: boolean }) => Promise<void>;
+  initialize: (options?: {
+    settingsOnly?: boolean;
+    preserveAccountPending?: boolean;
+    skipAccountState?: boolean;
+  }) => Promise<void>;
   authenticate: (action: AuthorizationAction) => Promise<void>;
   loadProxySettings: () => Promise<void>;
   saveProxySettings: (settings: ProxySettings) => Promise<boolean>;

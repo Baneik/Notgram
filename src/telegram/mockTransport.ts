@@ -607,6 +607,8 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async selectAccount(accountId: string) {
     this.accountState.activeAccountId = accountId;
+    this.authFlow = !this.accountState.accounts.some((account) => account.id === accountId);
+    this.snapshot.authorization = this.authFlow ? { kind: "waitPhoneNumber" } : { kind: "ready" };
     this.persistAccountState();
     return clone(this.accountState);
   }

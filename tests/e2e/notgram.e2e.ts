@@ -344,7 +344,7 @@ test("the navigation rail separates account switching from the bottom settings e
   await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
 });
 
-test("the account avatar opens a fixed account switcher with add account last", async ({ page }) => {
+test("the account avatar expands an inline account switcher with add account last", async ({ page }) => {
   await page.addInitScript(() => {
     if (window.localStorage.getItem("notgram:accounts:v1")) return;
     window.localStorage.setItem("notgram:accounts:v1", JSON.stringify({
@@ -371,8 +371,10 @@ test("the account avatar opens a fixed account switcher with add account last", 
   await accountEntry.click();
   let menu = page.getByRole("menu", { name: "切换账号" });
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("menuitemradio")).toHaveCount(2);
-  await expect(menu.getByRole("menuitemradio", { name: "林然" })).toHaveAttribute("aria-checked", "true");
+  await expect(menu.getByRole("menuitemradio")).toHaveCount(1);
+  await expect(menu.getByRole("menuitemradio", { name: "林然" })).toHaveCount(0);
+  await expect(menu.getByRole("menuitemradio", { name: "工作账号" }))
+    .toHaveAttribute("aria-checked", "false");
   await expect(menu.getByRole("menuitemradio", { name: "工作账号" }).locator(".avatar")).toContainText("工");
   const menuItems = menu.getByRole("menuitemradio").or(menu.getByRole("menuitem"));
   await expect(menuItems.last()).toHaveText("添加新账号");
@@ -380,7 +382,8 @@ test("the account avatar opens a fixed account switcher with add account last", 
   const accountPosition = await accountEntry.boundingBox();
   expect(firstPosition).not.toBeNull();
   expect(accountPosition).not.toBeNull();
-  expect(Math.abs((firstPosition?.y ?? 0) - (accountPosition?.y ?? 0))).toBeLessThan(1);
+  expect((firstPosition?.y ?? 0)).toBeGreaterThan((accountPosition?.y ?? 0) + (accountPosition?.height ?? 0) - 1);
+  expect(Math.abs((firstPosition?.x ?? 0) - (accountPosition?.x ?? 0))).toBeLessThan(1);
 
   await page.keyboard.press("Escape");
   await accountEntry.click({ button: "right", position: { x: 60, y: 60 } });
@@ -390,16 +393,20 @@ test("the account avatar opens a fixed account switcher with add account last", 
   expect(Math.abs((secondPosition?.x ?? 0) - (firstPosition?.x ?? 0))).toBeLessThan(1);
   expect(Math.abs((secondPosition?.y ?? 0) - (firstPosition?.y ?? 0))).toBeLessThan(1);
 
+  let pageLoads = 0;
+  page.on("load", () => { pageLoads += 1; });
   await menu.getByRole("menuitemradio", { name: "工作账号" }).click();
   await expect.poll(() => page.evaluate(() => {
     const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");
     return state.activeAccountId;
   })).toBe("account-secondary");
+  expect(pageLoads).toBe(0);
 
   const previousAccountId = await page.evaluate(() => {
     const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");
     return state.activeAccountId as string;
   });
+  await page.setViewportSize({ width: 390, height: 430 });
   await page.locator(".rail-account").click({ button: "right" });
   await page.getByRole("menu", { name: "切换账号" })
     .getByRole("menuitem", { name: "添加新账号" }).click();
@@ -408,6 +415,12 @@ test("the account avatar opens a fixed account switcher with add account last", 
     return state.activeAccountId as string;
   })).not.toBe(previousAccountId);
   await expect(page.locator(".auth-shell")).toBeVisible();
+  const authShellBox = await page.locator(".auth-shell").boundingBox();
+  const authBackBox = await page.getByRole("button", { name: "返回账号" }).boundingBox();
+  expect(authShellBox).not.toBeNull();
+  expect(authBackBox).not.toBeNull();
+  expect(authBackBox!.y).toBeGreaterThanOrEqual(authShellBox!.y);
+  expect(authBackBox!.y + authBackBox!.height).toBeLessThanOrEqual(authShellBox!.y + authShellBox!.height);
   await page.getByRole("button", { name: "返回账号" }).click();
   await expect.poll(() => page.evaluate(() => {
     const state = JSON.parse(window.localStorage.getItem("notgram:accounts:v1") ?? "{}");
