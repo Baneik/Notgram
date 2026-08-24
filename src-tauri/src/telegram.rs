@@ -85,6 +85,11 @@ const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_slow_interaction",
     "ui_startup",
     "ui_tdlib_update_batch",
+    "ui_visual_jitter",
+    "media_playback_started",
+    "media_buffering_started",
+    "media_buffering_recovered",
+    "media_playback_error",
     "video_window_descriptor_received",
     "video_window_initialized",
     "video_window_open_failed",
@@ -93,6 +98,7 @@ const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
 const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "addedCount",
     "afterCount",
+    "averageFrameGapMs",
     "anchorShiftPx",
     "asyncWaitDurationMs",
     "asyncWaitCount",
@@ -101,6 +107,7 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "attributionCount",
     "baseDurationMs",
     "batchCount",
+    "bufferedAheadMs",
     "beforeCount",
     "blockCount",
     "blockingDurationMs",
@@ -116,6 +123,7 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "containerKind",
     "dataDurationMs",
     "domContentLoadedMs",
+    "domCompleteMs",
     "domInteractiveMs",
     "durationMs",
     "duringConversationSwitch",
@@ -125,6 +133,7 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "expectedFrames",
     "failed",
     "firstContentfulPaintMs",
+    "firstPaintMs",
     "forcedStyleLayoutDurationMs",
     "forumCount",
     "frameBudgetMs",
@@ -134,6 +143,8 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "hasMore",
     "inputDelayMs",
     "interactionKind",
+    "jitterMs",
+    "jitterScore",
     "loadEventMs",
     "loadedCount",
     "longestMainThreadStallMs",
@@ -142,6 +153,8 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "mainThreadBlockedDurationMs",
     "mainThreadStallCount",
     "maxShiftScore",
+    "maxFrameGapMs",
+    "mediaKind",
     "messageUpdateCount",
     "chatUpdateCount",
     "fileUpdateCount",
@@ -164,6 +177,7 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "refreshRateHz",
     "refreshRateSource",
     "regionKind",
+    "responseStartMs",
     "renderDurationMs",
     "restoreDurationMs",
     "scriptDurationMs",
@@ -176,13 +190,16 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "shiftCount",
     "sourceCount",
     "sourceCharPosition",
+    "sampleCount",
     "startTimeMs",
     "styleLayoutDurationMs",
+    "streaming",
     "targetKind",
     "timedOut",
     "traceId",
     "traceWaitDurationMs",
     "transitionDurationMs",
+    "unstableFrameCount",
     "uiStall",
     "viewTransition",
     "virtualListDurationMs",
@@ -208,12 +225,16 @@ fn performance_thresholds(event: &str) -> (f64, f64) {
         "ui_history_merge" => (16.0, 50.0),
         "ui_conversation_switch" => (100.0, 250.0),
         "ui_message_projection" => (8.0, 16.0),
+        "ui_visual_jitter" => (6.0, 12.0),
         "ui_react_commit" | "ui_tdlib_update_batch" => (16.0, 50.0),
         "ui_performance_log_drop" => (0.0, 1.0),
         "video_window_descriptor_received"
         | "video_window_initialized"
         | "video_window_open_started" => (250.0, 1_000.0),
         "video_window_open_failed" => (0.0, 1.0),
+        "media_playback_started" => (500.0, 1_500.0),
+        "media_buffering_started" | "media_buffering_recovered" => (250.0, 1_000.0),
+        "media_playback_error" => (0.0, 0.0),
         _ => (50.0, 100.0),
     }
 }
@@ -1048,6 +1069,28 @@ mod tests {
                 .log_performance("ui_history_render", json!({ "chatId": 991 }))
                 .is_err()
         );
+        assert!(
+            runtime
+                .log_performance(
+                    "ui_visual_jitter",
+                    json!({
+                        "durationMs": 8.0,
+                        "jitterMs": 8.0,
+                        "jitterScore": 0.48,
+                        "unstableFrameCount": 8,
+                        "sampleCount": 24,
+                    }),
+                )
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .log_performance(
+                    "media_playback_started",
+                    json!({ "durationMs": 720.0, "mediaKind": 1, "streaming": true }),
+                )
+                .is_ok()
+        );
         assert_eq!(
             validate_performance_record(
                 "ui_slow_interaction",
@@ -1077,6 +1120,13 @@ mod tests {
             validate_performance_record(
                 "ui_frame_drop",
                 &json!({ "durationMs": 25, "missedFrames": 2, "refreshRateHz": 120 }),
+            ),
+            Ok("warn")
+        );
+        assert_eq!(
+            validate_performance_record(
+                "ui_visual_jitter",
+                &json!({ "durationMs": 8, "jitterScore": 0.48, "sampleCount": 24 }),
             ),
             Ok("warn")
         );

@@ -58,6 +58,9 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const lastStreamSyncAtRef = useRef(0);
   const lastStreamStatusRef = useRef<{ bytes: number; at: number } | undefined>(undefined);
   const windowStartedAtRef = useRef(performance.now());
+  const mediaLoadStartedAtRef = useRef(performance.now());
+  const playbackStartedRef = useRef(false);
+  const bufferingStartedAtRef = useRef<number | undefined>(undefined);
   const [descriptor, setDescriptor] = useState<VideoWindowDescriptor>();
   const [playing, setPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
@@ -115,6 +118,24 @@ export function VideoWindow({ id }: VideoWindowProps) {
 
   const refreshBufferedState = (video: HTMLVideoElement) => {
     setBufferedEnd(bufferedMediaEnd(video));
+  };
+
+  const mediaTelemetryDetails = (video: HTMLVideoElement) => ({
+    mediaKind: 1,
+    streaming: Boolean(descriptorRef.current?.streaming),
+    bufferedAheadMs: Math.max(0, (bufferedMediaEnd(video) - video.currentTime) * 1_000),
+    fullscreen: fullscreenRef.current,
+  });
+
+  const markBufferingStarted = (video: HTMLVideoElement) => {
+    if (bufferingStartedAtRef.current !== undefined) return;
+    const startedAt = performance.now();
+    bufferingStartedAtRef.current = startedAt;
+    logPerformance("media_buffering_started", {
+      startTimeMs: startedAt,
+      durationMs: 0,
+      ...mediaTelemetryDetails(video),
+    });
   };
 
   const syncStreamPlayback = (video: HTMLVideoElement, force = false) => {
@@ -236,6 +257,9 @@ export function VideoWindow({ id }: VideoWindowProps) {
         setVolume(initial.volume);
         setMuted(initial.mode === "fullscreen" ? false : initial.muted);
         setFullscreen(initial.mode === "fullscreen");
+        mediaLoadStartedAtRef.current = performance.now();
+        playbackStartedRef.current = false;
+        bufferingStartedAtRef.current = undefined;
         applyThemeToDocument(themeIdForColorTheme(initial.colorTheme));
         if (isTauri()) {
           void getCurrentWindow().setTheme(initial.colorTheme).catch(() => undefined);
@@ -478,7 +502,25 @@ export function VideoWindow({ id }: VideoWindowProps) {
             setBuffering(false);
             publishState();
           }}
-          onPlaying={() => {
+          onPlaying={(event) => {
+            const now = performance.now();
+            const bufferingStartedAt = bufferingStartedAtRef.current;
+            if (!playbackStartedRef.current) {
+              playbackStartedRef.current = true;
+              logPerformance("media_playback_started", {
+                startTimeMs: mediaLoadStartedAtRef.current,
+                durationMs: Math.max(0, now - mediaLoadStartedAtRef.current),
+                ...mediaTelemetryDetails(event.currentTarget),
+              });
+            }
+            if (bufferingStartedAt !== undefined) {
+              bufferingStartedAtRef.current = undefined;
+              logPerformance("media_buffering_recovered", {
+                startTimeMs: bufferingStartedAt,
+                durationMs: Math.max(0, now - bufferingStartedAt),
+                ...mediaTelemetryDetails(event.currentTarget),
+              });
+            }
             setPlaying(true);
             setBuffering(false);
           }}
@@ -493,6 +535,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
             resumeWhenBuffered(event.currentTarget);
           }}
           onWaiting={(event) => {
+            markBufferingStarted(event.currentTarget);
             if (!waitForPlaybackBuffer(event.currentTarget)) setBuffering(true);
           }}
           onTimeUpdate={(event) => {
@@ -512,6 +555,16 @@ export function VideoWindow({ id }: VideoWindowProps) {
             setCurrentTime(0);
             setBufferedEnd(0);
             publishState();
+          }}
+          onError={() => {
+            logPerformance("media_playback_error", {
+              durationMs: 0,
+              mediaKind: 1,
+              streaming: Boolean(descriptorRef.current?.streaming),
+              fullscreen: fullscreenRef.current,
+            });
+            setBuffering(false);
+            setPlaying(false);
           }}
         />
       ) : <div className="video-window-loading" aria-label="正在准备视频">

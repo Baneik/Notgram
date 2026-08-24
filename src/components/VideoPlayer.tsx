@@ -103,6 +103,9 @@ export function VideoPlayer({
   const lastRememberedSecondRef = useRef(0);
   const lastStreamSyncAtRef = useRef(0);
   const lastStreamStatusRef = useRef<{ bytes: number; at: number } | undefined>(undefined);
+  const mediaLoadStartedAtRef = useRef(performance.now());
+  const playbackStartedRef = useRef(false);
+  const bufferingStartedAtRef = useRef<number | undefined>(undefined);
   const singleClickTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const suspendTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const keyboardToggleRef = useRef<() => void>(() => undefined);
@@ -140,6 +143,23 @@ export function VideoPlayer({
 
   const refreshBufferedState = (video: HTMLVideoElement) => {
     setBufferedEnd(bufferedMediaEnd(video));
+  };
+
+  const mediaTelemetryDetails = (video: HTMLVideoElement) => ({
+    mediaKind: 1,
+    streaming: streamingRef.current,
+    bufferedAheadMs: Math.max(0, (bufferedMediaEnd(video) - video.currentTime) * 1_000),
+  });
+
+  const markBufferingStarted = (video: HTMLVideoElement) => {
+    if (bufferingStartedAtRef.current !== undefined) return;
+    const startedAt = performance.now();
+    bufferingStartedAtRef.current = startedAt;
+    logPerformance("media_buffering_started", {
+      startTimeMs: startedAt,
+      durationMs: 0,
+      ...mediaTelemetryDetails(video),
+    });
   };
 
   const syncStreamPlayback = (video: HTMLVideoElement, force = false) => {
@@ -188,6 +208,9 @@ export function VideoPlayer({
     setDownloadSpeed(0);
     setResolvedSource(source);
     setFailed(false);
+    mediaLoadStartedAtRef.current = performance.now();
+    playbackStartedRef.current = false;
+    bufferingStartedAtRef.current = undefined;
   }, [source]);
 
   useEffect(() => {
@@ -336,6 +359,9 @@ export function VideoPlayer({
       setIsStreaming(true);
       pendingPlayRef.current = playInline;
       setResolvedSource(streamSource);
+      mediaLoadStartedAtRef.current = performance.now();
+      playbackStartedRef.current = false;
+      bufferingStartedAtRef.current = undefined;
       setBuffering(playInline);
       return streamSource;
     } catch {
@@ -680,7 +706,25 @@ export function VideoPlayer({
           syncStreamPlayback(event.currentTarget, true);
           mediaPlaybackCoordinator.activate(playbackId, event.currentTarget);
         }}
-        onPlaying={() => {
+        onPlaying={(event) => {
+          const now = performance.now();
+          const bufferingStartedAt = bufferingStartedAtRef.current;
+          if (!playbackStartedRef.current) {
+            playbackStartedRef.current = true;
+            logPerformance("media_playback_started", {
+              startTimeMs: mediaLoadStartedAtRef.current,
+              durationMs: Math.max(0, now - mediaLoadStartedAtRef.current),
+              ...mediaTelemetryDetails(event.currentTarget),
+            });
+          }
+          if (bufferingStartedAt !== undefined) {
+            bufferingStartedAtRef.current = undefined;
+            logPerformance("media_buffering_recovered", {
+              startTimeMs: bufferingStartedAt,
+              durationMs: Math.max(0, now - bufferingStartedAt),
+              ...mediaTelemetryDetails(event.currentTarget),
+            });
+          }
           setPlaying(true);
           setBuffering(false);
           setFailed(false);
@@ -705,6 +749,7 @@ export function VideoPlayer({
           }
         }}
         onWaiting={(event) => {
+          markBufferingStarted(event.currentTarget);
           if (!waitForPlaybackBuffer(event.currentTarget)) setBuffering(true);
         }}
         onTimeUpdate={(event) => {
@@ -731,6 +776,11 @@ export function VideoPlayer({
         }}
         onError={() => {
           if (suspendingRef.current) return;
+          logPerformance("media_playback_error", {
+            durationMs: 0,
+            mediaKind: 1,
+            streaming: streamingRef.current,
+          });
           setBuffering(false);
           setFailed(true);
           pendingPlayRef.current = false;

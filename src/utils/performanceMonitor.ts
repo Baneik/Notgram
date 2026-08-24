@@ -90,6 +90,8 @@ const MIN_REFRESH_RATE_HZ = 24;
 const MAX_REFRESH_RATE_HZ = 1_000;
 const FRAME_DROP_MIN_MISSED_FRAMES = 2;
 const FRAME_DROP_LOG_INTERVAL_MS = 1_000;
+const FRAME_JITTER_SAMPLE_COUNT = 24;
+const FRAME_JITTER_LOG_INTERVAL_MS = 1_000;
 const HISTORY_CONTEXT_MS = 5_000;
 const NATIVE_BATCH_SIZE = 20;
 const NATIVE_FLUSH_DELAY_MS = 250;
@@ -168,6 +170,7 @@ const eventMetadata: Record<string, EventMetadata> = {
   ui_long_frame: { label: "长动画帧", category: "render", warningMs: 50, criticalMs: 100 },
   ui_long_task: { label: "主线程长任务", category: "render", warningMs: 50, criticalMs: 100 },
   ui_frame_drop: { label: "掉帧", category: "render", warningMs: 50, criticalMs: 100 },
+  ui_visual_jitter: { label: "视觉闪烁/抽动", category: "render", warningMs: 6, criticalMs: 12 },
   ui_layout_shift: { label: "布局偏移", category: "render", warningMs: 20, criticalMs: 100 },
   ui_history_data: { label: "历史数据加载", category: "data", warningMs: 500, criticalMs: 1_500 },
   ui_history_merge: { label: "历史消息合并", category: "data", warningMs: 16, criticalMs: 50 },
@@ -182,6 +185,10 @@ const eventMetadata: Record<string, EventMetadata> = {
   video_window_descriptor_received: { label: "视频描述读取", category: "media", warningMs: 250, criticalMs: 1_000 },
   video_window_initialized: { label: "视频窗口初始化", category: "media", warningMs: 250, criticalMs: 1_000 },
   video_window_open_failed: { label: "视频窗口失败", category: "media", warningMs: 0, criticalMs: 1 },
+  media_playback_started: { label: "媒体开始播放", category: "media", warningMs: 500, criticalMs: 1_500 },
+  media_buffering_started: { label: "媒体开始缓冲", category: "media", warningMs: 250, criticalMs: 1_000 },
+  media_buffering_recovered: { label: "媒体恢复播放", category: "media", warningMs: 250, criticalMs: 1_000 },
+  media_playback_error: { label: "媒体播放失败", category: "media", warningMs: 0, criticalMs: 0 },
 };
 
 let monitoringInstalled = false;
@@ -190,6 +197,7 @@ let historyInteractionUntil = 0;
 let nextRecordId = 1;
 let records: readonly PerformanceRecord[] = [];
 let lastFrameDropLogAt = Number.NEGATIVE_INFINITY;
+let lastVisualJitterLogAt = Number.NEGATIVE_INFINITY;
 let nativeFlushTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 let nativeFlushInFlight = false;
 const pendingNativeRecords: NativePerformanceRecord[] = [];
@@ -206,7 +214,12 @@ export const performanceWindowKind = (search?: string, pathname?: string) => {
   );
   if (resolvedSearch === undefined && resolvedPathname === undefined) return 0;
   const legacyVideoRoute = new URLSearchParams(resolvedSearch).has("videoWindow");
-  return legacyVideoRoute || resolvedPathname?.endsWith("/video-window.html") ? 2 : 1;
+  if (legacyVideoRoute || resolvedPathname?.endsWith("/video-window.html")) return 2;
+  if (resolvedPathname?.endsWith("/settings-window.html")) return 3;
+  if (resolvedPathname?.endsWith("/media-viewer-window.html")) return 4;
+  if (resolvedPathname?.endsWith("/context-menu-window.html")) return 5;
+  if (resolvedPathname?.endsWith("/notification-window.html")) return 6;
+  return 1;
 };
 
 const performanceWindowId = (() => {
@@ -316,6 +329,56 @@ export const calculateFrameStats = (frameGapMs: number, refreshRateHz: number) =
   };
 };
 
+export interface FrameJitterStats {
+  frameBudgetMs: number;
+  sampleCount: number;
+  averageFrameGapMs: number;
+  jitterMs: number;
+  jitterScore: number;
+  maxFrameGapMs: number;
+  unstableFrameCount: number;
+}
+
+export const calculateFrameJitterStats = (
+  frameGaps: readonly number[],
+  refreshRateHz: number,
+): FrameJitterStats => {
+  const resolvedRate = isValidRefreshRate(refreshRateHz)
+    ? refreshRateHz
+    : DEFAULT_REFRESH_RATE_HZ;
+  const frameBudgetMs = 1_000 / resolvedRate;
+  const samples = frameGaps.filter((gap) => Number.isFinite(gap) && gap > 0);
+  if (samples.length === 0) {
+    return {
+      frameBudgetMs,
+      sampleCount: 0,
+      averageFrameGapMs: 0,
+      jitterMs: 0,
+      jitterScore: 0,
+      maxFrameGapMs: 0,
+      unstableFrameCount: 0,
+    };
+  }
+  const averageFrameGapMs = samples.reduce((total, gap) => total + gap, 0) / samples.length;
+  const jitterMs = samples.length < 2
+    ? 0
+    : samples.slice(1).reduce((total, gap, index) =>
+      total + Math.abs(gap - (samples[index] ?? gap)), 0) / (samples.length - 1);
+  const maxFrameGapMs = Math.max(...samples);
+  const unstableFrameCount = samples.filter((gap) =>
+    Math.abs(gap - frameBudgetMs) > frameBudgetMs * 0.25,
+  ).length;
+  return {
+    frameBudgetMs,
+    sampleCount: samples.length,
+    averageFrameGapMs,
+    jitterMs,
+    jitterScore: jitterMs / frameBudgetMs,
+    maxFrameGapMs,
+    unstableFrameCount,
+  };
+};
+
 const roundedDetails = (details: PerformanceDetails) => Object.fromEntries(
   Object.entries(details)
     .filter((entry): entry is [string, number | boolean] => entry[1] !== undefined)
@@ -394,6 +457,16 @@ const performanceAttribution = (
     return {
       causeDomain: 2,
       causeKind: foreground ? 7 : 8,
+      evidenceKind: 4,
+      uiStall: foreground,
+      mainThreadBlocked: false,
+    };
+  }
+  if (event === "ui_visual_jitter") {
+    const foreground = environment.pageVisible && environment.windowFocused;
+    return {
+      causeDomain: 5,
+      causeKind: 7,
       evidenceKind: 4,
       uiStall: foreground,
       mainThreadBlocked: false,
@@ -494,11 +567,17 @@ const performanceAttribution = (
   if (event.startsWith("video_window_")) {
     return { causeDomain: 6, causeKind: 11, evidenceKind: 0, uiStall: false, mainThreadBlocked: false };
   }
+  if (event.startsWith("media_")) {
+    return { causeDomain: 6, causeKind: 11, evidenceKind: 0, uiStall: false, mainThreadBlocked: false };
+  }
   return { causeDomain: 0, causeKind: 0, evidenceKind: 0, uiStall: false, mainThreadBlocked: false };
 };
 
 const recordDuration = (event: string, details: Readonly<Record<string, number | boolean>>) => {
   if (event === "ui_layout_shift") return undefined;
+  if (event === "ui_performance_log_drop" && typeof details.droppedCount === "number") {
+    return details.droppedCount;
+  }
   if (typeof details.durationMs === "number") return details.durationMs;
   const durations = Object.entries(details)
     .filter(([key, value]) =>
@@ -521,7 +600,7 @@ const flushNativePerformanceRecords = async () => {
   try {
     await invoke("telegram_log_performance_batch", { records: batch });
   } catch {
-    // Performance diagnostics are best-effort and must not affect interaction state.
+    appendRecord("ui_performance_log_drop", { droppedCount: batch.length });
   } finally {
     nativeFlushInFlight = false;
     if (pendingNativeRecords.length > 0) {
@@ -1021,8 +1100,9 @@ const observe = (
 
 const installLongFrameObserver = () => {
   const supported = PerformanceObserver.supportedEntryTypes ?? [];
-  if (supported.includes("long-animation-frame")) {
-    return observe((entries) => {
+  let installed = false;
+  if (supported.length === 0 || supported.includes("long-animation-frame")) {
+    installed = observe((entries) => {
       for (const entry of entries as LongAnimationFrameEntry[]) {
         const scripts = entry.scripts ?? [];
         const scriptDurationMs = scripts.reduce(
@@ -1066,22 +1146,25 @@ const installLongFrameObserver = () => {
           traceId: conversationTraceIdAt(entry.startTime),
         });
       }
-    }, { type: "long-animation-frame", buffered: true });
+    }, { type: "long-animation-frame", buffered: true }) || installed;
   }
 
-  return observe((entries) => {
-    for (const entry of entries as LongTaskEntry[]) {
-      attributeMainThreadStall(entry.startTime, entry.duration, entry.duration);
-      logPerformance("ui_long_task", {
-        startTimeMs: entry.startTime,
-        durationMs: entry.duration,
-        attributionCount: entry.attribution?.length ?? 0,
-        containerKind: longTaskContainerKind(entry.attribution?.[0]?.containerType),
-        duringHistoryLoad: duringHistoryLoad(entry.startTime),
-        traceId: conversationTraceIdAt(entry.startTime),
-      });
-    }
-  }, { type: "longtask", buffered: true });
+  if (supported.length === 0 || supported.includes("longtask")) {
+    installed = observe((entries) => {
+      for (const entry of entries as LongTaskEntry[]) {
+        attributeMainThreadStall(entry.startTime, entry.duration, entry.duration);
+        logPerformance("ui_long_task", {
+          startTimeMs: entry.startTime,
+          durationMs: entry.duration,
+          attributionCount: entry.attribution?.length ?? 0,
+          containerKind: longTaskContainerKind(entry.attribution?.[0]?.containerType),
+          duringHistoryLoad: duringHistoryLoad(entry.startTime),
+          traceId: conversationTraceIdAt(entry.startTime),
+        });
+      }
+    }, { type: "longtask", buffered: true }) || installed;
+  }
+  return installed;
 };
 
 const logInteraction = (entry: EventTimingEntry) => {
@@ -1211,6 +1294,7 @@ const startFrameGapMonitor = () => {
   let previousFrameAt = performance.now();
   let frame: number | undefined;
   const calibrationIntervals: number[] = [];
+  const recentFrameGaps: number[] = [];
   const schedule = () => {
     if (frame === undefined && document.visibilityState === "visible") {
       frame = requestAnimationFrame(sample);
@@ -1219,6 +1303,7 @@ const startFrameGapMonitor = () => {
   const handleVisibilityChange = () => {
     previousFrameAt = performance.now();
     calibrationIntervals.length = 0;
+    recentFrameGaps.length = 0;
     if (document.visibilityState === "visible") schedule();
     else if (frame !== undefined) {
       cancelAnimationFrame(frame);
@@ -1242,6 +1327,40 @@ const startFrameGapMonitor = () => {
       }
     }
     const frameStats = calculateFrameStats(frameGapMs, displayTiming.refreshRateHz);
+    if (
+      document.visibilityState === "visible" &&
+      frameGapMs >= 1 &&
+      frameGapMs <= 1_000
+    ) {
+      recentFrameGaps.push(frameGapMs);
+      if (recentFrameGaps.length > FRAME_JITTER_SAMPLE_COUNT) recentFrameGaps.shift();
+      if (
+        recentFrameGaps.length >= FRAME_JITTER_SAMPLE_COUNT &&
+        now - lastVisualJitterLogAt >= FRAME_JITTER_LOG_INTERVAL_MS
+      ) {
+        const jitter = calculateFrameJitterStats(recentFrameGaps, displayTiming.refreshRateHz);
+        const jitterThresholdMs = Math.max(3, jitter.frameBudgetMs * 0.25);
+        const unstableFrameThreshold = Math.max(3, Math.floor(jitter.sampleCount * 0.15));
+        if (
+          jitter.jitterMs >= jitterThresholdMs &&
+          jitter.unstableFrameCount >= unstableFrameThreshold
+        ) {
+          lastVisualJitterLogAt = now;
+          logPerformance("ui_visual_jitter", {
+            startTimeMs: now - recentFrameGaps.reduce((total, gap) => total + gap, 0),
+            durationMs: jitter.jitterMs,
+            averageFrameGapMs: jitter.averageFrameGapMs,
+            jitterMs: jitter.jitterMs,
+            jitterScore: jitter.jitterScore,
+            maxFrameGapMs: jitter.maxFrameGapMs,
+            unstableFrameCount: jitter.unstableFrameCount,
+            sampleCount: jitter.sampleCount,
+            duringHistoryLoad: now <= historyInteractionUntil,
+            traceId: conversationTraceIdAt(now - frameGapMs),
+          });
+        }
+      }
+    }
     if (
       document.visibilityState === "visible" &&
       frameStats.missedFrames >= FRAME_DROP_MIN_MISSED_FRAMES &&
@@ -1290,13 +1409,17 @@ const installNativeDisplayTiming = () => {
 const logStartupTiming = () => {
   const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
   if (!navigation) return;
+  const firstPaint = performance.getEntriesByName("first-paint")[0];
   const paint = performance.getEntriesByName("first-contentful-paint")[0];
   logPerformance("ui_startup", {
     startTimeMs: 0,
     durationMs: navigation.loadEventEnd || performance.now(),
     domInteractiveMs: navigation.domInteractive,
     domContentLoadedMs: navigation.domContentLoadedEventEnd,
+    responseStartMs: navigation.responseStart,
+    domCompleteMs: navigation.domComplete,
     loadEventMs: navigation.loadEventEnd,
+    firstPaintMs: firstPaint?.startTime,
     firstContentfulPaintMs: paint?.startTime,
   });
 };
@@ -1304,6 +1427,9 @@ const logStartupTiming = () => {
 export const installPerformanceMonitoring = () => {
   if (monitoringInstalled || typeof window === "undefined") return;
   monitoringInstalled = true;
+  window.addEventListener("pagehide", () => {
+    void flushNativePerformanceRecords();
+  });
   installNativeDisplayTiming();
   if (typeof PerformanceObserver !== "undefined") {
     installLongFrameObserver();

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   beginConversationSwitch,
+  calculateFrameJitterStats,
   calculateFrameStats,
   clearPerformanceRecords,
   getPerformanceRecords,
@@ -77,10 +78,13 @@ describe("performance monitor", () => {
     }));
   });
 
-  it("detects isolated and legacy video window routes", () => {
+  it("distinguishes every webview entry route", () => {
     expect(performanceWindowKind("?id=preview-1", "/video-window.html")).toBe(2);
     expect(performanceWindowKind("?videoWindow=preview-1", "/")).toBe(2);
-    expect(performanceWindowKind("?id=preview-1", "/media-viewer-window.html")).toBe(1);
+    expect(performanceWindowKind("", "/settings-window.html")).toBe(3);
+    expect(performanceWindowKind("?id=preview-1", "/media-viewer-window.html")).toBe(4);
+    expect(performanceWindowKind("", "/context-menu-window.html")).toBe(5);
+    expect(performanceWindowKind("", "/notification-window.html")).toBe(6);
     expect(performanceWindowKind("", "/")).toBe(1);
   });
 
@@ -99,6 +103,55 @@ describe("performance monitor", () => {
       frameBudgetMs: 1_000 / 30,
       expectedFrames: 3,
       missedFrames: 2,
+    });
+  });
+
+  it("separates stable frame cadence from visible jitter", () => {
+    const stable = calculateFrameJitterStats(Array.from({ length: 24 }, () => 16.7), 60);
+    const jitter = calculateFrameJitterStats(
+      Array.from({ length: 24 }, (_, index) => index % 2 === 0 ? 12 : 21),
+      60,
+    );
+
+    expect(stable).toMatchObject({ sampleCount: 24, jitterMs: 0, unstableFrameCount: 0 });
+    expect(jitter.jitterMs).toBe(9);
+    expect(jitter.jitterScore).toBeGreaterThan(0.5);
+    expect(jitter.unstableFrameCount).toBe(24);
+  });
+
+  it("classifies visual jitter and media playback diagnostics", () => {
+    logPerformance("ui_visual_jitter", {
+      durationMs: 8,
+      jitterMs: 8,
+      jitterScore: 0.48,
+      unstableFrameCount: 8,
+    });
+    logPerformance("media_buffering_recovered", {
+      durationMs: 1_100,
+      mediaKind: 1,
+      streaming: true,
+    });
+    logPerformance("media_playback_error", {
+      durationMs: 0,
+      mediaKind: 1,
+      streaming: true,
+    });
+
+    expect(getPerformanceRecords()[0]).toMatchObject({
+      event: "ui_visual_jitter",
+      category: "render",
+      severity: "warning",
+      details: { causeDomain: 5, causeKind: 7, evidenceKind: 4 },
+    });
+    expect(getPerformanceRecords()[1]).toMatchObject({
+      event: "media_buffering_recovered",
+      category: "media",
+      severity: "critical",
+      details: { causeDomain: 6, causeKind: 11 },
+    });
+    expect(getPerformanceRecords()[2]).toMatchObject({
+      event: "media_playback_error",
+      severity: "critical",
     });
   });
 

@@ -38,6 +38,7 @@ import {
   mediaPlaybackCoordinator,
 } from "../media/mediaPlayback";
 import { updateMediaStreamPlayback } from "../media/mediaStream";
+import { logPerformance } from "../utils/performanceMonitor";
 import { AudioSpectrum } from "./AudioSpectrum";
 import { MediaProgressRing } from "./MediaProgressRing";
 
@@ -56,6 +57,17 @@ function PersistentAudioEngine() {
   const mediaSourceRef = useRef<MediaElementAudioSourceNode | undefined>(undefined);
   const analyserRef = useRef<AnalyserNode | undefined>(undefined);
   const toggleRef = useRef<() => void>(() => undefined);
+  const mediaLoadStartedAtRef = useRef(performance.now());
+  const playbackStartedRef = useRef(false);
+  const bufferingStartedAtRef = useRef<number | undefined>(undefined);
+
+  const mediaTelemetryDetails = (audio: HTMLAudioElement) => ({
+    mediaKind: 2,
+    streaming: streamingTrackIdRef.current === trackRef.current?.id,
+    bufferedAheadMs: audio.buffered.length > 0
+      ? Math.max(0, (audio.buffered.end(audio.buffered.length - 1) - audio.currentTime) * 1_000)
+      : 0,
+  });
 
   const suspendTrackStream = (track?: AudioTrackDescriptor) => {
     if (!track || streamingTrackIdRef.current !== track.id) return;
@@ -127,6 +139,9 @@ function PersistentAudioEngine() {
     audio.crossOrigin = "anonymous";
     audio.dataset.playbackId = track.id;
     audio.src = source;
+    mediaLoadStartedAtRef.current = performance.now();
+    playbackStartedRef.current = false;
+    bufferingStartedAtRef.current = undefined;
     audio.playbackRate = playbackRateRef.current;
     audio.load();
     await ensureAudioOutput(audio);
@@ -328,6 +343,24 @@ function PersistentAudioEngine() {
       }}
       onPlaying={(event) => {
         void ensureAudioOutput(event.currentTarget);
+        const now = performance.now();
+        const bufferingStartedAt = bufferingStartedAtRef.current;
+        if (!playbackStartedRef.current) {
+          playbackStartedRef.current = true;
+          logPerformance("media_playback_started", {
+            startTimeMs: mediaLoadStartedAtRef.current,
+            durationMs: Math.max(0, now - mediaLoadStartedAtRef.current),
+            ...mediaTelemetryDetails(event.currentTarget),
+          });
+        }
+        if (bufferingStartedAt !== undefined) {
+          bufferingStartedAtRef.current = undefined;
+          logPerformance("media_buffering_recovered", {
+            startTimeMs: bufferingStartedAt,
+            durationMs: Math.max(0, now - bufferingStartedAt),
+            ...mediaTelemetryDetails(event.currentTarget),
+          });
+        }
         const id = event.currentTarget.dataset.playbackId;
         if (id) audioPlaybackController.update(id, {
           playing: true,
@@ -337,6 +370,15 @@ function PersistentAudioEngine() {
         syncTrackStream(trackRef.current, event.currentTarget);
       }}
       onWaiting={(event) => {
+        if (bufferingStartedAtRef.current === undefined) {
+          const startedAt = performance.now();
+          bufferingStartedAtRef.current = startedAt;
+          logPerformance("media_buffering_started", {
+            startTimeMs: startedAt,
+            durationMs: 0,
+            ...mediaTelemetryDetails(event.currentTarget),
+          });
+        }
         const id = event.currentTarget.dataset.playbackId;
         if (id) audioPlaybackController.update(id, { loading: true });
         syncTrackStream(trackRef.current, event.currentTarget, true);
@@ -383,6 +425,10 @@ function PersistentAudioEngine() {
       onError={(event) => {
         const audio = event.currentTarget;
         if (!audio.getAttribute("src")) return;
+        logPerformance("media_playback_error", {
+          durationMs: 0,
+          ...mediaTelemetryDetails(audio),
+        });
         const id = audio.dataset.playbackId;
         if (!id) return;
         const track = trackRef.current;

@@ -42,12 +42,21 @@ const detailLabels: Record<string, string> = {
   domContentLoadedMs: "DOM 加载",
   loadEventMs: "页面加载",
   firstContentfulPaintMs: "首次内容绘制",
+  firstPaintMs: "首次绘制",
+  responseStartMs: "首字节响应",
+  domCompleteMs: "DOM 完成",
   frameGapMs: "帧间隔",
   frameBudgetMs: "当前帧预算",
   refreshRateHz: "当前刷新率",
   refreshRateSource: "刷新率来源",
   expectedFrames: "预期帧数",
   missedFrames: "预估丢帧",
+  averageFrameGapMs: "平均帧间隔",
+  jitterMs: "帧节奏波动",
+  jitterScore: "抽动分数",
+  maxFrameGapMs: "最大帧间隔",
+  unstableFrameCount: "不稳定帧数",
+  sampleCount: "采样帧数",
   shiftScore: "偏移分数",
   maxShiftScore: "单次最大偏移",
   shiftCount: "合并偏移次数",
@@ -126,6 +135,9 @@ const detailLabels: Record<string, string> = {
   otherUpdateCount: "其他更新",
   chatCount: "会话数量",
   forumCount: "论坛数量",
+  mediaKind: "媒体类型",
+  bufferedAheadMs: "前方缓冲",
+  streaming: "流式播放",
 };
 
 const targetLabels: Record<number, string> = {
@@ -150,6 +162,15 @@ const windowLabels: Record<number, string> = {
   0: "未知",
   1: "主窗口",
   2: "视频窗口",
+  3: "设置窗口",
+  4: "媒体查看器",
+  5: "右键菜单",
+  6: "桌面通知",
+};
+
+const mediaLabels: Record<number, string> = {
+  1: "视频",
+  2: "音频",
 };
 
 const navigationLabels: Record<number, string> = {
@@ -233,6 +254,7 @@ const formatDetail = (key: string, value: number | boolean) => {
   if (key === "targetKind") return targetLabels[value] ?? "其他";
   if (key === "interactionKind") return interactionLabels[value] ?? "其他";
   if (key === "windowKind") return windowLabels[value] ?? "其他";
+  if (key === "mediaKind") return mediaLabels[value] ?? "其他";
   if (key === "navigationKind") return navigationLabels[value] ?? "其他";
   if (key === "phaseKind") return phaseLabels[value] ?? "其他";
   if (key === "componentKind") return componentLabels[value] ?? "其他";
