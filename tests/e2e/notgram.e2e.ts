@@ -387,6 +387,7 @@ test("the account avatar expands an inline account switcher with add account las
   expect(Math.abs(menuWidth - accountWidth)).toBeLessThan(1);
   const menuItems = menu.getByRole("menuitemradio").or(menu.getByRole("menuitem"));
   await expect(menuItems.last()).toHaveText("添加新账号");
+  await page.waitForTimeout(220);
   const firstPosition = await menu.boundingBox();
   const accountPosition = await accountEntry.boundingBox();
   expect(firstPosition).not.toBeNull();
@@ -397,6 +398,7 @@ test("the account avatar expands an inline account switcher with add account las
   await page.keyboard.press("Escape");
   await accountEntry.click({ button: "right", position: { x: 60, y: 60 } });
   menu = page.getByRole("menu", { name: "切换账号" });
+  await page.waitForTimeout(220);
   const secondPosition = await menu.boundingBox();
   expect(secondPosition).not.toBeNull();
   expect(Math.abs((secondPosition?.x ?? 0) - (firstPosition?.x ?? 0))).toBeLessThan(1);
@@ -447,6 +449,31 @@ test("the account avatar expands an inline account switcher with add account las
     return state.activeAccountId as string;
   })).toBe(previousAccountId);
   await expect(page.locator(".app-shell")).toBeVisible();
+});
+
+test("account switcher keeps an interruptible exit transition", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+
+  const accountEntry = page.locator(".rail-account");
+  const menu = page.getByRole("menu", { name: "切换账号" });
+  await accountEntry.click();
+  await expect(menu).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  const exitingPresence = page.locator('.motion-presence[data-motion-state="exiting"]');
+  await expect(exitingPresence).toHaveAttribute("aria-hidden", "true");
+  await expect(exitingPresence).toHaveAttribute("inert", "");
+  await expect(exitingPresence.locator('[role="menu"]')).toHaveCount(1);
+
+  await accountEntry.click();
+  await expect(menu).toBeVisible();
+  await expect(page.locator('.motion-presence[data-motion-state="exiting"]')).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(exitingPresence).toHaveCount(1);
+  await page.waitForTimeout(260);
+  await expect(page.locator('[role="menu"][aria-label="切换账号"]')).toHaveCount(0);
 });
 
 test("settings isolate wheel input from the covered conversation list", async ({ page }) => {

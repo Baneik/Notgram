@@ -14,6 +14,7 @@ import { AccountSwitcherMenu } from "./AccountSwitcherMenu";
 import { Avatar } from "./Avatar";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { FolderContextMenu } from "./SidebarContextMenus";
+import { MotionPresence } from "./MotionPresence";
 
 interface NavigationRailProps {
   filter: ChatFilter;
@@ -266,7 +267,7 @@ export function NavigationRail({
           <Avatar avatar={accountAvatar} size="small" />
           <span>{accountName}</span>
         </button>
-        {accountMenu && (
+        <MotionPresence present={Boolean(accountMenu)} variant="popover">
           <AccountSwitcherMenu
             accounts={accounts}
             activeAccountId={activeAccountId}
@@ -276,7 +277,7 @@ export function NavigationRail({
             onSwitch={onSwitchAccount}
             onClose={closeAccountMenu}
           />
-        )}
+        </MotionPresence>
       </div>
       <div className="rail-actions">
         {reorderableFolders.map((folder) => (

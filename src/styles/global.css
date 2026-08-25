@@ -423,7 +423,7 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   width: 100%; max-height: min(390px, calc(100vh - 176px)); padding: 0; display: grid; gap: 0;
   overflow-y: auto; scrollbar-width: thin; color: var(--ink); background: transparent;
   border: 0; border-radius: 0; box-shadow: none;
-  animation: account-switcher-expand var(--motion-duration-standard) var(--motion-ease-enter) both;
+  transform-origin: top center; will-change: opacity, transform;
 }
 .account-switcher-list { display: grid; gap: 2px; }
 .account-switcher-item, .account-switcher-add {
@@ -442,11 +442,6 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   color: var(--accent); font-size: 11px;
 }
 .account-switcher-add > svg { flex: 0 0 auto; }
-@keyframes account-switcher-expand {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.reduce-motion .account-switcher-inline { animation: none; }
 .rail-actions { min-height: 0; display: grid; align-content: start; gap: 4px; flex: 1 1 auto; overflow-y: auto; scrollbar-width: none; }
 .rail-footer { flex: 0 0 auto; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
 .rail-button {
