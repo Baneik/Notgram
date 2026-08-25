@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 pub const DEFAULT_ACCOUNT_ID: &str = "default";
 
@@ -62,6 +62,46 @@ fn preserve_avatar_media(incoming: &mut AccountAvatar, existing: &AccountAvatar)
     }
 }
 
+fn trusted_avatar_path(path: &str, roots: &[PathBuf]) -> Option<PathBuf> {
+    let path = PathBuf::from(path).canonicalize().ok()?;
+    roots
+        .iter()
+        .any(|root| path.starts_with(root) && path.is_file())
+        .then_some(path)
+}
+
+fn authorize_registered_avatar_assets(
+    app: &AppHandle,
+    registry: &AccountRegistry,
+) -> Result<(), String> {
+    let preferences = super::resolve_preferences(app, super::load_preferences(app)?)?;
+    let cache_root = PathBuf::from(preferences.cache_path);
+    let database_root = crate::distribution::app_data_directory(app)?.join("tdlib");
+
+    for account in &registry.accounts {
+        let roots = [
+            account_cache_directory(cache_root.clone(), &account.id),
+            account_database_directory(database_root.clone(), &account.id),
+        ];
+        let roots = roots
+            .iter()
+            .filter_map(|root| root.canonicalize().ok())
+            .collect::<Vec<_>>();
+        let Some(path) = account
+            .avatar
+            .image_path
+            .as_deref()
+            .and_then(|path| trusted_avatar_path(path, &roots))
+        else {
+            continue;
+        };
+        // The registry is persisted data, so only authorize an existing file
+        // below this account's own TDLib roots.
+        let _ = app.asset_protocol_scope().allow_file(&path);
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AccountRegistry {
@@ -89,7 +129,9 @@ impl From<AccountRegistry> for TelegramAccountState {
 
 #[tauri::command]
 pub fn telegram_account_state(app: AppHandle) -> Result<TelegramAccountState, String> {
-    Ok(load_account_registry(&app)?.into())
+    let registry = load_account_registry(&app)?;
+    authorize_registered_avatar_assets(&app, &registry)?;
+    Ok(registry.into())
 }
 
 #[tauri::command]
@@ -116,6 +158,7 @@ pub fn telegram_register_account(
         registry.accounts.push(account);
     }
     save_account_registry(&app, &registry)?;
+    authorize_registered_avatar_assets(&app, &registry)?;
     Ok(registry.into())
 }
 
@@ -128,6 +171,7 @@ pub fn telegram_select_account(
     let mut registry = load_account_registry(&app)?;
     registry.active_account_id = account_id;
     save_account_registry(&app, &registry)?;
+    authorize_registered_avatar_assets(&app, &registry)?;
     Ok(registry.into())
 }
 
@@ -398,5 +442,36 @@ mod tests {
         preserve_avatar_media(&mut merged, &existing);
         assert_eq!(merged.image_path.as_deref(), Some("C:\\avatars\\work.jpg"));
         assert_eq!(merged.is_downloading, Some(true));
+    }
+
+    #[test]
+    fn only_authorizes_avatar_files_inside_the_account_roots() {
+        let root = std::env::temp_dir().join(format!(
+            "notgram-avatar-roots-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let account_root = root.join("accounts").join("secondary");
+        let outside_root = root.join("outside");
+        fs::create_dir_all(&account_root).unwrap();
+        fs::create_dir_all(&outside_root).unwrap();
+        let avatar = account_root.join("avatar.jpg");
+        let outside = outside_root.join("avatar.jpg");
+        fs::write(&avatar, b"avatar").unwrap();
+        fs::write(&outside, b"avatar").unwrap();
+        let roots = vec![account_root.canonicalize().unwrap()];
+
+        assert_eq!(
+            trusted_avatar_path(&avatar.display().to_string(), &roots),
+            Some(avatar.canonicalize().unwrap()),
+        );
+        assert_eq!(
+            trusted_avatar_path(&outside.display().to_string(), &roots),
+            None
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }
