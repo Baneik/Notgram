@@ -122,6 +122,7 @@ import {
   mentionTextForUser,
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
+import { loadMessageActionPermissions } from "../utils/messageActionPermissions";
 import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
 import { mediaAlbumMessagesFor } from "../utils/mediaAlbums";
 import {
@@ -1714,7 +1715,17 @@ export function Conversation({
     });
     if (actionLoadingId === message.id) return;
     setActionLoadingId(message.id);
-    await onLoadMessageProperties(message.chatId, message.id, true);
+    await loadMessageActionPermissions({
+      chatId: message.chatId,
+      messageId: message.id,
+      initialMessage: message,
+      // Read Zustand directly here: a live TDLib update may have replaced the
+      // message before React commits the render that updates messagesByIdRef.
+      getCurrentMessage: () => telegramStore.getState().messages
+        .get(message.chatId)
+        ?.find((candidate) => candidate.id === message.id),
+      load: onLoadMessageProperties,
+    });
     setActionLoadingId((current) => current === message.id ? undefined : current);
   }, [actionLoadingId, activeAccountId, forwardTargets, onLoadMessageProperties]);
 
