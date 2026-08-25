@@ -46,6 +46,22 @@ pub struct TelegramAccountState {
     pub accounts: Vec<TelegramAccount>,
 }
 
+fn preserve_avatar_media(incoming: &mut AccountAvatar, existing: &AccountAvatar) {
+    let same_file = incoming.file_id.is_some() && existing.file_id == incoming.file_id;
+    if incoming.image_path.is_none() && same_file {
+        incoming.image_path = existing.image_path.clone();
+    }
+    if incoming.file_id.is_none() {
+        incoming.file_id = existing.file_id;
+    }
+    if incoming.can_download.is_none() {
+        incoming.can_download = existing.can_download;
+    }
+    if incoming.is_downloading.is_none() {
+        incoming.is_downloading = existing.is_downloading;
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AccountRegistry {
@@ -84,13 +100,17 @@ pub fn telegram_register_account(
     let mut registry = load_account_registry(&app)?;
     let id = registry.active_account_id.clone();
     validate_account_id(&id)?;
-    let account = TelegramAccount {
+    let mut account = TelegramAccount {
         id: id.clone(),
         user_id: account.user_id,
         display_name: account.display_name,
         avatar: account.avatar,
     };
     if let Some(existing) = registry.accounts.iter_mut().find(|item| item.id == id) {
+        // getMe can arrive before TDLib has replayed the completed avatar file.
+        // Keep the last known local media reference until the richer file update
+        // arrives, otherwise startup replaces a real avatar with initials.
+        preserve_avatar_media(&mut account.avatar, &existing.avatar);
         *existing = account;
     } else {
         registry.accounts.push(account);
@@ -354,5 +374,29 @@ mod tests {
             .image_path,
             None,
         );
+    }
+
+    #[test]
+    fn preserves_saved_avatar_when_registration_has_no_completed_file() {
+        let existing = AccountAvatar {
+            label: "工".to_string(),
+            color: "#4477aa".to_string(),
+            image_path: Some("C:\\avatars\\work.jpg".to_string()),
+            file_id: Some(42),
+            can_download: Some(true),
+            is_downloading: Some(false),
+        };
+        let incoming = AccountAvatar {
+            label: "工".to_string(),
+            color: "#4477aa".to_string(),
+            image_path: None,
+            file_id: Some(42),
+            can_download: Some(true),
+            is_downloading: Some(true),
+        };
+        let mut merged = incoming.clone();
+        preserve_avatar_media(&mut merged, &existing);
+        assert_eq!(merged.image_path.as_deref(), Some("C:\\avatars\\work.jpg"));
+        assert_eq!(merged.is_downloading, Some(true));
     }
 }

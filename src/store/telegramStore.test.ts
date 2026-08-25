@@ -6,6 +6,7 @@ import type {
   CachedTelegramSnapshot,
   Chat,
   ChatProfile,
+  ChatHistoryPage,
   ConnectionStatus,
   GlobalSearchInput,
   GlobalSearchPage,
@@ -21,6 +22,7 @@ import type {
   TelegramAccount,
   TelegramAccountState,
   TelegramEvent,
+  User,
   ChatMessageSearchInput,
 } from "../telegram/types";
 import {
@@ -527,6 +529,54 @@ describe("telegram store", () => {
     expect(store.getState().messages.get("chat-product")?.length).toBeGreaterThanOrEqual(30);
   });
 
+  it("keeps a cached avatar path when TDLib replays the same file before download completion", async () => {
+    const cachedUser = structuredClone(mockSnapshot.users.find((user) => user.id === "self")!);
+    cachedUser.avatar = {
+      ...cachedUser.avatar,
+      imagePath: "C:\\cached\\self-avatar.jpg",
+      fileId: 42,
+      canDownload: true,
+      isDownloading: false,
+    };
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 3,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: [cachedUser, ...structuredClone(mockSnapshot.users.filter((user) => user.id !== "self"))],
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: [],
+      activeChatId: "chat-product",
+      chatFilter: "main",
+    };
+    class AvatarReplayTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      replay(user: User) {
+        this.eventListener?.({ type: "user.upsert", user });
+      }
+    }
+
+    const transport = new AvatarReplayTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    transport.replay({
+      ...cachedUser,
+      avatar: {
+        ...cachedUser.avatar,
+        imagePath: undefined,
+        isDownloading: true,
+      },
+    });
+
+    expect(store.getState().users.get("self")?.avatar.imagePath).toBe("C:\\cached\\self-avatar.jpg");
+  });
+
   it("discards a damaged snapshot and rebuilds from the live server", async () => {
     class DamagedCacheTransport extends MockTelegramTransport {
       clears = 0;
@@ -859,7 +909,7 @@ describe("telegram store", () => {
     await store.getState().initialize();
 
     const messages = store.getState().messages.get("chat-product") ?? [];
-    expect(transport.historyRequests).toBe(2);
+    expect(transport.historyRequests).toBe(3);
     expect(messages).toHaveLength(61);
     expect(messages.some((message) => message.id === missingMessage.id)).toBe(true);
     expect(messages.some((message) => message.id === olderMessage.id)).toBe(true);
@@ -919,7 +969,7 @@ describe("telegram store", () => {
     const store = createTelegramStore(transport);
     await store.getState().initialize();
 
-    expect(transport.requests).toBe(2);
+    expect(transport.requests).toBe(3);
     expect(store.getState().messages.get("chat-product")?.map((message) => message.id))
       .toEqual(cachedMessages.map((message) => message.id));
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(true);
@@ -2761,6 +2811,53 @@ describe("chat filtering", () => {
       mockSnapshot.messages.filter((message) => message.chatId === "chat-product").length,
     );
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
+  });
+
+  it("hydrates every server page needed to bridge sparse cached history", async () => {
+    const allMessages = mockSnapshot.messages
+      .filter((message) => message.chatId === "chat-product")
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+    const cachedMessages = allMessages.slice(-2);
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 3,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: structuredClone(cachedMessages),
+      activeChatId: "chat-product",
+      chatFilter: "main",
+    };
+    class SparseHistoryTransport extends MockTelegramTransport {
+      historyRequests = 0;
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async loadChatHistory(_chatId: string, limit = 30): Promise<ChatHistoryPage> {
+        const pageSize = Math.min(limit, 10);
+        const page = allMessages.slice(this.historyRequests * pageSize, this.historyRequests * pageSize + pageSize);
+        this.historyRequests += 1;
+        this.eventListener?.({ type: "messages.upserted", messages: structuredClone(page) });
+        return {
+          loadedCount: page.length,
+          hasMore: this.historyRequests * pageSize < allMessages.length,
+          messageIds: page.map((message) => message.id),
+        };
+      }
+    }
+
+    const transport = new SparseHistoryTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    expect(transport.historyRequests).toBeGreaterThan(2);
+    expect(store.getState().messages.get("chat-product")).toHaveLength(allMessages.length);
+    expect(store.getState().histories.get("chat-product")?.initialized).toBe(true);
   });
 
   it("stops loading a chat list after the transport reports exhaustion", async () => {

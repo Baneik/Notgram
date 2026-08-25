@@ -7,6 +7,23 @@ type AccountRegistrationState = Pick<
   "activeAccountId" | "authorization" | "currentUserId" | "users"
 >;
 
+export const preserveUserAvatarMedia = (incoming: User, existing?: User): User => {
+  if (!existing) return incoming;
+  const sameFile = incoming.avatar.fileId !== undefined &&
+    existing.avatar.fileId === incoming.avatar.fileId;
+  if (!sameFile) return incoming;
+  return {
+    ...incoming,
+    avatar: {
+      ...incoming.avatar,
+      imagePath: incoming.avatar.imagePath ?? existing.avatar.imagePath,
+      fileId: incoming.avatar.fileId ?? existing.avatar.fileId,
+      canDownload: incoming.avatar.canDownload ?? existing.avatar.canDownload,
+      isDownloading: incoming.avatar.isDownloading ?? existing.avatar.isDownloading,
+    },
+  };
+};
+
 export const currentAccountRegistration = (state: AccountRegistrationState) => {
   const user = state.currentUserId ? state.users.get(state.currentUserId) : undefined;
   if (!user || state.authorization.kind !== "ready") return undefined;

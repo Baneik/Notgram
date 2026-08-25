@@ -20,6 +20,7 @@ import { connectionPresentation } from "../telegram/connectionState";
 import {
   accountStatePatch,
   currentAccountRegistration,
+  preserveUserAvatarMedia,
   shouldDiscardUnregisteredAccount,
 } from "./telegramStore.accounts";
 import { cachedSnapshotFrom, migrateCachedSnapshot } from "./telegramStore.cache";
@@ -677,10 +678,16 @@ export const createTelegramStore = (
         const pendingCachedIds = cachedMessageIds.get(chatId);
         if (pendingCachedIds) {
           const confirmedIds = new Set(page.messageIds);
-          const hasUnconfirmedCache = [...pendingCachedIds].some(
+          let hasUnconfirmedCache = [...pendingCachedIds].some(
             (messageId) => !confirmedIds.has(messageId),
           );
-          if (hasUnconfirmedCache && page.hasMore) {
+          let continuationPages = 0;
+          // A bounded cache can span more than two server pages. Keep walking
+          // until every cached boundary message is confirmed, otherwise a
+          // restart may appear to "restore" a missing middle section.
+          while (hasUnconfirmedCache && page.hasMore && continuationPages < 8) {
+            continuationPages += 1;
+            const confirmedBefore = confirmedIds.size;
             const continuation = await transport.loadChatHistory(chatId, 30);
             if (generation !== accountGeneration) return;
             for (const messageId of continuation.messageIds) confirmedIds.add(messageId);
@@ -689,6 +696,10 @@ export const createTelegramStore = (
               hasMore: continuation.hasMore,
               messageIds: [...confirmedIds],
             };
+            hasUnconfirmedCache = [...pendingCachedIds].some(
+              (messageId) => !confirmedIds.has(messageId),
+            );
+            if (confirmedIds.size === confirmedBefore) break;
           }
 
           const remainingCachedIds = pendingCachedIdsAfterConfirmation(
@@ -1206,12 +1217,13 @@ export const createTelegramStore = (
         const current = get();
         const users = new Map(current.users);
         const previous = users.get(event.user.id);
-        users.set(event.user.id, event.user);
+        const user = preserveUserAvatarMedia(event.user, previous);
+        users.set(event.user.id, user);
         // Mention selectors return primitive display keys, so this derived index can
         // update in place without forcing an O(n) clone on frequent presence updates.
         const userIdsByUsername = current.userIdsByUsername;
         const previousUsername = normalizedUsername(previous);
-        const nextUsername = normalizedUsername(event.user);
+        const nextUsername = normalizedUsername(user);
         if (previousUsername && userIdsByUsername.get(previousUsername) === event.user.id) {
           userIdsByUsername.delete(previousUsername);
         }
