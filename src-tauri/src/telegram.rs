@@ -9,9 +9,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use runtime_log::RuntimeLogger;
 use security::{
     PreparedTextMention, PreparedUpload, prepared_chat_photo_request,
-    prepared_file_request_with_topic, prepared_profile_photo_request,
-    prepared_upload_album_request_with_caption_and_topic,
-    prepared_upload_request_with_caption_and_topic, request_type_from_extra,
+    prepared_file_request_with_topic, prepared_profile_photo_request, request_type_from_extra,
     validate_webview_extra, validate_webview_tdlib_request,
 };
 use serde::{Deserialize, Serialize};
@@ -79,6 +77,13 @@ pub struct PastedUploadCaption {
     text: String,
     #[serde(default)]
     entities: Vec<PreparedTextMention>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PastedUploadReplyQuote {
+    text: String,
+    position: i32,
 }
 const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_history_data",
@@ -1433,6 +1438,7 @@ impl Drop for SentMediaCacheGuard {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn telegram_send_pasted_files(
     app: AppHandle,
     chat_id: i64,
@@ -1440,17 +1446,52 @@ pub async fn telegram_send_pasted_files(
     extra: String,
     files: Vec<PastedUploadFile>,
     caption: Option<PastedUploadCaption>,
+    reply_to_message_id: Option<i64>,
+    reply_quote: Option<PastedUploadReplyQuote>,
     runtime: State<'_, TelegramRuntime>,
 ) -> Result<bool, String> {
     validate_webview_extra(&extra)?;
     let caption = caption.unwrap_or_default();
     if chat_id == 0
         || topic_id.is_some_and(|id| id <= 0)
+        || reply_to_message_id.is_some_and(|id| id <= 0)
         || files.is_empty()
         || files.len() > MAX_PASTED_UPLOAD_FILES
     {
         return Err("Pasted uploads must contain between 1 and 10 files".to_string());
     }
+    let reply_to = match (reply_to_message_id, reply_quote) {
+        (Some(message_id), quote) => {
+            let quote = quote
+                .map(|quote| {
+                    if quote.text.is_empty()
+                        || quote.text.chars().count() > 1024
+                        || quote.position < 0
+                    {
+                        return Err("Invalid reply quote".to_string());
+                    }
+                    Ok(json!({
+                        "@type": "inputTextQuote",
+                        "text": {
+                            "@type": "formattedText",
+                            "text": quote.text,
+                            "entities": []
+                        },
+                        "position": quote.position,
+                    }))
+                })
+                .transpose()?;
+            Some(json!({
+                "@type": "inputMessageReplyToMessage",
+                "message_id": message_id,
+                "quote": quote,
+                "checklist_task_id": 0,
+                "poll_option_id": "",
+            }))
+        }
+        (None, Some(_)) => return Err("Reply quote requires a message target".to_string()),
+        (None, None) => None,
+    };
     let cache_root = crate::storage::sent_media_directory(&app)?.join(format!(
         "{}-{}",
         std::process::id(),
@@ -1539,22 +1580,24 @@ pub async fn telegram_send_pasted_files(
     }
 
     let request = if prepared.len() == 1 {
-        prepared_upload_request_with_caption_and_topic(
+        security::prepared_upload_request_with_caption_and_topic_and_reply(
             chat_id,
             &extra,
             &prepared[0],
             &caption.text,
             &caption.entities,
             topic_id,
+            reply_to.clone().unwrap_or(Value::Null),
         )?
     } else {
-        prepared_upload_album_request_with_caption_and_topic(
+        security::prepared_upload_album_request_with_caption_and_topic_and_reply(
             chat_id,
             &extra,
             &prepared,
             &caption.text,
             &caption.entities,
             topic_id,
+            reply_to.clone().unwrap_or(Value::Null),
         )?
     };
     let fallback_request = if fallback_files.iter().any(Option::is_some) {
@@ -1570,23 +1613,29 @@ pub async fn telegram_send_pasted_files(
             })
             .collect::<Vec<_>>();
         if fallback_uploads.len() == 1 {
-            Some(prepared_upload_request_with_caption_and_topic(
-                chat_id,
-                &extra,
-                &fallback_uploads[0],
-                &caption.text,
-                &caption.entities,
-                topic_id,
-            )?)
+            Some(
+                security::prepared_upload_request_with_caption_and_topic_and_reply(
+                    chat_id,
+                    &extra,
+                    &fallback_uploads[0],
+                    &caption.text,
+                    &caption.entities,
+                    topic_id,
+                    reply_to.clone().unwrap_or(Value::Null),
+                )?,
+            )
         } else {
-            Some(prepared_upload_album_request_with_caption_and_topic(
-                chat_id,
-                &extra,
-                &fallback_uploads,
-                &caption.text,
-                &caption.entities,
-                topic_id,
-            )?)
+            Some(
+                security::prepared_upload_album_request_with_caption_and_topic_and_reply(
+                    chat_id,
+                    &extra,
+                    &fallback_uploads,
+                    &caption.text,
+                    &caption.entities,
+                    topic_id,
+                    reply_to.clone().unwrap_or(Value::Null),
+                )?,
+            )
         }
     } else {
         None

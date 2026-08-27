@@ -273,8 +273,16 @@ export interface TelegramState {
   addStickerSet: (stickerSetId: string) => Promise<boolean>;
   searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[]>;
   loadEmojiAsset: (asset: EmojiPickerAsset) => Promise<string | undefined>;
-  sendSticker: (asset: EmojiPickerAsset, replyToMessageId?: string) => Promise<boolean>;
-  sendAnimation: (asset: EmojiPickerAsset, replyToMessageId?: string) => Promise<boolean>;
+  sendSticker: (
+    asset: EmojiPickerAsset,
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
+  ) => Promise<boolean>;
+  sendAnimation: (
+    asset: EmojiPickerAsset,
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
+  ) => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
   sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => Promise<boolean>;
@@ -313,7 +321,13 @@ export interface TelegramState {
   openDownloadDirectory: () => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   sendFile: (file?: File) => Promise<boolean>;
-  sendFiles: (attachments: import("../telegram/types").OutgoingAttachment[], caption?: string, captionEntities?: MessageTextEntity[]) => Promise<boolean>;
+  sendFiles: (
+    attachments: import("../telegram/types").OutgoingAttachment[],
+    caption?: string,
+    captionEntities?: MessageTextEntity[],
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
+  ) => Promise<boolean>;
   cancelFileUpload: (messageId: string) => Promise<void>;
   clearError: () => void;
   clearOperationError: () => void;

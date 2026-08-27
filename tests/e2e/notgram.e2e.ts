@@ -5256,6 +5256,70 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await expect(page.locator(".file-message", { hasText: "pasted-notes.txt" })).toBeVisible();
 });
 
+test("replying can send media, files, and stickers with the reply target", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await revealVirtualMessage(page, "p-2");
+  const source = page.locator('[data-message-id="p-2"]');
+  await revealVirtualMessage(page, "p-2");
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+  await expect(page.locator(".composer-context.is-replying")).toBeVisible();
+  await expect(page.getByRole("button", { name: "添加附件" })).toBeEnabled();
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "reply-photo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  const attachmentPreview = page.getByRole("region", { name: "待发送附件" });
+  await expect(attachmentPreview.getByText("reply-photo.png", { exact: true })).toBeVisible();
+  await composer.press("Enter");
+  const sentPhoto = page.locator(".message-row.is-outgoing", {
+    has: page.locator('[data-media-type="photo"]'),
+  }).last();
+  await expect(sentPhoto).toBeVisible();
+  await expect(sentPhoto.locator(".message-reply-preview")).toBeVisible();
+  await expect(page.locator(".composer-context.is-replying")).toHaveCount(0);
+
+  await revealVirtualMessage(page, "p-2");
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "reply-file.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("reply file"),
+  });
+  await composer.press("Enter");
+  const sentFile = page.locator(".message-row.is-outgoing", { has: page.locator(".file-message") }).last();
+  await expect(sentFile).toBeVisible();
+  await expect(sentFile.locator(".message-reply-preview")).toBeVisible();
+  await expect(page.locator(".composer-context.is-replying")).toHaveCount(0);
+
+  await revealVirtualMessage(page, "p-2");
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+  await page.getByRole("button", { name: "表情" }).click();
+  const picker = page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
+  await picker.getByRole("button", { name: /发送贴纸/ }).first().click();
+  await expect.poll(() => page.evaluate(async (modulePath) => {
+    const module = await import(modulePath) as {
+      telegramStore: { getState: () => { messages: Map<string, Array<{
+        outgoing: boolean;
+        content: { kind: string; mediaType?: string };
+        replyTo?: { messageId?: string };
+      }>> } } };
+    return module.telegramStore.getState().messages.get("chat-product")?.some((message) =>
+      message.outgoing && message.content.kind === "media" && message.content.mediaType === "sticker" &&
+      message.replyTo?.messageId === "p-2",
+    ) ?? false;
+  }, "/src/store/telegramStore.ts")).toBe(true);
+  await expect(page.locator(".composer-context.is-replying")).toHaveCount(0);
+});
+
 test("attachment entry points share classification, previews, spoilers, and local drafts", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });

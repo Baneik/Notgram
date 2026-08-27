@@ -2310,7 +2310,15 @@ export class MockTelegramTransport implements TelegramTransport {
     });
   }
 
-  async sendFiles({ chatId, topicId, attachments, caption, captionEntities }: SendFilesInput) {
+  async sendFiles({
+    chatId,
+    topicId,
+    attachments,
+    caption,
+    captionEntities,
+    replyToMessageId,
+    replyQuote,
+  }: SendFilesInput) {
     if (attachments.length === 0) return false;
     const allVisual = attachments.length > 1 && attachments.every(
       (attachment) => attachment.kind === "photo" || attachment.kind === "video",
@@ -2329,6 +2337,17 @@ export class MockTelegramTransport implements TelegramTransport {
         outgoing: true,
         sentAt: new Date().toISOString(),
         delivery: "sent",
+        replyTo: replyToMessageId
+          ? {
+              kind: "message",
+              chatId,
+              messageId: replyToMessageId,
+              quote: replyQuote?.text,
+              content: clone(this.snapshot.messages.find(
+                (message) => message.chatId === chatId && message.id === replyToMessageId,
+              )?.content),
+            }
+          : undefined,
         content: isMedia
           ? {
               kind: "media",
@@ -2439,6 +2458,7 @@ export class MockTelegramTransport implements TelegramTransport {
             kind: "message",
             chatId: input.chatId,
             messageId: replyTarget.id,
+            quote: input.replyQuote?.text,
             content: clone(replyTarget.content),
           }
         : undefined,

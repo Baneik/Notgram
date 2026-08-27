@@ -3001,7 +3001,7 @@ export const createTelegramStore = (
         }
       },
 
-      sendSticker: async (asset, replyToMessageId) => {
+      sendSticker: async (asset, replyToMessageId, replyQuote) => {
         const chatId = get().activeChatId;
         const topicId = get().activeTopicId;
         if (!chatId) return false;
@@ -3010,7 +3010,13 @@ export const createTelegramStore = (
           return false;
         }
         try {
-          await transport.sendSticker({ chatId, topicId, asset, replyToMessageId });
+          await transport.sendSticker({
+            chatId,
+            topicId,
+            asset,
+            replyToMessageId,
+            replyQuote: replyToMessageId ? replyQuote : undefined,
+          });
           recordConversationSentMessages(get().activeAccountId, chatId);
           set({ operationError: undefined });
           scheduleCacheWrite();
@@ -3021,7 +3027,7 @@ export const createTelegramStore = (
         }
       },
 
-      sendAnimation: async (asset, replyToMessageId) => {
+      sendAnimation: async (asset, replyToMessageId, replyQuote) => {
         const chatId = get().activeChatId;
         const topicId = get().activeTopicId;
         if (!chatId) return false;
@@ -3030,7 +3036,13 @@ export const createTelegramStore = (
           return false;
         }
         try {
-          await transport.sendAnimation({ chatId, topicId, asset, replyToMessageId });
+          await transport.sendAnimation({
+            chatId,
+            topicId,
+            asset,
+            replyToMessageId,
+            replyQuote: replyToMessageId ? replyQuote : undefined,
+          });
           recordConversationSentMessages(get().activeAccountId, chatId);
           set({ operationError: undefined });
           scheduleCacheWrite();
@@ -3510,7 +3522,13 @@ export const createTelegramStore = (
         }
       },
 
-      sendFiles: async (attachments, caption, captionEntities) => {
+      sendFiles: async (
+        attachments,
+        caption,
+        captionEntities,
+        replyToMessageId,
+        replyQuote,
+      ) => {
         const chatId = get().activeChatId;
         const topicId = get().activeTopicId;
         if (!chatId || attachments.length === 0) return false;
@@ -3530,6 +3548,8 @@ export const createTelegramStore = (
               text: formattedCaption.text || metadata.map(({ name }) => name).join("、"),
               caption: formattedCaption.text || undefined,
               ...(formattedCaption.entities.length ? { entities: formattedCaption.entities } : {}),
+              replyToMessageId,
+              replyQuote: replyToMessageId ? replyQuote : undefined,
               kind: "attachments",
               attachments: metadata,
               createdAt,
@@ -3557,6 +3577,8 @@ export const createTelegramStore = (
             attachments,
             caption: formattedCaption.text || undefined,
             captionEntities: formattedCaption.entities,
+            replyToMessageId,
+            replyQuote: replyToMessageId ? replyQuote : undefined,
           });
           if (sent) {
             recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);

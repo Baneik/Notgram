@@ -86,7 +86,13 @@ interface ConversationComposerProps {
   onEditMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
   onDraftChange: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
-  onSendFiles: (attachments: OutgoingAttachment[], caption?: string, captionEntities?: MessageTextEntity[]) => Promise<boolean>;
+  onSendFiles: (
+    attachments: OutgoingAttachment[],
+    caption?: string,
+    captionEntities?: MessageTextEntity[],
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
+  ) => Promise<boolean>;
   onCancelEditing: () => void;
   onCancelReply: () => void;
   onGetBotCommands: (query?: string, botUsername?: string) => Promise<BotCommandSuggestion[]>;
@@ -853,6 +859,8 @@ export const ConversationComposer = memo(function ConversationComposer({
         })),
         caption.text || undefined,
         caption.entities,
+        replyingTo?.id ?? chatDraft?.replyToMessageId,
+        activeReplyQuote,
       );
       if (!sent) return;
       closeAttachmentPreviewSession();
@@ -874,6 +882,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       mentionEntitiesRef.current = [];
       setDraft("");
       onDraftChange(chatId, "", undefined, undefined);
+      onCancelReply();
       stopTyping();
       focusComposer();
     } finally {
@@ -982,17 +991,17 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [chatId, focusComposer, onCancelReply, onDraftChange]);
 
   const handleFileDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (composerContextMessage || !event.dataTransfer.types.includes("Files")) return;
+    if (editingMessage || !event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     fileDragDepthRef.current += 1;
     setDraggingFiles(true);
-  }, [composerContextMessage]);
+  }, [editingMessage]);
 
   const handleFileDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (composerContextMessage || !event.dataTransfer.types.includes("Files")) return;
+    if (editingMessage || !event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
-  }, [composerContextMessage]);
+  }, [editingMessage]);
 
   const handleFileDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) return;
@@ -1001,13 +1010,13 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, []);
 
   const handleFileDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (composerContextMessage || !event.dataTransfer.types.includes("Files")) return;
+    if (editingMessage || !event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     fileDragDepthRef.current = 0;
     setDraggingFiles(false);
     addPendingAttachments(Array.from(event.dataTransfer.files));
     focusComposer();
-  }, [addPendingAttachments, composerContextMessage, focusComposer]);
+  }, [addPendingAttachments, editingMessage, focusComposer]);
 
   return (
     <div
@@ -1022,7 +1031,9 @@ export const ConversationComposer = memo(function ConversationComposer({
           <EmojiPicker
             chatId={chatId}
             replyToMessageId={replyingTo?.id ?? chatDraft?.replyToMessageId}
+            replyQuote={activeReplyQuote}
             onEmoji={insertEmoji}
+            onAssetSent={cancelReply}
             onClose={closeEmojiPicker}
             onRequestComposerFocus={focusComposer}
             onPointerEnter={(event) => {
@@ -1247,8 +1258,8 @@ export const ConversationComposer = memo(function ConversationComposer({
           className="icon-button"
           type="button"
           aria-label="添加附件"
-          title={composerContextMessage ? "完成当前消息操作后添加附件" : attachmentPending ? "正在选择文件" : "添加附件"}
-          disabled={Boolean(composerContextMessage) || attachmentPending}
+          title={editingMessage ? "完成编辑后添加附件" : attachmentPending ? "正在选择文件" : "添加附件"}
+          disabled={Boolean(editingMessage) || attachmentPending}
           onClick={() => {
             fileInputRef.current?.click();
           }}
@@ -1273,7 +1284,7 @@ export const ConversationComposer = memo(function ConversationComposer({
             commitInputSideEffects(value);
           }}
           onPaste={(event) => {
-            if (editingMessage || replyingTo) return;
+            if (editingMessage) return;
             const files = Array.from(event.clipboardData.files);
             if (files.length === 0) return;
             event.preventDefault();

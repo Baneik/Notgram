@@ -80,6 +80,8 @@ export const createOutboxController = ({
               attachments: stored.attachments,
               caption: item.caption,
               captionEntities: item.entities,
+              replyToMessageId: item.replyToMessageId,
+              replyQuote: item.replyQuote,
             });
             if (!sent) throw new Error("附件上传未完成");
           } else {

@@ -81,6 +81,8 @@ export class TdRequestBroker {
     onError: (error: Error) => void,
     topicId?: string,
     captionEntities?: MessageTextEntity[],
+    replyToMessageId?: string,
+    replyQuote?: { text: string; position: number },
   ) {
     const extra = crypto.randomUUID();
     this.preparedFiles.set(extra, onError);
@@ -99,6 +101,8 @@ export class TdRequestBroker {
               : [];
           }) ?? [],
         } : undefined,
+        replyToMessageId: replyToMessageId ? numericId(replyToMessageId) : undefined,
+        replyQuote,
       });
       if (!sent) {
         this.preparedFiles.delete(extra);

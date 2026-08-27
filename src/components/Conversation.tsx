@@ -250,7 +250,13 @@ interface ConversationProps {
   onStreamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onSuspendFileStream: (fileId: number) => Promise<void>;
   onRetryMessage: (messageId: string) => Promise<void>;
-  onSendFiles: (attachments: import("../telegram/types").OutgoingAttachment[], caption?: string, captionEntities?: MessageTextEntity[]) => Promise<boolean>;
+  onSendFiles: (
+    attachments: import("../telegram/types").OutgoingAttachment[],
+    caption?: string,
+    captionEntities?: MessageTextEntity[],
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
+  ) => Promise<boolean>;
   onCancelFileUpload: (messageId: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
@@ -1235,9 +1241,17 @@ export function Conversation({
     attachments: import("../telegram/types").OutgoingAttachment[],
     caption?: string,
     captionEntities?: MessageTextEntity[],
+    replyToMessageId?: string,
+    selectedReplyQuote?: MessageReplyQuote,
   ) => {
     jumpToLatest("auto");
-    return onSendFiles(attachments, caption, captionEntities);
+    return onSendFiles(
+      attachments,
+      caption,
+      captionEntities,
+      replyToMessageId,
+      selectedReplyQuote,
+    );
   }, [jumpToLatest, onSendFiles]);
 
   useEffect(() => {

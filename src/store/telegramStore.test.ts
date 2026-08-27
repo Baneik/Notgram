@@ -377,20 +377,26 @@ describe("telegram store", () => {
       kind: "mentionName" as const,
       userId: "u-mia",
     }];
-    await expect(offlineStore.getState().sendFiles([{
-      file,
-      kind: "document",
-    }], "@Mia offline caption", captionEntities)).resolves.toBe(true);
+    await expect(offlineStore.getState().sendFiles(
+      [{ file, kind: "document" }],
+      "@Mia offline caption",
+      captionEntities,
+      "p-4",
+      { text: "交互稿", position: 1 },
+    )).resolves.toBe(true);
     expect(offlineTransport.uploads).toHaveLength(0);
     expect(offlineStore.getState().outbox).toMatchObject([{
       kind: "attachments",
       caption: "@Mia offline caption",
       entities: captionEntities,
+      replyToMessageId: "p-4",
+      replyQuote: { text: "交互稿", position: 1 },
       status: "queued",
       attachments: [{ name: "offline.txt", size: file.size }],
     }]);
     expect(offlineStore.getState().messages.get("chat-product")?.at(-1)).toMatchObject({
       delivery: "sending",
+      replyTo: { messageId: "p-4", quote: "交互稿" },
       content: { kind: "file", fileName: "offline.txt", isUploading: true },
     });
 
@@ -412,6 +418,8 @@ describe("telegram store", () => {
       chatId: "chat-product",
       caption: "@Mia offline caption",
       captionEntities,
+      replyToMessageId: "p-4",
+      replyQuote: { text: "交互稿", position: 1 },
       attachments: [{ kind: "document", file: { name: "offline.txt", type: "text/plain" } }],
     });
     expect(restoredStore.getState().outbox).toHaveLength(0);

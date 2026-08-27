@@ -234,6 +234,8 @@ export interface TauriMessageMediaServiceContext {
     caption?: string,
     captionEntities?: MessageTextEntity[],
     topicId?: string,
+    replyToMessageId?: string,
+    replyQuote?: { text: string; position: number },
   ) => Promise<boolean>;
 }
 
@@ -496,7 +498,7 @@ export class TauriMessageMediaService {
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
-      reply_to: this.emojiReplyTarget(input.replyToMessageId),
+      reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
       options: null,
       reply_markup: null,
       input_message_content: {
@@ -519,7 +521,7 @@ export class TauriMessageMediaService {
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
-      reply_to: this.emojiReplyTarget(input.replyToMessageId),
+      reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
       options: null,
       reply_markup: null,
       input_message_content: {
@@ -774,6 +776,10 @@ export class TauriMessageMediaService {
         captionPending,
         captionEntitiesPending,
         input.topicId,
+        input.replyToMessageId,
+        input.replyQuote
+          ? { text: input.replyQuote.text, position: input.replyQuote.position }
+          : undefined,
       );
       if (!sent) return false;
       captionPending = undefined;
@@ -789,17 +795,6 @@ export class TauriMessageMediaService {
       message_ids: [numericId(messageId)],
       revoke: true,
     });
-  }
-
-  private emojiReplyTarget(replyToMessageId?: string) {
-    return replyToMessageId
-      ? {
-          "@type": "inputMessageReplyToMessage",
-          message_id: numericId(replyToMessageId),
-          quote: null,
-          checklist_task_id: 0,
-        }
-      : null;
   }
 
   private async formattedTextInput(text: string, entities?: MessageTextEntity[]) {

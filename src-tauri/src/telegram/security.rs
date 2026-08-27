@@ -1581,6 +1581,26 @@ pub(super) fn prepared_upload_request_with_caption_and_topic(
     caption_mentions: &[PreparedTextMention],
     topic_id: Option<i64>,
 ) -> Result<Value, String> {
+    prepared_upload_request_with_caption_and_topic_and_reply(
+        chat_id,
+        extra,
+        upload,
+        caption,
+        caption_mentions,
+        topic_id,
+        Value::Null,
+    )
+}
+
+pub(super) fn prepared_upload_request_with_caption_and_topic_and_reply(
+    chat_id: i64,
+    extra: &str,
+    upload: &PreparedUpload,
+    caption: &str,
+    caption_mentions: &[PreparedTextMention],
+    topic_id: Option<i64>,
+    reply_to: Value,
+) -> Result<Value, String> {
     if chat_id == 0 {
         return Err("Invalid Telegram chat identifier".to_string());
     }
@@ -1590,7 +1610,7 @@ pub(super) fn prepared_upload_request_with_caption_and_topic(
         "@type": "sendMessage",
         "chat_id": chat_id,
         "topic_id": topic_id.map(|id| json!({ "@type": "messageTopicForum", "forum_topic_id": id })).unwrap_or(Value::Null),
-        "reply_to": null,
+        "reply_to": reply_to,
         "options": null,
         "reply_markup": null,
         "input_message_content": input_message_upload(upload, caption, caption_mentions)?,
@@ -1637,6 +1657,26 @@ pub(super) fn prepared_upload_album_request_with_caption_and_topic(
     caption_mentions: &[PreparedTextMention],
     topic_id: Option<i64>,
 ) -> Result<Value, String> {
+    prepared_upload_album_request_with_caption_and_topic_and_reply(
+        chat_id,
+        extra,
+        uploads,
+        caption,
+        caption_mentions,
+        topic_id,
+        Value::Null,
+    )
+}
+
+pub(super) fn prepared_upload_album_request_with_caption_and_topic_and_reply(
+    chat_id: i64,
+    extra: &str,
+    uploads: &[PreparedUpload],
+    caption: &str,
+    caption_mentions: &[PreparedTextMention],
+    topic_id: Option<i64>,
+    reply_to: Value,
+) -> Result<Value, String> {
     if chat_id == 0 {
         return Err("Invalid Telegram chat identifier".to_string());
     }
@@ -1669,7 +1709,7 @@ pub(super) fn prepared_upload_album_request_with_caption_and_topic(
         "@type": "sendMessageAlbum",
         "chat_id": chat_id,
         "topic_id": topic_id.map(|id| json!({ "@type": "messageTopicForum", "forum_topic_id": id })).unwrap_or(Value::Null),
-        "reply_to": null,
+        "reply_to": reply_to,
         "options": null,
         "input_message_contents": uploads.iter().enumerate().map(|(index, upload)| {
             input_message_upload(
@@ -2353,9 +2393,37 @@ mod tests {
                 .is_err()
         );
         assert!(
-            prepared_file_album_request_with_caption(7, EXTRA, &[photo, large_photo], "").is_err()
+            prepared_file_album_request_with_caption(7, EXTRA, &[photo.clone(), large_photo], "")
+                .is_err()
         );
         assert!(validate_webview_tdlib_request(&photo_request).is_err());
+
+        let replied_photo = prepared_upload_request_with_caption_and_topic_and_reply(
+            7,
+            EXTRA,
+            &PreparedUpload::automatic(&photo),
+            "",
+            &[],
+            None,
+            json!({
+                "@type": "inputMessageReplyToMessage",
+                "message_id": 12,
+                "quote": {
+                    "@type": "inputTextQuote",
+                    "text": {
+                        "@type": "formattedText",
+                        "text": "被引用的内容",
+                        "entities": []
+                    },
+                    "position": 3
+                },
+                "checklist_task_id": 0,
+                "poll_option_id": ""
+            }),
+        )
+        .unwrap();
+        assert_eq!(replied_photo["reply_to"]["message_id"], 12);
+        assert_eq!(replied_photo["reply_to"]["quote"]["position"], 3);
 
         let cover = crate::storage::UploadFileInfo {
             path: "C:\\selected\\video-cover.jpg".to_string(),

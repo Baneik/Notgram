@@ -13,6 +13,7 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import type {
   EmojiPickerAsset,
   EmojiPickerCatalog,
+  MessageReplyQuote,
   StickerSet,
 } from "../telegram/types";
 import { EmojiAssetVisual } from "./EmojiAssetVisual";
@@ -22,7 +23,9 @@ type PickerTab = "emoji" | "sticker" | "animation";
 interface EmojiPickerProps {
   chatId: string;
   replyToMessageId?: string;
+  replyQuote?: MessageReplyQuote;
   onEmoji: (emoji: string) => void;
+  onAssetSent: () => void;
   onClose: () => void;
   onRequestComposerFocus: () => void;
   onPointerEnter?: PointerEventHandler<HTMLElement>;
@@ -103,7 +106,9 @@ function LazyEmojiAsset({
 export function EmojiPicker({
   chatId,
   replyToMessageId,
+  replyQuote,
   onEmoji,
+  onAssetSent,
   onClose,
   onRequestComposerFocus,
   onPointerEnter,
@@ -221,14 +226,15 @@ export function EmojiPicker({
     if (sendingAssetId) return;
     setSendingAssetId(asset.id);
     const sent = asset.kind === "animation"
-      ? await sendAnimation(asset, replyToMessageId)
-      : await sendSticker(asset, replyToMessageId);
+      ? await sendAnimation(asset, replyToMessageId, replyQuote)
+      : await sendSticker(asset, replyToMessageId, replyQuote);
     setSendingAssetId(undefined);
     if (sent) {
       onClose();
+      onAssetSent();
       onRequestComposerFocus();
     }
-  }, [onClose, onRequestComposerFocus, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
+  }, [onAssetSent, onClose, onRequestComposerFocus, replyQuote, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
 
   const closeAndRestoreComposerFocus = () => {
     onClose();

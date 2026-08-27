@@ -105,7 +105,7 @@ describe("TdRequestBroker prepared files", () => {
     const reportError = vi.fn();
     broker = new TdRequestBroker(async (command, args) => {
       expect(command).toBe("telegram_send_pasted_files");
-      const input = args as { chatId: number; extra: string; files: unknown[]; caption?: { text: string; entities: unknown[] } };
+      const input = args as { chatId: number; extra: string; files: unknown[]; caption?: { text: string; entities: unknown[] }; replyToMessageId?: number; replyQuote?: unknown };
       expect(input.chatId).toBe(7);
       expect(input.files).toEqual([{
         name: "paste.png",
@@ -133,5 +133,31 @@ describe("TdRequestBroker prepared files", () => {
       userId: "11",
     }])).resolves.toBe(true);
     expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("includes the reply target when sending pasted files", async () => {
+    let broker!: TdRequestBroker;
+    broker = new TdRequestBroker(async (_command, args) => {
+      const input = args as {
+        extra: string;
+        replyToMessageId?: number;
+        replyQuote?: { text: string; position: number };
+      };
+      expect(input.replyToMessageId).toBe(12);
+      expect(input.replyQuote).toEqual({ text: "引用", position: 2 });
+      broker.settle({ "@type": "ok", "@extra": input.extra });
+      return true;
+    });
+
+    await expect(broker.requestPreparedPastedFiles(
+      "7",
+      [{ name: "reply.txt", mimeType: "text/plain", dataBase64: "AQ==", kind: "document" }],
+      undefined,
+      vi.fn(),
+      undefined,
+      undefined,
+      "12",
+      { text: "引用", position: 2 },
+    )).resolves.toBe(true);
   });
 });

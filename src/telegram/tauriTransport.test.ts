@@ -18,6 +18,10 @@ type TestableTransport = {
     chatId: string,
     files: unknown[],
     caption?: string,
+    captionEntities?: unknown[],
+    topicId?: string,
+    replyToMessageId?: string,
+    replyQuote?: { text: string; position: number },
   ) => Promise<boolean>;
   requestPreparedProfilePhoto: () => Promise<boolean>;
   emitMessage: (message: TdObject) => void;
@@ -3355,6 +3359,68 @@ describe("TauriTelegramTransport message operations", () => {
       { chatId: "7", names: ["first.png", "second.jpg"], caption: "一次说明" },
       { chatId: "7", names: ["notes.txt"], caption: undefined },
     ]);
+  });
+
+  it("carries the reply target and quote into every pasted upload group", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: Array<{ replyToMessageId?: string; replyQuote?: { text: string; position: number } }> = [];
+    internal.requestPreparedPastedFiles = async (
+      _chatId,
+      _files,
+      _caption,
+      _captionEntities,
+      _topicId,
+      replyToMessageId,
+      replyQuote,
+    ) => {
+      requests.push({ replyToMessageId, replyQuote });
+      return true;
+    };
+
+    await expect(transport.sendFiles({
+      chatId: "7",
+      attachments: [{
+        file: new File(["photo"], "reply.png", { type: "image/png" }),
+        kind: "photo",
+      }],
+      replyToMessageId: "12",
+      replyQuote: { text: "被引用的内容", position: 3 },
+    })).resolves.toBe(true);
+
+    expect(requests).toEqual([{
+      replyToMessageId: "12",
+      replyQuote: { text: "被引用的内容", position: 3 },
+    }]);
+  });
+
+  it("uses the TDLib reply object when sending a sticker quote", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.sendSticker({
+      chatId: "7",
+      asset: { id: "sticker:1", kind: "sticker", fileId: 71, fileName: "sticker.webp" },
+      replyToMessageId: "12",
+      replyQuote: { text: "被引用的内容", position: 3 },
+    });
+
+    expect(requests[0].reply_to).toEqual({
+      "@type": "inputMessageReplyToMessage",
+      message_id: 12,
+      quote: {
+        "@type": "inputTextQuote",
+        text: { "@type": "formattedText", text: "被引用的内容", entities: [] },
+        position: 3,
+      },
+      checklist_task_id: 0,
+      poll_option_id: "",
+    });
   });
 
   it("preserves native media metadata and groups photos with videos", async () => {

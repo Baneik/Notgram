@@ -1013,6 +1013,7 @@ export interface SendEmojiAssetInput {
   topicId?: string;
   asset: EmojiPickerAsset;
   replyToMessageId?: string;
+  replyQuote?: MessageReplyQuote;
 }
 
 export interface EditMessageInput {
@@ -1109,6 +1110,8 @@ export interface SendFilesInput {
   attachments: OutgoingAttachment[];
   caption?: string;
   captionEntities?: MessageTextEntity[];
+  replyToMessageId?: string;
+  replyQuote?: MessageReplyQuote;
 }
 
 export const TELEGRAM_ALBUM_MAX_ITEMS = 10;
