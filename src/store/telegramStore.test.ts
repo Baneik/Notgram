@@ -499,6 +499,7 @@ describe("telegram store", () => {
       activeChatId: "chat-product",
       chatFilter: "folder:work",
     };
+    cachedSnapshot.messages[0].containsUnreadReaction = true;
 
     class DelayedTransport extends MockTelegramTransport {
       connectStarted = false;
@@ -529,6 +530,8 @@ describe("telegram store", () => {
     expect(store.getState().chatFilter).toBe("folder:work");
     expect(store.getState().chatListReady).toBe(true);
     expect(store.getState().messages.get("chat-product")).toHaveLength(3);
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toContain(cachedSnapshot.messages[0].id);
     expect(store.getState().cacheHealth).toBe("migrated");
 
     transport.release();
@@ -3655,6 +3658,177 @@ describe("chat filtering", () => {
       chatId: "chat-product",
       messageIds: ["attention-hydrated-reply", "attention-reply", "attention-mention"],
     }]);
+  });
+
+  it("recovers missing unread reaction messages and clears them only after all are seen", async () => {
+    class ReactionAttentionTransport extends MockTelegramTransport {
+      private events?: TelegramEventListener;
+      reactionMessages: Message[] = [];
+      reactionReads: string[] = [];
+
+      override async connect(listener: TelegramEventListener) {
+        this.events = listener;
+        return super.connect(listener);
+      }
+
+      override async searchChatMessages(input: ChatMessageSearchInput) {
+        if (input.filter === "unreadReaction") {
+          return {
+            messages: structuredClone(this.reactionMessages),
+            totalCount: this.reactionMessages.length,
+            hasMore: false,
+          };
+        }
+        return super.searchChatMessages(input);
+      }
+
+      override async markAllChatReactionsRead(chatId: string) {
+        this.reactionReads.push(chatId);
+      }
+
+      dispatch(event: TelegramEvent) {
+        this.events?.(event);
+      }
+    }
+
+    const transport = new ReactionAttentionTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const template = store.getState().messages.get("chat-product")?.at(-1)!;
+    transport.reactionMessages = ["reaction-missing-1", "reaction-missing-2"].map((id, index) => ({
+      ...template,
+      id,
+      outgoing: true,
+      containsUnreadReaction: true,
+      sentAt: `2026-08-07T11:0${index}:00.000Z`,
+      content: { kind: "text", text: `unread reaction ${index + 1}` },
+    }));
+    const chat = store.getState().chats.get("chat-product")!;
+
+    transport.dispatch({
+      type: "chat.upsert",
+      chat: { ...chat, unreadReactionCount: 2 },
+    });
+    await vi.waitFor(() => expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toEqual(["reaction-missing-1", "reaction-missing-2"]));
+
+    store.getState().dismissMessageAttention("chat-product", ["reaction-missing-1"]);
+    await Promise.resolve();
+    expect(transport.reactionReads).toEqual([]);
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toEqual(["reaction-missing-1", "reaction-missing-2"]);
+
+    store.getState().dismissMessageAttention("chat-product", ["reaction-missing-2"]);
+    await vi.waitFor(() => expect(transport.reactionReads).toEqual(["chat-product"]));
+    await vi.waitFor(() => expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false));
+    expect(store.getState().chats.get("chat-product")?.unreadReactionCount).toBe(0);
+    expect(store.getState().messages.get("chat-product")
+      ?.filter((message) => message.id.startsWith("reaction-missing-"))
+      .every((message) => message.containsUnreadReaction === false)).toBe(true);
+  });
+
+  it("reconciles reaction attention from batch updates through staggered flag clearing", async () => {
+    class BatchAttentionTransport extends MockTelegramTransport {
+      private events?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.events = listener;
+        return super.connect(listener);
+      }
+
+      dispatch(event: TelegramEvent) {
+        this.events?.(event);
+      }
+    }
+
+    const transport = new BatchAttentionTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const template = store.getState().messages.get("chat-product")?.at(-1)!;
+    const reactionMessage: Message = {
+      ...template,
+      id: "reaction-batch",
+      outgoing: true,
+      containsUnreadMention: true,
+      containsUnreadReaction: true,
+      sentAt: "2026-08-07T12:00:00.000Z",
+      content: { kind: "text", text: "batch reaction" },
+    };
+
+    transport.dispatch({ type: "messages.upserted", messages: [reactionMessage] });
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toEqual(["reaction-batch"]);
+
+    transport.dispatch({
+      type: "message.upsert",
+      message: { ...reactionMessage, containsUnreadReaction: false },
+    });
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toEqual(["reaction-batch"]);
+
+    transport.dispatch({
+      type: "message.upsert",
+      message: {
+        ...reactionMessage,
+        containsUnreadMention: false,
+        containsUnreadReaction: false,
+      },
+    });
+    expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false);
+  });
+
+  it("clears combined mention and reaction attention regardless of request completion order", async () => {
+    class CombinedAttentionTransport extends MockTelegramTransport {
+      private events?: TelegramEventListener;
+      private releaseReactionRead?: () => void;
+      reactionRead = new Promise<void>((resolve) => {
+        this.releaseReactionRead = resolve;
+      });
+
+      override async connect(listener: TelegramEventListener) {
+        this.events = listener;
+        return super.connect(listener);
+      }
+
+      override async markMessageAttentionRead() {}
+
+      override async markAllChatReactionsRead() {
+        await this.reactionRead;
+      }
+
+      dispatch(event: TelegramEvent) {
+        this.events?.(event);
+      }
+
+      finishReactionRead() {
+        this.releaseReactionRead?.();
+      }
+    }
+
+    const transport = new CombinedAttentionTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const chat = store.getState().chats.get("chat-product")!;
+    const template = store.getState().messages.get("chat-product")?.at(-1)!;
+    const combinedAttention: Message = {
+      ...template,
+      id: "attention-combined",
+      outgoing: true,
+      containsUnreadMention: true,
+      containsUnreadReaction: true,
+      sentAt: "2026-08-07T13:00:00.000Z",
+      content: { kind: "text", text: "combined attention" },
+    };
+
+    transport.dispatch({ type: "chat.upsert", chat: { ...chat, unreadReactionCount: 1 } });
+    transport.dispatch({ type: "message.upsert", message: combinedAttention, animateEntrance: true });
+    store.getState().dismissMessageAttention("chat-product", [combinedAttention.id]);
+    await Promise.resolve();
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
+      .toEqual([combinedAttention.id]);
+
+    transport.finishReactionRead();
+    await vi.waitFor(() => expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false));
   });
 
   it("surfaces incompatible Telegram links instead of treating reserved routes as chats", async () => {

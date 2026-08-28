@@ -209,6 +209,9 @@ export const createTelegramStore = (
     // Visibility observers can fire repeatedly before TDLib publishes the mention-read update.
     const attentionReadRequests = new Set<string>();
     const acknowledgedAttentionMessages = new Set<string>();
+    const seenReactionMessageIds = new Map<string, Set<string>>();
+    const reactionAttentionLoads = new Map<string, Promise<void>>();
+    const reactionReadRequests = new Set<string>();
     let attentionReadGeneration = 0;
     const messageChangeListeners = new Set<MessageChangeListener>();
     const publishMessageChange = (event: MessageChangeEvent) => {
@@ -262,13 +265,87 @@ export const createTelegramStore = (
         : errorMessage(error, fallback);
     };
     const messageEventKey = (message: Message) => `${message.chatId}:${message.id}`;
-    const queueLiveMessageAttention = (message: Message, live: boolean) => {
+    const messageHasPrimaryAttention = (message: Message) => {
+      if (message.containsUnreadMention === true) return true;
+      const reply = message.replyTo?.kind === "message" ? message.replyTo : undefined;
+      if (!reply) return false;
+      const replyChatId = reply.chatId ?? message.chatId;
+      const repliedMessage = reply.messageId
+        ? get().messages.get(replyChatId)?.find((candidate) => candidate.id === reply.messageId)
+        : undefined;
+      return reply.outgoing === true || repliedMessage?.outgoing === true;
+    };
+    const removeUnreadAttention = (chatId: string, messageIds: Iterable<string>) => {
+      const removedIds = new Set(messageIds);
+      if (removedIds.size === 0) return;
+      const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
+      const remaining = (unreadAttentionMessageIds.get(chatId) ?? [])
+        .filter((messageId) => !removedIds.has(messageId));
+      if (remaining.length > 0) unreadAttentionMessageIds.set(chatId, remaining);
+      else unreadAttentionMessageIds.delete(chatId);
+      set({ unreadAttentionMessageIds });
+    };
+    const addUnreadReactionAttention = (messages: Message[]) => {
+      const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
+      let changed = false;
+      for (const message of messages) {
+        if (message.containsUnreadReaction !== true) continue;
+        const current = unreadAttentionMessageIds.get(message.chatId) ?? [];
+        if (current.includes(message.id)) continue;
+        unreadAttentionMessageIds.set(message.chatId, [...current, message.id]);
+        changed = true;
+      }
+      if (changed) set({ unreadAttentionMessageIds });
+    };
+    const clearUnreadReactionAttention = (chatId: string) => {
+      const currentMessages = get().messages.get(chatId) ?? [];
+      const reactionIds = currentMessages
+        .filter((message) => message.containsUnreadReaction === true)
+        .map((message) => message.id);
+      if (reactionIds.length === 0) return;
+      const messages = new Map(get().messages);
+      messages.set(chatId, currentMessages.map((message) => message.containsUnreadReaction === true
+        ? { ...message, containsUnreadReaction: false }
+        : message));
+      set({ messages });
+      const removableIds = reactionIds.filter((messageId) => {
+        const message = messages.get(chatId)?.find((candidate) => candidate.id === messageId);
+        return !message ||
+          acknowledgedAttentionMessages.has(`${chatId}:${messageId}`) ||
+          !messageHasPrimaryAttention(message);
+      });
+      removeUnreadAttention(chatId, removableIds);
+      seenReactionMessageIds.delete(chatId);
+    };
+    const reconcileMessageAttention = (
+      message: Message,
+      previous: Message | undefined,
+      live: boolean,
+    ) => {
       const key = messageEventKey(message);
-      if (message.outgoing && message.containsUnreadReaction !== true) {
+      const hasUnreadReaction = message.containsUnreadReaction === true;
+      const needsAttention = hasUnreadReaction || messageHasPrimaryAttention(message);
+      if (
+        previous && (
+          previous.containsUnreadMention !== message.containsUnreadMention ||
+          previous.containsUnreadReaction !== message.containsUnreadReaction
+        )
+      ) {
+        acknowledgedAttentionMessages.delete(key);
+      }
+      const previouslyNeededAttention = previous && (
+        previous.containsUnreadReaction === true || messageHasPrimaryAttention(previous)
+      );
+      if (previouslyNeededAttention && !needsAttention) {
+        removeUnreadAttention(message.chatId, [message.id]);
+      }
+      if (previous?.containsUnreadReaction === true && !hasUnreadReaction) {
+        seenReactionMessageIds.get(message.chatId)?.delete(message.id);
+      }
+      if (message.outgoing && !hasUnreadReaction) {
         liveAttentionCandidates.delete(key);
         return;
       }
-      const hasUnreadReaction = message.containsUnreadReaction === true;
       if (live || hasUnreadReaction) {
         liveAttentionCandidates.add(key);
         if (liveAttentionCandidates.size > 512) {
@@ -278,13 +355,9 @@ export const createTelegramStore = (
       if (!liveAttentionCandidates.has(key)) return;
 
       const reply = message.replyTo?.kind === "message" ? message.replyTo : undefined;
-      const replyChatId = reply?.chatId ?? message.chatId;
       const repliedMessage = reply?.messageId
-        ? get().messages.get(replyChatId)?.find((candidate) => candidate.id === reply.messageId)
+        ? get().messages.get(reply.chatId ?? message.chatId)?.find((candidate) => candidate.id === reply.messageId)
         : undefined;
-      const needsAttention = message.containsUnreadMention === true ||
-        message.containsUnreadReaction === true ||
-        reply?.outgoing === true || repliedMessage?.outgoing === true;
       const replyResolved = !reply || reply.outgoing !== undefined || repliedMessage !== undefined;
       if (!needsAttention && !replyResolved) return;
 
@@ -295,6 +368,121 @@ export const createTelegramStore = (
       if (current.includes(message.id)) return;
       unreadAttentionMessageIds.set(message.chatId, [...current, message.id]);
       set({ unreadAttentionMessageIds });
+    };
+    const expectedUnreadReactionCount = (chatId: string) => Math.max(
+      get().chats.get(chatId)?.unreadReactionCount ?? 0,
+      (get().forumTopics.get(chatId) ?? []).reduce(
+        (total, topic) => total + topic.unreadReactionCount,
+        0,
+      ),
+    );
+    const refreshUnreadReactionAttention = (chatId: string) => {
+      if (
+        get().authorization.kind !== "ready" ||
+        get().connectionStatus !== "online" ||
+        expectedUnreadReactionCount(chatId) <= 0
+      ) return Promise.resolve();
+      const existing = reactionAttentionLoads.get(chatId);
+      if (existing) return existing;
+      const generation = accountGeneration;
+      const expectedCount = expectedUnreadReactionCount(chatId);
+      const request = (async () => {
+        const found: Message[] = [];
+        let fromMessageId: string | undefined;
+        const maximumPages = Math.min(100, Math.max(1, Math.ceil(expectedCount / 100) + 1));
+        for (let pageIndex = 0; pageIndex < maximumPages; pageIndex += 1) {
+          const page = await transport.searchChatMessages({
+            chatId,
+            filter: "unreadReaction",
+            fromMessageId,
+            limit: 100,
+          });
+          found.push(...page.messages);
+          if (
+            found.length >= expectedCount ||
+            !page.hasMore ||
+            !page.nextFromMessageId ||
+            page.nextFromMessageId === fromMessageId
+          ) break;
+          fromMessageId = page.nextFromMessageId;
+        }
+        if (
+          generation !== accountGeneration ||
+          !get().chats.has(chatId) ||
+          expectedUnreadReactionCount(chatId) <= 0 ||
+          found.length === 0
+        ) return;
+        const messages = new Map(get().messages);
+        messages.set(chatId, upsertMessages(messages.get(chatId) ?? [], found));
+        set({ messages });
+        addUnreadReactionAttention(found);
+        publishMessageChange({ type: "upsert", messages: found, liveMessages: [] });
+      })()
+        .catch((error) => {
+          if (generation === accountGeneration) {
+            set({ operationError: errorMessage(error, "无法恢复未读回应") });
+          }
+        })
+        .finally(() => {
+          if (reactionAttentionLoads.get(chatId) === request) {
+            reactionAttentionLoads.delete(chatId);
+          }
+        });
+      reactionAttentionLoads.set(chatId, request);
+      return request;
+    };
+    const markSeenChatReactionsRead = (chatId: string, visibleMessageIds: string[]) => {
+      const chatMessages = get().messages.get(chatId) ?? [];
+      const knownReactionMessageIds = chatMessages
+        .filter((message) => message.containsUnreadReaction === true)
+        .map((message) => message.id);
+      const visibleReactionIds = new Set(visibleMessageIds.filter((messageId) =>
+        knownReactionMessageIds.includes(messageId),
+      ));
+      if (visibleReactionIds.size === 0) return;
+      const seen = new Set(seenReactionMessageIds.get(chatId) ?? []);
+      for (const messageId of visibleReactionIds) seen.add(messageId);
+      seenReactionMessageIds.set(chatId, seen);
+      const expectedCount = expectedUnreadReactionCount(chatId);
+      if (
+        reactionReadRequests.has(chatId) ||
+        expectedCount <= 0 ||
+        knownReactionMessageIds.length === 0 ||
+        knownReactionMessageIds.length < expectedCount ||
+        knownReactionMessageIds.some((messageId) => !seen.has(messageId))
+      ) {
+        if (knownReactionMessageIds.length < expectedCount) {
+          void refreshUnreadReactionAttention(chatId);
+        }
+        return;
+      }
+      const requestGeneration = attentionReadGeneration;
+      reactionReadRequests.add(chatId);
+      void transport.markAllChatReactionsRead(chatId)
+        .then(() => {
+          if (requestGeneration !== attentionReadGeneration) return;
+          clearUnreadReactionAttention(chatId);
+          const chats = new Map(get().chats);
+          const chat = chats.get(chatId);
+          if (chat) chats.set(chatId, { ...chat, unreadReactionCount: 0 });
+          const forumTopics = new Map(get().forumTopics);
+          if (forumTopics.has(chatId)) {
+            forumTopics.set(chatId, (forumTopics.get(chatId) ?? []).map((topic) => ({
+              ...topic,
+              unreadReactionCount: 0,
+            })));
+          }
+          set({ chats, forumTopics, operationError: undefined });
+          scheduleCacheWrite();
+        })
+        .catch((error) => {
+          if (requestGeneration !== attentionReadGeneration) return;
+          set({ operationError: errorMessage(error, "无法更新回应已读状态") });
+        })
+        .finally(() => {
+          if (requestGeneration !== attentionReadGeneration) return;
+          reactionReadRequests.delete(chatId);
+        });
     };
     const markMessageRemoving = (chatId: string, messageId: string) => {
       const key = `${chatId}:${messageId}`;
@@ -460,6 +648,9 @@ export const createTelegramStore = (
       liveAttentionCandidates.clear();
       attentionReadRequests.clear();
       acknowledgedAttentionMessages.clear();
+      seenReactionMessageIds.clear();
+      reactionAttentionLoads.clear();
+      reactionReadRequests.clear();
       attentionReadGeneration += 1;
       for (const timer of readTimers.values()) globalThis.clearTimeout(timer);
       readTimers.clear();
@@ -613,6 +804,16 @@ export const createTelegramStore = (
         outbox,
         current.currentUserId ?? snapshot.currentUserId,
       );
+      const unreadAttentionMessageIds = new Map(current.unreadAttentionMessageIds);
+      for (const [chatId, chatMessages] of messages) {
+        const reactionIds = chatMessages
+          .filter((message) => message.containsUnreadReaction === true)
+          .map((message) => message.id);
+        if (reactionIds.length === 0) continue;
+        unreadAttentionMessageIds.set(chatId, [
+          ...new Set([...(unreadAttentionMessageIds.get(chatId) ?? []), ...reactionIds]),
+        ]);
+      }
       const folders = current.folders.length > 0
         ? current.folders
         : snapshot.folders;
@@ -635,6 +836,7 @@ export const createTelegramStore = (
         chats,
         chatListReady: true,
         messages,
+        unreadAttentionMessageIds,
         drafts,
         localAttachmentDrafts,
         outbox,
@@ -1040,6 +1242,16 @@ export const createTelegramStore = (
           collection.add(`${toChatId}:${key.slice(fromChatId.length + 1)}`);
         }
       }
+      const previousSeenReactions = seenReactionMessageIds.get(fromChatId);
+      seenReactionMessageIds.delete(fromChatId);
+      if (previousSeenReactions) {
+        seenReactionMessageIds.set(toChatId, new Set([
+          ...(seenReactionMessageIds.get(toChatId) ?? []),
+          ...previousSeenReactions,
+        ]));
+      }
+      reactionAttentionLoads.delete(fromChatId);
+      reactionReadRequests.delete(fromChatId);
       const profile = current.profile.target?.kind === "chat" && current.profile.target.chatId === fromChatId
         ? emptyProfileState()
         : current.profile;
@@ -1069,6 +1281,9 @@ export const createTelegramStore = (
       });
       draftSync.migrateChat(fromChatId, toChatId);
       publishMessageChange({ type: "reset", messages });
+      if ((chats.get(toChatId)?.unreadReactionCount ?? 0) > 0) {
+        void refreshUnreadReactionAttention(toChatId);
+      }
       scheduleCacheWrite();
     };
 
@@ -1102,6 +1317,11 @@ export const createTelegramStore = (
               void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
             }
           }
+          if (get().connectionStatus === "online") {
+            for (const chat of get().chats.values()) {
+              if ((chat.unreadReactionCount ?? 0) > 0) void refreshUnreadReactionAttention(chat.id);
+            }
+          }
         } else if (event.state.kind !== "preparing") {
           if (event.state.kind === "closing" || event.state.kind === "closed") {
             set({ connectionStatus: "offline" });
@@ -1123,6 +1343,11 @@ export const createTelegramStore = (
               void refreshForumConversation(activeChatId);
             } else {
               void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
+            }
+          }
+          if (get().authorization.kind === "ready") {
+            for (const chat of get().chats.values()) {
+              if ((chat.unreadReactionCount ?? 0) > 0) void refreshUnreadReactionAttention(chat.id);
             }
           }
         }
@@ -1199,6 +1424,13 @@ export const createTelegramStore = (
             ? undefined
             : get().activeTopicId,
         });
+        for (const chat of incomingChats) {
+          if ((chat.unreadReactionCount ?? 0) > 0) {
+            void refreshUnreadReactionAttention(chat.id);
+          } else if ((previousChats.get(chat.id)?.unreadReactionCount ?? 0) > 0) {
+            clearUnreadReactionAttention(chat.id);
+          }
+        }
         if (event.type !== "chat.upsert" || event.cacheRelevant !== false) {
           scheduleCacheWrite();
         }
@@ -1250,6 +1482,9 @@ export const createTelegramStore = (
               ? { ...topic, ...event.topic }
               : topic));
             set({ forumTopics });
+            if ((event.topic.unreadReactionCount ?? 0) > 0) {
+              void refreshUnreadReactionAttention(event.chatId);
+            }
             scheduleCacheWrite();
           }
         }
@@ -1279,6 +1514,9 @@ export const createTelegramStore = (
 
       if (event.type === "message.replace") {
         const chatId = event.message.chatId;
+        const previousMessage = get().messages.get(chatId)
+          ?.find((message) => message.id === event.oldMessageId || message.id === event.message.id);
+        reconcileMessageAttention(event.message, previousMessage, false);
         transferMessageEntrance(chatId, event.oldMessageId, event.message);
         const oldKey = `${chatId}:${event.oldMessageId}`;
         const removalTimer = removalTimers.get(oldKey);
@@ -1319,6 +1557,13 @@ export const createTelegramStore = (
         }
         for (const [chatId, incoming] of incomingByChat) {
           const existing = messages.get(chatId) ?? [];
+          for (const message of incoming) {
+            reconcileMessageAttention(
+              message,
+              existing.find((candidate) => candidate.id === message.id),
+              false,
+            );
+          }
           beforeCount += existing.length;
           messages.set(chatId, upsertMessages(existing, incoming).map((message) => ({ ...message, isRemoving: false })));
           const removingMessages = new Map(get().removingMessages);
@@ -1373,7 +1618,11 @@ export const createTelegramStore = (
       const existingMessages = messages.get(event.message.chatId) ?? [];
       const isNewLiveMessage = event.animateEntrance === true &&
         !existingMessages.some((message) => message.id === event.message.id);
-      queueLiveMessageAttention(event.message, event.animateEntrance === true);
+      reconcileMessageAttention(
+        event.message,
+        existingMessages.find((message) => message.id === event.message.id),
+        event.animateEntrance === true,
+      );
       if (isNewLiveMessage) {
         markMessageEntrance(event.message);
       }
@@ -1561,7 +1810,12 @@ export const createTelegramStore = (
       topicKey,
       onError: errorMessage,
       onTopicsLoaded: (chatId, query) => {
-        if (!query.trim()) forumTopicsRefreshedAt.set(chatId, Date.now());
+        if (!query.trim()) {
+          forumTopicsRefreshedAt.set(chatId, Date.now());
+          if (expectedUnreadReactionCount(chatId) > 0) {
+            void refreshUnreadReactionAttention(chatId);
+          }
+        }
       },
     });
     const touchForumTopic = (chatId: string, topicId: string) => {
@@ -1751,6 +2005,14 @@ export const createTelegramStore = (
             accountPending: false,
             accountSwitching: false,
           });
+          for (const chatMessages of messages.values()) {
+            addUnreadReactionAttention(chatMessages);
+          }
+          if (authorization.kind === "ready" && get().connectionStatus === "online") {
+            for (const chat of chats.values()) {
+              if ((chat.unreadReactionCount ?? 0) > 0) void refreshUnreadReactionAttention(chat.id);
+            }
+          }
           publishMessageChange({ type: "reset", messages });
           void registerCurrentAccount();
           if (settingsOnly) return;
@@ -2012,6 +2274,9 @@ export const createTelegramStore = (
         } else {
           void loadHistory(chatId, "ensure");
           void markChatRead(chatId);
+        }
+        if ((targetChat?.unreadReactionCount ?? 0) > 0) {
+          void refreshUnreadReactionAttention(chatId);
         }
       },
 
@@ -2411,9 +2676,16 @@ export const createTelegramStore = (
       },
 
       dismissMessageAttention: (chatId, messageIds) => {
-        const pendingMessageIds = [...new Set(messageIds.filter(Boolean))].filter((messageId) => {
+        const uniqueMessageIds = [...new Set(messageIds.filter(Boolean))];
+        markSeenChatReactionsRead(chatId, uniqueMessageIds);
+        const chatMessages = get().messages.get(chatId) ?? [];
+        const pendingMessageIds = uniqueMessageIds.filter((messageId) => {
           const key = `${chatId}:${messageId}`;
-          return !attentionReadRequests.has(key) && !acknowledgedAttentionMessages.has(key);
+          const message = chatMessages.find((candidate) => candidate.id === messageId);
+          return Boolean(
+            message && messageHasPrimaryAttention(message) &&
+            !attentionReadRequests.has(key) && !acknowledgedAttentionMessages.has(key),
+          );
         });
         if (pendingMessageIds.length === 0) return;
         const requestGeneration = attentionReadGeneration;
@@ -2424,7 +2696,10 @@ export const createTelegramStore = (
           .then(() => {
             if (requestGeneration !== attentionReadGeneration) return;
             const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
-            const readIds = new Set(pendingMessageIds);
+            const readIds = new Set(pendingMessageIds.filter((messageId) =>
+              get().messages.get(chatId)?.find((message) => message.id === messageId)
+                ?.containsUnreadReaction !== true,
+            ));
             const remaining = (unreadAttentionMessageIds.get(chatId) ?? [])
               .filter((candidate) => !readIds.has(candidate));
             if (remaining.length > 0) unreadAttentionMessageIds.set(chatId, remaining);

@@ -796,17 +796,19 @@ export function Conversation({
   ), [allPinnedMessages, displayMessages, renderedMessages]);
   const messagesByIdRef = useRef(messagesById);
   messagesByIdRef.current = messagesById;
+  const attentionMessagesById = useMemo(() => new Map(
+    (chat ? storedMessages.get(chat.id) ?? [] : []).map((message) => [message.id, message]),
+  ), [chat, storedMessages]);
   const hasPrimaryAttention = useMemo(() => attentionMessageIds.some((messageId) => {
-    const message = messagesById.get(messageId);
-    return Boolean(message?.containsUnreadMention || (
-      message?.replyTo?.kind === "message" && (
-        message.replyTo.outgoing === true || (
-          message.replyTo.messageId !== undefined &&
-          messagesById.get(message.replyTo.messageId)?.outgoing === true
-        )
-      )
-    ));
-  }), [attentionMessageIds, messagesById]);
+    const message = attentionMessagesById.get(messageId);
+    if (!message || message.containsUnreadMention) return Boolean(message);
+    const reply = message.replyTo?.kind === "message" ? message.replyTo : undefined;
+    if (!reply) return false;
+    return reply.outgoing === true || Boolean(
+      reply.messageId && storedMessages.get(reply.chatId ?? message.chatId)
+        ?.some((candidate) => candidate.id === reply.messageId && candidate.outgoing),
+    );
+  }), [attentionMessageIds, attentionMessagesById, storedMessages]);
   const replyPreviewForMessage = useCallback((message: Message) => {
     if (!chat) return undefined;
     const preview = replyPreviewFor(
@@ -999,7 +1001,6 @@ export function Conversation({
     jumpToLatest,
     pinFollowingMessageMount,
     appendMountMessageId,
-    revealAttentionMessage,
     collapseExpandedQuote,
     reconcileBottomViewport,
     onTotalListHeightChanged,
@@ -2651,7 +2652,13 @@ export function Conversation({
             title={hasPrimaryAttention ? "跳到提及或引用" : "跳到回应"}
             onClick={() => {
               const messageId = attentionMessageIds.at(-1);
-              if (chat && messageId) revealAttentionMessage(messageId);
+              if (chat && messageId) {
+                onOpenMessage(chat.id, messageId, {
+                  behavior: "smooth",
+                  highlight: true,
+                  loadContext: true,
+                });
+              }
             }}
           >
             {hasPrimaryAttention ? <AtSign size={19} strokeWidth={2.1} /> : <Heart size={18} strokeWidth={2.1} />}

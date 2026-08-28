@@ -86,7 +86,14 @@ export function ForumTopicStrip({
       >
         {orderedTopics.map((topic) => {
           const active = topic.id === activeTopicId;
-          const unreadLabel = topic.unreadCount > 0 ? `，${topic.unreadCount} 条未读消息` : "";
+          const displayUnreadCount = topic.unreadCount > 0
+            ? topic.unreadCount
+            : topic.unreadReactionCount;
+          const unreadLabel = topic.unreadCount > 0
+            ? `，${topic.unreadCount} 条未读消息`
+            : topic.unreadReactionCount > 0
+              ? `，${topic.unreadReactionCount} 条未读回应`
+              : "";
           return (
             <button
               key={topic.id}
@@ -109,9 +116,9 @@ export function ForumTopicStrip({
                 <Hash size={14} strokeWidth={2.2} />
               </span>
               <span className="forum-topic-tab-name">{topic.name}</span>
-              {topic.unreadCount > 0 && (
-                <strong className="forum-topic-tab-count">
-                  {formatUnreadCount(topic.unreadCount)}
+              {displayUnreadCount > 0 && (
+                <strong className={`forum-topic-tab-count ${topic.unreadCount === 0 ? "has-reaction" : ""}`}>
+                  {formatUnreadCount(displayUnreadCount)}
                 </strong>
               )}
             </button>

@@ -178,7 +178,18 @@ export function ForumTopicsView({
                       <span className="forum-topic-meta">
                         {topic.isPinned && <Pin size={14} strokeWidth={1.9} aria-label="已置顶" />}
                         {topic.isClosed && <LockKeyhole size={14} strokeWidth={1.9} aria-label="已关闭" />}
-                        {topic.unreadCount > 0 && <strong>{formatUnreadCount(topic.unreadCount)}</strong>}
+                        {(topic.unreadCount > 0 || topic.unreadReactionCount > 0) && (
+                          <strong
+                            className={topic.unreadCount === 0 ? "has-reaction" : undefined}
+                            aria-label={topic.unreadCount > 0
+                              ? `${topic.unreadCount} 条未读消息`
+                              : `${topic.unreadReactionCount} 条未读回应`}
+                          >
+                            {formatUnreadCount(topic.unreadCount > 0
+                              ? topic.unreadCount
+                              : topic.unreadReactionCount)}
+                          </strong>
+                        )}
                       </span>
                     </button>
                     {(canManage || topic.isOutgoing) && <div className="forum-topic-actions">

@@ -324,7 +324,7 @@ function MessageBubbleComponent({
       )
     : undefined;
   const reactions = message.interaction?.reactions ?? [];
-  const showReactionFooter = !albumItem && !selectionMode && !isService && reactions.length > 0;
+  const showReactionFooter = !selectionMode && !isService && reactions.length > 0;
 
   useLayoutEffect(() => {
     const flow = textFlowRef.current;

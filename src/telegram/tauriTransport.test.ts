@@ -1612,7 +1612,7 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests).toEqual([]);
   });
 
-  it("marks only the visible attention messages as viewed", async () => {
+  it("keeps message views separate from clearing unread chat reactions", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
@@ -1622,14 +1622,21 @@ describe("TauriTelegramTransport startup", () => {
     };
 
     await transport.markMessageAttentionRead("7", ["12", "11", "12"]);
+    await transport.markAllChatReactionsRead("7");
 
-    expect(requests).toEqual([{
-      "@type": "viewMessages",
-      chat_id: 7,
-      message_ids: [12, 11],
-      source: { "@type": "messageSourceChatHistory" },
-      force_read: true,
-    }]);
+    expect(requests).toEqual([
+      {
+        "@type": "viewMessages",
+        chat_id: 7,
+        message_ids: [12, 11],
+        source: { "@type": "messageSourceChatHistory" },
+        force_read: true,
+      },
+      {
+        "@type": "readAllChatReactions",
+        chat_id: 7,
+      },
+    ]);
   });
 
   it("does not overwrite newer chat updates after a read request", async () => {
@@ -3601,6 +3608,63 @@ describe("TauriTelegramTransport message operations", () => {
             type: { kind: "emoji", emoji: "🔥" },
             totalCount: 3,
             chosen: true,
+          }],
+        },
+      },
+    });
+  });
+
+  it("applies interaction and unread reaction updates that arrive before the message", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: Parameters<TelegramEventListener>[0][] = [];
+    internal.listener = (event) => events.push(event);
+
+    internal.handleUpdate({
+      "@type": "updateMessageInteractionInfo",
+      chat_id: 7,
+      message_id: 77,
+      interaction_info: {
+        view_count: 4,
+        forward_count: 1,
+        reply_info: null,
+        reactions: {
+          reactions: [{
+            type: { "@type": "reactionTypeEmoji", emoji: "👍" },
+            total_count: 2,
+            is_chosen: false,
+            recent_sender_ids: [],
+          }],
+        },
+      },
+    });
+    internal.handleUpdate({
+      "@type": "updateMessageUnreadReactions",
+      chat_id: 7,
+      message_id: 77,
+      unread_reactions: [{
+        type: { "@type": "reactionTypeEmoji", emoji: "👍" },
+        sender_id: { "@type": "messageSenderUser", user_id: 11 },
+        is_big: false,
+      }],
+      unread_reaction_count: 1,
+    });
+
+    expect(events.filter((event) => event.type === "message.upsert")).toHaveLength(0);
+    internal.emitMessage(rawMessage(77));
+
+    expect(events.filter((event) => event.type === "message.upsert")).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({
+      type: "message.upsert",
+      message: {
+        id: "77",
+        containsUnreadReaction: true,
+        interaction: {
+          viewCount: 4,
+          forwardCount: 1,
+          reactions: [{
+            type: { kind: "emoji", emoji: "👍" },
+            totalCount: 2,
           }],
         },
       },

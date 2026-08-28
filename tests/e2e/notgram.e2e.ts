@@ -243,6 +243,22 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-avatar')).toBeVisible();
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-name')).toHaveText("构建与发布");
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-count')).toHaveText("3");
+  await page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: {
+        getState: () => { forumTopics: Map<string, Array<{ id: string; unreadCount: number; unreadReactionCount: number }>> };
+        setState: (state: { forumTopics: Map<string, Array<{ id: string; unreadCount: number; unreadReactionCount: number }>> }) => void;
+      };
+    };
+    const forumTopics = new Map(module.telegramStore.getState().forumTopics);
+    forumTopics.set("chat-forum", (forumTopics.get("chat-forum") ?? []).map((topic) => topic.id === "18"
+      ? { ...topic, unreadCount: 0, unreadReactionCount: 2 }
+      : topic));
+    module.telegramStore.setState({ forumTopics });
+  }, "/src/store/telegramStore.ts");
+  const reactionTopicTab = strip.locator('[data-topic-id="18"]');
+  await expect(reactionTopicTab).toHaveAttribute("aria-label", "设计反馈，2 条未读回应");
+  await expect(reactionTopicTab.locator(".forum-topic-tab-count.has-reaction")).toHaveText("2");
 
   await page.addStyleTag({ content: ".forum-topic-tabs { max-width: 180px; }" });
   const wheelResult = await strip.locator(".forum-topic-tabs").evaluate((element) => {
@@ -276,6 +292,44 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");
   await expect(page.getByRole("button", { name: "返回话题列表" })).toHaveCount(0);
   await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
+  await page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: {
+        getState: () => {
+          messages: Map<string, Message[]>;
+          unreadAttentionMessageIds: Map<string, string[]>;
+        };
+        setState: (state: {
+          messages: Map<string, Message[]>;
+          unreadAttentionMessageIds: Map<string, string[]>;
+        }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-forum", (messages.get("chat-forum") ?? []).map((message) => message.id === "forum-design-1"
+      ? { ...message, containsUnreadReaction: true }
+      : message));
+    const unreadAttentionMessageIds = new Map(state.unreadAttentionMessageIds);
+    unreadAttentionMessageIds.set("chat-forum", ["forum-design-1"]);
+    module.telegramStore.setState({ messages, unreadAttentionMessageIds });
+  }, "/src/store/telegramStore.ts");
+  const reactionJump = page.getByRole("button", { name: "跳到回应，1 条待查看" });
+  await expect(reactionJump).toBeVisible();
+  await reactionJump.click();
+  await expect(page.getByRole("region", { name: "设计反馈 话题 对话" })).toBeVisible();
+  await expect(page.locator('[data-message-id="forum-design-1"]')).toBeVisible();
+  await page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: { setState: (state: { activeTopicId: undefined }) => void };
+    };
+    module.telegramStore.setState({ activeTopicId: undefined });
+  }, "/src/store/telegramStore.ts");
+  const topicsView = page.getByRole("region", { name: "Notgram 论坛 话题" });
+  await expect(topicsView).toBeVisible();
+  const reactionTopicRow = topicsView.locator(".forum-topic-row").filter({ hasText: "设计反馈" });
+  await expect(reactionTopicRow.locator(".forum-topic-meta strong.has-reaction"))
+    .toHaveAttribute("aria-label", "2 条未读回应");
 });
 
 test("non-forum group conversations keep messages that belong to a message thread", async ({ page }) => {
@@ -3845,6 +3899,59 @@ test("message reactions stay in the bubble and reveal the reacting users", async
   expect(outgoingLayout[0]).not.toBeNull();
   expect(outgoingLayout[1]).not.toBeNull();
   expect(outgoingLayout[1]!.x - outgoingLayout[0]!.x).toBeLessThanOrEqual(11);
+
+  await page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Message[]> };
+        setState: (state: { messages: Map<string, Message[]> }) => void;
+      };
+    };
+    const messages = new Map(module.telegramStore.getState().messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map((message) => message.id === "p-5"
+      ? {
+          ...message,
+          interaction: {
+            viewCount: 0,
+            forwardCount: 0,
+            replyCount: 0,
+            canGetAddedReactions: true,
+            reactions: [{
+              type: { kind: "emoji" as const, emoji: "🔥" },
+              totalCount: 2,
+              chosen: false,
+              recentSenderIds: ["u-mia", "u-jules"],
+            }],
+          },
+        }
+      : message));
+    module.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+  const albumMessage = await revealVirtualMessage(page, "p-5");
+  const album = page.locator('[data-media-album-id="mock-album-product"]');
+  const albumReactionFooter = albumMessage.locator(".message-reaction-footer");
+  await expect(albumReactionFooter.getByRole("group", { name: "消息回应" })).toBeVisible();
+  await expect(albumReactionFooter.getByRole("button", { name: /🔥，2 个回应/ })).toBeVisible();
+  const albumReactionLayout = await album.evaluate((element) => {
+    const grid = element.querySelector<HTMLElement>(".media-album-grid")!;
+    const footer = element.querySelector<HTMLElement>('[data-message-id="p-5"] .message-reaction-footer')!;
+    const button = footer.querySelector<HTMLElement>(".message-reactions > button")!;
+    return {
+      albumHeight: element.getBoundingClientRect().height,
+      gridHeight: grid.getBoundingClientRect().height,
+      footerPosition: getComputedStyle(footer).position,
+      footerBackground: getComputedStyle(footer).backgroundColor,
+      footerPointerEvents: getComputedStyle(footer).pointerEvents,
+      buttonPointerEvents: getComputedStyle(button).pointerEvents,
+    };
+  });
+  expect(albumReactionLayout.albumHeight).toBeCloseTo(albumReactionLayout.gridHeight, 0);
+  expect(albumReactionLayout).toMatchObject({
+    footerPosition: "absolute",
+    footerBackground: "rgba(0, 0, 0, 0)",
+    footerPointerEvents: "none",
+    buttonPointerEvents: "auto",
+  });
 });
 
 test("repeat forwards an incoming message directly to the current group only", async ({ page }) => {
