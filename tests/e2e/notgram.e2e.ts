@@ -3641,6 +3641,9 @@ test("keyboard navigation closes modals and completes message workflows", async 
   const actionMenu = page.getByRole("menu", { name: "消息操作" });
   await expect(actionMenu).toBeVisible();
   await expect(actionMenu.getByRole("menuitem").first()).toBeFocused();
+  await expect(actionMenu).toHaveAttribute("data-keyboard-navigation", "true");
+  await expect(actionMenu.getByRole("menuitem").first())
+    .not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.keyboard.press("End");
   await page.keyboard.press("Escape");
   await expect(actionMenu).toBeHidden();
@@ -3713,9 +3716,17 @@ test("forwarding ranks quick targets and sends to multiple chats with a descript
   const source = await revealVirtualMessage(page, "p-2");
   await source.locator(".message-bubble-shell").click({ button: "right" });
   const menu = page.getByRole("menu", { name: "消息操作" });
-  await expect(menu.getByRole("menuitem", { name: "转发", exact: true }).locator(".lucide-chevron-right"))
-    .toHaveCount(0);
-  await menu.getByRole("menuitem", { name: "转发", exact: true }).hover();
+  const forwardItem = menu.getByRole("menuitem", { name: "转发", exact: true });
+  const forwardChevron = forwardItem.locator(".lucide-chevron-right");
+  await expect(forwardChevron).toBeVisible();
+  const trailingInset = await forwardItem.evaluate((element) => {
+    const itemBounds = element.getBoundingClientRect();
+    const chevronBounds = element.querySelector(".lucide-chevron-right")!.getBoundingClientRect();
+    return itemBounds.right - chevronBounds.right;
+  });
+  expect(trailingInset).toBeCloseTo(9, 1);
+  expect((await menu.boundingBox())?.width).toBe(160);
+  await forwardItem.hover();
   const quickForward = page.getByRole("menu", { name: "快速转发" });
   await expect(quickForward.getByRole("menuitem").first()).toContainText("产品讨论");
   await expect(quickForward.getByRole("menuitem").first().locator(".avatar")).toBeVisible();
@@ -9535,6 +9546,45 @@ test("native context menu entry reuses its mounted surface across sessions", asy
     .toBe(true);
 });
 
+test("native context menu does not paint initial focus as a permanent hover", async ({ page }) => {
+  await page.goto("/context-menu-window.html");
+  await page.evaluate(async () => {
+    const channel = new BroadcastChannel("notgram-context-menu-v2");
+    channel.postMessage({
+      type: "init",
+      id: "focus-session",
+      descriptor: {
+        label: "焦点菜单",
+        colorTheme: "light",
+        items: [
+          { id: "reply", label: "回复", icon: "reply" },
+          { id: "copy", label: "复制", icon: "copy" },
+        ],
+      },
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    channel.close();
+  });
+
+  const stage = page.locator(".native-context-menu-stage");
+  const items = page.getByRole("menu", { name: "焦点菜单" }).getByRole("menuitem");
+  await page.keyboard.press("Tab");
+  await items.first().focus();
+  await expect(items.first()).toBeFocused();
+  await expect(stage).not.toHaveAttribute("data-keyboard-navigation", "true");
+  await expect(items.first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(items.nth(1)).toBeFocused();
+  await expect(stage).toHaveAttribute("data-keyboard-navigation", "true");
+  await expect(items.nth(1)).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+
+  await items.first().hover();
+  await expect(stage).not.toHaveAttribute("data-keyboard-navigation", "true");
+  await expect(items.nth(1)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(items.first()).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+});
+
 test("native context menu entry renders account avatars and the trailing add action", async ({ page }) => {
   await page.goto("/context-menu-window.html");
   await page.evaluate(async () => {
@@ -9590,7 +9640,6 @@ test("native forwarding submenu shows avatars and scrolls after five visible row
           id: "forward",
           label: "转发",
           icon: "forward",
-          hideSubmenuIndicator: true,
           children: Array.from({ length: 10 }, (_, index) => ({
             id: `target-${index}`,
             label: `群组${index + 1}`,
@@ -9606,7 +9655,7 @@ test("native forwarding submenu shows avatars and scrolls after five visible row
 
   const menu = page.getByRole("menu", { name: "消息操作" });
   await expect(menu.getByRole("menuitem", { name: "转发", exact: true }).locator(".lucide-chevron-right"))
-    .toHaveCount(0);
+    .toBeVisible();
   await menu.getByRole("menuitem", { name: "转发", exact: true }).click();
   const submenu = page.getByRole("menu", { name: "转发" });
   await expect(submenu.getByRole("menuitemcheckbox")).toHaveCount(10);

@@ -69,7 +69,7 @@ describe("native context menu layout", () => {
     expect(geometry.maximumExpandedHeight).toBe(278);
   });
 
-  it("does not reserve trailing indicator width when a submenu arrow is hidden", () => {
+  it("fits a submenu arrow inside the existing trailing space", () => {
     const children = [item("target", "目标")];
     const withIndicator = calculateNativeContextMenuGeometry(
       [item("forward", "转发消息", children)],
@@ -77,25 +77,19 @@ describe("native context menu layout", () => {
       measureLabel,
     );
     const withoutIndicator = calculateNativeContextMenuGeometry(
-      [{
-        ...item("forward", "转发消息", children),
-        hideSubmenuIndicator: true,
-      }],
+      [item("forward", "转发消息")],
       undefined,
       measureLabel,
     );
 
-    expect(withoutIndicator.primaryPanelWidth).toBeLessThan(withIndicator.primaryPanelWidth);
+    expect(withIndicator.primaryPanelWidth).toBe(withoutIndicator.primaryPanelWidth);
   });
 
   it("keeps the collapsed menu beside a right-edge cursor when submenus are available", () => {
     const geometry = calculateNativeContextMenuGeometry(
       [
         item("reply", "回复"),
-        {
-          ...item("forward", "转发", [item("target", "快速转发目标")]),
-          hideSubmenuIndicator: true,
-        },
+        item("forward", "转发", [item("target", "快速转发目标")]),
         item("copy", "复制"),
       ],
       undefined,

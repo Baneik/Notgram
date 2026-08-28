@@ -792,6 +792,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .context-menu-panel button.is-danger { color: var(--color-status-danger); }
 .context-menu-panel button.is-danger:hover:not(:disabled),
 .context-menu-panel button.is-danger:focus-visible { background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-elevated)); }
+.context-menu-surface:not([data-keyboard-navigation="true"]) .context-menu-panel button:focus-visible:not(:hover),
+.native-context-menu-stage:not([data-keyboard-navigation="true"]) .context-menu-panel button:focus-visible:not(:hover) {
+  background: transparent;
+}
 .account-switcher-panel { width: 220px; padding: 4px; gap: 0; overflow: hidden; }
 .context-menu-panel .account-switcher-item {
   min-height: 46px; padding: 4px 9px; grid-template-columns: 32px minmax(0, 1fr) 18px; gap: 8px;
@@ -892,7 +896,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   grid-template-columns: 30px minmax(0, 1fr) 18px; padding-right: 10px;
 }
 .native-account-menu-avatar { width: 28px; height: 28px; font-size: 10px; }
-.context-menu-chevron { color: var(--subtle); }
+.context-menu-chevron { width: 16px; color: var(--subtle); justify-self: end; }
 .context-menu-surface[data-context-submenu-side="left"] .context-menu-chevron { transform: rotate(180deg); }
 .chat-folder-submenu { width: 190px; overflow: hidden; }
 .icon-button {
@@ -1313,7 +1317,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-service-content button:hover { opacity: 0.82; }
 .message-service-content button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
 .message-action-menu {
-  position: fixed; z-index: 85; width: 184px; padding: 5px; display: grid; gap: 2px;
+  position: fixed; z-index: 85; width: 160px; padding: 5px; display: grid; gap: 2px;
   color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 7px;
   box-shadow: 0 8px 28px var(--color-shadow);
 }
@@ -1324,6 +1328,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-action-menu button:hover, .message-action-menu button:focus-visible { background: var(--surface-hover); }
 .message-action-menu button.is-danger { color: var(--color-status-danger); }
 .message-action-menu button.is-danger:hover, .message-action-menu button.is-danger:focus-visible { background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-elevated)); }
+.message-action-menu:not([data-keyboard-navigation="true"]) button:focus-visible:not(:hover) { background: transparent; }
 .message-action-menu .message-action-reactions {
   padding: 4px 3px 6px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; border-bottom: 1px solid var(--line);
 }
@@ -1348,7 +1353,6 @@ button.message-sender:hover { text-decoration: none; }
 .message-sender-avatar.is-local-block-alias .avatar { background-color: var(--color-avatar-alias-background) !important; }
 .message-action-menu-group { position: relative; }
 .message-action-menu button.has-submenu { grid-template-columns: 20px minmax(0, 1fr) 16px; }
-.message-action-menu button.no-submenu-indicator { grid-template-columns: 20px minmax(0, 1fr); }
 .message-action-submenu {
   position: absolute; z-index: 1; top: -5px; left: calc(100% + 6px); width: 204px; padding: 5px;
   max-height: 230px; display: grid; align-content: start; gap: 2px; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain;

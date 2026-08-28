@@ -27,6 +27,7 @@ interface ChatContextMenuProps {
   chatListId: string;
   folders: ChatFolder[];
   point: ContextMenuPoint;
+  keyboardNavigation?: boolean;
   chatPending: boolean;
   folderPending: boolean;
   restoreFocus: () => void;
@@ -41,6 +42,7 @@ export function ChatContextMenu({
   chatListId,
   folders,
   point,
+  keyboardNavigation = false,
   chatPending,
   folderPending,
   restoreFocus,
@@ -76,6 +78,7 @@ export function ChatContextMenu({
   const nativeMenu = useNativeContextMenu({
     label: `会话操作：${chat.title}`,
     colorTheme: currentColorTheme(),
+    keyboardNavigation,
     items: [
       {
         id: "pin",
@@ -120,6 +123,7 @@ export function ChatContextMenu({
     <ContextMenuSurface
       label={`会话操作：${chat.title}`}
       point={point}
+      keyboardNavigation={keyboardNavigation}
       restoreFocus={restoreFocus}
       onClose={onClose}
     >
@@ -203,6 +207,7 @@ export function ChatContextMenu({
 interface FolderContextMenuProps {
   folder: ChatFolder;
   point: ContextMenuPoint;
+  keyboardNavigation?: boolean;
   unreadCount: number;
   pending: boolean;
   restoreFocus: () => void;
@@ -215,6 +220,7 @@ interface FolderContextMenuProps {
 export function FolderContextMenu({
   folder,
   point,
+  keyboardNavigation = false,
   unreadCount,
   pending,
   restoreFocus,
@@ -237,6 +243,7 @@ export function FolderContextMenu({
   const nativeMenu = useNativeContextMenu({
     label: `分组操作：${folder.title}`,
     colorTheme: currentColorTheme(),
+    keyboardNavigation,
     items: [
       ...(custom ? [{ id: "edit", label: "编辑文件夹", icon: "edit" as const, disabled: busy }] : []),
       { id: "read", label: "标记为已读", icon: "check", disabled: busy || unreadCount === 0 },
@@ -255,6 +262,7 @@ export function FolderContextMenu({
     <ContextMenuSurface
       label={`分组操作：${folder.title}`}
       point={point}
+      keyboardNavigation={keyboardNavigation}
       restoreFocus={restoreFocus}
       onClose={onClose}
     >

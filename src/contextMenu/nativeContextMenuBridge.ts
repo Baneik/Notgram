@@ -39,13 +39,13 @@ export interface NativeContextMenuItem {
   avatar?: Avatar;
   separatorBefore?: boolean;
   actionable?: boolean;
-  hideSubmenuIndicator?: boolean;
   children?: NativeContextMenuItem[];
 }
 
 export interface NativeContextMenuDescriptor {
   label: string;
   colorTheme: "light" | "dark";
+  keyboardNavigation?: boolean;
   items: NativeContextMenuItem[];
 }
 

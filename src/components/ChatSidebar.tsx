@@ -160,6 +160,7 @@ export function ChatSidebar({
     chatId: string;
     point: ContextMenuPoint;
     anchor: HTMLButtonElement;
+    keyboardNavigation: boolean;
   }>();
 
   const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
@@ -171,8 +172,9 @@ export function ChatSidebar({
     chatId: string,
     point: ContextMenuPoint,
     anchor: HTMLButtonElement,
+    keyboardNavigation = false,
   ) => {
-    setContextMenu({ chatId, point, anchor });
+    setContextMenu({ chatId, point, anchor, keyboardNavigation });
   }, []);
 
   const pinnedReorderEnabled = searchQuery.trim().length === 0;
@@ -561,6 +563,7 @@ export function ChatSidebar({
         chatListId={folderId}
         folders={folders}
         point={contextMenu.point}
+        keyboardNavigation={contextMenu.keyboardNavigation}
         chatPending={chatManagementPending.has(contextChat.id)}
         folderPending={folderManagementPending}
         restoreFocus={() => contextMenu.anchor.focus({ preventScroll: true })}
@@ -602,6 +605,7 @@ const ChatRow = memo(function ChatRow({
     chatId: string,
     point: ContextMenuPoint,
     anchor: HTMLButtonElement,
+    keyboardNavigation?: boolean,
   ) => void;
   pinnedDraggable: boolean;
   dragging: boolean;
@@ -655,6 +659,7 @@ const ChatRow = memo(function ChatRow({
           chat.id,
           { x: bounds.left + Math.min(72, bounds.width / 2), y: bounds.top + bounds.height / 2 },
           event.currentTarget,
+          true,
         );
       }}
       onPointerDown={(event) => pinnedDraggable && onPointerDown(event, chat.id)}

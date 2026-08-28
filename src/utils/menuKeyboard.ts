@@ -1,4 +1,7 @@
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 
 const enabledButtons = (container: HTMLElement) => {
   const ownerMenu = container.matches('[role="menu"]')
@@ -19,6 +22,7 @@ export const handleMenuKeyboard = (
   event: ReactKeyboardEvent<HTMLElement>,
   onDismiss: () => void,
 ) => {
+  event.currentTarget.dataset.keyboardNavigation = "true";
   if (event.key === "Escape") {
     event.preventDefault();
     event.stopPropagation();
@@ -44,4 +48,8 @@ export const handleMenuKeyboard = (
         ? (currentIndex + 1 + buttons.length) % buttons.length
         : (currentIndex - 1 + buttons.length) % buttons.length;
   buttons[nextIndex].focus();
+};
+
+export const handleMenuPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+  delete event.currentTarget.dataset.keyboardNavigation;
 };

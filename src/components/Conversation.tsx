@@ -444,6 +444,7 @@ export function Conversation({
     top: number;
     returnFocus?: HTMLElement;
     replyQuote?: MessageReplyQuote;
+    keyboardNavigation?: boolean;
   }>();
   const [actionForwardTargets, setActionForwardTargets] = useState<Chat[]>([]);
   const [senderMenu, setSenderMenu] = useState<{
@@ -1849,6 +1850,7 @@ export function Conversation({
     top: number,
     returnFocus?: HTMLElement,
     capturedReplyQuote?: MessageReplyQuote,
+    keyboardNavigation = false,
   ) => {
     const sourceText = message.content.kind === "text"
       ? message.content.text
@@ -1889,6 +1891,7 @@ export function Conversation({
       top,
       returnFocus,
       replyQuote: selectedReplyQuote,
+      keyboardNavigation,
     });
     if (actionLoadingId === message.id) return;
     setActionLoadingId(message.id);
@@ -2731,6 +2734,7 @@ export function Conversation({
           position={actionMenu}
           message={actionMessage}
           loading={actionLoadingId === actionMessage.id}
+          keyboardNavigation={actionMenu.keyboardNavigation}
           onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessage)}
           onForward={() => openForwardDialog([actionMessage.id])}

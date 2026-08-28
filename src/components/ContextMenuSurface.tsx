@@ -9,7 +9,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
-import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
+import {
+  focusFirstMenuButton,
+  handleMenuKeyboard,
+  handleMenuPointerMove,
+} from "../utils/menuKeyboard";
 import {
   calculateContextMenuLayout,
   type ContextMenuLayout,
@@ -23,6 +27,7 @@ interface ContextMenuSurfaceProps {
   point: ContextMenuPoint;
   children: ReactNode;
   className?: string;
+  keyboardNavigation?: boolean;
   restoreFocus?: () => void;
   onClose: () => void;
 }
@@ -51,6 +56,7 @@ export function ContextMenuSurface({
   point,
   children,
   className = "",
+  keyboardNavigation = false,
   restoreFocus,
   onClose,
 }: ContextMenuSurfaceProps) {
@@ -112,6 +118,7 @@ export function ContextMenuSurface({
         "--context-submenu-y": `${layout.submenuOffsetY}px`,
       } as CSSProperties}
       data-context-submenu-side={layout.submenuSide}
+      data-keyboard-navigation={keyboardNavigation ? "true" : undefined}
       role="menu"
       aria-label={label}
       tabIndex={-1}
@@ -121,6 +128,7 @@ export function ContextMenuSurface({
         handleMenuKeyboard(event, onClose);
         if (restore) globalThis.setTimeout(() => restoreFocus?.(), 0);
       }}
+      onPointerMove={handleMenuPointerMove}
     >
       {children}
     </div>,

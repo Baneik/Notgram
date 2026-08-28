@@ -59,6 +59,7 @@ export function NavigationRail({
     folderId: string;
     point: ContextMenuPoint;
     anchor: HTMLButtonElement;
+    keyboardNavigation: boolean;
   }>();
   const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
   const [accountMenu, setAccountMenu] = useState<{
@@ -96,7 +97,8 @@ export function NavigationRail({
     folderId: string,
     point: ContextMenuPoint,
     anchor: HTMLButtonElement,
-  ) => setContextMenu({ folderId, point, anchor });
+    keyboardNavigation = false,
+  ) => setContextMenu({ folderId, point, anchor, keyboardNavigation });
 
   const openAccountMenu = (anchor: HTMLButtonElement) => {
     setContextMenu(undefined);
@@ -145,6 +147,7 @@ export function NavigationRail({
       folderId,
       { x: bounds.right - 4, y: bounds.top + bounds.height / 2 },
       event.currentTarget,
+      true,
     );
   };
 
@@ -315,6 +318,7 @@ export function NavigationRail({
       <FolderContextMenu
         folder={contextFolder}
         point={contextMenu.point}
+        keyboardNavigation={contextMenu.keyboardNavigation}
         unreadCount={chats
           .filter((chat) => chat.folderIds.includes(contextFolder.id))
           .reduce((count, chat) => count + chat.unreadCount, 0)}

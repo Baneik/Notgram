@@ -31,7 +31,11 @@ import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, Message } from "../telegram/types";
 import { MAX_QUICK_FORWARD_TARGETS } from "../store/conversationActivity";
-import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
+import {
+  focusFirstMenuButton,
+  handleMenuKeyboard,
+  handleMenuPointerMove,
+} from "../utils/menuKeyboard";
 import { currentColorTheme } from "../theme/theme";
 import { Avatar } from "./Avatar";
 import { messageSummary } from "./conversationMessages";
@@ -91,6 +95,7 @@ interface MessageActionMenuProps {
   position: { left: number; top: number };
   message: Message;
   loading: boolean;
+  keyboardNavigation?: boolean;
   onReply: () => void;
   onEdit: () => void;
   onForward: () => void;
@@ -114,6 +119,7 @@ export function MessageActionMenu({
   position,
   message,
   loading,
+  keyboardNavigation = false,
   onReply,
   onEdit,
   onForward,
@@ -137,10 +143,10 @@ export function MessageActionMenu({
   const [expandedForwardAction, setExpandedForwardAction] = useState<"forward" | "merge-forward">();
   const quickForwardTargets = forwardTargets.slice(0, MAX_QUICK_FORWARD_TARGETS);
   const fallbackPosition = {
-    left: Math.max(8, Math.min(position.left, window.innerWidth - 184 - 8)),
+    left: Math.max(8, Math.min(position.left, window.innerWidth - 160 - 8)),
     top: Math.max(8, Math.min(position.top - 21, window.innerHeight - 326 - 8)),
   };
-  const fallbackSubmenuSide = fallbackPosition.left + 184 + 6 + 204 <= window.innerWidth - 8
+  const fallbackSubmenuSide = fallbackPosition.left + 160 + 6 + 204 <= window.innerWidth - 8
     ? "right"
     : "left";
   const quickForwardItems = quickForwardTargets.map((target) => ({
@@ -162,7 +168,6 @@ export function MessageActionMenu({
       label: "转发",
       icon: "forward" as const,
       actionable: true,
-      hideSubmenuIndicator: true,
       children: quickForwardItems.length > 0 ? quickForwardItems : undefined,
     }] : []),
     ...(permissions.canForward && onForwardAlbum ? [{
@@ -206,6 +211,7 @@ export function MessageActionMenu({
   const nativeMenu = useNativeContextMenu({
     label: "消息操作",
     colorTheme: currentColorTheme(),
+    keyboardNavigation,
     items: nativeItems,
   }, { x: position.left, y: position.top }, (actionId) => {
     if (actionId === "reply") onReply();
@@ -247,8 +253,10 @@ export function MessageActionMenu({
       tabIndex={-1}
       style={fallbackPosition}
       data-submenu-side={fallbackSubmenuSide}
+      data-keyboard-navigation={keyboardNavigation ? "true" : undefined}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => handleMenuKeyboard(event, onClose)}
+      onPointerMove={handleMenuPointerMove}
       onMouseLeave={() => setExpandedForwardAction(undefined)}
     >
       {!permissions ? (
@@ -285,9 +293,17 @@ export function MessageActionMenu({
               onMouseEnter={() => setExpandedForwardAction("forward")}
               onMouseLeave={() => setExpandedForwardAction(undefined)}
             >
-              <button className="has-submenu no-submenu-indicator" type="button" role="menuitem" aria-haspopup="menu" onClick={onForward}>
+              <button
+                className="has-submenu"
+                type="button"
+                role="menuitem"
+                aria-haspopup="menu"
+                aria-expanded={expandedForwardAction === "forward"}
+                onClick={onForward}
+              >
                 <Forward size={16} strokeWidth={1.9} />
                 <span>转发</span>
+                <ChevronRight className="context-menu-chevron" size={15} strokeWidth={1.9} />
               </button>
               {expandedForwardAction === "forward" && (
                 <div className="message-action-submenu" role="menu" aria-label="快速转发">
@@ -312,10 +328,17 @@ export function MessageActionMenu({
               onMouseEnter={() => setExpandedForwardAction("merge-forward")}
               onMouseLeave={() => setExpandedForwardAction(undefined)}
             >
-              <button className="has-submenu" type="button" role="menuitem" aria-haspopup="menu" onClick={onForwardAlbum}>
+              <button
+                className="has-submenu"
+                type="button"
+                role="menuitem"
+                aria-haspopup="menu"
+                aria-expanded={expandedForwardAction === "merge-forward"}
+                onClick={onForwardAlbum}
+              >
                 <Forward size={16} strokeWidth={1.9} />
                 <span>合并转发</span>
-                <ChevronRight size={15} strokeWidth={1.9} />
+                <ChevronRight className="context-menu-chevron" size={15} strokeWidth={1.9} />
               </button>
               {expandedForwardAction === "merge-forward" && (
                 <div className="message-action-submenu" role="menu" aria-label="快速合并转发">

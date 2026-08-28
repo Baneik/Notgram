@@ -112,6 +112,7 @@ export interface MessageBubbleProps {
     top: number,
     returnFocus?: HTMLElement,
     replyQuote?: MessageReplyQuote,
+    keyboardNavigation?: boolean,
   ) => Promise<void>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancelDownload: (fileId: number) => Promise<void>;
@@ -736,8 +737,8 @@ function MessageBubbleComponent({
           if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
           event.preventDefault();
           const bounds = event.currentTarget.getBoundingClientRect();
-          const left = message.outgoing ? bounds.left - 184 : bounds.right + 4;
-          void onOpenActions(message, left, bounds.top, event.currentTarget);
+          const left = message.outgoing ? bounds.left - 160 : bounds.right + 4;
+          void onOpenActions(message, left, bounds.top, event.currentTarget, undefined, true);
         }}
       >
         <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${channelPost ? "is-channel-post-bubble" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>

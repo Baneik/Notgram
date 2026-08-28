@@ -38,7 +38,11 @@ import {
   calculateNativeContextMenuGeometry,
   measureNativeContextMenuLabel,
 } from "../contextMenu/nativeContextMenuLayout";
-import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
+import {
+  focusFirstMenuButton,
+  handleMenuKeyboard,
+  handleMenuPointerMove,
+} from "../utils/menuKeyboard";
 import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
 import { StableImage } from "./StableImage";
 
@@ -225,8 +229,10 @@ export function ContextMenuWindow() {
         "--native-context-submenu-x": `${geometry.submenuOffsetX}px`,
         "--native-context-submenu-y": `${geometry.submenuOffsetY}px`,
       } as CSSProperties}
+      data-keyboard-navigation={descriptor.keyboardNavigation ? "true" : undefined}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => handleMenuKeyboard(event, () => { void close(); })}
+      onPointerMove={handleMenuPointerMove}
     >
       <div
         className="native-context-menu context-menu-panel"
@@ -278,7 +284,7 @@ export function ContextMenuWindow() {
                   <Icon size={17} strokeWidth={1.9} />
                 )}
                 <span>{item.label}</span>
-                {item.children && !item.hideSubmenuIndicator ? (
+                {item.children ? (
                   <ChevronRight className="context-menu-chevron" size={16} />
                 ) : item.avatar && item.checked ? (
                   <Check className="account-switcher-check" size={16} strokeWidth={2.2} />

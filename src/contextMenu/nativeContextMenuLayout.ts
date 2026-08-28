@@ -11,7 +11,6 @@ const NATIVE_CONTEXT_MENU_SCREEN_MARGIN = 6;
 const NATIVE_CONTEXT_MENU_FIRST_ITEM_CENTER_OFFSET = 33;
 
 const NATIVE_CONTEXT_MENU_ITEM_CHROME_WIDTH = 56;
-const NATIVE_CONTEXT_MENU_SUBMENU_INDICATOR_WIDTH = 16;
 const NATIVE_CONTEXT_MENU_EXTRA_WIDTH = 30;
 const NATIVE_CONTEXT_MENU_FONT = '14px "Segoe UI", "Microsoft YaHei UI", Arial, sans-serif';
 
@@ -88,7 +87,6 @@ export const calculateNativeContextMenuPosition = (
 interface NativeContextMenuLayoutItem {
   id: string;
   label: string;
-  hideSubmenuIndicator?: boolean;
   children?: NativeContextMenuLayoutItem[];
 }
 
@@ -102,9 +100,6 @@ const panelWidthFor = (
     maximum,
     measureLabel(item.label) +
       NATIVE_CONTEXT_MENU_ITEM_CHROME_WIDTH +
-      (item.children?.length && !item.hideSubmenuIndicator
-        ? NATIVE_CONTEXT_MENU_SUBMENU_INDICATOR_WIDTH
-        : 0) +
       NATIVE_CONTEXT_MENU_EXTRA_WIDTH,
   ), 0);
   return Math.ceil(Math.min(
