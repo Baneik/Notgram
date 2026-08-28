@@ -442,6 +442,7 @@ export function VideoPlayer({
       muted: mode === "fullscreen" ? false : muted,
       autoplay: mode === "fullscreen" || wasPlaying,
       mode,
+      fullscreenLayer: mode === "fullscreen" ? "preview" : undefined,
       fileId,
       fileName: label,
       downloadable: canDownload && Boolean(onDownload),

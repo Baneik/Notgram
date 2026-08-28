@@ -7,6 +7,7 @@ import {
   Maximize2,
   Minimize2,
   Pause,
+  PictureInPicture2,
   Play,
   Volume2,
   VolumeX,
@@ -25,6 +26,7 @@ import {
 } from "../media/mediaStream";
 import {
   VIDEO_WINDOW_CHANNEL,
+  type VideoFullscreenLayer,
   type VideoWindowDescriptor,
   type VideoWindowMessage,
   type VideoWindowState,
@@ -51,6 +53,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const descriptorRef = useRef<VideoWindowDescriptor | undefined>(undefined);
   const hideTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const fullscreenRef = useRef(false);
+  const fullscreenLayerRef = useRef<VideoFullscreenLayer>("playback");
   const closedRef = useRef(false);
   const lastStreamSyncAtRef = useRef(0);
   const lastStreamStatusRef = useRef<{ bytes: number; at: number } | undefined>(undefined);
@@ -68,6 +71,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const [volume, setVolume] = useState(0.2);
   const [muted, setMuted] = useState(true);
   const [fullscreen, setFullscreenState] = useState(false);
+  const [fullscreenLayer, setFullscreenLayerState] = useState<VideoFullscreenLayer>("playback");
   const [controlsVisible, setControlsVisible] = useState(false);
   const showPreparing = useStableVisibility(!descriptor);
   const showBuffering = useStableVisibility(buffering, { minimumVisible: 220 });
@@ -75,6 +79,11 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const setFullscreen = (next: boolean) => {
     fullscreenRef.current = next;
     setFullscreenState(next);
+  };
+
+  const setFullscreenLayer = (next: VideoFullscreenLayer) => {
+    fullscreenLayerRef.current = next;
+    setFullscreenLayerState(next);
   };
 
   const clearHideTimer = () => {
@@ -87,6 +96,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const revealControls = () => {
     clearHideTimer();
     setControlsVisible(true);
+    if (fullscreenRef.current && fullscreenLayerRef.current === "preview") return;
     hideTimerRef.current = globalThis.setTimeout(() => {
       setControlsVisible(false);
       hideTimerRef.current = undefined;
@@ -102,6 +112,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
       muted: video?.muted ?? muted,
       paused: video?.paused ?? !playing,
       fullscreen: fullscreenRef.current,
+      fullscreenLayer: fullscreenRef.current ? fullscreenLayerRef.current : undefined,
     };
   };
 
@@ -161,18 +172,17 @@ export function VideoWindow({ id }: VideoWindowProps) {
     }
   };
 
-  const toggleFullscreen = async () => {
-    const next = !fullscreenRef.current;
+  const updateWindowMode = async (nextFullscreen: boolean) => {
     const video = videoRef.current;
-    if (next && video) {
+    if (nextFullscreen && video) {
       video.muted = false;
       setMuted(false);
       await video.play().catch(() => undefined);
     }
     try {
       if (isTauri()) {
-        await getCurrentWindow().setFullscreen(next);
-      } else if (next) {
+        await getCurrentWindow().setFullscreen(nextFullscreen);
+      } else if (nextFullscreen) {
         await document.documentElement.requestFullscreen?.();
       } else if (document.fullscreenElement) {
         await document.exitFullscreen?.();
@@ -180,7 +190,23 @@ export function VideoWindow({ id }: VideoWindowProps) {
     } catch {
       // The dedicated browser popup is still usable if browser fullscreen is denied.
     }
-    setFullscreen(next);
+    if (nextFullscreen) setFullscreenLayer("playback");
+    setFullscreen(nextFullscreen);
+    revealControls();
+    publishState();
+  };
+
+  const toggleFullscreen = () => updateWindowMode(!fullscreenRef.current);
+
+  const toggleFullscreenLayer = () => {
+    const next = fullscreenLayerRef.current === "preview" ? "playback" : "preview";
+    setFullscreenLayer(next);
+    if (next === "preview") {
+      clearHideTimer();
+      setControlsVisible(true);
+    } else {
+      revealControls();
+    }
     publishState();
   };
 
@@ -226,7 +252,9 @@ export function VideoWindow({ id }: VideoWindowProps) {
         setDuration(initial.duration);
         setVolume(initial.volume);
         setMuted(initial.mode === "fullscreen" ? false : initial.muted);
+        setFullscreenLayer(initial.fullscreenLayer ?? "playback");
         setFullscreen(initial.mode === "fullscreen");
+        setControlsVisible(initial.mode === "fullscreen" && initial.fullscreenLayer === "preview");
         mediaLoadStartedAtRef.current = performance.now();
         playbackStartedRef.current = false;
         bufferingStartedAtRef.current = undefined;
@@ -268,7 +296,9 @@ export function VideoWindow({ id }: VideoWindowProps) {
     };
     const handleFullscreenChange = () => {
       if (isTauri()) return;
-      setFullscreen(document.fullscreenElement !== null);
+      const nextFullscreen = document.fullscreenElement !== null;
+      if (nextFullscreen && !fullscreenRef.current) setFullscreenLayer("playback");
+      setFullscreen(nextFullscreen);
     };
     const handleBeforeUnload = () => {
       if (!closedRef.current) publishState("closed");
@@ -407,8 +437,9 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const handleSurfacePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const target = event.target;
-    if (target instanceof Element && target.closest("button, input, .video-window-controls")) return;
-    if (fullscreenRef.current && isOutsideRenderedVideo(event.clientX, event.clientY)) {
+    if (target instanceof Element && target.closest("button, input")) return;
+    if (fullscreenRef.current && fullscreenLayerRef.current === "playback" &&
+      isOutsideRenderedVideo(event.clientX, event.clientY)) {
       event.preventDefault();
       void closeWindow();
       return;
@@ -428,9 +459,11 @@ export function VideoWindow({ id }: VideoWindowProps) {
   return (
     <div
       ref={shellRef}
-      className={`video-window ${fullscreen ? "is-fullscreen" : "is-windowed"} ${controlsVisible ? "is-controls-visible" : ""} ${descriptor ? "is-ready" : ""}`}
+      className={`video-window ${fullscreen ? `is-fullscreen is-${fullscreenLayer}` : "is-windowed"} ${controlsVisible ? "is-controls-visible" : ""} ${descriptor ? "is-ready" : ""}`}
       tabIndex={-1}
-      aria-label={descriptor?.label ?? "视频播放窗口"}
+      role="group"
+      aria-label={descriptor ? `${fullscreen ? fullscreenLayer === "preview" ? "视频预览" : "视频播放" : "小窗播放"}：${descriptor.label}` : "视频播放窗口"}
+      data-video-mode={fullscreen ? fullscreenLayer : "window"}
       onPointerMove={revealControls}
       onPointerDown={handleSurfacePointerDown}
     >
@@ -441,6 +474,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
           poster={descriptor.poster}
           preload={descriptor.streaming ? "auto" : "metadata"}
           playsInline
+          data-tauri-drag-region={!fullscreen ? "" : undefined}
           aria-label={descriptor.label}
           onLoadedMetadata={(event) => {
             const video = event.currentTarget;
@@ -586,7 +620,10 @@ export function VideoWindow({ id }: VideoWindowProps) {
             {descriptor?.downloadable && (
               <button type="button" aria-label="下载视频" title="下载视频" onClick={requestDownload}><Download size={18} /></button>
             )}
-            <button type="button" aria-label="退出全屏" title="退出全屏（F）" onClick={() => void toggleFullscreen()}><Minimize2 size={18} /></button>
+            <button type="button" aria-label="小窗播放" title="小窗播放" onClick={() => void updateWindowMode(false)}><PictureInPicture2 size={18} /></button>
+            <button type="button" aria-label={fullscreenLayer === "preview" ? "放大" : "缩小"} title={fullscreenLayer === "preview" ? "放大" : "缩小"} onClick={toggleFullscreenLayer}>
+              {fullscreenLayer === "preview" ? <Maximize2 size={18} /> : <Minimize2 size={18} />}
+            </button>
             <button type="button" aria-label="关闭播放窗口" title="关闭" onClick={() => void closeWindow()}><X size={19} /></button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export type VideoWindowMode = "window" | "fullscreen";
+export type VideoFullscreenLayer = "preview" | "playback";
 
 export interface VideoWindowDescriptor {
   id: string;
@@ -13,6 +14,7 @@ export interface VideoWindowDescriptor {
   muted: boolean;
   autoplay: boolean;
   mode: VideoWindowMode;
+  fullscreenLayer?: VideoFullscreenLayer;
   fileId?: number;
   fileName?: string;
   downloadable?: boolean;
@@ -28,6 +30,7 @@ export interface VideoWindowState {
   muted: boolean;
   paused: boolean;
   fullscreen: boolean;
+  fullscreenLayer?: VideoFullscreenLayer;
 }
 
 export type VideoWindowMessage =
@@ -148,6 +151,7 @@ export const openVideoPreviewWindow = async (input: VideoPreviewWindowInput) => 
     muted: false,
     autoplay: true,
     mode: "fullscreen",
+    fullscreenLayer: "preview",
     fileName: input.label,
     downloadable: false,
     streaming: false,

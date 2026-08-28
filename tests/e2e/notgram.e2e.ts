@@ -7937,6 +7937,63 @@ test("video uses synchronized transparent playback windows and owns the playback
     .toBe(true);
 });
 
+test("video fullscreen has a persistent preview layer, playback layer, and mini-window escape", async ({ page }) => {
+  await page.setViewportSize({ width: 1_100, height: 720 });
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  const row = page.locator('[data-message-id="p-video"]');
+  const player = row.locator(".video-player");
+  const inlineProgress = player.getByRole("slider", { name: "播放进度" });
+  await row.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "auto" }));
+  await expect(player).toBeVisible();
+  await expect(inlineProgress).toBeVisible();
+  const inlineProgressGeometry = await inlineProgress.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { left: style.left, bottom: style.bottom, width: style.width, backgroundPosition: style.backgroundPosition };
+  });
+  expect(inlineProgressGeometry.left).toBe("0px");
+  expect(inlineProgressGeometry.bottom).toBe("0px");
+  expect(inlineProgressGeometry.width).toBe(`${await player.evaluate((element) => element.getBoundingClientRect().width)}px`);
+  expect(inlineProgressGeometry.backgroundPosition).toContain("100%");
+
+  const popupPromise = page.waitForEvent("popup");
+  await player.dblclick();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  const window = popup.locator(".video-window");
+  const controls = popup.locator(".video-fullscreen-controls");
+  await expect(window).toHaveClass(/is-fullscreen/);
+  await expect(window).toHaveClass(/is-preview/);
+  await expect(window).toHaveAttribute("data-video-mode", "preview");
+  await expect(popup.getByRole("button", { name: "放大" })).toBeVisible();
+  await expect(popup.getByRole("button", { name: "小窗播放" })).toBeVisible();
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+  await popup.waitForTimeout(1_100);
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+  const previewVideoBounds = await popup.locator("video").boundingBox();
+  const previewWindowBounds = await window.boundingBox();
+  expect(previewVideoBounds?.height).toBeLessThan(previewWindowBounds?.height ?? 0);
+
+  await popup.getByRole("button", { name: "放大" }).click();
+  await expect(window).toHaveClass(/is-playback/);
+  await expect(window).toHaveAttribute("data-video-mode", "playback");
+  await expect(popup.getByRole("button", { name: "缩小" })).toBeVisible();
+  await popup.waitForTimeout(1_100);
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
+  const controlsBounds = await controls.boundingBox();
+  await popup.mouse.move((controlsBounds?.x ?? 0) + (controlsBounds?.width ?? 0) / 2, (controlsBounds?.y ?? 0) + 20);
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+  await popup.getByRole("button", { name: "缩小" }).click();
+  await expect(window).toHaveClass(/is-preview/);
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+
+  await popup.getByRole("button", { name: "小窗播放" }).click();
+  await expect(window).toHaveClass(/is-windowed/);
+  await expect(window).toHaveAttribute("data-video-mode", "window");
+  await expect(popup.locator("video")).toHaveAttribute("data-tauri-drag-region", "");
+  await popup.close();
+});
+
 test("photo albums stay compact while keeping captions in the media viewer", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();

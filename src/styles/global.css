@@ -1803,8 +1803,8 @@ button.message-channel-author:hover, button.message-channel-author:focus-visible
 }
 .video-mute:hover, .video-mute:focus-visible { background: color-mix(in srgb, var(--color-bg-media) 90%, transparent); outline: none; }
 .video-inline-seek {
-  --video-progress: 0%; --video-buffered: 0%; position: absolute; z-index: 4; left: 7px; right: 7px; bottom: 3px; width: calc(100% - 14px); height: 12px; margin: 0;
-  appearance: none; background: linear-gradient(to right, var(--color-status-info) 0 var(--video-progress), color-mix(in srgb, var(--color-on-media) 72%, transparent) var(--video-progress) var(--video-buffered), color-mix(in srgb, var(--color-on-media) 24%, transparent) var(--video-buffered) 100%) center / 100% 3px no-repeat; border-radius: 999px; cursor: pointer;
+  --video-progress: 0%; --video-buffered: 0%; position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; width: 100%; height: 10px; margin: 0;
+  appearance: none; background: linear-gradient(to right, var(--color-status-info) 0 var(--video-progress), color-mix(in srgb, var(--color-on-media) 72%, transparent) var(--video-progress) var(--video-buffered), color-mix(in srgb, var(--color-on-media) 24%, transparent) var(--video-buffered) 100%) bottom / 100% 3px no-repeat; border-radius: 0; cursor: pointer;
 }
 .video-inline-seek::-webkit-slider-runnable-track { height: 3px; background: transparent; }
 .video-inline-seek::-webkit-slider-thumb { width: 0; height: 0; appearance: none; }
@@ -1825,11 +1825,12 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   user-select: none; -webkit-user-select: none;
 }
 .video-window.is-ready { animation: motion-media-image-in var(--motion-duration-fast) var(--motion-ease-enter) both; }
-.video-window.is-windowed { border-radius: 12px; background: var(--color-bg-media); cursor: grab; }
+.video-window.is-windowed { border-radius: 10px; background: var(--color-bg-media); cursor: grab; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-on-media) 18%, transparent), 0 12px 30px var(--color-shadow); }
 .video-window.is-windowed:active { cursor: grabbing; }
 .video-window.is-fullscreen { background: var(--color-overlay); }
 .video-window video { width: 100%; height: 100%; display: block; object-fit: contain; background: transparent; }
-.video-window.is-windowed video { border-radius: 12px; }
+.video-window.is-windowed video { border-radius: 10px; }
+.video-window.is-preview video { height: calc(100% - 118px); }
 .video-window:not(.is-controls-visible),
 .video-window:not(.is-controls-visible) video { cursor: none; }
 .video-window-loading {
@@ -1844,7 +1845,9 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .video-window-buffering span { font-size: 10px; font-variant-numeric: tabular-nums; }
 .video-window-controls { position: absolute; z-index: 3; opacity: 0; pointer-events: none; transition: opacity var(--motion-duration-fast) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-standard); }
 .video-window.is-controls-visible .video-window-controls { opacity: 1; pointer-events: auto; }
-.video-windowed-controls { inset: 0; }
+.video-windowed-controls { inset: 0; pointer-events: none !important; }
+.video-window.is-controls-visible .video-windowed-controls button,
+.video-window.is-controls-visible .video-windowed-controls input { pointer-events: auto; }
 .video-window.is-fullscreen .video-windowed-controls,
 .video-window.is-windowed .video-fullscreen-controls { display: none; }
 .video-window-topbar {
@@ -1888,6 +1891,9 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   transform: translate(-50%, 10px);
 }
 .video-window.is-controls-visible .video-fullscreen-controls { transform: translate(-50%, 0); }
+.video-window.is-preview .video-fullscreen-controls {
+  opacity: 1; pointer-events: auto; transform: translate(-50%, 0);
+}
 .video-fullscreen-top { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr); align-items: center; }
 .video-fullscreen-controls .video-window-actions { justify-content: flex-end; }
 .video-fullscreen-controls button { color: var(--video-control-ink); background: transparent; }
