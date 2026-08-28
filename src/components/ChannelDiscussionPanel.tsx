@@ -1,7 +1,6 @@
 import { ChevronLeft, LoaderCircle, RotateCcw } from "lucide-react";
 import { useRef } from "react";
 import type { ConnectionStatus, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment, User } from "../telegram/types";
-import { messageSummary } from "./conversationMessages";
 import { ConversationComposer } from "./ConversationComposer";
 import { Avatar } from "./Avatar";
 import { MessageBubblePreview, type MessageBubblePreviewProps } from "./MessageBubble";
@@ -60,7 +59,6 @@ export function ChannelDiscussionPanel({
   messagePreviewOptions,
 }: ChannelDiscussionPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const postText = messageSummary(post.content);
 
   return (
     <section className="channel-discussion-panel" aria-label={`${channelTitle} 的讨论`}>
@@ -75,7 +73,7 @@ export function ChannelDiscussionPanel({
 
       <div className="channel-discussion-messages" role="log" aria-label="留言列表">
         <div className="channel-discussion-stream">
-          <div className="channel-discussion-post" title={postText || "媒体帖子"}>
+          <div className="channel-discussion-post">
             <MessageBubblePreview
               message={post}
               senderName={channelTitle}

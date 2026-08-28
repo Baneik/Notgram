@@ -4933,6 +4933,7 @@ test("channel posts integrate their comment action and load the linked discussio
 
   const panelPost = panel.locator('[data-message-id="release-post-1"]');
   const discussionScroller = panel.locator(".channel-discussion-messages");
+  await expect(panel.locator(".channel-discussion-post")).not.toHaveAttribute("title");
   await expect.poll(() => panelPost.evaluate((element) =>
     Boolean(element.closest(".channel-discussion-messages"))
   )).toBe(true);
