@@ -14,7 +14,7 @@ Run the complete gate with:
 npm run test:e2e
 ```
 
-The release workflow runs the same command after `npm run check`.
+Run the same command locally after `npm run check` before publishing a release.
 
 | Scenario | Automated evidence | Pass condition |
 | --- | --- | --- |

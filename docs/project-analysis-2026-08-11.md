@@ -48,8 +48,8 @@ src-tauri/src/
   *window.rs       设置、视频、媒体查看器和上下文菜单窗口
   diagnostics.rs   脱敏日志、崩溃记录和 ZIP 导出
   proxy.rs         系统/自定义代理和凭据保护
-scripts/ .github/workflows/
-  自动检查、发布候选、代码签名、更新通道和生命周期测试
+scripts/
+  本地检查、发布候选、代码签名、更新通道和生命周期测试
 ```
 
 ## 3. 技术架构与数据流
@@ -176,7 +176,7 @@ TelegramTransport
 
 实现：结构化日志、递归脱敏、性能时间线、长任务/布局/交互采样、诊断 ZIP、可选本地崩溃记录、统一版本源、便携 ZIP、NSIS、签名、更新通道和生命周期脚本。
 
-代码边界：`src/utils/performanceMonitor.ts`、`src/release/diagnostics.ts`、`src/release/appUpdater.ts`、`src-tauri/src/diagnostics.rs`、`scripts/check.ps1`、`scripts/native-smoke.ps1`、`scripts/test-release-lifecycle.ps1`、`.github/workflows/release.yml`。
+代码边界：`src/utils/performanceMonitor.ts`、`src/release/diagnostics.ts`、`src/release/appUpdater.ts`、`src-tauri/src/diagnostics.rs`、`scripts/check.ps1`、`scripts/native-smoke.ps1`、`scripts/test-release-lifecycle.ps1`。
 
 评价：发布能力已经工程化，但当前本地制品仍是未签名便携版；稳定/候选通道的真实部署、签名更新清单和生命周期证据尚未闭合。
 
@@ -270,7 +270,7 @@ TelegramTransport
 
 - `scripts/check.ps1` 统一执行版本、发布策略、主题、Vitest、构建、E2E 类型、Rust fmt/Clippy/test；`-Release` 追加 Tauri release build。
 - `scripts/native-smoke.ps1` 生成 clean/existing profile 的脱敏清单。
-- `scripts/publish-*.ps1`、`sign-windows-files.ps1`、`publish-update-channel.ps1` 和 `.github/workflows/release.yml` 组成签名发布链路。
+- `scripts/publish-*.ps1`、`sign-windows-files.ps1`、`verify-windows-signatures.ps1` 和 `publish-update-channel.ps1` 组成需要本地显式执行的签名发布链路。
 - `tests/e2e/notgram.e2e.ts` 是主要 Mock E2E；`accessibility.e2e.ts` 覆盖窄屏、DPI、强制色、键盘和语义树。
 - `docs/conversation-state-model.md` 和 `docs/forum-topics.md` 是行为契约，不只是说明文档；后续改动应先更新不变量再改代码。
 
@@ -357,7 +357,7 @@ npm run check           全部通过
 ### 阶段 C：发布冻结
 
 1. 同步版本源到 `rc.3`，冻结功能，只接受消息一致性、崩溃、安全、原生验收和发布阻塞修复。
-2. 通过 release workflow 生成已签名便携 ZIP、NSIS、依赖/许可证/哈希、更新清单和生命周期证据。
+2. 通过本地签名发布流程生成已签名便携 ZIP、NSIS、依赖/许可证/哈希、更新清单和生命周期证据。
 3. 记录版本、提交、签名主体、制品哈希、自动检查、原生冒烟和人工门禁的摘要，禁止记录账号和消息数据。
 
 ### 阶段 D：候选之后的降复杂度

@@ -104,14 +104,14 @@ profiles are intentionally separate; an existing installed profile is not
 copied into a portable directory automatically.
 After a bundled Tauri build, `npm run publish:installer` validates and stages
 the matching NSIS installer with the same dependency, metadata, and hash files.
-The signed release workflow also runs `scripts/test-release-lifecycle.ps1` on an
-ephemeral runner. It probes portable startup, ZIP replacement, current-user
-installation, in-place replacement, uninstallation, retained account data, and
-explicit test-data cleanup without opening Telegram or starting the network
-runtime. A separate isolated product identifier verifies a real previous-version
-upgrade before the signed production build. Uninstall keeps account data by
-policy; remove accounts and clear media cache in the app before uninstall when
-local data must be erased.
+Before publishing a signed release, run `scripts/test-release-lifecycle.ps1` in
+an isolated local environment. It probes portable startup, ZIP replacement,
+current-user installation, in-place replacement, uninstallation, retained
+account data, and explicit test-data cleanup without opening Telegram or
+starting the network runtime. Use the separate isolated product identifier to
+verify a real previous-version upgrade before the signed production build.
+Uninstall keeps account data by policy; remove accounts and clear media cache in
+the app before uninstall when local data must be erased.
 
 The bridge searches these locations in order:
 
