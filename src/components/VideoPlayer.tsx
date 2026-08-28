@@ -95,8 +95,6 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const pendingPlayRef = useRef(false);
   const streamingRef = useRef(false);
-  const rebufferingRef = useRef(false);
-  const shouldResumeAfterBufferRef = useRef(false);
   const suspendingRef = useRef(false);
   const loadingRef = useRef(false);
   const inlineSoundEnabledRef = useRef(false);
@@ -175,34 +173,10 @@ export function VideoPlayer({
     ).catch(() => undefined);
   };
 
-  const resumeWhenBuffered = (video: HTMLVideoElement) => {
-    refreshBufferedState(video);
-    if (!rebufferingRef.current || !hasPlaybackBuffer(video)) return false;
-    rebufferingRef.current = false;
-    pendingPlayRef.current = false;
-    setBuffering(false);
-    if (shouldResumeAfterBufferRef.current && !externalSessionRef.current) {
-      void video.play().catch(() => setFailed(true));
-    }
-    return true;
-  };
-
-  const waitForPlaybackBuffer = (video: HTMLVideoElement) => {
-    if (!streamingRef.current || externalSessionRef.current) return false;
-    rebufferingRef.current = true;
-    shouldResumeAfterBufferRef.current = true;
-    setBuffering(true);
-    if (!video.paused) video.pause();
-    syncStreamPlayback(video, true);
-    return true;
-  };
-
   useEffect(() => {
     if (!source) return;
     clearSuspendTimer();
     streamingRef.current = false;
-    rebufferingRef.current = false;
-    shouldResumeAfterBufferRef.current = false;
     setIsStreaming(false);
     setBufferedEnd(0);
     setDownloadSpeed(0);
@@ -312,8 +286,6 @@ export function VideoPlayer({
     clearSuspendTimer();
     mediaPlaybackCoordinator.remember(playbackId, video.currentTime, video.duration);
     pendingPlayRef.current = false;
-    rebufferingRef.current = false;
-    shouldResumeAfterBufferRef.current = false;
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -377,12 +349,11 @@ export function VideoPlayer({
     const video = videoRef.current;
     clearSuspendTimer();
     if (resolvedSource && video) {
-      shouldResumeAfterBufferRef.current = true;
-      if (streamingRef.current && !hasPlaybackBuffer(video)) {
-        waitForPlaybackBuffer(video);
-        return;
-      }
-      await video.play().catch(() => setFailed(true));
+      pendingPlayRef.current = true;
+      await video.play().catch(() => {
+        pendingPlayRef.current = false;
+        setFailed(true);
+      });
       return;
     }
     await requestStreamSource(true);
@@ -570,12 +541,14 @@ export function VideoPlayer({
       return;
     }
     if (video.paused) {
-      shouldResumeAfterBufferRef.current = true;
-      if (streamingRef.current && !hasPlaybackBuffer(video)) waitForPlaybackBuffer(video);
-      else void video.play().catch(() => setFailed(true));
+      pendingPlayRef.current = true;
+      void video.play().catch(() => {
+        pendingPlayRef.current = false;
+        setFailed(true);
+      });
     } else {
-      shouldResumeAfterBufferRef.current = false;
-      rebufferingRef.current = false;
+      pendingPlayRef.current = false;
+      bufferingStartedAtRef.current = undefined;
       setBuffering(false);
       video.pause();
     }
@@ -668,7 +641,7 @@ export function VideoPlayer({
         ref={videoRef}
         src={resolvedSource}
         poster={poster}
-        preload={resolvedSource ? "metadata" : "none"}
+        preload={isStreaming ? "auto" : resolvedSource ? "metadata" : "none"}
         playsInline
         muted={muted}
         aria-label={label}
@@ -691,18 +664,16 @@ export function VideoPlayer({
         onCanPlay={(event) => {
           refreshBufferedState(event.currentTarget);
           if (!pendingPlayRef.current) return;
-          if (streamingRef.current && !hasPlaybackBuffer(event.currentTarget)) {
-            waitForPlaybackBuffer(event.currentTarget);
-            return;
-          }
-          pendingPlayRef.current = false;
           setBuffering(false);
-          void event.currentTarget.play().catch(() => setFailed(true));
+          void event.currentTarget.play().catch(() => {
+            pendingPlayRef.current = false;
+            setFailed(true);
+          });
         }}
         onPlay={(event) => {
+          pendingPlayRef.current = false;
           claimKeyboardTarget();
           clearSuspendTimer();
-          shouldResumeAfterBufferRef.current = true;
           syncStreamPlayback(event.currentTarget, true);
           mediaPlaybackCoordinator.activate(playbackId, event.currentTarget);
         }}
@@ -734,23 +705,25 @@ export function VideoPlayer({
           syncStreamPlayback(event.currentTarget, true);
           mediaPlaybackCoordinator.remember(playbackId, event.currentTarget.currentTime, event.currentTarget.duration);
           mediaPlaybackCoordinator.release(event.currentTarget);
-          if (!suspendingRef.current && !rebufferingRef.current) {
-            scheduleStreamSuspension(event.currentTarget);
-          }
+          pendingPlayRef.current = false;
+          bufferingStartedAtRef.current = undefined;
+          setBuffering(false);
+          if (!suspendingRef.current) scheduleStreamSuspension(event.currentTarget);
         }}
         onProgress={(event) => {
           const video = event.currentTarget;
           refreshBufferedState(video);
           syncStreamPlayback(video);
-          if (resumeWhenBuffered(video)) return;
           if (!externalSessionRef.current && video.paused && streamingRef.current &&
-            !shouldResumeAfterBufferRef.current && hasPlaybackBuffer(video, STREAM_PAUSE_BUFFER_SECONDS)) {
+            !pendingPlayRef.current &&
+            hasPlaybackBuffer(video, STREAM_PAUSE_BUFFER_SECONDS)) {
             void suspendStream();
           }
         }}
         onWaiting={(event) => {
           markBufferingStarted(event.currentTarget);
-          if (!waitForPlaybackBuffer(event.currentTarget)) setBuffering(true);
+          setBuffering(true);
+          syncStreamPlayback(event.currentTarget, true);
         }}
         onTimeUpdate={(event) => {
           if (externalSessionRef.current) return;
@@ -769,8 +742,6 @@ export function VideoPlayer({
           setPlaying(false);
           setCurrentTime(0);
           setBufferedEnd(0);
-          rebufferingRef.current = false;
-          shouldResumeAfterBufferRef.current = false;
           mediaPlaybackCoordinator.clear(playbackId);
           mediaPlaybackCoordinator.release(event.currentTarget);
         }}

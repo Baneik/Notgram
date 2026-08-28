@@ -1803,8 +1803,8 @@ button.message-channel-author:hover, button.message-channel-author:focus-visible
 }
 .video-mute:hover, .video-mute:focus-visible { background: color-mix(in srgb, var(--color-bg-media) 90%, transparent); outline: none; }
 .video-inline-seek {
-  --video-progress: 0%; --video-buffered: 0%; position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; width: 100%; height: 9px; margin: 0;
-  appearance: none; background: linear-gradient(to right, var(--color-status-info) 0 var(--video-progress), color-mix(in srgb, var(--color-on-media) 72%, transparent) var(--video-progress) var(--video-buffered), color-mix(in srgb, var(--color-on-media) 24%, transparent) var(--video-buffered) 100%); cursor: pointer;
+  --video-progress: 0%; --video-buffered: 0%; position: absolute; z-index: 4; left: 7px; right: 7px; bottom: 3px; width: calc(100% - 14px); height: 12px; margin: 0;
+  appearance: none; background: linear-gradient(to right, var(--color-status-info) 0 var(--video-progress), color-mix(in srgb, var(--color-on-media) 72%, transparent) var(--video-progress) var(--video-buffered), color-mix(in srgb, var(--color-on-media) 24%, transparent) var(--video-buffered) 100%) center / 100% 3px no-repeat; border-radius: 999px; cursor: pointer;
 }
 .video-inline-seek::-webkit-slider-runnable-track { height: 3px; background: transparent; }
 .video-inline-seek::-webkit-slider-thumb { width: 0; height: 0; appearance: none; }

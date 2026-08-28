@@ -10,7 +10,6 @@ const AUDIO_MUTED_STORAGE_KEY = "notgram.audio.muted";
 const VIDEO_VOLUME_STORAGE_KEY = "notgram.video.volume";
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const;
 export const STREAM_PAUSE_BUFFER_SECONDS = 10;
-export const STREAM_RESUME_BUFFER_SECONDS = 5;
 export const DEFAULT_AUDIO_VOLUME = 1;
 export const DEFAULT_VIDEO_VOLUME = 0.2;
 
@@ -185,7 +184,7 @@ export const bufferedMediaEnd = (
 
 export const hasPlaybackBuffer = (
   media: Pick<HTMLMediaElement, "buffered" | "currentTime" | "duration">,
-  targetSeconds = STREAM_RESUME_BUFFER_SECONDS,
+  targetSeconds: number,
 ) => {
   const remaining = Number.isFinite(media.duration)
     ? Math.max(0, media.duration - media.currentTime)

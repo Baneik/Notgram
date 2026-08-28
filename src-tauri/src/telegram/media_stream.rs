@@ -21,7 +21,8 @@ const READY_RESPONSE_BYTES: u64 = 256 * 1024;
 const INITIAL_STREAM_WINDOW_BYTES: u64 = 8 * 1024 * 1024;
 const STREAM_RANGE_SAFETY_BYTES: u64 = 2 * 1024 * 1024;
 const STREAM_METADATA_TAIL_BYTES: u64 = 2 * 1024 * 1024;
-const STREAM_BUFFER_SECONDS: f64 = 10.0;
+const ACTIVE_STREAM_BUFFER_SECONDS: f64 = 30.0;
+const PAUSED_STREAM_BUFFER_SECONDS: f64 = 10.0;
 const RANGE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
@@ -426,8 +427,13 @@ fn permitted_response_bytes(media: &RegisteredMedia, start: u64, requested: u64)
         return requested;
     }
     let allowed_end = if media.playback.duration > 0.0 {
+        let buffer_seconds = if media.playback.paused {
+            PAUSED_STREAM_BUFFER_SECONDS
+        } else {
+            ACTIVE_STREAM_BUFFER_SECONDS
+        };
         let buffered_until =
-            (media.playback.current_time + STREAM_BUFFER_SECONDS).min(media.playback.duration);
+            (media.playback.current_time + buffer_seconds).min(media.playback.duration);
         let timed_bytes =
             (media.size as f64 * buffered_until / media.playback.duration).ceil() as u64;
         let safety_bytes = if media.playback.paused {
@@ -698,6 +704,12 @@ mod tests {
         media.playback.current_time = 120.0;
         media.playback.paused = false;
         assert!(permitted_response_bytes(&media, 18 * 1024 * 1024, MAX_RESPONSE_BYTES) > 0);
+        assert!(permitted_response_bytes(&media, 26 * 1024 * 1024, MAX_RESPONSE_BYTES) > 0);
+        media.playback.paused = true;
+        assert_eq!(
+            permitted_response_bytes(&media, 26 * 1024 * 1024, MAX_RESPONSE_BYTES),
+            0
+        );
         assert_eq!(
             permitted_response_bytes(&media, media.size - 1024, 1024),
             1024,

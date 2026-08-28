@@ -16,7 +16,6 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } fr
 import {
   bufferedMediaEnd,
   formatPlaybackTime,
-  hasPlaybackBuffer,
   rememberVideoVolume,
 } from "../media/mediaPlayback";
 import {
@@ -53,8 +52,6 @@ export function VideoWindow({ id }: VideoWindowProps) {
   const hideTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const fullscreenRef = useRef(false);
   const closedRef = useRef(false);
-  const rebufferingRef = useRef(false);
-  const shouldResumeAfterBufferRef = useRef(false);
   const lastStreamSyncAtRef = useRef(0);
   const lastStreamStatusRef = useRef<{ bytes: number; at: number } | undefined>(undefined);
   const windowStartedAtRef = useRef(performance.now());
@@ -152,38 +149,13 @@ export function VideoWindow({ id }: VideoWindowProps) {
     ).catch(() => undefined);
   };
 
-  const resumeWhenBuffered = (video: HTMLVideoElement) => {
-    refreshBufferedState(video);
-    if (!rebufferingRef.current || !hasPlaybackBuffer(video)) return false;
-    rebufferingRef.current = false;
-    setBuffering(false);
-    if (shouldResumeAfterBufferRef.current) void video.play().catch(() => undefined);
-    return true;
-  };
-
-  const waitForPlaybackBuffer = (video: HTMLVideoElement) => {
-    if (!descriptorRef.current?.streaming) return false;
-    rebufferingRef.current = true;
-    shouldResumeAfterBufferRef.current = true;
-    setBuffering(true);
-    if (!video.paused) video.pause();
-    syncStreamPlayback(video, true);
-    return true;
-  };
-
   const togglePlayback = async () => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      shouldResumeAfterBufferRef.current = true;
-      if (descriptorRef.current?.streaming && !hasPlaybackBuffer(video)) {
-        waitForPlaybackBuffer(video);
-        return;
-      }
       await video.play().catch(() => undefined);
     } else {
-      shouldResumeAfterBufferRef.current = false;
-      rebufferingRef.current = false;
+      bufferingStartedAtRef.current = undefined;
       setBuffering(false);
       video.pause();
     }
@@ -195,9 +167,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
     if (next && video) {
       video.muted = false;
       setMuted(false);
-      shouldResumeAfterBufferRef.current = true;
-      if (descriptorRef.current?.streaming && !hasPlaybackBuffer(video)) waitForPlaybackBuffer(video);
-      else await video.play().catch(() => undefined);
+      await video.play().catch(() => undefined);
     }
     try {
       if (isTauri()) {
@@ -485,18 +455,14 @@ export function VideoWindow({ id }: VideoWindowProps) {
             refreshBufferedState(video);
             syncStreamPlayback(video, true);
             if (descriptor.autoplay || descriptor.mode === "fullscreen") {
-              shouldResumeAfterBufferRef.current = true;
-              if (descriptor.streaming && !hasPlaybackBuffer(video)) waitForPlaybackBuffer(video);
-              else void video.play().catch(() => undefined);
+              void video.play().catch(() => undefined);
             }
             publishState();
           }}
           onCanPlay={(event) => {
             refreshBufferedState(event.currentTarget);
-            resumeWhenBuffered(event.currentTarget);
           }}
           onPlay={(event) => {
-            shouldResumeAfterBufferRef.current = true;
             syncStreamPlayback(event.currentTarget, true);
             setPlaying(true);
             setBuffering(false);
@@ -532,11 +498,11 @@ export function VideoWindow({ id }: VideoWindowProps) {
           onProgress={(event) => {
             refreshBufferedState(event.currentTarget);
             syncStreamPlayback(event.currentTarget);
-            resumeWhenBuffered(event.currentTarget);
           }}
           onWaiting={(event) => {
             markBufferingStarted(event.currentTarget);
-            if (!waitForPlaybackBuffer(event.currentTarget)) setBuffering(true);
+            setBuffering(true);
+            syncStreamPlayback(event.currentTarget, true);
           }}
           onTimeUpdate={(event) => {
             setCurrentTime(event.currentTarget.currentTime);
@@ -548,8 +514,6 @@ export function VideoWindow({ id }: VideoWindowProps) {
             if (Number.isFinite(event.currentTarget.duration)) setDuration(event.currentTarget.duration);
           }}
           onEnded={() => {
-            rebufferingRef.current = false;
-            shouldResumeAfterBufferRef.current = false;
             setPlaying(false);
             setBuffering(false);
             setCurrentTime(0);

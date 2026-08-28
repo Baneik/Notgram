@@ -7766,7 +7766,7 @@ test("video uses synchronized transparent playback windows and owns the playback
         return {
           length: 1,
           start: () => 0,
-          end: () => Number.isFinite(this.duration) ? Math.min(this.duration, 6) : 6,
+          end: () => Number.isFinite(this.duration) ? Math.min(this.duration, 0.5) : 0.5,
         } as TimeRanges;
       },
     });
@@ -7815,9 +7815,17 @@ test("video uses synchronized transparent playback windows and owns the playback
 
   await player.getByRole("button", { name: /播放 交互预览/ }).click();
   await expect(video).toHaveAttribute("src", /mock-video\.mp4/);
+  await expect(video).toHaveAttribute("preload", "auto");
   await video.dispatchEvent("canplay");
   await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
     .toBe(true);
+  await video.dispatchEvent("waiting");
+  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
+    .toBe(true);
+  await video.dispatchEvent("playing");
+  await expect.poll(() => player.getByRole("slider", { name: "播放进度" }).evaluate(
+    (element) => getComputedStyle(element).backgroundSize,
+  )).toBe("100% 3px");
 
   const settingsButton = page.getByRole("button", { name: "设置", exact: true });
   await settingsButton.focus();
