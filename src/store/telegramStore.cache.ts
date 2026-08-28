@@ -11,6 +11,7 @@ import type {
 } from "../telegram/types";
 import { normalizeIdentityText, sanitizeIdentityText } from "../telegram/identityText";
 import { logPerformance } from "../utils/performanceMonitor";
+import { channelDiscussionProjection } from "./telegramStore.messages";
 import type { TelegramState } from "./telegramStore.types";
 
 export const TELEGRAM_CACHE_VERSION = 3 as const;
@@ -425,13 +426,29 @@ export const recentMessagesForCache = (state: TelegramState) => {
   }
 
   const messages: Message[] = [];
+  const seen = new Set<string>();
+  const append = (message: Message) => {
+    const key = `${message.chatId}:${message.id}`;
+    if (messages.length >= MAX_CACHED_MESSAGES || seen.has(key)) return;
+    seen.add(key);
+    messages.push(cacheableMessage(message));
+  };
   for (const chatId of orderedChatIds) {
     const remaining = MAX_CACHED_MESSAGES - messages.length;
     if (remaining <= 0) break;
     const recent = (state.messages.get(chatId) ?? []).filter((message) => !message.isPending).slice(
       -Math.min(MAX_CACHED_MESSAGES_PER_CHAT, remaining),
     );
-    messages.push(...recent.map(cacheableMessage));
+    for (const message of recent) append(message);
+    for (const post of recent) {
+      if (!post.discussionThread || messages.length >= MAX_CACHED_MESSAGES) continue;
+      const discussion = channelDiscussionProjection(post, state.messages);
+      const linked = [
+        ...(discussion.root ? [discussion.root] : []),
+        ...discussion.comments.slice(-(MAX_CACHED_MESSAGES_PER_CHAT - 1)),
+      ];
+      for (const message of linked) append(message);
+    }
   }
   return messages;
 };

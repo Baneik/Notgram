@@ -4929,6 +4929,7 @@ test("channel posts integrate their comment action and load the linked discussio
   await expect(panel.locator('[data-message-id="release-comment-1"]')).toBeVisible();
   await expect(panel.locator('[data-message-id="release-comment-2"]')).toBeVisible();
   await expect(panel.getByText("还没有留言")).toHaveCount(0);
+  await expect(panel.getByText("正在加载留言")).toHaveCount(0);
 
   const panelPost = panel.locator('[data-message-id="release-post-1"]');
   const discussionScroller = panel.locator(".channel-discussion-messages");
@@ -4967,10 +4968,24 @@ test("channel posts integrate their comment action and load the linked discussio
   await panel.getByRole("button", { name: "返回频道" }).click();
   await expect(panel).toHaveCount(0);
 
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath) as {
+      telegramStore: { setState: (state: Record<string, unknown>) => void };
+    };
+    telegramStore.setState({
+      loadMessageThreadHistory: async () => new Promise(() => undefined),
+    });
+  }, "/src/store/telegramStore.ts");
+
   await commentButton.click();
   await expect(panel).toBeVisible();
+  await expect(panel.locator('[data-message-id="release-comment-1"]')).toBeVisible();
+  await expect(panel.locator('[data-message-id="release-comment-2"]')).toBeVisible();
+  await expect(panel.getByText("正在加载留言")).toHaveCount(0);
+  await expect(panel.locator(".channel-discussion-composer")).toHaveCSS("border-top-width", "0px");
 
   const composer = panel.locator(".composer");
+  await expect(composer).toHaveCSS("box-shadow", /0px 1px 0px 0px inset$/);
   await expect(composer.getByRole("button", { name: "添加附件" })).toBeVisible();
   await expect(composer.getByRole("button", { name: "表情" })).toBeVisible();
   await composer.getByRole("textbox", { name: "消息内容" }).fill("E2E thread comment");
@@ -4980,7 +4995,42 @@ test("channel posts integrate their comment action and load the linked discussio
   await page.setViewportSize({ width: 1280, height: 320 });
   await discussionScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
   await expect.poll(() => discussionScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  await expect(panelPost).not.toBeInViewport();
+  await expect.poll(() => panelPost.evaluate((element) => {
+    const scroller = element.closest(".channel-discussion-messages");
+    if (!scroller) return Number.POSITIVE_INFINITY;
+    const messageBounds = element.getBoundingClientRect();
+    const scrollerBounds = scroller.getBoundingClientRect();
+    return Math.max(0, Math.min(messageBounds.bottom, scrollerBounds.bottom) -
+      Math.max(messageBounds.top, scrollerBounds.top));
+  })).toBeLessThanOrEqual(1);
+
+  await panel.getByRole("button", { name: "返回频道" }).click();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Array<{
+          id: string;
+          replyTo?: { kind: string; messageId?: string };
+        }>> };
+        setState: (state: Record<string, unknown>) => void;
+      };
+    };
+    const messages = new Map(telegramStore.getState().messages);
+    messages.set("chat-release", (messages.get("chat-release") ?? [])
+      .filter((message) => message.replyTo?.kind !== "message" ||
+        message.replyTo.messageId !== "release-post-1")
+      .map((message) => message.id === "release-post-1"
+        ? { ...message, discussionThread: undefined }
+        : message));
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+  await commentButton.click();
+  const loading = panel.getByRole("status");
+  await expect(loading).toHaveText("正在加载留言");
+  await expect(loading).toHaveCSS("display", "flex");
+  await expect(loading).toHaveCSS("align-items", "center");
+  await expect(loading.locator("svg")).toHaveCount(1);
 });
 
 test("channel discussions auto-load media and stickers with live file updates", async ({ page }) => {

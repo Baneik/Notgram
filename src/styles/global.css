@@ -1315,12 +1315,12 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   min-width: 0; width: min(720px, 100%); min-height: 100%; margin: 0 auto;
   padding: 20px var(--message-list-inline-padding, 10px) 16px;
 }
-.channel-discussion-empty { min-height: 180px; display: grid; place-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.channel-discussion-empty { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .channel-discussion-error .text-button { min-height: 28px; display: inline-flex; align-items: center; gap: 5px; color: var(--accent); background: transparent; border: 0; cursor: pointer; font-size: 11px; }
 .channel-discussion-message-group { margin-block: var(--message-group-spacing); }
 .channel-discussion-message-group .message-bubble-shell { max-width: min(74%, 720px); }
 .channel-discussion-message-group .message-bubble { max-width: 100%; }
-.channel-discussion-composer { min-height: 0; border-top: 1px solid var(--line); }
+.channel-discussion-composer { min-height: 0; }
 .channel-discussion-composer .composer-wrap { width: 100%; }
 .message-service-content button {
   margin: 0; padding: 0; color: inherit; background: transparent; border: 0;

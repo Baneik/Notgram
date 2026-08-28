@@ -2607,8 +2607,18 @@ export const createTelegramStore = (
           ).values()];
           if (uniqueThreadMessages.length === 0) return [];
           const messages = new Map(get().messages);
+          const channelPost = messages.get(chatId)?.find((message) => message.id === messageId);
+          const resolvedChannelPost = channelPost
+            ? {
+                ...channelPost,
+                discussionThread: { chatId: thread.chatId, messageId: thread.messageId },
+              }
+            : undefined;
+          const cacheMessages = resolvedChannelPost
+            ? [...uniqueThreadMessages, resolvedChannelPost]
+            : uniqueThreadMessages;
           const messagesByChat = new Map<string, Message[]>();
-          for (const message of uniqueThreadMessages) {
+          for (const message of cacheMessages) {
             const current = messagesByChat.get(message.chatId) ?? messages.get(message.chatId) ?? [];
             messagesByChat.set(message.chatId, upsertMessage(current, message));
           }
@@ -2616,7 +2626,7 @@ export const createTelegramStore = (
             messages.set(messageChatId, nextMessages);
           }
           set({ messages, operationError: undefined });
-          publishMessageChange({ type: "upsert", messages: uniqueThreadMessages, liveMessages: [] });
+          publishMessageChange({ type: "upsert", messages: cacheMessages, liveMessages: [] });
           scheduleCacheWrite();
           return uniqueThreadMessages;
         } catch (error) {

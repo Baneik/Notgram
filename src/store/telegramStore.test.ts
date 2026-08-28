@@ -3033,6 +3033,49 @@ describe("chat filtering", () => {
     );
   });
 
+  it("stores a linked discussion reference with cross-chat thread messages", async () => {
+    class LinkedDiscussionTransport extends MockTelegramTransport {
+      override async getMessageThread(chatId: string, messageId: string) {
+        const source = await super.getMessageThread(chatId, messageId);
+        const root = {
+          ...(source?.messages[0] ?? mockSnapshot.messages[0]),
+          id: "discussion-root",
+          chatId: "chat-discussion",
+          isChannelPost: false,
+        };
+        return { chatId: root.chatId, messageId: root.id, messages: [root] };
+      }
+
+      override async getMessageThreadHistory(chatId: string, messageId: string) {
+        return [{
+          ...mockSnapshot.messages[0],
+          id: "discussion-comment",
+          chatId,
+          isChannelPost: false,
+          replyTo: { kind: "message" as const, chatId, messageId },
+        }];
+      }
+    }
+
+    const store = createTelegramStore(new LinkedDiscussionTransport());
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-release");
+    await store.getState().loadMessageThreadHistory("chat-release", "release-post-1");
+
+    expect(store.getState().messages.get("chat-release")?.find(({ id }) =>
+      id === "release-post-1"
+    )?.discussionThread).toEqual({
+      chatId: "chat-discussion",
+      messageId: "discussion-root",
+    });
+    expect(store.getState().messages.get("chat-discussion")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "discussion-root" }),
+        expect.objectContaining({ id: "discussion-comment" }),
+      ]),
+    );
+  });
+
   it("rebuilds the encrypted UI snapshot from current live state", async () => {
     class RebuildTransport extends MockTelegramTransport {
       clears = 0;

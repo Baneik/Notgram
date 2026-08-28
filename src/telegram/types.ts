@@ -864,6 +864,8 @@ export interface MessageThread {
   messages: Message[];
 }
 
+export type MessageThreadReference = Pick<MessageThread, "chatId" | "messageId">;
+
 export interface MessagePermissions {
   canReply: boolean;
   canEdit: boolean;
@@ -888,6 +890,8 @@ export interface Message {
   renderKey?: string;
   chatId: string;
   topicId?: string;
+  /** Resolved linked discussion root for a channel post. */
+  discussionThread?: MessageThreadReference;
   mediaAlbumId?: string;
   senderId: string;
   senderTag?: string;

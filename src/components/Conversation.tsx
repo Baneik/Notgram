@@ -75,6 +75,7 @@ import {
   senderChatId,
   senderNameForMessage,
 } from "./conversationMessages";
+import { channelDiscussionProjection } from "../store/telegramStore.messages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { autoplayAllowed } from "../utils/motionPreference";
@@ -138,17 +139,10 @@ import {
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 const MESSAGE_TARGET_HIGHLIGHT_INSET_PX = 4;
 type DiscussionThreadState = {
-  comments: Message[];
   loading: boolean;
   error?: boolean;
   replyChatId?: string;
   replyMessageId?: string;
-};
-
-const mergeDiscussionComments = (current: Message[], incoming: Message[]) => {
-  const byId = new Map<string, Message>();
-  for (const comment of [...current, ...incoming]) byId.set(comment.id, comment);
-  return [...byId.values()].sort((left, right) => Date.parse(left.sentAt) - Date.parse(right.sentAt));
 };
 
 type MessageNavigationOptions = Pick<
@@ -468,6 +462,8 @@ export function Conversation({
   const [discussionThreads, setDiscussionThreads] = useState<Record<string, DiscussionThreadState>>({});
   const chatMessagesRef = useRef(chatMessages);
   chatMessagesRef.current = chatMessages;
+  const storedMessagesRef = useRef(storedMessages);
+  storedMessagesRef.current = storedMessages;
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
@@ -1718,23 +1714,17 @@ export function Conversation({
   const openChannelDiscussion = useCallback((post: Message) => {
     if (!channelDiscussionAvailable(post)) return;
     setDiscussionPost(post);
-    const commentsInHistory = chatMessagesRef.current.filter((message) => {
-      if (message.isChannelPost || message.replyTo?.kind !== "message") return false;
-      if (message.replyTo.messageId !== post.id) return false;
-      const origin = message.replyTo.origin;
-      return message.replyTo.chatId === post.chatId ||
-        (origin?.kind === "channel" && origin.chatId === post.chatId);
-    });
+    const threadKey = `${post.chatId}:${post.id}`;
+    const cachedDiscussion = channelDiscussionProjection(post, storedMessagesRef.current);
     setDiscussionThreads((current) => {
-      const previous = current[post.id];
+      const previous = current[threadKey];
       return {
         ...current,
-        [post.id]: {
-          comments: mergeDiscussionComments(previous?.comments ?? [], commentsInHistory),
+        [threadKey]: {
           loading: true,
           error: undefined,
-          replyChatId: previous?.replyChatId,
-          replyMessageId: previous?.replyMessageId,
+          replyChatId: cachedDiscussion.replyChatId ?? previous?.replyChatId,
+          replyMessageId: cachedDiscussion.replyMessageId ?? previous?.replyMessageId,
         },
       };
     });
@@ -1744,7 +1734,7 @@ export function Conversation({
       Math.max(100, post.interaction?.replyCount ?? 0),
     ).then((thread) => {
       setDiscussionThreads((current) => {
-        const previous = current[post.id];
+        const previous = current[threadKey];
         if (!previous) return current;
         const root = thread?.find((message) =>
           message.id === post.id || (
@@ -1762,13 +1752,9 @@ export function Conversation({
         const replyChatId = root?.chatId ?? directReplyTarget?.chatId ??
           directReply?.chatId ?? previous.replyChatId;
         const replyMessageId = root?.id ?? directReplyTarget?.messageId ?? previous.replyMessageId;
-        const comments = thread?.filter((message) =>
-          message.id !== root?.id && message.isChannelPost !== true
-        ) ?? [];
         return {
           ...current,
-          [post.id]: {
-            comments: mergeDiscussionComments(previous.comments, comments),
+          [threadKey]: {
             loading: false,
             error: !thread,
             replyChatId,
@@ -1801,6 +1787,21 @@ export function Conversation({
     await onForwardMessages(chat.id, [message.id], chat.id, topic?.id);
   }, [chat, closeActionMenu, onForwardMessages, topic?.id]);
 
+  const discussionThreadKey = discussionPost
+    ? `${discussionPost.chatId}:${discussionPost.id}`
+    : undefined;
+  const discussionState = discussionThreadKey ? discussionThreads[discussionThreadKey] : undefined;
+  const renderedDiscussionPost = discussionPost
+    ? storedMessages.get(discussionPost.chatId)?.find((message) => message.id === discussionPost.id) ?? discussionPost
+    : undefined;
+  const renderedDiscussion = useMemo(
+    () => renderedDiscussionPost
+      ? channelDiscussionProjection(renderedDiscussionPost, storedMessages)
+      : undefined,
+    [renderedDiscussionPost, storedMessages],
+  );
+  const channelDiscussionComments = renderedDiscussion?.comments ?? [];
+
   if (!chat) {
     return (
       <section
@@ -1815,13 +1816,6 @@ export function Conversation({
   }
 
   const isChannelConversation = chat.kind === "channel";
-  const discussionState = discussionPost ? discussionThreads[discussionPost.id] : undefined;
-  const renderedDiscussionPost = discussionPost
-    ? storedMessages.get(discussionPost.chatId)?.find((message) => message.id === discussionPost.id) ?? discussionPost
-    : undefined;
-  const channelDiscussionComments = discussionState?.comments.map((comment) =>
-    storedMessages.get(comment.chatId)?.find((message) => message.id === comment.id) ?? comment
-  ) ?? [];
   const reloadChannelDiscussion = async (post: Message) => {
     openChannelDiscussion(post);
   };
@@ -1831,10 +1825,12 @@ export function Conversation({
     _replyQuote?: MessageReplyQuote,
     entities?: MessageTextEntity[],
   ) => {
-    if (!discussionPost || !discussionState?.replyChatId || !discussionState.replyMessageId) return false;
+    const replyChatId = renderedDiscussion?.replyChatId ?? discussionState?.replyChatId;
+    const replyMessageId = renderedDiscussion?.replyMessageId ?? discussionState?.replyMessageId;
+    if (!discussionPost || !replyChatId || !replyMessageId) return false;
     const sent = await sendMessageToThread(
-      discussionState.replyChatId,
-      discussionState.replyMessageId,
+      replyChatId,
+      replyMessageId,
       text,
       entities,
     );
@@ -1846,10 +1842,12 @@ export function Conversation({
     caption?: string,
     captionEntities?: MessageTextEntity[],
   ) => {
-    if (!discussionPost || !discussionState?.replyChatId || !discussionState.replyMessageId) return false;
+    const replyChatId = renderedDiscussion?.replyChatId ?? discussionState?.replyChatId;
+    const replyMessageId = renderedDiscussion?.replyMessageId ?? discussionState?.replyMessageId;
+    if (!discussionPost || !replyChatId || !replyMessageId) return false;
     const sent = await sendFilesToThread(
-      discussionState.replyChatId,
-      discussionState.replyMessageId,
+      replyChatId,
+      replyMessageId,
       attachments,
       caption,
       captionEntities,
@@ -2750,8 +2748,8 @@ export function Conversation({
           users={users}
           currentUserId={currentUserId ?? "self"}
           connectionStatus={connectionStatus}
-          loading={discussionState?.loading ?? false}
-          loadError={discussionState?.error}
+          loading={(discussionState?.loading ?? false) && !renderedDiscussion?.cached}
+          loadError={!renderedDiscussion?.cached && discussionState?.error}
           onRetry={() => openChannelDiscussion(discussionPost)}
           onClose={onCloseDiscussion}
           onSend={sendDiscussionComment}

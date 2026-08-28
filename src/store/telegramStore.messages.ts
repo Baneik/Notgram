@@ -31,12 +31,11 @@ export const upsertMessages = (messages: Message[], incoming: Message[]) => {
   const byId = new Map(messages.map((message) => [message.id, message]));
   for (const message of incoming) {
     const existing = byId.get(message.id);
-    byId.set(
-      message.id,
-      existing?.renderKey && !message.renderKey
-        ? { ...message, renderKey: existing.renderKey }
-        : message,
-    );
+    const renderKey = message.renderKey ?? existing?.renderKey;
+    const discussionThread = message.discussionThread ?? existing?.discussionThread;
+    byId.set(message.id, renderKey || discussionThread
+      ? { ...message, renderKey, discussionThread }
+      : message);
   }
   return [...byId.values()].sort(compareMessages);
 };
@@ -114,6 +113,69 @@ export const messageMapFrom = (messages: Message[]) => {
     result.set(chatId, [...chatMessages].sort(compareMessages));
   }
   return result;
+};
+
+export interface ChannelDiscussionProjection {
+  root?: Message;
+  comments: Message[];
+  replyChatId?: string;
+  replyMessageId?: string;
+  cached: boolean;
+}
+
+export const channelDiscussionProjection = (
+  post: Message,
+  messages: ReadonlyMap<string, Message[]>,
+): ChannelDiscussionProjection => {
+  const reference = post.discussionThread;
+  const exactRoot = reference
+    ? messages.get(reference.chatId)?.find((message) => message.id === reference.messageId)
+    : undefined;
+  const root = exactRoot ?? messages.get(post.chatId)?.find((message) =>
+    message.id === post.id
+  );
+  const replyChatId = reference?.chatId ?? root?.chatId;
+  const replyMessageId = reference?.messageId ?? root?.id;
+  const comments: Message[] = [];
+
+  const candidateChatIds = new Set(
+    [post.chatId, reference?.chatId].filter((chatId): chatId is string => Boolean(chatId)),
+  );
+  for (const candidateChatId of candidateChatIds) {
+    const chatMessages = messages.get(candidateChatId);
+    if (!chatMessages) continue;
+    for (const message of chatMessages) {
+      if (
+        message.isChannelPost ||
+        (message.chatId === post.chatId && message.id === post.id) ||
+        (root && message.chatId === root.chatId && message.id === root.id)
+      ) continue;
+      const reply = message.replyTo?.kind === "message" ? message.replyTo : undefined;
+      const belongsToResolvedThread = Boolean(
+        replyChatId && replyMessageId && message.chatId === replyChatId && (
+          message.topicId === replyMessageId || (
+            reply?.messageId === replyMessageId &&
+            (!reply.chatId || reply.chatId === replyChatId)
+          )
+        ),
+      );
+      const origin = reply?.origin;
+      const isLegacyDirectReply = reply?.messageId === post.id && (
+        message.chatId === post.chatId ||
+        reply.chatId === post.chatId ||
+        (origin?.kind === "channel" && origin.chatId === post.chatId)
+      );
+      if (belongsToResolvedThread || isLegacyDirectReply) comments.push(message);
+    }
+  }
+
+  return {
+    root,
+    comments: upsertMessages([], comments),
+    replyChatId,
+    replyMessageId,
+    cached: Boolean((reference && exactRoot) || comments.length > 0),
+  };
 };
 
 export const pendingCachedIdsAfterConfirmation = (

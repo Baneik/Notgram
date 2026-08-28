@@ -7,9 +7,10 @@ import {
   currentAccountRegistration,
   shouldDiscardUnregisteredAccount,
 } from "./telegramStore.accounts";
-import { cachedSnapshotFrom, migrateCachedSnapshot } from "./telegramStore.cache";
+import { cachedSnapshotFrom, migrateCachedSnapshot, recentMessagesForCache } from "./telegramStore.cache";
 import { DraftSyncController } from "./telegramStore.drafts";
 import {
+  channelDiscussionProjection,
   pendingCachedIdsAfterConfirmation,
   replaceMessage,
   upsertMessage,
@@ -110,6 +111,53 @@ describe("telegram store message state", () => {
     expect(withEmojiReaction(reacted, "👍", false, "self").interaction?.reactions).toEqual([]);
   });
 
+  it("projects a linked channel discussion from the shared message cache", () => {
+    const post: Message = {
+      ...message("100"),
+      chatId: "channel",
+      senderId: "chat:channel",
+      outgoing: false,
+      isChannelPost: true,
+      discussionThread: { chatId: "discussion", messageId: "900" },
+    };
+    const root: Message = {
+      ...message("900"),
+      chatId: "discussion",
+      senderId: "chat:channel",
+      outgoing: false,
+    };
+    const first: Message = {
+      ...message("901", "2026-08-02T08:00:01Z"),
+      chatId: "discussion",
+      outgoing: false,
+      replyTo: { kind: "message", chatId: "discussion", messageId: root.id },
+    };
+    const nested: Message = {
+      ...message("902", "2026-08-02T08:00:02Z"),
+      chatId: "discussion",
+      outgoing: false,
+      topicId: root.id,
+      replyTo: { kind: "message", chatId: "discussion", messageId: first.id },
+    };
+    const messages = new Map([
+      [post.chatId, [post]],
+      [root.chatId, [root, nested, first]],
+    ]);
+
+    expect(channelDiscussionProjection(post, messages)).toMatchObject({
+      root: { id: root.id },
+      comments: [{ id: first.id }, { id: nested.id }],
+      replyChatId: root.chatId,
+      replyMessageId: root.id,
+      cached: true,
+    });
+    expect(upsertMessage([post], {
+      ...post,
+      discussionThread: undefined,
+      content: { kind: "text", text: "updated channel post" },
+    })[0].discussionThread).toEqual(post.discussionThread);
+  });
+
   it("acknowledges confirmed cache entries without inferring deletion from gaps", () => {
     const result = pendingCachedIdsAfterConfirmation(
       new Set(["8", "9", "10", "11"]),
@@ -201,6 +249,40 @@ describe("telegram store cache and accounts", () => {
         ? snapshot.messages[0].content.previewDataUrl
         : "unexpected content",
     ).toBeUndefined();
+  });
+
+  it("keeps linked discussion messages beside cached channel posts", () => {
+    const channel = { ...mockSnapshot.chats[0], id: "channel", kind: "channel" as const };
+    const post: Message = {
+      ...message("100"),
+      chatId: channel.id,
+      senderId: "chat:channel",
+      outgoing: false,
+      isChannelPost: true,
+      discussionThread: { chatId: "discussion", messageId: "900" },
+    };
+    const root: Message = {
+      ...message("900"),
+      chatId: "discussion",
+      outgoing: false,
+    };
+    const comment: Message = {
+      ...message("901"),
+      chatId: "discussion",
+      outgoing: false,
+      replyTo: { kind: "message", chatId: "discussion", messageId: root.id },
+    };
+    const cached = recentMessagesForCache({
+      chats: new Map([[channel.id, channel]]),
+      messages: new Map([[channel.id, [post]], [root.chatId, [root, comment]]]),
+      activeChatId: channel.id,
+    } as TelegramState);
+
+    expect(cached.map((item) => `${item.chatId}:${item.id}`)).toEqual([
+      "channel:100",
+      "discussion:900",
+      "discussion:901",
+    ]);
   });
 
   it("derives stable account registration and transition decisions", () => {
