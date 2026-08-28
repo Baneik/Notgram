@@ -3802,7 +3802,6 @@ test("conversation multi-select uses full message rows and albums can merge-forw
   })).toBe(true);
   const adjacent = await revealVirtualMessage(page, "p-3");
   await adjacent.click({ position: { x: 4, y: Math.max(2, Math.floor((await adjacent.boundingBox())!.height / 2)) } });
-  await expect(first).toHaveClass(/joins-selection-after/);
   await expect(adjacent).toHaveClass(/joins-selection-before/);
   const selectionOverlays = await Promise.all([first, adjacent].map((row) => row.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
@@ -3812,7 +3811,7 @@ test("conversation multi-select uses full message rows and albums can merge-forw
       bottom: bounds.bottom - Number.parseFloat(overlay.bottom),
     };
   })));
-  expect(selectionOverlays[0].bottom).toBeGreaterThanOrEqual(selectionOverlays[1].top - 0.5);
+  expect(Math.abs(selectionOverlays[0].bottom - selectionOverlays[1].top)).toBeLessThanOrEqual(0.5);
   await adjacent.click({ position: { x: 4, y: Math.max(2, Math.floor((await adjacent.boundingBox())!.height / 2)) } });
   const second = await revealVirtualMessage(page, "p-4");
   await second.click({ position: { x: 4, y: Math.max(2, Math.floor((await second.boundingBox())!.height / 2)) } });
@@ -4045,6 +4044,20 @@ test("search paginates, filters the current conversation by member, and opens ex
   await expect(search).toHaveValue("预览");
   const locatedMessage = page.locator('[data-message-id="p-5"]');
   await expect(locatedMessage).toHaveClass(/is-notification-target/);
+  const targetHighlight = page.locator('[data-highlight-message-id="p-5"]');
+  await expect(targetHighlight).toBeVisible();
+  await expect.poll(() => targetHighlight.evaluate((highlight) => {
+    const list = document.querySelector<HTMLElement>(".message-list");
+    const row = document.querySelector<HTMLElement>('[data-message-id="p-5"]');
+    if (!list || !row) return false;
+    const target = row.getBoundingClientRect();
+    const bounds = list.getBoundingClientRect();
+    const overlay = highlight.getBoundingClientRect();
+    return Math.abs(overlay.left - bounds.left) < 1 &&
+      Math.abs(overlay.right - bounds.right) < 1 &&
+      overlay.top <= target.top - 3.5 &&
+      overlay.bottom >= target.bottom + 3.5;
+  })).toBe(true);
   await expect.poll(() => locatedMessage.evaluate((element) => {
     const list = element.closest(".message-list")?.getBoundingClientRect();
     const row = element.getBoundingClientRect();

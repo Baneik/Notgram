@@ -103,7 +103,6 @@ export interface MessageBubbleProps {
   searchQuery?: string;
   selectionPending: boolean;
   joinsSelectionBefore: boolean;
-  joinsSelectionAfter: boolean;
   selectionLimitReached: boolean;
   onToggleSelection: (message: Message) => Promise<void>;
   onOpenActions: (
@@ -181,7 +180,6 @@ function MessageBubbleComponent({
   searchQuery,
   selectionPending,
   joinsSelectionBefore,
-  joinsSelectionAfter,
   selectionLimitReached,
   onToggleSelection,
   onOpenActions,
@@ -693,7 +691,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${channelPost ? "is-channel-post" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${joinsSelectionBefore ? "joins-selection-before" : ""} ${joinsSelectionAfter ? "joins-selection-after" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${channelPost ? "is-channel-post" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${joinsSelectionBefore ? "joins-selection-before" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       data-local-block-group={localBlockGroupId}
       onClick={(event) => {
@@ -1289,7 +1287,6 @@ export function MessageBubblePreview({
       highlighted={false}
       selectionPending={false}
       joinsSelectionBefore={false}
-      joinsSelectionAfter={false}
       selectionLimitReached={false}
       onToggleSelection={previewNoop}
       onOpenActions={previewNoop}

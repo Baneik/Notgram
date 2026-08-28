@@ -55,6 +55,7 @@ import {
 } from "../store/conversationActivity";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import { formatMessageDay, formatUnreadCount, localDateKey } from "../utils/formatters";
+import { observeLayout } from "../utils/layoutObservation";
 import { Avatar } from "./Avatar";
 import {
   DeleteMessagesDialog,
@@ -135,6 +136,7 @@ import {
 } from "../utils/localBlockedMessages";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
+const MESSAGE_TARGET_HIGHLIGHT_INSET_PX = 4;
 type DiscussionThreadState = {
   comments: Message[];
   loading: boolean;
@@ -1022,6 +1024,52 @@ export function Conversation({
     onLoadOlder: pinnedViewOpen ? async () => undefined : onLoadOlder,
     onUserScroll: handleConversationUserScroll,
   });
+  const messageTargetHighlightRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const highlight = messageTargetHighlightRef.current;
+    const list = messageListElement;
+    if (!highlight || !list || !highlightedMessageId) return;
+    const shell = list.closest<HTMLElement>(".message-list-shell");
+    const target = [...list.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((row) => row.dataset.messageId === highlightedMessageId);
+    if (!shell || !target) return;
+
+    let measurementFrame: number | undefined;
+    const measure = () => {
+      measurementFrame = undefined;
+      if (!target.isConnected || !list.contains(target)) {
+        highlight.style.visibility = "hidden";
+        return;
+      }
+      const shellBounds = shell.getBoundingClientRect();
+      const listBounds = list.getBoundingClientRect();
+      const targetBounds = target.getBoundingClientRect();
+      highlight.style.left = `${listBounds.left - shellBounds.left}px`;
+      highlight.style.top = `${targetBounds.top - shellBounds.top - MESSAGE_TARGET_HIGHLIGHT_INSET_PX}px`;
+      highlight.style.width = `${listBounds.width}px`;
+      highlight.style.height = `${targetBounds.height + MESSAGE_TARGET_HIGHLIGHT_INSET_PX * 2}px`;
+      highlight.style.visibility = "visible";
+    };
+    const scheduleMeasurement = () => {
+      if (measurementFrame !== undefined) return;
+      measurementFrame = requestAnimationFrame(measure);
+    };
+    measure();
+    list.addEventListener("scroll", scheduleMeasurement, { passive: true });
+    const content = list.querySelector<HTMLElement>(".message-list-content");
+    const stopObservingTarget = observeLayout(target, scheduleMeasurement);
+    const stopObservingList = observeLayout(list, scheduleMeasurement);
+    const stopObservingContent = content
+      ? observeLayout(content, scheduleMeasurement)
+      : undefined;
+    return () => {
+      list.removeEventListener("scroll", scheduleMeasurement);
+      stopObservingTarget();
+      stopObservingList();
+      stopObservingContent?.();
+      if (measurementFrame !== undefined) cancelAnimationFrame(measurementFrame);
+    };
+  }, [highlightedMessageId, messageListElement, virtuosoKey]);
   const showPinnedLoading = useStableVisibility(
     pinnedViewOpen && pinnedMessagesLoading && allPinnedMessages.length === 0,
   );
@@ -2303,6 +2351,15 @@ export function Conversation({
             {visibleMessageDay}
           </div>
         )}
+        {highlightedMessageId && (
+          <div
+            key={highlightedMessageId}
+            ref={messageTargetHighlightRef}
+            className="message-target-highlight"
+            data-highlight-message-id={highlightedMessageId}
+            aria-hidden="true"
+          />
+        )}
         <Virtuoso
           key={virtuosoKey}
           className={`message-list ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (historyLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
@@ -2455,7 +2512,6 @@ export function Conversation({
                         memberLabels.has(message.senderId);
                       const messageIndex = renderedMessageIndexes.get(message.id) ?? -1;
                       const previousMessage = renderedMessages[messageIndex - 1];
-                      const nextMessage = renderedMessages[messageIndex + 1];
                       const selected = selectedMessageIds.has(message.id);
                       const selectionPending = selectionLoadingIds.has(message.id);
                       const selectionHighlighted = selected || selectionPending;
@@ -2463,11 +2519,6 @@ export function Conversation({
                         previousMessage &&
                         localDateKey(previousMessage.sentAt) === localDateKey(message.sentAt) &&
                         (selectedMessageIds.has(previousMessage.id) || selectionLoadingIds.has(previousMessage.id)),
-                      );
-                      const joinsSelectionAfter = selectionHighlighted && Boolean(
-                        nextMessage &&
-                        localDateKey(nextMessage.sentAt) === localDateKey(message.sentAt) &&
-                        (selectedMessageIds.has(nextMessage.id) || selectionLoadingIds.has(nextMessage.id)),
                       );
                       const isChannelPost = isChannelConversation && message.isChannelPost === true;
                       const bubble = <RichMessageBubble
@@ -2533,7 +2584,6 @@ export function Conversation({
                         highlighted={highlightedMessageId === message.id}
                         selectionPending={selectionPending}
                         joinsSelectionBefore={joinsSelectionBefore}
-                        joinsSelectionAfter={joinsSelectionAfter}
                         selectionLimitReached={selectedMessageIds.size >= 100}
                         onToggleSelection={toggleMessageSelection}
                         onOpenActions={openActionMenu}
