@@ -3175,7 +3175,7 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
   await inline.getByRole("button").filter({ hasText: "快速摘要" }).click();
   await expect(page.getByText("@notgram_bot: release", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: /Release Notes/ }).first().click();
+  await page.locator('[data-chat-id="chat-mia"]').click();
   await composer.fill("/he");
   await composer.fill("/");
   await expect(suggestions.getByRole("option")).toHaveCount(3);
@@ -4509,6 +4509,247 @@ test("channel posts expose views, forwards, and author metadata without a sync f
   await expect(post.locator('[aria-label="转发 23 次"]')).toHaveText("23");
   await expect(post.locator('[aria-label="22200 次观看"]')).toHaveText("22.2K");
   await expect(post.locator(".message-channel-author")).toHaveText("Release editor");
+});
+
+test("channel post metadata and discussion messages keep shared conversation geometry", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+  await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
+  await page.evaluate(async ([storePath, preferencesPath]) => {
+    type TestMessage = {
+      id: string;
+      chatId: string;
+      senderId: string;
+      sentAt: string;
+      content: { kind: string; [key: string]: unknown };
+      [key: string]: unknown;
+    };
+    const [{ telegramStore }, { preferencesStore }] = await Promise.all([
+      import(storePath) as Promise<{ telegramStore: {
+        getState: () => { messages: Map<string, TestMessage[]> };
+        setState: (partial: Record<string, unknown>) => void;
+      } }>,
+      import(preferencesPath) as Promise<{ preferencesStore: {
+        setState: (partial: Record<string, unknown>) => void;
+      } }>,
+    ]);
+    preferencesStore.setState({
+      chatFontSize: 18,
+      messageGroupSpacing: 17,
+      messageRowSpacing: 4,
+      messageBubblePadding: 12,
+    });
+    const state = telegramStore.getState();
+    const releaseMessages = state.messages.get("chat-release") ?? [];
+    const root = releaseMessages.find((message) => message.id === "release-post-1")!;
+    const commonPost = {
+      chatId: "chat-release",
+      senderId: "chat:chat-release",
+      authorSignature: "Release editor",
+      isChannelPost: true,
+      outgoing: false,
+      delivery: "read",
+      interaction: {
+        viewCount: 432,
+        forwardCount: 7,
+        replyCount: 0,
+        reactions: [],
+        hasDiscussion: false,
+      },
+    };
+    const photoPost: TestMessage = {
+      ...commonPost,
+      id: "release-photo-post",
+      sentAt: "2026-08-01T09:51:00+08:00",
+      content: {
+        kind: "media",
+        mediaType: "photo",
+        fileId: 9_911,
+        fileName: "channel-photo.jpg",
+        localPath: "/mock-video-poster.jpg",
+        size: 4_096,
+        width: 640,
+        height: 360,
+        isDownloaded: true,
+      },
+    };
+    const filePost: TestMessage = {
+      ...commonPost,
+      id: "release-file-post",
+      sentAt: "2026-08-01T09:52:00+08:00",
+      editedAt: "2026-08-01T09:53:00+08:00",
+      content: {
+        kind: "file",
+        fileId: 9_912,
+        fileName: "notgram-channel-layout-regression-build.zip",
+        mimeType: "application/zip",
+        size: 9_500_000,
+        canDownload: true,
+        isDownloaded: false,
+        isDownloading: false,
+        caption: "文件说明与普通消息使用同一文本字号和水平内边距。",
+      },
+    };
+    const longTextPost: TestMessage = {
+      ...commonPost,
+      id: "release-long-text-post",
+      sentAt: "2026-08-01T09:54:00+08:00",
+      isPinned: true,
+      content: {
+        kind: "text",
+        text: "这是一条用于覆盖窄宽度、长文本、置顶状态以及频道统计信息换行的测试消息。",
+      },
+    };
+    const replyTo = {
+      kind: "message",
+      chatId: "chat-release",
+      messageId: root.id,
+      content: root.content,
+    };
+    const comments: TestMessage[] = [
+      {
+        id: "release-comment-layout-text",
+        chatId: "chat-release",
+        senderId: "u-mia",
+        outgoing: false,
+        sentAt: "2026-08-01T09:55:00+08:00",
+        delivery: "read",
+        replyTo,
+        content: { kind: "text", text: "讨论区普通文本样例" },
+      },
+      {
+        id: "release-comment-layout-long",
+        chatId: "chat-release",
+        senderId: "u-mia",
+        outgoing: false,
+        sentAt: "2026-08-01T09:56:00+08:00",
+        delivery: "read",
+        replyTo,
+        content: {
+          kind: "text",
+          text: "讨论区长文本需要与群组会话保持相同的头像占位、气泡边距、行间距和右下角时间布局。",
+        },
+      },
+      {
+        id: "release-comment-layout-file",
+        chatId: "chat-release",
+        senderId: "u-mia",
+        outgoing: false,
+        sentAt: "2026-08-01T09:57:00+08:00",
+        delivery: "read",
+        replyTo,
+        content: {
+          kind: "file",
+          fileId: 9_913,
+          fileName: "discussion-attachment-with-a-long-name.pdf",
+          mimeType: "application/pdf",
+          size: 1_024_000,
+          canDownload: true,
+          isDownloaded: false,
+          isDownloading: false,
+          caption: "讨论区附件说明",
+        },
+      },
+      {
+        id: "release-comment-layout-outgoing",
+        chatId: "chat-release",
+        senderId: "self",
+        outgoing: true,
+        sentAt: "2026-08-01T09:58:00+08:00",
+        delivery: "read",
+        replyTo,
+        content: { kind: "text", text: "讨论区发出消息样例" },
+      },
+    ];
+    const nextMessages = new Map(state.messages);
+    nextMessages.set("chat-release", [
+      ...releaseMessages.filter((message) => !message.id.startsWith("release-comment-")),
+      photoPost,
+      filePost,
+      longTextPost,
+      ...comments,
+    ]);
+    telegramStore.setState({
+      messages: nextMessages,
+      loadMessageThreadHistory: async () => [root, ...comments],
+    });
+  }, ["/src/store/telegramStore.ts", "/src/store/preferencesStore.ts"]);
+
+  const photoPost = page.locator('[data-message-id="release-photo-post"]');
+  const filePost = page.locator('[data-message-id="release-file-post"]');
+  const textPost = page.locator('[data-message-id="release-long-text-post"]');
+  await expect(photoPost).toBeVisible();
+  await expect(filePost).toBeVisible();
+  await expect(textPost).toBeVisible();
+
+  const photoMeta = photoPost.locator(".message-meta.is-channel-meta");
+  await expect(photoMeta).toHaveCSS("opacity", "1");
+  await expect(photoMeta.locator('[aria-label="转发 7 次"]')).toBeVisible();
+  await expect(photoMeta.locator('[aria-label="432 次观看"]')).toBeVisible();
+  const [photoBubbleBounds, photoMetaBounds] = await Promise.all([
+    photoPost.locator(".message-bubble").boundingBox(),
+    photoMeta.boundingBox(),
+  ]);
+  expect(photoMetaBounds!.y + photoMetaBounds!.height).toBeLessThanOrEqual(
+    photoBubbleBounds!.y + photoBubbleBounds!.height + 1,
+  );
+
+  const [fileBubbleBounds, fileContentBounds, fileMetaBounds, fileStatusBounds] = await Promise.all([
+    filePost.locator(".message-bubble").boundingBox(),
+    filePost.locator(".file-primary-action").boundingBox(),
+    filePost.locator(".message-meta.is-channel-meta").boundingBox(),
+    filePost.locator(".message-meta-status").boundingBox(),
+  ]);
+  expect(fileContentBounds!.x - fileBubbleBounds!.x).toBeCloseTo(14, 0);
+  expect(fileMetaBounds!.x).toBeGreaterThanOrEqual(fileBubbleBounds!.x);
+  expect(fileMetaBounds!.x + fileMetaBounds!.width).toBeLessThanOrEqual(
+    fileBubbleBounds!.x + fileBubbleBounds!.width + 1,
+  );
+  expect(fileStatusBounds!.x + fileStatusBounds!.width).toBeLessThanOrEqual(
+    fileBubbleBounds!.x + fileBubbleBounds!.width - 10,
+  );
+
+  const textMeta = textPost.locator(".message-meta.is-channel-meta");
+  const [textStatsBounds, textStatusBounds] = await Promise.all([
+    textMeta.locator(".message-meta-stats").boundingBox(),
+    textMeta.locator(".message-meta-status").boundingBox(),
+  ]);
+  expect(textStatsBounds!.x + textStatsBounds!.width).toBeLessThanOrEqual(textStatusBounds!.x + 1);
+
+  await page.locator('[data-message-id="release-post-1"]')
+    .getByRole("button", { name: "2 条评论" })
+    .click();
+  const panel = page.locator(".channel-discussion-panel");
+  const incoming = panel.locator('[data-message-id="release-comment-layout-text"]');
+  const longIncoming = panel.locator('[data-message-id="release-comment-layout-long"]');
+  const fileIncoming = panel.locator('[data-message-id="release-comment-layout-file"]');
+  const outgoing = panel.locator('[data-message-id="release-comment-layout-outgoing"]');
+  await expect(incoming).toBeVisible();
+  await expect(longIncoming).toBeVisible();
+  await expect(fileIncoming).toBeVisible();
+  await expect(outgoing).toBeVisible();
+  await expect(incoming.locator(".message-rich-text")).toHaveCSS("font-size", "18px");
+  await expect(incoming).toHaveCSS("margin-top", "4px");
+  await expect(incoming.locator(".message-bubble")).toHaveCSS("padding-top", "12px");
+  const groupAncestor = "xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' message-group ')]";
+  const incomingGroup = incoming.locator(groupAncestor);
+  await expect(incomingGroup).toHaveCSS("margin-bottom", "17px");
+  await expect(incomingGroup.locator(".message-group-avatar .avatar")).toHaveCount(1);
+  await expect(outgoing.locator(groupAncestor).locator(".message-group-avatar"))
+    .toHaveCount(0);
+  const [streamBounds, outgoingBubbleBounds, discussionFileBubbleBounds, discussionFileMetaBounds] = await Promise.all([
+    panel.locator(".channel-discussion-stream").boundingBox(),
+    outgoing.locator(".message-bubble").boundingBox(),
+    fileIncoming.locator(".message-bubble").boundingBox(),
+    fileIncoming.locator(".message-meta").boundingBox(),
+  ]);
+  expect(outgoingBubbleBounds!.x + outgoingBubbleBounds!.width).toBeLessThanOrEqual(
+    streamBounds!.x + streamBounds!.width + 1,
+  );
+  expect(discussionFileMetaBounds!.x + discussionFileMetaBounds!.width).toBeLessThanOrEqual(
+    discussionFileBubbleBounds!.x + discussionFileBubbleBounds!.width + 1,
+  );
+  await expect.poll(() => horizontalOverflow(page)).toBe(false);
 });
 
 test("channel posts integrate their comment action and load the linked discussion thread", async ({ page }) => {

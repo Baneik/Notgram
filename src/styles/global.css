@@ -1150,15 +1150,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .media-album-grid .message-meta svg { color: var(--color-on-media); }
 @media (hover: hover) and (pointer: fine) {
   .media-album-grid .message-meta,
-  .message-bubble.is-photo.media-bubble-photo:not(.has-caption) .message-meta {
+  .message-bubble.is-photo.media-bubble-photo:not(.has-caption):not(.is-channel-post-bubble) .message-meta {
     opacity: 0; pointer-events: none; transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
   }
   .media-album-grid .message-row:hover .message-bubble.is-photo .message-meta,
   .media-album-grid .message-row:focus-within .message-bubble.is-photo .message-meta,
   .media-album-grid .message-row:has(.photo-open:hover) .message-meta,
-  .message-bubble.is-photo.media-bubble-photo:not(.has-caption):hover .message-meta,
-  .message-bubble.is-photo.media-bubble-photo:not(.has-caption):focus-within .message-meta,
-  .message-bubble.is-photo.media-bubble-photo:not(.has-caption):has(.photo-open:hover) .message-meta {
+  .message-bubble.is-photo.media-bubble-photo:not(.has-caption):not(.is-channel-post-bubble):hover .message-meta,
+  .message-bubble.is-photo.media-bubble-photo:not(.has-caption):not(.is-channel-post-bubble):focus-within .message-meta,
+  .message-bubble.is-photo.media-bubble-photo:not(.has-caption):not(.is-channel-post-bubble):has(.photo-open:hover) .message-meta {
     opacity: 1;
   }
 }
@@ -1213,11 +1213,23 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-bubble.is-channel-post-bubble .message-meta { color: var(--muted); }
 .message-bubble.is-channel-post-bubble .message-channel-author { color: var(--muted); }
 .message-bubble.is-channel-post-bubble .message-meta.is-channel-meta {
-  width: 100%; max-width: 100%; margin-top: 7px !important; display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; float: none !important; transform: none;
+  width: 100%; max-width: 100%; min-width: 0; margin-top: 7px !important; padding-inline: 0;
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px; float: none !important;
+  flex-wrap: wrap; overflow: hidden; transform: none; opacity: 1; pointer-events: auto;
 }
 .message-meta-stats, .message-meta-status { min-width: 0; display: inline-flex; align-items: center; gap: 3px; }
 .message-meta-stats { flex: 1 1 auto; flex-wrap: wrap; }
 .message-meta-status { flex: 0 0 auto; white-space: nowrap; }
+.message-meta.is-channel-meta .message-meta-stats {
+  flex: 0 1 auto; justify-content: flex-end; overflow: hidden;
+}
+.message-bubble.is-channel-post-bubble .attachment-message { min-width: 0; padding-inline: 13px; }
+.message-bubble.is-channel-post-bubble > .message-meta.is-channel-meta {
+  min-height: 34px; margin: 0 !important; padding: 8px 13px 9px; border-top: 1px solid var(--color-border-subtle);
+}
+.message-bubble.is-channel-post-bubble > .message-reaction-footer > .message-meta.is-channel-meta {
+  width: auto; min-height: 18px; margin: 0 0 0 auto !important; padding: 0; flex: 0 1 auto;
+}
 .channel-post-discussion {
   min-height: 32px; width: 100%; margin-top: 2px; padding: 0 11px; display: flex; align-items: center; gap: 7px;
   color: var(--accent); background: var(--color-bg-surface);
@@ -1260,23 +1272,14 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   border: 2px solid transparent; border-radius: 999px;
 }
 .channel-discussion-stream {
-  min-width: 0; width: min(720px, 100%); min-height: 100%; margin: 0 auto; padding: 10px 15px 16px;
+  min-width: 0; width: min(720px, 100%); min-height: 100%; margin: 0 auto;
+  padding: 20px var(--message-list-inline-padding, 10px) 16px;
 }
 .channel-discussion-empty { min-height: 180px; display: grid; place-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .channel-discussion-error .text-button { min-height: 28px; display: inline-flex; align-items: center; gap: 5px; color: var(--accent); background: transparent; border: 0; cursor: pointer; font-size: 11px; }
-.channel-discussion-message { display: flex; align-items: flex-end; gap: 8px; margin: 9px 0; }
-.channel-discussion-message.is-outgoing { flex-direction: row-reverse; }
-.channel-discussion-message-main { min-width: 0; max-width: none; flex: 1 1 auto; }
-.channel-discussion-message-meta { min-width: 0; margin: 0 5px 3px; display: flex; align-items: baseline; gap: 7px; color: var(--muted); font-size: 10px; }
-.channel-discussion-message-meta strong { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.channel-discussion-message.is-outgoing .channel-discussion-message-meta { justify-content: flex-end; }
-.channel-discussion-message-bubble { padding: 8px 10px; border-radius: 10px; box-shadow: 0 1px 2px var(--color-shadow); }
-.channel-discussion-message.is-outgoing .channel-discussion-message-bubble { background: var(--outgoing); }
-.channel-discussion-message-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--chat-font-size); line-height: 1.48; }
-.channel-discussion-message .message-row { margin: 0; }
-.channel-discussion-message .message-bubble-shell { max-width: min(74%, 720px); }
-.channel-discussion-message .message-bubble { max-width: 100%; }
-.channel-discussion-message .message-sender-row { margin-bottom: 2px; }
+.channel-discussion-message-group { margin-block: var(--message-group-spacing); }
+.channel-discussion-message-group .message-bubble-shell { max-width: min(74%, 720px); }
+.channel-discussion-message-group .message-bubble { max-width: 100%; }
 .channel-discussion-composer { min-height: 0; border-top: 1px solid var(--line); }
 .channel-discussion-composer .composer-wrap { width: 100%; }
 .message-service-content button {
@@ -2104,15 +2107,15 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .message-bubble.is-channel-post-bubble .message-text-flow > .message-meta.is-channel-meta,
 .message-bubble.is-channel-post-bubble .message-text-flow.is-meta-wrapped > .message-meta.is-channel-meta {
   width: 100%; max-width: 100%; min-height: 18px; margin: 8px 0 0 !important;
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  float: none !important; color: var(--muted); transform: none;
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  flex-wrap: wrap; overflow: hidden; float: none !important; color: var(--muted); transform: none;
 }
 .message-bubble.is-channel-post-bubble.is-photo:not(.has-caption) > .message-meta.is-channel-meta {
   position: static; z-index: auto; width: 100%; max-width: 100%; min-height: 34px;
   margin: 0 !important; padding: 8px 12px 9px; display: flex; align-items: center;
-  justify-content: space-between; gap: 8px; float: none !important; color: var(--muted);
+  justify-content: flex-end; gap: 8px; flex-wrap: wrap; overflow: hidden; float: none !important; color: var(--muted);
   background: var(--color-bg-surface); border-top: 1px solid var(--color-border-subtle);
-  border-radius: 0; transform: none;
+  border-radius: 0; transform: none; opacity: 1; pointer-events: auto;
 }
 .message-bubble.is-channel-post-bubble .message-meta.is-channel-meta svg { color: currentColor; }
 .message-bubble.is-channel-post-bubble > .message-reaction-footer {
@@ -2124,7 +2127,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 }
 .message-bubble.is-channel-post-bubble > .message-reaction-footer > .message-meta.is-channel-meta {
   width: auto; max-width: 100%; min-height: 18px; margin: 0 !important; padding: 0;
-  flex: 1 1 200px; align-items: center; background: transparent;
+  flex: 0 1 auto; align-items: center; justify-content: flex-end; background: transparent;
 }
 .media-progress { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; padding: 0; display: grid; place-items: center; color: var(--color-on-media); background: var(--color-overlay); border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); }
 .media-progress > span { width: 32px; height: 32px; display: grid; place-items: center; }

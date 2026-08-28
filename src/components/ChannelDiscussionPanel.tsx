@@ -103,9 +103,18 @@ export function ChannelDiscussionPanel({
           ) : comments.map((comment) => {
             const senderName = senderFor(comment, users, currentUserId);
             return (
-              <div className={`channel-discussion-message ${comment.outgoing ? "is-outgoing" : "is-incoming"}`} key={comment.id}>
-                <Avatar avatar={avatarFor(comment, users, currentUserId)} size="small" />
-                <div className="channel-discussion-message-main">
+              <div
+                className={`message-group channel-discussion-message-group ${comment.outgoing ? "is-outgoing" : "is-incoming"}`}
+                key={comment.id}
+              >
+                {!comment.outgoing && (
+                  <span className="message-group-avatar">
+                    <span className="message-sender-avatar" aria-hidden="true">
+                      <Avatar avatar={avatarFor(comment, users, currentUserId)} size="small" />
+                    </span>
+                  </span>
+                )}
+                <div className="message-group-stack">
                   <MessageBubblePreview
                     message={comment}
                     senderName={senderName}
