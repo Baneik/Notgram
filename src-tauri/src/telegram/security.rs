@@ -43,6 +43,8 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChat",
     "getChatFolder",
     "getChatHistory",
+    "getMessageThread",
+    "getMessageThreadHistory",
     "getChatMessageByDate",
     "getForumTopic",
     "getForumTopicHistory",
@@ -793,6 +795,25 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 .is_none_or(|date| date < 0)
             {
                 return Err("Invalid message date".to_string());
+            }
+        }
+        "getMessageThread" => validate_message_target(request)?,
+        "getMessageThreadHistory" => {
+            validate_message_target(request)?;
+            if request
+                .get("from_message_id")
+                .and_then(Value::as_i64)
+                .is_none_or(|message_id| message_id < 0)
+                || request
+                    .get("offset")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|offset| !(-100..=0).contains(&offset))
+                || request
+                    .get("limit")
+                    .and_then(Value::as_i64)
+                    .is_none_or(|limit| !(1..=100).contains(&limit))
+            {
+                return Err("Invalid message thread pagination".to_string());
             }
         }
         "sendChatAction" => validate_chat_action(request)?,
@@ -2336,6 +2357,40 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&message_by_date).is_ok());
+    }
+
+    #[test]
+    fn validates_message_thread_history_pagination() {
+        let thread = json!({
+            "@type": "getMessageThread",
+            "chat_id": 7,
+            "message_id": 31,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&thread).is_ok());
+
+        let request = json!({
+            "@type": "getMessageThreadHistory",
+            "chat_id": 7,
+            "message_id": 31,
+            "from_message_id": 0,
+            "offset": 0,
+            "limit": 100,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&request).is_ok());
+
+        let mut oversized_page = request.clone();
+        oversized_page["limit"] = json!(101);
+        assert!(validate_webview_tdlib_request(&oversized_page).is_err());
+
+        let mut invalid_offset = request.clone();
+        invalid_offset["offset"] = json!(1);
+        assert!(validate_webview_tdlib_request(&invalid_offset).is_err());
+
+        let mut invalid_target = request.clone();
+        invalid_target["message_id"] = json!(0);
+        assert!(validate_webview_tdlib_request(&invalid_target).is_err());
     }
 
     #[test]

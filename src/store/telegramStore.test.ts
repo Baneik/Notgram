@@ -2999,6 +2999,37 @@ describe("chat filtering", () => {
     );
   });
 
+  it("loads a channel thread and sends comments to its resolved root", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+
+    const thread = await store.getState().loadMessageThreadHistory(
+      "chat-release",
+      "release-post-1",
+    );
+    expect(thread?.map((message) => message.id)).toEqual([
+      "release-post-1",
+      "release-comment-1",
+      "release-comment-2",
+    ]);
+
+    await expect(store.getState().sendMessageToThread(
+      "chat-release",
+      "release-post-1",
+      "thread comment",
+    )).resolves.toBe(true);
+    expect(store.getState().messages.get("chat-release")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          outgoing: true,
+          replyTo: expect.objectContaining({ messageId: "release-post-1" }),
+          content: expect.objectContaining({ kind: "text", text: "thread comment" }),
+        }),
+      ]),
+    );
+  });
+
   it("rebuilds the encrypted UI snapshot from current live state", async () => {
     class RebuildTransport extends MockTelegramTransport {
       clears = 0;

@@ -4511,6 +4511,230 @@ test("channel posts expose views, forwards, and author metadata without a sync f
   await expect(post.locator(".message-channel-author")).toHaveText("Release editor");
 });
 
+test("channel posts integrate their comment action and load the linked discussion thread", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+  const post = page.locator('[data-message-id="release-post-1"]');
+  await expect(post).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "消息内容" })).toHaveCount(0);
+  await expect(page.locator('[data-message-id="release-comment-1"]')).toHaveCount(0);
+
+  const commentButton = post.getByRole("button", { name: "2 条评论" });
+  await expect(commentButton).toHaveText("2条评论");
+  const [bubbleBounds, buttonBounds, shellBounds, conversationBounds] = await Promise.all([
+    post.locator(".message-bubble").boundingBox(),
+    commentButton.boundingBox(),
+    post.locator(".message-bubble-shell").boundingBox(),
+    page.locator(".conversation").boundingBox(),
+  ]);
+  expect(buttonBounds!.y).toBeGreaterThanOrEqual(bubbleBounds!.y);
+  expect(buttonBounds!.y + buttonBounds!.height).toBeLessThanOrEqual(
+    bubbleBounds!.y + bubbleBounds!.height + 1,
+  );
+  expect(Math.abs(buttonBounds!.width - bubbleBounds!.width)).toBeLessThanOrEqual(2.5);
+  expect(shellBounds!.width).toBeLessThanOrEqual(
+    Math.min(conversationBounds!.width * 0.74, 720) + 1,
+  );
+  const [bubbleBackground, buttonBackground] = await Promise.all([
+    post.locator(".message-bubble").evaluate((element) => getComputedStyle(element).backgroundColor),
+    commentButton.evaluate((element) => getComputedStyle(element).backgroundColor),
+  ]);
+  expect(buttonBackground).toBe(bubbleBackground);
+
+  const meta = post.locator(".message-meta.is-channel-meta");
+  const [statsBounds, statusBounds] = await Promise.all([
+    meta.locator(".message-meta-stats").boundingBox(),
+    meta.locator(".message-meta-status").boundingBox(),
+  ]);
+  expect(statsBounds!.x + statsBounds!.width).toBeLessThanOrEqual(statusBounds!.x + 1);
+
+  await commentButton.click();
+  const panel = page.locator(".channel-discussion-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.locator(".channel-discussion-heading")).toHaveText("Release Notes");
+  await expect(panel.locator(".channel-discussion-heading-label")).toHaveCount(0);
+  await expect(panel.locator(".channel-discussion-count")).toHaveCount(0);
+  await expect(panel.locator('[data-message-id="release-comment-1"]')).toBeVisible();
+  await expect(panel.locator('[data-message-id="release-comment-2"]')).toBeVisible();
+  await expect(panel.getByText("还没有留言")).toHaveCount(0);
+
+  const panelPost = panel.locator('[data-message-id="release-post-1"]');
+  const discussionScroller = panel.locator(".channel-discussion-messages");
+  await expect.poll(() => panelPost.evaluate((element) =>
+    Boolean(element.closest(".channel-discussion-messages"))
+  )).toBe(true);
+  const [panelBounds, scrollerBounds, backBounds, headingBounds] = await Promise.all([
+    panel.boundingBox(),
+    discussionScroller.boundingBox(),
+    panel.getByRole("button", { name: "返回频道" }).boundingBox(),
+    panel.locator(".channel-discussion-heading").boundingBox(),
+  ]);
+  expect(Math.abs(
+    panelBounds!.x + panelBounds!.width - (scrollerBounds!.x + scrollerBounds!.width),
+  )).toBeLessThanOrEqual(1);
+  expect(headingBounds!.x).toBeGreaterThanOrEqual(backBounds!.x + backBounds!.width);
+  expect(headingBounds!.x).toBeLessThan(panelBounds!.x + panelBounds!.width * 0.25);
+  await expect(panelPost.locator(".message-bubble")).toHaveCSS("border-radius", "10px");
+  await expect(panelPost.locator(".message-bubble")).toHaveCSS("overflow", "hidden");
+  const [panelPostBubbleBounds, panelPostMetaBounds] = await Promise.all([
+    panelPost.locator(".message-bubble").boundingBox(),
+    panelPost.locator(".message-meta.is-channel-meta").boundingBox(),
+  ]);
+  expect(panelPostBubbleBounds!.y + panelPostBubbleBounds!.height -
+    (panelPostMetaBounds!.y + panelPostMetaBounds!.height)).toBeGreaterThanOrEqual(8);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent("pointerdown", { button: 3, bubbles: true, cancelable: true }));
+  });
+  await expect(panel).toHaveCount(0);
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent("pointerdown", { button: 4, bubbles: true, cancelable: true }));
+  });
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('[data-message-id="release-comment-1"]')).toBeVisible();
+  await panel.getByRole("button", { name: "返回频道" }).click();
+  await expect(panel).toHaveCount(0);
+
+  await commentButton.click();
+  await expect(panel).toBeVisible();
+
+  const composer = panel.locator(".composer");
+  await expect(composer.getByRole("button", { name: "添加附件" })).toBeVisible();
+  await expect(composer.getByRole("button", { name: "表情" })).toBeVisible();
+  await composer.getByRole("textbox", { name: "消息内容" }).fill("E2E thread comment");
+  await composer.getByRole("button", { name: "发送消息" }).click();
+  await expect(panel.getByText("E2E thread comment")).toBeVisible();
+
+  await page.setViewportSize({ width: 1280, height: 320 });
+  await discussionScroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+  await expect.poll(() => discussionScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(panelPost).not.toBeInViewport();
+});
+
+test("channel discussions auto-load media and stickers with live file updates", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+  await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
+  await page.evaluate(async ([storePath, preferencesPath]) => {
+    type TestMessage = {
+      id: string;
+      chatId: string;
+      senderId: string;
+      sentAt: string;
+      content: { kind: string; fileId?: number; [key: string]: unknown };
+      [key: string]: unknown;
+    };
+    const [{ telegramStore }, { preferencesStore }] = await Promise.all([
+      import(storePath) as Promise<{ telegramStore: {
+        getState: () => { messages: Map<string, TestMessage[]> };
+        setState: (partial: Record<string, unknown>) => void;
+      } }>,
+      import(preferencesPath) as Promise<{ preferencesStore: {
+        setState: (partial: Record<string, unknown>) => void;
+      } }>,
+    ]);
+    preferencesStore.setState({ autoDownloadImages: true, autoDownloadLimitMb: 10 });
+    const state = telegramStore.getState();
+    const releaseMessages = state.messages.get("chat-release") ?? [];
+    const root = releaseMessages.find((message) => message.id === "release-post-1")!;
+    const replyTo = {
+      kind: "message",
+      chatId: "chat-release",
+      messageId: root.id,
+      content: root.content,
+    };
+    const mediaComment: TestMessage = {
+      id: "release-comment-media",
+      chatId: "chat-release",
+      senderId: "u-mia",
+      outgoing: false,
+      sentAt: "2026-08-01T09:49:30+08:00",
+      delivery: "read",
+      replyTo,
+      content: {
+        kind: "media",
+        mediaType: "photo",
+        fileId: 9_901,
+        fileName: "discussion-photo.jpg",
+        size: 4_096,
+        width: 640,
+        height: 360,
+        canDownload: true,
+        isDownloaded: false,
+        isDownloading: false,
+      },
+    };
+    const stickerComment: TestMessage = {
+      id: "release-comment-sticker",
+      chatId: "chat-release",
+      senderId: "self",
+      outgoing: true,
+      sentAt: "2026-08-01T09:49:40+08:00",
+      delivery: "read",
+      replyTo,
+      content: {
+        kind: "media",
+        mediaType: "sticker",
+        fileId: 9_902,
+        stickerSetId: "7701",
+        fileName: "discussion-sticker.webp",
+        mimeType: "image/webp",
+        size: 4_096,
+        width: 512,
+        height: 512,
+        canDownload: true,
+        isDownloaded: false,
+        isDownloading: false,
+      },
+    };
+    const messages = new Map(state.messages);
+    messages.set("chat-release", [
+      ...releaseMessages.filter((message) => !message.id.startsWith("release-comment-")),
+      mediaComment,
+      stickerComment,
+    ]);
+    (window as unknown as { __discussionCachedFiles: number[] }).__discussionCachedFiles = [];
+    telegramStore.setState({
+      messages,
+      loadMessageThreadHistory: async () => [root, mediaComment, stickerComment],
+      cacheFile: async (fileId: number) => {
+        (window as unknown as { __discussionCachedFiles: number[] }).__discussionCachedFiles.push(fileId);
+        const latest = telegramStore.getState().messages;
+        const next = new Map(latest);
+        next.set("chat-release", (next.get("chat-release") ?? []).map((message) =>
+          message.content.fileId === fileId
+            ? {
+                ...message,
+                content: {
+                  ...message.content,
+                  localPath: "/mock-video-poster.jpg",
+                  canDownload: false,
+                  isDownloaded: true,
+                  isDownloading: false,
+                },
+              }
+            : message
+        ));
+        telegramStore.setState({ messages: next });
+      },
+    });
+  }, ["/src/store/telegramStore.ts", "/src/store/preferencesStore.ts"]);
+
+  await page.locator('[data-message-id="release-post-1"]')
+    .getByRole("button", { name: "2 条评论" })
+    .click();
+  const panel = page.locator(".channel-discussion-panel");
+  const mediaComment = panel.locator('[data-message-id="release-comment-media"]');
+  const stickerComment = panel.locator('[data-message-id="release-comment-sticker"]');
+  await expect(mediaComment).toBeVisible();
+  await expect(stickerComment).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __discussionCachedFiles: number[] }
+  ).__discussionCachedFiles)).toEqual(expect.arrayContaining([9_901, 9_902]));
+  await expect(mediaComment.locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
+  await expect(stickerComment.locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
+});
+
 test("reply previews jump to their source and channel senders keep their identity", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");

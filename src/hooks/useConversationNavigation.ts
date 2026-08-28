@@ -6,6 +6,7 @@ import type { SidebarSearchScope } from "./useSidebarSearch";
 export interface ConversationNavigationLocation {
   chatId?: string;
   topicId?: string;
+  discussionPostId?: string;
   chatFilter: ChatFilter;
   searchQuery: string;
   searchScope: SidebarSearchScope;
@@ -38,6 +39,7 @@ const sameLocation = (
 ) => Boolean(left &&
   left.chatId === right.chatId &&
   left.topicId === right.topicId &&
+  left.discussionPostId === right.discussionPostId &&
   left.chatFilter === right.chatFilter &&
   left.searchQuery === right.searchQuery &&
   left.searchScope.type === right.searchScope.type &&

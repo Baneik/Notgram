@@ -267,6 +267,42 @@ export class TauriMessageMediaService {
       .filter((message): message is Message => Boolean(message));
   }
 
+  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100) {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const result = await this.context.request({
+      "@type": "getMessageThreadHistory",
+      chat_id: numericId(chatId),
+      message_id: numericId(messageId),
+      from_message_id: 0,
+      offset: 0,
+      limit: boundedLimit,
+    });
+    const rawMessages = asTdObjects(result.messages);
+    this.context.emitMessages(rawMessages);
+    return rawMessages
+      .map((raw) => this.context.mapMessage(raw))
+      .filter((message): message is Message => Boolean(message));
+  }
+
+  async getMessageThread(chatId: string, messageId: string) {
+    const result = await this.context.request({
+      "@type": "getMessageThread",
+      chat_id: numericId(chatId),
+      message_id: numericId(messageId),
+    });
+    const rawMessages = asTdObjects(result.messages);
+    this.context.emitMessages(rawMessages);
+    const threadChatId = tdId(result.chat_id) ?? chatId;
+    const threadMessageId = tdId(result.message_thread_id) ?? messageId;
+    return {
+      chatId: threadChatId,
+      messageId: threadMessageId,
+      messages: rawMessages
+        .map((raw) => this.context.mapMessage(raw))
+        .filter((message): message is Message => Boolean(message)),
+    };
+  }
+
   async getMessage(chatId: string, messageId: string) {
     const raw = await this.context.request({
       "@type": "getMessage",

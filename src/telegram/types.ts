@@ -854,6 +854,14 @@ export interface MessageInteraction {
   replyCount: number;
   reactions: MessageReaction[];
   canGetAddedReactions?: boolean;
+  /** Whether this channel post has a linked discussion group, even when it has no replies yet. */
+  hasDiscussion?: boolean;
+}
+
+export interface MessageThread {
+  chatId: string;
+  messageId: string;
+  messages: Message[];
 }
 
 export interface MessagePermissions {

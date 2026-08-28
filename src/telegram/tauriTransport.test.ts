@@ -3394,6 +3394,59 @@ describe("TauriTelegramTransport message operations", () => {
     }]);
   });
 
+  it("loads channel discussion messages from the linked message thread", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "messages",
+        messages: [rawMessage(45), rawMessage(44)],
+      };
+    };
+
+    const comments = await transport.getMessageThreadHistory("7", "42", 100);
+
+    expect(comments.map((message) => message.id)).toEqual(["45", "44"]);
+    expect(requests).toEqual([{
+      "@type": "getMessageThreadHistory",
+      chat_id: 7,
+      message_id: 42,
+      from_message_id: 0,
+      offset: 0,
+      limit: 100,
+    }]);
+  });
+
+  it("resolves the discussion chat and root message before loading comments", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "messageThreadInfo",
+        chat_id: 99,
+        message_thread_id: 123,
+        reply_info: null,
+        unread_message_count: 0,
+        messages: [rawMessage(123)],
+        draft_message: null,
+      };
+    };
+
+    const thread = await transport.getMessageThread("7", "42");
+
+    expect(thread).toMatchObject({ chatId: "99", messageId: "123" });
+    expect(thread?.messages.map((message) => message.id)).toEqual(["123"]);
+    expect(requests).toEqual([{
+      "@type": "getMessageThread",
+      chat_id: 7,
+      message_id: 42,
+    }]);
+  });
+
   it("uses the TDLib reply object when sending a sticker quote", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

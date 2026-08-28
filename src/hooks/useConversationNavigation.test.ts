@@ -63,6 +63,18 @@ describe("conversation navigation", () => {
     expect(navigation.goBack()).toBeUndefined();
   });
 
+  it("records a channel discussion as a distinct location in the same chat", () => {
+    const navigation = createConversationNavigation();
+    const channel = location("channel-a");
+    const discussion = location("channel-a", { discussionPostId: "post-31" });
+
+    navigation.initialize(channel);
+    navigation.push(discussion);
+
+    expect(navigation.goBack()).toEqual(channel);
+    expect(navigation.goForward()).toEqual(discussion);
+  });
+
   it("clears recorded jumps when navigation is reset by a conversation switch", () => {
     const navigation = createConversationNavigation();
     navigation.initialize(location("chat-a"));

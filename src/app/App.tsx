@@ -276,6 +276,7 @@ export function App() {
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [mobileViewport, setMobileViewport] = useState(false);
+  const [activeDiscussionPostId, setActiveDiscussionPostId] = useState<string>();
   const [pendingBotStart, setPendingBotStart] = useState<PendingBotStart>();
   const [botStartSending, setBotStartSending] = useState(false);
   const botStartRequestIdRef = useRef(0);
@@ -691,6 +692,7 @@ export function App() {
     setManagementChatId(undefined);
     setPendingConfirmation(undefined);
     setConversationScrollRequest(undefined);
+    setActiveDiscussionPostId(undefined);
     chatOpenGenerationRef.current += 1;
     discardConversationSnapshot();
     audioPlaybackController.close();
@@ -749,6 +751,7 @@ export function App() {
     return {
       chatId: telegramStore.getState().activeChatId,
       topicId: telegramStore.getState().activeTopicId,
+      discussionPostId: activeDiscussionPostId,
       chatFilter,
       searchQuery,
       searchScope: sidebarSearchScope,
@@ -760,21 +763,24 @@ export function App() {
       )?.scrollTop ?? 0,
       mobileChatOpen,
     };
-  }, [chatFilter, chatSearchSenderId, globalSearch.filter, globalSearch.loading, mobileChatOpen, searchQuery, sidebarSearchScope]);
+  }, [activeDiscussionPostId, chatFilter, chatSearchSenderId, globalSearch.filter, globalSearch.loading, mobileChatOpen, searchQuery, sidebarSearchScope]);
 
   const recordConversationNavigation = useCallback((location: ConversationNavigationLocation) => {
     replaceConversationNavigation(captureConversationLocation());
     pushConversationNavigation(location);
+    setActiveDiscussionPostId(location.discussionPostId);
   }, [captureConversationLocation, pushConversationNavigation, replaceConversationNavigation]);
 
   const syncConversationNavigation = useCallback((location: ConversationNavigationLocation) => {
     resetConversationNavigation(location);
+    setActiveDiscussionPostId(location.discussionPostId);
   }, [resetConversationNavigation]);
 
   const locationForChat = useCallback((chatId: string, topicId?: string): ConversationNavigationLocation => ({
     ...captureConversationLocation(),
     chatId,
     topicId,
+    discussionPostId: undefined,
     searchQuery: "",
     searchScope: { type: "global" },
     searchSenderId: undefined,
@@ -786,6 +792,7 @@ export function App() {
   const restoreConversationLocation = useCallback(async (location: ConversationNavigationLocation) => {
     setChatFilter(location.chatFilter);
     setMobileChatOpen(location.mobileChatOpen);
+    setActiveDiscussionPostId(location.discussionPostId);
     restoreSidebarSearchScope(location.searchScope, location.searchSenderId);
     setSearchQuery(location.searchQuery);
     let searchRestore: Promise<void> | undefined;
@@ -848,6 +855,17 @@ export function App() {
     const location = goForwardConversationNavigation();
     if (location) void restoreConversationLocation(location);
   }, [goForwardConversationNavigation, restoreConversationLocation]);
+
+  const openChannelDiscussion = useCallback((postId: string) => {
+    recordConversationNavigation({
+      ...captureConversationLocation(),
+      discussionPostId: postId,
+    });
+  }, [captureConversationLocation, recordConversationNavigation]);
+
+  const closeChannelDiscussion = useCallback(() => {
+    navigateBack();
+  }, [navigateBack]);
 
   useEffect(() => {
     if (!chatListReady || authorization.kind !== "ready") return;
@@ -1418,10 +1436,17 @@ export function App() {
   };
 
   const activeMessages = useMemo(
-    () => activeTopicId
-      ? activeChatMessages.filter((message) => message.topicId === activeTopicId)
-      : activeChatMessages,
-    [activeChatMessages, activeTopicId],
+    () => {
+      const scoped = activeTopicId
+        ? activeChatMessages.filter((message) => message.topicId === activeTopicId)
+        : activeChatMessages;
+      // Channel discussion replies can share the channel chat in TDLib. Keep
+      // them available to the discussion panel, but never mix them into the
+      // channel's post timeline.
+      return chats.get(activeChatId ?? "")?.kind === "channel"
+        ? scoped.filter((message) => message.isChannelPost === true || message.content.kind === "service")
+        : scoped;
+    }, [activeChatId, activeChatMessages, activeTopicId, chats],
   );
   const activeRemovingMessages = useMemo(
     () => activeTopicId
@@ -1819,6 +1844,9 @@ export function App() {
           onConfirmBotStart={confirmPendingBotStart}
           onGetReportOptions={getChatReportOptions}
           onReportChat={reportChat}
+          discussionPostId={activeDiscussionPostId}
+          onOpenDiscussion={openChannelDiscussion}
+          onCloseDiscussion={closeChannelDiscussion}
           onBack={closeMobileChat}
             />
           </Profiler>

@@ -193,6 +193,20 @@ export interface TelegramState {
   markChatFolderRead: (folderId: string) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
   loadMessage: (chatId: string, messageId: string, options?: { forceContext?: boolean }) => Promise<boolean>;
+  loadMessageThreadHistory: (chatId: string, messageId: string, limit?: number) => Promise<Message[] | undefined>;
+  sendMessageToThread: (
+    chatId: string,
+    replyToMessageId: string,
+    text: string,
+    entities?: MessageTextEntity[],
+  ) => Promise<boolean>;
+  sendFilesToThread: (
+    chatId: string,
+    replyToMessageId: string,
+    attachments: import("../telegram/types").OutgoingAttachment[],
+    caption?: string,
+    captionEntities?: MessageTextEntity[],
+  ) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
   dismissMessageAttention: (chatId: string, messageIds: string[]) => void;
   loadMessageProperties: (

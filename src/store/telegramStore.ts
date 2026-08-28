@@ -2317,6 +2317,94 @@ export const createTelegramStore = (
           return false;
         }
       },
+      loadMessageThreadHistory: async (chatId, messageId, limit = 100) => {
+        if (get().authorization.kind !== "ready") return undefined;
+        try {
+          // A channel post's comments live in its linked discussion chat. Resolve
+          // that chat and root message before asking TDLib for the history; using
+          // the channel id for both requests can produce an unexpected-chat error.
+          const thread = await transport.getMessageThread(chatId, messageId);
+          if (!thread) return [];
+          let threadMessages = thread.messages;
+          try {
+            const history = await transport.getMessageThreadHistory(
+              thread.chatId,
+              thread.messageId,
+              limit,
+            );
+            threadMessages = [...threadMessages, ...history];
+          } catch {
+            // getMessageThread already includes the root message and a small
+            // initial window. Keep it usable when history pagination is stale.
+          }
+          const uniqueThreadMessages = [...new Map(
+            threadMessages.map((message) => [`${message.chatId}:${message.id}`, message]),
+          ).values()];
+          if (uniqueThreadMessages.length === 0) return [];
+          const messages = new Map(get().messages);
+          const messagesByChat = new Map<string, Message[]>();
+          for (const message of uniqueThreadMessages) {
+            const current = messagesByChat.get(message.chatId) ?? messages.get(message.chatId) ?? [];
+            messagesByChat.set(message.chatId, upsertMessage(current, message));
+          }
+          for (const [messageChatId, nextMessages] of messagesByChat) {
+            messages.set(messageChatId, nextMessages);
+          }
+          set({ messages, operationError: undefined });
+          publishMessageChange({ type: "upsert", messages: uniqueThreadMessages, liveMessages: [] });
+          scheduleCacheWrite();
+          return uniqueThreadMessages;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (/message has no (thread|comments)|can't get message thread/i.test(message)) {
+            set({ operationError: undefined });
+            return [];
+          }
+          set({ operationError: errorMessage(error, "无法加载帖子留言") });
+          return undefined;
+        }
+      },
+      sendMessageToThread: async (chatId, replyToMessageId, text, entities) => {
+        const formatted = trimComposerFormattedText(text, entities ?? []);
+        if (!formatted.text || !connectionPresentation(get().connectionStatus).operational) return false;
+        try {
+          await transport.sendMessage({
+            chatId,
+            text: formatted.text,
+            entities: formatted.entities,
+            replyToMessageId,
+            clearDraft: false,
+          });
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "留言发送失败") });
+          return false;
+        }
+      },
+      sendFilesToThread: async (
+        chatId,
+        replyToMessageId,
+        attachments,
+        caption,
+        captionEntities,
+      ) => {
+        if (attachments.length === 0 || !connectionPresentation(get().connectionStatus).operational) return false;
+        try {
+          await transport.sendFiles({
+            chatId,
+            attachments,
+            caption,
+            captionEntities,
+            replyToMessageId,
+          });
+          set({ operationError: undefined });
+          return true;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "留言附件发送失败") });
+          return false;
+        }
+      },
       markActiveChatRead: async () => {
         const chatId = get().activeChatId;
         if (chatId) await markActiveConversationRead(chatId);

@@ -158,6 +158,8 @@ export interface TelegramTransport {
   getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage>;
   getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined>;
   loadForumTopicHistory(chatId: string, topicId: string, limit?: number): Promise<ChatHistoryPage>;
+  getMessageThread(chatId: string, messageId: string): Promise<import("./types").MessageThread | undefined>;
+  getMessageThreadHistory(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
   createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic>;
   editForumTopic(chatId: string, topicId: string, name: string): Promise<void>;
   setForumTopicClosed(chatId: string, topicId: string, closed: boolean): Promise<void>;

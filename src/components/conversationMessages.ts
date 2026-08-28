@@ -110,6 +110,12 @@ export const channelAuthorFor = (message: Message) => {
 export const displaysChannelMetadata = (message: Message) =>
   message.isChannelPost === true || isAutomaticChannelForward(message);
 
+export const channelDiscussionAvailable = (message: Message) =>
+  message.isChannelPost === true && (
+    message.interaction?.hasDiscussion === true ||
+    (message.interaction?.replyCount ?? 0) > 0
+  );
+
 export const forwardLabelFor = (
   message: Message,
   users: Map<string, User>,

@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   AtSign,
   Check,
+  ChevronRight,
   Heart,
   ChevronLeft,
   Copy,
@@ -11,6 +12,7 @@ import {
   LoaderCircle,
   Pin,
   Play,
+  MessageCircle,
   X,
 } from "lucide-react";
 import {
@@ -65,6 +67,7 @@ import { ForwardMessagesDialog } from "./ForwardMessagesDialog";
 import {
   forwardSourceFor,
   channelAuthorFor,
+  channelDiscussionAvailable,
   displaysChannelMetadata,
   messageSummary,
   replyPreviewFor,
@@ -90,6 +93,7 @@ import {
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
 import { MotionPresence } from "./MotionPresence";
+import { ChannelDiscussionPanel } from "./ChannelDiscussionPanel";
 import { motionLifecycleTiming } from "../utils/motionTokens";
 import { ForumTopicStrip } from "./ForumTopicStrip";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
@@ -131,6 +135,20 @@ import {
 } from "../utils/localBlockedMessages";
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
+type DiscussionThreadState = {
+  comments: Message[];
+  loading: boolean;
+  error?: boolean;
+  replyChatId?: string;
+  replyMessageId?: string;
+};
+
+const mergeDiscussionComments = (current: Message[], incoming: Message[]) => {
+  const byId = new Map<string, Message>();
+  for (const comment of [...current, ...incoming]) byId.set(comment.id, comment);
+  return [...byId.values()].sort((left, right) => Date.parse(left.sentAt) - Date.parse(right.sentAt));
+};
+
 type MessageNavigationOptions = Pick<
   MessageConversationScrollRequest,
   "behavior" | "highlight" | "revealLocallyBlocked"
@@ -276,6 +294,9 @@ interface ConversationProps {
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
   onSetChatArchived: (archived: boolean) => Promise<boolean>;
+  discussionPostId?: string;
+  onOpenDiscussion: (postId: string) => void;
+  onCloseDiscussion: () => void;
   onBack: () => void;
   onGetBotCommands: (query?: string, botUsername?: string) => Promise<import("../telegram/types").BotCommandSuggestion[]>;
   onGetInlineResults: (botUsername: string, query: string, offset?: string) => Promise<import("../telegram/types").InlineQueryResultPage | undefined>;
@@ -354,6 +375,9 @@ export function Conversation({
   onSetChatPinned,
   onSetChatMuted,
   onSetChatArchived,
+  discussionPostId,
+  onOpenDiscussion,
+  onCloseDiscussion,
   onBack,
   onGetBotCommands,
   onGetInlineResults,
@@ -404,6 +428,10 @@ export function Conversation({
     return usernames;
   }, [users]);
   const currentUserId = useTelegramStore((state) => state.currentUserId);
+  const storedMessages = useTelegramStore((state) => state.messages);
+  const loadMessageThreadHistory = useTelegramStore((state) => state.loadMessageThreadHistory);
+  const sendMessageToThread = useTelegramStore((state) => state.sendMessageToThread);
+  const sendFilesToThread = useTelegramStore((state) => state.sendFilesToThread);
   const attentionMessageIds = useTelegramStore((state) => chat
     ? state.unreadAttentionMessageIds.get(chat.id) ?? EMPTY_ATTENTION_MESSAGE_IDS
     : EMPTY_ATTENTION_MESSAGE_IDS);
@@ -433,6 +461,10 @@ export function Conversation({
   const [replyingTo, setReplyingTo] = useState<Message>();
   const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
   const [editingMessage, setEditingMessage] = useState<Message>();
+  const [discussionPost, setDiscussionPost] = useState<Message>();
+  const [discussionThreads, setDiscussionThreads] = useState<Record<string, DiscussionThreadState>>({});
+  const chatMessagesRef = useRef(chatMessages);
+  chatMessagesRef.current = chatMessages;
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
@@ -570,10 +602,17 @@ export function Conversation({
         ? allPinnedMessages.map((message) => message.mediaAlbumId
           ? { ...message, mediaAlbumId: undefined }
           : message)
-        : displayMessages;
+        : chat?.kind === "channel"
+          ? displayMessages
+              .filter((message) => message.isChannelPost === true ||
+                message.content.kind === "service" || message.content.kind === "unsupported")
+              .map((message) => message.mediaAlbumId
+                ? { ...message, mediaAlbumId: undefined }
+                : message)
+          : displayMessages;
       return source;
     },
-    [allPinnedMessages, displayMessages, pinnedViewOpen],
+    [allPinnedMessages, chat?.kind, displayMessages, pinnedViewOpen],
   );
   const renderedMessagesRef = useRef(renderedMessages);
   renderedMessagesRef.current = renderedMessages;
@@ -635,9 +674,13 @@ export function Conversation({
 
   const messageProjection = useMemo(() => {
     const startedAt = performance.now();
-    const blocks = virtualizeMessageGroups(renderedMessages);
+    const blocks = virtualizeMessageGroups(
+      renderedMessages,
+      undefined,
+      chat?.kind !== "channel",
+    );
     return { blocks, durationMs: performance.now() - startedAt };
-  }, [renderedMessages]);
+  }, [chat?.kind, renderedMessages]);
   const visibleMessageBlocks = messageProjection.blocks;
   const messageItemIndexes = useMemo(
     () => indexMessagesByVirtualBlock(visibleMessageBlocks),
@@ -1575,6 +1618,7 @@ export function Conversation({
     setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setDeletePending(false);
+    setDiscussionPost(undefined);
   }, [conversationIdentity]);
 
   useEffect(() => {
@@ -1621,6 +1665,80 @@ export function Conversation({
     };
   }, [actionMenu, closeActionMenu]);
 
+  const openChannelDiscussion = useCallback((post: Message) => {
+    if (!channelDiscussionAvailable(post)) return;
+    setDiscussionPost(post);
+    const commentsInHistory = chatMessagesRef.current.filter((message) => {
+      if (message.isChannelPost || message.replyTo?.kind !== "message") return false;
+      if (message.replyTo.messageId !== post.id) return false;
+      const origin = message.replyTo.origin;
+      return message.replyTo.chatId === post.chatId ||
+        (origin?.kind === "channel" && origin.chatId === post.chatId);
+    });
+    setDiscussionThreads((current) => {
+      const previous = current[post.id];
+      return {
+        ...current,
+        [post.id]: {
+          comments: mergeDiscussionComments(previous?.comments ?? [], commentsInHistory),
+          loading: true,
+          error: undefined,
+          replyChatId: previous?.replyChatId,
+          replyMessageId: previous?.replyMessageId,
+        },
+      };
+    });
+    void loadMessageThreadHistory(
+      post.chatId,
+      post.id,
+      Math.max(100, post.interaction?.replyCount ?? 0),
+    ).then((thread) => {
+      setDiscussionThreads((current) => {
+        const previous = current[post.id];
+        if (!previous) return current;
+        const root = thread?.find((message) =>
+          message.id === post.id || (
+            message.forwardInfo?.origin?.kind === "channel" &&
+            message.forwardInfo.origin.chatId === post.chatId &&
+            message.forwardInfo.origin.messageId === post.id
+          )
+        );
+        const directReply = thread?.find((message) =>
+          message.replyTo?.kind === "message" && message.replyTo.messageId
+        );
+        const directReplyTarget = directReply?.replyTo?.kind === "message"
+          ? directReply.replyTo
+          : undefined;
+        const replyChatId = root?.chatId ?? directReplyTarget?.chatId ??
+          directReply?.chatId ?? previous.replyChatId;
+        const replyMessageId = root?.id ?? directReplyTarget?.messageId ?? previous.replyMessageId;
+        const comments = thread?.filter((message) =>
+          message.id !== root?.id && message.isChannelPost !== true
+        ) ?? [];
+        return {
+          ...current,
+          [post.id]: {
+            comments: mergeDiscussionComments(previous.comments, comments),
+            loading: false,
+            error: !thread,
+            replyChatId,
+            replyMessageId,
+          },
+        };
+      });
+    });
+  }, [loadMessageThreadHistory]);
+
+  useLayoutEffect(() => {
+    if (!discussionPostId) {
+      setDiscussionPost(undefined);
+      return;
+    }
+    if (discussionPost?.id === discussionPostId) return;
+    const post = chatMessagesRef.current.find((message) => message.id === discussionPostId);
+    if (post) openChannelDiscussion(post);
+  }, [discussionPost?.id, discussionPostId, openChannelDiscussion]);
+
   const repeatMessage = useCallback(async (message: Message) => {
     if (
       !chat ||
@@ -1645,6 +1763,50 @@ export function Conversation({
       </section>
     );
   }
+
+  const isChannelConversation = chat.kind === "channel";
+  const discussionState = discussionPost ? discussionThreads[discussionPost.id] : undefined;
+  const renderedDiscussionPost = discussionPost
+    ? storedMessages.get(discussionPost.chatId)?.find((message) => message.id === discussionPost.id) ?? discussionPost
+    : undefined;
+  const channelDiscussionComments = discussionState?.comments.map((comment) =>
+    storedMessages.get(comment.chatId)?.find((message) => message.id === comment.id) ?? comment
+  ) ?? [];
+  const reloadChannelDiscussion = async (post: Message) => {
+    openChannelDiscussion(post);
+  };
+  const sendDiscussionComment = async (
+    text: string,
+    _replyToMessageId?: string,
+    _replyQuote?: MessageReplyQuote,
+    entities?: MessageTextEntity[],
+  ) => {
+    if (!discussionPost || !discussionState?.replyChatId || !discussionState.replyMessageId) return false;
+    const sent = await sendMessageToThread(
+      discussionState.replyChatId,
+      discussionState.replyMessageId,
+      text,
+      entities,
+    );
+    if (sent) await reloadChannelDiscussion(discussionPost);
+    return sent;
+  };
+  const sendDiscussionFiles = async (
+    attachments: import("../telegram/types").OutgoingAttachment[],
+    caption?: string,
+    captionEntities?: MessageTextEntity[],
+  ) => {
+    if (!discussionPost || !discussionState?.replyChatId || !discussionState.replyMessageId) return false;
+    const sent = await sendFilesToThread(
+      discussionState.replyChatId,
+      discussionState.replyMessageId,
+      attachments,
+      caption,
+      captionEntities,
+    );
+    if (sent) await reloadChannelDiscussion(discussionPost);
+    return sent;
+  };
 
   const composerContextTitle = editingMessage
     ? "编辑消息"
@@ -1932,7 +2094,7 @@ export function Conversation({
   return (
     <section
       ref={conversationRef}
-      className={`conversation ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
+      className={`conversation ${isChannelConversation ? "is-channel-conversation" : ""} ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
       aria-hidden={mobileViewHidden ? true : undefined}
       inert={mobileViewHidden ? true : undefined}
       onPointerUp={(event) => {
@@ -2168,7 +2330,7 @@ export function Conversation({
           {...messageListHandlers}
           itemContent={(_, groupModel) => {
             const { firstMessage, messages: messageGroup, positions, startsNewDay } = groupModel;
-            const reserveSenderAvatar = firstMessage.content.kind !== "service" &&
+            const reserveSenderAvatar = !isChannelConversation && firstMessage.content.kind !== "service" &&
               firstMessage.content.kind !== "unsupported" &&
               !firstMessage.outgoing && chat.kind !== "direct";
             const showSenderAvatar = reserveSenderAvatar && !groupModel.continuesAfter &&
@@ -2303,11 +2465,12 @@ export function Conversation({
                         localDateKey(nextMessage.sentAt) === localDateKey(message.sentAt) &&
                         (selectedMessageIds.has(nextMessage.id) || selectionLoadingIds.has(nextMessage.id)),
                       );
-                      return <RichMessageBubble
+                      const isChannelPost = isChannelConversation && message.isChannelPost === true;
+                      const bubble = <RichMessageBubble
                         key={message.renderKey ?? message.id}
                         message={message}
                         entrance={entrance}
-                        senderName={displayedSenderName}
+                        senderName={isChannelConversation ? chat.title : displayedSenderName}
                         senderLabel={blockedUser && !blockedGroupRevealed
                           ? undefined
                           : message.senderTag || memberLabels.get(message.senderId)}
@@ -2319,6 +2482,26 @@ export function Conversation({
                         }
                         channelAuthor={channelAuthorFor(message)}
                         showChannelMetadata={displaysChannelMetadata(message)}
+                        channelPost={isChannelPost}
+                        channelDiscussionAction={!selectionMode && !pinnedViewOpen && channelDiscussionAvailable(message) ? (
+                          <button
+                            className="channel-post-discussion"
+                            type="button"
+                            aria-label={`${message.interaction?.replyCount
+                              ? `${message.interaction.replyCount} 条评论`
+                              : "查看留言"}`}
+                            onClick={() => {
+                              openChannelDiscussion(message);
+                              onOpenDiscussion(message.id);
+                            }}
+                          >
+                            <MessageCircle size={16} strokeWidth={2} aria-hidden="true" />
+                            <span>{message.interaction?.replyCount
+                              ? `${message.interaction.replyCount}条评论`
+                              : "留言"}</span>
+                            <ChevronRight size={15} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                        ) : undefined}
                         serviceMembers={message.content.kind === "service"
                           ? message.content.memberUserIds?.map((userId) => {
                               const blockedMember = localBlockedUsersById.get(userId);
@@ -2394,6 +2577,7 @@ export function Conversation({
                           ? () => revealLocalBlockedMessage(message.id)
                           : undefined}
                       />;
+                      return bubble;
                     };
                     if (segment.kind === "message") return renderBubble(segment.message);
 
@@ -2497,6 +2681,43 @@ export function Conversation({
             </button>
           )}
       </div>
+
+      {discussionPost && renderedDiscussionPost && isChannelConversation && (
+        <ChannelDiscussionPanel
+          post={renderedDiscussionPost}
+          channelTitle={chat.title}
+          comments={channelDiscussionComments}
+          users={users}
+          currentUserId={currentUserId ?? "self"}
+          connectionStatus={connectionStatus}
+          loading={discussionState?.loading ?? false}
+          loadError={discussionState?.error}
+          onRetry={() => openChannelDiscussion(discussionPost)}
+          onClose={onCloseDiscussion}
+          onSend={sendDiscussionComment}
+          onSendFiles={sendDiscussionFiles}
+          messagePreviewOptions={{
+            autoplayAnimations,
+            autoDownloadPolicy,
+            onDownload: onDownloadFile,
+            onCancelDownload: onCancelFileDownload,
+            onRecoverFile,
+            onOpenFile,
+            onSaveFileAs,
+            onOpenDownloadDirectory,
+            onStream: onStreamFile,
+            onSuspendStream: onSuspendFileStream,
+            onRetry: onRetryMessage,
+            onCancelUpload: onCancelFileUpload,
+            onReaction: onSetMessageReaction,
+            onLoadReactionSenders: onGetMessageReactionSenders,
+            onPollAnswer: onSetPollAnswer,
+            onBotCallback,
+            onOpenMedia: openMediaViewer,
+            onOpenStickerSet,
+          }}
+        />
+      )}
 
       {actionMenu && actionMessage && (
         <MessageActionMenu
@@ -2630,7 +2851,7 @@ export function Conversation({
             <span>{botStartSending ? "正在启动" : "开始"}</span>
           </button>
         </div>
-      ) : (
+      ) : !isChannelConversation ? (
       <ConversationComposer
         key={topic ? `${chat.id}:${topic.id}` : chat.id}
         chatId={chat.id}
@@ -2666,7 +2887,7 @@ export function Conversation({
         onSendInlineResult={onSendInlineResult}
         onSendBotStart={onSendBotStart}
       />
-      )}
+      ) : null}
 
       <MotionPresence present={Boolean(deleteTarget)}>
         {deleteTarget?.permissions ? <DeleteMessagesDialog

@@ -1753,6 +1753,43 @@ export class MockTelegramTransport implements TelegramTransport {
     return { loadedCount: page.length, hasMore: offset + page.length < history.length, messageIds: page.map((message) => message.id) };
   }
 
+  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100) {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const root = this.snapshot.messages.find((message) =>
+      message.chatId === chatId && message.id === messageId
+    );
+    const comments = this.snapshot.messages
+      .filter((message) => {
+        if (message.isChannelPost || message.replyTo?.kind !== "message") return false;
+        if (message.replyTo.messageId !== messageId) return false;
+        const origin = message.replyTo.origin;
+        return message.replyTo.chatId === chatId ||
+          (origin?.kind === "channel" && origin.chatId === chatId);
+      })
+      .sort((left, right) => Date.parse(left.sentAt) - Date.parse(right.sentAt))
+      .slice(0, Math.max(0, boundedLimit - (root ? 1 : 0)));
+    const thread = [...(root ? [root] : []), ...comments];
+    this.listener?.({ type: "messages.upserted", messages: clone(thread) });
+    return clone(thread);
+  }
+
+  async getMessageThread(chatId: string, messageId: string) {
+    const root = this.snapshot.messages.find((message) =>
+      message.chatId === chatId && message.id === messageId,
+    );
+    if (!root) return undefined;
+    const comments = this.snapshot.messages
+      .filter((message) => {
+        if (message.isChannelPost || message.replyTo?.kind !== "message") return false;
+        if (message.replyTo.messageId !== messageId) return false;
+        const origin = message.replyTo.origin;
+        return message.replyTo.chatId === chatId ||
+          (origin?.kind === "channel" && origin.chatId === chatId);
+      })
+      .sort((left, right) => Date.parse(left.sentAt) - Date.parse(right.sentAt));
+    return clone({ chatId, messageId, messages: [root, ...comments] });
+  }
+
   async createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic> {
     const topics = this.ensureForumTopics(input.chatId);
     const id = String(100 + topics.length);

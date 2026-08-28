@@ -81,7 +81,7 @@ export interface ReplyPreview {
   concealed?: boolean;
 }
 
-interface MessageBubbleProps {
+export interface MessageBubbleProps {
   message: Message;
   entrance?: MessageEntrance;
   senderName: string;
@@ -90,6 +90,8 @@ interface MessageBubbleProps {
   senderProfileAvailable: boolean;
   channelAuthor?: string;
   showChannelMetadata?: boolean;
+  channelPost?: boolean;
+  channelDiscussionAction?: ReactNode;
   serviceMembers?: Array<{ id: string; name: string; profileAvailable: boolean }>;
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
@@ -165,6 +167,8 @@ function MessageBubbleComponent({
   senderProfileAvailable,
   channelAuthor,
   showChannelMetadata = false,
+  channelPost = false,
+  channelDiscussionAction,
   serviceMembers,
   groupPosition,
   replyPreview,
@@ -275,7 +279,9 @@ function MessageBubbleComponent({
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
-  const showSender = !albumItem && !message.outgoing && !isSticker && isGroupFirst(groupPosition);
+  const showSender = !albumItem && !message.outgoing && (
+    channelPost || (!isSticker && isGroupFirst(groupPosition))
+  );
   const fullMediaSource = content.kind === "media" ? localMediaSource(content.localPath) : undefined;
   const localPreviewSource = content.kind === "media"
     ? localMediaSource(content.thumbnailPath)
@@ -323,7 +329,11 @@ function MessageBubbleComponent({
   useLayoutEffect(() => {
     const flow = textFlowRef.current;
     const hasInlineCaption = isVisual && hasCaption;
-    if ((content.kind !== "text" && !hasInlineCaption) || !flow) {
+    if (channelPost || (content.kind !== "text" && !hasInlineCaption) || !flow) {
+      if (channelPost) {
+        setMetaWrapped(true);
+        setMetaInlineOffset(0);
+      }
       return;
     }
 
@@ -398,6 +408,7 @@ function MessageBubbleComponent({
     };
   }, [
     content,
+    channelPost,
     hasCaption,
     isVisual,
     message.delivery,
@@ -632,7 +643,8 @@ function MessageBubbleComponent({
       ? "原回复目标已失效，请取消回复后重新发送"
       : message.sendFailure?.message || "发送失败";
   const messageMeta = !isService ? (
-    <span className="message-meta">
+    <span className={`message-meta ${channelPost ? "is-channel-meta" : ""}`}>
+      <span className="message-meta-stats">
       {showChannelMetadata && message.interaction && (
         <>
           <span className="message-meta-stat" aria-label={`转发 ${message.interaction.forwardCount} 次`}>
@@ -657,6 +669,8 @@ function MessageBubbleComponent({
           </button>
         ) : <span className="message-channel-author">{channelAuthor}</span>
       )}
+      </span>
+      <span className="message-meta-status">
       {message.editedAt && <span>已编辑</span>}
       {message.isPinned && <Pin size={13} strokeWidth={2} aria-label="已置顶" />}
       <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
@@ -671,13 +685,14 @@ function MessageBubbleComponent({
               </button>
             ) : <Check size={14} strokeWidth={2.2} />
       )}
+      </span>
     </span>
   ) : null;
 
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${joinsSelectionBefore ? "joins-selection-before" : ""} ${joinsSelectionAfter ? "joins-selection-after" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${channelPost ? "is-channel-post" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${joinsSelectionBefore ? "joins-selection-before" : ""} ${joinsSelectionAfter ? "joins-selection-after" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       data-local-block-group={localBlockGroupId}
       onClick={(event) => {
@@ -698,7 +713,7 @@ function MessageBubbleComponent({
       }}
     >
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${channelPost ? "is-channel-post-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
         style={visualShellStyle}
         tabIndex={!locallyConcealed && !selectionMode && !isService ? 0 : undefined}
         onPointerDown={(event) => {
@@ -725,7 +740,7 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget);
         }}
       >
-        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
+        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${channelPost ? "is-channel-post-bubble" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             onOpenForwardSource ? (
               <button
@@ -1156,6 +1171,7 @@ function MessageBubbleComponent({
               {messageMeta}
             </div>
           )}
+          {channelDiscussionAction}
           {locallyConcealed && onRevealLocallyBlocked ? (
             <button
               className="local-block-message-reveal"
@@ -1185,3 +1201,122 @@ function MessageBubbleComponent({
 }
 
 export const MessageBubble = memo(MessageBubbleComponent);
+
+const previewNoop = async (..._args: any[]): Promise<void> => undefined;
+const previewFalse = async (..._args: any[]): Promise<boolean> => false;
+const previewReactionSenders = async (..._args: any[]): Promise<MessageReactionSenderPage> => ({
+  totalCount: 0,
+  senders: [],
+});
+const previewCallback = async (..._args: any[]): Promise<CallbackQueryAnswer | undefined> => undefined;
+const previewCollapseQuote = (
+  _messageId: string,
+  collapse: () => void,
+) => collapse();
+const previewOpen = (..._args: any[]) => undefined;
+const EMPTY_PREVIEW_POLICY: AutoDownloadPolicy = {
+  images: false,
+  videos: false,
+  audio: false,
+  files: false,
+  limitMb: 1,
+};
+
+export interface MessageBubblePreviewProps {
+  message: Message;
+  senderName: string;
+  users: ReadonlyMap<string, User>;
+  senderChats?: ReadonlyMap<string, Chat>;
+  channelPost?: boolean;
+  showChannelMetadata?: boolean;
+  autoplayAnimations?: boolean;
+  autoDownloadPolicy?: AutoDownloadPolicy;
+  onDownload?: MessageBubbleProps["onDownload"];
+  onCancelDownload?: MessageBubbleProps["onCancelDownload"];
+  onRecoverFile?: MessageBubbleProps["onRecoverFile"];
+  onOpenFile?: MessageBubbleProps["onOpenFile"];
+  onSaveFileAs?: MessageBubbleProps["onSaveFileAs"];
+  onOpenDownloadDirectory?: MessageBubbleProps["onOpenDownloadDirectory"];
+  onStream?: MessageBubbleProps["onStream"];
+  onSuspendStream?: MessageBubbleProps["onSuspendStream"];
+  onRetry?: MessageBubbleProps["onRetry"];
+  onCancelUpload?: MessageBubbleProps["onCancelUpload"];
+  onReaction?: MessageBubbleProps["onReaction"];
+  onLoadReactionSenders?: MessageBubbleProps["onLoadReactionSenders"];
+  onPollAnswer?: MessageBubbleProps["onPollAnswer"];
+  onBotCallback?: MessageBubbleProps["onBotCallback"];
+  onOpenMedia?: MessageBubbleProps["onOpenMedia"];
+  onOpenStickerSet?: MessageBubbleProps["onOpenStickerSet"];
+}
+
+export function MessageBubblePreview({
+  message,
+  senderName,
+  users,
+  senderChats = new Map(),
+  channelPost = false,
+  showChannelMetadata = false,
+  autoplayAnimations = false,
+  autoDownloadPolicy = EMPTY_PREVIEW_POLICY,
+  onDownload = previewNoop,
+  onCancelDownload = previewNoop,
+  onRecoverFile = previewFalse,
+  onOpenFile = previewFalse,
+  onSaveFileAs = previewNoop,
+  onOpenDownloadDirectory = previewNoop,
+  onStream = async (..._args: any[]) => undefined,
+  onSuspendStream = previewNoop,
+  onRetry = previewNoop,
+  onCancelUpload = previewNoop,
+  onReaction = previewNoop,
+  onLoadReactionSenders = previewReactionSenders,
+  onPollAnswer = previewFalse,
+  onBotCallback = previewCallback,
+  onOpenMedia,
+  onOpenStickerSet,
+}: MessageBubblePreviewProps) {
+  return (
+    <MessageBubbleComponent
+      message={message}
+      senderName={senderName}
+      senderProfileAvailable={false}
+      channelPost={channelPost}
+      showChannelMetadata={showChannelMetadata}
+      groupPosition="single"
+      selectionMode={false}
+      selected={false}
+      highlighted={false}
+      selectionPending={false}
+      joinsSelectionBefore={false}
+      joinsSelectionAfter={false}
+      selectionLimitReached={false}
+      onToggleSelection={previewNoop}
+      onOpenActions={previewNoop}
+      onDownload={onDownload}
+      onCancelDownload={onCancelDownload}
+      onRecoverFile={onRecoverFile}
+      onOpenFile={onOpenFile}
+      onSaveFileAs={onSaveFileAs}
+      onOpenDownloadDirectory={onOpenDownloadDirectory}
+      onStream={onStream}
+      onSuspendStream={onSuspendStream}
+      onRetry={onRetry}
+      onCancelUpload={onCancelUpload}
+      onReaction={onReaction}
+      onLoadReactionSenders={onLoadReactionSenders}
+      onPollAnswer={onPollAnswer}
+      onBotCallback={onBotCallback}
+      onCollapseQuote={previewCollapseQuote}
+      onOpenReply={previewOpen}
+      onOpenSenderProfile={previewOpen}
+      users={users}
+      senderChats={senderChats}
+      onOpenMention={previewOpen}
+      onSearchHashtag={previewOpen}
+      onOpenMedia={onOpenMedia}
+      onOpenStickerSet={onOpenStickerSet}
+      autoplayAnimations={autoplayAnimations}
+      autoDownloadPolicy={autoDownloadPolicy}
+    />
+  );
+}

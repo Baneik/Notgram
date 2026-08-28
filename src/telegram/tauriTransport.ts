@@ -1691,6 +1691,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.forumTopicService.loadForumTopicHistory(chatId, topicId, limit);
   }
 
+  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100) {
+    return this.messageMediaService.getMessageThreadHistory(chatId, messageId, limit);
+  }
+
+  async getMessageThread(chatId: string, messageId: string) {
+    return this.messageMediaService.getMessageThread(chatId, messageId);
+  }
+
   async createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic> {
     return this.forumTopicService.createForumTopic(input);
   }

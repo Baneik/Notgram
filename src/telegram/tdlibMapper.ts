@@ -1623,6 +1623,7 @@ const mapTdInteraction = (value: unknown): MessageInteraction | undefined => {
     replyCount: Math.max(0, tdNumber(replyInfo?.reply_count) ?? 0),
     reactions,
     canGetAddedReactions: rawReactions?.can_get_added_reactions === true,
+    ...(replyInfo ? { hasDiscussion: true } : {}),
   };
 };
 
