@@ -1,6 +1,8 @@
 # Notgram
 
-Notgram is a desktop-first third-party Telegram client built with React, TypeScript, Tauri, and TDLib. It includes messaging, multi-account storage, native authorization, paginated chat/history synchronization, server-backed search, rich media, reactions, and a mock browser runtime.
+Notgram is a desktop-first third-party Telegram client built with React, TypeScript, Tauri 2, and TDLib. It includes messaging, multi-account storage, native authorization, paginated chat/history synchronization, server-backed search, rich media, reactions, and a mock browser runtime.
+
+The desktop stack is already on Tauri 2: the frontend uses the v2 JavaScript API and plugins, the Rust application depends on the v2 crates, and `src-tauri/tauri.conf.json` uses the `config/2` schema with v2 capabilities. References to Tauri elsewhere in this document mean Tauri 2 unless stated otherwise.
 
 ## Browser development
 
