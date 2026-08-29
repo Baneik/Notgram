@@ -52,6 +52,7 @@ interface ChatSidebarProps {
   onLoadMoreChatSearch: () => Promise<void>;
   onExitSearchScope: (preserveQuery: boolean) => void;
   onSelect: (chatId: string) => void;
+  onOpenLatest?: (chatId: string) => void;
   loadingMore: boolean;
   hasMore: boolean;
   onLoadMore: () => Promise<void>;
@@ -107,6 +108,7 @@ export function ChatSidebar({
   onLoadMoreChatSearch,
   onExitSearchScope,
   onSelect,
+  onOpenLatest,
   loadingMore,
   hasMore,
   onLoadMore,
@@ -148,14 +150,17 @@ export function ChatSidebar({
   const pinnedDropTargetRef = useRef<typeof pinnedDropTarget>(undefined);
   const suppressNextChatClickRef = useRef(false);
   const onSelectRef = useRef(onSelect);
+  const onOpenLatestRef = useRef(onOpenLatest);
   const chatsRef = useRef(chats);
   const folderIdRef = useRef(folderId);
   const onReorderPinnedRef = useRef(onReorderPinned);
   onSelectRef.current = onSelect;
+  onOpenLatestRef.current = onOpenLatest;
   chatsRef.current = chats;
   folderIdRef.current = folderId;
   onReorderPinnedRef.current = onReorderPinned;
   const stableSelectChat = useCallback((chatId: string) => onSelectRef.current(chatId), []);
+  const stableOpenLatest = useCallback((chatId: string) => onOpenLatestRef.current?.(chatId), []);
   const [contextMenu, setContextMenu] = useState<{
     chatId: string;
     point: ContextMenuPoint;
@@ -520,6 +525,7 @@ export function ChatSidebar({
                   ? pinnedDropTarget.edge
                   : undefined}
                 onSelectChat={selectChatFromClick}
+                onOpenLatest={stableOpenLatest}
                 onPointerDown={beginPinnedDrag}
                 onPointerMove={movePinnedDrag}
                 onPointerUp={finishPinnedDrag}
@@ -585,6 +591,7 @@ const ChatRow = memo(function ChatRow({
   folderId,
   active,
   onSelectChat,
+  onOpenLatest,
   onOpenContextMenu,
   pinnedDraggable,
   dragging,
@@ -601,6 +608,7 @@ const ChatRow = memo(function ChatRow({
   folderId: string;
   active: boolean;
   onSelectChat: (chatId: string) => void;
+  onOpenLatest?: (chatId: string) => void;
   onOpenContextMenu: (
     chatId: string,
     point: ContextMenuPoint,
@@ -616,6 +624,7 @@ const ChatRow = memo(function ChatRow({
   onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void;
   onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
+  const firstClickWasActiveRef = useRef(active);
   const draft = useTelegramStore((state) => state.drafts.get(chat.id));
   const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(chat.id));
   const visibleDraft = active ? undefined : listDraft(draft);
@@ -642,7 +651,19 @@ const ChatRow = memo(function ChatRow({
       data-pinned={pinnedDraggable}
       aria-grabbed={dragging}
       aria-current={active ? "true" : undefined}
-      onClick={() => onSelectChat(chat.id)}
+      onClick={(event) => {
+        // A double click still receives two click events. Keep the first one
+        // for immediate conversation selection, but let the double-click
+        // handler own the explicit latest-message intent.
+        if (event.detail <= 1) {
+          firstClickWasActiveRef.current = active;
+          onSelectChat(chat.id);
+        }
+      }}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        if (!firstClickWasActiveRef.current) onOpenLatest?.(chat.id);
+      }}
       onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         onOpenContextMenu(

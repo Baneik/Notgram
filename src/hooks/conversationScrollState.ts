@@ -116,6 +116,13 @@ export const hasConversationScrollMemory = (scope: string, chatId: string) =>
 export const distanceFromBottom = (element: HTMLElement) =>
   Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop);
 
+export const isMessageFullyVisible = (element: HTMLElement, target: HTMLElement) => {
+  const listBounds = element.getBoundingClientRect();
+  const targetBounds = target.getBoundingClientRect();
+  return targetBounds.top >= listBounds.top + 1 &&
+    targetBounds.bottom <= listBounds.bottom - 1;
+};
+
 export const visibleAnchor = (element: HTMLElement) => {
   const listBounds = element.getBoundingClientRect();
   for (const row of element.querySelectorAll<HTMLElement>("[data-message-id]")) {

@@ -5278,7 +5278,10 @@ test("reply previews jump to their source and channel senders keep their identit
     let direction = 0;
     let visibleReversals = 0;
     for (let index = 1; index < samples.length; index += 1) {
-      if (samples[index].snapshot) continue;
+      // The long-jump relocation is intentionally hidden by the snapshot.
+      // Ignore both sides of that hand-off so it cannot look like a visible
+      // reversal when the deceleration segment starts.
+      if (samples[index].snapshot || samples[index - 1].snapshot) continue;
       const delta = samples[index].scrollTop - samples[index - 1].scrollTop;
       if (Math.abs(delta) < 0.5) continue;
       const nextDirection = Math.sign(delta);
@@ -5620,8 +5623,8 @@ test("distant message jumps use a directional exit and entrance transition", asy
     }
   ).__notgramJumpAnimations ?? []);
   expect(animations).toEqual([
-    expect.objectContaining({ duration: 120, firstOpacity: 1, lastOpacity: 0.72 }),
-    expect.objectContaining({ duration: 180, firstOpacity: 0.72, lastOpacity: 1 }),
+    expect.objectContaining({ duration: 180, firstOpacity: 1, lastOpacity: 0.72 }),
+    expect.objectContaining({ duration: 300, firstOpacity: 0.72, lastOpacity: 1 }),
   ]);
   await expect.poll(() => target.evaluate((element) => {
     const list = element.closest(".message-list")?.getBoundingClientRect();
@@ -9559,6 +9562,7 @@ test("pinned banner advances through earlier pins as source messages enter the v
   await page.setViewportSize({ width: 900, height: 420 });
   await page.goto("/");
   await page.addStyleTag({ content: ".message-row { min-height: 96px; }" });
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await page.evaluate(async () => {
     const module = await import("/src/store/telegramStore.ts" as string) as {
       telegramStore: {
@@ -9583,19 +9587,19 @@ test("pinned banner advances through earlier pins as source messages enter the v
   await pinnedPreview.click();
   const latestPinnedSource = page.locator('[data-message-id="p-4"]');
   await expect(latestPinnedSource).toBeVisible();
-  await expect(latestPinnedSource).not.toHaveClass(/is-notification-target/);
+  await expect(latestPinnedSource).toHaveClass(/is-notification-target/);
   await expect(pinnedBanner).toContainText("早上好，左侧会话列表的密度已经调整好了。");
 
   await pinnedPreview.click();
   const middlePinnedSource = page.locator('[data-message-id="p-1"]');
   await expect(middlePinnedSource).toBeVisible();
-  await expect(middlePinnedSource).not.toHaveClass(/is-notification-target/);
+  await expect(middlePinnedSource).toHaveClass(/is-notification-target/);
   await expect(pinnedBanner).toContainText("产品讨论历史消息 1");
 
   await pinnedPreview.click();
   const earliestPinnedSource = page.locator('[data-message-id="p-old-1"]');
   await expect(earliestPinnedSource).toBeVisible();
-  await expect(earliestPinnedSource).not.toHaveClass(/is-notification-target/);
+  await expect(earliestPinnedSource).toHaveClass(/is-notification-target/);
   await expect(pinnedBanner).toContainText("产品讨论历史消息 1");
 
   const messageList = page.getByRole("log", { name: "消息列表", exact: true });
@@ -9610,7 +9614,7 @@ test("pinned banner advances through earlier pins as source messages enter the v
   await page.waitForTimeout(350);
   await expect.poll(() => messageList.evaluate((element) => element.scrollTop))
     .toBeCloseTo(scrollTopBeforeNoop, 0);
-  await expect(earliestPinnedSource).not.toHaveClass(/is-notification-target/);
+  await expect(earliestPinnedSource).toHaveClass(/is-notification-target/);
 });
 
 test("native context menu rows fill a consistently rounded popup frame", async ({ page }) => {

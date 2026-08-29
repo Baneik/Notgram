@@ -15,9 +15,10 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
 import {
   conversationJumpMotion,
+  conversationJumpAcceleration,
   type ConversationJumpDirection,
 } from "../utils/conversationJumpMotion";
-import { motionDuration } from "../utils/motionTokens";
+import { conversationJumpTiming, motionDuration } from "../utils/motionTokens";
 import {
   captureConversationJumpSnapshot,
   removeConversationJumpSnapshot,
@@ -29,6 +30,7 @@ import {
   conversationScrollMemory,
   conversationVirtuosoSnapshots,
   distanceFromBottom,
+  isMessageFullyVisible,
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
   scrollMemoryKey,
@@ -349,13 +351,18 @@ export const useConversationScroll = ({
     : messageItemIndexes.has(requestIdentityTargetId)
       ? "ready"
       : "pending";
+  // A pending server cursor is already a stable entry intent. Including the
+  // transient empty/ready data phase here would restart the positioning
+  // generation while the cursor is being hydrated and expose an intermediate
+  // viewport before the final target is available.
+  const locationDataPhase = requestIdentityTargetId ? "pending-target" : dataPhase;
   const initialLocationIdentity = [
     currentScrollKey ?? scope,
     matchingEntryRequest?.requestId ?? 0,
     matchingLatestRequest?.requestId ?? 0,
     matchingMessageRequest?.requestId ?? 0,
     searchActive ? "search" : "conversation",
-    dataPhase,
+    locationDataPhase,
     targetPhase,
   ].join(":");
   const virtuosoKey = `${currentScrollKey ?? scope}:${searchActive ? "search" : "conversation"}`;
@@ -1241,6 +1248,14 @@ export const useConversationScroll = ({
           finishWhenRendered();
           return;
         }
+        // Do not release the switch snapshot while an entry cursor is still
+        // waiting for its message. The first range callback can otherwise
+        // settle the temporary `pending` location and the later target load
+        // starts a second visible positioning pass.
+        if (initialLocationRef.current.mode === "pending") {
+          releasePositioning();
+          return;
+        }
         if (initialLocationRef.current.mode === "bottom") {
           if (bottomAlreadySettled) {
             finishPositioning();
@@ -1284,6 +1299,12 @@ export const useConversationScroll = ({
       element.dataset.conversationVirtuosoKey !== virtuosoKey
     ) return;
     const bounds = element.getBoundingClientRect();
+    const destination = element.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(destinationMessageId)}"]`,
+    );
+    // Resolve this before touching the previous highlight anchor. A fully
+    // visible destination must remain a true no-op for scroll position.
+    if (destination && isMessageFullyVisible(element, destination)) return;
     let activeNavigationAnchor: HTMLElement | undefined;
     if (highlightedMessage?.key === currentScrollKey) {
       const activeTarget = element.querySelector<HTMLElement>(
@@ -1296,16 +1317,6 @@ export const useConversationScroll = ({
         if (Math.abs(targetOffset) > 0.5) element.scrollTop += targetOffset;
         activeNavigationAnchor = activeTarget;
       }
-    }
-    const destination = element.querySelector<HTMLElement>(
-      `[data-message-id="${CSS.escape(destinationMessageId)}"]`,
-    );
-    if (destination) {
-      const destinationBounds = destination.getBoundingClientRect();
-      if (
-        destinationBounds.bottom > bounds.top + 1 &&
-        destinationBounds.top < bounds.bottom - 1
-      ) return;
     }
     const anchor = activeNavigationAnchor ??
       [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
@@ -1345,7 +1356,9 @@ export const useConversationScroll = ({
     const revealToken = Symbol(messageId);
     userIntentUntilRef.current = 0;
     pointerActiveRef.current = false;
-    stopFollowingLatest(true);
+    // Cancel a previous controlled jump without changing the user's follow
+    // state. A destination that is already visible is a highlight-only noop.
+    interruptControlledPositioning("detached", false);
     const currentControl = scrollControlRef.current;
     const navigationGeneration = currentControl.generation + 1;
     scrollControlRef.current = {
@@ -1366,20 +1379,89 @@ export const useConversationScroll = ({
     const visibleAnchorIndex = visibleAnchorRow?.dataset.messageId
       ? messageItemIndexesRef.current.get(visibleAnchorRow.dataset.messageId)
       : undefined;
-    const centerMountedTarget = (target: HTMLElement) => {
-      const listBounds = element.getBoundingClientRect();
-      const targetBounds = target.getBoundingClientRect();
-      const offset = (targetBounds.top + targetBounds.bottom) / 2 -
-        (listBounds.top + listBounds.bottom) / 2;
-      if (Math.abs(offset) <= 0.5) return;
-      element.scrollBy({ top: offset, behavior: resolvedBehavior });
-    };
     const resolveTargetOffset = (target: HTMLElement) => {
       if (options?.resolveTargetOffset) return options.resolveTargetOffset(target, element);
       const listBounds = element.getBoundingClientRect();
       const targetBounds = target.getBoundingClientRect();
       return (targetBounds.top + targetBounds.bottom) / 2 -
         (listBounds.top + listBounds.bottom) / 2;
+    };
+    const jumpDirection = options?.direction ?? (
+      visibleAnchorIndex !== undefined && itemIndex < visibleAnchorIndex ? "older" : "newer"
+    );
+    const scrollDirection = jumpDirection === "older" ? -1 : 1;
+    const isLongNavigation = visibleAnchorIndex !== undefined
+      ? Math.abs(itemIndex - visibleAnchorIndex) > 8
+      : !mounted;
+    const setControlledScrollTop = (nextTop: number) => {
+      element.scrollTop = nextTop;
+    };
+    const animateScrollSegments = (
+      fromTop: number,
+      finalTop: number,
+      onFinished: () => void,
+    ) => {
+      const midpoint = fromTop + (finalTop - fromTop) * 0.46;
+      const animateSegment = (
+        duration: number,
+        targetTop: number,
+        progressFor: (elapsed: number) => number,
+        next: () => void,
+      ) => {
+        const startedAt = performance.now();
+        const segmentStartTop = element.scrollTop;
+        const animate = (now: number) => {
+          smoothScrollFrameRef.current = undefined;
+          if (
+            messageListRef.current !== element ||
+            revealTargetTokenRef.current !== revealToken ||
+            scrollControlRef.current.generation !== navigationGeneration
+          ) return;
+          const progress = progressFor((now - startedAt) / duration);
+          setControlledScrollTop(segmentStartTop + (targetTop - segmentStartTop) * progress);
+          if (progress < 1) {
+            smoothScrollFrameRef.current = requestAnimationFrame(animate);
+          } else {
+            next();
+          }
+        };
+        smoothScrollFrameRef.current = requestAnimationFrame(animate);
+      };
+      animateSegment(
+        conversationJumpTiming.accelerate,
+        midpoint,
+        conversationJumpAcceleration,
+        () => animateSegment(
+          conversationJumpTiming.decelerate,
+          finalTop,
+          latestScrollProgress,
+          onFinished,
+        ),
+      );
+    };
+    const animateDeceleration = (
+      fromTop: number,
+      finalTop: number,
+      onFinished: () => void,
+    ) => {
+      const startedAt = performance.now();
+      const animate = (now: number) => {
+        smoothScrollFrameRef.current = undefined;
+        if (
+          messageListRef.current !== element ||
+          revealTargetTokenRef.current !== revealToken ||
+          scrollControlRef.current.generation !== navigationGeneration
+        ) return;
+        const progress = latestScrollProgress(
+          (now - startedAt) / conversationJumpTiming.decelerate,
+        );
+        setControlledScrollTop(fromTop + (finalTop - fromTop) * progress);
+        if (progress < 1) smoothScrollFrameRef.current = requestAnimationFrame(animate);
+        else {
+          onFinished();
+        }
+      };
+      smoothScrollFrameRef.current = requestAnimationFrame(animate);
     };
     const persistTargetPosition = () => {
       const current = conversationScrollMemory.get(currentScrollKey);
@@ -1403,6 +1485,24 @@ export const useConversationScroll = ({
             : current);
       }, 1_600);
     };
+    const finishVisibleTarget = () => {
+      const invalid =
+        messageListRef.current !== element ||
+        navigationRequestIdentityRef.current !== expectedNavigationIdentity ||
+        revealTargetTokenRef.current !== revealToken ||
+        scrollControlRef.current.generation !== navigationGeneration;
+      if (invalid) {
+        clearJumpTransition(revealToken);
+        if (revealTargetTokenRef.current === revealToken) {
+          revealTargetTokenRef.current = undefined;
+        }
+        return;
+      }
+      publishHighlight();
+      revealTargetTokenRef.current = undefined;
+      options?.onSettled?.();
+      completePositioning();
+    };
     let revealTransitionReady: ((onReady: () => void) => void) | undefined;
     const settleMountedTarget = () => {
       let remainingFrames = resolvedBehavior === "smooth" ? 36 : 18;
@@ -1424,15 +1524,6 @@ export const useConversationScroll = ({
           }
           return;
         }
-        const target = element.querySelector<HTMLElement>(
-          `[data-message-id="${CSS.escape(messageId)}"]`,
-        );
-        if (target) {
-          const targetOffset = resolveTargetOffset(target);
-          if (targetOffset !== undefined && Math.abs(targetOffset) > 0.5) {
-            element.scrollTop += targetOffset;
-          }
-        }
         const completeReveal = () => {
           if (
             messageListRef.current !== element ||
@@ -1440,15 +1531,6 @@ export const useConversationScroll = ({
             revealTargetTokenRef.current !== revealToken ||
             scrollControlRef.current.generation !== navigationGeneration
           ) return;
-          const settledTarget = element.querySelector<HTMLElement>(
-            `[data-message-id="${CSS.escape(messageId)}"]`,
-          );
-          if (settledTarget && options?.resolveTargetOffset) {
-            const targetOffset = resolveTargetOffset(settledTarget);
-            if (targetOffset !== undefined && Math.abs(targetOffset) > 0.5) {
-              element.scrollTop += targetOffset;
-            }
-          }
           publishHighlight();
           revealTargetTokenRef.current = undefined;
           persistTargetPosition();
@@ -1513,29 +1595,61 @@ export const useConversationScroll = ({
       settleScheduled = true;
       settleMountedTarget();
     };
-    const mountedTargetIsVisible = mounted ? (() => {
-      const listBounds = element.getBoundingClientRect();
-      const targetBounds = mounted.getBoundingClientRect();
-      return targetBounds.bottom > listBounds.top + 1 && targetBounds.top < listBounds.bottom - 1;
-    })() : false;
+    const mountedTargetIsFullyVisible = mounted
+      ? isMessageFullyVisible(element, mounted)
+      : false;
+    if (!mountedTargetIsFullyVisible || options?.forceTransition) {
+      const current = conversationScrollMemory.get(currentScrollKey);
+      writeMemory(
+        currentScrollKey,
+        element,
+        false,
+        current?.pendingNewCount ?? 0,
+        true,
+      );
+    }
     let targetPrepared = false;
     const prepareTarget = () => {
       if (targetPrepared) return;
       targetPrepared = true;
       options?.prepareTarget?.();
     };
-    if (mountedTargetIsVisible && mounted && !options?.forceTransition) {
+    if (mountedTargetIsFullyVisible && mounted && !options?.forceTransition) {
       prepareTarget();
-      centerMountedTarget(mounted);
-      scheduleTargetSettlement();
+      // A fully visible destination does not need a viewport change. Let the
+      // existing highlight lifecycle provide feedback without disturbing the
+      // user's reading position.
+      settleScheduled = true;
+      scrollControlRef.current.mode = "detached";
+      finishVisibleTarget();
+    } else if (
+      mounted &&
+      !options?.forceTransition &&
+      resolvedBehavior === "smooth" &&
+      !isLongNavigation
+    ) {
+      // The target is just outside the viewport but still mounted in the
+      // overscan range. Keep it in the live list and animate directly to it.
+      prepareTarget();
+      const offset = resolveTargetOffset(mounted);
+      if (offset === undefined || Math.abs(offset) <= 0.5) {
+        scheduleTargetSettlement();
+      } else {
+        settleScheduled = true;
+        animateScrollSegments(element.scrollTop, element.scrollTop + offset, settleMountedTarget);
+      }
     } else if (resolvedBehavior === "smooth" && typeof element.animate === "function") {
       settleScheduled = true;
-      const motion = conversationJumpMotion(
-        options?.direction ?? (
-          visibleAnchorIndex !== undefined && itemIndex < visibleAnchorIndex ? "older" : "newer"
-        ),
-      );
+      const motion = conversationJumpMotion(jumpDirection);
       const snapshot = captureConversationJumpSnapshot(element);
+      const exitTiming = {
+        ...motion.exitTiming,
+        duration: conversationJumpTiming.accelerate,
+      };
+      const enterTiming = {
+        ...motion.enterTiming,
+        duration: conversationJumpTiming.decelerate,
+      };
       if (!snapshot) {
         prepareTarget();
         virtuosoRef.current?.scrollToIndex({
@@ -1543,19 +1657,24 @@ export const useConversationScroll = ({
           align: "center",
           behavior: "auto",
         });
-        settleMountedTarget();
+        requestAnimationFrame(() => settleMountedTarget());
       } else {
         clearJumpTransition();
         jumpSnapshotRef.current = { token: revealToken, snapshot };
         element.classList.add("is-jump-transitioning");
         revealTransitionReady = (onReady) => {
-          if (jumpSnapshotRef.current?.token !== revealToken) return;
+          if (jumpSnapshotRef.current?.token !== revealToken) {
+            const nextContent = element.querySelector<HTMLElement>(".message-list-content") ?? element;
+            const enter = nextContent.animate(motion.enter, enterTiming);
+            void enter.finished.catch(() => undefined).then(onReady);
+            return;
+          }
           clearJumpTransition(revealToken);
           const nextContent = element.querySelector<HTMLElement>(".message-list-content") ?? element;
-          const enter = nextContent.animate(motion.enter, motion.enterTiming);
+          const enter = nextContent.animate(motion.enter, enterTiming);
           void enter.finished.catch(() => undefined).then(onReady);
         };
-        const exit = snapshot.content.animate(motion.exit, motion.exitTiming);
+        const exit = snapshot.content.animate(motion.exit, exitTiming);
         prepareTarget();
         void exit.finished.catch(() => undefined).then(() => {
           const invalid =
@@ -1573,9 +1692,83 @@ export const useConversationScroll = ({
             align: "center",
             behavior: "auto",
           });
+          let previousTargetOffset: number | undefined;
+          let previousScrollTop: number | undefined;
+          let previousScrollHeight: number | undefined;
+          let stableTargetFrames = 0;
+          let quietSince = performance.now();
+          const prepareDeceleration = (attempt = 0) => {
+            if (
+              messageListRef.current !== element ||
+              revealTargetTokenRef.current !== revealToken ||
+              scrollControlRef.current.generation !== navigationGeneration
+            ) return;
+            const target = element.querySelector<HTMLElement>(
+              `[data-message-id="${CSS.escape(messageId)}"]`,
+            );
+            if (!target && attempt < 90) {
+              quietSince = performance.now();
+              previousTargetOffset = undefined;
+              previousScrollTop = undefined;
+              previousScrollHeight = undefined;
+              requestAnimationFrame(() => prepareDeceleration(attempt + 1));
+              return;
+            }
+            const targetOffset = target ? resolveTargetOffset(target) : undefined;
+            const now = performance.now();
+            const geometryChanged = previousTargetOffset === undefined ||
+              targetOffset === undefined ||
+              Math.abs(targetOffset - previousTargetOffset) > 0.5 ||
+              previousScrollTop === undefined ||
+              Math.abs(element.scrollTop - previousScrollTop) > 0.5 ||
+              previousScrollHeight === undefined ||
+              element.scrollHeight !== previousScrollHeight;
+            if (geometryChanged) quietSince = now;
+            if (
+              targetOffset !== undefined &&
+              previousTargetOffset !== undefined &&
+              Math.abs(targetOffset - previousTargetOffset) <= 0.5
+            ) stableTargetFrames += 1;
+            else stableTargetFrames = 0;
+            previousTargetOffset = targetOffset;
+            previousScrollTop = element.scrollTop;
+            previousScrollHeight = element.scrollHeight;
+            if (
+              target &&
+              targetOffset !== undefined &&
+              (stableTargetFrames < 3 || now - quietSince < conversationJumpTiming.relocationQuiet) &&
+              attempt < 90
+            ) {
+              requestAnimationFrame(() => prepareDeceleration(attempt + 1));
+              return;
+            }
+            if (targetOffset !== undefined && isLongNavigation) {
+              const targetCenterTop = element.scrollTop + targetOffset;
+              const leadDistance = Math.min(
+                96,
+                Math.max(48, element.clientHeight * 0.16),
+              );
+              const decelerationStart = targetCenterTop - scrollDirection * leadDistance;
+              setControlledScrollTop(decelerationStart);
+              clearJumpTransition(revealToken);
+              animateDeceleration(decelerationStart, targetCenterTop, settleMountedTarget);
+              return;
+            }
+            if (targetOffset !== undefined && Math.abs(targetOffset) > 0.5) {
+              clearJumpTransition(revealToken);
+              animateScrollSegments(
+                element.scrollTop,
+                element.scrollTop + targetOffset,
+                settleMountedTarget,
+              );
+            } else {
+              clearJumpTransition(revealToken);
+              settleMountedTarget();
+            }
+          };
           requestAnimationFrame(() => {
             exit.cancel();
-            settleMountedTarget();
+            prepareDeceleration();
           });
         });
       }
@@ -1604,9 +1797,9 @@ export const useConversationScroll = ({
     completePositioning,
     clearJumpTransition,
     currentScrollKey,
+    interruptControlledPositioning,
     navigationRequestIdentity,
     reduceMotion,
-    stopFollowingLatest,
     writeMemory,
   ]);
 

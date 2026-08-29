@@ -1237,19 +1237,8 @@ export function Conversation({
   );
 
   const openPinnedBannerMessage = useCallback((chatId: string, messageId: string) => {
-    const element = messageListRef.current;
-    const target = element?.querySelector<HTMLElement>(
-      `[data-message-id="${CSS.escape(messageId)}"]`,
-    );
-    if (element && target) {
-      const listBounds = element.getBoundingClientRect();
-      const targetBounds = target.getBoundingClientRect();
-      if (targetBounds.bottom > listBounds.top + 1 && targetBounds.top < listBounds.bottom - 1) {
-        return;
-      }
-    }
     rememberJumpOrigin(messageId);
-    onOpenMessage(chatId, messageId, { behavior: "smooth", highlight: false });
+    onOpenMessage(chatId, messageId, { behavior: "smooth", highlight: true });
   }, [onOpenMessage, rememberJumpOrigin]);
 
   useEffect(() => {

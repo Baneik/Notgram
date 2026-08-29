@@ -34,3 +34,9 @@ export const conversationJumpMotion = (
     },
   };
 };
+
+/** Smoothly builds speed for the first half of a message jump. */
+export const conversationJumpAcceleration = (elapsed: number) => {
+  const progress = Math.min(1, Math.max(0, elapsed));
+  return progress * progress * (3 - 2 * progress);
+};

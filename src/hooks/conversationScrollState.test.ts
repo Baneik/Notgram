@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   captureActiveConversationScrollState,
+  isMessageFullyVisible,
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
 } from "./conversationScrollState";
@@ -54,5 +55,22 @@ describe("conversation virtual indexes", () => {
     ]));
 
     expect(appended).toBe(initial);
+  });
+});
+
+describe("conversation message visibility", () => {
+  it("requires the whole target row to fit inside the viewport", () => {
+    const list = {
+      getBoundingClientRect: () => ({ top: 100, bottom: 500 } as DOMRect),
+    } as HTMLElement;
+    const target = {
+      getBoundingClientRect: () => ({ top: 140, bottom: 460 } as DOMRect),
+    } as HTMLElement;
+    expect(isMessageFullyVisible(list, target)).toBe(true);
+
+    target.getBoundingClientRect = () => ({ top: 90, bottom: 460 } as DOMRect);
+    expect(isMessageFullyVisible(list, target)).toBe(false);
+    target.getBoundingClientRect = () => ({ top: 140, bottom: 510 } as DOMRect);
+    expect(isMessageFullyVisible(list, target)).toBe(false);
   });
 });

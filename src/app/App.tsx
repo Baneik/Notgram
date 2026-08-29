@@ -1674,6 +1674,7 @@ export function App() {
               }
             }
           }}
+          onOpenLatest={(chatId) => openLatestConversation(chatId)}
           loadingMore={activeChatList.loading}
           hasMore={activeChatList.hasMore}
           onLoadMore={() => loadMoreChats(chatFilter)}
