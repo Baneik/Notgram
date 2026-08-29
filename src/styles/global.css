@@ -1775,6 +1775,7 @@ button.message-channel-author:hover, button.message-channel-author:focus-visible
 }
 .is-outgoing .message-bubble-shell.is-sticker-shell .message-reply-preview { background: var(--outgoing); }
 .photo-message { width: 100%; max-width: 100%; display: grid; gap: 0; }
+.photo-message.media-photo .photo-preview { contain: paint; }
 .photo-preview { position: relative; width: 100%; min-height: 120px; overflow: hidden; display: grid; place-items: center; background: var(--color-bg-control-hover); border-radius: 0; }
 .photo-preview.has-media-ratio { min-height: 0; }
 .photo-message.media-photo .photo-preview:not(.has-media-ratio),

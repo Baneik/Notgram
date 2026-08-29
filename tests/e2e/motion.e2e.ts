@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { Message } from "../../src/telegram/types";
 
 const horizontalOverflow = (page: Page) => page.evaluate(() =>
   [...document.querySelectorAll<HTMLElement>("body *")].some((element) => {
@@ -217,6 +218,117 @@ test("images remain hidden until their current source finishes decoding", async 
   ).__releaseImageDecode?.());
   await expect(image).toHaveAttribute("data-image-state", "ready");
   await expect(image).toHaveCSS("opacity", "1");
+});
+
+test("captioned message media stays paint-contained across virtual remounts", async ({ page }) => {
+  await page.setViewportSize({ width: 525, height: 812 });
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  const messageList = page.getByRole("log", { name: "消息列表" });
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+
+  await page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: {
+        getState: () => { messages: Map<string, Message[]> };
+        setState: (partial: { messages: Map<string, Message[]> }) => void;
+      };
+    };
+    const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    const current = [...(messages.get("chat-product") ?? [])];
+    const paintMessages: Message[] = [
+      {
+        id: "paint-contained-media",
+        chatId: "chat-product",
+        senderId: "u-mia",
+        outgoing: false,
+        sentAt: "2026-08-01T10:30:00+08:00",
+        delivery: "read",
+        content: {
+          kind: "media",
+          mediaType: "photo",
+          fileName: "paint-containment.jpg",
+          sizeLabel: "18 KB",
+          localPath: "/mock-video-poster.jpg",
+          width: 640,
+          height: 360,
+          caption: "带说明的图片消息",
+          isDownloaded: true,
+          isDownloading: false,
+        },
+      },
+      {
+        id: "paint-contained-text",
+        chatId: "chat-product",
+        senderId: "u-mia",
+        outgoing: false,
+        sentAt: "2026-08-01T10:31:00+08:00",
+        delivery: "read",
+        content: { kind: "text", text: "紧跟图片的普通消息" },
+      },
+    ];
+    messages.set("chat-product", [...current, ...paintMessages]);
+    module.telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+
+  const mediaRow = page.locator('[data-message-id="paint-contained-media"]');
+  const textRow = page.locator('[data-message-id="paint-contained-text"]');
+  const scrollToLatest = () => messageList.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  const expectContainedGeometry = async () => {
+    const report = await page.evaluate(() => {
+      const media = document.querySelector<HTMLElement>('[data-message-id="paint-contained-media"]');
+      const text = document.querySelector<HTMLElement>('[data-message-id="paint-contained-text"]');
+      const mediaPreview = media?.querySelector<HTMLElement>(".photo-preview");
+      const mediaShell = media?.querySelector<HTMLElement>(".message-bubble-shell");
+      const textShell = text?.querySelector<HTMLElement>(".message-bubble-shell");
+      const image = media?.querySelector<HTMLImageElement>(".stable-image");
+      if (!media || !text || !mediaPreview || !mediaShell || !textShell || !image) return undefined;
+      const mediaBounds = media.getBoundingClientRect();
+      const textBounds = text.getBoundingClientRect();
+      return {
+        contain: getComputedStyle(mediaPreview).contain,
+        activeImageAnimations: image.getAnimations().filter((animation) => animation.playState !== "finished").length,
+        mediaBottom: mediaBounds.bottom,
+        textTop: textBounds.top,
+        mediaWidth: mediaShell.getBoundingClientRect().width,
+        textWidth: textShell.getBoundingClientRect().width,
+        sameVirtualItem: media.closest("[data-index]") === text.closest("[data-index]"),
+      };
+    });
+    expect(report).toBeDefined();
+    expect(report?.contain.split(" ")).toContain("paint");
+    expect(report?.activeImageAnimations).toBe(0);
+    expect((report?.mediaBottom ?? 0) - (report?.textTop ?? 0)).toBeLessThanOrEqual(0.5);
+    expect(report?.textWidth).toBeLessThan(report?.mediaWidth ?? 0);
+    expect(report?.sameVirtualItem).toBe(true);
+  };
+
+  await scrollToLatest();
+  await expect(mediaRow).toBeVisible();
+  await expect(textRow).toBeVisible();
+  await expect(mediaRow.locator(".stable-image")).toHaveAttribute("data-image-state", "ready");
+  await expect.poll(() => mediaRow.locator(".stable-image").evaluate((image) =>
+    image.getAnimations().filter((animation) => animation.playState !== "finished").length,
+  )).toBe(0);
+  await expectContainedGeometry();
+
+  await messageList.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(mediaRow).toHaveCount(0);
+  await scrollToLatest();
+  await expect(mediaRow).toBeVisible();
+  await expect(textRow).toBeVisible();
+  await expect(mediaRow.locator(".stable-image")).toHaveAttribute("data-image-state", "ready");
+  await expect.poll(() => mediaRow.locator(".stable-image").evaluate((image) =>
+    image.getAnimations().filter((animation) => animation.playState !== "finished").length,
+  )).toBe(0);
+  await expectContainedGeometry();
 });
 
 test("background visibility pauses continuous motion and resumes it on return", async ({ page }) => {
