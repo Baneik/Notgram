@@ -1221,37 +1221,68 @@ export function App() {
       if (!await state.switchAccount(route.accountId)) clearPendingNotificationRoute();
       return;
     }
-    if (!state.chats.has(route.chatId)) {
+    const targetChat = state.chats.get(route.chatId);
+    if (!targetChat) {
       telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
       clearPendingNotificationRoute();
       return;
     }
 
-    exitSidebarSearchScope(false);
-    state.clearGlobalSearch();
-    state.clearProfile();
     const generation = chatOpenGenerationRef.current + 1;
     chatOpenGenerationRef.current = generation;
-    await telegramStore.getState().loadMessage(route.chatId, route.messageId);
-    if (chatOpenGenerationRef.current !== generation) return;
-    const loadedState = telegramStore.getState();
-    const targetTopicId = loadedState.chats.get(route.chatId)?.isForum
-      ? route.topicId ?? loadedState.messages.get(route.chatId)?.find((message) => message.id === route.messageId)?.topicId
+    const cachedTarget = state.messages.get(route.chatId)
+      ?.find((message) => message.id === route.messageId);
+    const targetTopicId = targetChat.isForum
+      ? route.topicId ?? cachedTarget?.topicId ?? state.lastForumTopicIds.get(route.chatId) ??
+        state.forumTopics.get(route.chatId)?.find((topic) => !topic.isHidden)?.id
       : undefined;
-    syncConversationNavigation(locationForChat(route.chatId, targetTopicId));
+    // Consume a restored cross-account route before any asynchronous work so
+    // chat-list updates cannot start the same navigation a second time.
     clearPendingNotificationRoute();
     beginConversationSnapshot(
       conversationIdentityFor(route.chatId, targetTopicId),
-      true,
+      !targetChat.isForum || Boolean(targetTopicId),
     );
     flushSync(() => {
+      exitSidebarSearchScope(false);
+      state.clearGlobalSearch();
+      state.clearProfile();
+      syncConversationNavigation(locationForChat(route.chatId, targetTopicId));
       setMobileChatOpen(true);
       issueConversationScrollRequest({
         kind: "message",
         chatId: route.chatId,
         messageId: route.messageId,
       });
-      loadedState.selectChat(route.chatId, { forumTopicId: targetTopicId });
+      state.selectChat(route.chatId, { forumTopicId: targetTopicId });
+    });
+
+    if (cachedTarget) return;
+    const loaded = await telegramStore.getState().loadMessage(route.chatId, route.messageId);
+    if (chatOpenGenerationRef.current !== generation) return;
+    if (!loaded) {
+      flushSync(() => {
+        issueConversationScrollRequest({ kind: "entry", chatId: route.chatId });
+      });
+      return;
+    }
+
+    const loadedState = telegramStore.getState();
+    const loadedTopicId = targetChat.isForum
+      ? route.topicId ?? loadedState.messages.get(route.chatId)
+        ?.find((message) => message.id === route.messageId)?.topicId
+      : undefined;
+    if (!loadedTopicId || loadedTopicId === targetTopicId) return;
+
+    beginConversationSnapshot(conversationIdentityFor(route.chatId, loadedTopicId), true);
+    flushSync(() => {
+      syncConversationNavigation(locationForChat(route.chatId, loadedTopicId));
+      issueConversationScrollRequest({
+        kind: "message",
+        chatId: route.chatId,
+        messageId: route.messageId,
+      });
+      loadedState.selectChat(route.chatId, { forumTopicId: loadedTopicId });
     });
   }, [beginConversationSnapshot, exitSidebarSearchScope, issueConversationScrollRequest, locationForChat, syncConversationNavigation]);
 

@@ -2757,6 +2757,79 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   expect(await messageCounts()).toEqual(beforeCounts);
 });
 
+test("notification routes select the destination before exact-message loading settles", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-product"]').click();
+  const title = page.locator(".conversation-title strong");
+  await expect(title).toHaveText("产品讨论");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+
+  await page.evaluate(async (storePath) => {
+    interface TestStoreState {
+      activeAccountId: string;
+      activeChatId?: string;
+      chatListReady: boolean;
+      histories: Map<string, { loading: boolean; hasMore: boolean; initialized: boolean }>;
+      messages: Map<string, Message[]>;
+      loadMessage: (chatId: string, messageId: string) => Promise<boolean>;
+    }
+    const storeModule = await import(storePath) as {
+      telegramStore: {
+        getState: () => TestStoreState;
+        setState: (partial: Partial<TestStoreState>) => void;
+        subscribe: (listener: (state: TestStoreState, previous: TestStoreState) => void) => () => void;
+      };
+    };
+    const store = storeModule.telegramStore;
+    const state = store.getState();
+    const messages = new Map(state.messages);
+    messages.set(
+      "chat-mia",
+      (messages.get("chat-mia") ?? []).filter((message) => message.id !== "m-3"),
+    );
+    const histories = new Map(state.histories);
+    histories.set("chat-mia", { loading: false, hasMore: true, initialized: true });
+    const loadMessage = state.loadMessage;
+    store.setState({
+      histories,
+      messages,
+      loadMessage: async (chatId, messageId) => {
+        await new Promise((resolve) => globalThis.setTimeout(resolve, 1_600));
+        return loadMessage(chatId, messageId);
+      },
+      chatListReady: false,
+    });
+    const diagnosticWindow = window as typeof window & {
+      __notgramNotificationChatSelections?: string[];
+    };
+    diagnosticWindow.__notgramNotificationChatSelections = [];
+    store.subscribe((next, previous) => {
+      if (next.activeChatId !== previous.activeChatId && next.activeChatId) {
+        diagnosticWindow.__notgramNotificationChatSelections?.push(next.activeChatId);
+      }
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    window.sessionStorage.setItem("notgram.pending-notification-route", JSON.stringify({
+      accountId: state.activeAccountId,
+      chatId: "chat-mia",
+      messageId: "m-3",
+    }));
+    store.setState({ chatListReady: true });
+  }, "/src/store/telegramStore.ts");
+
+  await expect(title).toHaveText("Mia Chen", { timeout: 750 });
+  await expect(page.locator('[data-chat-id="chat-mia"]')).toHaveAttribute("aria-current", "true");
+  await expect.poll(() => page.evaluate(() => (
+    window.sessionStorage.getItem("notgram.pending-notification-route")
+  ))).toBeNull();
+  await expect(page.locator('[data-message-id="m-3"]')).toHaveClass(/is-notification-target/, {
+    timeout: 4_000,
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __notgramNotificationChatSelections?: string[] }
+  ).__notgramNotificationChatSelections)).toEqual(["chat-mia"]);
+});
+
 test("warm conversation switching coalesces message-list geometry checks", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');
