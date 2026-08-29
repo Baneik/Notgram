@@ -2188,12 +2188,20 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .media-progress button:hover { background: color-mix(in srgb, var(--color-on-media) 16%, transparent); }
 .messages-empty { width: fit-content; margin: 42px auto; padding: 5px 10px; color: var(--color-on-media); background: var(--color-message-service); border-radius: 12px; font-size: 11px; }
 .composer-wrap { position: relative; min-width: 0; min-height: 50px; padding: 0; display: grid; align-content: end; background: var(--chat-canvas); }
-.bot-suggestion-panel, .inline-query-panel { position: absolute; z-index: 8; right: 12px; bottom: calc(100% - 2px); width: min(460px, calc(100vw - 24px)); max-height: 300px; overflow-y: auto; display: grid; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px var(--color-shadow); }
+.bot-suggestion-panel, .mention-suggestion-panel, .inline-query-panel { position: absolute; z-index: 8; right: 12px; bottom: calc(100% - 2px); width: min(460px, calc(100vw - 24px)); max-height: 300px; overflow-y: auto; display: grid; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px var(--color-shadow); }
 .bot-suggestion-panel { left: 6px; right: 6px; width: auto; max-height: min(360px, 48vh); border-radius: 6px; }
-.bot-suggestion-panel button, .inline-query-result, .inline-query-more { min-width: 0; padding: 9px 11px; display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; font: inherit; }
+.mention-suggestion-panel { left: 6px; right: auto; width: max-content; max-width: min(360px, calc(100% - 12px), calc(100vw - 24px)); max-height: min(360px, 48vh); border-radius: 6px; }
+.bot-suggestion-panel button, .mention-suggestion-panel button, .inline-query-result, .inline-query-more { min-width: 0; padding: 9px 11px; display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; font: inherit; }
 .bot-suggestion-panel button { min-height: 52px; padding: 7px 14px; grid-template-columns: minmax(0, 1fr); align-content: center; gap: 2px; }
-.bot-suggestion-panel button:last-child { border-bottom: 0; }
-.bot-suggestion-panel button:hover, .bot-suggestion-panel button.is-active, .inline-query-result:hover, .inline-query-more:hover { background: var(--surface-hover); }
+.mention-suggestion-panel button { width: 100%; min-height: 58px; padding: 7px 10px; grid-template-columns: auto minmax(0, 1fr) auto; }
+.bot-suggestion-panel button:last-child, .mention-suggestion-panel button:last-child { border-bottom: 0; }
+.bot-suggestion-panel button:hover, .bot-suggestion-panel button.is-active, .mention-suggestion-panel button:hover, .mention-suggestion-panel button.is-active, .inline-query-result:hover, .inline-query-more:hover { background: var(--surface-hover); }
+.mention-suggestion-panel .avatar { width: 34px; height: 34px; flex: 0 0 34px; }
+.mention-suggestion-copy { min-width: 0; display: grid; gap: 3px; }
+.mention-suggestion-copy strong, .mention-suggestion-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-suggestion-copy strong { font-size: 13px; font-weight: 650; }
+.mention-suggestion-copy small { color: var(--muted); font-size: 11px; }
+.mention-suggestion-panel kbd { min-width: 40px; padding: 3px 5px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; background: var(--color-bg-control); text-align: center; font-family: inherit; font-size: 10px; line-height: 1.1; }
 .bot-suggestion-command { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
 .bot-suggestion-panel .bot-suggestion-command strong { overflow: hidden; color: var(--accent); text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .bot-suggestion-panel .bot-suggestion-command small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }

@@ -40,14 +40,17 @@ import {
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useTelegramStore } from "../store/telegramStore";
 import { colorThemeForThemeId } from "../theme/theme";
-import type { AttachmentSendMode, BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment } from "../telegram/types";
+import type { AttachmentSendMode, BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment, User } from "../telegram/types";
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
 import type { PhotoMessage } from "../utils/mediaViewerModel";
 import { motionLifecycleTiming } from "../utils/motionTokens";
+import { mentionSuggestionsFor } from "../utils/mentionSuggestions";
 import {
   composerInlineQueryForDraft,
+  composerMentionQueryForDraft,
   insertComposerMention,
   insertComposerText,
+  mentionTextForUser,
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
 import {
@@ -61,6 +64,7 @@ import { EmojiPicker } from "./EmojiPicker";
 import { MotionPresence } from "./MotionPresence";
 import { MediaSpoiler } from "./Spoiler";
 import { StableImage } from "./StableImage";
+import { Avatar } from "./Avatar";
 
 interface ConversationComposerProps {
   chatId: string;
@@ -74,6 +78,9 @@ interface ConversationComposerProps {
   defaultBotUsername?: string;
   textInsertion?: ComposerTextInsertion;
   knownNonBotUsernames?: ReadonlySet<string>;
+  mentionsEnabled?: boolean;
+  mentionUsers?: readonly User[];
+  recentMentionUserIds?: readonly string[];
   onTextInsertionApplied?: (id: string) => void;
   onGeometryChange?: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -151,6 +158,9 @@ export const ConversationComposer = memo(function ConversationComposer({
   defaultBotUsername,
   textInsertion,
   knownNonBotUsernames,
+  mentionsEnabled = false,
+  mentionUsers = [],
+  recentMentionUserIds = [],
   onTextInsertionApplied,
   onGeometryChange,
   inputRef,
@@ -197,6 +207,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [botSuggestions, setBotSuggestions] = useState<BotCommandSuggestion[]>([]);
   const [activeBotSuggestionIndex, setActiveBotSuggestionIndex] = useState(0);
+  const [mentionSuggestions, setMentionSuggestions] = useState<User[]>([]);
+  const [activeMentionSuggestionIndex, setActiveMentionSuggestionIndex] = useState(0);
   const [inlineResults, setInlineResults] = useState<InlineQueryResultPage>();
   const [inlineLoading, setInlineLoading] = useState(false);
   const showSending = useStableVisibility(sending, { minimumVisible: 220 });
@@ -344,10 +356,30 @@ export const ConversationComposer = memo(function ConversationComposer({
   useEffect(() => {
     const generation = ++botQueryGenerationRef.current;
     if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current);
+    const mentionQuery = !editingMessage && mentionsEnabled
+      ? composerMentionQueryForDraft(
+        draft,
+        inputRef.current?.selectionStart ?? draft.length,
+      )
+      : undefined;
     const slash = !editingMessage ? draft.match(/^\/([A-Za-z0-9_]*)(?:@([A-Za-z0-9_]{5,32}))?$/) : null;
     const inline = !editingMessage ? composerInlineQueryForDraft(draft, knownNonBotUsernames) : undefined;
-    if (slash) {
+    if (mentionQuery) {
+      setMentionSuggestions(mentionSuggestionsFor(
+        mentionUsers,
+        mentionQuery.query,
+        recentMentionUserIds,
+      ));
+      setActiveMentionSuggestionIndex(0);
+      setBotSuggestions([]);
+      setActiveBotSuggestionIndex(0);
+      selectedBotRef.current = undefined;
+      setInlineResults(undefined);
+      setInlineLoading(false);
+    } else if (slash) {
       const username = slash[2] || defaultBotUsername;
+      setMentionSuggestions([]);
+      setActiveMentionSuggestionIndex(0);
       selectedBotRef.current = undefined;
       setBotSuggestions([]);
       setActiveBotSuggestionIndex(0);
@@ -364,7 +396,10 @@ export const ConversationComposer = memo(function ConversationComposer({
           });
       }, 80);
       setInlineResults(undefined);
+      setInlineLoading(false);
     } else if (inline) {
+      setMentionSuggestions([]);
+      setActiveMentionSuggestionIndex(0);
       setBotSuggestions([]);
       setActiveBotSuggestionIndex(0);
       selectedBotRef.current = undefined;
@@ -383,6 +418,8 @@ export const ConversationComposer = memo(function ConversationComposer({
           });
       }, 180);
     } else {
+      setMentionSuggestions([]);
+      setActiveMentionSuggestionIndex(0);
       setBotSuggestions([]);
       setActiveBotSuggestionIndex(0);
       setInlineResults(undefined);
@@ -391,7 +428,7 @@ export const ConversationComposer = memo(function ConversationComposer({
     return () => {
       if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current);
     };
-  }, [defaultBotUsername, draft, editingMessage, knownNonBotUsernames, onGetBotCommands, onGetInlineResults]);
+  }, [defaultBotUsername, draft, editingMessage, inputRef, knownNonBotUsernames, mentionUsers, mentionsEnabled, onGetBotCommands, onGetInlineResults, recentMentionUserIds]);
 
   useComposerAutoResize(inputRef, draft, !composing, chatId, onGeometryChange);
 
@@ -533,6 +570,40 @@ export const ConversationComposer = memo(function ConversationComposer({
     scheduleDraft(value, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
     keepTyping(value);
   }, [activeReplyQuote, chatDraft?.replyToMessageId, editingMessage, keepTyping, replyingTo?.id, scheduleDraft]);
+
+  const applyMentionSuggestion = useCallback((user: User) => {
+    const previousText = draftRef.current;
+    const input = inputRef.current;
+    const selectionStart = input?.selectionStart ?? previousText.length;
+    const selectionEnd = input?.selectionEnd ?? selectionStart;
+    const query = composerMentionQueryForDraft(previousText, selectionEnd);
+    if (!query || query.start > selectionStart) return;
+    const result = insertComposerMention(
+      previousText,
+      mentionTextForUser(user),
+      user.id,
+      query.start,
+      query.end,
+    );
+    const insertedEntities = reconcileComposerMentionEntities(
+      previousText,
+      result.value,
+      mentionEntitiesRef.current,
+    );
+    mentionEntitiesRef.current = [
+      ...insertedEntities,
+      result.entity,
+    ].sort((left, right) => left.offset - right.offset);
+    setMentionSuggestions([]);
+    setActiveMentionSuggestionIndex(0);
+    draftRef.current = result.value;
+    setDraft(result.value);
+    commitInputSideEffects(result.value);
+    globalThis.requestAnimationFrame(() => {
+      inputRef.current?.focus({ preventScroll: true });
+      inputRef.current?.setSelectionRange(result.cursor, result.cursor);
+    });
+  }, [commitInputSideEffects, inputRef]);
 
   useEffect(() => {
     if (!textInsertion || textInsertion.draftKey !== draftKey || editingMessage || appliedTextInsertionRef.current === textInsertion.id) return;
@@ -1222,6 +1293,31 @@ export const ConversationComposer = memo(function ConversationComposer({
           </button>
         </div>
       )}
+      <MotionPresence present={mentionSuggestions.length > 0} variant="popover">
+        {mentionSuggestions.length > 0 ? (
+          <section className="mention-suggestion-panel" role="listbox" aria-label="提及成员">
+            {mentionSuggestions.map((user, index) => (
+              <button
+                className={index === activeMentionSuggestionIndex ? "is-active" : ""}
+                data-mention-user-id={user.id}
+                key={user.id}
+                type="button"
+                role="option"
+                aria-selected={index === activeMentionSuggestionIndex}
+                onPointerEnter={() => setActiveMentionSuggestionIndex(index)}
+                onClick={() => applyMentionSuggestion(user)}
+              >
+                <Avatar avatar={user.avatar} size="small" />
+                <span className="mention-suggestion-copy">
+                  <strong>{user.displayName}</strong>
+                  <small>{user.username ? `@${user.username.replace(/^@/, "")}` : "无用户名"}</small>
+                </span>
+                {index < 9 ? <kbd>Ctrl+{index + 1}</kbd> : null}
+              </button>
+            ))}
+          </section>
+        ) : null}
+      </MotionPresence>
       <MotionPresence present={botSuggestions.length > 0} variant="popover">
         {botSuggestions.length > 0 ? (
           <section className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
@@ -1306,6 +1402,36 @@ export const ConversationComposer = memo(function ConversationComposer({
             stopTyping();
           }}
           onKeyDown={(event) => {
+            if (!event.nativeEvent.isComposing && !composingRef.current && mentionSuggestions.length > 0) {
+              const shortcutKey = event.code.match(/^(?:Digit|Numpad)([1-9])$/)?.[1] ??
+                event.key.match(/^[1-9]$/)?.[0];
+              if (event.ctrlKey && !event.shiftKey && !event.metaKey && !event.altKey && shortcutKey) {
+                const index = Number(shortcutKey) - 1;
+                if (index < mentionSuggestions.length) {
+                  event.preventDefault();
+                  applyMentionSuggestion(mentionSuggestions[index]);
+                  return;
+                }
+              }
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const direction = event.key === "ArrowDown" ? 1 : -1;
+                setActiveMentionSuggestionIndex((current) =>
+                  (current + direction + mentionSuggestions.length) % mentionSuggestions.length
+                );
+                return;
+              }
+              if (
+                (event.key === "Enter" || event.key === "Tab") &&
+                !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+              ) {
+                event.preventDefault();
+                applyMentionSuggestion(
+                  mentionSuggestions[Math.min(activeMentionSuggestionIndex, mentionSuggestions.length - 1)],
+                );
+                return;
+              }
+            }
             if (!event.nativeEvent.isComposing && !composingRef.current && botSuggestions.length > 0) {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();

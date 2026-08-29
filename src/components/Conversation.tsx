@@ -97,6 +97,7 @@ import { ChatActionMenu } from "./ChatActionMenu";
 import { MotionPresence } from "./MotionPresence";
 import { ChannelDiscussionPanel } from "./ChannelDiscussionPanel";
 import { motionLifecycleTiming } from "../utils/motionTokens";
+import { recentMentionUserIdsFor } from "../utils/mentionSuggestions";
 import { ForumTopicStrip } from "./ForumTopicStrip";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
 import { formatSelectedMessages } from "../utils/messageClipboard";
@@ -419,10 +420,29 @@ export function Conversation({
     for (const user of users.values()) {
       if (user.isBot === true) continue;
       const username = user.username?.trim().replace(/^@/, "");
-      if (username) usernames.add(username.toLocaleLowerCase());
+      const displayTokens = [
+        user.displayName,
+        user.firstName,
+        user.lastName,
+        ...(user.displayName.match(/[A-Za-z0-9_]{1,32}/g) ?? []),
+      ];
+      for (const value of [username, ...displayTokens]) {
+        if (value && /^[A-Za-z0-9_]{1,32}$/.test(value)) {
+          usernames.add(value.toLocaleLowerCase());
+        }
+      }
     }
     return usernames;
   }, [users]);
+  const mentionableUsers = useMemo(
+    () => [...users.values()].filter((user) => user.isBot !== true),
+    [users],
+  );
+  const mentionUsers = chat?.kind === "group" ? mentionableUsers : [];
+  const recentMentionUserIds = useMemo(
+    () => recentMentionUserIdsFor(messages),
+    [messages],
+  );
   const currentUserId = useTelegramStore((state) => state.currentUserId);
   const storedMessages = useTelegramStore((state) => state.messages);
   const loadMessageThreadHistory = useTelegramStore((state) => state.loadMessageThreadHistory);
@@ -2746,6 +2766,8 @@ export function Conversation({
           channelTitle={chat.title}
           comments={channelDiscussionComments}
           users={users}
+          mentionUsers={mentionableUsers}
+          knownNonBotUsernames={knownNonBotUsernames}
           currentUserId={currentUserId ?? "self"}
           connectionStatus={connectionStatus}
           loading={(discussionState?.loading ?? false) && !renderedDiscussion?.cached}
@@ -2926,6 +2948,9 @@ export function Conversation({
           : undefined}
         textInsertion={composerTextInsertion}
         knownNonBotUsernames={knownNonBotUsernames}
+        mentionsEnabled={chat.kind === "group"}
+        mentionUsers={mentionUsers}
+        recentMentionUserIds={recentMentionUserIds}
         onTextInsertionApplied={consumeComposerTextInsertion}
         onGeometryChange={reconcileBottomViewport}
         inputRef={composerInputRef}

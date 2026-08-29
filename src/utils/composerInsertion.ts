@@ -12,6 +12,12 @@ export interface ComposerInlineQuery {
   query: string;
 }
 
+export interface ComposerMentionQuery {
+  query: string;
+  start: number;
+  end: number;
+}
+
 export interface ComposerInsertionResult {
   value: string;
   cursor: number;
@@ -64,6 +70,23 @@ export const insertComposerMention = (
       kind: "mentionName",
       userId,
     },
+  };
+};
+
+/** Finds the unfinished @ token immediately before the caret. */
+export const composerMentionQueryForDraft = (
+  value: string,
+  cursor = value.length,
+): ComposerMentionQuery | undefined => {
+  const boundedCursor = Math.max(0, Math.min(value.length, cursor));
+  const prefix = value.slice(0, boundedCursor);
+  const match = /(?:^|[^\p{L}\p{N}_])@([^\s@]*)$/u.exec(prefix);
+  if (!match) return undefined;
+  const query = match[1] ?? "";
+  return {
+    query,
+    start: boundedCursor - query.length - 1,
+    end: boundedCursor,
   };
 };
 

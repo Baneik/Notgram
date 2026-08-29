@@ -3235,6 +3235,53 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
   await expect(suggestions.getByRole("option")).toHaveCount(3);
 });
 
+test("suggests group members for @ mentions without invoking inline bots", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByLabel("消息内容");
+  const mentions = page.getByRole("listbox", { name: "提及成员" });
+
+  await composer.fill("@");
+  await expect(mentions).toHaveCount(0);
+  await composer.fill("@mia_design");
+  await expect(mentions.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
+  await composer.press("Control+1");
+  await expect(composer).toHaveValue("@Mia Chen ");
+  await expect.poll(async () => page.evaluate(async () => {
+    const module = await (0, eval)('import("/src/store/telegramStore.ts")') as {
+      telegramStore: {
+        getState: () => { drafts: Map<string, { entities?: Array<{ kind: string; userId?: string }> }> };
+      };
+    };
+    return module.telegramStore.getState().drafts.get("chat-product")?.entities?.[0];
+  })).toMatchObject({ kind: "mentionName", userId: "u-mia" });
+  await composer.press("Enter");
+  await expect(composer).toHaveValue("");
+
+  await composer.fill("@陈");
+  await composer.press("Control+1");
+  await composer.press("Enter");
+  await composer.fill("@mia");
+  await composer.press("Control+1");
+  await composer.press("Enter");
+
+  await composer.fill("@");
+  await expect(mentions.getByRole("option")).toHaveCount(2);
+  await expect(mentions.locator(".avatar")).toHaveCount(2);
+  await expect(mentions.getByRole("option").nth(0)).toContainText("Mia Chen");
+  await expect(mentions.getByRole("option").nth(0)).toContainText("@mia_design");
+  await expect(mentions.getByRole("option").nth(1)).toContainText("陈默");
+  await composer.press("ArrowDown");
+  await expect(mentions.getByRole("option").nth(1)).toHaveAttribute("aria-selected", "true");
+
+  await composer.fill("@MIA_DESIGN ");
+  await expect(mentions).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Inline 查询结果" })).toHaveCount(0);
+
+  await page.locator('[data-chat-id="chat-mia"]').click();
+  await composer.fill("@mia");
+  await expect(mentions).toHaveCount(0);
+});
+
 test("renders and activates TDLib inline bot keyboards", async ({ page }) => {
   await page.goto("/");
   const row = await revealVirtualMessage(page, "p-bot-keyboard");

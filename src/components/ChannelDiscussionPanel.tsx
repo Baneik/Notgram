@@ -1,6 +1,7 @@
 import { ChevronLeft, LoaderCircle, RotateCcw } from "lucide-react";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import type { ConnectionStatus, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment, User } from "../telegram/types";
+import { recentMentionUserIdsFor } from "../utils/mentionSuggestions";
 import { ConversationComposer } from "./ConversationComposer";
 import { Avatar } from "./Avatar";
 import { MessageBubblePreview, type MessageBubblePreviewProps } from "./MessageBubble";
@@ -10,6 +11,8 @@ interface ChannelDiscussionPanelProps {
   channelTitle: string;
   comments: Message[];
   users: ReadonlyMap<string, User>;
+  mentionUsers?: readonly User[];
+  knownNonBotUsernames?: ReadonlySet<string>;
   currentUserId: string;
   connectionStatus: ConnectionStatus;
   loading: boolean;
@@ -48,6 +51,8 @@ export function ChannelDiscussionPanel({
   channelTitle,
   comments,
   users,
+  mentionUsers = [],
+  knownNonBotUsernames = new Set(),
   currentUserId,
   connectionStatus,
   loading,
@@ -59,6 +64,10 @@ export function ChannelDiscussionPanel({
   messagePreviewOptions,
 }: ChannelDiscussionPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const recentMentionUserIds = useMemo(
+    () => recentMentionUserIdsFor(comments),
+    [comments],
+  );
 
   return (
     <section className="channel-discussion-panel" aria-label={`${channelTitle} 的讨论`}>
@@ -130,7 +139,10 @@ export function ChannelDiscussionPanel({
         <ConversationComposer
           chatId={post.chatId}
           draftKey={`${post.chatId}:discussion:${post.id}`}
-          knownNonBotUsernames={new Set()}
+          knownNonBotUsernames={knownNonBotUsernames}
+          mentionsEnabled
+          mentionUsers={mentionUsers}
+          recentMentionUserIds={recentMentionUserIds}
           inputRef={inputRef}
           connectionStatus={connectionStatus}
           queuedMessageCount={0}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   composerInlineQueryForDraft,
+  composerMentionQueryForDraft,
   insertComposerMention,
   insertComposerText,
   mentionTextForUser,
@@ -44,5 +45,19 @@ describe("composer insertion", () => {
   it("keeps unknown usernames eligible for inline bot queries", () => {
     expect(composerInlineQueryForDraft("@release_bot latest", new Set()))
       .toEqual({ username: "release_bot", query: "latest" });
+  });
+
+  it("finds the active mention token at the caret", () => {
+    expect(composerMentionQueryForDraft("请 @sfas", 7)).toEqual({
+      query: "sfas",
+      start: 2,
+      end: 7,
+    });
+    expect(composerMentionQueryForDraft("@Jk ", 4)).toBeUndefined();
+    expect(composerMentionQueryForDraft("你好 @林", 5)).toEqual({
+      query: "林",
+      start: 3,
+      end: 5,
+    });
   });
 });
