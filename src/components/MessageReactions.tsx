@@ -17,15 +17,17 @@ import {
 
 interface MessageReactionsProps {
   messageId: string;
+  chatId: string;
   reactions: MessageReaction[];
   canGetAddedReactions?: boolean;
   users: ReadonlyMap<string, User>;
   chats: ReadonlyMap<string, Chat>;
-  onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onReaction: (messageId: string, emoji: string, chosen: boolean, chatId?: string) => Promise<void>;
   onLoadSenders: (
     messageId: string,
     type: MessageReactionType,
     offset?: string,
+    chatId?: string,
   ) => Promise<MessageReactionSenderPage>;
   onOpenSenderProfile: (senderId: string) => void;
 }
@@ -85,6 +87,7 @@ const mergeSenders = (
 
 export function MessageReactions({
   messageId,
+  chatId,
   reactions,
   canGetAddedReactions,
   users,
@@ -108,7 +111,7 @@ export function MessageReactions({
     offset?: string,
   ) => {
     try {
-      const page = await onLoadSenders(messageId, reaction.type, offset);
+      const page = await onLoadSenders(messageId, reaction.type, offset, chatId);
       if (requestIdRef.current !== requestId) return;
       setDetails((current) => current?.requestId === requestId ? {
         ...current,
@@ -127,7 +130,7 @@ export function MessageReactions({
         error: error instanceof Error ? error.message : "无法读取回应者",
       } : current);
     }
-  }, [messageId, onLoadSenders]);
+  }, [chatId, messageId, onLoadSenders]);
 
   const openDetails = useCallback((
     reaction: MessageReaction,
@@ -165,11 +168,11 @@ export function MessageReactions({
     const emoji = reaction.type.emoji;
     setReactionPending(emoji);
     try {
-      await onReaction(messageId, emoji, !reaction.chosen);
+      await onReaction(messageId, emoji, !reaction.chosen, chatId);
     } finally {
       setReactionPending(undefined);
     }
-  }, [messageId, onReaction, reactionPending]);
+  }, [chatId, messageId, onReaction, reactionPending]);
 
   const openProfile = useCallback((senderId: string) => {
     closeDetails();

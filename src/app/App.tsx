@@ -897,8 +897,9 @@ export function App() {
       searchInputRef.current?.select();
     }, 0);
   }, [cancelGlobalSearch, clearGlobalSearch, clearProfile, enterChatSearch, setSearchQuery]);
-  const searchActiveChatHashtag = useCallback((hashtag: string) => {
-    if (activeChatId) openChatSearch(activeChatId, undefined, hashtag);
+  const searchActiveChatHashtag = useCallback((hashtag: string, chatId?: string) => {
+    const targetChatId = chatId ?? activeChatId;
+    if (targetChatId) openChatSearch(targetChatId, undefined, hashtag);
   }, [activeChatId, openChatSearch]);
 
   const openFolderManager = useCallback((folderId?: string) => {
@@ -1838,8 +1839,9 @@ export function App() {
               recordNavigation: true,
             });
           }}
-          onOpenMessageSearch={(senderId) => {
-            if (activeChatId) openChatSearch(activeChatId, senderId);
+          onOpenMessageSearch={(senderId, chatId) => {
+            const targetChatId = chatId ?? activeChatId;
+            if (targetChatId) openChatSearch(targetChatId, senderId);
           }}
           onOpenChat={(chatId) => {
             void openGlobalSearchChat(chatId, true);

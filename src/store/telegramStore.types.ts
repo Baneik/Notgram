@@ -199,6 +199,7 @@ export interface TelegramState {
     replyToMessageId: string,
     text: string,
     entities?: MessageTextEntity[],
+    replyQuote?: MessageReplyQuote,
   ) => Promise<boolean>;
   sendFilesToThread: (
     chatId: string,
@@ -206,6 +207,7 @@ export interface TelegramState {
     attachments: import("../telegram/types").OutgoingAttachment[],
     caption?: string,
     captionEntities?: MessageTextEntity[],
+    replyQuote?: MessageReplyQuote,
   ) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
   dismissMessageAttention: (chatId: string, messageIds: string[]) => void;
@@ -249,7 +251,7 @@ export interface TelegramState {
   processChatJoinRequest: (chatId: string, userId: string, approve: boolean) => Promise<boolean>;
   processChatJoinRequests: (chatId: string, inviteLink: string | undefined, approve: boolean) => Promise<boolean>;
   getBotCommandSuggestions: (chatId: string, query?: string, botUsername?: string) => Promise<BotCommandSuggestion[]>;
-  getCallbackQueryAnswer: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
+  getCallbackQueryAnswer: (messageId: string, data: string, chatId?: string) => Promise<CallbackQueryAnswer | undefined>;
   getInlineQueryResults: (chatId: string, botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
   sendInlineQueryResultMessage: (chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string, topicId?: string) => Promise<boolean>;
   sendBotStartMessage: (chatId: string, botUserId: string, parameter?: string) => Promise<boolean>;
@@ -262,20 +264,22 @@ export interface TelegramState {
   terminateAllOtherSessions: () => Promise<boolean>;
   getPrivacySettingRules: (setting: PrivacySettingKey) => Promise<PrivacyRule[]>;
   setPrivacySettingRules: (setting: PrivacySettingKey, rules: PrivacyRule[]) => Promise<boolean>;
-  setMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  setMessageReaction: (messageId: string, emoji: string, chosen: boolean, chatId?: string) => Promise<void>;
   getMessageReactionSenders: (
     messageId: string,
     type: MessageReactionType,
     offset?: string,
+    chatId?: string,
   ) => Promise<MessageReactionSenderPage>;
-  setPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
+  setPollAnswer: (messageId: string, optionPositions: number[], chatId?: string) => Promise<boolean>;
   loadPinnedMessages: (chatId: string) => Promise<Message[]>;
   pinMessage: (
     messageId: string,
     disableNotification: boolean,
     onlyForSelf: boolean,
+    chatId?: string,
   ) => Promise<boolean>;
-  unpinMessage: (messageId: string) => Promise<boolean>;
+  unpinMessage: (messageId: string, chatId?: string) => Promise<boolean>;
   setChatMessageAutoDeleteTime: (
     chatId: string,
     messageAutoDeleteTime: number,
@@ -291,18 +295,28 @@ export interface TelegramState {
     asset: EmojiPickerAsset,
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
+    chatId?: string,
   ) => Promise<boolean>;
   sendAnimation: (
     asset: EmojiPickerAsset,
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
+    chatId?: string,
   ) => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
   sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => Promise<boolean>;
-  editMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
-  deleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
+  editMessage: (messageId: string, text: string, entities?: MessageTextEntity[], chatId?: string) => Promise<boolean>;
+  deleteMessage: (messageId: string, revoke: boolean, chatId?: string) => Promise<boolean>;
   updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
+  updateThreadDraft: (
+    draftKey: string,
+    chatId: string,
+    text: string,
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
+    entities?: MessageTextEntity[],
+  ) => void;
   loadLocalAttachmentDraft: (draftKey: string) => Promise<import("../telegram/types").OutgoingAttachment[]>;
   saveLocalAttachmentDraft: (
     draftKey: string,
@@ -333,7 +347,7 @@ export interface TelegramState {
   saveFileToDownloads: (sourcePath: string, fileName: string) => Promise<void>;
   saveFileAs: (sourcePath: string, fileName: string) => Promise<void>;
   openDownloadDirectory: () => Promise<void>;
-  retryMessage: (messageId: string) => Promise<void>;
+  retryMessage: (messageId: string, chatId?: string) => Promise<void>;
   sendFile: (file?: File) => Promise<boolean>;
   sendFiles: (
     attachments: import("../telegram/types").OutgoingAttachment[],
@@ -342,7 +356,7 @@ export interface TelegramState {
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
   ) => Promise<boolean>;
-  cancelFileUpload: (messageId: string) => Promise<void>;
+  cancelFileUpload: (messageId: string, chatId?: string) => Promise<void>;
   clearError: () => void;
   clearOperationError: () => void;
 }

@@ -15,13 +15,15 @@ const CALLBACK_PENDING_MAX_MS = 1_500;
 
 interface InlineKeyboardProps {
   messageId: string;
+  chatId?: string;
   markup: MessageInlineKeyboard;
-  onCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
+  onCallback: (messageId: string, data: string, chatId?: string) => Promise<CallbackQueryAnswer | undefined>;
   onOpenUser: (userId: string) => void;
 }
 
 export function InlineKeyboard({
   messageId,
+  chatId,
   markup,
   onCallback,
   onOpenUser,
@@ -66,7 +68,7 @@ export function InlineKeyboard({
           clearPending(interaction);
         }, CALLBACK_PENDING_MAX_MS);
         try {
-          const answer = await onCallback(messageId, button.data);
+          const answer = await onCallback(messageId, button.data, chatId);
           if (interactionRef.current !== interaction) return;
           clearPending(interaction);
           if (answer?.url) await openExternalLink(answer.url);

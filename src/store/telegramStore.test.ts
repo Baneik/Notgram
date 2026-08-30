@@ -24,6 +24,10 @@ import type {
   TelegramEvent,
   User,
   ChatMessageSearchInput,
+  SetMessageReactionInput,
+  EditMessageInput,
+  DeleteMessageInput,
+  PinMessageInput,
 } from "../telegram/types";
 import {
   createTelegramStore,
@@ -2170,6 +2174,202 @@ describe("telegram store", () => {
         { senderId: "u-chen" },
       ],
     });
+  });
+
+  it("routes message actions to a cached discussion chat when the channel is active", async () => {
+    class DiscussionActionTransport extends MockTelegramTransport {
+      reactionInputs: SetMessageReactionInput[] = [];
+      reactionSenderInputs: Array<Parameters<MockTelegramTransport["getMessageReactionSenders"]>[0]> = [];
+      editInputs: EditMessageInput[] = [];
+      deleteInputs: DeleteMessageInput[] = [];
+      sentInputs: SendMessageInput[] = [];
+      pinInputs: PinMessageInput[] = [];
+      unpinInputs: Array<{ chatId: string; messageId: string }> = [];
+      stickerInputs: SendEmojiAssetInput[] = [];
+
+      override async setMessageReaction(input: SetMessageReactionInput) {
+        this.reactionInputs.push(input);
+      }
+
+      override async getMessageReactionSenders(
+        input: Parameters<MockTelegramTransport["getMessageReactionSenders"]>[0],
+      ) {
+        this.reactionSenderInputs.push(input);
+        return {
+          totalCount: 1,
+          senders: [{
+            senderId: "u-mia",
+            type: input.type,
+            outgoing: false,
+            addedAt: "2026-08-01T10:00:00.000Z",
+          }],
+          nextOffset: undefined,
+        };
+      }
+
+      override async getMessageProperties(chatId: string, messageId: string) {
+        if (chatId === "chat-release-discussion") {
+          return {
+            canReply: true,
+            canEdit: true,
+            canDeleteOnlyForSelf: true,
+            canDeleteForAllUsers: true,
+            canForward: true,
+            canPin: true,
+          };
+        }
+        return super.getMessageProperties(chatId, messageId);
+      }
+
+      override async editMessage(input: EditMessageInput) {
+        this.editInputs.push(input);
+      }
+
+      override async deleteMessage(input: DeleteMessageInput) {
+        this.deleteInputs.push(input);
+      }
+
+      override async sendMessage(input: SendMessageInput) {
+        this.sentInputs.push(input);
+      }
+
+      override async pinMessage(input: PinMessageInput) {
+        this.pinInputs.push(input);
+      }
+
+      override async unpinMessage(chatId: string, messageId: string) {
+        this.unpinInputs.push({ chatId, messageId });
+      }
+
+      override async sendSticker(input: SendEmojiAssetInput) {
+        this.stickerInputs.push(input);
+      }
+    }
+
+    const transport = new DiscussionActionTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-release");
+    const post = store.getState().messages.get("chat-release")?.find(
+      (message) => message.id === "release-post-1",
+    );
+    expect(post).toBeDefined();
+    const comment: Message = {
+      ...post!,
+      // Message ids are only unique inside a chat, so this deliberately
+      // collides with the active channel post id.
+      id: post!.id,
+      chatId: "chat-release-discussion",
+      isChannelPost: false,
+      senderId: "u-mia",
+      replyTo: {
+        kind: "message",
+        chatId: "chat-release-discussion",
+        messageId: "discussion-root",
+      },
+      interaction: {
+        viewCount: 0,
+        forwardCount: 0,
+        replyCount: 0,
+        reactions: [{
+          type: { kind: "emoji", emoji: "👍" },
+          totalCount: 1,
+          chosen: false,
+          recentSenderIds: ["u-mia"],
+        }],
+      },
+      content: { kind: "text", text: "discussion comment body" },
+    };
+    const messages = new Map(store.getState().messages);
+    messages.set(comment.chatId, [comment]);
+    store.setState({ messages });
+
+    await expect(store.getState().getMessageReactionSenders(
+      comment.id,
+      { kind: "emoji", emoji: "👍" },
+      undefined,
+      comment.chatId,
+    )).resolves.toMatchObject({ totalCount: 1 });
+    await store.getState().setMessageReaction(comment.id, "👍", true, comment.chatId);
+    expect(store.getState().messages.get("chat-release-discussion")?.[0].interaction?.reactions[0])
+      .toMatchObject({ chosen: true, totalCount: 2 });
+    await expect(store.getState().editMessage(
+      comment.id,
+      "edited discussion comment",
+      undefined,
+      comment.chatId,
+    )).resolves.toBe(true);
+    await expect(store.getState().sendMessageToThread(
+      comment.chatId,
+      comment.id,
+      "quoted reply",
+      undefined,
+      { text: "discussion", position: 0 },
+    )).resolves.toBe(true);
+    await expect(store.getState().pinMessage(
+      comment.id,
+      false,
+      false,
+      comment.chatId,
+    )).resolves.toBe(true);
+    await expect(store.getState().unpinMessage(comment.id, comment.chatId)).resolves.toBe(true);
+    await expect(store.getState().sendSticker({
+      id: "discussion-sticker",
+      kind: "sticker",
+      fileId: 9_999,
+      fileName: "discussion.webp",
+    }, comment.id, { text: "discussion", position: 0 }, comment.chatId)).resolves.toBe(true);
+    store.getState().updateThreadDraft(
+      "chat-release:discussion:release-post-1",
+      comment.chatId,
+      "discussion draft",
+      comment.id,
+      { text: "discussion", position: 0 },
+    );
+    await expect(store.getState().deleteMessage(comment.id, true, comment.chatId)).resolves.toBe(true);
+
+    expect(transport.reactionSenderInputs[0]?.chatId).toBe("chat-release-discussion");
+    expect(transport.reactionInputs[0]).toMatchObject({
+      chatId: "chat-release-discussion",
+      messageId: comment.id,
+    });
+    expect(transport.editInputs[0]).toMatchObject({
+      chatId: "chat-release-discussion",
+      messageId: comment.id,
+      text: "edited discussion comment",
+    });
+    expect(transport.sentInputs[0]).toMatchObject({
+      chatId: "chat-release-discussion",
+      replyToMessageId: comment.id,
+      replyQuote: { text: "discussion", position: 0 },
+      clearDraft: false,
+    });
+    expect(transport.deleteInputs[0]).toEqual({
+      chatId: "chat-release-discussion",
+      messageId: comment.id,
+      revoke: true,
+    });
+    expect(transport.pinInputs[0]).toMatchObject({
+      chatId: "chat-release-discussion",
+      messageId: comment.id,
+    });
+    expect(transport.unpinInputs[0]).toEqual({
+      chatId: "chat-release-discussion",
+      messageId: comment.id,
+    });
+    expect(transport.stickerInputs[0]).toMatchObject({
+      chatId: "chat-release-discussion",
+      topicId: undefined,
+      replyToMessageId: comment.id,
+      replyQuote: { text: "discussion", position: 0 },
+    });
+    expect(store.getState().drafts.get("chat-release:discussion:release-post-1"))
+      .toMatchObject({
+        chatId: "chat-release-discussion",
+        text: "discussion draft",
+        replyToMessageId: comment.id,
+        pending: false,
+      });
   });
 
   it("sends a forwarding description after the forwarded content", async () => {

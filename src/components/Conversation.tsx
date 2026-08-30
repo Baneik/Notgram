@@ -220,8 +220,13 @@ interface ConversationProps {
     replyQuote?: MessageReplyQuote,
     entities?: MessageTextEntity[],
   ) => Promise<boolean>;
-  onEditMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
-  onDeleteMessage: (messageId: string, revoke: boolean) => Promise<boolean>;
+  onEditMessage: (
+    messageId: string,
+    text: string,
+    entities?: MessageTextEntity[],
+    chatId?: string,
+  ) => Promise<boolean>;
+  onDeleteMessage: (messageId: string, revoke: boolean, chatId?: string) => Promise<boolean>;
   onDraftChange: (
     chatId: string,
     text: string,
@@ -243,17 +248,23 @@ interface ConversationProps {
     messageId: string,
     force?: boolean,
   ) => Promise<MessagePermissions | undefined>;
-  onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean, chatId?: string) => Promise<void>;
   onGetMessageReactionSenders: (
     messageId: string,
     type: MessageReactionType,
     offset?: string,
+    chatId?: string,
   ) => Promise<MessageReactionSenderPage>;
-  onSetPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
-  onBotCallback: (messageId: string, data: string) => Promise<import("../telegram/types").CallbackQueryAnswer | undefined>;
+  onSetPollAnswer: (messageId: string, optionPositions: number[], chatId?: string) => Promise<boolean>;
+  onBotCallback: (messageId: string, data: string, chatId?: string) => Promise<import("../telegram/types").CallbackQueryAnswer | undefined>;
   onLoadPinnedMessages: (chatId: string) => Promise<Message[]>;
-  onPinMessage: (messageId: string, disableNotification: boolean, onlyForSelf: boolean) => Promise<boolean>;
-  onUnpinMessage: (messageId: string) => Promise<boolean>;
+  onPinMessage: (
+    messageId: string,
+    disableNotification: boolean,
+    onlyForSelf: boolean,
+    chatId?: string,
+  ) => Promise<boolean>;
+  onUnpinMessage: (messageId: string, chatId?: string) => Promise<boolean>;
   onSetChatMessageAutoDeleteTime: (chatId: string, seconds: number) => Promise<boolean>;
   onDownloadFile: (fileId: number, fileName: string) => Promise<void>;
   onCancelFileDownload: (fileId: number) => Promise<void>;
@@ -264,7 +275,7 @@ interface ConversationProps {
   onOpenDownloadDirectory: () => Promise<void>;
   onStreamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onSuspendFileStream: (fileId: number) => Promise<void>;
-  onRetryMessage: (messageId: string) => Promise<void>;
+  onRetryMessage: (messageId: string, chatId?: string) => Promise<void>;
   onSendFiles: (
     attachments: import("../telegram/types").OutgoingAttachment[],
     caption?: string,
@@ -272,7 +283,7 @@ interface ConversationProps {
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
   ) => Promise<boolean>;
-  onCancelFileUpload: (messageId: string) => Promise<void>;
+  onCancelFileUpload: (messageId: string, chatId?: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
   onViewportReady?: (identity: string) => void;
@@ -281,11 +292,11 @@ interface ConversationProps {
     messageId: string,
     options?: MessageNavigationOptions,
   ) => void;
-  onOpenMessageSearch: (senderId?: string) => void;
+  onOpenMessageSearch: (senderId?: string, chatId?: string) => void;
   onOpenChat: (chatId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMention: (username?: string, userId?: string) => void;
-  onSearchHashtag: (hashtag: string) => void;
+  onSearchHashtag: (hashtag: string, chatId?: string) => void;
   onOpenStickerSet: (stickerSetId: string) => void;
   onStartPrivateChat: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
@@ -705,12 +716,27 @@ export function Conversation({
     () => indexMessagesByVirtualBlock(visibleMessageBlocks),
     [visibleMessageBlocks],
   );
-  const viewerPhotos = useMemo(
-    () => photoMessages(pinnedViewOpen ? allPinnedMessages : displayMessages),
-    [allPinnedMessages, displayMessages, pinnedViewOpen],
-  );
-  const openMediaViewer = useCallback((messageId: string) => {
-    const activeIndex = viewerPhotos.findIndex((message) => message.id === messageId);
+  const discussionViewerMessages = useMemo(() => {
+    if (!discussionPost) return [];
+    const renderedPost = storedMessages.get(discussionPost.chatId)?.find(
+      (message) => message.id === discussionPost.id,
+    ) ?? discussionPost;
+    return channelDiscussionProjection(renderedPost, storedMessages)?.comments ?? [];
+  }, [discussionPost, storedMessages]);
+  const viewerPhotos = useMemo(() => {
+    const source = pinnedViewOpen
+      ? allPinnedMessages
+      : [...displayMessages, ...discussionViewerMessages];
+    const uniqueMessages = new Map<string, Message>();
+    for (const message of source) {
+      uniqueMessages.set(`${message.chatId}:${message.id}`, message);
+    }
+    return photoMessages([...uniqueMessages.values()]);
+  }, [allPinnedMessages, discussionViewerMessages, displayMessages, pinnedViewOpen]);
+  const openMediaViewer = useCallback((messageId: string, chatId?: string) => {
+    const activeIndex = viewerPhotos.findIndex((message) =>
+      message.id === messageId && (!chatId || message.chatId === chatId),
+    );
     if (activeIndex < 0) return;
     const activeContent = viewerPhotos[activeIndex].content;
     const nearbyPhotos = photoThumbnailWindow(viewerPhotos, messageId);
@@ -1830,8 +1856,8 @@ export function Conversation({
   };
   const sendDiscussionComment = async (
     text: string,
-    _replyToMessageId?: string,
-    _replyQuote?: MessageReplyQuote,
+    replyToMessageId?: string,
+    selectedReplyQuote?: MessageReplyQuote,
     entities?: MessageTextEntity[],
   ) => {
     const replyChatId = renderedDiscussion?.replyChatId ?? discussionState?.replyChatId;
@@ -1839,9 +1865,10 @@ export function Conversation({
     if (!discussionPost || !replyChatId || !replyMessageId) return false;
     const sent = await sendMessageToThread(
       replyChatId,
-      replyMessageId,
+      replyToMessageId ?? replyMessageId,
       text,
       entities,
+      selectedReplyQuote,
     );
     if (sent) await reloadChannelDiscussion(discussionPost);
     return sent;
@@ -1850,16 +1877,19 @@ export function Conversation({
     attachments: import("../telegram/types").OutgoingAttachment[],
     caption?: string,
     captionEntities?: MessageTextEntity[],
+    replyToMessageId?: string,
+    selectedReplyQuote?: MessageReplyQuote,
   ) => {
     const replyChatId = renderedDiscussion?.replyChatId ?? discussionState?.replyChatId;
     const replyMessageId = renderedDiscussion?.replyMessageId ?? discussionState?.replyMessageId;
     if (!discussionPost || !replyChatId || !replyMessageId) return false;
     const sent = await sendFilesToThread(
       replyChatId,
-      replyMessageId,
+      replyToMessageId ?? replyMessageId,
       attachments,
       caption,
       captionEntities,
+      selectedReplyQuote,
     );
     if (sent) await reloadChannelDiscussion(discussionPost);
     return sent;
@@ -2054,7 +2084,7 @@ export function Conversation({
   const confirmDelete = async (revoke: boolean) => {
     if (!deleteTarget || deletePending) return;
     setDeletePending(true);
-    const deleted = await onDeleteMessage(deleteTarget.id, revoke);
+    const deleted = await onDeleteMessage(deleteTarget.id, revoke, deleteTarget.chatId);
     setDeletePending(false);
     if (deleted) setDeleteTarget(undefined);
   };
@@ -2752,11 +2782,13 @@ export function Conversation({
       {discussionPost && renderedDiscussionPost && isChannelConversation && (
         <ChannelDiscussionPanel
           post={renderedDiscussionPost}
-          channelTitle={chat.title}
+          channel={chat}
           comments={channelDiscussionComments}
           users={users}
           mentionUsers={mentionableUsers}
           knownNonBotUsernames={knownNonBotUsernames}
+          forwardTargets={forwardTargets}
+          forumTopics={forumTopics}
           currentUserId={currentUserId ?? "self"}
           connectionStatus={connectionStatus}
           loading={(discussionState?.loading ?? false) && !renderedDiscussion?.cached}
@@ -2765,6 +2797,23 @@ export function Conversation({
           onClose={onCloseDiscussion}
           onSend={sendDiscussionComment}
           onSendFiles={sendDiscussionFiles}
+          onEditMessage={onEditMessage}
+          onDeleteMessage={onDeleteMessage}
+          onForwardMessages={onForwardMessages}
+          onLoadMessageProperties={onLoadMessageProperties}
+          onLoadForumTopics={onLoadForumTopics}
+          onTypingChange={onTypingChange}
+          onOpenMessage={onOpenMessage}
+          onOpenChat={onOpenChat}
+          onOpenSenderProfile={onOpenSenderProfile}
+          onOpenMention={onOpenMention}
+          onSearchHashtag={onSearchHashtag}
+          onOpenMessageSearch={onOpenMessageSearch}
+          onStartPrivateChat={onStartPrivateChat}
+          onGetReportOptions={onGetReportOptions}
+          onReportChat={onReportChat}
+          onPinMessage={onPinMessage}
+          onUnpinMessage={onUnpinMessage}
           messagePreviewOptions={{
             autoplayAnimations,
             autoDownloadPolicy,
@@ -2842,6 +2891,10 @@ export function Conversation({
               }
             : undefined}
           onCopy={() => void copyMessage(actionMessage)}
+          onSelect={() => {
+            forwarding.startSelection(actionMessage);
+            setActionMenu(undefined);
+          }}
           onReport={() => { setReportTarget(actionMessage); setActionMenu(undefined); }}
           onDismiss={() => closeActionMenu(false)}
           onClose={() => closeActionMenu(true)}

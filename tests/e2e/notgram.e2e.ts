@@ -5172,6 +5172,235 @@ test("channel posts integrate their comment action and load the linked discussio
   await expect(loading.locator("svg")).toHaveCount(1);
 });
 
+test("channel discussion actions use the linked group and preserve composer focus", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.evaluate(async (storePath) => {
+    type TestMessage = {
+      id: string;
+      chatId: string;
+      senderId: string;
+      content: { kind: string; [key: string]: unknown };
+      [key: string]: unknown;
+    };
+    type TestChat = { id: string; title: string; [key: string]: unknown };
+    type DiscussionCall = { kind: string; args: unknown[] };
+    const { telegramStore } = await import(storePath) as {
+      telegramStore: {
+        getState: () => {
+          messages: Map<string, TestMessage[]>;
+          chats: Map<string, TestChat>;
+        };
+        setState: (state: Record<string, unknown>) => void;
+      };
+    };
+    const state = telegramStore.getState();
+    const channelMessages = state.messages.get("chat-release") ?? [];
+    const post = channelMessages.find((message) => message.id === "release-post-1")!;
+    const discussionChatId = "chat-release-discussion";
+    const discussionRoot: TestMessage = {
+      ...post,
+      id: "discussion-root",
+      chatId: discussionChatId,
+      isChannelPost: false,
+      discussionThread: undefined,
+    };
+    const permissions = {
+      canReply: true,
+      canEdit: true,
+      canDeleteOnlyForSelf: true,
+      canDeleteForAllUsers: true,
+      canForward: true,
+    };
+    const incoming: TestMessage = {
+      id: "discussion-action-incoming",
+      chatId: discussionChatId,
+      senderId: "u-mia",
+      outgoing: false,
+      sentAt: "2026-08-01T10:01:00+08:00",
+      delivery: "read",
+      permissions,
+      replyTo: { kind: "message", chatId: discussionChatId, messageId: discussionRoot.id },
+      interaction: {
+        viewCount: 0,
+        forwardCount: 0,
+        replyCount: 0,
+        canGetAddedReactions: true,
+        reactions: [{
+          type: { kind: "emoji", emoji: "👍" },
+          totalCount: 1,
+          chosen: false,
+          recentSenderIds: ["u-mia"],
+        }],
+      },
+      content: {
+        kind: "text",
+        text: "请看 @mia_design #release",
+        entities: [
+          { offset: 3, length: 11, kind: "mention" },
+          { offset: 15, length: 8, kind: "hashtag" },
+        ],
+      },
+    };
+    const outgoing: TestMessage = {
+      id: "discussion-action-outgoing",
+      chatId: discussionChatId,
+      senderId: "self",
+      outgoing: true,
+      sentAt: "2026-08-01T10:02:00+08:00",
+      delivery: "read",
+      permissions,
+      replyTo: { kind: "message", chatId: discussionChatId, messageId: discussionRoot.id },
+      content: { kind: "text", text: "待编辑的讨论回复" },
+    };
+    const messages = new Map(state.messages);
+    messages.set("chat-release", channelMessages.map((message) => message.id === post.id
+      ? {
+          ...message,
+          discussionThread: { chatId: discussionChatId, messageId: discussionRoot.id },
+        }
+      : message));
+    messages.set(discussionChatId, [discussionRoot, incoming, outgoing]);
+    const chats = new Map(state.chats);
+    chats.set(discussionChatId, {
+      ...state.chats.get("chat-product")!,
+      id: discussionChatId,
+      title: "Release discussion",
+      preview: "linked comments",
+      unreadCount: 0,
+      unreadMentionCount: 0,
+    });
+    const calls: DiscussionCall[] = [];
+    (window as unknown as { __discussionActionCalls: DiscussionCall[] }).__discussionActionCalls = calls;
+    telegramStore.setState({
+      messages,
+      chats,
+      loadMessageThreadHistory: async () => [discussionRoot, incoming, outgoing],
+      loadMessageProperties: async (...args: unknown[]) => {
+        calls.push({ kind: "properties", args });
+        return permissions;
+      },
+      getMessageReactionSenders: async (...args: unknown[]) => {
+        calls.push({ kind: "reaction-senders", args });
+        return {
+          totalCount: 1,
+          senders: [{
+            senderId: "u-mia",
+            type: { kind: "emoji", emoji: "👍" },
+            outgoing: false,
+          }],
+        };
+      },
+      sendMessageToThread: async (...args: unknown[]) => {
+        calls.push({ kind: "send", args });
+        return true;
+      },
+      editMessage: async (...args: unknown[]) => {
+        calls.push({ kind: "edit", args });
+        return true;
+      },
+    });
+  }, "/src/store/telegramStore.ts");
+
+  const post = page.locator('[data-message-id="release-post-1"]');
+  await post.getByRole("button", { name: "2 条评论" }).click();
+  const panel = page.locator(".channel-discussion-panel");
+  const composer = panel.getByRole("textbox", { name: "消息内容" });
+  const incoming = panel.locator('[data-message-id="discussion-action-incoming"]');
+  const outgoing = panel.locator('[data-message-id="discussion-action-outgoing"]');
+  await expect(panel).toBeVisible();
+  await expect(incoming).toBeVisible();
+  await expect(outgoing).toBeVisible();
+  await expect(composer).toBeFocused();
+
+  const reaction = incoming.getByRole("button", { name: /👍，1 个回应/ });
+  await reaction.click({ button: "right" });
+  const reactionDetails = page.getByRole("menu", { name: "👍 的回应者" });
+  await expect(reactionDetails.getByRole("menuitem", { name: "Mia Chen" })).toBeVisible();
+  await expect(reactionDetails.locator(".is-error")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await incoming.locator(".message-rich-text").evaluate((surface) => {
+    const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+    const text = walker.nextNode();
+    if (!text) throw new Error("Missing discussion text node");
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 2);
+    const selection = getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await incoming.locator(".message-bubble-shell").click({ button: "right" });
+  let messageMenu = page.getByRole("menu", { name: "消息操作" });
+  await expect(messageMenu.getByRole("menuitem", { name: "回复" })).toBeVisible();
+  await expect(messageMenu.getByRole("menuitem", { name: "转发", exact: true })).toBeVisible();
+  await expect(messageMenu.getByRole("menuitem", { name: "复制" })).toBeVisible();
+  await expect(messageMenu.getByRole("menuitem", { name: "选择" })).toBeVisible();
+  await expect(messageMenu.getByRole("menuitem", { name: "删除" })).toBeVisible();
+  await messageMenu.getByRole("menuitem", { name: "回复" }).click();
+  await expect(panel.locator(".composer-context")).toContainText("请看");
+  await expect(composer).toBeFocused();
+  await composer.fill("带引用的讨论回复");
+  await panel.getByRole("button", { name: "发送消息" }).click();
+  await expect(composer).toBeFocused();
+
+  await outgoing.locator(".message-bubble-shell").click({ button: "right" });
+  messageMenu = page.getByRole("menu", { name: "消息操作" });
+  await messageMenu.getByRole("menuitem", { name: "编辑" }).click();
+  await expect(composer).toHaveValue("待编辑的讨论回复");
+  await expect(composer).toBeFocused();
+  await composer.fill("已编辑的讨论回复");
+  await panel.getByRole("button", { name: "保存编辑" }).click();
+  await expect(composer).toBeFocused();
+
+  await incoming.locator(".message-bubble-shell").click({ button: "right" });
+  messageMenu = page.getByRole("menu", { name: "消息操作" });
+  await messageMenu.getByRole("menuitem", { name: "选择" }).click();
+  const selectionToolbar = panel.getByRole("toolbar", { name: "消息选择操作" });
+  await expect(selectionToolbar).toBeVisible();
+  await outgoing.click();
+  await expect(panel.locator(".message-row.is-selected")).toHaveCount(2);
+  await selectionToolbar.getByRole("button", { name: "取消选择" }).click();
+  await expect(composer).toBeFocused();
+
+  const senderAvatar = incoming.locator("xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' message-group ')]")
+    .locator(".message-group-avatar")
+    .getByRole("button", { name: "查看 Mia Chen 的资料" });
+  await senderAvatar.click({ button: "right" });
+  const senderMenu = page.getByRole("menu", { name: "成员操作" });
+  await senderMenu.getByRole("menuitem", { name: "@Mia Chen" }).click();
+  await expect(composer).toHaveValue(/@Mia Chen/);
+  await expect(composer).toBeFocused();
+  await composer.fill("");
+
+  await expect(incoming.getByRole("link", { name: "@Mia Chen" })).toBeVisible();
+  const hashtag = incoming.getByRole("link", { name: "#release" });
+  await expect(hashtag).toBeVisible();
+
+  const routedCalls = await page.evaluate(() => (
+    window as unknown as { __discussionActionCalls: Array<{ kind: string; args: unknown[] }> }
+  ).__discussionActionCalls);
+  expect(routedCalls.find((call) => call.kind === "reaction-senders")?.args[3])
+    .toBe("chat-release-discussion");
+  const sendCall = routedCalls.find((call) => call.kind === "send");
+  expect(sendCall?.args[0]).toBe("chat-release-discussion");
+  expect(sendCall?.args[1]).toBe("discussion-action-incoming");
+  expect(sendCall?.args[2]).toBe("带引用的讨论回复");
+  expect(sendCall?.args[4]).toMatchObject({
+    text: "请看",
+    position: 0,
+  });
+  const editCall = routedCalls.find((call) => call.kind === "edit");
+  expect(editCall?.args[0]).toBe("discussion-action-outgoing");
+  expect(editCall?.args[1]).toBe("已编辑的讨论回复");
+  expect(editCall?.args[3]).toBe("chat-release-discussion");
+
+  await hashtag.click();
+  await expect(page.getByRole("group", { name: "搜索范围：Release discussion" })).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "搜索会话和消息" })).toHaveValue("#release");
+});
+
 test("channel discussions auto-load media and stickers with live file updates", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-chat-id="chat-release"]').click();
@@ -5294,6 +5523,18 @@ test("channel discussions auto-load media and stickers with live file updates", 
   ).__discussionCachedFiles)).toEqual(expect.arrayContaining([9_901, 9_902]));
   await expect(mediaComment.locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
   await expect(stickerComment.locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
+
+  const mediaPopupPromise = page.waitForEvent("popup");
+  await mediaComment.locator(".photo-open").click();
+  const mediaPopup = await mediaPopupPromise;
+  await mediaPopup.waitForLoadState("domcontentloaded");
+  await expect(mediaPopup.getByRole("dialog", { name: "图片查看器：discussion-photo.jpg" })).toBeVisible();
+  await expect(mediaPopup.locator('.media-viewer-image[alt="discussion-photo.jpg"]')).toBeVisible();
+  if (!mediaPopup.isClosed()) {
+    const mediaPopupClosed = mediaPopup.waitForEvent("close");
+    await mediaPopup.keyboard.down("Escape");
+    await mediaPopupClosed;
+  }
 });
 
 test("reply previews jump to their source and channel senders keep their identity", async ({ page }) => {

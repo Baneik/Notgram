@@ -226,15 +226,15 @@ export function EmojiPicker({
     if (sendingAssetId) return;
     setSendingAssetId(asset.id);
     const sent = asset.kind === "animation"
-      ? await sendAnimation(asset, replyToMessageId, replyQuote)
-      : await sendSticker(asset, replyToMessageId, replyQuote);
+      ? await sendAnimation(asset, replyToMessageId, replyQuote, chatId)
+      : await sendSticker(asset, replyToMessageId, replyQuote, chatId);
     setSendingAssetId(undefined);
     if (sent) {
       onClose();
       onAssetSent();
       onRequestComposerFocus();
     }
-  }, [onAssetSent, onClose, onRequestComposerFocus, replyQuote, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
+  }, [chatId, onAssetSent, onClose, onRequestComposerFocus, replyQuote, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
 
   const closeAndRestoreComposerFocus = () => {
     onClose();

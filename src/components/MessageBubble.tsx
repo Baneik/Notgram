@@ -121,16 +121,17 @@ export interface MessageBubbleProps {
   onOpenDownloadDirectory: () => Promise<void>;
   onStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onSuspendStream: (fileId: number) => Promise<void>;
-  onRetry: (messageId: string) => Promise<void>;
-  onCancelUpload: (messageId: string) => Promise<void>;
-  onReaction: (messageId: string, emoji: string, chosen: boolean) => Promise<void>;
+  onRetry: (messageId: string, chatId?: string) => Promise<void>;
+  onCancelUpload: (messageId: string, chatId?: string) => Promise<void>;
+  onReaction: (messageId: string, emoji: string, chosen: boolean, chatId?: string) => Promise<void>;
   onLoadReactionSenders: (
     messageId: string,
     type: MessageReactionType,
     offset?: string,
+    chatId?: string,
   ) => Promise<MessageReactionSenderPage>;
-  onPollAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
-  onBotCallback: (messageId: string, data: string) => Promise<CallbackQueryAnswer | undefined>;
+  onPollAnswer: (messageId: string, optionPositions: number[], chatId?: string) => Promise<boolean>;
+  onBotCallback: (messageId: string, data: string, chatId?: string) => Promise<CallbackQueryAnswer | undefined>;
   onCollapseQuote: (
     messageId: string,
     collapse: () => void,
@@ -147,7 +148,7 @@ export interface MessageBubbleProps {
   senderChats: ReadonlyMap<string, Chat>;
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string) => void;
-  onOpenMedia?: (messageId: string) => void;
+  onOpenMedia?: (messageId: string, chatId?: string) => void;
   onOpenStickerSet?: (stickerSetId: string) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
@@ -483,7 +484,7 @@ function MessageBubbleComponent({
         aria-valuenow={Math.round(transferProgress * 100)}
       >
         {(canCancelUpload || canCancelDownload) && (
-          <button type="button" aria-label={`${canCancelUpload ? "取消上传" : "取消下载"} ${downloadFileName}`} title={canCancelUpload ? "取消上传" : "取消下载"} onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onCancelDownload(downloadFileId!)}>
+          <button type="button" aria-label={`${canCancelUpload ? "取消上传" : "取消下载"} ${downloadFileName}`} title={canCancelUpload ? "取消上传" : "取消下载"} onClick={() => canCancelUpload ? void onCancelUpload(message.id, message.chatId) : void onCancelDownload(downloadFileId!)}>
             <MediaProgressRing progress={transferProgress} size={30} />
             <X className="media-progress-cancel" size={14} strokeWidth={2.2} />
           </button>
@@ -679,7 +680,7 @@ function MessageBubbleComponent({
             ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
             : <Check size={14} strokeWidth={2.2} />
             : message.delivery === "failed" ? (
-              <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? `重试发送：${sendFailureTitle}` : sendFailureTitle} onClick={() => void onRetry(message.id)}>
+              <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? `重试发送：${sendFailureTitle}` : sendFailureTitle} onClick={() => void onRetry(message.id, message.chatId)}>
                 {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
               </button>
             ) : <Check size={14} strokeWidth={2.2} />
@@ -951,11 +952,11 @@ function MessageBubbleComponent({
                     className="photo-open"
                     type="button"
                     aria-label={`查看图片 ${content.fileName}`}
-                    onClick={() => onOpenMedia(message.id)}
+                    onClick={() => onOpenMedia(message.id, message.chatId)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      onOpenMedia(message.id);
+                      onOpenMedia(message.id, message.chatId);
                     }}
                   >
                     <StableImage
@@ -989,11 +990,11 @@ function MessageBubbleComponent({
                     className="photo-open"
                     type="button"
                     aria-label={`查看图片 ${content.fileName}`}
-                    onClick={() => onOpenMedia(message.id)}
+                    onClick={() => onOpenMedia(message.id, message.chatId)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      onOpenMedia(message.id);
+                      onOpenMedia(message.id, message.chatId);
                     }}
                   >
                     <span className="photo-placeholder" aria-label="媒体正在加载">
@@ -1051,6 +1052,7 @@ function MessageBubbleComponent({
             <PollMessage
               poll={content}
               messageId={message.id}
+              chatId={message.chatId}
               highlightQuery={searchQuery}
               onAnswer={onPollAnswer}
               onSearchHashtag={onSearchHashtag}
@@ -1134,7 +1136,7 @@ function MessageBubbleComponent({
                       type="button"
                       aria-label={canCancelUpload ? `取消上传 ${content.fileName}` : `取消下载 ${content.fileName}`}
                       title={canCancelUpload ? "取消上传" : "取消下载"}
-                      onClick={() => canCancelUpload ? void onCancelUpload(message.id) : void onCancelDownload(downloadFileId!)}
+                      onClick={() => canCancelUpload ? void onCancelUpload(message.id, message.chatId) : void onCancelDownload(downloadFileId!)}
                     >
                       <X size={16} strokeWidth={2.2} />
                     </button>
@@ -1159,6 +1161,7 @@ function MessageBubbleComponent({
             <div className="message-reaction-footer">
               <MessageReactions
                 messageId={message.id}
+                chatId={message.chatId}
                 reactions={reactions}
                 canGetAddedReactions={message.interaction?.canGetAddedReactions}
                 users={users}
@@ -1188,6 +1191,7 @@ function MessageBubbleComponent({
         {!albumItem && !selectionMode && message.replyMarkup && (
           <InlineKeyboard
             messageId={message.id}
+            chatId={message.chatId}
             markup={message.replyMarkup}
             onCallback={onBotCallback}
             onOpenUser={onOpenSenderProfile}
@@ -1226,8 +1230,28 @@ export interface MessageBubblePreviewProps {
   senderName: string;
   users: ReadonlyMap<string, User>;
   senderChats?: ReadonlyMap<string, Chat>;
+  senderLabel?: string;
+  senderIsAdministrator?: boolean;
+  senderProfileAvailable?: boolean;
+  channelAuthor?: string;
   channelPost?: boolean;
   showChannelMetadata?: boolean;
+  serviceMembers?: MessageBubbleProps["serviceMembers"];
+  replyPreview?: ReplyPreview;
+  forwardLabel?: string;
+  onOpenForwardSource?: () => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  highlighted?: boolean;
+  selectionPending?: boolean;
+  joinsSelectionBefore?: boolean;
+  selectionLimitReached?: boolean;
+  onToggleSelection?: MessageBubbleProps["onToggleSelection"];
+  onOpenActions?: MessageBubbleProps["onOpenActions"];
+  onOpenReply?: MessageBubbleProps["onOpenReply"];
+  onOpenSenderProfile?: MessageBubbleProps["onOpenSenderProfile"];
+  onOpenMention?: MessageBubbleProps["onOpenMention"];
+  onSearchHashtag?: MessageBubbleProps["onSearchHashtag"];
   autoplayAnimations?: boolean;
   autoDownloadPolicy?: AutoDownloadPolicy;
   onDownload?: MessageBubbleProps["onDownload"];
@@ -1253,8 +1277,28 @@ export function MessageBubblePreview({
   senderName,
   users,
   senderChats = new Map(),
+  senderLabel,
+  senderIsAdministrator = false,
+  senderProfileAvailable = false,
+  channelAuthor,
   channelPost = false,
   showChannelMetadata = false,
+  serviceMembers,
+  replyPreview,
+  forwardLabel,
+  onOpenForwardSource,
+  selectionMode = false,
+  selected = false,
+  highlighted = false,
+  selectionPending = false,
+  joinsSelectionBefore = false,
+  selectionLimitReached = false,
+  onToggleSelection = previewNoop,
+  onOpenActions = previewNoop,
+  onOpenReply = previewOpen,
+  onOpenSenderProfile = previewOpen,
+  onOpenMention = previewOpen,
+  onSearchHashtag = previewOpen,
   autoplayAnimations = false,
   autoDownloadPolicy = EMPTY_PREVIEW_POLICY,
   onDownload = previewNoop,
@@ -1278,18 +1322,25 @@ export function MessageBubblePreview({
     <MessageBubbleComponent
       message={message}
       senderName={senderName}
-      senderProfileAvailable={false}
+      senderLabel={senderLabel}
+      senderIsAdministrator={senderIsAdministrator}
+      senderProfileAvailable={senderProfileAvailable}
+      channelAuthor={channelAuthor}
       channelPost={channelPost}
       showChannelMetadata={showChannelMetadata}
+      serviceMembers={serviceMembers}
       groupPosition="single"
-      selectionMode={false}
-      selected={false}
-      highlighted={false}
-      selectionPending={false}
-      joinsSelectionBefore={false}
-      selectionLimitReached={false}
-      onToggleSelection={previewNoop}
-      onOpenActions={previewNoop}
+      replyPreview={replyPreview}
+      forwardLabel={forwardLabel}
+      onOpenForwardSource={onOpenForwardSource}
+      selectionMode={selectionMode}
+      selected={selected}
+      highlighted={highlighted}
+      selectionPending={selectionPending}
+      joinsSelectionBefore={joinsSelectionBefore}
+      selectionLimitReached={selectionLimitReached}
+      onToggleSelection={onToggleSelection}
+      onOpenActions={onOpenActions}
       onDownload={onDownload}
       onCancelDownload={onCancelDownload}
       onRecoverFile={onRecoverFile}
@@ -1305,12 +1356,12 @@ export function MessageBubblePreview({
       onPollAnswer={onPollAnswer}
       onBotCallback={onBotCallback}
       onCollapseQuote={previewCollapseQuote}
-      onOpenReply={previewOpen}
-      onOpenSenderProfile={previewOpen}
+      onOpenReply={onOpenReply}
+      onOpenSenderProfile={onOpenSenderProfile}
       users={users}
       senderChats={senderChats}
-      onOpenMention={previewOpen}
-      onSearchHashtag={previewOpen}
+      onOpenMention={onOpenMention}
+      onSearchHashtag={onSearchHashtag}
       onOpenMedia={onOpenMedia}
       onOpenStickerSet={onOpenStickerSet}
       autoplayAnimations={autoplayAnimations}

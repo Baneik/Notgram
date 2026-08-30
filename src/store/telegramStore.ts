@@ -217,6 +217,24 @@ export const createTelegramStore = (
     const publishMessageChange = (event: MessageChangeEvent) => {
       for (const listener of messageChangeListeners) listener(event);
     };
+    const messageLocation = (messageId: string, preferredChatId?: string) => {
+      if (preferredChatId) {
+        const preferredMessages = get().messages.get(preferredChatId) ?? [];
+        const preferredMessage = preferredMessages.find((message) => message.id === messageId);
+        if (preferredMessage) {
+          return {
+            chatId: preferredChatId,
+            messages: preferredMessages,
+            message: preferredMessage,
+          };
+        }
+      }
+      for (const [chatId, messages] of get().messages) {
+        const message = messages.find((candidate) => candidate.id === messageId);
+        if (message) return { chatId, messages, message };
+      }
+      return undefined;
+    };
     const managementCapabilitiesFor = (chatId: string) => {
       const loaded = get().groupManagement;
       return loaded?.chatId === chatId
@@ -2639,7 +2657,7 @@ export const createTelegramStore = (
           return undefined;
         }
       },
-      sendMessageToThread: async (chatId, replyToMessageId, text, entities) => {
+      sendMessageToThread: async (chatId, replyToMessageId, text, entities, replyQuote) => {
         const formatted = trimComposerFormattedText(text, entities ?? []);
         if (!formatted.text || !connectionPresentation(get().connectionStatus).operational) return false;
         try {
@@ -2648,6 +2666,7 @@ export const createTelegramStore = (
             text: formatted.text,
             entities: formatted.entities,
             replyToMessageId,
+            replyQuote,
             clearDraft: false,
           });
           set({ operationError: undefined });
@@ -2663,6 +2682,7 @@ export const createTelegramStore = (
         attachments,
         caption,
         captionEntities,
+        replyQuote,
       ) => {
         if (attachments.length === 0 || !connectionPresentation(get().connectionStatus).operational) return false;
         try {
@@ -2672,6 +2692,7 @@ export const createTelegramStore = (
             caption,
             captionEntities,
             replyToMessageId,
+            replyQuote,
           });
           set({ operationError: undefined });
           return true;
@@ -3068,11 +3089,11 @@ export const createTelegramStore = (
         catch { return []; }
       },
 
-      getCallbackQueryAnswer: async (messageId, data) => {
-        const chatId = get().activeChatId;
-        if (!chatId) return undefined;
+      getCallbackQueryAnswer: async (messageId, data, preferredChatId) => {
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        if (!location) return undefined;
         try {
-          const answer = await transport.getCallbackQueryAnswer(chatId, messageId, data);
+          const answer = await transport.getCallbackQueryAnswer(location.chatId, messageId, data);
           set({ operationError: undefined });
           return answer;
         } catch (error) {
@@ -3127,12 +3148,10 @@ export const createTelegramStore = (
       getPrivacySettingRules: sessionController.getPrivacySettingRules,
       setPrivacySettingRules: sessionController.setPrivacySettingRules,
 
-      setMessageReaction: async (messageId, emoji, chosen) => {
-        const chatId = get().activeChatId;
-        if (!chatId) return;
-        const currentMessages = get().messages.get(chatId) ?? [];
-        const original = currentMessages.find((message) => message.id === messageId);
-        if (!original) return;
+      setMessageReaction: async (messageId, emoji, chosen, preferredChatId) => {
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        if (!location) return;
+        const { chatId, messages: currentMessages, message: original } = location;
         const optimistic = withEmojiReaction(original, emoji, chosen, get().currentUserId);
         if (optimistic === original) return;
         const messages = new Map(get().messages);
@@ -3158,11 +3177,11 @@ export const createTelegramStore = (
         }
       },
 
-      getMessageReactionSenders: async (messageId, type, offset) => {
-        const chatId = get().activeChatId;
-        if (!chatId) throw new Error("当前没有打开的会话");
+      getMessageReactionSenders: async (messageId, type, offset, preferredChatId) => {
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        if (!location) throw new Error("消息不存在");
         return transport.getMessageReactionSenders({
-          chatId,
+          chatId: location.chatId,
           messageId,
           type,
           offset,
@@ -3170,11 +3189,11 @@ export const createTelegramStore = (
         });
       },
 
-      setPollAnswer: async (messageId, optionPositions) => {
-        const chatId = get().activeChatId;
-        if (!chatId) return false;
+      setPollAnswer: async (messageId, optionPositions, preferredChatId) => {
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        if (!location) return false;
         try {
-          await transport.setPollAnswer({ chatId, messageId, optionPositions });
+          await transport.setPollAnswer({ chatId: location.chatId, messageId, optionPositions });
           set({ operationError: undefined });
           scheduleCacheWrite();
           return true;
@@ -3198,8 +3217,9 @@ export const createTelegramStore = (
         }
       },
 
-      pinMessage: async (messageId, disableNotification, onlyForSelf) => {
-        const chatId = get().activeChatId;
+      pinMessage: async (messageId, disableNotification, onlyForSelf, preferredChatId) => {
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        const chatId = location?.chatId;
         if (!chatId) return false;
         if (!await verifyPinPermission(chatId, messageId)) return false;
         try {
@@ -3222,8 +3242,9 @@ export const createTelegramStore = (
         }
       },
 
-      unpinMessage: async (messageId) => {
-        const chatId = get().activeChatId;
+      unpinMessage: async (messageId, preferredChatId) => {
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        const chatId = location?.chatId;
         if (!chatId) return false;
         if (!await verifyPinPermission(chatId, messageId)) return false;
         try {
@@ -3374,9 +3395,9 @@ export const createTelegramStore = (
         }
       },
 
-      sendSticker: async (asset, replyToMessageId, replyQuote) => {
-        const chatId = get().activeChatId;
-        const topicId = get().activeTopicId;
+      sendSticker: async (asset, replyToMessageId, replyQuote, preferredChatId) => {
+        const chatId = preferredChatId ?? get().activeChatId;
+        const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         if (!chatId) return false;
         if (!connectionPresentation(get().connectionStatus).operational) {
           set({ operationError: "联网后才能发送贴纸" });
@@ -3400,9 +3421,9 @@ export const createTelegramStore = (
         }
       },
 
-      sendAnimation: async (asset, replyToMessageId, replyQuote) => {
-        const chatId = get().activeChatId;
-        const topicId = get().activeTopicId;
+      sendAnimation: async (asset, replyToMessageId, replyQuote, preferredChatId) => {
+        const chatId = preferredChatId ?? get().activeChatId;
+        const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         if (!chatId) return false;
         if (!connectionPresentation(get().connectionStatus).operational) {
           set({ operationError: "联网后才能发送 GIF" });
@@ -3453,6 +3474,25 @@ export const createTelegramStore = (
         drafts.set(key, next);
         set({ drafts });
         draftSync.expect(key, draftForSync(next), DRAFT_SYNC_DELAY_MS);
+        scheduleCacheWrite();
+      },
+
+      updateThreadDraft: (draftKey, chatId, text, replyToMessageId, replyQuote, entities) => {
+        if (!get().chats.has(chatId) && !get().messages.has(chatId)) return;
+        const current = get().drafts.get(draftKey);
+        const next: ChatDraft = {
+          chatId,
+          text,
+          ...(entities?.length ? { entities } : {}),
+          replyToMessageId,
+          replyQuote: replyToMessageId ? replyQuote : undefined,
+          updatedAt: new Date().toISOString(),
+          pending: false,
+        };
+        if (draftSignature(current) === draftSignature(next)) return;
+        const drafts = new Map(get().drafts);
+        drafts.set(draftKey, next);
+        set({ drafts });
         scheduleCacheWrite();
       },
 
@@ -3646,8 +3686,9 @@ export const createTelegramStore = (
         }
       },
 
-      editMessage: async (messageId, text, entities) => {
-        const chatId = get().activeChatId;
+      editMessage: async (messageId, text, entities, preferredChatId) => {
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        const chatId = location?.chatId;
         const formatted = trimComposerFormattedText(text, entities ?? []);
         const normalizedText = formatted.text;
         if (!chatId || !normalizedText) return false;
@@ -3666,9 +3707,7 @@ export const createTelegramStore = (
         }
       },
 
-      deleteMessage: async (messageId, revoke) => {
-        const chatId = get().activeChatId;
-        if (!chatId) return false;
+      deleteMessage: async (messageId, revoke, preferredChatId) => {
         const queuedItemId = outboxItemId(messageId);
         if (queuedItemId) {
           const item = get().outbox.find((candidate) => candidate.id === queuedItemId);
@@ -3681,6 +3720,9 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return true;
         }
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        const chatId = location?.chatId;
+        if (!chatId) return false;
         try {
           if (!await verifyDeleteScope(chatId, [messageId], revoke)) return false;
           await transport.deleteMessage({ chatId, messageId, revoke });
@@ -3841,10 +3883,13 @@ export const createTelegramStore = (
         }
       },
 
-      retryMessage: async (messageId) => {
-        const chatId = get().activeChatId;
-        if (!chatId) return;
+      retryMessage: async (messageId, preferredChatId) => {
         const itemId = outboxItemId(messageId);
+        const location = itemId
+          ? undefined
+          : messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        const chatId = location?.chatId ?? preferredChatId ?? get().activeChatId;
+        if (!chatId) return;
         if (itemId) {
           const previous = get().outbox;
           const item = previous.find((candidate) => candidate.id === itemId);
@@ -3964,9 +4009,7 @@ export const createTelegramStore = (
         }
       },
 
-      cancelFileUpload: async (messageId) => {
-        const chatId = get().activeChatId;
-        if (!chatId) return;
+      cancelFileUpload: async (messageId, preferredChatId) => {
         const itemId = outboxItemId(messageId);
         if (itemId) {
           const item = get().outbox.find((candidate) => candidate.id === itemId);
@@ -3977,6 +4020,9 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return;
         }
+        const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
+        const chatId = location?.chatId;
+        if (!chatId) return;
         try {
           await transport.cancelFileUpload(chatId, messageId);
           // A cancelled upload is not a user-visible deletion. Remove it from

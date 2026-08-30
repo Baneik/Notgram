@@ -6,16 +6,17 @@ import { MessageRichText } from "./MessageRichText";
 interface PollMessageProps {
   poll: MessagePollContent;
   messageId: string;
+  chatId?: string;
   highlightQuery?: string;
   onSearchHashtag?: (hashtag: string) => void;
-  onAnswer: (messageId: string, optionPositions: number[]) => Promise<boolean>;
+  onAnswer: (messageId: string, optionPositions: number[], chatId?: string) => Promise<boolean>;
 }
 
 const chosenPositions = (poll: MessagePollContent) => poll.options
   .filter((option) => option.chosen)
   .map((option) => option.position);
 
-export function PollMessage({ poll, messageId, highlightQuery, onSearchHashtag, onAnswer }: PollMessageProps) {
+export function PollMessage({ poll, messageId, chatId, highlightQuery, onSearchHashtag, onAnswer }: PollMessageProps) {
   const serverSelection = useMemo(() => chosenPositions(poll), [poll]);
   const [selection, setSelection] = useState(serverSelection);
   const [pending, setPending] = useState(false);
@@ -29,7 +30,7 @@ export function PollMessage({ poll, messageId, highlightQuery, onSearchHashtag, 
   const submit = async (positions: number[]) => {
     if (pending || !canVote) return;
     setPending(true);
-    const accepted = await onAnswer(messageId, positions);
+    const accepted = await onAnswer(messageId, positions, chatId);
     if (!accepted) setSelection(serverSelection);
     setPending(false);
   };

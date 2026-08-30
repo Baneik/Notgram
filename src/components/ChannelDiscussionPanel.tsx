@@ -1,18 +1,77 @@
-import { ChevronLeft, LoaderCircle, RotateCcw } from "lucide-react";
-import { useMemo, useRef } from "react";
-import type { ConnectionStatus, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment, User } from "../telegram/types";
+import {
+  Check,
+  ChevronLeft,
+  Copy,
+  Forward,
+  LoaderCircle,
+  RotateCcw,
+  X,
+} from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { useMessageForwarding } from "../hooks/useMessageForwarding";
+import { telegramStore, useTelegramStore } from "../store/telegramStore";
+import type {
+  Chat,
+  ChatReportOptions,
+  ConnectionStatus,
+  ForumTopic,
+  ForumTopicPage,
+  ForwardMessagesResult,
+  Message,
+  MessagePermissions,
+  MessageReplyQuote,
+  MessageTextEntity,
+  OutgoingAttachment,
+  ReportChatInput,
+  User,
+} from "../telegram/types";
+import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
+import {
+  mentionTextForUser,
+  type ComposerTextInsertion,
+} from "../utils/composerInsertion";
+import { loadMessageActionPermissions } from "../utils/messageActionPermissions";
+import { formatSelectedMessages } from "../utils/messageClipboard";
 import { recentMentionUserIdsFor } from "../utils/mentionSuggestions";
-import { ConversationComposer } from "./ConversationComposer";
 import { Avatar } from "./Avatar";
+import { ConversationComposer } from "./ConversationComposer";
+import {
+  DeleteMessagesDialog,
+  MessageActionMenu,
+  PinMessageDialog,
+  SenderActionMenu,
+} from "./ConversationOverlays";
+import {
+  channelAuthorFor,
+  displaysChannelMetadata,
+  forwardSourceFor,
+  messageSummary,
+  replyPreviewFor,
+} from "./conversationMessages";
+import { ForwardMessagesDialog } from "./ForwardMessagesDialog";
 import { MessageBubblePreview, type MessageBubblePreviewProps } from "./MessageBubble";
+import { MotionPresence } from "./MotionPresence";
+import { ReportDialog } from "./SafetySettings";
+import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 
 interface ChannelDiscussionPanelProps {
   post: Message;
-  channelTitle: string;
+  channel: Chat;
   comments: Message[];
   users: ReadonlyMap<string, User>;
   mentionUsers?: readonly User[];
   knownNonBotUsernames?: ReadonlySet<string>;
+  forwardTargets: Chat[];
+  forumTopics: Map<string, ForumTopic[]>;
   currentUserId: string;
   connectionStatus: ConnectionStatus;
   loading: boolean;
@@ -29,30 +88,94 @@ interface ChannelDiscussionPanelProps {
     attachments: OutgoingAttachment[],
     caption?: string,
     captionEntities?: MessageTextEntity[],
+    replyToMessageId?: string,
+    replyQuote?: MessageReplyQuote,
   ) => Promise<boolean>;
+  onEditMessage: (
+    messageId: string,
+    text: string,
+    entities?: MessageTextEntity[],
+    chatId?: string,
+  ) => Promise<boolean>;
+  onDeleteMessage: (messageId: string, revoke: boolean, chatId?: string) => Promise<boolean>;
+  onForwardMessages: (
+    fromChatId: string,
+    messageIds: string[],
+    toChatId: string,
+    toTopicId?: string,
+    description?: string,
+  ) => Promise<ForwardMessagesResult | undefined>;
+  onLoadMessageProperties: (
+    chatId: string,
+    messageId: string,
+    force?: boolean,
+  ) => Promise<MessagePermissions | undefined>;
+  onLoadForumTopics: (chatId: string) => Promise<ForumTopicPage | undefined>;
+  onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
+  onOpenMessage: (chatId: string, messageId: string) => void;
+  onOpenChat: (chatId: string) => void;
+  onOpenSenderProfile: (senderId: string) => void;
+  onOpenMention: (username?: string, userId?: string) => void;
+  onSearchHashtag: (hashtag: string, chatId?: string) => void;
+  onOpenMessageSearch: (senderId?: string, chatId?: string) => void;
+  onStartPrivateChat: (senderId: string) => void;
+  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportOptions | undefined>;
+  onReportChat: (input: ReportChatInput) => Promise<boolean>;
+  onPinMessage: (
+    messageId: string,
+    disableNotification: boolean,
+    onlyForSelf: boolean,
+    chatId?: string,
+  ) => Promise<boolean>;
+  onUnpinMessage: (messageId: string, chatId?: string) => Promise<boolean>;
   messagePreviewOptions?: Partial<Omit<MessageBubblePreviewProps, "message" | "senderName" | "users">>;
 }
 
-const senderFor = (message: Message, users: ReadonlyMap<string, User>, currentUserId: string) => {
+interface MessageMenuState {
+  messageId: string;
+  left: number;
+  top: number;
+  replyQuote?: MessageReplyQuote;
+  keyboardNavigation?: boolean;
+}
+
+const senderFor = (
+  message: Message,
+  users: ReadonlyMap<string, User>,
+  chats: ReadonlyMap<string, Chat>,
+  currentUserId: string,
+) => {
   if (message.senderId === currentUserId || message.outgoing) return "你";
-  if (message.senderId.startsWith("chat:")) return "频道管理员";
+  if (message.senderId.startsWith("chat:")) {
+    return chats.get(message.senderId.slice("chat:".length))?.title ?? "频道管理员";
+  }
   return users.get(message.senderId)?.displayName ?? "Telegram 用户";
 };
 
-const avatarFor = (message: Message, users: ReadonlyMap<string, User>, currentUserId: string) => {
+const avatarFor = (
+  message: Message,
+  users: ReadonlyMap<string, User>,
+  chats: ReadonlyMap<string, Chat>,
+  currentUserId: string,
+) => {
   if (message.senderId === currentUserId || message.outgoing) {
     return users.get(currentUserId)?.avatar ?? { label: "我", color: "#d16f45" };
+  }
+  if (message.senderId.startsWith("chat:")) {
+    return chats.get(message.senderId.slice("chat:".length))?.avatar ?? { label: "频", color: "#73828c" };
   }
   return users.get(message.senderId)?.avatar ?? { label: "?", color: "#73828c" };
 };
 
 export function ChannelDiscussionPanel({
   post,
-  channelTitle,
+  channel,
   comments,
   users,
   mentionUsers = [],
   knownNonBotUsernames = new Set(),
+  forwardTargets,
+  forumTopics,
   currentUserId,
   connectionStatus,
   loading,
@@ -61,35 +184,369 @@ export function ChannelDiscussionPanel({
   onClose,
   onSend,
   onSendFiles,
+  onEditMessage,
+  onDeleteMessage,
+  onForwardMessages,
+  onLoadMessageProperties,
+  onLoadForumTopics,
+  onTypingChange,
+  onOpenMessage,
+  onOpenChat,
+  onOpenSenderProfile,
+  onOpenMention,
+  onSearchHashtag,
+  onOpenMessageSearch,
+  onStartPrivateChat,
+  onGetReportOptions,
+  onReportChat,
+  onPinMessage,
+  onUnpinMessage,
   messagePreviewOptions,
 }: ChannelDiscussionPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const recentMentionUserIds = useMemo(
-    () => recentMentionUserIdsFor(comments),
+  const focusTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const insertionIdRef = useRef(0);
+  const discussionChatId = post.discussionThread?.chatId ?? comments[0]?.chatId ?? post.chatId;
+  const draftKey = `${post.chatId}:discussion:${post.id}`;
+  const storedDiscussionChat = useTelegramStore((state) => state.chats.get(discussionChatId));
+  const administratorLabels = useTelegramStore((state) => state.chatAdministratorLabels.get(discussionChatId));
+  const loadChatAdministratorLabels = useTelegramStore((state) => state.loadChatAdministratorLabels);
+  const updateThreadDraft = useTelegramStore((state) => state.updateThreadDraft);
+  const getBotCommandSuggestions = useTelegramStore((state) => state.getBotCommandSuggestions);
+  const getInlineQueryResults = useTelegramStore((state) => state.getInlineQueryResults);
+  const sendInlineQueryResultMessage = useTelegramStore((state) => state.sendInlineQueryResultMessage);
+  const sendBotStartMessage = useTelegramStore((state) => state.sendBotStartMessage);
+  const usersById = useMemo(() => new Map(users), [users]);
+  const messagesById = useMemo(
+    () => new Map(comments.map((comment) => [comment.id, comment])),
     [comments],
+  );
+  const discussionChat = useMemo<Chat>(() => storedDiscussionChat ?? (discussionChatId === channel.id
+    ? channel
+    : {
+        ...channel,
+        id: discussionChatId,
+        kind: "group",
+        title: `${channel.title} 讨论`,
+      }), [channel, discussionChatId, storedDiscussionChat]);
+  const targetChatsById = useMemo(() => new Map([
+    ...forwardTargets.map((target) => [target.id, target] as const),
+    [channel.id, channel] as const,
+    [discussionChat.id, discussionChat] as const,
+  ]), [channel, discussionChat, forwardTargets]);
+  const recentMentionUserIds = useMemo(() => recentMentionUserIdsFor(comments), [comments]);
+  const memberLabels = useMemo(
+    () => new Map(Object.entries(administratorLabels ?? {})),
+    [administratorLabels],
+  );
+  const [actionMenu, setActionMenu] = useState<MessageMenuState>();
+  const [actionLoadingId, setActionLoadingId] = useState<string>();
+  const [replyingTo, setReplyingTo] = useState<Message>();
+  const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
+  const [editingMessage, setEditingMessage] = useState<Message>();
+  const [deleteTarget, setDeleteTarget] = useState<Message>();
+  const [deletePending, setDeletePending] = useState(false);
+  const [reportTarget, setReportTarget] = useState<Message>();
+  const [pinTarget, setPinTarget] = useState<Message>();
+  const [pinPending, setPinPending] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string>();
+  const [senderMenu, setSenderMenu] = useState<{
+    senderId: string;
+    senderName: string;
+    x: number;
+    y: number;
+  }>();
+  const [textInsertion, setTextInsertion] = useState<ComposerTextInsertion>();
+  const [selectionCopying, setSelectionCopying] = useState(false);
+  const [selectionCopied, setSelectionCopied] = useState(false);
+
+  const forwarding = useMessageForwarding({
+    chatId: discussionChatId,
+    conversationIdentity: draftKey,
+    messages: comments,
+    messagesById,
+    targets: forwardTargets,
+    onLoadMessageProperties,
+    onForwardMessages,
+  });
+  const actionMessage = actionMenu ? messagesById.get(actionMenu.messageId) : undefined;
+  const actionAlbumMessageIds = actionMessage?.mediaAlbumId
+    ? comments.filter((message) => message.mediaAlbumId === actionMessage.mediaAlbumId).map((message) => message.id)
+    : [];
+
+  const focusComposer = useCallback(() => {
+    if (focusTimerRef.current !== undefined) globalThis.clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = globalThis.setTimeout(() => {
+      focusTimerRef.current = undefined;
+      inputRef.current?.focus({ preventScroll: true });
+    }, 0);
+  }, []);
+
+  useLayoutEffect(() => {
+    focusComposer();
+    return () => {
+      if (focusTimerRef.current !== undefined) globalThis.clearTimeout(focusTimerRef.current);
+    };
+  }, [draftKey, focusComposer]);
+
+  useEffect(() => {
+    const restoreAfterWindowReturn = () => {
+      const active = document.activeElement;
+      if (
+        active &&
+        active !== document.body &&
+        active !== document.documentElement &&
+        active !== inputRef.current
+      ) return;
+      focusComposer();
+    };
+    window.addEventListener("focus", restoreAfterWindowReturn);
+    return () => window.removeEventListener("focus", restoreAfterWindowReturn);
+  }, [focusComposer]);
+
+  useEffect(() => {
+    if (discussionChat.kind !== "group" && discussionChat.kind !== "channel") return;
+    void loadChatAdministratorLabels(discussionChatId, true);
+  }, [discussionChat.kind, discussionChatId, loadChatAdministratorLabels]);
+
+  useEffect(() => {
+    setActionMenu(undefined);
+    setReplyingTo(undefined);
+    setReplyQuote(undefined);
+    setEditingMessage(undefined);
+    setDeleteTarget(undefined);
+    setReportTarget(undefined);
+    setPinTarget(undefined);
+    setSenderMenu(undefined);
+    setTextInsertion(undefined);
+    setHighlightedMessageId(undefined);
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
+    if (replyingTo && !messagesById.has(replyingTo.id)) {
+      setReplyingTo(undefined);
+      setReplyQuote(undefined);
+    }
+    if (editingMessage && !messagesById.has(editingMessage.id)) setEditingMessage(undefined);
+    if (deleteTarget && !messagesById.has(deleteTarget.id)) setDeleteTarget(undefined);
+  }, [actionMenu, deleteTarget, editingMessage, messagesById, replyingTo]);
+
+  const closeActionMenu = useCallback(() => {
+    setActionMenu(undefined);
+    focusComposer();
+  }, [focusComposer]);
+
+  const openMessageActions: NonNullable<MessageBubblePreviewProps["onOpenActions"]> = useCallback(async (
+    message,
+    left,
+    top,
+    _returnFocus,
+    selectedReplyQuote,
+    keyboardNavigation,
+  ) => {
+    setActionMenu({
+      messageId: message.id,
+      left,
+      top,
+      replyQuote: selectedReplyQuote,
+      keyboardNavigation,
+    });
+    if (actionLoadingId === message.id) return;
+    setActionLoadingId(message.id);
+    await loadMessageActionPermissions({
+      chatId: message.chatId,
+      messageId: message.id,
+      initialMessage: message,
+      getCurrentMessage: () => telegramStore.getState().messages
+        .get(message.chatId)
+        ?.find((candidate) => candidate.id === message.id),
+      load: onLoadMessageProperties,
+    });
+    setActionLoadingId((current) => current === message.id ? undefined : current);
+  }, [actionLoadingId, onLoadMessageProperties]);
+
+  const startReply = useCallback((message: Message, selectedQuote?: MessageReplyQuote) => {
+    setEditingMessage(undefined);
+    setReplyingTo(message);
+    setReplyQuote(selectedQuote);
+    setActionMenu(undefined);
+    focusComposer();
+  }, [focusComposer]);
+
+  const startEditing = useCallback((message: Message) => {
+    if (message.content.kind !== "text") return;
+    setReplyingTo(undefined);
+    setReplyQuote(undefined);
+    setEditingMessage(message);
+    setActionMenu(undefined);
+    focusComposer();
+  }, [focusComposer]);
+
+  const confirmDelete = useCallback(async (revoke: boolean) => {
+    if (!deleteTarget || deletePending) return;
+    setDeletePending(true);
+    const deleted = await onDeleteMessage(deleteTarget.id, revoke, deleteTarget.chatId);
+    setDeletePending(false);
+    if (deleted) setDeleteTarget(undefined);
+    focusComposer();
+  }, [deletePending, deleteTarget, focusComposer, onDeleteMessage]);
+
+  const openPinDialog = useCallback(async (message: Message) => {
+    if (pinPending) return;
+    setActionMenu(undefined);
+    setPinPending(true);
+    const permissions = await onLoadMessageProperties(message.chatId, message.id, true);
+    setPinPending(false);
+    if (permissions?.canPin) setPinTarget({ ...message, permissions });
+  }, [onLoadMessageProperties, pinPending]);
+
+  const confirmPin = useCallback(async (disableNotification: boolean, onlyForSelf: boolean) => {
+    if (!pinTarget || pinPending) return;
+    setPinPending(true);
+    const pinned = await onPinMessage(
+      pinTarget.id,
+      disableNotification,
+      onlyForSelf,
+      pinTarget.chatId,
+    );
+    setPinPending(false);
+    if (pinned) setPinTarget(undefined);
+    focusComposer();
+  }, [focusComposer, onPinMessage, pinPending, pinTarget]);
+
+  const unpinMessage = useCallback(async (message: Message) => {
+    if (pinPending) return;
+    setActionMenu(undefined);
+    setPinPending(true);
+    const permissions = await onLoadMessageProperties(message.chatId, message.id, true);
+    if (permissions?.canPin) await onUnpinMessage(message.id, message.chatId);
+    setPinPending(false);
+    focusComposer();
+  }, [focusComposer, onLoadMessageProperties, onUnpinMessage, pinPending]);
+
+  const openReply = useCallback((chatId: string, messageId: string) => {
+    if (chatId !== discussionChatId || !messagesById.has(messageId)) {
+      onOpenMessage(chatId, messageId);
+      return;
+    }
+    document.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(messageId)}"]`,
+    )?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(messageId);
+    globalThis.setTimeout(() => setHighlightedMessageId((current) =>
+      current === messageId ? undefined : current), 1800);
+    focusComposer();
+  }, [discussionChatId, focusComposer, messagesById, onOpenMessage]);
+
+  const insertSenderMention = useCallback((senderId: string) => {
+    const sender = users.get(senderId);
+    if (!sender) return;
+    insertionIdRef.current += 1;
+    setTextInsertion({
+      id: `${sender.id}:${insertionIdRef.current}`,
+      text: mentionTextForUser(sender),
+      draftKey,
+      userId: sender.id,
+    });
+    focusComposer();
+  }, [draftKey, focusComposer, users]);
+
+  const openSenderMenu = useCallback((
+    event: ReactMouseEvent<HTMLButtonElement>,
+    message: Message,
+    senderName: string,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSenderMenu({
+      senderId: message.senderId,
+      senderName,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }, []);
+
+  const copySelectedMessages = useCallback(async () => {
+    if (forwarding.selectedIds.size === 0 || selectionCopying) return;
+    const ordered = comments.filter((message) => forwarding.selectedIds.has(message.id));
+    if (ordered.length === 0) return;
+    setSelectionCopying(true);
+    try {
+      await writeClipboardText(formatSelectedMessages(
+        ordered,
+        users,
+        discussionChat,
+        targetChatsById,
+        messagesById,
+      ));
+      setSelectionCopied(true);
+      forwarding.clearSelection();
+      globalThis.setTimeout(() => setSelectionCopied(false), 1600);
+    } finally {
+      setSelectionCopying(false);
+      focusComposer();
+    }
+  }, [comments, discussionChat, focusComposer, forwarding, messagesById, selectionCopying, targetChatsById, users]);
+
+  useEffect(() => {
+    if (!forwarding.selectionMode) return;
+    const copyWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key.toLocaleLowerCase() !== "c" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (forwarding.selectedIds.size === 0) return;
+      event.preventDefault();
+      void copySelectedMessages();
+    };
+    document.addEventListener("keydown", copyWithKeyboard, true);
+    return () => document.removeEventListener("keydown", copyWithKeyboard, true);
+  }, [copySelectedMessages, forwarding.selectedIds.size, forwarding.selectionMode]);
+
+  const preserveComposerFocus = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || forwarding.selectionMode) return;
+    const selection = globalThis.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, textarea, [role='menu'], [role='dialog'], .message-row")) return;
+    focusComposer();
+  }, [focusComposer, forwarding.selectionMode]);
+
+  const searchDiscussionHashtag = useCallback(
+    (hashtag: string) => onSearchHashtag(hashtag, discussionChatId),
+    [discussionChatId, onSearchHashtag],
   );
 
   return (
-    <section className="channel-discussion-panel" aria-label={`${channelTitle} 的讨论`}>
+    <section
+      className={`channel-discussion-panel ${forwarding.selectionMode ? "is-selecting-messages" : ""}`}
+      aria-label={`${channel.title} 的讨论`}
+    >
       <header className="channel-discussion-header">
         <button className="icon-button" type="button" aria-label="返回频道" title="返回频道" onClick={onClose}>
           <ChevronLeft size={21} strokeWidth={2} />
         </button>
         <div className="channel-discussion-heading">
-          <strong>{channelTitle}</strong>
+          <strong>{channel.title}</strong>
         </div>
       </header>
 
-      <div className="channel-discussion-messages" role="log" aria-label="留言列表">
+      <div
+        className="channel-discussion-messages"
+        role="log"
+        aria-label="留言列表"
+        onPointerUp={preserveComposerFocus}
+      >
         <div className="channel-discussion-stream">
           <div className="channel-discussion-post">
             <MessageBubblePreview
               message={post}
-              senderName={channelTitle}
+              senderName={channel.title}
               users={users}
+              senderChats={targetChatsById}
               channelPost
               showChannelMetadata
               {...messagePreviewOptions}
+              onOpenMention={onOpenMention}
+              onSearchHashtag={(hashtag) => onSearchHashtag(hashtag, post.chatId)}
             />
           </div>
 
@@ -107,18 +564,34 @@ export function ChannelDiscussionPanel({
             </div>
           ) : comments.length === 0 ? (
             <div className="channel-discussion-empty">还没有留言</div>
-          ) : comments.map((comment) => {
-            const senderName = senderFor(comment, users, currentUserId);
+          ) : comments.map((comment, index) => {
+            const senderName = senderFor(comment, users, targetChatsById, currentUserId);
+            const profileAvailable = !comment.outgoing &&
+              comment.senderId !== "unknown" &&
+              (comment.senderId.startsWith("chat:") || users.has(comment.senderId));
+            const previous = comments[index - 1];
+            const selected = forwarding.selectedIds.has(comment.id);
+            const selectionPending = forwarding.loadingIds.has(comment.id);
+            const forwardSource = forwardSourceFor(comment, usersById, targetChatsById);
+            const forwardNavigation = forwardSource?.navigation;
             return (
               <div
                 className={`message-group channel-discussion-message-group ${comment.outgoing ? "is-outgoing" : "is-incoming"}`}
-                key={comment.id}
+                key={comment.renderKey ?? `${comment.chatId}:${comment.id}`}
               >
                 {!comment.outgoing && (
                   <span className="message-group-avatar">
-                    <span className="message-sender-avatar" aria-hidden="true">
-                      <Avatar avatar={avatarFor(comment, users, currentUserId)} size="small" />
-                    </span>
+                    <button
+                      className="message-sender-avatar"
+                      type="button"
+                      aria-label={`查看 ${senderName} 的资料`}
+                      title="查看资料"
+                      disabled={!profileAvailable}
+                      onClick={() => profileAvailable && onOpenSenderProfile(comment.senderId)}
+                      onContextMenu={(event) => profileAvailable && openSenderMenu(event, comment, senderName)}
+                    >
+                      <Avatar avatar={avatarFor(comment, users, targetChatsById, currentUserId)} size="small" />
+                    </button>
                   </span>
                 )}
                 <div className="message-group-stack">
@@ -126,7 +599,52 @@ export function ChannelDiscussionPanel({
                     message={comment}
                     senderName={senderName}
                     users={users}
+                    senderChats={targetChatsById}
+                    senderLabel={comment.senderTag || memberLabels.get(comment.senderId)}
+                    senderIsAdministrator={memberLabels.has(comment.senderId)}
+                    senderProfileAvailable={profileAvailable}
+                    channelAuthor={channelAuthorFor(comment)}
+                    showChannelMetadata={displaysChannelMetadata(comment)}
+                    serviceMembers={comment.content.kind === "service"
+                      ? comment.content.memberUserIds?.map((userId) => ({
+                          id: userId,
+                          name: users.get(userId)?.displayName ?? "Telegram 用户",
+                          profileAvailable: users.has(userId),
+                        }))
+                      : undefined}
+                    replyPreview={replyPreviewFor(
+                      comment,
+                      messagesById,
+                      usersById,
+                      discussionChat,
+                      targetChatsById,
+                      currentUserId,
+                    )}
+                    forwardLabel={forwardSource?.label}
+                    onOpenForwardSource={forwardNavigation ? () => {
+                      if (forwardNavigation.kind === "message") {
+                        onOpenMessage(forwardNavigation.chatId, forwardNavigation.messageId);
+                      } else if (forwardNavigation.kind === "chat") {
+                        onOpenChat(forwardNavigation.chatId);
+                      } else {
+                        onOpenSenderProfile(forwardNavigation.userId);
+                      }
+                    } : undefined}
+                    selectionMode={forwarding.selectionMode}
+                    selected={selected}
+                    highlighted={highlightedMessageId === comment.id}
+                    selectionPending={selectionPending}
+                    joinsSelectionBefore={Boolean(previous && (
+                      forwarding.selectedIds.has(previous.id) || forwarding.loadingIds.has(previous.id)
+                    ))}
+                    selectionLimitReached={forwarding.selectedIds.size >= 100}
                     {...messagePreviewOptions}
+                    onToggleSelection={forwarding.toggleSelection}
+                    onOpenActions={openMessageActions}
+                    onOpenReply={openReply}
+                    onOpenSenderProfile={onOpenSenderProfile}
+                    onOpenMention={onOpenMention}
+                    onSearchHashtag={searchDiscussionHashtag}
                   />
                 </div>
               </div>
@@ -135,34 +653,291 @@ export function ChannelDiscussionPanel({
         </div>
       </div>
 
-      <div className="channel-discussion-composer">
-        <ConversationComposer
-          chatId={post.chatId}
-          draftKey={`${post.chatId}:discussion:${post.id}`}
-          users={users}
-          knownNonBotUsernames={knownNonBotUsernames}
-          mentionsEnabled
-          mentionUsers={mentionUsers}
-          recentMentionUserIds={recentMentionUserIds}
-          inputRef={inputRef}
-          connectionStatus={connectionStatus}
-          queuedMessageCount={0}
-          failedQueuedMessageCount={0}
-          queuedAttachmentCount={0}
-          failedAttachmentCount={0}
-          onSendMessage={onSend}
-          onEditMessage={async () => false}
-          onDraftChange={() => undefined}
-          onTypingChange={async () => undefined}
-          onSendFiles={onSendFiles}
-          onCancelEditing={() => undefined}
-          onCancelReply={() => undefined}
-          onGetBotCommands={async () => []}
-          onGetInlineResults={async () => undefined}
-          onSendInlineResult={async () => false}
-          onSendBotStart={async () => false}
+      {forwarding.selectionMode ? (
+        <div className="message-selection-bar" role="toolbar" aria-label="消息选择操作">
+          <span>{forwarding.selectedIds.size > 0 ? "复制或转发所选消息" : "点击消息进行选择"}</span>
+          <div className="message-selection-actions">
+            <button
+              className={`icon-button ${selectionCopied ? "is-confirmed" : ""}`}
+              type="button"
+              aria-label="复制所选消息"
+              title="复制"
+              disabled={forwarding.selectedIds.size === 0 || selectionCopying}
+              onClick={() => void copySelectedMessages()}
+            >
+              {selectionCopied ? <Check size={19} /> : selectionCopying ? <LoaderCircle className="spin" size={18} /> : <Copy size={18} />}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="转发所选消息"
+              title="转发"
+              disabled={forwarding.selectedIds.size === 0}
+              onClick={forwarding.openSelectedDialog}
+            >
+              <Forward size={19} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="取消选择"
+              title="取消选择"
+              onClick={() => {
+                forwarding.clearSelection();
+                focusComposer();
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="channel-discussion-composer">
+          <ConversationComposer
+            key={draftKey}
+            chatId={discussionChatId}
+            draftKey={draftKey}
+            editingMessage={editingMessage}
+            replyingTo={replyingTo}
+            replyQuote={replyQuote}
+            contextTitle={channel.title}
+            users={users}
+            textInsertion={textInsertion}
+            knownNonBotUsernames={knownNonBotUsernames}
+            mentionsEnabled
+            mentionUsers={mentionUsers}
+            recentMentionUserIds={recentMentionUserIds}
+            onTextInsertionApplied={(id) => setTextInsertion((current) => current?.id === id ? undefined : current)}
+            inputRef={inputRef}
+            connectionStatus={connectionStatus}
+            queuedMessageCount={0}
+            failedQueuedMessageCount={0}
+            queuedAttachmentCount={0}
+            failedAttachmentCount={0}
+            onSendMessage={async (...args) => {
+              const sent = await onSend(...args);
+              if (sent) {
+                setReplyingTo(undefined);
+                setReplyQuote(undefined);
+              }
+              focusComposer();
+              return sent;
+            }}
+            onEditMessage={async (messageId, text, entities) => {
+              const edited = await onEditMessage(messageId, text, entities, discussionChatId);
+              if (edited) setEditingMessage(undefined);
+              focusComposer();
+              return edited;
+            }}
+            onDraftChange={(_chatId, text, replyToMessageId, selectedQuote, entities) => {
+              updateThreadDraft(
+                draftKey,
+                discussionChatId,
+                text,
+                replyToMessageId,
+                selectedQuote,
+                entities,
+              );
+            }}
+            onTypingChange={onTypingChange}
+            onSendFiles={async (...args) => {
+              const sent = await onSendFiles(...args);
+              if (sent) {
+                setReplyingTo(undefined);
+                setReplyQuote(undefined);
+              }
+              focusComposer();
+              return sent;
+            }}
+            onCancelEditing={() => {
+              setEditingMessage(undefined);
+              focusComposer();
+            }}
+            onCancelReply={() => {
+              setReplyingTo(undefined);
+              setReplyQuote(undefined);
+              focusComposer();
+            }}
+            onGetBotCommands={(query = "", botUsername) =>
+              getBotCommandSuggestions(discussionChatId, query, botUsername)}
+            onGetInlineResults={(botUsername, query, offset = "") =>
+              getInlineQueryResults(discussionChatId, botUsername, query, offset)}
+            onSendInlineResult={(botUserId, queryId, resultId, replyToMessageId) =>
+              sendInlineQueryResultMessage(
+                discussionChatId,
+                botUserId,
+                queryId,
+                resultId,
+                replyToMessageId,
+              )}
+            onSendBotStart={(botUserId, parameter) =>
+              sendBotStartMessage(discussionChatId, botUserId, parameter)}
+          />
+        </div>
+      )}
+
+      {actionMenu && actionMessage && (
+        <MessageActionMenu
+          position={actionMenu}
+          message={actionMessage}
+          loading={actionLoadingId === actionMessage.id}
+          keyboardNavigation={actionMenu.keyboardNavigation}
+          onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
+          onEdit={() => startEditing(actionMessage)}
+          onForward={() => {
+            forwarding.openDialogForMessages([actionMessage.id]);
+            setActionMenu(undefined);
+          }}
+          forwardTargets={forwardTargets}
+          onQuickForward={(target) => {
+            setActionMenu(undefined);
+            void forwarding.quickForward([actionMessage.id], target);
+          }}
+          onForwardAlbum={actionAlbumMessageIds.length > 1 ? () => {
+            forwarding.openDialogForMessages(actionAlbumMessageIds);
+            setActionMenu(undefined);
+          } : undefined}
+          onQuickForwardAlbum={actionAlbumMessageIds.length > 1 ? (target) => {
+            setActionMenu(undefined);
+            void forwarding.quickForward(actionAlbumMessageIds, target);
+          } : undefined}
+          onRepeat={!actionMessage.outgoing ? () => {
+            setActionMenu(undefined);
+            void onForwardMessages(
+              discussionChatId,
+              [actionMessage.id],
+              discussionChatId,
+            ).finally(focusComposer);
+          } : undefined}
+          onDelete={() => {
+            setDeleteTarget(actionMessage);
+            setActionMenu(undefined);
+          }}
+          onCopy={() => {
+            void copyMessageContent(actionMessage).then(closeActionMenu).catch(() => undefined);
+          }}
+          onSelect={() => {
+            forwarding.startSelection(actionMessage);
+            setActionMenu(undefined);
+          }}
+          onPin={actionMessage.permissions?.canPin ? () => void openPinDialog(actionMessage) : undefined}
+          onUnpin={actionMessage.permissions?.canPin ? () => void unpinMessage(actionMessage) : undefined}
+          onPlayInWindow={actionMessage.content.kind === "media" &&
+            ["video", "videoNote"].includes(actionMessage.content.mediaType)
+            ? () => {
+                setActionMenu(undefined);
+                requestVideoWindowPlayback(`${actionMessage.chatId}:${actionMessage.id}`);
+              }
+            : undefined}
+          onDownload={(actionMessage.content.kind === "media" || actionMessage.content.kind === "file") &&
+            actionMessage.content.fileId !== undefined &&
+            actionMessage.content.canDownload !== false &&
+            actionMessage.content.isDownloading !== true &&
+            messagePreviewOptions?.onDownload
+            ? () => {
+                const content = actionMessage.content;
+                if ((content.kind !== "media" && content.kind !== "file") || content.fileId === undefined) return;
+                setActionMenu(undefined);
+                void messagePreviewOptions.onDownload?.(content.fileId, content.fileName);
+              }
+            : undefined}
+          onReport={!actionMessage.outgoing ? () => {
+            setReportTarget(actionMessage);
+            setActionMenu(undefined);
+          } : undefined}
+          onDismiss={closeActionMenu}
+          onClose={closeActionMenu}
         />
-      </div>
+      )}
+
+      {senderMenu && (
+        <SenderActionMenu
+          position={senderMenu}
+          senderName={senderMenu.senderName}
+          onMention={!senderMenu.senderId.startsWith("chat:") && senderMenu.senderId !== "unknown"
+            ? () => insertSenderMention(senderMenu.senderId)
+            : undefined}
+          onPrivateChat={!senderMenu.senderId.startsWith("chat:") && senderMenu.senderId !== "unknown"
+            ? () => onStartPrivateChat(senderMenu.senderId)
+            : undefined}
+          onSearch={() => onOpenMessageSearch(senderMenu.senderId, discussionChatId)}
+          onDismiss={() => {
+            setSenderMenu(undefined);
+            focusComposer();
+          }}
+        />
+      )}
+
+      <MotionPresence present={Boolean(reportTarget)}>
+        {reportTarget ? (
+          <ReportDialog
+            chatId={reportTarget.chatId}
+            messageIds={[reportTarget.id]}
+            title={discussionChat.title}
+            onGetOptions={onGetReportOptions}
+            onSubmit={onReportChat}
+            onClose={() => {
+              setReportTarget(undefined);
+              focusComposer();
+            }}
+          />
+        ) : null}
+      </MotionPresence>
+
+      <MotionPresence present={Boolean(deleteTarget)}>
+        {deleteTarget?.permissions ? (
+          <DeleteMessagesDialog
+            count={1}
+            preview={messageSummary(deleteTarget.content)}
+            canDeleteOnlyForSelf={deleteTarget.permissions.canDeleteOnlyForSelf}
+            canDeleteForAllUsers={deleteTarget.permissions.canDeleteForAllUsers}
+            pending={deletePending}
+            onConfirm={(revoke) => void confirmDelete(revoke)}
+            onClose={() => {
+              setDeleteTarget(undefined);
+              focusComposer();
+            }}
+          />
+        ) : null}
+      </MotionPresence>
+
+      <MotionPresence present={Boolean(pinTarget)}>
+        {pinTarget ? (
+          <PinMessageDialog
+            message={pinTarget}
+            pending={pinPending}
+            allowOnlyForSelf={false}
+            allowNotification
+            onConfirm={(disableNotification, onlyForSelf) => void confirmPin(disableNotification, onlyForSelf)}
+            onClose={() => {
+              setPinTarget(undefined);
+              focusComposer();
+            }}
+          />
+        ) : null}
+      </MotionPresence>
+
+      <MotionPresence present={forwarding.dialogOpen && forwarding.forwardMessageIds.length > 0}>
+        {forwarding.dialogOpen && forwarding.forwardMessageIds.length > 0 ? (
+          <ForwardMessagesDialog
+            selectedCount={forwarding.forwardMessageIds.length}
+            targets={forwarding.filteredTargets}
+            topicsByChat={forumTopics}
+            currentChatId={discussionChatId}
+            initialTargetId={forwarding.initialTargetId}
+            query={forwarding.query}
+            pending={forwarding.pending}
+            pendingTargetId={forwarding.pendingTargetId}
+            onQueryChange={forwarding.setQuery}
+            onLoadTopics={onLoadForumTopics}
+            onConfirm={(targets, description) => void forwarding.confirm(targets, description)}
+            onClose={() => {
+              forwarding.closeDialog();
+              focusComposer();
+            }}
+          />
+        ) : null}
+      </MotionPresence>
     </section>
   );
 }

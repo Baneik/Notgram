@@ -110,6 +110,7 @@ interface MessageActionMenuProps {
   onPlayInWindow?: () => void;
   onDownload?: () => void;
   onCopy: () => void;
+  onSelect?: () => void;
   onDismiss: () => void;
   onClose: () => void;
   onReport?: () => void;
@@ -134,6 +135,7 @@ export function MessageActionMenu({
   onPlayInWindow,
   onDownload,
   onCopy,
+  onSelect,
   onDismiss,
   onClose,
   onReport,
@@ -181,6 +183,7 @@ export function MessageActionMenu({
       ? [{ id: "repeat", label: "复读", icon: "repeat" as const }]
       : []),
     { id: "copy", label: "复制", icon: "copy" },
+    ...(onSelect ? [{ id: "select", label: "选择", icon: "check" as const }] : []),
     ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
     ...(permissions.canEdit && message.content.kind === "text"
       ? [{ id: "edit", label: "编辑", icon: "edit" as const }]
@@ -200,6 +203,7 @@ export function MessageActionMenu({
       : []),
     ...(onRepeat ? [{ id: "repeat", label: "复读", icon: "repeat" as const, disabled: true }] : []),
     { id: "copy", label: "复制", icon: "copy" },
+    ...(onSelect ? [{ id: "select", label: "选择", icon: "check" as const }] : []),
     ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
     ...(message.content.kind === "text"
       ? [{ id: "edit", label: "编辑", icon: "edit" as const, disabled: true }]
@@ -228,6 +232,7 @@ export function MessageActionMenu({
     }
     else if (actionId === "repeat") onRepeat?.();
     else if (actionId === "copy") onCopy();
+    else if (actionId === "select") onSelect?.();
     else if (actionId === "edit") onEdit();
     else if (actionId === "delete") onDelete();
     else if (actionId === "pin-message") onPin?.();
@@ -265,6 +270,12 @@ export function MessageActionMenu({
             <Copy size={16} strokeWidth={1.9} />
             <span>复制</span>
           </button>
+          {onSelect && (
+            <button type="button" role="menuitem" onClick={onSelect}>
+              <Check size={16} strokeWidth={1.9} />
+              <span>选择</span>
+            </button>
+          )}
           {onDownload && (
             <button type="button" role="menuitem" onClick={onDownload}>
               <Download size={16} strokeWidth={1.9} />
@@ -367,6 +378,12 @@ export function MessageActionMenu({
             <Copy size={16} strokeWidth={1.9} />
             <span>复制</span>
           </button>
+          {onSelect && (
+            <button type="button" role="menuitem" onClick={onSelect}>
+              <Check size={16} strokeWidth={1.9} />
+              <span>选择</span>
+            </button>
+          )}
           {onDownload && (
             <button type="button" role="menuitem" onClick={onDownload}>
               <Download size={16} strokeWidth={1.9} />
