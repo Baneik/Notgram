@@ -1,5 +1,6 @@
 import { copyCanvasContents } from "./copyCanvasContents";
 import { getConversationSnapshotStyleSheet } from "./conversationSnapshotStyles";
+import { prepareConversationSnapshotClone } from "./conversationSnapshotUtils";
 
 export interface ConversationSwitchSnapshot {
   element: HTMLElement;
@@ -68,8 +69,7 @@ export const captureConversationSwitchSnapshot = (
   const cloneList = clone.querySelector<HTMLElement>(".message-list");
   if (cloneList) {
     cloneList.classList.remove("is-jump-transitioning");
-    cloneList.scrollTop = sourceList.scrollTop;
-    cloneList.scrollLeft = sourceList.scrollLeft;
+    prepareConversationSnapshotClone(sourceList, cloneList);
     const visibleRows = [...cloneList.querySelectorAll<HTMLElement>("[data-message-id]")]
       .filter((row) => {
         const rowBounds = row.getBoundingClientRect();

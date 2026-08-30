@@ -242,6 +242,7 @@ export const useConversationScroll = ({
   const userScrollDirectionRef = useRef<UserScrollDirection | undefined>(undefined);
   const userScrollTopRef = useRef<number | undefined>(undefined);
   const pointerActiveRef = useRef(false);
+  const interactivePointerRef = useRef(false);
   const pointerScrolledRef = useRef(false);
   const resumeBottomPinOnReleaseRef = useRef(false);
   const trustedPointerActiveRef = useRef(false);
@@ -330,7 +331,9 @@ export const useConversationScroll = ({
     preparedJumpRef.current = undefined;
     userIntentUntilRef.current = 0;
     userScrollDirectionRef.current = undefined;
+    userScrollTopRef.current = undefined;
     pointerActiveRef.current = false;
+    interactivePointerRef.current = false;
     pointerScrolledRef.current = false;
     resumeBottomPinOnReleaseRef.current = false;
     trustedPointerActiveRef.current = false;
@@ -1356,6 +1359,7 @@ export const useConversationScroll = ({
     const revealToken = Symbol(messageId);
     userIntentUntilRef.current = 0;
     pointerActiveRef.current = false;
+    interactivePointerRef.current = false;
     // Cancel a previous controlled jump without changing the user's follow
     // state. A destination that is already visible is a highlight-only noop.
     interruptControlledPositioning("detached", false);
@@ -1641,7 +1645,16 @@ export const useConversationScroll = ({
     } else if (resolvedBehavior === "smooth" && typeof element.animate === "function") {
       settleScheduled = true;
       const motion = conversationJumpMotion(jumpDirection);
-      const snapshot = captureConversationJumpSnapshot(element);
+      const snapshot = captureConversationJumpSnapshot(element, {
+        // The request rerender can make Virtuoso recalculate its auto margin
+        // before this layout effect runs. Keep the last user-visible offset as
+        // the snapshot origin so the pre-jump media remains on the first frame.
+        scrollTop: userScrollTopRef.current ?? (
+          currentScrollKey
+            ? conversationScrollMemory.get(currentScrollKey)?.scrollTop
+            : undefined
+        ),
+      });
       if (!snapshot) {
         prepareTarget();
         virtuosoRef.current?.scrollToIndex({
@@ -2325,6 +2338,7 @@ export const useConversationScroll = ({
     const interactiveTarget = event.target instanceof Element && event.target.closest(
       "a, button, input, textarea, select, video, audio, [role='button']",
     );
+    interactivePointerRef.current = Boolean(interactiveTarget);
     if (
       event.pointerType === "mouse" &&
       event.button === 1 &&
@@ -2381,6 +2395,7 @@ export const useConversationScroll = ({
     const pointerScrolled = pointerScrolledRef.current;
     const resumeBottomPin = resumeBottomPinOnReleaseRef.current;
     pointerActiveRef.current = false;
+    interactivePointerRef.current = false;
     pointerScrolledRef.current = false;
     resumeBottomPinOnReleaseRef.current = false;
     trustedPointerActiveRef.current = false;
@@ -2474,7 +2489,9 @@ export const useConversationScroll = ({
     if (!currentScrollKey || searchActive) return;
     const current = conversationScrollMemory.get(currentScrollKey);
     const middleAutoScroll = middleAutoScrollRef.current;
-    const pointerInitiated = pointerActiveRef.current || middleAutoScroll;
+    const pointerInitiated = (
+      pointerActiveRef.current && !interactivePointerRef.current
+    ) || middleAutoScroll;
     const timedIntent = !pointerInitiated &&
       userScrollDirectionRef.current !== undefined &&
       performance.now() <= userIntentUntilRef.current;

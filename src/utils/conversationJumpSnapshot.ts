@@ -1,5 +1,6 @@
 import { copyCanvasContents } from "./copyCanvasContents";
 import { getConversationSnapshotStyleSheet } from "./conversationSnapshotStyles";
+import { prepareConversationSnapshotClone } from "./conversationSnapshotUtils";
 
 export interface ConversationJumpSnapshot {
   element: HTMLElement;
@@ -8,6 +9,7 @@ export interface ConversationJumpSnapshot {
 
 interface ConversationJumpSnapshotOptions {
   isolate?: boolean;
+  scrollTop?: number;
 }
 
 export const captureConversationJumpSnapshot = (
@@ -67,8 +69,9 @@ export const captureConversationJumpSnapshot = (
     element.append(clone);
   }
   document.body.append(element);
-  clone.scrollTop = scroller.scrollTop;
-  clone.scrollLeft = scroller.scrollLeft;
+  prepareConversationSnapshotClone(scroller, clone, {
+    scrollTop: options?.scrollTop,
+  });
 
   return {
     element,
