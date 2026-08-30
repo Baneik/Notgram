@@ -5623,10 +5623,12 @@ test("reply previews jump to their source and channel senders keep their identit
     return {
       visibleReversals,
       placeholderFrames: samples.filter((sample) => sample.placeholder).length,
+      snapshotFrames: samples.filter((sample) => sample.snapshot).length,
     };
   });
   expect(jumpReport.visibleReversals).toBe(0);
   expect(jumpReport.placeholderFrames).toBe(0);
+  expect(jumpReport.snapshotFrames).toBeGreaterThan(0);
   await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
   await expect(target.locator(".message-bubble")).toHaveCSS("outline-style", "none");
 
@@ -5919,7 +5921,7 @@ test("scrolled chat list stays visually stable during refreshes and context menu
     .toBeCloseTo(anchor.scrollTop, 1);
 });
 
-test("distant message jumps use a directional exit and entrance transition", async ({ page }) => {
+test("distant message jumps keep relocation still and reveal one settling motion", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   const source = page.locator('[data-message-id="p-channel-reply"]');
@@ -5927,7 +5929,13 @@ test("distant message jumps use a directional exit and entrance transition", asy
   await expect(page.locator('[data-message-id="p-old-8"]')).toHaveCount(0);
   await page.evaluate(() => {
     const originalAnimate = Element.prototype.animate;
-    const records: Array<{ duration: number; firstOpacity?: number; lastOpacity?: number }> = [];
+    const records: Array<{
+      duration: number;
+      firstOpacity?: number;
+      lastOpacity?: number;
+      firstTransform?: string;
+      lastTransform?: string;
+    }> = [];
     (globalThis as typeof globalThis & { __notgramJumpAnimations?: typeof records })
       .__notgramJumpAnimations = records;
     Element.prototype.animate = function (keyframes, options) {
@@ -5937,6 +5945,8 @@ test("distant message jumps use a directional exit and entrance transition", asy
           duration: Number(timing?.duration ?? 0),
           firstOpacity: Number(keyframes[0]?.opacity),
           lastOpacity: Number(keyframes.at(-1)?.opacity),
+          firstTransform: String(keyframes[0]?.transform ?? ""),
+          lastTransform: String(keyframes.at(-1)?.transform ?? ""),
         });
       }
       return originalAnimate.call(this, keyframes, options);
@@ -5946,18 +5956,19 @@ test("distant message jumps use a directional exit and entrance transition", asy
   await source.locator(".message-reply-preview").click();
   const target = page.locator('[data-message-id="p-old-8"]');
   await expect(target).toHaveClass(/is-notification-target/);
-  await expect.poll(() => page.evaluate(() => (
-    globalThis as typeof globalThis & { __notgramJumpAnimations?: unknown[] }
-  ).__notgramJumpAnimations?.length ?? 0)).toBe(2);
+  await page.waitForTimeout(720);
   const animations = await page.evaluate(() => (
     globalThis as typeof globalThis & {
-      __notgramJumpAnimations?: Array<{ duration: number; firstOpacity?: number; lastOpacity?: number }>;
+      __notgramJumpAnimations?: Array<{
+        duration: number;
+        firstOpacity?: number;
+        lastOpacity?: number;
+        firstTransform?: string;
+        lastTransform?: string;
+      }>;
     }
   ).__notgramJumpAnimations ?? []);
-  expect(animations).toEqual([
-    expect.objectContaining({ duration: 180, firstOpacity: 1, lastOpacity: 0.72 }),
-    expect.objectContaining({ duration: 300, firstOpacity: 0.72, lastOpacity: 1 }),
-  ]);
+  expect(animations).toEqual([]);
   await expect.poll(() => target.evaluate((element) => {
     const list = element.closest(".message-list")?.getBoundingClientRect();
     const row = element.getBoundingClientRect();

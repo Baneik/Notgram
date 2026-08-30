@@ -55,7 +55,9 @@ shadow root, copies canvas pixels, is `aria-hidden`, inert, and ignores pointer 
 readiness starts its 90 ms release and a 1500 ms bound removes it even when readiness never arrives;
 resize, unmount, and a newer switch cancel it. It cannot choose a destination, write scroll state,
 or delay background work. A separate local snapshot remains valid for an explicit in-conversation
-message jump because that operation has one owner, one list, and a bounded animation.
+message jump because that operation has one owner and one list. For a distant virtual relocation the
+snapshot stays still, and only the final controlled deceleration is revealed; source and destination
+must not run separate whole-list transforms.
 
 ## Positioning completion
 

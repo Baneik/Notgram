@@ -1642,14 +1642,6 @@ export const useConversationScroll = ({
       settleScheduled = true;
       const motion = conversationJumpMotion(jumpDirection);
       const snapshot = captureConversationJumpSnapshot(element);
-      const exitTiming = {
-        ...motion.exitTiming,
-        duration: conversationJumpTiming.accelerate,
-      };
-      const enterTiming = {
-        ...motion.enterTiming,
-        duration: conversationJumpTiming.decelerate,
-      };
       if (!snapshot) {
         prepareTarget();
         virtuosoRef.current?.scrollToIndex({
@@ -1662,31 +1654,7 @@ export const useConversationScroll = ({
         clearJumpTransition();
         jumpSnapshotRef.current = { token: revealToken, snapshot };
         element.classList.add("is-jump-transitioning");
-        revealTransitionReady = (onReady) => {
-          if (jumpSnapshotRef.current?.token !== revealToken) {
-            const nextContent = element.querySelector<HTMLElement>(".message-list-content") ?? element;
-            const enter = nextContent.animate(motion.enter, enterTiming);
-            void enter.finished.catch(() => undefined).then(onReady);
-            return;
-          }
-          clearJumpTransition(revealToken);
-          const nextContent = element.querySelector<HTMLElement>(".message-list-content") ?? element;
-          const enter = nextContent.animate(motion.enter, enterTiming);
-          void enter.finished.catch(() => undefined).then(onReady);
-        };
-        const exit = snapshot.content.animate(motion.exit, exitTiming);
-        prepareTarget();
-        void exit.finished.catch(() => undefined).then(() => {
-          const invalid =
-            messageListRef.current !== element ||
-            navigationRequestIdentityRef.current !== expectedNavigationIdentity ||
-            revealTargetTokenRef.current !== revealToken ||
-            scrollControlRef.current.generation !== navigationGeneration;
-          if (invalid) {
-            exit.cancel();
-            clearJumpTransition(revealToken);
-            return;
-          }
+        const relocateTarget = () => {
           virtuosoRef.current?.scrollToIndex({
             index: itemIndex,
             align: "center",
@@ -1766,11 +1734,42 @@ export const useConversationScroll = ({
               settleMountedTarget();
             }
           };
-          requestAnimationFrame(() => {
+          requestAnimationFrame(() => prepareDeceleration());
+        };
+        prepareTarget();
+        if (isLongNavigation) {
+          // A distant virtual relocation is already hidden by the snapshot.
+          // Keep that snapshot still, then reveal only the final deceleration;
+          // animating both source and destination creates two distinct jolts.
+          relocateTarget();
+        } else {
+          revealTransitionReady = (onReady) => {
+            if (jumpSnapshotRef.current?.token !== revealToken) {
+              const nextContent = element.querySelector<HTMLElement>(".message-list-content") ?? element;
+              const enter = nextContent.animate(motion.enter, motion.enterTiming);
+              void enter.finished.catch(() => undefined).then(onReady);
+              return;
+            }
+            clearJumpTransition(revealToken);
+            const nextContent = element.querySelector<HTMLElement>(".message-list-content") ?? element;
+            const enter = nextContent.animate(motion.enter, motion.enterTiming);
+            void enter.finished.catch(() => undefined).then(onReady);
+          };
+          const exit = snapshot.content.animate(motion.exit, motion.exitTiming);
+          void exit.finished.catch(() => undefined).then(() => {
+            const invalid =
+              messageListRef.current !== element ||
+              navigationRequestIdentityRef.current !== expectedNavigationIdentity ||
+              revealTargetTokenRef.current !== revealToken ||
+              scrollControlRef.current.generation !== navigationGeneration;
             exit.cancel();
-            prepareDeceleration();
+            if (invalid) {
+              clearJumpTransition(revealToken);
+              return;
+            }
+            relocateTarget();
           });
-        });
+        }
       }
     } else {
       prepareTarget();
