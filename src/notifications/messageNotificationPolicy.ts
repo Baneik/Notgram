@@ -1,3 +1,39 @@
+import type { Message } from "../telegram/types";
+
+export const isMessageStreaming = (message: Pick<Message, "isPending" | "content">) =>
+  message.isPending === true || (
+    message.content.kind === "rich" && !message.content.isFull
+  );
+
+const notificationMessageKey = (
+  accountId: string,
+  message: Pick<Message, "chatId" | "id">,
+) => `${accountId}:${message.chatId}:${message.id}`;
+
+export class MessageNotificationStreamTracker {
+  private readonly deferred = new Set<string>();
+
+  consume(accountId: string, message: Message, live: boolean) {
+    const key = notificationMessageKey(accountId, message);
+    if (isMessageStreaming(message)) {
+      if (live) this.deferred.add(key);
+      return false;
+    }
+    const wasDeferred = this.deferred.delete(key);
+    return live || wasDeferred;
+  }
+
+  remove(accountId: string, chatId: string, messageIds: readonly string[]) {
+    for (const messageId of messageIds) {
+      this.deferred.delete(notificationMessageKey(accountId, { chatId, id: messageId }));
+    }
+  }
+
+  reset() {
+    this.deferred.clear();
+  }
+}
+
 export interface MessageNotificationContext {
   outgoing: boolean;
   notificationsEnabled: boolean;
@@ -8,6 +44,7 @@ export interface MessageNotificationContext {
   sentAt?: string;
   lastReadInboxMessageId?: string;
   notBeforeMs?: number;
+  streaming?: boolean;
 }
 
 export const isMessageInActiveConversation = ({
@@ -61,9 +98,11 @@ export const shouldNotifyMessage = ({
   sentAt,
   lastReadInboxMessageId,
   notBeforeMs,
+  streaming,
 }: MessageNotificationContext) =>
   notificationsEnabled &&
   !outgoing &&
+  !streaming &&
   !muted &&
   !(activeConversation && appVisible) &&
   !isAtOrBeforeReadCursor(messageId, lastReadInboxMessageId) &&

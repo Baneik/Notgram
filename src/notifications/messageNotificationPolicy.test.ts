@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MessageNotificationStreamTracker,
+  isMessageStreaming,
   isMessageConversationMuted,
   isMessageInActiveConversation,
   notificationPresentation,
@@ -34,6 +36,96 @@ describe("message notification policy", () => {
       ...incomingMessage,
       activeConversation: true,
     })).toBe(false);
+  });
+
+  it("suppresses incomplete bot stream messages until the rich content is full", () => {
+    expect(isMessageStreaming({
+      isPending: true,
+      content: { kind: "text", text: "partial" },
+    })).toBe(true);
+    expect(isMessageStreaming({
+      content: { kind: "rich", blocks: [], text: "partial", isRtl: false, isFull: false },
+    })).toBe(true);
+    expect(isMessageStreaming({
+      content: { kind: "rich", blocks: [], text: "complete", isRtl: false, isFull: true },
+    })).toBe(false);
+    expect(shouldNotifyMessage({ ...incomingMessage, streaming: true })).toBe(false);
+  });
+
+  it("releases one notification after a live rich message finishes streaming", () => {
+    const tracker = new MessageNotificationStreamTracker();
+    const partial = {
+      id: "120",
+      chatId: "bot",
+      senderId: "bot-user",
+      outgoing: false,
+      sentAt: incomingMessage.sentAt,
+      delivery: "sent" as const,
+      content: {
+        kind: "rich" as const,
+        blocks: [],
+        text: "partial",
+        isRtl: false,
+        isFull: false,
+      },
+    };
+    expect(tracker.consume("account", partial, true)).toBe(false);
+    expect(tracker.consume("account", { ...partial, content: {
+      ...partial.content,
+      text: "incremental",
+    } }, false)).toBe(false);
+    const complete = { ...partial, content: {
+      ...partial.content,
+      text: "complete",
+      isFull: true,
+    } };
+    expect(tracker.consume("account", complete, false)).toBe(true);
+    expect(tracker.consume("account", complete, false)).toBe(false);
+  });
+
+  it("clears deferred state when completion is also marked live", () => {
+    const tracker = new MessageNotificationStreamTracker();
+    const partial = {
+      id: "120",
+      chatId: "bot",
+      senderId: "bot-user",
+      outgoing: false,
+      sentAt: incomingMessage.sentAt,
+      delivery: "sent" as const,
+      content: {
+        kind: "rich" as const,
+        blocks: [],
+        text: "partial",
+        isRtl: false,
+        isFull: false,
+      },
+    };
+    expect(tracker.consume("account", partial, true)).toBe(false);
+    const complete = { ...partial, content: { ...partial.content, isFull: true } };
+    expect(tracker.consume("account", complete, true)).toBe(true);
+    expect(tracker.consume("account", complete, false)).toBe(false);
+  });
+
+  it("ignores pending bot drafts and releases the distinct final live message", () => {
+    const tracker = new MessageNotificationStreamTracker();
+    const pending = {
+      id: "pending:bot:0:1",
+      chatId: "bot",
+      senderId: "bot-user",
+      outgoing: false,
+      sentAt: incomingMessage.sentAt,
+      delivery: "sent" as const,
+      isPending: true,
+      content: { kind: "text" as const, text: "partial" },
+    };
+    expect(tracker.consume("account", pending, true)).toBe(false);
+    tracker.remove("account", pending.chatId, [pending.id]);
+    expect(tracker.consume("account", {
+      ...pending,
+      id: "121",
+      isPending: false,
+      content: { kind: "text", text: "complete" },
+    }, true)).toBe(true);
   });
 
   it("still notifies for the selected conversation while the app is hidden", () => {

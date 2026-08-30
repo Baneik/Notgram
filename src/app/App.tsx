@@ -39,6 +39,8 @@ import {
   type DesktopNotificationRoute,
 } from "../notifications/desktopNotifications";
 import {
+  MessageNotificationStreamTracker,
+  isMessageStreaming,
   isMessageConversationMuted,
   isMessageInActiveConversation,
   notificationPresentation,
@@ -362,6 +364,7 @@ export function App() {
     // application session are eligible for desktop notification presentation.
     const notBeforeMs = Date.now() - 10_000;
     let disposed = false;
+    const streamTracker = new MessageNotificationStreamTracker();
     const notifyMessage = async (message: Message) => {
       const receivedState = telegramStore.getState();
       const accountId = receivedState.activeAccountId;
@@ -404,6 +407,7 @@ export function App() {
         sentAt: message.sentAt,
         lastReadInboxMessageId: topic?.lastReadInboxMessageId ?? chat?.lastReadInboxMessageId,
         notBeforeMs,
+        streaming: isMessageStreaming(message),
       })) return;
       const includeSender = chat?.kind === "group" || chat?.isForum === true;
       const presentation = notificationPresentation({
@@ -436,9 +440,25 @@ export function App() {
       });
     };
     const unsubscribe = subscribeMessageChanges((event) => {
-      if (event.type !== "upsert" || event.liveMessages.length === 0) return;
+      if (event.type === "reset") {
+        streamTracker.reset();
+        return;
+      }
+      const accountId = telegramStore.getState().activeAccountId;
+      if (event.type === "remove") {
+        streamTracker.remove(accountId, event.chatId, event.messageIds);
+        return;
+      }
+      if (event.type !== "upsert") return;
+      const liveMessageIds = new Set(event.liveMessages.map((message) =>
+        `${message.chatId}:${message.id}`
+      ));
       for (const message of event.liveMessages) {
-        void notifyMessage(message);
+        if (streamTracker.consume(accountId, message, true)) void notifyMessage(message);
+      }
+      for (const message of event.messages) {
+        if (liveMessageIds.has(`${message.chatId}:${message.id}`)) continue;
+        if (streamTracker.consume(accountId, message, false)) void notifyMessage(message);
       }
     });
     return () => {
