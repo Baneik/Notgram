@@ -167,6 +167,7 @@ const PROXY_RECOVERY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
 const PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS = 3;
 const PROXY_SWITCH_AFTER_RECOVERY_ATTEMPTS = 2;
 const PROXY_RECOVERY_REQUEST_TIMEOUT_MS = 5_000;
+const GROUP_BOT_DISCOVERY_TIMEOUT_MS = 1_500;
 const WAKE_HEARTBEAT_INTERVAL_MS = 10_000;
 const WAKE_HEARTBEAT_DRIFT_MS = 25_000;
 
@@ -1135,7 +1136,34 @@ export class TauriTelegramTransport implements TelegramTransport {
     let commandGroups: TdObject[] = [];
     let canDiscoverGroupBots = false;
     if (botUsername) {
-      const bot = await this.resolveBotUser(botUsername);
+      // In a private bot chat the peer id is authoritative. Searching public
+      // chats for every slash keystroke fails for bots that are not returned by
+      // searchPublicChats (and is unnecessary network work).
+      const chat = this.rawChats.get(chatId);
+      const type = asTdObject(chat?.type);
+      let bot: { userId: string; username: string } | undefined;
+      if (type?.["@type"] === "chatTypePrivate") {
+        const peerId = tdId(type.user_id);
+        if (peerId) {
+          const peer = await this.loadUser(peerId).catch(() => undefined);
+          const rawUsernames = asTdObject(this.rawUsers.get(peerId)?.usernames);
+          const peerUsernames = [
+            rawUsernames?.editable_username,
+            ...(Array.isArray(rawUsernames?.active_usernames) ? rawUsernames.active_usernames : []),
+          ].filter((value): value is string => typeof value === "string" && Boolean(value));
+          const requestedUsername = botUsername.replace(/^@/, "").trim().toLocaleLowerCase();
+          const peerUsername = peerUsernames.find(
+            (candidate) => candidate.toLocaleLowerCase() === requestedUsername,
+          ) ?? peer?.username ?? "";
+          if (peer?.isBot && (
+            !botUsername ||
+            peerUsername.toLocaleLowerCase() === requestedUsername
+          )) {
+            bot = { userId: peerId, username: peerUsername };
+          }
+        }
+      }
+      if (!bot) bot = await this.resolveBotUser(botUsername);
       const full = await this.request({ "@type": "getUserFullInfo", user_id: numericId(bot.userId) });
       const botInfo = asTdObject(full.bot_info);
       commandGroups = [{ bot_user_id: bot.userId, commands: botInfo?.commands }];
@@ -1155,64 +1183,99 @@ export class TauriTelegramTransport implements TelegramTransport {
         canDiscoverGroupBots = true;
         const groupId = tdId(type.basic_group_id);
         if (groupId) {
-          const full = await this.request({ "@type": "getBasicGroupFullInfo", basic_group_id: numericId(groupId) });
-          commandGroups = asTdObjects(full.bot_commands);
+          try {
+            const full = await this.request({ "@type": "getBasicGroupFullInfo", basic_group_id: numericId(groupId) });
+            commandGroups = asTdObjects(full.bot_commands);
+          } catch {
+            // Bot commands can still be discovered from bot members when full
+            // group metadata is unavailable or stale.
+          }
         }
       } else if (type?.["@type"] === "chatTypeSupergroup") {
         canDiscoverGroupBots = true;
         const groupId = tdId(type.supergroup_id);
         if (groupId) {
-          const full = await this.request({ "@type": "getSupergroupFullInfo", supergroup_id: numericId(groupId) });
-          commandGroups = asTdObjects(full.bot_commands);
+          try {
+            const full = await this.request({ "@type": "getSupergroupFullInfo", supergroup_id: numericId(groupId) });
+            commandGroups = asTdObjects(full.bot_commands);
+          } catch {
+            // Bot commands can still be discovered from bot members when full
+            // group metadata is unavailable or stale.
+          }
         }
       }
     }
-    if (canDiscoverGroupBots) {
-      const members = await this.request({
-        "@type": "searchChatMembers",
-        chat_id: numericId(chatId),
-        query: "",
-        limit: 200,
-        filter: { "@type": "chatMembersFilterBots" },
-      });
-      const knownBotUserIds = new Set(commandGroups
-        .filter((group) => asTdObjects(group.commands).length > 0)
-        .map((group) => tdId(group.bot_user_id))
-        .filter(Boolean));
-      const botUserIds = [...new Set(asTdObjects(members.members).flatMap((member) => {
-        const sender = asTdObject(member.member_id);
-        const userId = sender?.["@type"] === "messageSenderUser" ? tdId(sender.user_id) : "";
-        return userId ? [userId] : [];
-      }))].filter((userId) => !knownBotUserIds.has(userId));
-      const discovered = await Promise.all(botUserIds.map(async (
-        botUserId,
-      ): Promise<TdObject | undefined> => {
-        try {
-          const full = await this.request({
-            "@type": "getUserFullInfo",
-            user_id: numericId(botUserId),
-          });
-          return { bot_user_id: botUserId, commands: asTdObject(full.bot_info)?.commands };
-        } catch {
-          return undefined;
+    const needsGroupBotDiscovery = canDiscoverGroupBots && (
+      commandGroups.length === 0 ||
+      commandGroups.some((group) => asTdObjects(group.commands).length === 0)
+    );
+    if (needsGroupBotDiscovery) {
+      let discoveryTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+      try {
+        const members = await Promise.race([
+          this.request({
+            "@type": "searchChatMembers",
+            chat_id: numericId(chatId),
+            query: "",
+            limit: 200,
+            filter: { "@type": "chatMembersFilterBots" },
+          }),
+          new Promise<TdObject | undefined>((resolve) => {
+            discoveryTimer = globalThis.setTimeout(
+              () => resolve(undefined),
+              GROUP_BOT_DISCOVERY_TIMEOUT_MS,
+            );
+          }),
+        ]);
+        if (members) {
+          const knownBotUserIds = new Set(commandGroups
+            .filter((group) => asTdObjects(group.commands).length > 0)
+            .map((group) => tdId(group.bot_user_id))
+            .filter(Boolean));
+          const botUserIds = [...new Set(asTdObjects(members.members).flatMap((member) => {
+            const sender = asTdObject(member.member_id);
+            const userId = sender?.["@type"] === "messageSenderUser" ? tdId(sender.user_id) : "";
+            return userId ? [userId] : [];
+          }))].filter((userId) => !knownBotUserIds.has(userId));
+          const discovered = await Promise.all(botUserIds.map(async (
+            botUserId,
+          ): Promise<TdObject | undefined> => {
+            try {
+              const full = await this.request({
+                "@type": "getUserFullInfo",
+                user_id: numericId(botUserId),
+              });
+              return { bot_user_id: botUserId, commands: asTdObject(full.bot_info)?.commands };
+            } catch {
+              return undefined;
+            }
+          }));
+          commandGroups = [
+            ...commandGroups,
+            ...discovered.filter((group): group is TdObject => Boolean(group)),
+          ];
         }
-      }));
-      commandGroups = [
-        ...commandGroups,
-        ...discovered.filter((group): group is TdObject => Boolean(group)),
-      ];
+      } catch {
+        // Some groups hide member search from non-administrators. Preserve
+        // commands already returned in *GroupFullInfo instead of dropping all
+        // suggestions because the optional discovery request failed.
+      } finally {
+        if (discoveryTimer) globalThis.clearTimeout(discoveryTimer);
+      }
     }
     const normalized = query.replace(/^\//, "").toLocaleLowerCase();
     const suggestions = await Promise.all(commandGroups.map(async (group) => {
       const botUserId = tdId(group.bot_user_id);
       if (!botUserId) return [];
+      const commands = asTdObjects(group.commands);
+      if (commands.length === 0) return [];
       let username = "";
       try {
         username = (await this.loadUser(botUserId))?.username ?? "";
       } catch {
         // Commands remain useful even if a deleted/inaccessible bot profile can't be loaded.
       }
-      return asTdObjects(group.commands).flatMap((raw) => {
+      return commands.flatMap((raw) => {
         const commandMatch = typeof raw.command === "string"
           ? raw.command.trim().match(/^\/?([A-Za-z0-9_]{1,32})(?:@[A-Za-z0-9_]{5,32})?$/)
           : null;

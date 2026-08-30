@@ -1,5 +1,5 @@
 import { Check, LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   CallbackQueryAnswer,
   MessageInlineKeyboard,
@@ -8,6 +8,10 @@ import type {
 import { writeClipboardText } from "../utils/clipboard";
 import { openExternalLink } from "../utils/externalLinks";
 import { motionLifecycleTiming } from "../utils/motionTokens";
+
+// A callback answer can legitimately wait for the bot, but that request must
+// not keep the local keyboard disabled until TDLib's network timeout.
+const CALLBACK_PENDING_MAX_MS = 1_500;
 
 interface InlineKeyboardProps {
   messageId: string;
@@ -25,16 +29,53 @@ export function InlineKeyboard({
   const [pendingKey, setPendingKey] = useState<string>();
   const [copiedKey, setCopiedKey] = useState<string>();
   const [feedback, setFeedback] = useState<{ text: string; alert: boolean }>();
+  const pendingKeyRef = useRef<string | undefined>(undefined);
+  const pendingTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
+  const interactionRef = useRef(0);
+  const markupSignature = JSON.stringify(markup.rows);
+  const previousMarkupSignatureRef = useRef(markupSignature);
+
+  const clearPending = (interaction?: number) => {
+    if (interaction !== undefined && interactionRef.current !== interaction) return;
+    if (pendingTimerRef.current) globalThis.clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = undefined;
+    pendingKeyRef.current = undefined;
+    setPendingKey(undefined);
+  };
+
+  useEffect(() => {
+    if (previousMarkupSignatureRef.current !== markupSignature) {
+      previousMarkupSignatureRef.current = markupSignature;
+      interactionRef.current += 1;
+      clearPending();
+    }
+  }, [markupSignature]);
+
+  useEffect(() => () => {
+    if (pendingTimerRef.current) globalThis.clearTimeout(pendingTimerRef.current);
+  }, []);
 
   const activate = async (button: MessageInlineKeyboardButton, key: string) => {
-    if (pendingKey) return;
+    if (pendingKeyRef.current) return;
     switch (button.kind) {
       case "callback": {
+        const interaction = ++interactionRef.current;
+        pendingKeyRef.current = key;
         setPendingKey(key);
-        const answer = await onCallback(messageId, button.data);
-        setPendingKey(undefined);
-        if (answer?.url) await openExternalLink(answer.url);
-        setFeedback(answer?.text ? { text: answer.text, alert: answer.showAlert } : undefined);
+        pendingTimerRef.current = globalThis.setTimeout(() => {
+          clearPending(interaction);
+        }, CALLBACK_PENDING_MAX_MS);
+        try {
+          const answer = await onCallback(messageId, button.data);
+          if (interactionRef.current !== interaction) return;
+          clearPending(interaction);
+          if (answer?.url) await openExternalLink(answer.url);
+          setFeedback(answer?.text ? { text: answer.text, alert: answer.showAlert } : undefined);
+        } catch {
+          // The store records the request error. The local indicator still has
+          // to settle when an alternative transport implementation rejects.
+          clearPending(interaction);
+        }
         return;
       }
       case "url":

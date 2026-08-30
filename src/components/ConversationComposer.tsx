@@ -76,6 +76,7 @@ interface ConversationComposerProps {
   contextSubject?: string;
   contextSubjectIsAdministrator?: boolean;
   defaultBotUsername?: string;
+  users?: ReadonlyMap<string, User>;
   textInsertion?: ComposerTextInsertion;
   knownNonBotUsernames?: ReadonlySet<string>;
   mentionsEnabled?: boolean;
@@ -156,6 +157,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   contextSubject,
   contextSubjectIsAdministrator = false,
   defaultBotUsername,
+  users,
   textInsertion,
   knownNonBotUsernames,
   mentionsEnabled = false,
@@ -211,12 +213,15 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [activeMentionSuggestionIndex, setActiveMentionSuggestionIndex] = useState(0);
   const [inlineResults, setInlineResults] = useState<InlineQueryResultPage>();
   const [inlineLoading, setInlineLoading] = useState(false);
+  const botSuggestionPanelRef = useRef<HTMLElement | null>(null);
   const showSending = useStableVisibility(sending, { minimumVisible: 220 });
   const showAttachmentPending = useStableVisibility(attachmentPending, { minimumVisible: 220 });
   const showInlineLoading = useStableVisibility(inlineLoading);
   const selectedBotRef = useRef<BotCommandSuggestion | undefined>(undefined);
-  const botQueryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const botQueryGenerationRef = useRef(0);
+  const botCommandQueryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const botCommandGenerationRef = useRef(0);
+  const inlineQueryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const inlineQueryGenerationRef = useRef(0);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
@@ -354,81 +359,91 @@ export const ConversationComposer = memo(function ConversationComposer({
   muteVideosRef.current = muteVideos;
 
   useEffect(() => {
-    const generation = ++botQueryGenerationRef.current;
-    if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current);
+    const generation = ++botCommandGenerationRef.current;
+    if (botCommandQueryTimerRef.current) globalThis.clearTimeout(botCommandQueryTimerRef.current);
+    const slash = !editingMessage ? draft.match(/^\/([A-Za-z0-9_]*)(?:@([A-Za-z0-9_]{5,32}))?$/) : null;
+    const commandPrefix = !editingMessage
+      ? draft.match(/^\/([A-Za-z0-9_]+)(?:@([A-Za-z0-9_]{5,32}))?(?:\s|$)/)
+      : null;
+    const selectedBot = selectedBotRef.current;
+    const selectedBotMatchesDraft = Boolean(
+      selectedBot && commandPrefix &&
+      selectedBot.command.toLocaleLowerCase() === commandPrefix[1].toLocaleLowerCase() &&
+      (!commandPrefix[2] || selectedBot.botUsername.toLocaleLowerCase() === commandPrefix[2].toLocaleLowerCase()),
+    );
+    if (!slash) {
+      setBotSuggestions([]);
+      setActiveBotSuggestionIndex(0);
+      if (!selectedBotMatchesDraft) selectedBotRef.current = undefined;
+      return;
+    }
+    const username = slash[2] || defaultBotUsername;
+    setBotSuggestions([]);
+    setActiveBotSuggestionIndex(0);
+    if (!selectedBotMatchesDraft) selectedBotRef.current = undefined;
+    botCommandQueryTimerRef.current = globalThis.setTimeout(() => {
+      void onGetBotCommands(slash[1], username)
+        .then((suggestions) => {
+          if (botCommandGenerationRef.current !== generation) return;
+          setBotSuggestions(suggestions);
+          setActiveBotSuggestionIndex(0);
+        })
+        .catch(() => {
+          if (botCommandGenerationRef.current === generation) setBotSuggestions([]);
+        });
+    }, 80);
+    return () => {
+      if (botCommandQueryTimerRef.current) globalThis.clearTimeout(botCommandQueryTimerRef.current);
+    };
+  }, [defaultBotUsername, draft, editingMessage, onGetBotCommands]);
+
+  useEffect(() => {
     const mentionQuery = !editingMessage && mentionsEnabled
       ? composerMentionQueryForDraft(
         draft,
         inputRef.current?.selectionStart ?? draft.length,
       )
       : undefined;
-    const slash = !editingMessage ? draft.match(/^\/([A-Za-z0-9_]*)(?:@([A-Za-z0-9_]{5,32}))?$/) : null;
-    const inline = !editingMessage ? composerInlineQueryForDraft(draft, knownNonBotUsernames) : undefined;
-    if (mentionQuery) {
-      setMentionSuggestions(mentionSuggestionsFor(
-        mentionUsers,
-        mentionQuery.query,
-        recentMentionUserIds,
-      ));
-      setActiveMentionSuggestionIndex(0);
-      setBotSuggestions([]);
-      setActiveBotSuggestionIndex(0);
-      selectedBotRef.current = undefined;
-      setInlineResults(undefined);
-      setInlineLoading(false);
-    } else if (slash) {
-      const username = slash[2] || defaultBotUsername;
+    if (!mentionQuery) {
       setMentionSuggestions([]);
       setActiveMentionSuggestionIndex(0);
-      selectedBotRef.current = undefined;
-      setBotSuggestions([]);
-      setActiveBotSuggestionIndex(0);
-      botQueryTimerRef.current = globalThis.setTimeout(() => {
-        void onGetBotCommands(slash[1], username)
-          .then((suggestions) => {
-            if (botQueryGenerationRef.current === generation) {
-              setBotSuggestions(suggestions);
-              setActiveBotSuggestionIndex(0);
-            }
-          })
-          .catch(() => {
-            if (botQueryGenerationRef.current === generation) setBotSuggestions([]);
-          });
-      }, 80);
-      setInlineResults(undefined);
-      setInlineLoading(false);
-    } else if (inline) {
-      setMentionSuggestions([]);
-      setActiveMentionSuggestionIndex(0);
-      setBotSuggestions([]);
-      setActiveBotSuggestionIndex(0);
-      selectedBotRef.current = undefined;
-      setInlineLoading(true);
-      botQueryTimerRef.current = globalThis.setTimeout(() => {
-        void onGetInlineResults(inline.username, inline.query)
-          .then((page) => {
-            if (botQueryGenerationRef.current !== generation) return;
-            setInlineResults(page);
-            setInlineLoading(false);
-          })
-          .catch(() => {
-            if (botQueryGenerationRef.current !== generation) return;
-            setInlineResults(undefined);
-            setInlineLoading(false);
-          });
-      }, 180);
-    } else {
-      setMentionSuggestions([]);
-      setActiveMentionSuggestionIndex(0);
-      setBotSuggestions([]);
-      setActiveBotSuggestionIndex(0);
-      setInlineResults(undefined);
-      setInlineLoading(false);
+      return;
     }
+    setMentionSuggestions(mentionSuggestionsFor(
+      mentionUsers,
+      mentionQuery.query,
+      recentMentionUserIds,
+    ));
+    setActiveMentionSuggestionIndex(0);
+  }, [draft, editingMessage, inputRef, mentionUsers, mentionsEnabled, recentMentionUserIds]);
+
+  useEffect(() => {
+    const generation = ++inlineQueryGenerationRef.current;
+    if (inlineQueryTimerRef.current) globalThis.clearTimeout(inlineQueryTimerRef.current);
+    const inline = !editingMessage ? composerInlineQueryForDraft(draft, knownNonBotUsernames) : undefined;
+    if (!inline) {
+      setInlineResults(undefined);
+      setInlineLoading(false);
+      return;
+    }
+    setInlineLoading(true);
+    inlineQueryTimerRef.current = globalThis.setTimeout(() => {
+      void onGetInlineResults(inline.username, inline.query)
+        .then((page) => {
+          if (inlineQueryGenerationRef.current !== generation) return;
+          setInlineResults(page);
+          setInlineLoading(false);
+        })
+        .catch(() => {
+          if (inlineQueryGenerationRef.current !== generation) return;
+          setInlineResults(undefined);
+          setInlineLoading(false);
+        });
+    }, 180);
     return () => {
-      if (botQueryTimerRef.current) globalThis.clearTimeout(botQueryTimerRef.current);
+      if (inlineQueryTimerRef.current) globalThis.clearTimeout(inlineQueryTimerRef.current);
     };
-  }, [defaultBotUsername, draft, editingMessage, inputRef, knownNonBotUsernames, mentionUsers, mentionsEnabled, onGetBotCommands, onGetInlineResults, recentMentionUserIds]);
+  }, [draft, editingMessage, knownNonBotUsernames, onGetInlineResults]);
 
   useComposerAutoResize(inputRef, draft, !composing, chatId, onGeometryChange);
 
@@ -1089,6 +1104,38 @@ export const ConversationComposer = memo(function ConversationComposer({
     focusComposer();
   }, [addPendingAttachments, editingMessage, focusComposer]);
 
+  const botSuggestionGroups = useMemo(() => {
+    const groups = new Map<string, {
+      botUserId: string;
+      botUsername: string;
+      suggestions: BotCommandSuggestion[];
+    }>();
+    for (const suggestion of botSuggestions) {
+      const existing = groups.get(suggestion.botUserId);
+      if (existing) {
+        existing.suggestions.push(suggestion);
+      } else {
+        groups.set(suggestion.botUserId, {
+          botUserId: suggestion.botUserId,
+          botUsername: suggestion.botUsername,
+          suggestions: [suggestion],
+        });
+      }
+    }
+    return [...groups.values()];
+  }, [botSuggestions]);
+
+  useLayoutEffect(() => {
+    const panel = botSuggestionPanelRef.current;
+    if (!panel || botSuggestions.length === 0) return;
+    panel.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [activeBotSuggestionIndex, botSuggestions.length]);
+
+  let botSuggestionIndex = 0;
+
   return (
     <div
       className={`composer-wrap ${draggingFiles ? "is-file-dragging" : ""}`}
@@ -1320,24 +1367,58 @@ export const ConversationComposer = memo(function ConversationComposer({
       </MotionPresence>
       <MotionPresence present={botSuggestions.length > 0} variant="popover">
         {botSuggestions.length > 0 ? (
-          <section className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
-            {botSuggestions.map((suggestion, index) => (
-              <button
-                className={index === activeBotSuggestionIndex ? "is-active" : ""}
-                key={`${suggestion.botUserId}-${suggestion.command}`}
-                type="button"
-                role="option"
-                aria-selected={index === activeBotSuggestionIndex}
-                onPointerEnter={() => setActiveBotSuggestionIndex(index)}
-                onClick={() => applyBotSuggestion(suggestion)}
-              >
-                <span className="bot-suggestion-command">
-                  <strong>/{suggestion.command}</strong>
-                  {suggestion.botUsername && <small>@{suggestion.botUsername}</small>}
-                </span>
-                <span className="bot-suggestion-description">{suggestion.description}</span>
-              </button>
-            ))}
+          <section ref={botSuggestionPanelRef} className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
+            {botSuggestionGroups.map((group) => {
+              const groupStartIndex = botSuggestionIndex;
+              botSuggestionIndex += group.suggestions.length;
+              const botUser = users?.get(group.botUserId) ?? (
+                group.botUsername
+                  ? [...(users?.values() ?? [])].find((user) => user.username?.toLocaleLowerCase() === group.botUsername.toLocaleLowerCase())
+                  : undefined
+              );
+              const botUsername = group.botUsername.replace(/^@/, "");
+              const fallbackAvatar = {
+                label: botUsername.slice(0, 2).toUpperCase() || "B",
+                color: "#4675a8",
+              };
+              const botAvatar = botUser?.avatar ?? fallbackAvatar;
+              return (
+                <div
+                  className="bot-suggestion-group"
+                  data-bot-user-id={group.botUserId}
+                  key={group.botUserId}
+                  role="group"
+                  aria-label={botUsername ? `@${botUsername}` : `ID ${group.botUserId}`}
+                >
+                  <div className="bot-suggestion-group-heading">
+                    <strong>{botUser?.displayName ?? "机器人"}</strong>
+                    <small>{botUsername ? `@${botUsername}` : `ID ${group.botUserId}`}</small>
+                  </div>
+                  {group.suggestions.map((suggestion, index) => {
+                    const flatIndex = groupStartIndex + index;
+                    return (
+                      <button
+                        className={flatIndex === activeBotSuggestionIndex ? "is-active" : ""}
+                        key={`${suggestion.botUserId}-${suggestion.command}`}
+                        type="button"
+                        role="option"
+                        aria-selected={flatIndex === activeBotSuggestionIndex}
+                        onPointerEnter={() => setActiveBotSuggestionIndex(flatIndex)}
+                        onClick={() => applyBotSuggestion(suggestion)}
+                      >
+                        <Avatar avatar={botAvatar} size="small" />
+                        <span className="bot-suggestion-copy">
+                          <span className="bot-suggestion-command">
+                            <strong>/{suggestion.command}</strong>
+                          </span>
+                          <span className="bot-suggestion-description">{suggestion.description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </section>
         ) : null}
       </MotionPresence>

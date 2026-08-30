@@ -1387,15 +1387,23 @@ export class MockTelegramTransport implements TelegramTransport {
   async getBotCommandSuggestions(
     chatId: string,
     query = "",
-    botUsername = "notgram_bot",
+    botUsername?: string,
   ): Promise<BotCommandSuggestion[]> {
-    void chatId;
-    const username = botUsername.replace(/^@/, "").trim() || "notgram_bot";
-    const commands: BotCommandSuggestion[] = [
-      { botUserId: `bot:${username}`, botUsername: username, command: "start", description: "启动机器人或打开参数" },
-      { botUserId: `bot:${username}`, botUsername: username, command: "help", description: "查看帮助" },
-      { botUserId: `bot:${username}`, botUsername: username, command: "settings", description: "打开设置" },
+    const username = botUsername?.replace(/^@/, "").trim() || "notgram_bot";
+    const primaryCommands: BotCommandSuggestion[] = [
+      { botUserId: "bot:notgram_bot", botUsername: "notgram_bot", command: "start", description: "启动机器人或打开参数" },
+      { botUserId: "bot:notgram_bot", botUsername: "notgram_bot", command: "help", description: "查看帮助" },
+      { botUserId: "bot:notgram_bot", botUsername: "notgram_bot", command: "settings", description: "打开设置" },
     ];
+    const groupCommands: BotCommandSuggestion[] = chatId === "chat-product" && !botUsername
+      ? [
+        ...primaryCommands.slice(0, 2),
+        { botUserId: "bot:qa_helper_bot", botUsername: "qa_helper_bot", command: "poll", description: "创建一个快速投票" },
+      ]
+      : primaryCommands;
+    const commands = botUsername
+      ? groupCommands.filter((command) => command.botUsername.toLocaleLowerCase() === username.toLocaleLowerCase())
+      : groupCommands;
     const normalized = query.replace(/^\//, "").toLocaleLowerCase();
     return commands.filter((command) => !normalized || command.command.startsWith(normalized));
   }

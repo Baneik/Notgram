@@ -2935,6 +2935,7 @@ export function Conversation({
         defaultBotUsername={chat.kind === "direct" && chat.peerId && users.get(chat.peerId)?.isBot
           ? users.get(chat.peerId)?.username
           : undefined}
+        users={users}
         textInsertion={composerTextInsertion}
         knownNonBotUsernames={knownNonBotUsernames}
         mentionsEnabled={chat.kind === "group"}

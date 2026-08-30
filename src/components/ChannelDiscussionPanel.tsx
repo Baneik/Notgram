@@ -139,6 +139,7 @@ export function ChannelDiscussionPanel({
         <ConversationComposer
           chatId={post.chatId}
           draftKey={`${post.chatId}:discussion:${post.id}`}
+          users={users}
           knownNonBotUsernames={knownNonBotUsernames}
           mentionsEnabled
           mentionUsers={mentionUsers}

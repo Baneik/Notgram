@@ -3272,6 +3272,8 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
   await composer.fill("/");
   const suggestions = page.getByRole("listbox", { name: "机器人命令建议" });
   await expect(suggestions.getByRole("option")).toHaveCount(3);
+  await expect(suggestions.locator(".bot-suggestion-group")).toHaveCount(2);
+  await expect(suggestions.locator('[data-bot-user-id="bot:qa_helper_bot"]')).toContainText("@qa_helper_bot");
   const firstSuggestion = suggestions.getByRole("option").first();
   const suggestionLayout = await firstSuggestion.evaluate((element) => {
     const command = element.querySelector<HTMLElement>(".bot-suggestion-command");
@@ -3282,8 +3284,24 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
       descriptionTop: description?.getBoundingClientRect().top ?? 0,
     };
   });
-  expect(suggestionLayout.width).toBeGreaterThan(320);
+  expect(suggestionLayout.width).toBeGreaterThan(280);
+  expect(suggestionLayout.width).toBeLessThan(320);
   expect(suggestionLayout.commandBottom).toBeLessThanOrEqual(suggestionLayout.descriptionTop + 1);
+  await expect(suggestions.locator(".bot-suggestion-group-heading").first()).toHaveCSS("height", "29px");
+  await expect(firstSuggestion.locator(".avatar")).toHaveCount(1);
+  await expect(firstSuggestion.locator(".bot-suggestion-command small")).toHaveCount(0);
+  await suggestions.evaluate((element) => {
+    element.style.maxHeight = "84px";
+  });
+  await composer.press("ArrowDown");
+  await composer.press("ArrowDown");
+  await expect.poll(() => suggestions.evaluate((element) => {
+    const active = element.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
+    if (!active) return false;
+    const panelBounds = element.getBoundingClientRect();
+    const activeBounds = active.getBoundingClientRect();
+    return element.scrollTop > 0 && activeBounds.top >= panelBounds.top && activeBounds.bottom <= panelBounds.bottom;
+  })).toBe(true);
   await composer.fill("/he");
   await expect(suggestions.getByRole("option")).toHaveCount(1);
   await composer.press("Enter");

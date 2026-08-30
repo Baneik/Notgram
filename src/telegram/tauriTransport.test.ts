@@ -163,6 +163,170 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.map((request) => request["@type"])).toEqual(["searchPublicChats", "getChat", "getUser", "getUserFullInfo", "searchPublicChats", "getChat", "getInlineQueryResults", "getCallbackQueryAnswer", "sendInlineQueryResultMessage", "sendBotStartMessage"]);
   });
 
+  it("loads private bot commands from the chat peer without public chat search", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & { rawChats: Map<string, TdObject> };
+    const requests: TdObject[] = [];
+    internal.rawChats.set("72", {
+      "@type": "chat",
+      id: 72,
+      type: { "@type": "chatTypePrivate", user_id: 901 },
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getUser") {
+        return {
+          "@type": "user",
+          id: 901,
+          first_name: "Private Bot",
+          usernames: { active_usernames: ["private_bot"] },
+          type: { "@type": "userTypeBot" },
+        };
+      }
+      if (request["@type"] === "getUserFullInfo") {
+        return {
+          "@type": "userFullInfo",
+          bot_info: {
+            "@type": "botInfo",
+            commands: [{ "@type": "botCommand", command: "help", description: "Help" }],
+          },
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.getBotCommandSuggestions("72", "he", "private_bot")).resolves.toEqual([
+      { botUserId: "901", botUsername: "private_bot", command: "help", description: "Help" },
+    ]);
+    expect(requests.map((request) => request["@type"])).toEqual(["getUser", "getUserFullInfo"]);
+  });
+
+  it("keeps known group bot commands when optional member discovery fails", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & { rawChats: Map<string, TdObject> };
+    const requests: TdObject[] = [];
+    internal.rawChats.set("72", {
+      "@type": "chat",
+      id: 72,
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getSupergroupFullInfo") {
+        return {
+          "@type": "supergroupFullInfo",
+          bot_commands: [
+            {
+              bot_user_id: 901,
+              commands: [{ "@type": "botCommand", command: "help", description: "Help" }],
+            },
+            { bot_user_id: 902, commands: [] },
+          ],
+        };
+      }
+      if (request["@type"] === "searchChatMembers") throw new Error("Member search unavailable");
+      if (request["@type"] === "getUser") {
+        return {
+          "@type": "user",
+          id: 901,
+          first_name: "Group Bot",
+          usernames: { active_usernames: ["group_bot"] },
+          type: { "@type": "userTypeBot" },
+        };
+      }
+      return { "@type": "ok" };
+    };
+
+    await expect(transport.getBotCommandSuggestions("72", "he")).resolves.toEqual([
+      { botUserId: "901", botUsername: "group_bot", command: "help", description: "Help" },
+    ]);
+    expect(requests.map((request) => request["@type"])).toEqual(["getSupergroupFullInfo", "searchChatMembers", "getUser"]);
+  });
+
+  it("does not wait for a stalled optional group member discovery", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new TauriTelegramTransport();
+      const internal = transport as unknown as TestableTransport & { rawChats: Map<string, TdObject> };
+      internal.rawChats.set("72", {
+        "@type": "chat",
+        id: 72,
+        type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+      });
+      internal.request = async (request) => {
+        if (request["@type"] === "getSupergroupFullInfo") {
+          return {
+            "@type": "supergroupFullInfo",
+            bot_commands: [
+              {
+                bot_user_id: 901,
+                commands: [{ "@type": "botCommand", command: "help", description: "Help" }],
+              },
+              { bot_user_id: 902, commands: [] },
+            ],
+          };
+        }
+        if (request["@type"] === "searchChatMembers") return new Promise<TdObject>(() => undefined);
+        if (request["@type"] === "getUser") {
+          return {
+            "@type": "user",
+            id: 901,
+            first_name: "Group Bot",
+            usernames: { active_usernames: ["group_bot"] },
+            type: { "@type": "userTypeBot" },
+          };
+        }
+        return { "@type": "ok" };
+      };
+
+      const suggestions = transport.getBotCommandSuggestions("72", "he");
+      await vi.advanceTimersByTimeAsync(1_500);
+      await expect(suggestions).resolves.toEqual([
+        { botUserId: "901", botUsername: "group_bot", command: "help", description: "Help" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not scan group members when full info already has every command list", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & { rawChats: Map<string, TdObject> };
+    const requests: TdObject[] = [];
+    internal.rawChats.set("72", {
+      "@type": "chat",
+      id: 72,
+      type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
+    });
+    internal.request = async (request) => {
+      requests.push(request);
+      if (request["@type"] === "getSupergroupFullInfo") {
+        return {
+          "@type": "supergroupFullInfo",
+          bot_commands: [{
+            bot_user_id: 901,
+            commands: [{ "@type": "botCommand", command: "help", description: "Help" }],
+          }],
+        };
+      }
+      if (request["@type"] === "getUser") {
+        return {
+          "@type": "user",
+          id: 901,
+          first_name: "Group Bot",
+          usernames: { active_usernames: ["group_bot"] },
+          type: { "@type": "userTypeBot" },
+        };
+      }
+      throw new Error(`Unexpected request: ${String(request["@type"])}`);
+    };
+
+    await expect(transport.getBotCommandSuggestions("72", "he")).resolves.toEqual([
+      { botUserId: "901", botUsername: "group_bot", command: "help", description: "Help" },
+    ]);
+    expect(requests.map((request) => request["@type"])).toEqual(["getSupergroupFullInfo", "getUser"]);
+  });
+
   it("discovers group bots when scoped command metadata is empty", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as {

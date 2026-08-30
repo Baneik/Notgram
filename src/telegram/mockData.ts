@@ -80,6 +80,14 @@ const users: User[] = [
     presence: "online",
     isBot: true,
   },
+  {
+    id: "u-qa-bot",
+    displayName: "QA Helper Bot",
+    username: "qa_helper_bot",
+    avatar: { label: "QH", color: "#b76a3a" },
+    presence: "online",
+    isBot: true,
+  },
 ];
 
 const chats: Chat[] = [
