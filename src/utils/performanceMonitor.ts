@@ -174,6 +174,7 @@ const eventMetadata: Record<string, EventMetadata> = {
   ui_visual_jitter: { get label() { return translate("视觉闪烁/抽动"); }, category: "render", warningMs: 6, criticalMs: 12 },
   ui_layout_shift: { get label() { return translate("布局偏移"); }, category: "render", warningMs: 20, criticalMs: 100 },
   ui_history_data: { get label() { return translate("历史数据加载"); }, category: "data", warningMs: 500, criticalMs: 1_500 },
+  ui_history_cache_confirmation: { get label() { return translate("历史缓存边界确认"); }, category: "data", warningMs: 500, criticalMs: 1_500 },
   ui_history_merge: { get label() { return translate("历史消息合并"); }, category: "data", warningMs: 16, criticalMs: 50 },
   ui_history_render: { get label() { return translate("历史消息渲染"); }, category: "render", warningMs: 50, criticalMs: 100 },
   ui_conversation_switch: { get label() { return translate("会话切换"); }, category: "interaction", warningMs: 100, criticalMs: 250 },

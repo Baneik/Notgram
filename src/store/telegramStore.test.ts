@@ -995,6 +995,108 @@ describe("telegram store", () => {
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(true);
   });
 
+  it("publishes the first history page before sparse cache confirmation finishes", async () => {
+    const allMessages = mockSnapshot.messages
+      .filter((message) => message.chatId === "chat-product")
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+    const cachedSnapshot: CachedTelegramSnapshot = {
+      version: 3,
+      savedAt: "2026-08-01T10:00:00+08:00",
+      currentUserId: mockSnapshot.currentUserId,
+      users: structuredClone(mockSnapshot.users),
+      folders: structuredClone(mockSnapshot.folders),
+      chats: structuredClone(mockSnapshot.chats),
+      messages: structuredClone(allMessages.slice(-1)),
+      activeChatId: "chat-product",
+      chatFilter: "main",
+    };
+    let releaseContinuation!: () => void;
+    let continuationStarted!: () => void;
+    const continuationGate = new Promise<void>((resolve) => { releaseContinuation = resolve; });
+    const continuationReady = new Promise<void>((resolve) => { continuationStarted = resolve; });
+
+    class DeferredConfirmationTransport extends MockTelegramTransport {
+      requests = 0;
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      override async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
+        const pageIndex = this.requests;
+        this.requests += 1;
+        if (pageIndex > 0) {
+          continuationStarted();
+          await continuationGate;
+        }
+        const page = allMessages.slice(pageIndex * limit, (pageIndex + 1) * limit);
+        this.eventListener?.({ type: "messages.upserted", messages: structuredClone(page) });
+        return {
+          loadedCount: page.length,
+          hasMore: (pageIndex + 1) * limit < allMessages.length,
+          messageIds: page.map((message) => message.id),
+        };
+      }
+    }
+
+    const transport = new DeferredConfirmationTransport({ cachedSnapshot });
+    const store = createTelegramStore(transport);
+    const initialized = store.getState().initialize();
+    await continuationReady;
+    await initialized;
+
+    expect(store.getState().histories.get("chat-product")).toMatchObject({
+      loading: false,
+      initialized: true,
+    });
+    expect(transport.requests).toBe(2);
+
+    releaseContinuation();
+    await vi.waitFor(() => expect(store.getState().messages.get("chat-product")).toHaveLength(allMessages.length));
+  });
+
+  it("drops active-only unread context after switching conversations", async () => {
+    let releaseHistory!: () => void;
+    let historyStarted!: () => void;
+    const historyGate = new Promise<void>((resolve) => { releaseHistory = resolve; });
+    const historyReady = new Promise<void>((resolve) => { historyStarted = resolve; });
+
+    class SwitchingTransport extends MockTelegramTransport {
+      contextRequests = 0;
+
+      override async loadChatHistory(chatId: string, limit = 30) {
+        if (chatId === "chat-mia") {
+          historyStarted();
+          await historyGate;
+        }
+        return super.loadChatHistory(chatId, limit);
+      }
+
+      override async getMessageContext(chatId: string, messageId: string, limit = 31) {
+        this.contextRequests += 1;
+        return super.getMessageContext(chatId, messageId, limit);
+      }
+    }
+
+    const transport = new SwitchingTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    store.getState().selectChat("chat-mia");
+    await historyReady;
+    const pending = store.getState().loadMessage(
+      "chat-mia",
+      "m-1",
+      { forceContext: true, onlyIfActive: true },
+    );
+    store.getState().selectChat("chat-product");
+    releaseHistory();
+
+    await expect(pending).resolves.toBe(false);
+    expect(transport.contextRequests).toBe(0);
+  });
+
   it("loads a snapshot and selects the first pinned chat", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
 

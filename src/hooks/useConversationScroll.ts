@@ -78,6 +78,7 @@ const CONTENT_ANCHOR_RECONCILE_MAX_FRAMES = 18;
 const CONTENT_ANCHOR_RECONCILE_STABLE_FRAMES = 6;
 const NAVIGATION_RECONCILE_STABLE_FRAMES = 6;
 const HISTORY_SNAPSHOT_MAX_MS = 750;
+const PENDING_ENTRY_FIRST_FRAME_FALLBACK = 6;
 
 const bottomScrollTop = (element: HTMLElement) =>
   Math.max(0, element.scrollHeight - element.clientHeight);
@@ -1251,12 +1252,17 @@ export const useConversationScroll = ({
           finishWhenRendered();
           return;
         }
-        // Do not release the switch snapshot while an entry cursor is still
-        // waiting for its message. The first range callback can otherwise
-        // settle the temporary `pending` location and the later target load
-        // starts a second visible positioning pass.
         if (initialLocationRef.current.mode === "pending") {
-          releasePositioning();
+          // A slow unread anchor must not keep the old conversation covering the
+          // first usable frame. The anchor request will issue a bounded second
+          // positioning pass once its message arrives.
+          if (hasRenderedContent && attempts >= PENDING_ENTRY_FIRST_FRAME_FALLBACK) {
+            finishPositioning();
+          } else if (attempts < 12) {
+            finishWhenRendered();
+          } else {
+            releasePositioning();
+          }
           return;
         }
         if (initialLocationRef.current.mode === "bottom") {

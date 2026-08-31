@@ -375,6 +375,15 @@ export class TauriTelegramTransport implements TelegramTransport {
   private unavailableReplyHydrations = new Set<string>();
   private pendingRichMessageHydrations = new Set<string>();
   private unavailableRichMessageHydrations = new Set<string>();
+  private hydrationQueue: Array<{
+    generation: number;
+    task: () => Promise<unknown> | unknown;
+  }> = [];
+  private activeHydrations = 0;
+  private hydrationGeneration = 0;
+  private hydrationFocusChatId: string | undefined;
+  private hydrationDrainScheduled = false;
+  private readonly maxHydrationConcurrency = 4;
   private richMessageHydrationTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
   private richMessageHydrationFailures = new Map<string, number>();
   private pendingSenderChatLoads = new Set<string>();
@@ -2935,8 +2944,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
     this.ensureMessageSenderChat(raw);
     if (raw.is_pending !== true) {
-      this.ensureReplyContent(raw);
-      this.ensureFullRichMessage(raw);
+      this.enqueueHydration(() => this.ensureReplyContent(raw));
+      this.enqueueHydration(() => this.ensureFullRichMessage(raw));
     }
   }
 
@@ -3030,8 +3039,48 @@ export class TauriTelegramTransport implements TelegramTransport {
         ...(cacheRelevant ? {} : { cacheRelevant: false }),
       });
     }
-    for (const raw of uniqueRawMessages.values()) this.ensureReplyContent(raw);
-    for (const raw of uniqueRawMessages.values()) this.ensureFullRichMessage(raw);
+    for (const raw of uniqueRawMessages.values()) {
+      this.enqueueHydration(() => this.ensureReplyContent(raw));
+      this.enqueueHydration(() => this.ensureFullRichMessage(raw));
+    }
+  }
+
+  private enqueueHydration(task: () => Promise<unknown> | unknown) {
+    this.hydrationQueue.push({ generation: this.hydrationGeneration, task });
+    if (this.hydrationDrainScheduled) return;
+    this.hydrationDrainScheduled = true;
+    globalThis.queueMicrotask(() => {
+      this.hydrationDrainScheduled = false;
+      this.drainHydrationQueue();
+    });
+  }
+
+  setConversationFocus(chatId?: string) {
+    if (this.hydrationFocusChatId === chatId) return;
+    this.hydrationFocusChatId = chatId;
+    this.hydrationGeneration += 1;
+    this.hydrationQueue = [];
+    this.hydrationDrainScheduled = false;
+  }
+
+  private drainHydrationQueue() {
+    while (this.activeHydrations < this.maxHydrationConcurrency && this.hydrationQueue.length > 0) {
+      const entry = this.hydrationQueue.shift();
+      if (!entry || entry.generation !== this.hydrationGeneration) continue;
+      this.activeHydrations += 1;
+      let taskResult: Promise<unknown> | unknown;
+      try {
+        taskResult = entry.generation === this.hydrationGeneration ? entry.task() : undefined;
+      } catch {
+        taskResult = undefined;
+      }
+      Promise.resolve(taskResult)
+        .catch(() => undefined)
+        .finally(() => {
+          this.activeHydrations -= 1;
+          this.drainHydrationQueue();
+        });
+    }
   }
 
   private flushPendingFileMessageUpdates() {
@@ -3087,7 +3136,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       .finally(() => this.pendingSenderUserLoads.delete(userId));
   }
 
-  private ensureFullRichMessage(raw: TdObject) {
+  private ensureFullRichMessage(raw: TdObject): Promise<unknown> | undefined {
     const content = asTdObject(raw.content);
     const richMessage = asTdObject(content?.message);
     const chatId = tdId(raw.chat_id);
@@ -3108,12 +3157,14 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.richMessageHydrationTimers.delete(key);
     }
     this.pendingRichMessageHydrations.add(key);
+    const generation = this.hydrationGeneration;
     let retry = false;
-    void this.request({
+    return this.request({
       "@type": "getFullRichMessage",
       chat_id: numericId(chatId),
       message_id: numericId(messageId),
     }).then((fullMessage) => {
+      if (generation !== this.hydrationGeneration) return;
       if (fullMessage["@type"] !== "richMessage") {
         this.unavailableRichMessageHydrations.add(key);
         return;
@@ -3128,6 +3179,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         content: { ...latestContent, message: fullMessage },
       });
     }).catch(() => {
+      if (generation !== this.hydrationGeneration) return;
       const failures = (this.richMessageHydrationFailures.get(key) ?? 0) + 1;
       this.richMessageHydrationFailures.set(key, failures);
       if (failures >= 8) this.unavailableRichMessageHydrations.add(key);
@@ -3140,7 +3192,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         const timer = globalThis.setTimeout(() => {
           this.richMessageHydrationTimers.delete(key);
           const latest = this.rawMessages.get(chatId)?.get(messageId);
-          if (latest) this.ensureFullRichMessage(latest);
+          if (latest) this.enqueueHydration(() => this.ensureFullRichMessage(latest));
         }, delay);
         this.richMessageHydrationTimers.set(key, timer);
       }
@@ -3173,7 +3225,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     return { ...message, delivery: "read" as const };
   }
 
-  private ensureReplyContent(raw: TdObject) {
+  private ensureReplyContent(raw: TdObject): Promise<unknown> | undefined {
     const chatId = tdId(raw.chat_id);
     const messageId = tdId(raw.id);
     const reply = asTdObject(raw.reply_to);
@@ -3200,8 +3252,10 @@ export class TauriTelegramTransport implements TelegramTransport {
 
     const token = Symbol(key);
     this.pendingReplyHydrations.set(key, token);
-    void Promise.resolve()
+    const generation = this.hydrationGeneration;
+    return Promise.resolve()
       .then(async () => {
+        if (generation !== this.hydrationGeneration) return;
         const current = this.rawMessages.get(chatId)?.get(messageId);
         const currentReply = asTdObject(current?.reply_to);
         if (
@@ -3227,6 +3281,7 @@ export class TauriTelegramTransport implements TelegramTransport {
           chat_id: numericId(chatId),
           message_id: numericId(messageId),
         });
+        if (generation !== this.hydrationGeneration) return;
         if (replied["@type"] !== "message" || !asTdObject(replied.content)) {
           this.unavailableReplyHydrations.add(key);
           return;
@@ -3298,8 +3353,8 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.listener?.({ type: "message.upsert", message });
     }
     this.ensureMessageSenderChat(raw);
-    this.ensureReplyContent(raw);
-    this.ensureFullRichMessage(raw);
+    this.enqueueHydration(() => this.ensureReplyContent(raw));
+    this.enqueueHydration(() => this.ensureFullRichMessage(raw));
   }
 
   private updateMessageContent(update: TdObject) {
@@ -3464,6 +3519,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.pendingRichMessageHydrations.clear();
     this.pendingBotDrafts.clear();
     this.unavailableRichMessageHydrations.clear();
+    this.hydrationGeneration += 1;
+    this.hydrationFocusChatId = undefined;
+    this.hydrationQueue = [];
+    this.hydrationDrainScheduled = false;
     for (const timer of this.richMessageHydrationTimers.values()) globalThis.clearTimeout(timer);
     this.richMessageHydrationTimers.clear();
     this.richMessageHydrationFailures.clear();

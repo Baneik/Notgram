@@ -1473,7 +1473,11 @@ export function App() {
         markConversationSwitch(performanceTraceId, "asyncWaitStarted");
         let loaded = false;
         try {
-          loaded = await telegramStore.getState().loadMessage(chatId, serverMessageId);
+          loaded = await telegramStore.getState().loadMessage(
+            chatId,
+            serverMessageId,
+            { onlyIfActive: true },
+          );
         } finally {
           markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: !loaded });
         }
@@ -1712,6 +1716,7 @@ export function App() {
                     loaded = await telegramStore.getState().loadMessage(
                       chatId,
                       serverMessageId,
+                      { onlyIfActive: true },
                     );
                   } finally {
                     markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: !loaded });

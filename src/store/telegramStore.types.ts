@@ -192,7 +192,11 @@ export interface TelegramState {
   ) => Promise<boolean>;
   markChatFolderRead: (folderId: string) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
-  loadMessage: (chatId: string, messageId: string, options?: { forceContext?: boolean }) => Promise<boolean>;
+  loadMessage: (
+    chatId: string,
+    messageId: string,
+    options?: { forceContext?: boolean; onlyIfActive?: boolean },
+  ) => Promise<boolean>;
   loadMessageThreadHistory: (chatId: string, messageId: string, limit?: number) => Promise<Message[] | undefined>;
   sendMessageToThread: (
     chatId: string,

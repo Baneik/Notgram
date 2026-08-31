@@ -128,6 +128,19 @@ const errorMessage = (error: unknown, fallback: string) => {
 
 const topicKey = (chatId: string, topicId?: string) => topicId ? `${chatId}:topic:${topicId}` : chatId;
 
+const diagnosticChatHash = (chatId: string) => {
+  // FNV-1a keeps diagnostics correlatable without persisting a chat identifier.
+  let hash = 2_166_136_261;
+  for (let index = 0; index < chatId.length; index += 1) {
+    hash ^= chatId.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return hash >>> 0;
+};
+
+const unreadCountBucket = (count: number) =>
+  count <= 0 ? 0 : count < 10 ? 1 : count < 100 ? 2 : count < 1_000 ? 3 : 4;
+
 const migrateMessageChatId = (message: Message, fromChatId: string, toChatId: string): Message => {
   const replyTo = message.replyTo?.kind === "message"
     ? {
@@ -197,6 +210,16 @@ export const createTelegramStore = (
     const cachedMessageIds = new Map<string, Set<string>>();
     let accountTransition = false;
     let accountGeneration = 0;
+    // Conversation work has a shorter lifetime than the authenticated account.
+    // Keep it separate so a fast chat switch can retire pending navigation work
+    // without tearing down the whole TDLib session.
+    let conversationGeneration = 0;
+    const historyLoadPromises = new Map<string, Promise<void>>();
+    const cacheBoundaryPromises = new Map<string, Promise<void>>();
+    const advanceConversationGeneration = () => {
+      conversationGeneration += 1;
+      return conversationGeneration;
+    };
     let registeredAccountKey: string | undefined;
     let accountRegistration = Promise.resolve();
     const readTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -721,6 +744,10 @@ export const createTelegramStore = (
     const clearCachedData = (clearSnapshot = true) => {
       cancelScheduledCacheWrite();
       cachedMessageIds.clear();
+      historyLoadPromises.clear();
+      cacheBoundaryPromises.clear();
+      advanceConversationGeneration();
+      transport.setConversationFocus?.();
       draftSync.clear();
       localAttachmentDraftGenerations.clear();
       clearTypingUsers();
@@ -930,18 +957,21 @@ export const createTelegramStore = (
       publishMessageChange({ type: "reset", messages });
     };
 
-    const loadHistory = async (chatId: string, mode: "ensure" | "older") => {
+    const loadHistory = (chatId: string, mode: "ensure" | "older") => {
       if (
         get().authorization.kind !== "ready" ||
         get().connectionStatus !== "online"
-      ) return;
+      ) return Promise.resolve();
       const current = get().histories.get(chatId);
       const generation = accountGeneration;
+      const navigationGeneration = conversationGeneration;
       if (
         current?.loading ||
         current?.hasMore === false ||
         (mode === "ensure" && current?.initialized)
-      ) return;
+      ) return Promise.resolve();
+      const existing = historyLoadPromises.get(chatId);
+      if (existing) return existing;
 
       const histories = new Map(get().histories);
       histories.set(chatId, {
@@ -952,89 +982,148 @@ export const createTelegramStore = (
       set({ histories });
       const startedAt = performance.now();
       const beforeCount = get().messages.get(chatId)?.length ?? 0;
+      const chat = get().chats.get(chatId);
+      const unreadCount = chat?.unreadCount ?? 0;
+      const anchorMessageId = chat?.lastReadInboxMessageId;
+      const anchorMessagePresent = Boolean(
+        anchorMessageId && (get().messages.get(chatId) ?? []).some((message) => message.id === anchorMessageId),
+      );
       const performanceTraceId = getActiveConversationTraceId();
       markConversationSwitch(performanceTraceId, "asyncWaitStarted");
-      try {
-        let page = await transport.loadChatHistory(chatId, 30);
-        if (generation !== accountGeneration) return;
-        const pendingCachedIds = cachedMessageIds.get(chatId);
-        if (pendingCachedIds) {
-          const confirmedIds = new Set(page.messageIds);
-          let hasUnconfirmedCache = [...pendingCachedIds].some(
-            (messageId) => !confirmedIds.has(messageId),
-          );
-          let continuationPages = 0;
-          // A bounded cache can span more than two server pages. Keep walking
-          // until every cached boundary message is confirmed, otherwise a
-          // restart may appear to "restore" a missing middle section.
-          while (hasUnconfirmedCache && page.hasMore && continuationPages < 8) {
-            continuationPages += 1;
-            const confirmedBefore = confirmedIds.size;
-            const continuation = await transport.loadChatHistory(chatId, 30);
-            if (generation !== accountGeneration) return;
-            for (const messageId of continuation.messageIds) confirmedIds.add(messageId);
-            page = {
-              loadedCount: page.loadedCount + continuation.loadedCount,
-              hasMore: continuation.hasMore,
-              messageIds: [...confirmedIds],
-            };
-            hasUnconfirmedCache = [...pendingCachedIds].some(
-              (messageId) => !confirmedIds.has(messageId),
-            );
-            if (confirmedIds.size === confirmedBefore) break;
-          }
+      const load = (async () => {
+        try {
+          const page = await transport.loadChatHistory(chatId, 30);
+          if (generation !== accountGeneration) return;
 
-          const remainingCachedIds = pendingCachedIdsAfterConfirmation(
-            pendingCachedIds,
-            confirmedIds,
+          // The first page is enough to render the conversation. Cache-boundary
+          // verification is deliberately detached from the visible loading state
+          // so a sparse snapshot cannot hold the first frame hostage.
+          const pendingCachedIds = cachedMessageIds.get(chatId);
+          const confirmedIds = pendingCachedIds
+            ? new Set(page.messageIds)
+            : undefined;
+          const hasUnconfirmedCache = Boolean(
+            pendingCachedIds && [...pendingCachedIds].some((messageId) => !confirmedIds!.has(messageId)),
           );
-          if (remainingCachedIds.size === 0) {
-            cachedMessageIds.delete(chatId);
-          } else {
-            cachedMessageIds.set(chatId, remainingCachedIds);
+          const nextHistories = new Map(get().histories);
+          nextHistories.set(chatId, {
+            loading: false,
+            hasMore: page.hasMore,
+            initialized: true,
+          });
+          set({ histories: nextHistories });
+          if (hasUnconfirmedCache && pendingCachedIds && confirmedIds) {
+            void confirmCachedHistory(
+              chatId,
+              pendingCachedIds,
+              confirmedIds,
+              page.hasMore,
+              generation,
+              navigationGeneration,
+            );
           }
+          markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: false });
+          logPerformance("ui_history_data", {
+            durationMs: performance.now() - startedAt,
+            beforeCount,
+            afterCount: get().messages.get(chatId)?.length ?? 0,
+            loadedCount: page.loadedCount,
+            hasMore: page.hasMore,
+            failed: false,
+            traceId: performanceTraceId,
+            duringConversationSwitch: performanceTraceId !== undefined,
+            chatHash: diagnosticChatHash(chatId),
+            unreadCountBucket: unreadCountBucket(unreadCount),
+            anchorMessagePresent,
+            localCacheHit: beforeCount > 0,
+            pageCount: 1,
+          });
+          scheduleCacheWrite();
+        } catch (error) {
+          if (generation !== accountGeneration) return;
+          const nextHistories = new Map(get().histories);
+          nextHistories.set(chatId, {
+            loading: false,
+            hasMore: true,
+            initialized: current?.initialized ?? false,
+          });
+          set({
+            histories: nextHistories,
+            operationError: error instanceof Error ? error.message : translate("无法加载历史消息"),
+          });
+          markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: true });
+          logPerformance("ui_history_data", {
+            durationMs: performance.now() - startedAt,
+            beforeCount,
+            afterCount: get().messages.get(chatId)?.length ?? 0,
+            failed: true,
+            traceId: performanceTraceId,
+            duringConversationSwitch: performanceTraceId !== undefined,
+            chatHash: diagnosticChatHash(chatId),
+            unreadCountBucket: unreadCountBucket(unreadCount),
+            anchorMessagePresent,
+            localCacheHit: beforeCount > 0,
+            pageCount: 0,
+          });
         }
-        const nextHistories = new Map(get().histories);
-        nextHistories.set(chatId, {
-          loading: false,
-          hasMore: page.hasMore,
-          initialized: true,
-        });
-        set({ histories: nextHistories });
-        markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: false });
-        logPerformance("ui_history_data", {
-          durationMs: performance.now() - startedAt,
-          beforeCount,
-          afterCount: get().messages.get(chatId)?.length ?? 0,
-          loadedCount: page.loadedCount,
-          hasMore: page.hasMore,
-          failed: false,
-          traceId: performanceTraceId,
-          duringConversationSwitch: performanceTraceId !== undefined,
+      })();
+      historyLoadPromises.set(chatId, load);
+      void load.finally(() => {
+        if (historyLoadPromises.get(chatId) === load) historyLoadPromises.delete(chatId);
+      });
+      return load;
+    };
+
+    const confirmCachedHistory = async (
+      chatId: string,
+      pendingCachedIds: Set<string>,
+      initialConfirmedIds: Set<string>,
+      initialHasMore: boolean,
+      generation: number,
+      navigationGeneration: number,
+    ) => {
+      const existing = cacheBoundaryPromises.get(chatId);
+      if (existing) return existing;
+      const confirmation = (async () => {
+        const confirmationStartedAt = performance.now();
+        const confirmedIds = new Set(initialConfirmedIds);
+        let hasMore = initialHasMore;
+        let continuationPages = 0;
+        // A bounded cache can span more than two server pages. Keep this repair
+        // bounded and out of the visible history loading state.
+        while (
+          [...pendingCachedIds].some((messageId) => !confirmedIds.has(messageId)) &&
+          hasMore &&
+          continuationPages < 8
+        ) {
+          if (navigationGeneration !== conversationGeneration) return;
+          continuationPages += 1;
+          const confirmedBefore = confirmedIds.size;
+          const continuation = await transport.loadChatHistory(chatId, 30);
+          if (generation !== accountGeneration || navigationGeneration !== conversationGeneration) return;
+          for (const messageId of continuation.messageIds) confirmedIds.add(messageId);
+          hasMore = continuation.hasMore;
+          if (confirmedIds.size === confirmedBefore) break;
+        }
+        const remainingCachedIds = pendingCachedIdsAfterConfirmation(pendingCachedIds, confirmedIds);
+        if (remainingCachedIds.size === 0) cachedMessageIds.delete(chatId);
+        else cachedMessageIds.set(chatId, remainingCachedIds);
+        logPerformance("ui_history_cache_confirmation", {
+          durationMs: performance.now() - confirmationStartedAt,
+          chatHash: diagnosticChatHash(chatId),
+          continuationPages,
+          pageCount: continuationPages + 1,
+          loadedCount: confirmedIds.size - initialConfirmedIds.size,
+          remainingCachedCount: remainingCachedIds.size,
+          cancelled: generation !== accountGeneration || navigationGeneration !== conversationGeneration,
         });
         scheduleCacheWrite();
-      } catch (error) {
-        if (generation !== accountGeneration) return;
-        const nextHistories = new Map(get().histories);
-        nextHistories.set(chatId, {
-          loading: false,
-          hasMore: true,
-          initialized: current?.initialized ?? false,
-        });
-        set({
-          histories: nextHistories,
-          operationError: error instanceof Error ? error.message : translate("无法加载历史消息"),
-        });
-        markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: true });
-        logPerformance("ui_history_data", {
-          durationMs: performance.now() - startedAt,
-          beforeCount,
-          afterCount: get().messages.get(chatId)?.length ?? 0,
-          failed: true,
-          traceId: performanceTraceId,
-          duringConversationSwitch: performanceTraceId !== undefined,
-        });
-      }
+      })().catch(() => undefined);
+      cacheBoundaryPromises.set(chatId, confirmation);
+      void confirmation.finally(() => {
+        if (cacheBoundaryPromises.get(chatId) === confirmation) cacheBoundaryPromises.delete(chatId);
+      });
+      return confirmation;
     };
 
     const loadForumTopicHistory = async (
@@ -2342,6 +2431,10 @@ export const createTelegramStore = (
         const restoredTopicId = targetChat?.isForum
           ? options?.forumTopicId ?? restorableForumTopicId(chatId)
           : undefined;
+        if (previousChatId !== chatId || previousTopicId !== restoredTopicId) {
+          advanceConversationGeneration();
+        }
+        transport.setConversationFocus?.(chatId);
         const lastForumTopicIds = restoredTopicId
           ? touchForumTopic(chatId, restoredTopicId)
           : new Map(get().lastForumTopicIds);
@@ -2369,6 +2462,7 @@ export const createTelegramStore = (
         if (!chatId || !get().chats.get(chatId)?.isForum) return;
         const previousTopicId = get().activeTopicId;
         if (previousTopicId && previousTopicId !== topicId) void draftSync.flush(topicKey(chatId, previousTopicId));
+        if (previousTopicId !== topicId) advanceConversationGeneration();
         const lastForumTopicIds = topicId
           ? touchForumTopic(chatId, topicId)
           : new Map(get().lastForumTopicIds);
@@ -2637,12 +2731,30 @@ export const createTelegramStore = (
         return topicId ? loadForumTopicHistory(chatId, topicId, "older") : loadHistory(chatId, "older");
       },
       loadMessage: async (chatId, messageId, options) => {
+        const navigationGeneration = conversationGeneration;
         if (!options?.forceContext && (get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
           return true;
         }
         if (get().authorization.kind !== "ready") return false;
         try {
+          // An unread entry request follows the initial page instead of racing it.
+          // Other callers (search, profile, history) retain their independent path.
+          const pendingHistory = options?.onlyIfActive
+            ? historyLoadPromises.get(chatId)
+            : undefined;
+          if (pendingHistory) await pendingHistory;
+          if (
+            options?.onlyIfActive &&
+            (get().activeChatId !== chatId || navigationGeneration !== conversationGeneration)
+          ) return false;
+          if (!options?.forceContext && (get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
+            return true;
+          }
           const context = await transport.getMessageContext(chatId, messageId, 31);
+          if (
+            options?.onlyIfActive &&
+            (get().activeChatId !== chatId || navigationGeneration !== conversationGeneration)
+          ) return false;
           let message = context.find((item) =>
             item.chatId === chatId && item.id === messageId
           );

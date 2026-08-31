@@ -403,6 +403,7 @@ export const en = {
   "历史加载期间": "Historical loading period",
   "历史头像": "Historical avatar",
   "历史数据加载": "Historical data loading",
+  "历史缓存边界确认": "History cache boundary confirmation",
   "历史消息合并": "Historical message merging",
   "历史消息渲染": "Historical message rendering",
   "原回复目标已失效，请取消回复后重新发送": "The original reply target has expired, please cancel the reply and resend",

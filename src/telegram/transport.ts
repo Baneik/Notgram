@@ -81,6 +81,8 @@ export interface TelegramConnectOptions {
 export interface TelegramTransport {
   readonly kind: "mock" | "tauri";
   readonly label: string;
+  /** Retires queued low-priority hydration work from an unfocused chat. */
+  setConversationFocus?(chatId?: string): void;
   connect(listener: TelegramEventListener, options?: TelegramConnectOptions): Promise<TelegramSnapshot>;
   disconnect(): Promise<void>;
   loadCachedSnapshot(): Promise<CachedTelegramSnapshot | undefined>;

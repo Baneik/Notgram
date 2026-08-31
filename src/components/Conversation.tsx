@@ -140,6 +140,9 @@ import {
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 const MESSAGE_TARGET_HIGHLIGHT_INSET_PX = 4;
+// Keep the first frame responsive on cold conversations while retaining enough
+// nearby rows for smooth short scrolls and anchor correction.
+const MESSAGE_VIEWPORT_PREFETCH = { top: 640, bottom: 192 } as const;
 type DiscussionThreadState = {
   loading: boolean;
   error?: boolean;
@@ -2434,7 +2437,7 @@ export function Conversation({
           initialTopMostItemIndex={restoreStateFrom ? undefined : initialTopMostItemIndex}
           restoreStateFrom={restoreStateFrom}
           totalListHeightChanged={onTotalListHeightChanged}
-          increaseViewportBy={{ top: 900, bottom: 280 }}
+          increaseViewportBy={MESSAGE_VIEWPORT_PREFETCH}
           minOverscanItemCount={{ top: 2, bottom: 2 }}
           {...messageListHandlers}
           itemContent={(_, groupModel) => {

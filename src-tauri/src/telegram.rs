@@ -87,6 +87,7 @@ pub struct PastedUploadReplyQuote {
 }
 const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_history_data",
+    "ui_history_cache_confirmation",
     "ui_history_merge",
     "ui_history_render",
     "ui_conversation_switch",
@@ -133,6 +134,7 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "causeDomain",
     "causeKind",
     "chatCount",
+    "chatHash",
     "completedStageMask",
     "componentKind",
     "containerKind",
@@ -153,6 +155,7 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "forumCount",
     "frameBudgetMs",
     "frameGapMs",
+    "pageCount",
     "frontendWorkDurationMs",
     "fullscreen",
     "hasMore",
@@ -162,6 +165,11 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "jitterScore",
     "loadEventMs",
     "loadedCount",
+    "unreadCountBucket",
+    "anchorMessagePresent",
+    "localCacheHit",
+    "remainingCachedCount",
+    "continuationPages",
     "longestMainThreadStallMs",
     "longestScriptDurationMs",
     "mainThreadBlocked",
@@ -237,6 +245,7 @@ fn performance_thresholds(event: &str) -> (f64, f64) {
     match event {
         "ui_startup" => (1_000.0, 2_500.0),
         "ui_history_data" => (500.0, 1_500.0),
+        "ui_history_cache_confirmation" => (500.0, 1_500.0),
         "ui_history_merge" => (16.0, 50.0),
         "ui_conversation_switch" => (100.0, 250.0),
         "ui_message_projection" => (8.0, 16.0),
