@@ -11,6 +11,7 @@ import {
   FileText,
   Fingerprint,
   HardDrive,
+  Languages,
   LoaderCircle,
   LogOut,
   MessageCircle,
@@ -32,6 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { isTauri } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import {
   useEffect,
   useRef,
@@ -68,6 +70,7 @@ import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
 import { SafetySettings } from "./SafetySettings";
 import { ProxySettingsEditor } from "./ProxySettingsEditor";
+import type { LanguagePreference } from "../i18n";
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -157,6 +160,7 @@ const formatBytes = (bytes: number) => {
 };
 
 export function SettingsDialog({ onClose, standalone = false }: SettingsDialogProps) {
+  const { t } = useTranslation();
   const settings = useTelegramStore((state) => state.proxySettings);
   const pending = useTelegramStore((state) => state.proxyPending);
   const error = useTelegramStore((state) => state.proxyError);
@@ -189,6 +193,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const updateCurrentUserProfile = useTelegramStore((state) => state.updateCurrentUserProfile);
   const changeCurrentUserAvatar = useTelegramStore((state) => state.changeCurrentUserAvatar);
   const notificationsEnabled = usePreferencesStore((state) => state.notificationsEnabled);
+  const language = usePreferencesStore((state) => state.language);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
@@ -212,6 +217,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const themeId = usePreferencesStore((state) => state.themeId);
   const preferences: AppPreferences = {
+    language,
     notificationsEnabled,
     notificationSound,
     notificationPreview,
@@ -471,6 +477,8 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               }}
               onAutoDownloadToggle={(key, enabled) => setPreference(key, enabled)}
               onAutoDownloadLimitChange={(limitMb) => setPreference("autoDownloadLimitMb", limitMb)}
+              language={language}
+              onLanguageChange={(nextLanguage) => setPreference("language", nextLanguage)}
             />
           ) : activeCategory === "updates" ? (
             <UpdateSettings />
@@ -976,6 +984,8 @@ interface AdvancedSettingsProps {
     enabled: boolean,
   ) => void;
   onAutoDownloadLimitChange: (limitMb: number) => void;
+  language: LanguagePreference;
+  onLanguageChange: (language: LanguagePreference) => void;
 }
 
 function AdvancedSettings({
@@ -998,7 +1008,10 @@ function AdvancedSettings({
   autoDownload,
   onAutoDownloadToggle,
   onAutoDownloadLimitChange,
+  language,
+  onLanguageChange,
 }: AdvancedSettingsProps) {
+  const { t } = useTranslation();
   const [selectedCacheCategories, setSelectedCacheCategories] = useState<CacheCategory[]>(
     cacheCategories.map((category) => category.id),
   );
@@ -1015,6 +1028,29 @@ function AdvancedSettings({
   return (
     <>
       <div className="settings-detail-scroll">
+        <section className="settings-section" aria-labelledby="language-heading">
+          <div className="settings-section-heading">
+            <Languages size={18} strokeWidth={1.8} aria-hidden="true" />
+            <div>
+              <h4 id="language-heading">{t("界面语言")}</h4>
+              <span>{t("选择 Notgram 显示语言")}</span>
+            </div>
+          </div>
+          <label className="auth-field">
+            <span>{t("语言")}</span>
+            <select
+              value={language}
+              aria-label={t("界面语言")}
+              onChange={(event) => onLanguageChange(event.target.value as LanguagePreference)}
+            >
+              <option value="system">{t("跟随系统")}</option>
+              <option value="zh-CN" lang="zh-CN">简体中文</option>
+              <option value="en" lang="en">English</option>
+              <option value="ja" lang="ja">日本語</option>
+            </select>
+          </label>
+        </section>
+
         <section className="settings-section" aria-labelledby="connection-heading">
         <div className="settings-section-heading">
           <Network size={18} strokeWidth={1.8} />

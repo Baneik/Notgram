@@ -12,11 +12,17 @@ import {
 } from "../theme/theme";
 import { effectiveReduceMotion } from "../utils/motionPreference";
 import { setZalgoTextBlockingEnabled } from "../telegram/identityText";
+import {
+  applyLanguagePreference,
+  isLanguagePreference,
+  type LanguagePreference,
+} from "../i18n";
 
 export type ColorTheme = ColorScheme;
 export type UnreadBadgePosition = "right" | "avatar";
 
 export interface AppPreferences {
+  language: LanguagePreference;
   notificationsEnabled: boolean;
   notificationSound: boolean;
   notificationPreview: boolean;
@@ -53,6 +59,7 @@ interface PreferencesState extends AppPreferences {
 
 const STORAGE_KEY = "notgram:preferences:v1";
 const defaults: AppPreferences = {
+  language: "system",
   notificationsEnabled: true,
   notificationSound: true,
   notificationPreview: true,
@@ -99,6 +106,7 @@ const readPreferences = (): AppPreferences => {
         : !stored.sendTypingStatus
     );
     return {
+      language: isLanguagePreference(stored.language) ? stored.language : defaults.language,
       notificationsEnabled: stored.notificationsEnabled ?? defaults.notificationsEnabled,
       notificationSound: stored.notificationSound ?? defaults.notificationSound,
       notificationPreview: stored.notificationPreview ?? defaults.notificationPreview,
@@ -200,6 +208,7 @@ export const preferencesStore = createStore<PreferencesState>((set) => ({
 
 const applyPreferences = (preferences: AppPreferences, systemMotionReduced: boolean) => {
   if (typeof document === "undefined") return;
+  applyLanguagePreference(preferences.language);
   const reduceMotion = effectiveReduceMotion({
     reduceMotion: preferences.reduceMotion,
     systemReduceMotion: systemMotionReduced,
@@ -250,6 +259,7 @@ const applyPreferences = (preferences: AppPreferences, systemMotionReduced: bool
 applyPreferences(initialPreferences, preferencesStore.getState().systemReduceMotion);
 preferencesStore.subscribe((state) => {
   const preferences: AppPreferences = {
+    language: state.language,
     notificationsEnabled: state.notificationsEnabled,
     notificationSound: state.notificationSound,
     notificationPreview: state.notificationPreview,
