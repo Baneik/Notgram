@@ -166,6 +166,7 @@ export interface TelegramTransport {
   setForumTopicPinned(chatId: string, topicId: string, pinned: boolean): Promise<void>;
   getMessageContext(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
   getMessage(chatId: string, messageId: string): Promise<Message | undefined>;
+  getRawMessage(chatId: string, messageId: string): Promise<string | undefined>;
   getMessageProperties(chatId: string, messageId: string): Promise<MessagePermissions>;
   setMessageReaction(input: SetMessageReactionInput): Promise<void>;
   getMessageReactionSenders(

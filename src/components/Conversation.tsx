@@ -248,6 +248,7 @@ interface ConversationProps {
     messageId: string,
     force?: boolean,
   ) => Promise<MessagePermissions | undefined>;
+  onLoadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean, chatId?: string) => Promise<void>;
   onGetMessageReactionSenders: (
     messageId: string,
@@ -349,6 +350,7 @@ export function Conversation({
   onForwardMessages,
   onLoadForumTopics,
   onLoadMessageProperties,
+  onLoadRawMessage,
   onSetMessageReaction,
   onGetMessageReactionSenders,
   onSetPollAnswer,
@@ -2624,6 +2626,7 @@ export function Conversation({
                         selectionLimitReached={selectedMessageIds.size >= 100}
                         onToggleSelection={toggleMessageSelection}
                         onOpenActions={openActionMenu}
+                        onLoadRawMessage={onLoadRawMessage}
                         onDownload={onDownloadFile}
                         onCancelDownload={onCancelFileDownload}
                         onRecoverFile={onRecoverFile}
@@ -2817,6 +2820,7 @@ export function Conversation({
           messagePreviewOptions={{
             autoplayAnimations,
             autoDownloadPolicy,
+            onLoadRawMessage,
             onDownload: onDownloadFile,
             onCancelDownload: onCancelFileDownload,
             onRecoverFile,

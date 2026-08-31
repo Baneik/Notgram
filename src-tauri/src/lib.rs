@@ -79,6 +79,7 @@ pub fn run() {
             distribution::notgram_distribution_kind,
             desktop_lifecycle::notgram_desktop_settings,
             desktop_lifecycle::notgram_set_launch_on_startup,
+            webview_security::notgram_set_developer_mode,
             desktop_notification::notgram_show_notification,
             desktop_notification::notgram_desktop_notification_snapshot,
             desktop_notification::notgram_show_notification_window,

@@ -8740,7 +8740,16 @@ test("date separators are centered and only upward user scrolling exposes the vi
   await expect(indicator).not.toHaveClass(/is-visible/);
 });
 
-test("developer tooling is absent from settings and message actions", async ({ page }) => {
+test("developer mode enables raw message copy and the browser context menu", async ({ page }) => {
+  await page.addInitScript(() => {
+    const clipboardState = { text: "" };
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: async (text: string) => { clipboardState.text = text; },
+      },
+    });
+    Object.assign(globalThis, { __notgramDeveloperClipboardState: clipboardState });
+  });
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
 
@@ -8748,15 +8757,54 @@ test("developer tooling is absent from settings and message actions", async ({ p
   await expect(notice).toContainText("收到新类型消息（messageFutureType）");
   await expect(notice.getByRole("button")).toHaveCount(0);
 
+  const regularMessageBeforeSettings = await revealVirtualMessage(page, "p-2");
+  const shellBeforeSettings = regularMessageBeforeSettings.locator(".message-bubble-shell");
+  await page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramDeveloperClipboardState: { text: string } }
+  ).__notgramDeveloperClipboardState.text = "unchanged");
+  await shellBeforeSettings.click({ modifiers: ["Control"] });
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramDeveloperClipboardState: { text: string } }
+  ).__notgramDeveloperClipboardState.text)).toBe("unchanged");
+
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /高级设置/ }).click();
-  await expect(page.getByText("开发者选项", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("switch", { name: "开发者模式" })).toHaveCount(0);
+  const developerMode = page.getByRole("switch", { name: "开发者模式" });
+  await expect(developerMode).toBeVisible();
+  await expect(developerMode).not.toBeChecked();
+  await developerMode.check();
+  await expect(developerMode).toBeChecked();
   await page.getByRole("dialog").getByRole("button", { name: "关闭" }).click();
 
   const regularMessage = await revealVirtualMessage(page, "p-2");
-  await regularMessage.locator(".message-bubble-shell").click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "复制原始消息" })).toHaveCount(0);
+  const shell = regularMessage.locator(".message-bubble-shell");
+  await shell.click({ modifiers: ["Control"] });
+  await expect.poll(() => page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramDeveloperClipboardState: { text: string } }
+  ).__notgramDeveloperClipboardState.text)).not.toBe("");
+  const rawMessage = await page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramDeveloperClipboardState: { text: string } }
+  ).__notgramDeveloperClipboardState.text);
+  expect(JSON.parse(rawMessage)).toMatchObject({
+    "@type": "message",
+    id: "p-2",
+    chat_id: "chat-product",
+  });
+
+  const developerContextMenu = await shell.evaluate((element) => {
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      button: 2,
+      cancelable: true,
+      ctrlKey: true,
+    });
+    const dispatched = element.dispatchEvent(event);
+    return { defaultPrevented: event.defaultPrevented, dispatched };
+  });
+  expect(developerContextMenu).toEqual({ defaultPrevented: false, dispatched: true });
+
+  await shell.click({ button: "right" });
+  await expect(page.getByRole("menu", { name: "消息操作" })).toBeVisible();
 });
 
 const messageViewportOffset = (page: Page, messageId: string) =>

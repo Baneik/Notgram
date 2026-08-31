@@ -6,6 +6,7 @@ import {
   Bell,
   Camera,
   CloudDownload,
+  Code2,
   Gauge,
   FileText,
   Fingerprint,
@@ -193,6 +194,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const blockZalgoText = usePreferencesStore((state) => state.blockZalgoText);
+  const developerMode = usePreferencesStore((state) => state.developerMode);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
   const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
@@ -216,6 +218,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     sendOnEnter,
     blockTypingStatus,
     blockZalgoText,
+    developerMode,
     autoplayAnimations,
     autoDownloadImages,
     autoDownloadVideos,
@@ -1001,6 +1004,8 @@ function AdvancedSettings({
   );
   const cacheRetentionDays = usePreferencesStore((state) => state.cacheRetentionDays);
   const setCacheRetentionDays = usePreferencesStore((state) => state.setPreference);
+  const developerMode = usePreferencesStore((state) => state.developerMode);
+  const setDeveloperMode = usePreferencesStore((state) => state.setPreference);
   const toggleCacheCategory = (category: CacheCategory, selected: boolean) => {
     setSelectedCacheCategories((current) => selected
       ? [...new Set([...current, category])]
@@ -1212,6 +1217,27 @@ function AdvancedSettings({
               <small>MB</small>
             </span>
           </label>
+        </section>
+
+        <section className="settings-section" aria-labelledby="developer-mode-heading">
+          <div className="settings-section-heading">
+            <Code2 size={18} strokeWidth={1.8} />
+            <div>
+              <h4 id="developer-mode-heading">开发者模式</h4>
+              <span>启用调试辅助操作</span>
+            </div>
+          </div>
+          <div className="preference-list">
+            <label className="preference-row">
+              <span>开发者模式</span>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={developerMode}
+                onChange={(event) => setDeveloperMode("developerMode", event.target.checked)}
+              />
+            </label>
+          </div>
         </section>
 
         {error && <div className="auth-error settings-error" role="alert">{error}</div>}

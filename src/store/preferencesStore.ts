@@ -1,6 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -23,6 +23,7 @@ export interface AppPreferences {
   sendOnEnter: boolean;
   blockTypingStatus: boolean;
   blockZalgoText: boolean;
+  developerMode: boolean;
   autoplayAnimations: boolean;
   autoDownloadImages: boolean;
   autoDownloadVideos: boolean;
@@ -58,6 +59,7 @@ const defaults: AppPreferences = {
   sendOnEnter: true,
   blockTypingStatus: true,
   blockZalgoText: true,
+  developerMode: false,
   autoplayAnimations: true,
   autoDownloadImages: true,
   autoDownloadVideos: false,
@@ -103,6 +105,7 @@ const readPreferences = (): AppPreferences => {
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       blockTypingStatus,
       blockZalgoText: stored.blockZalgoText ?? defaults.blockZalgoText,
+      developerMode: stored.developerMode ?? defaults.developerMode,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
       autoDownloadImages: stored.autoDownloadImages ?? defaults.autoDownloadImages,
       autoDownloadVideos: stored.autoDownloadVideos ?? defaults.autoDownloadVideos,
@@ -159,6 +162,12 @@ const readPreferences = (): AppPreferences => {
 
 const initialPreferences = readPreferences();
 setZalgoTextBlockingEnabled(initialPreferences.blockZalgoText);
+const syncNativeDeveloperMode = (enabled: boolean) => {
+  if (!isTauri()) return;
+  void invoke("notgram_set_developer_mode", { enabled }).catch(() => undefined);
+};
+
+syncNativeDeveloperMode(initialPreferences.developerMode);
 const readSystemReduceMotion = () => typeof window !== "undefined" &&
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -173,17 +182,20 @@ export const preferencesStore = createStore<PreferencesState>((set) => ({
     reduceMotion: initialPreferences.reduceMotion,
     systemReduceMotion: initialSystemReduceMotion,
   }),
-  setPreference: (key, value) => set((state) => ({
-    [key]: value,
-    ...(key === "reduceMotion"
-      ? {
-          effectiveReduceMotion: effectiveReduceMotion({
-            reduceMotion: Boolean(value),
-            systemReduceMotion: state.systemReduceMotion,
-          }),
-        }
-      : {}),
-  }) as Partial<PreferencesState>),
+  setPreference: (key, value) => {
+    set((state) => ({
+      [key]: value,
+      ...(key === "reduceMotion"
+        ? {
+            effectiveReduceMotion: effectiveReduceMotion({
+              reduceMotion: Boolean(value),
+              systemReduceMotion: state.systemReduceMotion,
+            }),
+          }
+        : {}),
+    }) as Partial<PreferencesState>);
+    if (key === "developerMode") syncNativeDeveloperMode(Boolean(value));
+  },
 }));
 
 const applyPreferences = (preferences: AppPreferences, systemMotionReduced: boolean) => {
@@ -244,6 +256,7 @@ preferencesStore.subscribe((state) => {
     sendOnEnter: state.sendOnEnter,
     blockTypingStatus: state.blockTypingStatus,
     blockZalgoText: state.blockZalgoText,
+    developerMode: state.developerMode,
     autoplayAnimations: state.autoplayAnimations,
     autoDownloadImages: state.autoDownloadImages,
     autoDownloadVideos: state.autoDownloadVideos,

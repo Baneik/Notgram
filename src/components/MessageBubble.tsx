@@ -23,6 +23,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
@@ -67,6 +68,8 @@ import { localMediaSource } from "../media/localMediaSource";
 import { observeLayout } from "../utils/layoutObservation";
 import { MediaSpoiler } from "./Spoiler";
 import { MessageReactions } from "./MessageReactions";
+import { writeClipboardText } from "../utils/clipboard";
+import { usePreferencesStore } from "../store/preferencesStore";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 const INLINE_META_LOWERING_PX = 2.5;
@@ -113,6 +116,7 @@ export interface MessageBubbleProps {
     replyQuote?: MessageReplyQuote,
     keyboardNavigation?: boolean,
   ) => Promise<void>;
+  onLoadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onCancelDownload: (fileId: number) => Promise<void>;
   onRecoverFile: (fileId: number, priority?: number) => Promise<boolean>;
@@ -184,6 +188,7 @@ function MessageBubbleComponent({
   selectionLimitReached,
   onToggleSelection,
   onOpenActions,
+  onLoadRawMessage,
   onDownload,
   onCancelDownload,
   onRecoverFile,
@@ -238,6 +243,7 @@ function MessageBubbleComponent({
   const [metaWrapped, setMetaWrapped] = useState(false);
   const [metaInlineOffset, setMetaInlineOffset] = useState(0);
   const content = message.content;
+  const developerMode = usePreferencesStore((state) => state.developerMode);
   const collapseQuote = useCallback(
     (
       collapse: () => void,
@@ -276,6 +282,20 @@ function MessageBubbleComponent({
   };
   const isSticker = content.kind === "media" && content.mediaType === "sticker";
   const isService = content.kind === "service" || content.kind === "unsupported";
+  const handleDeveloperCopyClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (
+      !developerMode ||
+      !event.ctrlKey ||
+      event.button !== 0
+    ) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("button, a, input, textarea, select, video, audio, [role='button']")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void onLoadRawMessage(message.chatId, message.id)
+      .then((raw) => raw ? writeClipboardText(raw) : undefined)
+      .catch(() => undefined);
+  }, [developerMode, message, onLoadRawMessage]);
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
@@ -721,7 +741,9 @@ function MessageBubbleComponent({
             ? selectedReplyQuoteFor(event.currentTarget)
             : undefined;
         }}
+        onClick={handleDeveloperCopyClick}
         onContextMenu={(event) => {
+          if (developerMode && event.ctrlKey && event.button === 2) return;
           event.preventDefault();
           if (isService) return;
           if (selectionMode) void onToggleSelection(message);
@@ -1248,6 +1270,7 @@ export interface MessageBubblePreviewProps {
   selectionLimitReached?: boolean;
   onToggleSelection?: MessageBubbleProps["onToggleSelection"];
   onOpenActions?: MessageBubbleProps["onOpenActions"];
+  onLoadRawMessage?: MessageBubbleProps["onLoadRawMessage"];
   onOpenReply?: MessageBubbleProps["onOpenReply"];
   onOpenSenderProfile?: MessageBubbleProps["onOpenSenderProfile"];
   onOpenMention?: MessageBubbleProps["onOpenMention"];
@@ -1295,6 +1318,7 @@ export function MessageBubblePreview({
   selectionLimitReached = false,
   onToggleSelection = previewNoop,
   onOpenActions = previewNoop,
+  onLoadRawMessage = async (..._args: any[]) => undefined,
   onOpenReply = previewOpen,
   onOpenSenderProfile = previewOpen,
   onOpenMention = previewOpen,
@@ -1341,6 +1365,7 @@ export function MessageBubblePreview({
       selectionLimitReached={selectionLimitReached}
       onToggleSelection={onToggleSelection}
       onOpenActions={onOpenActions}
+      onLoadRawMessage={onLoadRawMessage}
       onDownload={onDownload}
       onCancelDownload={onCancelDownload}
       onRecoverFile={onRecoverFile}

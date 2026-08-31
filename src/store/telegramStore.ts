@@ -2779,6 +2779,21 @@ export const createTelegramStore = (
         }
       },
 
+      loadRawMessage: async (chatId, messageId) => {
+        try {
+          const raw = await transport.getRawMessage(chatId, messageId);
+          if (!raw) {
+            set({ operationError: "找不到原始消息" });
+            return undefined;
+          }
+          set({ operationError: undefined });
+          return raw;
+        } catch (error) {
+          set({ operationError: errorMessage(error, "无法读取原始消息") });
+          return undefined;
+        }
+      },
+
       searchChatMessages: searchController.searchChatMessages,
       loadMoreChatMessages: searchController.loadMoreChatMessages,
       cancelChatMessageSearch: searchController.cancelChatMessageSearch,

@@ -241,6 +241,7 @@ export function App() {
   const setChatTyping = useTelegramStore((state) => state.setChatTyping);
   const forwardMessages = useTelegramStore((state) => state.forwardMessages);
   const loadMessageProperties = useTelegramStore((state) => state.loadMessageProperties);
+  const loadRawMessage = useTelegramStore((state) => state.loadRawMessage);
   const setMessageReaction = useTelegramStore((state) => state.setMessageReaction);
   const getMessageReactionSenders = useTelegramStore((state) => state.getMessageReactionSenders);
   const setPollAnswer = useTelegramStore((state) => state.setPollAnswer);
@@ -1828,6 +1829,7 @@ export function App() {
           onForwardMessages={forwardMessages}
           onLoadForumTopics={loadForumTopics}
           onLoadMessageProperties={loadMessageProperties}
+          onLoadRawMessage={loadRawMessage}
           onSetMessageReaction={setMessageReaction}
           onGetMessageReactionSenders={getMessageReactionSenders}
           onSetPollAnswer={setPollAnswer}

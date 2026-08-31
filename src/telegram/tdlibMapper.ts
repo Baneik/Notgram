@@ -52,6 +52,14 @@ export const asTdObjects = (value: unknown): TdObject[] =>
     ? value.map(asTdObject).filter((item): item is TdObject => Boolean(item))
     : [];
 
+export const serializeTdObject = (value: unknown) => {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+};
+
 export const tdId = (value: unknown): string =>
   typeof value === "number" || typeof value === "string" ? String(value) : "";
 

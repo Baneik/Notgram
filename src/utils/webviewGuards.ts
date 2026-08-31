@@ -1,3 +1,5 @@
+import { preferencesStore } from "../store/preferencesStore";
+
 type ShortcutEvent = Pick<
   KeyboardEvent,
   "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
@@ -26,6 +28,7 @@ export const installWebviewGuards = () => {
   }, { capture: true });
 
   document.addEventListener("contextmenu", (event) => {
+    if (event.button === 2 && event.ctrlKey && preferencesStore.getState().developerMode) return;
     event.preventDefault();
   }, { capture: true });
 };
