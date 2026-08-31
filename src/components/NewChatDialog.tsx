@@ -1,3 +1,4 @@
+import { currentLanguage, translate } from "../i18n";
 import {
   Camera,
   LoaderCircle,
@@ -55,11 +56,11 @@ export function NewChatDialog({
   }, [kind]);
 
   const visibleContacts = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("zh-CN");
+    const normalized = query.trim().toLocaleLowerCase(currentLanguage());
     return contacts
       .filter((user) => user.id !== currentUserId)
       .filter((user) => !normalized || `${user.displayName} ${user.username ?? ""}`
-        .toLocaleLowerCase("zh-CN").includes(normalized));
+        .toLocaleLowerCase(currentLanguage()).includes(normalized));
   }, [contacts, currentUserId, query]);
   const contactsPrimaryLoading = contactsLoading && contacts.length === 0;
   const showContactsLoading = useStableVisibility(contactsPrimaryLoading);
@@ -112,18 +113,18 @@ export function NewChatDialog({
         tabIndex={-1}
       >
         <header className="new-chat-header">
-          <h2 id="new-chat-title">新建聊天</h2>
-          <button className="icon-button" type="button" aria-label="关闭" title="关闭" disabled={pending} onClick={onClose}>
+          <h2 id="new-chat-title">{translate("新建聊天")}</h2>
+          <button className="icon-button" type="button" aria-label={translate("关闭")} title={translate("关闭")} disabled={pending} onClick={onClose}>
             <X size={19} />
           </button>
         </header>
 
         <div className="new-chat-body">
-          <div className="new-chat-kind" role="radiogroup" aria-label="聊天类型">
+          <div className="new-chat-kind" role="radiogroup" aria-label={translate("聊天类型")}>
             {([
-              ["basicGroup", "普通群组", Users],
-              ["supergroup", "超级群组", Users],
-              ["channel", "频道", Radio],
+              ["basicGroup", translate("普通群组"), Users],
+              ["supergroup", translate("超级群组"), Users],
+              ["channel", translate("频道"), Radio],
             ] as const).map(([value, label, Icon]) => (
               <label key={value}>
                 <input type="radio" name="new-chat-kind" value={value} checked={kind === value} disabled={pending} onChange={() => setKind(value)} />
@@ -133,15 +134,15 @@ export function NewChatDialog({
           </div>
 
           <label className="new-chat-field">
-            <span>名称</span>
-            <input aria-label="名称" autoFocus value={title} maxLength={128} disabled={pending} aria-invalid={title.length > 0 && !titleValid} onChange={(event) => setTitle(event.target.value)} />
+            <span>{translate("名称")}</span>
+            <input aria-label={translate("名称")} autoFocus value={title} maxLength={128} disabled={pending} aria-invalid={title.length > 0 && !titleValid} onChange={(event) => setTitle(event.target.value)} />
             <small>{[...title].length}/128</small>
           </label>
 
           {kind !== "basicGroup" && (
             <label className="new-chat-field is-textarea">
-              <span>简介</span>
-              <textarea aria-label="简介" value={description} maxLength={255} disabled={pending} onChange={(event) => setDescription(event.target.value)} />
+              <span>{translate("简介")}</span>
+              <textarea aria-label={translate("简介")} value={description} maxLength={255} disabled={pending} onChange={(event) => setDescription(event.target.value)} />
               <small>{[...description].length}/255</small>
             </label>
           )}
@@ -149,62 +150,62 @@ export function NewChatDialog({
           <div className="new-chat-options">
             <label>
               <input type="checkbox" checked={selectPhoto} disabled={pending} onChange={(event) => setSelectPhoto(event.target.checked)} />
-              <Camera size={17} /><span>创建后选择头像</span>
+              <Camera size={17} /><span>{translate("创建后选择头像")}</span>
             </label>
             {kind !== "basicGroup" && (
               <label>
                 <input type="checkbox" checked={isPublic} disabled={pending} onChange={(event) => setIsPublic(event.target.checked)} />
-                <span>公开聊天</span>
+                <span>{translate("公开聊天")}</span>
               </label>
             )}
             {kind === "supergroup" && (
               <label>
                 <input type="checkbox" checked={historyAvailable} disabled={pending} onChange={(event) => setHistoryAvailable(event.target.checked)} />
-                <span>新成员可见历史消息</span>
+                <span>{translate("新成员可见历史消息")}</span>
               </label>
             )}
           </div>
 
           {kind !== "basicGroup" && isPublic && (
             <label className="new-chat-field">
-              <span>公开用户名</span>
-              <div className="new-chat-username"><span>t.me/</span><input aria-label="公开用户名" value={username} maxLength={32} disabled={pending} aria-invalid={username.length > 0 && !usernameValid} onChange={(event) => setUsername(event.target.value)} /></div>
-              {!usernameValid && username.length > 0 && <small className="is-error">5-32 位，以字母开头</small>}
+              <span>{translate("公开用户名")}</span>
+              <div className="new-chat-username"><span>t.me/</span><input aria-label={translate("公开用户名")} value={username} maxLength={32} disabled={pending} aria-invalid={username.length > 0 && !usernameValid} onChange={(event) => setUsername(event.target.value)} /></div>
+              {!usernameValid && username.length > 0 && <small className="is-error">{translate("5-32 位，以字母开头")}</small>}
             </label>
           )}
 
           {kind !== "channel" && (
             <label className="new-chat-select">
-              <span>成员权限模板</span>
-              <select aria-label="成员权限模板" value={permissionTemplate} disabled={pending} onChange={(event) => setPermissionTemplate(event.target.value as CreateChatInput["permissionTemplate"])}>
-                <option value="open">开放协作</option>
-                <option value="restricted">仅文本</option>
+              <span>{translate("成员权限模板")}</span>
+              <select aria-label={translate("成员权限模板")} value={permissionTemplate} disabled={pending} onChange={(event) => setPermissionTemplate(event.target.value as CreateChatInput["permissionTemplate"])}>
+                <option value="open">{translate("开放协作")}</option>
+                <option value="restricted">{translate("仅文本")}</option>
               </select>
             </label>
           )}
 
           <section className="new-chat-members" aria-labelledby="new-chat-members-title">
             <div className="new-chat-section-heading">
-              <h3 id="new-chat-members-title">初始成员</h3>
+              <h3 id="new-chat-members-title">{translate("初始成员")}</h3>
               <span>{memberUserIds.size}</span>
             </div>
             <label className="new-chat-search">
-              <Search size={16} /><span className="sr-only">筛选联系人</span>
-              <input type="search" value={query} placeholder="筛选联系人" disabled={pending} onChange={(event) => setQuery(event.target.value)} />
+              <Search size={16} /><span className="sr-only">{translate("筛选联系人")}</span>
+              <input type="search" value={query} placeholder={translate("筛选联系人")} disabled={pending} onChange={(event) => setQuery(event.target.value)} />
             </label>
             <div className="new-chat-member-list" aria-busy={contactsPrimaryLoading}>
               <MotionPresence present={Boolean(contactsStatus)} variant="status">
                 {contactsStatus ? <div key={contactsStatus} className="new-chat-loading" role={contactsStatus === "error" ? "alert" : "status"}>
                   {contactsStatus === "loading" ? <LoaderCircle className="spin" size={18} /> : contactsStatus === "error" ? (
-                    <button className="dialog-secondary" type="button" onClick={() => void onLoadContacts()}>重试联系人</button>
-                  ) : "没有匹配的联系人"}
+                    <button className="dialog-secondary" type="button" onClick={() => void onLoadContacts()}>{translate("重试联系人")}</button>
+                  ) : translate("没有匹配的联系人")}
                 </div> : null}
               </MotionPresence>
               {!contactsStatus && visibleContacts.map((user) => (
                 <label className="new-chat-member-row" key={user.id}>
                   <input type="checkbox" checked={memberUserIds.has(user.id)} disabled={pending} onChange={() => toggleMember(user.id)} />
                   <Avatar avatar={user.avatar} size="small" />
-                  <span><strong>{user.displayName}</strong><small>{user.username ? `@${user.username}` : user.lastSeenLabel ?? "联系人"}</small></span>
+                  <span><strong>{user.displayName}</strong><small>{user.username ? `@${user.username}` : user.lastSeenLabel ?? translate("联系人")}</small></span>
                 </label>
               ))}
             </div>
@@ -212,10 +213,10 @@ export function NewChatDialog({
         </div>
 
         <footer className="new-chat-footer">
-          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
+          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>{translate("取消")}</button>
           <button className="dialog-primary" type="button" disabled={pending || !canSubmit} onClick={() => void submit()}>
             {showPending && <LoaderCircle className="spin" size={16} />}
-            <span>创建</span>
+            <span>{translate("创建")}</span>
           </button>
         </footer>
       </div>

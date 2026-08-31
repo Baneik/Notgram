@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Maximize2, Minus, Square, X } from "lucide-react";
@@ -30,25 +31,25 @@ export function WindowChrome() {
   };
 
   return (
-    <header className="window-chrome" aria-label="窗口操作">
+    <header className="window-chrome" aria-label={translate("窗口操作")}>
       <div
         className="window-drag-region"
         data-tauri-drag-region
         onDoubleClick={toggleMaximize}
       />
       <div className="window-controls">
-        <button type="button" aria-label="最小化窗口" title="最小化" onClick={minimize}>
+        <button type="button" aria-label={translate("最小化窗口")} title={translate("最小化")} onClick={minimize}>
           <Minus size={15} strokeWidth={1.8} />
         </button>
         <button
           type="button"
-          aria-label={maximized ? "还原窗口" : "最大化窗口"}
-          title={maximized ? "还原" : "最大化"}
+          aria-label={maximized ? translate("还原窗口") : translate("最大化窗口")}
+          title={maximized ? translate("还原") : translate("最大化")}
           onClick={toggleMaximize}
         >
           {maximized ? <Square size={12} strokeWidth={1.8} /> : <Maximize2 size={13} strokeWidth={1.8} />}
         </button>
-        <button className="window-close" type="button" aria-label="关闭窗口" title="关闭" onClick={close}>
+        <button className="window-close" type="button" aria-label={translate("关闭窗口")} title={translate("关闭")} onClick={close}>
           <X size={16} strokeWidth={1.8} />
         </button>
       </div>

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 const UNSAFE_IDENTITY_CHARACTERS = /[\p{M}\p{C}]/gu;
 const REPEATED_SPACES = / +/g;
 
@@ -40,10 +41,10 @@ export const identityTextField = (
 ) => {
   const normalized = normalizeIdentityText(value);
   if (zalgoTextBlockingEnabled && normalized !== comparableIdentityText(value)) {
-    throw new Error(`${label}包含不支持的字符`);
+    throw new Error(translate("{{value0}}包含不支持的字符", { value0: label }));
   }
   if ((required && !normalized) || [...normalized].length > maximum) {
-    throw new Error(`${label}格式不正确`);
+    throw new Error(translate("{{value0}}格式不正确", { value0: label }));
   }
   return normalized;
 };

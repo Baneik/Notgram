@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { TelegramTransport } from "../telegram/transport";
 import type { ForumTopic, ForumTopicPage } from "../telegram/types";
 import { hasChatDraftContent } from "../telegram/chatDraft";
@@ -66,7 +67,7 @@ export const createForumController = ({
         onTopicsLoaded?.(chatId, query);
         return page;
       } catch (error) {
-        set({ operationError: onError(error, "无法加载话题列表") });
+        set({ operationError: onError(error, translate("无法加载话题列表")) });
         return undefined;
       } finally {
         pendingLoads.delete(chatId);
@@ -127,7 +128,7 @@ export const createForumController = ({
 
     createForumTopic: async (chatId, name) => {
       if (!canCreateTopic(chatId)) {
-        rejectTopicMutation("当前账号没有创建话题的权限");
+        rejectTopicMutation(translate("当前账号没有创建话题的权限"));
         return undefined;
       }
       try {
@@ -135,45 +136,45 @@ export const createForumController = ({
         await reloadTopics(chatId);
         return topic;
       } catch (error) {
-        set({ operationError: onError(error, "无法创建话题") });
+        set({ operationError: onError(error, translate("无法创建话题")) });
         return undefined;
       }
     },
 
     editForumTopic: async (chatId, topicId, name) => {
-      if (!canChangeTopic(chatId, topicId)) return rejectTopicMutation("当前账号没有编辑该话题的权限");
+      if (!canChangeTopic(chatId, topicId)) return rejectTopicMutation(translate("当前账号没有编辑该话题的权限"));
       try {
         await transport.editForumTopic(chatId, topicId, name);
         await reloadTopics(chatId);
         return true;
       } catch (error) {
-        set({ operationError: onError(error, "无法编辑话题") });
+        set({ operationError: onError(error, translate("无法编辑话题")) });
         return false;
       }
     },
 
     setForumTopicClosed: async (chatId, topicId, closed) => {
-      if (!canChangeTopic(chatId, topicId)) return rejectTopicMutation("当前账号没有修改该话题状态的权限");
+      if (!canChangeTopic(chatId, topicId)) return rejectTopicMutation(translate("当前账号没有修改该话题状态的权限"));
       try {
         await transport.setForumTopicClosed(chatId, topicId, closed);
         await reloadTopics(chatId);
         return true;
       } catch (error) {
-        set({ operationError: onError(error, "无法更新话题状态") });
+        set({ operationError: onError(error, translate("无法更新话题状态")) });
         return false;
       }
     },
 
     setForumTopicPinned: async (chatId, topicId, pinned) => {
       if (get().chats.get(chatId)?.management?.canManageTopics !== true) {
-        return rejectTopicMutation("当前账号没有置顶话题的权限");
+        return rejectTopicMutation(translate("当前账号没有置顶话题的权限"));
       }
       try {
         await transport.setForumTopicPinned(chatId, topicId, pinned);
         await reloadTopics(chatId);
         return true;
       } catch (error) {
-        set({ operationError: onError(error, "无法更新话题置顶") });
+        set({ operationError: onError(error, translate("无法更新话题置顶")) });
         return false;
       }
     },

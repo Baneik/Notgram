@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { Clock3, Images, LoaderCircle, Search, Sticker, X } from "lucide-react";
 import {
   useCallback,
@@ -38,32 +39,32 @@ const RECENT_STICKERS = "recent";
 const emojiGroups = [
   {
     id: "faces",
-    title: "表情与人物",
+    get title() { return translate("表情与人物"); },
     emojis: "😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫣 🤭 🫢 🫡 🤫 🫠 🤥 😶 🫥 😐 🫤 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🤢 🤮 🤧 😷 🤒 🤕".split(" "),
   },
   {
     id: "gestures",
-    title: "手势与身体",
+    get title() { return translate("手势与身体"); },
     emojis: "👋 🤚 🖐️ ✋ 🖖 🫱 🫲 🫳 🫴 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 🫵 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 🫶 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦾 🦿 🦵 🦶 👂 👃 🧠 🫀 🫁 🦷 👀 👁️ 👅 👄".split(" "),
   },
   {
     id: "animals",
-    title: "动物与自然",
+    get title() { return translate("动物与自然"); },
     emojis: "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐒 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🪲 🦋 🐌 🐞 🐜 🪰 🪱 🐢 🐍 🦎 🐙 🦑 🦐 🦞 🦀 🐠 🐟 🐡 🐬 🐳 🌵 🎄 🌲 🌳 🌴 🪴 🌱 🌿 ☘️ 🍀 🍁 🍂 🍃 🌸 🌼 🌻 🌞 🌝 🌚 ⭐ 🌟 ✨ ⚡ 🔥 🌈 ☀️ ☁️ ❄️".split(" "),
   },
   {
     id: "food",
-    title: "食物与饮品",
+    get title() { return translate("食物与饮品"); },
     emojis: "🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🥦 🥬 🥒 🌶️ 🫑 🌽 🥕 🫒 🧄 🧅 🥔 🍠 🥐 🥯 🍞 🥖 🥨 🧀 🥚 🍳 🧈 🥞 🧇 🥓 🍔 🍟 🍕 🌭 🥪 🌮 🌯 🥗 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🍤 🍙 🍚 🍘 🍥 🥠 🍦 🍧 🍨 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 ☕ 🍵 🧋 🥤 🍺 🍻 🥂 🍷".split(" "),
   },
   {
     id: "activity",
-    title: "活动与物品",
+    get title() { return translate("活动与物品"); },
     emojis: "⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🎱 🏓 🏸 🥅 🏒 🥊 🥋 🎽 🛹 🛼 🛷 ⛸️ 🎿 🏂 🪂 🏋️ 🤸 ⛹️ 🤺 🏇 🧘 🎮 🕹️ 🎲 ♟️ 🎯 🎳 🎸 🎹 🎺 🎻 🥁 🎬 🎨 🚗 🚕 🚌 🚑 🚒 🚲 ✈️ 🚀 🛸 ⌚ 📱 💻 ⌨️ 🖥️ 🖨️ 📷 🎥 📞 💡 📚 ✏️ 📝 📌 📎 🔒 🔑 🔨 🧰 🧲 🧪 💊 🎁 🎈 🎉 ✅ ❌ ❗ ❓ 💯".split(" "),
   },
   {
     id: "symbols",
-    title: "符号与旗帜",
+    get title() { return translate("符号与旗帜"); },
     emojis: "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❤️‍🔥 ❤️‍🩹 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉️ ☸️ ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ ▶️ ⏸️ ⏹️ ⏺️ ⏭️ ⏮️ 🔀 🔁 🔂 ➕ ➖ ➗ ✖️ ♾️ ‼️ ⁉️ ❔ ❕ ⚠️ 🚸 🔱 ⚜️ 🔰 ♻️ ©️ ®️ ™️ 🏁 🚩 🎌 🏳️ 🏴".split(" "),
   },
 ] as const;
@@ -88,7 +89,7 @@ function LazyEmojiAsset({
   onSelect: (asset: EmojiPickerAsset) => void;
   autoplay: boolean;
 }) {
-  const label = asset.kind === "animation" ? "发送 GIF" : `发送贴纸 ${asset.emoji ?? ""}`.trim();
+  const label = asset.kind === "animation" ? translate("发送 GIF") : translate("发送贴纸 {{value0}}", { value0: asset.emoji ?? "" }).trim();
 
   return (
     <button
@@ -199,7 +200,7 @@ export function EmojiPicker({
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleEmojiGroups = useMemo(() => {
     const groups = recentEmojis.length > 0
-      ? [{ id: "recent", title: "最近使用", emojis: recentEmojis }, ...emojiGroups]
+      ? [{ id: "recent", title: translate("最近使用"), emojis: recentEmojis }, ...emojiGroups]
       : [...emojiGroups];
     if (!normalizedQuery) return groups;
     return groups.map((group) => ({
@@ -242,8 +243,8 @@ export function EmojiPicker({
   };
 
   const placeholder = tab === "emoji"
-    ? "搜索 Emoji"
-    : tab === "sticker" ? "搜索贴纸" : "搜索 GIF";
+    ? translate("搜索 Emoji")
+    : tab === "sticker" ? translate("搜索贴纸") : translate("搜索 GIF");
 
   return (
     <section
@@ -251,21 +252,17 @@ export function EmojiPicker({
       ref={panelRef}
       className="emoji-picker"
       role="dialog"
-      aria-label="表情、贴纸与 GIF"
+      aria-label={translate("表情、贴纸与 GIF")}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
     >
-      <header className="emoji-picker-tabs" role="tablist" aria-label="内容类型">
+      <header className="emoji-picker-tabs" role="tablist" aria-label={translate("内容类型")}>
         <button className={tab === "emoji" ? "is-active" : ""} type="button" role="tab" aria-selected={tab === "emoji"} onClick={() => { setTab("emoji"); setQuery(""); }}>
           Emoji
         </button>
-        <button className={tab === "sticker" ? "is-active" : ""} type="button" role="tab" aria-selected={tab === "sticker"} onClick={() => { setTab("sticker"); setQuery(""); }}>
-          贴纸
-        </button>
-        <button className={tab === "animation" ? "is-active" : ""} type="button" role="tab" aria-selected={tab === "animation"} onClick={() => { setTab("animation"); setQuery(""); }}>
-          GIF 动态图
-        </button>
-        <button className="emoji-picker-close" type="button" aria-label="关闭表情面板" title="关闭" onClick={closeAndRestoreComposerFocus}>
+        <button className={tab === "sticker" ? "is-active" : ""} type="button" role="tab" aria-selected={tab === "sticker"} onClick={() => { setTab("sticker"); setQuery(""); }}>{translate("贴纸")}</button>
+        <button className={tab === "animation" ? "is-active" : ""} type="button" role="tab" aria-selected={tab === "animation"} onClick={() => { setTab("animation"); setQuery(""); }}>{translate("GIF 动态图")}</button>
+        <button className="emoji-picker-close" type="button" aria-label={translate("关闭表情面板")} title={translate("关闭")} onClick={closeAndRestoreComposerFocus}>
           <X size={17} />
         </button>
       </header>
@@ -282,21 +279,21 @@ export function EmojiPicker({
               <h3>{group.title}</h3>
               <div className="emoji-grid">
                 {group.emojis.map((emoji) => (
-                  <button type="button" key={`${group.id}:${emoji}`} aria-label={`插入 ${emoji}`} onClick={() => rememberEmoji(emoji)}>{emoji}</button>
+                  <button type="button" key={`${group.id}:${emoji}`} aria-label={translate("插入 {{value0}}", { value0: emoji })} onClick={() => rememberEmoji(emoji)}>{emoji}</button>
                 ))}
               </div>
             </section>
-          )) : <div className="emoji-picker-empty">没有匹配的 Emoji</div>
+          )) : <div className="emoji-picker-empty">{translate("没有匹配的 Emoji")}</div>
         ) : catalogLoading ? (
-          <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />正在读取你的内容</div>
+          <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />{translate("正在读取你的内容")}</div>
         ) : tab === "sticker" ? (
           <section className="emoji-section">
-            <h3>{normalizedQuery ? "搜索结果" : selectedStickerSetId === RECENT_STICKERS ? "最近使用" : stickerSets.get(selectedStickerSetId)?.title ?? "贴纸包"}</h3>
+            <h3>{normalizedQuery ? translate("搜索结果") : selectedStickerSetId === RECENT_STICKERS ? translate("最近使用") : stickerSets.get(selectedStickerSetId)?.title ?? translate("贴纸包")}</h3>
             {stickerSetLoading === selectedStickerSetId ? (
-              <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />正在加载贴纸包</div>
+              <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />{translate("正在加载贴纸包")}</div>
             ) : failedStickerSetIds.has(selectedStickerSetId) ? (
               <div className="emoji-picker-empty emoji-picker-error">
-                <span>贴纸包加载失败</span>
+                <span>{translate("贴纸包加载失败")}</span>
                 <button
                   type="button"
                   onClick={() => setFailedStickerSetIds((current) => {
@@ -304,32 +301,32 @@ export function EmojiPicker({
                     next.delete(selectedStickerSetId);
                     return next;
                   })}
-                >重试</button>
+                >{translate("重试")}</button>
               </div>
             ) : stickerAssets.length > 0 ? (
               <div className="emoji-asset-grid">
                 {stickerAssets.map((asset) => <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} onSelect={(value) => void sendAsset(value)} />)}
               </div>
-            ) : <div className="emoji-picker-empty">没有可用的贴纸</div>}
+            ) : <div className="emoji-picker-empty">{translate("没有可用的贴纸")}</div>}
           </section>
         ) : (
           <section className="emoji-section">
-            <h3>已保存的 GIF</h3>
+            <h3>{translate("已保存的 GIF")}</h3>
             {(catalog?.savedAnimations ?? []).filter((asset) => !normalizedQuery || asset.fileName.toLocaleLowerCase().includes(normalizedQuery)).length > 0 ? (
               <div className="emoji-animation-grid">
                 {(catalog?.savedAnimations ?? []).filter((asset) => !normalizedQuery || asset.fileName.toLocaleLowerCase().includes(normalizedQuery)).map((asset) => (
                   <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} onSelect={(value) => void sendAsset(value)} />
                 ))}
               </div>
-            ) : <div className="emoji-picker-empty">没有已保存的 GIF</div>}
+            ) : <div className="emoji-picker-empty">{translate("没有已保存的 GIF")}</div>}
           </section>
         )}
       </div>
 
-      <footer className="emoji-picker-packs" aria-label="快捷分类">
+      <footer className="emoji-picker-packs" aria-label={translate("快捷分类")}>
         {tab === "emoji" ? (
           <>
-            <button type="button" title="最近使用" onClick={() => panelRef.current?.querySelector(".emoji-picker-content")?.scrollTo({ top: 0 })}><Clock3 size={18} /></button>
+            <button type="button" title={translate("最近使用")} onClick={() => panelRef.current?.querySelector(".emoji-picker-content")?.scrollTo({ top: 0 })}><Clock3 size={18} /></button>
             {emojiGroups.map((group, index) => (
               <button type="button" key={group.id} title={group.title} onClick={() => panelRef.current?.querySelectorAll<HTMLElement>(".emoji-section")[recentEmojis.length > 0 ? index + 1 : index]?.scrollIntoView({ block: "start" })}>
                 <span>{group.emojis[0]}</span>
@@ -338,7 +335,7 @@ export function EmojiPicker({
           </>
         ) : tab === "sticker" ? (
           <>
-            <button className={selectedStickerSetId === RECENT_STICKERS ? "is-active" : ""} type="button" title="最近使用" onClick={() => { setQuery(""); setSelectedStickerSetId(RECENT_STICKERS); }}><Clock3 size={18} /></button>
+            <button className={selectedStickerSetId === RECENT_STICKERS ? "is-active" : ""} type="button" title={translate("最近使用")} onClick={() => { setQuery(""); setSelectedStickerSetId(RECENT_STICKERS); }}><Clock3 size={18} /></button>
             {(catalog?.stickerSets ?? []).map((stickerSet) => (
               <button className={selectedStickerSetId === stickerSet.id ? "is-active" : ""} type="button" key={stickerSet.id} title={stickerSet.title} onClick={() => { setQuery(""); setSelectedStickerSetId(stickerSet.id); }}>
                 {stickerSet.covers[0]
@@ -348,11 +345,11 @@ export function EmojiPicker({
             ))}
           </>
         ) : (
-          <button className="is-active" type="button" title="已保存的 GIF"><Images size={18} /></button>
+          <button className="is-active" type="button" title={translate("已保存的 GIF")}><Images size={18} /></button>
         )}
       </footer>
 
-      {sendingAssetId && <div className="emoji-picker-sending" role="status"><LoaderCircle className="spin" size={18} />正在发送</div>}
+      {sendingAssetId && <div className="emoji-picker-sending" role="status"><LoaderCircle className="spin" size={18} />{translate("正在发送")}</div>}
     </section>
   );
 }

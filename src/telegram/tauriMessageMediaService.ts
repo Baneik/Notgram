@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { FileDownloadQueue } from "./fileDownloadQueue";
 import type {
@@ -207,7 +208,7 @@ const mapStickerSetSummary = (value: unknown): StickerSetSummary | undefined => 
   if (!stickerSet || !id) return undefined;
   return {
     id,
-    title: typeof stickerSet.title === "string" ? stickerSet.title : "贴纸包",
+    title: typeof stickerSet.title === "string" ? stickerSet.title : translate("贴纸包"),
     name: typeof stickerSet.name === "string" ? stickerSet.name : "",
     size: tdNumber(stickerSet.size) ?? asTdObjects(stickerSet.stickers).length,
     covers: asTdObjects(stickerSet.covers ?? stickerSet.stickers)
@@ -363,7 +364,7 @@ export class TauriMessageMediaService {
 
   async getMessageReactionSenders(input: GetMessageReactionSendersInput) {
     if (input.type.kind === "paid") {
-      throw new Error("付费回应不提供成员列表");
+      throw new Error(translate("付费回应不提供成员列表"));
     }
     const limit = Math.max(1, Math.min(input.limit ?? 100, 100));
     const reactionType = input.type.kind === "emoji"
@@ -384,7 +385,7 @@ export class TauriMessageMediaService {
     const optionPositions = [...new Set(input.optionPositions)].sort((left, right) => left - right);
     if (optionPositions.length > 100 || optionPositions.some(
       (position) => !Number.isSafeInteger(position) || position < 0 || position > 99,
-    )) throw new Error("投票选项无效");
+    )) throw new Error(translate("投票选项无效"));
     await this.context.request({
       "@type": "setPollAnswer",
       chat_id: numericId(input.chatId),
@@ -476,7 +477,7 @@ export class TauriMessageMediaService {
     if (!Number.isSafeInteger(input.messageAutoDeleteTime) ||
       input.messageAutoDeleteTime < 0 || input.messageAutoDeleteTime > 31_536_000 ||
       (input.messageAutoDeleteTime !== 0 && input.messageAutoDeleteTime % 86_400 !== 0)) {
-      throw new Error("自动删除时间无效");
+      throw new Error(translate("自动删除时间无效"));
     }
     await this.context.request({
       "@type": "setChatMessageAutoDeleteTime",
@@ -507,10 +508,10 @@ export class TauriMessageMediaService {
   }
 
   async getStickerSet(stickerSetId: string): Promise<StickerSet> {
-    if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error("无效的贴纸包标识符");
+    if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error(translate("无效的贴纸包标识符"));
     const response = await this.context.request({ "@type": "getStickerSet", set_id: stickerSetId });
     const summary = mapStickerSetSummary(response);
-    if (!summary) throw new Error("找不到贴纸包");
+    if (!summary) throw new Error(translate("找不到贴纸包"));
     return {
       ...summary,
       stickers: asTdObjects(response.stickers)
@@ -520,7 +521,7 @@ export class TauriMessageMediaService {
   }
 
   async addStickerSet(stickerSetId: string) {
-    if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error("无效的贴纸包标识符");
+    if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error(translate("无效的贴纸包标识符"));
     await this.context.request({
       "@type": "changeStickerSet",
       set_id: stickerSetId,
@@ -637,8 +638,8 @@ export class TauriMessageMediaService {
   async forwardMessages(input: ForwardMessagesInput): Promise<ForwardMessagesResult> {
     const messageIds = [...new Set(input.messageIds.map(numericId))]
       .sort((left, right) => left - right);
-    if (messageIds.length === 0) throw new Error("请选择要转发的消息");
-    if (messageIds.length > 100) throw new Error("单次最多转发 100 条消息");
+    if (messageIds.length === 0) throw new Error(translate("请选择要转发的消息"));
+    if (messageIds.length > 100) throw new Error(translate("单次最多转发 100 条消息"));
     const response = await this.context.request({
       "@type": "forwardMessages",
       chat_id: numericId(input.toChatId),
@@ -728,7 +729,7 @@ export class TauriMessageMediaService {
     const pending = this.context.pendingDownloads.get(fileId);
     if (pending) {
       this.context.pendingDownloads.delete(fileId);
-      pending.reject(new Error("文件下载已取消"));
+      pending.reject(new Error(translate("文件下载已取消")));
     }
     this.context.fileDownloads.cancel(fileId);
     await this.context.request({

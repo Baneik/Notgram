@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { Hash } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { ForumTopic } from "../telegram/types";
@@ -77,12 +78,12 @@ export function ForumTopicStrip({
   if (orderedTopics.length === 0) return null;
 
   return (
-    <nav className="forum-topic-strip" aria-label="话题切换">
+    <nav className="forum-topic-strip" aria-label={translate("话题切换")}>
       <div
         ref={tabsRef}
         className="forum-topic-tabs"
         role="tablist"
-        aria-label="话题"
+        aria-label={translate("话题")}
       >
         {orderedTopics.map((topic) => {
           const active = topic.id === activeTopicId;
@@ -90,9 +91,9 @@ export function ForumTopicStrip({
             ? topic.unreadCount
             : topic.unreadReactionCount;
           const unreadLabel = topic.unreadCount > 0
-            ? `，${topic.unreadCount} 条未读消息`
+            ? translate("，{{value0}} 条未读消息", { value0: topic.unreadCount })
             : topic.unreadReactionCount > 0
-              ? `，${topic.unreadReactionCount} 条未读回应`
+              ? translate("，{{value0}} 条未读回应", { value0: topic.unreadReactionCount })
               : "";
           return (
             <button

@@ -1,3 +1,5 @@
+import { translate } from "../i18n";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   Check,
@@ -227,6 +229,7 @@ function MessageBubbleComponent({
   onRevealLocallyBlocked,
   blockedReactionSenderIds = new Set(),
 }: MessageBubbleProps) {
+  useTranslation();
   const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
   const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
@@ -501,13 +504,19 @@ function MessageBubbleComponent({
       <span
         className="media-progress"
         role="progressbar"
-        aria-label={`${content.isUploading ? "上传" : "下载"} ${downloadFileName}`}
+        aria-label={translate("{{value0}} {{value1}}", {
+          value0: content.isUploading ? translate("上传") : translate("下载"),
+          value1: downloadFileName,
+        })}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(transferProgress * 100)}
       >
         {(canCancelUpload || canCancelDownload) && (
-          <button type="button" aria-label={`${canCancelUpload ? "取消上传" : "取消下载"} ${downloadFileName}`} title={canCancelUpload ? "取消上传" : "取消下载"} onClick={() => canCancelUpload ? void onCancelUpload(message.id, message.chatId) : void onCancelDownload(downloadFileId!)}>
+          <button type="button" aria-label={translate("{{value0}} {{value1}}", {
+            value0: canCancelUpload ? translate("取消上传") : translate("取消下载"),
+            value1: downloadFileName,
+          })} title={canCancelUpload ? translate("取消上传") : translate("取消下载")} onClick={() => canCancelUpload ? void onCancelUpload(message.id, message.chatId) : void onCancelDownload(downloadFileId!)}>
             <MediaProgressRing progress={transferProgress} size={30} />
             <X className="media-progress-cancel" size={14} strokeWidth={2.2} />
           </button>
@@ -661,20 +670,20 @@ function MessageBubbleComponent({
     (selectionLimitReached && !selected);
 
   const sendFailureTitle = message.sendFailure?.needAnotherReplyQuote
-    ? "引用内容已失效，请重新选择引用后发送"
+    ? translate("引用内容已失效，请重新选择引用后发送")
     : message.sendFailure?.needDropReply
-      ? "原回复目标已失效，请取消回复后重新发送"
-      : message.sendFailure?.message || "发送失败";
+      ? translate("原回复目标已失效，请取消回复后重新发送")
+      : message.sendFailure?.message || translate("发送失败");
   const messageMeta = !isService ? (
     <span className={`message-meta ${channelPost ? "is-channel-meta" : ""}`}>
       <span className="message-meta-stats">
       {showChannelMetadata && message.interaction && (
         <>
-          <span className="message-meta-stat" aria-label={`转发 ${message.interaction.forwardCount} 次`}>
+          <span className="message-meta-stat" aria-label={translate("转发 {{value0}} 次", { value0: message.interaction.forwardCount })}>
             <Forward size={12} strokeWidth={2} />
             {formatCompactCount(message.interaction.forwardCount)}
           </span>
-          <span className="message-meta-stat" aria-label={`${message.interaction.viewCount} 次观看`}>
+          <span className="message-meta-stat" aria-label={translate("{{value0}} 次观看", { value0: message.interaction.viewCount })}>
             <Eye size={13} strokeWidth={2} />
             {formatCompactCount(message.interaction.viewCount)}
           </span>
@@ -685,7 +694,7 @@ function MessageBubbleComponent({
           <button
             className="message-channel-author"
             type="button"
-            aria-label={`打开频道原消息：${channelAuthor}`}
+            aria-label={translate("打开频道原消息：{{value0}}", { value0: channelAuthor })}
             onClick={onOpenForwardSource}
           >
             {channelAuthor}
@@ -694,8 +703,8 @@ function MessageBubbleComponent({
       )}
       </span>
       <span className="message-meta-status">
-      {message.editedAt && <span>已编辑</span>}
-      {message.isPinned && <Pin size={13} strokeWidth={2} aria-label="已置顶" />}
+      {message.editedAt && <span>{translate("已编辑")}</span>}
+      {message.isPinned && <Pin size={13} strokeWidth={2} aria-label={translate("已置顶")} />}
       <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
       {message.outgoing && (
         message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
@@ -703,7 +712,7 @@ function MessageBubbleComponent({
             ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
             : <Check size={14} strokeWidth={2.2} />
             : message.delivery === "failed" ? (
-              <button className="message-retry" type="button" disabled={!message.canRetry} aria-label="重试发送" title={message.canRetry ? `重试发送：${sendFailureTitle}` : sendFailureTitle} onClick={() => void onRetry(message.id, message.chatId)}>
+              <button className="message-retry" type="button" disabled={!message.canRetry} aria-label={translate("重试发送")} title={message.canRetry ? translate("重试发送：{{value0}}", { value0: sendFailureTitle }) : sendFailureTitle} onClick={() => void onRetry(message.id, message.chatId)}>
                 {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
               </button>
             ) : <Check size={14} strokeWidth={2.2} />
@@ -771,7 +780,7 @@ function MessageBubbleComponent({
               <button
                 className="message-forward-label"
                 type="button"
-                aria-label={`打开${forwardLabel}`}
+                aria-label={translate("打开{{value0}}", { value0: forwardLabel })}
                 onClick={onOpenForwardSource}
               >
                 <Forward size={12} strokeWidth={2} />
@@ -837,12 +846,10 @@ function MessageBubbleComponent({
               />
               {message.isPending && (
                 content.text ? (
-                  <span className="pending-message-caret" aria-label="机器人仍在生成"><span /></span>
+                  <span className="pending-message-caret" aria-label={translate("机器人仍在生成")}><span /></span>
                 ) : (
                   <span className="pending-message-thinking" role="status">
-                    <LoaderCircle className="spin" size={14} />
-                    正在生成
-                  </span>
+                    <LoaderCircle className="spin" size={14} />{translate("正在生成")}</span>
                 )
               )}
               {!showReactionFooter && messageMeta}
@@ -871,7 +878,7 @@ function MessageBubbleComponent({
                       {member.profileAvailable ? (
                         <button
                           type="button"
-                          aria-label={`查看 ${member.name} 资料`}
+                          aria-label={translate("查看 {{value0}} 资料", { value0: member.name })}
                           onClick={() => onOpenSenderProfile(member.id)}
                         >
                           {member.name}
@@ -879,7 +886,7 @@ function MessageBubbleComponent({
                       ) : member.name}
                     </Fragment>
                   ))}
-                  <span> 加入了群聊</span>
+                  <span>{translate(" 加入了群聊")}</span>
                 </>
               ) : highlightedText(content.text, searchQuery)}
             </p>
@@ -976,7 +983,7 @@ function MessageBubbleComponent({
                   <button
                     className="photo-open"
                     type="button"
-                    aria-label={`查看图片 ${content.fileName}`}
+                    aria-label={translate("查看图片 {{value0}}", { value0: content.fileName })}
                     onClick={() => onOpenMedia(message.id, message.chatId)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
@@ -1014,7 +1021,7 @@ function MessageBubbleComponent({
                   <button
                     className="photo-open"
                     type="button"
-                    aria-label={`查看图片 ${content.fileName}`}
+                    aria-label={translate("查看图片 {{value0}}", { value0: content.fileName })}
                     onClick={() => onOpenMedia(message.id, message.chatId)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
@@ -1022,12 +1029,12 @@ function MessageBubbleComponent({
                       onOpenMedia(message.id, message.chatId);
                     }}
                   >
-                    <span className="photo-placeholder" aria-label="媒体正在加载">
+                    <span className="photo-placeholder" aria-label={translate("媒体正在加载")}>
                       <ImageIcon size={28} strokeWidth={1.6} />
                     </span>
                   </button>
                 ) : (
-                  <span className="photo-placeholder" aria-label="媒体正在加载">
+                  <span className="photo-placeholder" aria-label={translate("媒体正在加载")}>
                     <ImageIcon size={28} strokeWidth={1.6} />
                   </span>
                 )}
@@ -1035,8 +1042,8 @@ function MessageBubbleComponent({
                   <button
                     className="media-download"
                     type="button"
-                    aria-label={`下载 ${downloadFileName}`}
-                    title="下载媒体"
+                    aria-label={translate("下载 {{value0}}", { value0: downloadFileName })}
+                    title={translate("下载媒体")}
                     onClick={() => void onDownload(downloadFileId!, downloadFileName)}
                   >
                     <Download size={19} />
@@ -1048,8 +1055,8 @@ function MessageBubbleComponent({
                   <button
                     className="sticker-set-open"
                     type="button"
-                    aria-label="查看贴纸包"
-                    title="查看贴纸包"
+                    aria-label={translate("查看贴纸包")}
+                    title={translate("查看贴纸包")}
                     onClick={() => onOpenStickerSet(content.stickerSetId!)}
                   />
                 )}
@@ -1133,11 +1140,11 @@ function MessageBubbleComponent({
                   type="button"
                   disabled={!canOpenFile && !canDownload}
                   aria-label={canOpenFile
-                    ? executableFile ? `打开下载目录 ${content.fileName}` : `打开 ${content.fileName}`
-                    : canDownload ? `下载 ${content.fileName}` : content.fileName}
+                    ? executableFile ? translate("打开下载目录 {{value0}}", { value0: content.fileName }) : translate("打开 {{value0}}", { value0: content.fileName })
+                    : canDownload ? translate("下载 {{value0}}", { value0: content.fileName }) : content.fileName}
                   title={canOpenFile
-                    ? executableFile ? "可执行文件已下载，打开下载目录" : "打开文件"
-                    : canDownload ? "下载文件" : undefined}
+                    ? executableFile ? translate("可执行文件已下载，打开下载目录") : translate("打开文件")
+                    : canDownload ? translate("下载文件") : undefined}
                   onClick={openOrDownloadFile}
                 >
                   <span className={`file-status-icon ${content.isDownloading ? "is-downloading" : content.isDownloaded ? "is-downloaded" : "is-pending"}`}>
@@ -1149,18 +1156,18 @@ function MessageBubbleComponent({
                   </span>
                   <span className="file-copy">
                     <strong>{highlightedText(content.fileName, searchQuery)}</strong>
-                    <small>{content.isUploading ? `上传中 ${fileProgress ?? ""}` : content.isDownloading ? `下载中 ${fileProgress ?? ""}` : message.delivery === "failed" ? "发送失败" : content.isDownloaded ? `已缓存 · ${fileSizeLabel ?? "文件"}` : fileSizeLabel ?? "待下载"}</small>
+                    <small>{content.isUploading ? translate("上传中 {{value0}}", { value0: fileProgress ?? "" }) : content.isDownloading ? translate("下载中 {{value0}}", { value0: fileProgress ?? "" }) : message.delivery === "failed" ? translate("发送失败") : content.isDownloaded ? translate("已缓存 · {{value0}}", { value0: fileSizeLabel ?? translate("文件") }) : fileSizeLabel ?? translate("待下载")}</small>
                   </span>
                 </button>
                 <span className="file-actions">
-                  {canOpenFile && !executableFile && <button type="button" aria-label={`打开 ${content.fileName}`} title="打开文件" onClick={() => void onOpenFile(localFilePath!, downloadFileId)}><ExternalLink size={15} /></button>}
-                  {canOpenFile && <button type="button" aria-label={`另存为 ${content.fileName}`} title="另存为" onClick={() => void onSaveFileAs(localFilePath!, content.fileName)}><Save size={15} /></button>}
-                  {canOpenFile && <button type="button" aria-label="打开下载目录" title="打开下载目录" onClick={() => void onOpenDownloadDirectory()}><FolderOpen size={15} /></button>}
+                  {canOpenFile && !executableFile && <button type="button" aria-label={translate("打开 {{value0}}", { value0: content.fileName })} title={translate("打开文件")} onClick={() => void onOpenFile(localFilePath!, downloadFileId)}><ExternalLink size={15} /></button>}
+                  {canOpenFile && <button type="button" aria-label={translate("另存为 {{value0}}", { value0: content.fileName })} title={translate("另存为")} onClick={() => void onSaveFileAs(localFilePath!, content.fileName)}><Save size={15} /></button>}
+                  {canOpenFile && <button type="button" aria-label={translate("打开下载目录")} title={translate("打开下载目录")} onClick={() => void onOpenDownloadDirectory()}><FolderOpen size={15} /></button>}
                   {(canCancelUpload || canCancelDownload) && (
                     <button
                       type="button"
-                      aria-label={canCancelUpload ? `取消上传 ${content.fileName}` : `取消下载 ${content.fileName}`}
-                      title={canCancelUpload ? "取消上传" : "取消下载"}
+                      aria-label={canCancelUpload ? translate("取消上传 {{value0}}", { value0: content.fileName }) : translate("取消下载 {{value0}}", { value0: content.fileName })}
+                      title={canCancelUpload ? translate("取消上传") : translate("取消下载")}
                       onClick={() => canCancelUpload ? void onCancelUpload(message.id, message.chatId) : void onCancelDownload(downloadFileId!)}
                     >
                       <X size={16} strokeWidth={2.2} />
@@ -1204,8 +1211,8 @@ function MessageBubbleComponent({
             <button
               className="local-block-message-reveal"
               type="button"
-              aria-label={`显示一条来自${senderName}的消息`}
-              title="临时显示这条消息"
+              aria-label={translate("显示一条来自{{value0}}的消息", { value0: senderName })}
+              title={translate("临时显示这条消息")}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();

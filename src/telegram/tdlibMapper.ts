@@ -1,3 +1,4 @@
+import { currentLanguage, translate } from "../i18n";
 import type {
   Chat,
   ChatDraft,
@@ -231,12 +232,12 @@ const formattedCaption = (value: unknown) => {
 
 const pollRestrictionReason = (value: unknown) => {
   switch (asTdObject(value)?.["@type"]) {
-    case "pollVoteRestrictionReasonClosed": return "投票已结束";
-    case "pollVoteRestrictionReasonYetUnsent": return "消息发送完成后才能投票";
-    case "pollVoteRestrictionReasonScheduled": return "定时消息暂不能投票";
-    case "pollVoteRestrictionReasonCountryRestricted": return "当前地区不能参与此投票";
-    case "pollVoteRestrictionReasonMembershipRequired": return "加入群组满一天后才能投票";
-    case "pollVoteRestrictionReasonOther": return "当前账号不能参与此投票";
+    case "pollVoteRestrictionReasonClosed": return translate("投票已结束");
+    case "pollVoteRestrictionReasonYetUnsent": return translate("消息发送完成后才能投票");
+    case "pollVoteRestrictionReasonScheduled": return translate("定时消息暂不能投票");
+    case "pollVoteRestrictionReasonCountryRestricted": return translate("当前地区不能参与此投票");
+    case "pollVoteRestrictionReasonMembershipRequired": return translate("加入群组满一天后才能投票");
+    case "pollVoteRestrictionReasonOther": return translate("当前账号不能参与此投票");
     default: return undefined;
   }
 };
@@ -261,7 +262,7 @@ const avatarFile = (value: unknown) => {
 };
 
 const readableSize = (bytes: number) => {
-  if (bytes <= 0) return "文件";
+  if (bytes <= 0) return translate("文件");
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -482,7 +483,7 @@ const serviceContent = (text: string, memberUserIds?: string[]): MessageContent 
 const unsupportedContent = (_value: unknown, type: string): MessageContent => ({
   kind: "unsupported",
   type,
-  text: `收到新类型消息（${type}）`,
+  text: translate("收到新类型消息（{{value0}}）", { value0: type }),
 });
 
 type RichTextStyle = Omit<MessageRichTextRun, "text">;
@@ -648,7 +649,7 @@ const richPageMedia = (block: TdObject): MessageRichMedia => {
         "animation",
         typeof animation?.file_name === "string" && animation.file_name
           ? animation.file_name
-          : "动图",
+          : translate("动图"),
         animation?.animation,
         {
           mimeType: typeof animation?.mime_type === "string" ? animation.mime_type : undefined,
@@ -668,7 +669,7 @@ const richPageMedia = (block: TdObject): MessageRichMedia => {
       const audio = asTdObject(block.audio);
       return richMedia(
         "audio",
-        typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : "音频",
+        typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : translate("音频"),
         audio?.audio,
         {
           mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
@@ -697,7 +698,7 @@ const richPageMedia = (block: TdObject): MessageRichMedia => {
       const preview = tdNumber(smallestFile?.id) !== largestFileId
         ? thumbnailFileDetails(smallestFile)
         : { thumbnailPath: tdLocalFilePath(smallestFile) };
-      return richMedia("photo", "图片", largest?.photo, {
+      return richMedia("photo", translate("图片"), largest?.photo, {
         ...preview,
         previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
         width: tdNumber(largest?.width),
@@ -711,7 +712,7 @@ const richPageMedia = (block: TdObject): MessageRichMedia => {
       const video = asTdObject(block.video);
       return richMedia(
         "video",
-        typeof video?.file_name === "string" && video.file_name ? video.file_name : "视频",
+        typeof video?.file_name === "string" && video.file_name ? video.file_name : translate("视频"),
         video?.video,
         {
           mimeType: typeof video?.mime_type === "string" ? video.mime_type : undefined,
@@ -729,14 +730,14 @@ const richPageMedia = (block: TdObject): MessageRichMedia => {
     }
     case "pageBlockVoiceNote": {
       const voice = asTdObject(block.voice_note);
-      return richMedia("voice", "语音消息", voice?.voice, {
+      return richMedia("voice", translate("语音消息"), voice?.voice, {
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
         duration: tdNumber(voice?.duration),
         caption: richCaption(block.caption),
       });
     }
     default:
-      return richMedia("photo", "媒体", undefined);
+      return richMedia("photo", translate("媒体"), undefined);
   }
 };
 
@@ -909,7 +910,7 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
       const longitude = tdNumber(location?.longitude);
       if (latitude === undefined || longitude === undefined) {
         const caption = captionRuns(block.caption);
-        return paragraph(caption.length > 0 ? caption : [{ text: "位置" }]);
+        return paragraph(caption.length > 0 ? caption : [{ text: translate("位置") }]);
       }
       return [{
         kind: "map",
@@ -986,7 +987,7 @@ const richBlockText = (block: MessageRichBlock): string[] => {
         ...(block.caption ? [richRunsText(block.caption.text)] : []),
       ];
     case "map":
-      return block.caption ? [richRunsText(block.caption.text)] : ["位置"];
+      return block.caption ? [richRunsText(block.caption.text)] : [translate("位置")];
     case "divider":
       return [];
   }
@@ -996,7 +997,7 @@ const richMessageContent = (value: unknown): MessageContent => {
   const message = asTdObject(asTdObject(value)?.message);
   let blocks = pageBlocks(message?.blocks);
   let text = blocks.flatMap(richBlockText).filter(Boolean).join("\n").trim();
-  if (!text) text = "富文本消息";
+  if (!text) text = translate("富文本消息");
   if (blocks.length === 0) blocks = paragraph([{ text }]);
   return {
     kind: "rich",
@@ -1019,11 +1020,11 @@ const labeledText = (label: string, detail: unknown) => {
 
 const durationText = (secondsValue: unknown) => {
   const seconds = tdNumber(secondsValue) ?? 0;
-  if (seconds <= 0) return "已关闭消息自动删除";
-  if (seconds % 86_400 === 0) return `消息将在 ${seconds / 86_400} 天后自动删除`;
-  if (seconds % 3_600 === 0) return `消息将在 ${seconds / 3_600} 小时后自动删除`;
-  if (seconds % 60 === 0) return `消息将在 ${seconds / 60} 分钟后自动删除`;
-  return `消息将在 ${seconds} 秒后自动删除`;
+  if (seconds <= 0) return translate("已关闭消息自动删除");
+  if (seconds % 86_400 === 0) return translate("消息将在 {{value0}} 天后自动删除", { value0: seconds / 86_400 });
+  if (seconds % 3_600 === 0) return translate("消息将在 {{value0}} 小时后自动删除", { value0: seconds / 3_600 });
+  if (seconds % 60 === 0) return translate("消息将在 {{value0}} 分钟后自动删除", { value0: seconds / 60 });
+  return translate("消息将在 {{value0}} 秒后自动删除", { value0: seconds });
 };
 
 export const mapTdMessageContent = (value: unknown, includePendingUpload = false): MessageContent => {
@@ -1041,7 +1042,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const fileName =
         typeof document?.file_name === "string" && document.file_name
           ? document.file_name
-          : caption || "文档";
+          : caption || translate("文档");
       const mimeType = typeof document?.mime_type === "string" ? document.mime_type : undefined;
       const thumbnail = asTdObject(document?.thumbnail);
       const minithumbnail = asTdObject(document?.minithumbnail);
@@ -1082,7 +1083,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const previewDetails = smallestFileId !== undefined && smallestFileId !== largestFileId
         ? thumbnailFileDetails(smallestFile)
         : { thumbnailPath: tdLocalFilePath(smallestFile) };
-      return mediaContent("photo", "图片", largest?.photo, {
+      return mediaContent("photo", translate("图片"), largest?.photo, {
         ...formattedCaption(content.caption),
         ...previewDetails,
         previewDataUrl: minithumbnailDataUrl(photo?.minithumbnail),
@@ -1099,7 +1100,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const mimeType = typeof video?.mime_type === "string" ? video.mime_type : undefined;
       return mediaContent(
         "video",
-        downloadableMediaFileName(video?.file_name, "视频", video?.video, mimeType, "mp4"),
+        downloadableMediaFileName(video?.file_name, translate("视频"), video?.video, mimeType, "mp4"),
         video?.video,
         {
           ...formattedCaption(content.caption),
@@ -1120,7 +1121,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const animation = asTdObject(content.animation);
       return mediaContent(
         "animation",
-        typeof animation?.file_name === "string" && animation.file_name ? animation.file_name : "动图",
+        typeof animation?.file_name === "string" && animation.file_name ? animation.file_name : translate("动图"),
         animation?.animation,
         {
           ...formattedCaption(content.caption),
@@ -1138,7 +1139,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const audio = asTdObject(content.audio);
       return mediaContent(
         "audio",
-        typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : "音频",
+        typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : translate("音频"),
         audio?.audio,
         {
           ...formattedCaption(content.caption),
@@ -1151,7 +1152,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
     }
     case "messageVoiceNote": {
       const voice = asTdObject(content.voice_note);
-      return mediaContent("voice", "语音消息", voice?.voice, {
+      return mediaContent("voice", translate("语音消息"), voice?.voice, {
         ...formattedCaption(content.caption),
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
         duration: tdNumber(voice?.duration),
@@ -1163,7 +1164,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const length = tdNumber(videoNote?.length);
       return mediaContent("videoNote", downloadableMediaFileName(
         undefined,
-        "视频消息",
+        translate("视频消息"),
         videoNote?.video,
         "video/mp4",
         "mp4",
@@ -1178,7 +1179,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
     case "messageSticker": {
       const sticker = asTdObject(content.sticker);
       const emoji = typeof sticker?.emoji === "string" ? sticker.emoji : "";
-      return mediaContent("sticker", emoji || "贴纸", sticker?.sticker, {
+      return mediaContent("sticker", emoji || translate("贴纸"), sticker?.sticker, {
         thumbnailPath: thumbnailPath(sticker?.thumbnail),
         previewDataUrl: minithumbnailDataUrl(sticker?.minithumbnail),
         mimeType: tdStickerMimeType(sticker?.format),
@@ -1194,17 +1195,17 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         .filter((part): part is string => typeof part === "string" && Boolean(part.trim()))
         .join(" ");
       const phone = typeof contact?.phone_number === "string" ? contact.phone_number : "";
-      return { kind: "text", text: ["联系人", name, phone].filter(Boolean).join(" · ") };
+      return { kind: "text", text: [translate("联系人"), name, phone].filter(Boolean).join(" · ") };
     }
     case "messageLocation":
-      return { kind: "text", text: "位置" };
+      return { kind: "text", text: translate("位置") };
     case "messageLiveLocation":
-      return { kind: "text", text: "实时位置" };
+      return { kind: "text", text: translate("实时位置") };
     case "messageVenue": {
       const venue = asTdObject(content.venue);
       const title = typeof venue?.title === "string" ? venue.title : "";
       const address = typeof venue?.address === "string" ? venue.address : "";
-      return { kind: "text", text: ["地点", title, address].filter(Boolean).join(" · ") };
+      return { kind: "text", text: [translate("地点"), title, address].filter(Boolean).join(" · ") };
     }
     case "messagePoll": {
       const poll = asTdObject(content.poll);
@@ -1220,14 +1221,14 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       return {
         kind: "poll",
         pollId: tdId(poll?.id),
-        question: question.text || "投票",
+        question: question.text || translate("投票"),
         questionEntities: question.entities.length > 0 ? question.entities : undefined,
         options: asTdObjects(poll?.options).map((option, position) => {
           const text = formattedTextDetails(option.text);
           return {
             id: typeof option.id === "string" && option.id ? option.id : `option-${position}`,
             position,
-            text: text.text || `选项 ${position + 1}`,
+            text: text.text || translate("选项 {{value0}}", { value0: position + 1 }),
             entities: text.entities.length > 0 ? text.entities : undefined,
             voterCount: tdNumber(option.voter_count) ?? 0,
             votePercentage: Math.min(100, Math.max(0, tdNumber(option.vote_percentage) ?? 0)),
@@ -1257,7 +1258,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const animatedEmoji = asTdObject(content.animated_emoji);
       const emoji = typeof animatedEmoji?.emoji === "string"
         ? animatedEmoji.emoji
-        : typeof content.emoji === "string" ? content.emoji : "动态表情";
+        : typeof content.emoji === "string" ? content.emoji : translate("动态表情");
       const sticker = asTdObject(animatedEmoji?.sticker);
       if (!sticker?.sticker) return { kind: "text", text: emoji };
       const format = sticker?.format;
@@ -1274,203 +1275,203 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
     }
     case "messageGame": {
       const game = asTdObject(content.game);
-      return { kind: "text", text: labeledText("游戏", game?.title) };
+      return { kind: "text", text: labeledText(translate("游戏"), game?.title) };
     }
     case "messageInvoice":
-      return { kind: "text", text: labeledText("账单", content.title) };
+      return { kind: "text", text: labeledText(translate("账单"), content.title) };
     case "messageChecklist": {
       const checklist = asTdObject(content.checklist);
-      return { kind: "text", text: labeledText("清单", checklist?.title) };
+      return { kind: "text", text: labeledText(translate("清单"), checklist?.title) };
     }
     case "messagePaidMedia": {
       const caption = formattedText(content.caption);
-      return { kind: "text", text: caption ? `付费媒体：${caption}` : "付费媒体" };
+      return { kind: "text", text: caption ? translate("付费媒体：{{value0}}", { value0: caption }) : translate("付费媒体") };
     }
     case "messageStory":
-      return { kind: "text", text: "故事" };
+      return { kind: "text", text: translate("故事") };
     case "messageCall": {
       const discardReason = asTdObject(content.discard_reason)?.["@type"];
-      const videoLabel = content.is_video === true ? "视频通话" : "通话";
+      const videoLabel = content.is_video === true ? translate("视频通话") : translate("通话");
       const label = discardReason === "callDiscardReasonMissed"
-        ? `未接${videoLabel}`
-        : discardReason === "callDiscardReasonDeclined" ? `已拒绝${videoLabel}` : videoLabel;
+        ? translate("未接{{value0}}", { value0: videoLabel })
+        : discardReason === "callDiscardReasonDeclined" ? translate("已拒绝{{value0}}", { value0: videoLabel }) : videoLabel;
       const duration = tdNumber(content.duration) ?? 0;
-      return serviceContent(duration > 0 ? `${label} · ${duration} 秒` : label);
+      return serviceContent(duration > 0 ? translate("{{value0}} · {{value1}} 秒", { value0: label, value1: duration }) : label);
     }
     case "messageBasicGroupChatCreate":
-      return serviceContent(labeledText("群聊已创建", content.title));
+      return serviceContent(labeledText(translate("群聊已创建"), content.title));
     case "messageSupergroupChatCreate":
-      return serviceContent(labeledText(content.is_channel === true ? "频道已创建" : "群聊已创建", content.title));
+      return serviceContent(labeledText(content.is_channel === true ? translate("频道已创建") : translate("群聊已创建"), content.title));
     case "messageChatAddMembers": {
       const memberUserIds = Array.isArray(content.member_user_ids)
         ? content.member_user_ids.map(tdId).filter(Boolean)
         : [];
       return serviceContent(
-        memberUserIds.length > 1 ? `${memberUserIds.length} 位新成员加入了群聊` : "新成员加入了群聊",
+        memberUserIds.length > 1 ? translate("{{value0}} 位新成员加入了群聊", { value0: memberUserIds.length }) : translate("新成员加入了群聊"),
         memberUserIds,
       );
     }
     case "messageChatJoinByLink":
-      return serviceContent("有成员通过邀请链接加入了群聊", []);
+      return serviceContent(translate("有成员通过邀请链接加入了群聊"), []);
     case "messageChatJoinByRequest":
-      return serviceContent("入群申请已通过", []);
+      return serviceContent(translate("入群申请已通过"), []);
     case "messageChatDeleteMember":
-      return serviceContent("一位成员离开或被移出了群聊");
+      return serviceContent(translate("一位成员离开或被移出了群聊"));
     case "messageChatChangeTitle":
-      return serviceContent(labeledText("群聊名称已更改", content.title));
+      return serviceContent(labeledText(translate("群聊名称已更改"), content.title));
     case "messageChatChangePhoto":
-      return serviceContent("群聊头像已更新");
+      return serviceContent(translate("群聊头像已更新"));
     case "messageChatDeletePhoto":
-      return serviceContent("群聊头像已移除");
+      return serviceContent(translate("群聊头像已移除"));
     case "messageChatUpgradeTo":
-      return serviceContent("群聊已升级为超级群组");
+      return serviceContent(translate("群聊已升级为超级群组"));
     case "messageChatUpgradeFrom":
-      return serviceContent("群聊已完成升级");
+      return serviceContent(translate("群聊已完成升级"));
     case "messagePinMessage":
-      return serviceContent("置顶了一条消息");
+      return serviceContent(translate("置顶了一条消息"));
     case "messageScreenshotTaken":
-      return serviceContent("截取了聊天截图");
+      return serviceContent(translate("截取了聊天截图"));
     case "messageChatSetMessageAutoDeleteTime":
     case "messageAutoDeleteTime":
       return serviceContent(durationText(content.message_auto_delete_time ?? content.time));
     case "messageChatSetTheme":
-      return serviceContent(content.theme_name ? `聊天主题已更改为 ${String(content.theme_name)}` : "聊天主题已更改");
+      return serviceContent(content.theme_name ? translate("聊天主题已更改为 {{value0}}", { value0: String(content.theme_name) }) : translate("聊天主题已更改"));
     case "messageChatSetBackground":
-      return serviceContent("聊天背景已更改");
+      return serviceContent(translate("聊天背景已更改"));
     case "messageChatHasProtectedContentToggled":
-      return serviceContent(content.has_protected_content === true ? "已禁止转发和保存内容" : "已允许转发和保存内容");
+      return serviceContent(content.has_protected_content === true ? translate("已禁止转发和保存内容") : translate("已允许转发和保存内容"));
     case "messageChatHasProtectedContentDisableRequested":
-      return serviceContent("已请求关闭内容保护");
+      return serviceContent(translate("已请求关闭内容保护"));
     case "messageChatBoost": {
       const count = tdNumber(content.boost_count) ?? 0;
-      return serviceContent(count > 1 ? `为群聊助力 ${count} 次` : "为群聊助力");
+      return serviceContent(count > 1 ? translate("为群聊助力 {{value0}} 次", { value0: count }) : translate("为群聊助力"));
     }
     case "messageForumTopicCreated": {
       const topic = asTdObject(content.topic_info);
-      return serviceContent(labeledText("话题已创建", topic?.name));
+      return serviceContent(labeledText(translate("话题已创建"), topic?.name));
     }
     case "messageForumTopicEdited":
-      return serviceContent(labeledText("话题已更新", content.name));
+      return serviceContent(labeledText(translate("话题已更新"), content.name));
     case "messageForumTopicIsClosedToggled":
-      return serviceContent(content.is_closed === true ? "话题已关闭" : "话题已重新打开");
+      return serviceContent(content.is_closed === true ? translate("话题已关闭") : translate("话题已重新打开"));
     case "messageForumTopicIsHiddenToggled":
-      return serviceContent(content.is_hidden === true ? "话题已隐藏" : "话题已显示");
+      return serviceContent(content.is_hidden === true ? translate("话题已隐藏") : translate("话题已显示"));
     case "messageVideoChatScheduled":
-      return serviceContent("视频聊天已安排");
+      return serviceContent(translate("视频聊天已安排"));
     case "messageVideoChatStarted":
-      return serviceContent("视频聊天已开始");
+      return serviceContent(translate("视频聊天已开始"));
     case "messageVideoChatEnded": {
       const duration = tdNumber(content.duration) ?? 0;
-      return serviceContent(duration > 0 ? `视频聊天已结束 · ${duration} 秒` : "视频聊天已结束");
+      return serviceContent(duration > 0 ? translate("视频聊天已结束 · {{value0}} 秒", { value0: duration }) : translate("视频聊天已结束"));
     }
     case "messageInviteVideoChatParticipants": {
       const count = Array.isArray(content.user_ids) ? content.user_ids.length : 0;
-      return serviceContent(count > 0 ? `邀请了 ${count} 位成员参加视频聊天` : "邀请成员参加视频聊天");
+      return serviceContent(count > 0 ? translate("邀请了 {{value0}} 位成员参加视频聊天", { value0: count }) : translate("邀请成员参加视频聊天"));
     }
     case "messageContactRegistered":
-      return serviceContent("该联系人已加入 Telegram");
+      return serviceContent(translate("该联系人已加入 Telegram"));
     case "messageCustomServiceAction":
-      return serviceContent(textValue(content.text).trim() || "群聊状态已更新");
+      return serviceContent(textValue(content.text).trim() || translate("群聊状态已更新"));
     case "messageGameScore":
-      return serviceContent(`游戏得分：${tdNumber(content.score) ?? 0}`);
+      return serviceContent(translate("游戏得分：{{value0}}", { value0: tdNumber(content.score) ?? 0 }));
     case "messagePaymentSuccessful":
     case "messagePaymentSuccessfulBot":
-      return serviceContent("付款成功");
+      return serviceContent(translate("付款成功"));
     case "messagePaymentRefunded":
-      return serviceContent("付款已退款");
+      return serviceContent(translate("付款已退款"));
     case "messageGiftedPremium":
-      return serviceContent("赠送了 Telegram Premium");
+      return serviceContent(translate("赠送了 Telegram Premium"));
     case "messagePremiumGiftCode":
-      return serviceContent("发送了 Telegram Premium 礼品码");
+      return serviceContent(translate("发送了 Telegram Premium 礼品码"));
     case "messageGiftedStars":
-      return serviceContent("赠送了 Telegram Stars");
+      return serviceContent(translate("赠送了 Telegram Stars"));
     case "messageGiftedTon":
-      return serviceContent("赠送了 TON");
+      return serviceContent(translate("赠送了 TON"));
     case "messageGift":
-      return serviceContent("发送了一份礼物");
+      return serviceContent(translate("发送了一份礼物"));
     case "messageUpgradedGift":
-      return serviceContent("礼物已升级");
+      return serviceContent(translate("礼物已升级"));
     case "messageRefundedUpgradedGift":
-      return serviceContent("升级礼物已退款");
+      return serviceContent(translate("升级礼物已退款"));
     case "messageUpgradedGiftPurchaseOffer":
-      return serviceContent("发起了礼物购买报价");
+      return serviceContent(translate("发起了礼物购买报价"));
     case "messageUpgradedGiftPurchaseOfferRejected":
-      return serviceContent("礼物购买报价已拒绝");
+      return serviceContent(translate("礼物购买报价已拒绝"));
     case "messageGiveaway":
     case "messageGiveawayCreated":
-      return serviceContent("抽奖已开始");
+      return serviceContent(translate("抽奖已开始"));
     case "messageGiveawayCompleted":
-      return serviceContent("抽奖已结束");
+      return serviceContent(translate("抽奖已结束"));
     case "messageGiveawayWinners":
-      return serviceContent("抽奖结果已公布");
+      return serviceContent(translate("抽奖结果已公布"));
     case "messageGiveawayPrizeStars":
-      return serviceContent("抽奖 Stars 奖品已发放");
+      return serviceContent(translate("抽奖 Stars 奖品已发放"));
     case "messageUsersShared":
-      return serviceContent("分享了用户信息");
+      return serviceContent(translate("分享了用户信息"));
     case "messageChatShared":
-      return serviceContent("分享了聊天信息");
+      return serviceContent(translate("分享了聊天信息"));
     case "messageBotWriteAccessAllowed":
-      return serviceContent("已允许机器人发送消息");
+      return serviceContent(translate("已允许机器人发送消息"));
     case "messageWebAppDataSent":
-      return serviceContent("已向小程序发送数据");
+      return serviceContent(translate("已向小程序发送数据"));
     case "messageWebAppDataReceived":
-      return serviceContent("已从小程序收到数据");
+      return serviceContent(translate("已从小程序收到数据"));
     case "messagePassportDataSent":
-      return serviceContent("已发送 Telegram Passport 数据");
+      return serviceContent(translate("已发送 Telegram Passport 数据"));
     case "messagePassportDataReceived":
-      return serviceContent("已收到 Telegram Passport 数据");
+      return serviceContent(translate("已收到 Telegram Passport 数据"));
     case "messageProximityAlertTriggered":
-      return serviceContent("触发了附近提醒");
+      return serviceContent(translate("触发了附近提醒"));
     case "messageChecklistTasksAdded":
-      return serviceContent("清单中添加了新任务");
+      return serviceContent(translate("清单中添加了新任务"));
     case "messageChecklistTasksDone":
-      return serviceContent("清单任务状态已更新");
+      return serviceContent(translate("清单任务状态已更新"));
     case "messagePollOptionAdded":
-      return serviceContent("投票中添加了新选项");
+      return serviceContent(translate("投票中添加了新选项"));
     case "messagePollOptionDeleted":
-      return serviceContent("投票选项已移除");
+      return serviceContent(translate("投票选项已移除"));
     case "messageChatAddedToCommunity":
     case "messageChatAddToCommunity":
-      return serviceContent("群聊已加入社区");
+      return serviceContent(translate("群聊已加入社区"));
     case "messageChatRemovedFromCommunity":
-      return serviceContent("群聊已从社区移除");
+      return serviceContent(translate("群聊已从社区移除"));
     case "messageChatOwnerChanged":
-      return serviceContent("群聊所有者已更改");
+      return serviceContent(translate("群聊所有者已更改"));
     case "messageChatOwnerLeft":
-      return serviceContent("群聊所有者已离开");
+      return serviceContent(translate("群聊所有者已离开"));
     case "messageManagedBotCreated":
-      return serviceContent("已创建管理机器人");
+      return serviceContent(translate("已创建管理机器人"));
     case "messageDirectMessagePriceChanged":
     case "messagePaidMessagePriceChanged":
-      return serviceContent("付费消息价格已更改");
+      return serviceContent(translate("付费消息价格已更改"));
     case "messagePaidMessagesRefunded":
-      return serviceContent("付费消息费用已退还");
+      return serviceContent(translate("付费消息费用已退还"));
     case "messageSuggestedPostApprovalFailed":
-      return serviceContent("建议帖子审核失败");
+      return serviceContent(translate("建议帖子审核失败"));
     case "messageSuggestedPostApproved":
-      return serviceContent("建议帖子已通过");
+      return serviceContent(translate("建议帖子已通过"));
     case "messageSuggestedPostDeclined":
-      return serviceContent("建议帖子已拒绝");
+      return serviceContent(translate("建议帖子已拒绝"));
     case "messageSuggestedPostPaid":
-      return serviceContent("建议帖子已付款");
+      return serviceContent(translate("建议帖子已付款"));
     case "messageSuggestedPostRefunded":
-      return serviceContent("建议帖子已退款");
+      return serviceContent(translate("建议帖子已退款"));
     case "messageSuggestBirthdate":
-      return serviceContent("建议添加生日");
+      return serviceContent(translate("建议添加生日"));
     case "messageSuggestProfilePhoto":
-      return serviceContent("建议更新头像");
+      return serviceContent(translate("建议更新头像"));
     case "messageExpiredPhoto":
-      return serviceContent("照片已过期");
+      return serviceContent(translate("照片已过期"));
     case "messageExpiredVideo":
-      return serviceContent("视频已过期");
+      return serviceContent(translate("视频已过期"));
     case "messageExpiredVideoNote":
-      return serviceContent("视频消息已过期");
+      return serviceContent(translate("视频消息已过期"));
     case "messageExpiredVoiceNote":
-      return serviceContent("语音消息已过期");
+      return serviceContent(translate("语音消息已过期"));
     case "messageEmpty":
-      return serviceContent("消息内容为空");
+      return serviceContent(translate("消息内容为空"));
     case "messageUnsupported":
-      return serviceContent("此消息类型当前无法显示");
+      return serviceContent(translate("此消息类型当前无法显示"));
     default: {
       const type = typeof content?.["@type"] === "string" ? content["@type"] : "unknown";
       return unsupportedContent(value, type);
@@ -1837,19 +1838,19 @@ export const mapTdChatFolders = (
     const icon = asTdObject(value.icon);
     return [{
       id: `folder:${id}`,
-      title: sanitizeIdentityText(folderName(value.name), "聊天文件夹", 12),
+      title: sanitizeIdentityText(folderName(value.name), translate("聊天文件夹"), 12),
       iconName: typeof icon?.name === "string" ? icon.name : "Custom",
     }];
   });
   const folders: ChatFolder[] = [...custom];
   folders.splice(Math.min(Math.max(mainChatListPosition, 0), folders.length), 0, {
     id: "main",
-    title: "全部聊天",
+    title: translate("全部聊天"),
     iconName: "All",
   });
   folders.push({
     id: "archive",
-    title: "归档",
+    title: translate("归档"),
     iconName: "Archive",
   });
   return folders;
@@ -1880,7 +1881,7 @@ export const mapTdChat = (
           : "group";
   const title = sanitizeIdentityText(
     typeof raw.title === "string" ? raw.title : "",
-    "未命名会话",
+    translate("未命名会话"),
     128,
   );
   const positions = asTdObjects(raw.positions);
@@ -1928,16 +1929,16 @@ export const mapTdChat = (
     canCreateTopics: management?.canManageTopics === true || asTdObject(raw.permissions)?.can_create_topics === true,
     management,
     folderIds: [...folderIds],
-    title: kind === "saved" ? "收藏夹" : title,
+    title: kind === "saved" ? translate("收藏夹") : title,
     avatar: {
-      label: kind === "saved" ? "我" : initials(title),
+      label: kind === "saved" ? translate("我") : initials(title),
       color: colorFor(id),
       ...avatarFile(asTdObject(raw.photo)?.small),
     },
     peerId,
     ...(memberCount !== undefined ? { memberCount } : {}),
     ...(activeUserCount !== undefined ? { activeUserCount } : {}),
-    preview: lastMessage ? messagePreview(lastMessage) : "暂无消息",
+    preview: lastMessage ? messagePreview(lastMessage) : translate("暂无消息"),
     previewSenderId: lastMessage ? messageSenderId(lastMessage.sender_id) || undefined : undefined,
     updatedAt: unixDate(lastMessage?.date),
     unreadCount: tdNumber(raw.unread_count) ?? 0,
@@ -2013,7 +2014,7 @@ export const mapTdForumTopic = (value: unknown): ForumTopic | undefined => {
     chatId,
     name: sanitizeIdentityText(
       typeof info.name === "string" ? info.name : "",
-      "未命名话题",
+      translate("未命名话题"),
       128,
     ),
     iconColor: tdNumber(icon?.color) ?? 0x6fb9f0,
@@ -2052,7 +2053,7 @@ export const mapTdUser = (raw: TdObject): User | undefined => {
   );
   const displayName = sanitizeIdentityText(
     `${firstName} ${lastName}`,
-    "Telegram 用户",
+    translate("Telegram 用户"),
     128,
   );
   const status = asTdObject(raw.status);
@@ -2083,6 +2084,6 @@ export const mapTdUser = (raw: TdObject): User | undefined => {
       ...avatarFile(asTdObject(raw.profile_photo)?.small),
     },
     presence: online ? "online" : "offline",
-    lastSeenLabel: lastSeen ? new Date(lastSeen * 1000).toLocaleString("zh-CN") : undefined,
+    lastSeenLabel: lastSeen ? new Date(lastSeen * 1000).toLocaleString(currentLanguage()) : undefined,
   };
 };

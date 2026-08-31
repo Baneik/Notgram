@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   Check,
   Gauge,
@@ -19,9 +20,9 @@ interface ProxySettingsEditorProps {
 }
 
 const modeOptions: Array<{ value: ProxyMode; label: string }> = [
-  { value: "system", label: "系统代理" },
-  { value: "direct", label: "直连" },
-  { value: "custom", label: "自定义" },
+  { value: "system", get label() { return translate("系统代理"); } },
+  { value: "direct", get label() { return translate("直连"); } },
+  { value: "custom", get label() { return translate("自定义"); } },
 ];
 
 const proxyTypeLabels: Record<ProxyType, string> = {
@@ -42,7 +43,7 @@ const defaultEndpoint = (): ProxyEndpoint => ({
 
 const newProfile = (position: number): ProxyProfile => ({
   id: crypto.randomUUID(),
-  name: `代理 ${position}`,
+  name: translate("代理 {{value0}}", { value0: position }),
   endpoint: defaultEndpoint(),
 });
 
@@ -105,7 +106,7 @@ export function ProxySettingsEditor({
 
   return (
     <>
-      <div className="proxy-mode" role="radiogroup" aria-label="代理模式">
+      <div className="proxy-mode" role="radiogroup" aria-label={translate("代理模式")}>
         {modeOptions.map((option) => (
           <button
             key={option.value}
@@ -129,7 +130,7 @@ export function ProxySettingsEditor({
               <span>{settings.system.server}:{settings.system.port}</span>
             </div>
           ) : (
-            <div><strong>未检测到系统代理</strong><span>当前将使用直连</span></div>
+            <div><strong>{translate("未检测到系统代理")}</strong><span>{translate("当前将使用直连")}</span></div>
           )}
         </div>
       ) : null}
@@ -137,13 +138,13 @@ export function ProxySettingsEditor({
       {settings.mode === "direct" ? (
         <div className="proxy-system-status">
           <Network size={18} strokeWidth={1.8} />
-          <div><strong>直连</strong><span>TDLib 代理已停用</span></div>
+          <div><strong>{translate("直连")}</strong><span>{translate("TDLib 代理已停用")}</span></div>
         </div>
       ) : null}
 
       {settings.mode === "custom" && activeProfile ? (
         <div className="proxy-custom-settings">
-          <div className="proxy-profile-list" role="list" aria-label="自定义代理">
+          <div className="proxy-profile-list" role="list" aria-label={translate("自定义代理")}>
             {settings.profiles.map((profile) => {
               const selected = profile.id === activeProfile.id;
               return (
@@ -167,8 +168,8 @@ export function ProxySettingsEditor({
                   <button
                     className="icon-button proxy-profile-remove"
                     type="button"
-                    aria-label={`删除 ${profile.name}`}
-                    title="删除代理"
+                    aria-label={translate("删除 {{value0}}", { value0: profile.name })}
+                    title={translate("删除代理")}
                     disabled={settings.profiles.length <= 1}
                     onClick={() => removeProfile(profile.id)}
                   >
@@ -184,14 +185,14 @@ export function ProxySettingsEditor({
               onClick={addProfile}
             >
               <Plus size={16} />
-              <span>添加代理</span>
+              <span>{translate("添加代理")}</span>
             </button>
           </div>
 
           <label className="proxy-auto-switch">
             <span>
               <Shuffle size={16} />
-              <span><strong>自动切换</strong><small>连续连接失败后轮换到下一项</small></span>
+              <span><strong>{translate("自动切换")}</strong><small>{translate("连续连接失败后轮换到下一项")}</small></span>
             </span>
             <input
               type="checkbox"
@@ -204,7 +205,7 @@ export function ProxySettingsEditor({
 
           <div className="proxy-fields">
             <label className="auth-field">
-              <span>名称</span>
+              <span>{translate("名称")}</span>
               <input
                 required
                 maxLength={40}
@@ -216,7 +217,7 @@ export function ProxySettingsEditor({
               />
             </label>
             <label className="auth-field">
-              <span>代理类型</span>
+              <span>{translate("代理类型")}</span>
               <select
                 value={activeProfile.endpoint.type}
                 onChange={(event) => updateEndpoint("type", event.target.value as ProxyType)}
@@ -228,7 +229,7 @@ export function ProxySettingsEditor({
             </label>
             <div className="proxy-address-row">
               <label className="auth-field">
-                <span>服务器</span>
+                <span>{translate("服务器")}</span>
                 <input
                   required
                   value={activeProfile.endpoint.server}
@@ -236,7 +237,7 @@ export function ProxySettingsEditor({
                 />
               </label>
               <label className="auth-field proxy-port">
-                <span>端口</span>
+                <span>{translate("端口")}</span>
                 <input
                   required
                   type="number"
@@ -262,7 +263,7 @@ export function ProxySettingsEditor({
             ) : (
               <div className="proxy-address-row">
                 <label className="auth-field">
-                  <span>用户名</span>
+                  <span>{translate("用户名")}</span>
                   <input
                     autoComplete="username"
                     value={activeProfile.endpoint.username}
@@ -270,7 +271,7 @@ export function ProxySettingsEditor({
                   />
                 </label>
                 <label className="auth-field">
-                  <span>密码</span>
+                  <span>{translate("密码")}</span>
                   <input
                     type="password"
                     autoComplete="current-password"
@@ -288,7 +289,7 @@ export function ProxySettingsEditor({
                   checked={activeProfile.endpoint.httpOnly}
                   onChange={(event) => updateEndpoint("httpOnly", event.target.checked)}
                 />
-                <span>仅 HTTP，不使用 CONNECT</span>
+                <span>{translate("仅 HTTP，不使用 CONNECT")}</span>
               </label>
             ) : null}
           </div>
@@ -303,10 +304,10 @@ export function ProxySettingsEditor({
           onClick={onTest}
         >
           {pending ? <LoaderCircle className="spin" size={17} /> : <Gauge size={17} />}
-          <span>测速</span>
+          <span>{translate("测速")}</span>
         </button>
         {latency !== undefined ? (
-          <span className="proxy-latency" role="status">延迟 {latency} ms</span>
+          <span className="proxy-latency" role="status">{translate("延迟 {{value0}} ms", { value0: latency })}</span>
         ) : null}
       </div>
     </>

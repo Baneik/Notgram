@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isTauri } from "@tauri-apps/api/core";
@@ -263,8 +264,8 @@ export const createTelegramStore = (
       if (permissions.every((value) => deleteScopeAllowed(value, revoke))) return true;
       set({
         operationError: revoke
-          ? "部分消息当前不能为所有人删除"
-          : "部分消息当前不能仅对你删除",
+          ? translate("部分消息当前不能为所有人删除")
+          : translate("部分消息当前不能仅对你删除"),
       });
       return false;
     };
@@ -273,16 +274,16 @@ export const createTelegramStore = (
         const permissions = await transport.getMessageProperties(chatId, messageId);
         if (permissions.canPin === true) return true;
       } catch (error) {
-        set({ operationError: errorMessage(error, "无法读取置顶权限") });
+        set({ operationError: errorMessage(error, translate("无法读取置顶权限")) });
         return false;
       }
-      set({ operationError: "当前账号没有置顶消息的权限" });
+      set({ operationError: translate("当前账号没有置顶消息的权限") });
       return false;
     };
     const pinOperationError = (error: unknown, fallback: string) => {
       const detail = error instanceof Error ? error.message : String(error ?? "");
       return /CHAT_ADMIN_REQUIRED|CHAT_WRITE_FORBIDDEN|not enough rights/i.test(detail)
-        ? "当前账号没有置顶消息的权限"
+        ? translate("当前账号没有置顶消息的权限")
         : errorMessage(error, fallback);
     };
     const messageEventKey = (message: Message) => `${message.chatId}:${message.id}`;
@@ -377,7 +378,7 @@ export const createTelegramStore = (
         })
         .catch((error) => {
           if (requestGeneration !== attentionReadGeneration) return;
-          set({ operationError: errorMessage(error, "无法更新屏蔽回应的已读状态") });
+          set({ operationError: errorMessage(error, translate("无法更新屏蔽回应的已读状态")) });
         })
         .finally(() => {
           if (requestGeneration !== attentionReadGeneration) return;
@@ -498,7 +499,7 @@ export const createTelegramStore = (
       })()
         .catch((error) => {
           if (generation === accountGeneration) {
-            set({ operationError: errorMessage(error, "无法恢复未读回应") });
+            set({ operationError: errorMessage(error, translate("无法恢复未读回应")) });
           }
         })
         .finally(() => {
@@ -555,7 +556,7 @@ export const createTelegramStore = (
         })
         .catch((error) => {
           if (requestGeneration !== attentionReadGeneration) return;
-          set({ operationError: errorMessage(error, "无法更新回应已读状态") });
+          set({ operationError: errorMessage(error, translate("无法更新回应已读状态")) });
         })
         .finally(() => {
           if (requestGeneration !== attentionReadGeneration) return;
@@ -809,7 +810,7 @@ export const createTelegramStore = (
         if (registeredAccountKey === key) registeredAccountKey = undefined;
         if (!accountTransition) {
           set({
-            accountError: error instanceof Error ? error.message : "无法保存账号信息",
+            accountError: error instanceof Error ? error.message : translate("无法保存账号信息"),
           });
         }
       });
@@ -1022,7 +1023,7 @@ export const createTelegramStore = (
         });
         set({
           histories: nextHistories,
-          operationError: error instanceof Error ? error.message : "无法加载历史消息",
+          operationError: error instanceof Error ? error.message : translate("无法加载历史消息"),
         });
         markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: true });
         logPerformance("ui_history_data", {
@@ -1063,7 +1064,7 @@ export const createTelegramStore = (
         if (generation !== accountGeneration) return;
         const next = new Map(get().topicHistories);
         next.set(key, { loading: false, hasMore: true, initialized: current?.initialized ?? false });
-        set({ topicHistories: next, operationError: errorMessage(error, "无法加载话题消息") });
+        set({ topicHistories: next, operationError: errorMessage(error, translate("无法加载话题消息")) });
       }
     };
 
@@ -1089,7 +1090,7 @@ export const createTelegramStore = (
         nextChatLists.set(chatListId, { loading: false, hasMore: true });
         set({
           chatLists: nextChatLists,
-          operationError: error instanceof Error ? error.message : "无法加载更多会话",
+          operationError: error instanceof Error ? error.message : translate("无法加载更多会话"),
         });
       }
     };
@@ -1121,7 +1122,7 @@ export const createTelegramStore = (
           succeeded = true;
         })
         .catch((error) => {
-          set({ operationError: error instanceof Error ? error.message : "无法更新已读状态" });
+          set({ operationError: error instanceof Error ? error.message : translate("无法更新已读状态") });
         });
       const tracked = operation.finally(() => {
         if (readRequestChains.get(chatId) === tracked) readRequestChains.delete(chatId);
@@ -1165,7 +1166,7 @@ export const createTelegramStore = (
         set({ forumTopics });
         return true;
       } catch (error) {
-        set({ operationError: errorMessage(error, "无法更新话题已读状态") });
+        set({ operationError: errorMessage(error, translate("无法更新话题已读状态")) });
         return false;
       }
     };
@@ -1797,7 +1798,7 @@ export const createTelegramStore = (
         });
         await get().initialize({ preserveAccountPending: true, skipAccountState: true });
         if (get().phase === "error") {
-          throw new Error(get().error ?? "无法切换账号");
+          throw new Error(get().error ?? translate("无法切换账号"));
         }
         accountTransition = false;
         void registerCurrentAccount();
@@ -1807,7 +1808,7 @@ export const createTelegramStore = (
         set({
           accountPending: false,
           accountSwitching: false,
-          accountError: error instanceof Error ? error.message : "无法切换账号",
+          accountError: error instanceof Error ? error.message : translate("无法切换账号"),
         });
         if (disconnected) reloadApplication();
         return false;
@@ -2125,7 +2126,7 @@ export const createTelegramStore = (
             connectionStatus: "offline",
             accountPending: false,
             accountSwitching: false,
-            error: errorMessage(error, "无法启动 Telegram runtime"),
+            error: errorMessage(error, translate("无法启动 Telegram runtime")),
           });
         }
       },
@@ -2138,7 +2139,7 @@ export const createTelegramStore = (
           set({
             authorizationPending: false,
             authorizationError:
-              error instanceof Error ? error.message : "登录请求失败",
+              error instanceof Error ? error.message : translate("登录请求失败"),
           });
         }
       },
@@ -2151,7 +2152,7 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             proxyPending: false,
-            proxyError: error instanceof Error ? error.message : "无法读取代理设置",
+            proxyError: error instanceof Error ? error.message : translate("无法读取代理设置"),
           });
         }
       },
@@ -2165,7 +2166,7 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             proxyPending: false,
-            proxyError: error instanceof Error ? error.message : "无法保存代理设置",
+            proxyError: error instanceof Error ? error.message : translate("无法保存代理设置"),
           });
           return false;
         }
@@ -2179,7 +2180,7 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             proxyPending: false,
-            proxyError: error instanceof Error ? error.message : "代理连接失败",
+            proxyError: error instanceof Error ? error.message : translate("代理连接失败"),
           });
         }
       },
@@ -2192,7 +2193,7 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             storagePending: false,
-            storageError: error instanceof Error ? error.message : "无法读取存储路径设置",
+            storageError: error instanceof Error ? error.message : translate("无法读取存储路径设置"),
           });
         }
       },
@@ -2207,7 +2208,7 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             storagePending: false,
-            storageError: error instanceof Error ? error.message : "无法保存存储路径设置",
+            storageError: error instanceof Error ? error.message : translate("无法保存存储路径设置"),
           });
           return false;
         }
@@ -2221,14 +2222,14 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             storagePending: false,
-            storageError: error instanceof Error ? error.message : "无法统计媒体缓存",
+            storageError: error instanceof Error ? error.message : translate("无法统计媒体缓存"),
           });
         }
       },
 
       clearMediaCache: async (categories, olderThanDays) => {
         if (categories.length === 0) {
-          set({ storageError: "至少选择一种缓存类型" });
+          set({ storageError: translate("至少选择一种缓存类型") });
           return false;
         }
         const current = get();
@@ -2253,7 +2254,7 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             storagePending: false,
-            storageError: error instanceof Error ? error.message : "无法清理媒体缓存",
+            storageError: error instanceof Error ? error.message : translate("无法清理媒体缓存"),
           });
           return false;
         }
@@ -2262,7 +2263,7 @@ export const createTelegramStore = (
       rebuildCachedSnapshot: async () => {
         const current = get();
         if (current.authorization.kind !== "ready" || !current.currentUserId) {
-          set({ storageError: "Telegram 就绪后才能重建界面缓存" });
+          set({ storageError: translate("Telegram 就绪后才能重建界面缓存") });
           return false;
         }
         cancelScheduledCacheWrite();
@@ -2280,7 +2281,7 @@ export const createTelegramStore = (
           set({
             cacheHealth: "invalid",
             storagePending: false,
-            storageError: error instanceof Error ? error.message : "无法重建界面缓存",
+            storageError: error instanceof Error ? error.message : translate("无法重建界面缓存"),
           });
           return false;
         }
@@ -2320,7 +2321,7 @@ export const createTelegramStore = (
           set({
             accountPending: false,
             accountSwitching: false,
-            accountError: error instanceof Error ? error.message : "退出登录失败",
+            accountError: error instanceof Error ? error.message : translate("退出登录失败"),
           });
           if (disconnected) reloadApplication();
           return false;
@@ -2329,7 +2330,7 @@ export const createTelegramStore = (
 
       selectChat: (chatId, options) => {
         if (!get().chats.has(chatId)) {
-          set({ operationError: "会话不存在或当前账号无权访问" });
+          set({ operationError: translate("会话不存在或当前账号无权访问") });
           return;
         }
         const previousChatId = get().activeChatId;
@@ -2389,13 +2390,13 @@ export const createTelegramStore = (
           if (target && "kind" in target && target.kind === "unsupported") {
             set({ operationError: target.reason });
           } else if (!target) {
-            set({ operationError: "无法识别或打开此 Telegram 链接" });
+            set({ operationError: translate("无法识别或打开此 Telegram 链接") });
           } else {
             set({ operationError: undefined });
           }
           return target;
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "Telegram 链接无法打开" });
+          set({ operationError: error instanceof Error ? error.message : translate("Telegram 链接无法打开") });
           return undefined;
         }
       },
@@ -2403,8 +2404,8 @@ export const createTelegramStore = (
       loadMoreChats: loadChats,
       setChatPinned: (chatListId, chatId, pinned) => manageChat(
         chatId,
-        "无法更新置顶状态",
-        "Telegram 未确认置顶状态",
+        translate("无法更新置顶状态"),
+        translate("Telegram 未确认置顶状态"),
         () => transport.setChatPinned(chatListId, chatId, pinned),
         () => {
           const chat = get().chats.get(chatId);
@@ -2454,28 +2455,30 @@ export const createTelegramStore = (
             set({ chats: rollback });
           }
           set({
-            operationError: error instanceof Error ? error.message : "无法调整置顶顺序",
+            operationError: error instanceof Error ? error.message : translate("无法调整置顶顺序"),
           });
           return false;
         }
       },
       setChatMuted: (chatId, muted) => {
         if (get().chats.get(chatId)?.kind === "saved") {
-          set({ operationError: "收藏夹不支持静音" });
+          set({ operationError: translate("收藏夹不支持静音") });
           return Promise.resolve(false);
         }
         return manageChat(
           chatId,
-          "无法更新通知设置",
-          "Telegram 未确认静音状态",
+          translate("无法更新通知设置"),
+          translate("Telegram 未确认静音状态"),
           () => transport.setChatMuted(chatId, muted),
           () => get().chats.get(chatId)?.muted === muted,
         );
       },
       setChatArchived: (chatId, archived) => manageChat(
         chatId,
-        archived ? "无法归档会话" : "无法移出归档",
-        `Telegram 未确认${archived ? "归档" : "取消归档"}状态`,
+        archived ? translate("无法归档会话") : translate("无法移出归档"),
+        translate("Telegram 未确认{{value0}}状态", {
+          value0: archived ? translate("归档") : translate("取消归档"),
+        }),
         () => transport.setChatArchived(chatId, archived),
         () => get().chats.get(chatId)?.folderIds.includes(
           archived ? "archive" : "main",
@@ -2484,13 +2487,13 @@ export const createTelegramStore = (
       leaveGroup: async (chatId) => {
         const chat = get().chats.get(chatId);
         if (chat?.kind !== "group") {
-          set({ operationError: "只能退出群组会话" });
+          set({ operationError: translate("只能退出群组会话") });
           return false;
         }
         const succeeded = await manageChat(
           chatId,
-          "无法退出群组",
-          "Telegram 未确认退出群组",
+          translate("无法退出群组"),
+          translate("Telegram 未确认退出群组"),
           () => transport.leaveChat(chatId),
           () => get().chats.get(chatId)?.folderIds.length === 0,
         );
@@ -2514,12 +2517,12 @@ export const createTelegramStore = (
       createChatFolder: async (title, chatIds) => {
         const uniqueChatIds = [...new Set(chatIds)].filter((chatId) => get().chats.has(chatId));
         if (uniqueChatIds.length === 0) {
-          set({ operationError: "请至少选择一个会话" });
+          set({ operationError: translate("请至少选择一个会话") });
           return undefined;
         }
         const folder = await manageFolder(
-          "无法创建文件夹",
-          "Telegram 未确认新文件夹",
+          translate("无法创建文件夹"),
+          translate("Telegram 未确认新文件夹"),
           () => transport.createChatFolder(title, uniqueChatIds),
           (created) => get().folders.some((item) =>
             item.id === created.id && item.title === created.title
@@ -2530,16 +2533,16 @@ export const createTelegramStore = (
         return folder?.id;
       },
       renameChatFolder: async (folderId, title) => Boolean(await manageFolder(
-        "无法重命名文件夹",
-        "Telegram 未确认文件夹名称",
+        translate("无法重命名文件夹"),
+        translate("Telegram 未确认文件夹名称"),
         () => transport.renameChatFolder(folderId, title),
         (renamed) => get().folders.some((folder) =>
           folder.id === folderId && folder.title === renamed.title
         ),
       )),
       deleteChatFolder: async (folderId) => Boolean(await manageFolder(
-        "无法删除文件夹",
-        "Telegram 未确认文件夹删除",
+        translate("无法删除文件夹"),
+        translate("Telegram 未确认文件夹删除"),
         async () => {
           await transport.deleteChatFolder(folderId);
           return true;
@@ -2577,7 +2580,7 @@ export const createTelegramStore = (
             .filter((folder) => folder.id !== "archive")
             .map((folder) => folder.id);
           if (!uniqueIds.every((folderId, index) => folderId === confirmedIds[index])) {
-            throw new Error("Telegram 未确认文件夹顺序");
+            throw new Error(translate("Telegram 未确认文件夹顺序"));
           }
           await flushCachedSnapshot();
           return true;
@@ -2588,7 +2591,7 @@ export const createTelegramStore = (
           if (uniqueIds.every((folderId, index) => folderId === latestIds[index])) {
             set({ folders: originalFolders });
           }
-          set({ operationError: errorMessage(error, "无法调整文件夹顺序") });
+          set({ operationError: errorMessage(error, translate("无法调整文件夹顺序")) });
           return false;
         } finally {
           set({ folderManagementPending: false });
@@ -2596,8 +2599,8 @@ export const createTelegramStore = (
       },
       setChatFolderMembership: async (folderId, chatId, included) => Boolean(
         await manageFolder(
-          "无法更新文件夹成员",
-          "Telegram 未确认文件夹成员状态",
+          translate("无法更新文件夹成员"),
+          translate("Telegram 未确认文件夹成员状态"),
           async () => {
             await transport.setChatFolderMembership(folderId, chatId, included);
             return true;
@@ -2718,7 +2721,7 @@ export const createTelegramStore = (
             set({ operationError: undefined });
             return [];
           }
-          set({ operationError: errorMessage(error, "无法加载帖子留言") });
+          set({ operationError: errorMessage(error, translate("无法加载帖子留言")) });
           return undefined;
         }
       },
@@ -2737,7 +2740,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "留言发送失败") });
+          set({ operationError: errorMessage(error, translate("留言发送失败")) });
           return false;
         }
       },
@@ -2762,7 +2765,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "留言附件发送失败") });
+          set({ operationError: errorMessage(error, translate("留言附件发送失败")) });
           return false;
         }
       },
@@ -2823,7 +2826,7 @@ export const createTelegramStore = (
           })
           .catch((error) => {
             if (requestGeneration !== attentionReadGeneration) return;
-            set({ operationError: errorMessage(error, "无法更新提醒已读状态") });
+            set({ operationError: errorMessage(error, translate("无法更新提醒已读状态")) });
           })
           .finally(() => {
             if (requestGeneration !== attentionReadGeneration) return;
@@ -2849,7 +2852,7 @@ export const createTelegramStore = (
           return permissions;
         } catch (error) {
           set({
-            operationError: error instanceof Error ? error.message : "无法读取消息操作权限",
+            operationError: error instanceof Error ? error.message : translate("无法读取消息操作权限"),
           });
           return undefined;
         }
@@ -2859,13 +2862,13 @@ export const createTelegramStore = (
         try {
           const raw = await transport.getRawMessage(chatId, messageId);
           if (!raw) {
-            set({ operationError: "找不到原始消息" });
+            set({ operationError: translate("找不到原始消息") });
             return undefined;
           }
           set({ operationError: undefined });
           return raw;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法读取原始消息") });
+          set({ operationError: errorMessage(error, translate("无法读取原始消息")) });
           return undefined;
         }
       },
@@ -2905,7 +2908,7 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             contactPendingUserId: undefined,
-            contactsError: errorMessage(error, "无法发起私聊"),
+            contactsError: errorMessage(error, translate("无法发起私聊")),
           });
           return undefined;
         }
@@ -2932,15 +2935,15 @@ export const createTelegramStore = (
         } catch (error) {
           set({
             chatCreationPending: false,
-            operationError: errorMessage(error, "无法创建群组或频道"),
+            operationError: errorMessage(error, translate("无法创建群组或频道")),
           });
           return undefined;
         }
       },
 
       loadChatManagement: (chatId, memberOffset = 0) => {
-        if (!requireManagementCapability(chatId, "canOpenManagement", "当前账号没有群组管理权限")) {
-          set({ groupManagement: undefined, groupManagementLoading: false, groupManagementError: "当前账号没有群组管理权限" });
+        if (!requireManagementCapability(chatId, "canOpenManagement", translate("当前账号没有群组管理权限"))) {
+          set({ groupManagement: undefined, groupManagementLoading: false, groupManagementError: translate("当前账号没有群组管理权限") });
           return Promise.resolve(undefined);
         }
         const key = `${chatId}:${memberOffset}`;
@@ -2974,7 +2977,7 @@ export const createTelegramStore = (
             });
             return merged;
           } catch (error) {
-            set({ groupManagementLoading: false, groupManagementError: errorMessage(error, "无法读取群组管理资料") });
+            set({ groupManagementLoading: false, groupManagementError: errorMessage(error, translate("无法读取群组管理资料")) });
             return undefined;
           } finally {
             groupManagementLoads.delete(key);
@@ -3010,14 +3013,14 @@ export const createTelegramStore = (
       },
 
       addChatMembers: async (chatId, userIds) => {
-        if (!requireManagementCapability(chatId, "canAddMembers", "当前账号没有邀请成员权限")) return false;
+        if (!requireManagementCapability(chatId, "canAddMembers", translate("当前账号没有邀请成员权限"))) return false;
         try {
           await transport.addChatMembers(chatId, userIds);
           await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法添加成员") });
+          set({ operationError: errorMessage(error, translate("无法添加成员")) });
           return false;
         }
       },
@@ -3034,11 +3037,11 @@ export const createTelegramStore = (
           chatId,
           capability,
           capability === "canPromoteMembers"
-            ? "当前账号没有管理员任免权限"
-            : capability === "canRestrictMembers" ? "当前账号没有限制成员权限" : "当前账号没有邀请成员权限",
+            ? translate("当前账号没有管理员任免权限")
+            : capability === "canRestrictMembers" ? translate("当前账号没有限制成员权限") : translate("当前账号没有邀请成员权限"),
         )) return false;
         if (!capability && !managementCapabilitiesFor(chatId)?.canOpenManagement) {
-          set({ operationError: "当前账号没有成员管理权限" });
+          set({ operationError: translate("当前账号没有成员管理权限") });
           return false;
         }
         try {
@@ -3047,132 +3050,132 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法更新成员权限") });
+          set({ operationError: errorMessage(error, translate("无法更新成员权限")) });
           return false;
         }
       },
 
       setChatMemberTag: async (chatId, userId, tag) => {
-        if (!requireManagementCapability(chatId, "canManageTags", "当前账号没有修改成员标签的权限")) return false;
+        if (!requireManagementCapability(chatId, "canManageTags", translate("当前账号没有修改成员标签的权限"))) return false;
         try {
           await transport.setChatMemberTag(chatId, userId, tag);
           await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法更新成员标签") });
+          set({ operationError: errorMessage(error, translate("无法更新成员标签")) });
           return false;
         }
       },
 
       setChatPermissions: async (chatId, permissions) => {
-        if (!requireManagementCapability(chatId, "canManagePermissions", "当前账号没有修改默认权限的权限")) return false;
+        if (!requireManagementCapability(chatId, "canManagePermissions", translate("当前账号没有修改默认权限的权限"))) return false;
         try {
           await transport.setChatPermissions(chatId, permissions);
           await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法更新群组默认权限") });
+          set({ operationError: errorMessage(error, translate("无法更新群组默认权限")) });
           return false;
         }
       },
 
       setChatSlowModeDelay: async (chatId, delaySeconds) => {
-        if (!requireManagementCapability(chatId, "canManageSlowMode", "当前账号没有修改慢速模式的权限")) return false;
+        if (!requireManagementCapability(chatId, "canManageSlowMode", translate("当前账号没有修改慢速模式的权限"))) return false;
         try {
           await transport.setChatSlowModeDelay(chatId, delaySeconds);
           await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法更新慢速模式") });
+          set({ operationError: errorMessage(error, translate("无法更新慢速模式")) });
           return false;
         }
       },
 
       transferChatOwnership: async (chatId, userId, password) => {
-        if (!requireManagementCapability(chatId, "canTransferOwnership", "当前账号不能转移所有权")) return false;
+        if (!requireManagementCapability(chatId, "canTransferOwnership", translate("当前账号不能转移所有权"))) return false;
         try {
           await transport.transferChatOwnership(chatId, userId, password);
           await get().loadChatManagement(chatId, 0);
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法转移所有者") });
+          set({ operationError: errorMessage(error, translate("无法转移所有者")) });
           return false;
         }
       },
 
       loadChatEventLog: async (input) => {
-        if (!requireManagementCapability(input.chatId, "canViewEventLog", "当前账号没有查看管理日志的权限")) return undefined;
+        if (!requireManagementCapability(input.chatId, "canViewEventLog", translate("当前账号没有查看管理日志的权限"))) return undefined;
         try {
           const page = await transport.getChatEventLog(input);
           set({ operationError: undefined });
           return page;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法读取管理日志") });
+          set({ operationError: errorMessage(error, translate("无法读取管理日志")) });
           return undefined;
         }
       },
 
       getChatInviteLinks: async (input) => {
-        if (!requireManagementCapability(input.chatId, "canManageInvites", "当前账号没有管理邀请链接的权限")) return undefined;
+        if (!requireManagementCapability(input.chatId, "canManageInvites", translate("当前账号没有管理邀请链接的权限"))) return undefined;
         const capabilities = managementCapabilitiesFor(input.chatId);
         if (
           capabilities?.canManageAllInvites !== true &&
           input.creatorUserId &&
           input.creatorUserId !== get().currentUserId
         ) {
-          set({ operationError: "管理员只能读取自己创建的邀请链接" });
+          set({ operationError: translate("管理员只能读取自己创建的邀请链接") });
           return undefined;
         }
         try { return await transport.getChatInviteLinks(input); }
-        catch (error) { set({ operationError: errorMessage(error, "无法读取邀请链接") }); return undefined; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法读取邀请链接")) }); return undefined; }
       },
 
       createChatInviteLink: async (input) => {
-        if (!requireManagementCapability(input.chatId, "canManageInvites", "当前账号没有管理邀请链接的权限")) return undefined;
+        if (!requireManagementCapability(input.chatId, "canManageInvites", translate("当前账号没有管理邀请链接的权限"))) return undefined;
         try { const link = await transport.createChatInviteLink(input); set({ operationError: undefined }); return link; }
-        catch (error) { set({ operationError: errorMessage(error, "无法创建邀请链接") }); return undefined; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法创建邀请链接")) }); return undefined; }
       },
 
       editChatInviteLink: async (input) => {
-        if (!requireManagementCapability(input.chatId, "canManageInvites", "当前账号没有管理邀请链接的权限")) return undefined;
+        if (!requireManagementCapability(input.chatId, "canManageInvites", translate("当前账号没有管理邀请链接的权限"))) return undefined;
         try { const link = await transport.editChatInviteLink(input); set({ operationError: undefined }); return link; }
-        catch (error) { set({ operationError: errorMessage(error, "无法编辑邀请链接") }); return undefined; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法编辑邀请链接")) }); return undefined; }
       },
 
       revokeChatInviteLink: async (chatId, inviteLink) => {
-        if (!requireManagementCapability(chatId, "canManageInvites", "当前账号没有管理邀请链接的权限")) return false;
+        if (!requireManagementCapability(chatId, "canManageInvites", translate("当前账号没有管理邀请链接的权限"))) return false;
         try { await transport.revokeChatInviteLink(chatId, inviteLink); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法撤销邀请链接") }); return false; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法撤销邀请链接")) }); return false; }
       },
 
       getChatJoinRequests: async (input) => {
-        if (!requireManagementCapability(input.chatId, "canManageInvites", "当前账号没有处理入群申请的权限")) return undefined;
+        if (!requireManagementCapability(input.chatId, "canManageInvites", translate("当前账号没有处理入群申请的权限"))) return undefined;
         if (managementCapabilitiesFor(input.chatId)?.canManageAllInvites !== true && !input.inviteLink) {
-          set({ operationError: "管理员只能读取自己邀请链接的入群申请" });
+          set({ operationError: translate("管理员只能读取自己邀请链接的入群申请") });
           return undefined;
         }
         try { return await transport.getChatJoinRequests(input); }
-        catch (error) { set({ operationError: errorMessage(error, "无法读取入群申请") }); return undefined; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法读取入群申请")) }); return undefined; }
       },
 
       processChatJoinRequest: async (chatId, userId, approve) => {
-        if (!requireManagementCapability(chatId, "canManageInvites", "当前账号没有处理入群申请的权限")) return false;
+        if (!requireManagementCapability(chatId, "canManageInvites", translate("当前账号没有处理入群申请的权限"))) return false;
         try { await transport.processChatJoinRequest(chatId, userId, approve); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法处理入群申请") }); return false; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法处理入群申请")) }); return false; }
       },
 
       processChatJoinRequests: async (chatId, inviteLink, approve) => {
-        if (!requireManagementCapability(chatId, "canManageInvites", "当前账号没有处理入群申请的权限")) return false;
+        if (!requireManagementCapability(chatId, "canManageInvites", translate("当前账号没有处理入群申请的权限"))) return false;
         if (managementCapabilitiesFor(chatId)?.canManageAllInvites !== true && !inviteLink) {
-          set({ operationError: "管理员只能处理自己邀请链接的入群申请" });
+          set({ operationError: translate("管理员只能处理自己邀请链接的入群申请") });
           return false;
         }
         try { await transport.processChatJoinRequests(chatId, inviteLink, approve); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法批量处理入群申请") }); return false; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法批量处理入群申请")) }); return false; }
       },
 
       getBotCommandSuggestions: async (chatId, query = "", botUsername) => {
@@ -3188,7 +3191,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return answer;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法处理机器人操作") });
+          set({ operationError: errorMessage(error, translate("无法处理机器人操作")) });
           return undefined;
         }
       },
@@ -3200,18 +3203,18 @@ export const createTelegramStore = (
 
       sendInlineQueryResultMessage: async (chatId, botUserId, queryId, resultId, replyToMessageId, topicId) => {
         try { await transport.sendInlineQueryResultMessage(chatId, botUserId, queryId, resultId, replyToMessageId, topicId); recordConversationSentMessages(get().activeAccountId, chatId); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法发送 Inline 结果") }); return false; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法发送 Inline 结果")) }); return false; }
       },
 
       sendBotStartMessage: async (chatId, botUserId, parameter = "") => {
         try { await transport.sendBotStartMessage(chatId, botUserId, parameter); recordConversationSentMessages(get().activeAccountId, chatId); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法启动机器人") }); return false; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法启动机器人")) }); return false; }
       },
 
       loadBlockedSenders: async () => {
         set({ blockedSendersLoading: true });
         try { set({ blockedSenders: await transport.getBlockedSenders(), blockedSendersLoading: false }); }
-        catch (error) { set({ blockedSendersLoading: false, operationError: errorMessage(error, "无法读取黑名单") }); }
+        catch (error) { set({ blockedSendersLoading: false, operationError: errorMessage(error, translate("无法读取黑名单")) }); }
       },
 
       setMessageSenderBlocked: async (senderId, kind, blocked) => {
@@ -3220,17 +3223,17 @@ export const createTelegramStore = (
           const blockedSenders = blocked ? await transport.getBlockedSenders() : get().blockedSenders.filter((sender) => !(sender.id === senderId && sender.kind === kind));
           set({ blockedSenders, operationError: undefined });
           return true;
-        } catch (error) { set({ operationError: errorMessage(error, blocked ? "无法屏蔽对象" : "无法解除屏蔽") }); return false; }
+        } catch (error) { set({ operationError: errorMessage(error, blocked ? translate("无法屏蔽对象") : translate("无法解除屏蔽")) }); return false; }
       },
 
       getChatReportOptions: async (chatId, messageIds) => {
         try { return await transport.getChatReportOptions(chatId, messageIds); }
-        catch (error) { set({ operationError: errorMessage(error, "无法读取举报选项") }); return undefined; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法读取举报选项")) }); return undefined; }
       },
 
       reportChat: async (input) => {
         try { await transport.reportChat(input); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, "无法提交举报") }); return false; }
+        catch (error) { set({ operationError: errorMessage(error, translate("无法提交举报")) }); return false; }
       },
 
       getActiveSessions: sessionController.getActiveSessions,
@@ -3263,14 +3266,14 @@ export const createTelegramStore = (
             set({ messages: rollback });
           }
           set({
-            operationError: error instanceof Error ? error.message : "无法更新表情回应",
+            operationError: error instanceof Error ? error.message : translate("无法更新表情回应"),
           });
         }
       },
 
       getMessageReactionSenders: async (messageId, type, offset, preferredChatId) => {
         const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
-        if (!location) throw new Error("消息不存在");
+        if (!location) throw new Error(translate("消息不存在"));
         return transport.getMessageReactionSenders({
           chatId: location.chatId,
           messageId,
@@ -3290,7 +3293,7 @@ export const createTelegramStore = (
           return true;
         } catch (error) {
           set({
-            operationError: error instanceof Error ? error.message : "无法提交投票",
+            operationError: error instanceof Error ? error.message : translate("无法提交投票"),
           });
           return false;
         }
@@ -3303,7 +3306,7 @@ export const createTelegramStore = (
           if (get().operationError) set({ operationError: undefined });
           return pinned;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法读取置顶消息") });
+          set({ operationError: errorMessage(error, translate("无法读取置顶消息")) });
           return [];
         }
       },
@@ -3328,7 +3331,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ operationError: pinOperationError(error, "无法置顶消息") });
+          set({ operationError: pinOperationError(error, translate("无法置顶消息")) });
           return false;
         }
       },
@@ -3348,7 +3351,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ operationError: pinOperationError(error, "无法取消置顶消息") });
+          set({ operationError: pinOperationError(error, translate("无法取消置顶消息")) });
           return false;
         }
       },
@@ -3358,10 +3361,10 @@ export const createTelegramStore = (
         if (!targetChat) return false;
         if (
           (targetChat.kind === "group" || targetChat.kind === "channel") &&
-          !requireManagementCapability(chatId, "canChangeInfo", "当前账号没有修改群资料的权限")
+          !requireManagementCapability(chatId, "canChangeInfo", translate("当前账号没有修改群资料的权限"))
         ) return false;
         if (targetChat.kind !== "direct" && targetChat.kind !== "group" && targetChat.kind !== "channel") {
-          set({ operationError: "当前会话不支持自动删除设置" });
+          set({ operationError: translate("当前会话不支持自动删除设置") });
           return false;
         }
         try {
@@ -3376,7 +3379,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法设置自动删除") });
+          set({ operationError: errorMessage(error, translate("无法设置自动删除")) });
           return false;
         }
       },
@@ -3394,7 +3397,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return merged;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法读取共享媒体") });
+          set({ operationError: errorMessage(error, translate("无法读取共享媒体")) });
           return undefined;
         }
       },
@@ -3407,7 +3410,7 @@ export const createTelegramStore = (
         try {
           if (!await verifyDeleteScope(chatId, uniqueIds, revoke)) return false;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法确认消息删除权限") });
+          set({ operationError: errorMessage(error, translate("无法确认消息删除权限")) });
           return false;
         }
         const deletedIds: string[] = [];
@@ -3427,7 +3430,7 @@ export const createTelegramStore = (
         }
         set({
           operationError: failure
-            ? errorMessage(failure, `已删除 ${deletedIds.length} 条，部分消息删除失败`)
+            ? errorMessage(failure, translate("已删除 {{value0}} 条，部分消息删除失败", { value0: deletedIds.length }))
             : undefined,
         });
         return !failure;
@@ -3440,7 +3443,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return catalog;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法读取表情与贴纸") });
+          set({ operationError: errorMessage(error, translate("无法读取表情与贴纸")) });
           return undefined;
         }
       },
@@ -3451,7 +3454,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return stickerSet;
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法读取贴纸包") });
+          set({ operationError: errorMessage(error, translate("无法读取贴纸包")) });
           return undefined;
         }
       },
@@ -3462,7 +3465,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "添加贴纸包失败") });
+          set({ operationError: errorMessage(error, translate("添加贴纸包失败")) });
           return false;
         }
       },
@@ -3473,7 +3476,7 @@ export const createTelegramStore = (
         try {
           return await transport.searchStickers(normalized, chatId);
         } catch (error) {
-          set({ operationError: errorMessage(error, "无法搜索贴纸") });
+          set({ operationError: errorMessage(error, translate("无法搜索贴纸")) });
           return [];
         }
       },
@@ -3491,7 +3494,7 @@ export const createTelegramStore = (
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         if (!chatId) return false;
         if (!connectionPresentation(get().connectionStatus).operational) {
-          set({ operationError: "联网后才能发送贴纸" });
+          set({ operationError: translate("联网后才能发送贴纸") });
           return false;
         }
         try {
@@ -3507,7 +3510,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "贴纸发送失败") });
+          set({ operationError: errorMessage(error, translate("贴纸发送失败")) });
           return false;
         }
       },
@@ -3517,7 +3520,7 @@ export const createTelegramStore = (
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         if (!chatId) return false;
         if (!connectionPresentation(get().connectionStatus).operational) {
-          set({ operationError: "联网后才能发送 GIF" });
+          set({ operationError: translate("联网后才能发送 GIF") });
           return false;
         }
         try {
@@ -3533,7 +3536,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ operationError: errorMessage(error, "GIF 发送失败") });
+          set({ operationError: errorMessage(error, translate("GIF 发送失败")) });
           return false;
         }
       },
@@ -3599,7 +3602,7 @@ export const createTelegramStore = (
           // Invalid local attachment drafts are discarded below.
         }
         discardLocalAttachmentDraft(draftKey);
-        set({ operationError: "附件草稿已失效，请重新选择文件" });
+        set({ operationError: translate("附件草稿已失效，请重新选择文件") });
         return [];
       },
 
@@ -3641,7 +3644,7 @@ export const createTelegramStore = (
         } catch (error) {
           await attachmentOutbox.remove(batchId).catch(() => undefined);
           if (localAttachmentDraftGenerations.get(draftKey) === generation) {
-            set({ operationError: errorMessage(error, "无法保存附件草稿") });
+            set({ operationError: errorMessage(error, translate("无法保存附件草稿")) });
           }
           return false;
         }
@@ -3734,7 +3737,7 @@ export const createTelegramStore = (
               outbox: previousOutbox,
               messages: previousMessages,
               cacheHealth: "invalid",
-              operationError: errorMessage(error, "无法保存离线发送队列"),
+              operationError: errorMessage(error, translate("无法保存离线发送队列")),
             });
             return false;
           }
@@ -3772,7 +3775,7 @@ export const createTelegramStore = (
             set({ drafts });
             draftSync.expect(draftKey, draftForSync(restored), 0);
           }
-          set({ operationError: error instanceof Error ? error.message : "消息发送失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("消息发送失败") });
           return false;
         }
       },
@@ -3793,7 +3796,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return true;
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "消息编辑失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("消息编辑失败") });
           return false;
         }
       },
@@ -3823,7 +3826,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "消息删除失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("消息删除失败") });
           return false;
         }
       },
@@ -3833,7 +3836,7 @@ export const createTelegramStore = (
         const uniqueMessageIds = [...new Set(messageIds)];
         if (uniqueMessageIds.length === 0) return undefined;
         if (uniqueMessageIds.length > 100) {
-          set({ operationError: "单次最多转发 100 条消息" });
+          set({ operationError: translate("单次最多转发 100 条消息") });
           return undefined;
         }
         try {
@@ -3850,12 +3853,12 @@ export const createTelegramStore = (
                 clearDraft: false,
               });
             } catch (error) {
-              descriptionError = errorMessage(error, "转发成功，但描述发送失败");
+              descriptionError = errorMessage(error, translate("转发成功，但描述发送失败"));
             }
           }
           set({
             operationError: descriptionError ?? (result.failedMessageIds.length > 0
-              ? `${result.forwardedCount} 条消息已转发，${result.failedMessageIds.length} 条失败`
+              ? translate("{{value0}} 条消息已转发，{{value1}} 条失败", { value0: result.forwardedCount, value1: result.failedMessageIds.length })
               : undefined),
           });
           if (result.forwardedCount > 0) {
@@ -3868,7 +3871,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return result;
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "消息转发失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("消息转发失败") });
           return undefined;
         }
       },
@@ -3894,7 +3897,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           return source;
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "视频流加载失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("视频流加载失败") });
           return undefined;
         }
       },
@@ -3913,7 +3916,7 @@ export const createTelegramStore = (
           await transport.downloadFile(fileId, fileName);
           set({ operationError: undefined });
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "文件下载失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("文件下载失败") });
           throw error;
         }
       },
@@ -3923,7 +3926,7 @@ export const createTelegramStore = (
           await transport.cancelFileDownload(fileId);
           set({ operationError: undefined });
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "取消文件下载失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("取消文件下载失败") });
         }
       },
 
@@ -3936,13 +3939,13 @@ export const createTelegramStore = (
           if (fileId !== undefined) {
             try {
               await transport.recoverFile(fileId, 32);
-              set({ operationError: "文件缓存已失效并已重新下载，请再次打开" });
+              set({ operationError: translate("文件缓存已失效并已重新下载，请再次打开") });
               return false;
             } catch {
               // Preserve the original open error when recovery also fails.
             }
           }
-          set({ operationError: error instanceof Error ? error.message : "无法打开文件" });
+          set({ operationError: error instanceof Error ? error.message : translate("无法打开文件") });
           return false;
         }
       },
@@ -3952,7 +3955,7 @@ export const createTelegramStore = (
           await transport.saveFileToDownloads(sourcePath, fileName);
           set({ operationError: undefined });
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "无法保存文件" });
+          set({ operationError: error instanceof Error ? error.message : translate("无法保存文件") });
         }
       },
 
@@ -3961,7 +3964,7 @@ export const createTelegramStore = (
           await transport.saveFileAs(sourcePath, fileName);
           set({ operationError: undefined });
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "无法另存文件" });
+          set({ operationError: error instanceof Error ? error.message : translate("无法另存文件") });
         }
       },
 
@@ -3970,7 +3973,7 @@ export const createTelegramStore = (
           await transport.openDownloadDirectory();
           set({ operationError: undefined });
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "无法打开下载目录" });
+          set({ operationError: error instanceof Error ? error.message : translate("无法打开下载目录") });
         }
       },
 
@@ -3996,7 +3999,7 @@ export const createTelegramStore = (
             setOutbox(previous);
             set({
               cacheHealth: "invalid",
-              operationError: errorMessage(error, "无法保存重试队列"),
+              operationError: errorMessage(error, translate("无法保存重试队列")),
             });
             return;
           }
@@ -4007,7 +4010,7 @@ export const createTelegramStore = (
           await transport.retryMessage(chatId, messageId);
           set({ operationError: undefined });
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "消息重试失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("消息重试失败") });
         }
       },
 
@@ -4026,7 +4029,7 @@ export const createTelegramStore = (
           }
           return sent;
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "文件发送失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("文件发送失败") });
           return false;
         }
       },
@@ -4075,7 +4078,7 @@ export const createTelegramStore = (
             return true;
           } catch (error) {
             await attachmentOutbox.remove(id).catch(() => undefined);
-            set({ operationError: errorMessage(error, "无法保存离线附件") });
+            set({ operationError: errorMessage(error, translate("无法保存离线附件")) });
             return false;
           }
         }
@@ -4095,7 +4098,7 @@ export const createTelegramStore = (
           }
           return sent;
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "附件发送失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("附件发送失败") });
           return false;
         }
       },
@@ -4122,7 +4125,7 @@ export const createTelegramStore = (
           set({ operationError: undefined });
           scheduleCacheWrite();
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : "取消上传失败" });
+          set({ operationError: error instanceof Error ? error.message : translate("取消上传失败") });
         }
       },
 

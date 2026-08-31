@@ -5,9 +5,9 @@ import { mountWindow } from "./windows/mountWindow";
 
 void prepareNativeContextMenuWindow().catch(() => undefined);
 
-mountWindow(
+mountWindow(() => (
   <div className="main-window-frame">
     <WindowChrome />
     <div className="main-window-content"><App /></div>
-  </div>,
-);
+  </div>
+));

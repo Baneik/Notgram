@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { ConnectionStatus } from "./types";
 import { asTdObject, type TdObject } from "./tdlibMapper";
 
@@ -11,43 +12,43 @@ export interface ConnectionPresentation {
 
 const presentations: Record<ConnectionStatus, ConnectionPresentation> = {
   connecting: {
-    label: "正在连接 Telegram",
-    compactLabel: "连接中",
+    get label() { return translate("正在连接 Telegram"); },
+    get compactLabel() { return translate("连接中"); },
     tone: "progress",
     busy: true,
     operational: false,
   },
   syncing: {
-    label: "正在同步消息",
-    compactLabel: "同步中",
+    get label() { return translate("正在同步消息"); },
+    get compactLabel() { return translate("同步中"); },
     tone: "progress",
     busy: true,
     operational: true,
   },
   online: {
-    label: "已连接",
-    compactLabel: "在线",
+    get label() { return translate("已连接"); },
+    get compactLabel() { return translate("在线"); },
     tone: "positive",
     busy: false,
     operational: true,
   },
   waitingForNetwork: {
-    label: "正在等待网络，仍可浏览缓存和编辑草稿",
-    compactLabel: "等待网络",
+    get label() { return translate("正在等待网络，仍可浏览缓存和编辑草稿"); },
+    get compactLabel() { return translate("等待网络"); },
     tone: "warning",
     busy: true,
     operational: false,
   },
   proxyError: {
-    label: "代理连接失败，请检查连接设置",
-    compactLabel: "代理错误",
+    get label() { return translate("代理连接失败，请检查连接设置"); },
+    get compactLabel() { return translate("代理错误"); },
     tone: "negative",
     busy: false,
     operational: false,
   },
   offline: {
-    label: "当前离线，仍可浏览缓存和编辑草稿",
-    compactLabel: "离线",
+    get label() { return translate("当前离线，仍可浏览缓存和编辑草稿"); },
+    get compactLabel() { return translate("离线"); },
     tone: "neutral",
     busy: false,
     operational: false,

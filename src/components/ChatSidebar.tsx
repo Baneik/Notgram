@@ -1,3 +1,5 @@
+import { translate } from "../i18n";
+import { useTranslation } from "react-i18next";
 import { Archive, CheckCheck, LoaderCircle, Pin, Plus, Search, X } from "lucide-react";
 import {
   memo,
@@ -410,7 +412,7 @@ export function ChatSidebar({
     <aside
       ref={sidebarRef}
       className={`chat-sidebar ${scopedSearch ? "has-scoped-search" : ""} ${resizing ? "is-resizing" : ""}`}
-      aria-label="会话列表"
+      aria-label={translate("会话列表")}
       aria-hidden={mobileViewport && mobileChatOpen ? true : undefined}
       inert={mobileViewport && mobileChatOpen ? true : undefined}
     >
@@ -418,14 +420,14 @@ export function ChatSidebar({
         <div>
           <h1>{folderTitle}</h1>
         </div>
-        <button className="icon-button" type="button" aria-label="新建群组或频道" title="新建群组或频道" onClick={onCreateChat}>
+        <button className="icon-button" type="button" aria-label={translate("新建群组或频道")} title={translate("新建群组或频道")} onClick={onCreateChat}>
           <Plus size={20} strokeWidth={1.9} />
         </button>
       </div>
 
       <label className="search-field">
         <Search size={17} strokeWidth={1.8} />
-        <span className="sr-only">搜索会话和消息</span>
+        <span className="sr-only">{translate("搜索会话和消息")}</span>
         <input
           ref={searchInputRef}
           value={searchQuery}
@@ -435,15 +437,15 @@ export function ChatSidebar({
             if (scopedSearch) onExitSearchScope(false);
             else onSearchChange("");
           }}
-          placeholder="搜索会话和消息"
+          placeholder={translate("搜索会话和消息")}
           type="search"
         />
         {searchQuery && (
           <button
             type="button"
             className="clear-search"
-            aria-label="清除搜索"
-            title="清除搜索"
+            aria-label={translate("清除搜索")}
+            title={translate("清除搜索")}
             onClick={() => onSearchChange("")}
           >
             ×
@@ -452,10 +454,10 @@ export function ChatSidebar({
       </label>
 
       {scopedChat && (
-        <div className="sidebar-search-scope" role="group" aria-label={`搜索范围：${scopedChat.title}`}>
+        <div className="sidebar-search-scope" role="group" aria-label={translate("搜索范围：{{value0}}", { value0: scopedChat.title })}>
           <Avatar avatar={scopedChat.avatar} size="small" />
-          <span>此会话：{scopedChat.title}</span>
-          <button type="button" className="icon-button" aria-label="移除会话搜索范围" title="移除会话搜索范围" onClick={() => onExitSearchScope(true)}>
+          <span>{translate("此会话：")}{scopedChat.title}</span>
+          <button type="button" className="icon-button" aria-label={translate("移除会话搜索范围")} title={translate("移除会话搜索范围")} onClick={() => onExitSearchScope(true)}>
             <X size={16} strokeWidth={1.9} />
           </button>
         </div>
@@ -507,7 +509,7 @@ export function ChatSidebar({
           {chats.length === 0 ? (
             <div className="list-empty">
               <Search size={22} strokeWidth={1.6} />
-              <span>没有匹配的会话</span>
+              <span>{translate("没有匹配的会话")}</span>
             </div>
           ) : (
             chats.map((chat) => (
@@ -547,7 +549,7 @@ export function ChatSidebar({
             ))
           )}
           {loadingMore && (
-            <div className="chat-list-loading" role="status" aria-label="正在加载更多会话">
+            <div className="chat-list-loading" role="status" aria-label={translate("正在加载更多会话")}>
               <LoaderCircle className="spin" size={17} />
             </div>
           )}
@@ -556,7 +558,7 @@ export function ChatSidebar({
       <div
         className="sidebar-resizer"
         role="separator"
-        aria-label="调整会话列表宽度"
+        aria-label={translate("调整会话列表宽度")}
         aria-orientation="vertical"
         aria-valuemin={MIN_SIDEBAR_WIDTH}
         aria-valuemax={maximumWidth()}
@@ -565,7 +567,7 @@ export function ChatSidebar({
           sidebarRef.current?.getBoundingClientRect().width ?? width,
         )))}
         tabIndex={0}
-        title="拖动调整会话列表宽度"
+        title={translate("拖动调整会话列表宽度")}
         onDoubleClick={() => commitWidth(360)}
         onKeyDown={handleResizeKey}
         onPointerDown={beginResize}
@@ -638,23 +640,24 @@ const ChatRow = memo(function ChatRow({
   onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void;
   onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 }) {
+  useTranslation();
   const firstClickWasActiveRef = useRef(active);
   const draft = useTelegramStore((state) => state.drafts.get(chat.id));
   const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(chat.id));
   const visibleDraft = active ? undefined : listDraft(draft);
   const visibleAttachmentDraft = active ? undefined : localAttachmentDraft;
-  const draftPreview = visibleDraft?.text || (visibleDraft?.replyToMessageId ? "回复消息" : undefined) ||
+  const draftPreview = visibleDraft?.text || (visibleDraft?.replyToMessageId ? translate("回复消息") : undefined) ||
     (visibleAttachmentDraft
-      ? `${visibleAttachmentDraft.attachments.length} 个附件`
+      ? translate("{{value0}} 个附件", { value0: visibleAttachmentDraft.attachments.length })
       : undefined);
   const hasUnreadAttention = chat.unreadMentionCount > 0;
   const hasUnreadReaction = (chat.unreadReactionCount ?? 0) > 0;
   const displayUnreadCount = chat.unreadCount > 0 ? chat.unreadCount : (chat.unreadReactionCount ?? 0);
   const unreadBadgeClassName = `unread-count ${chat.muted ? "is-muted" : ""} ${hasUnreadAttention ? "has-attention" : ""} ${!hasUnreadAttention && hasUnreadReaction ? "has-reaction" : ""}`;
   const unreadBadgeLabel = hasUnreadAttention
-    ? `${displayUnreadCount} 条未读消息，其中包含提及或回复`
+    ? translate("{{value0}} 条未读消息，其中包含提及或回复", { value0: displayUnreadCount })
     : hasUnreadReaction
-      ? `${displayUnreadCount} 条未读消息，其中包含回应`
+      ? translate("{{value0}} 条未读消息，其中包含回应", { value0: displayUnreadCount })
     : undefined;
   return (
     <button
@@ -709,7 +712,7 @@ const ChatRow = memo(function ChatRow({
           <span
             className={`${unreadBadgeClassName} unread-count-avatar`}
             aria-label={unreadBadgeLabel}
-            title={hasUnreadAttention ? "包含未读的提及或回复" : hasUnreadReaction ? "包含未读的回应" : undefined}
+            title={hasUnreadAttention ? translate("包含未读的提及或回复") : hasUnreadReaction ? translate("包含未读的回应") : undefined}
           >
             {formatUnreadCount(displayUnreadCount)}
           </span>
@@ -723,7 +726,7 @@ const ChatRow = memo(function ChatRow({
         <span className="chat-row-bottomline">
           <span className={`chat-preview ${draftPreview ? "is-draft" : ""} ${previewConcealed ? "is-local-block-concealed" : ""}`}>
             {draftPreview ? (
-              <span className="chat-preview-message">草稿：{draftPreview}</span>
+              <span className="chat-preview-message">{translate("草稿：")}{draftPreview}</span>
             ) : (
               <>
                 {chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}
@@ -731,7 +734,7 @@ const ChatRow = memo(function ChatRow({
                   {!previewConcealed && previewSenderName && chat.kind === "group" && (
                     <span className="chat-preview-sender">{`${previewSenderName}: `}</span>
                   )}
-                  {previewConcealed ? "消息已屏蔽" : chat.preview}
+                  {previewConcealed ? translate("消息已屏蔽") : chat.preview}
                 </span>
               </>
             )}
@@ -743,7 +746,7 @@ const ChatRow = memo(function ChatRow({
               <span
                 className={unreadBadgeClassName}
                 aria-label={unreadBadgeLabel}
-                title={hasUnreadAttention ? "包含未读的提及或回复" : hasUnreadReaction ? "包含未读的回应" : undefined}
+                title={hasUnreadAttention ? translate("包含未读的提及或回复") : hasUnreadReaction ? translate("包含未读的回应") : undefined}
               >
                 {formatUnreadCount(displayUnreadCount)}
               </span>

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LoaderCircle } from "lucide-react";
@@ -91,7 +92,7 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
   }, [id]);
 
   if (!descriptor || !activeMessageId) {
-    return <div className="media-viewer-window-loading" aria-label="正在准备图片查看器">
+    return <div className="media-viewer-window-loading" aria-label={translate("正在准备图片查看器")}>
       {showPreparing ? <LoaderCircle className="spin" size={28} /> : null}
     </div>;
   }

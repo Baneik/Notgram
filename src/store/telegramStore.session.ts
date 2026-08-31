@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { TelegramTransport } from "../telegram/transport";
 import type {
   DeviceSession,
@@ -34,7 +35,7 @@ export const createSessionController = ({
     try {
       return await transport.getActiveSessions();
     } catch (error) {
-      set({ operationError: onError(error, "无法读取设备会话") });
+      set({ operationError: onError(error, translate("无法读取设备会话")) });
       return [];
     }
   },
@@ -45,7 +46,7 @@ export const createSessionController = ({
       set({ operationError: undefined });
       return true;
     } catch (error) {
-      set({ operationError: onError(error, "无法终止设备会话") });
+      set({ operationError: onError(error, translate("无法终止设备会话")) });
       return false;
     }
   },
@@ -56,7 +57,7 @@ export const createSessionController = ({
       set({ operationError: undefined });
       return true;
     } catch (error) {
-      set({ operationError: onError(error, "无法终止其他设备") });
+      set({ operationError: onError(error, translate("无法终止其他设备")) });
       return false;
     }
   },
@@ -65,7 +66,7 @@ export const createSessionController = ({
     try {
       return await transport.getPrivacySettingRules(setting);
     } catch (error) {
-      set({ operationError: onError(error, "无法读取隐私设置") });
+      set({ operationError: onError(error, translate("无法读取隐私设置")) });
       return [];
     }
   },
@@ -76,7 +77,7 @@ export const createSessionController = ({
       set({ operationError: undefined });
       return true;
     } catch (error) {
-      set({ operationError: onError(error, "无法保存隐私设置") });
+      set({ operationError: onError(error, translate("无法保存隐私设置")) });
       return false;
     }
   },

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { Download, Image as ImageIcon, LoaderCircle, MapPin, X } from "lucide-react";
 import {
   createElement,
@@ -220,7 +221,7 @@ function RichMediaBlock({ media, context, blockKey }: {
     <span
       className="media-progress"
       role="progressbar"
-      aria-label={`下载 ${media.fileName}`}
+      aria-label={translate("下载 {{value0}}", { value0: media.fileName })}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round((media.progress ?? 0) * 100)}
@@ -228,8 +229,8 @@ function RichMediaBlock({ media, context, blockKey }: {
       {media.fileId !== undefined ? (
         <button
           type="button"
-          aria-label={`取消下载 ${media.fileName}`}
-          title="取消下载"
+          aria-label={translate("取消下载 {{value0}}", { value0: media.fileName })}
+          title={translate("取消下载")}
           onClick={() => void context.onCancelDownload(media.fileId!)}
         >
           <MediaProgressRing progress={media.progress} size={30} />
@@ -312,7 +313,7 @@ function RichMediaBlock({ media, context, blockKey }: {
         type="button"
         onClick={requestDownload}
         disabled={!requestDownload || media.isDownloading}
-        aria-label={requestDownload ? `下载 ${media.fileName}` : media.fileName}
+        aria-label={requestDownload ? translate("下载 {{value0}}", { value0: media.fileName }) : media.fileName}
       >
         {media.isDownloading
           ? <MediaProgressRing progress={media.progress} size={28} />
@@ -495,7 +496,7 @@ export function RichMessageContent({
     >
       {renderBlocks(blocks, "rich-message", context)}
       {!isFull && (
-        <span className="rich-streaming-indicator" role="status" aria-label="正在接收消息">
+        <span className="rich-streaming-indicator" role="status" aria-label={translate("正在接收消息")}>
           <span />
         </span>
       )}

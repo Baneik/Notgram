@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { CheckCircle2, CloudDownload, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -9,7 +10,7 @@ import {
 
 type UpdateState = "idle" | "checking" | "current" | "available" | "installing" | "error";
 
-const updateChannel = (version: string) => version.includes("-") ? "候选通道" : "稳定通道";
+const updateChannel = (version: string) => version.includes("-") ? translate("候选通道") : translate("稳定通道");
 
 export function UpdateSettings() {
   const [distribution, setDistribution] = useState<AppDistribution>();
@@ -28,7 +29,7 @@ export function UpdateSettings() {
     void appUpdater.currentVersion().then((version) => {
       if (active) setCurrentVersion(version);
     }).catch(() => {
-      if (active) setCurrentVersion("未知版本");
+      if (active) setCurrentVersion(translate("未知版本"));
     });
     return () => { active = false; };
   }, []);
@@ -70,28 +71,28 @@ export function UpdateSettings() {
 
         <div className="update-status" role="status" aria-live="polite">
           {state === "current" ? (
-            <><CheckCircle2 size={18} /><span>当前已是最新版本</span></>
+            <><CheckCircle2 size={18} /><span>{translate("当前已是最新版本")}</span></>
           ) : state === "available" && update ? (
-            <><CloudDownload size={18} /><span>可更新至 {update.version}</span></>
+            <><CloudDownload size={18} /><span>{translate("可更新至 {{value0}}", { value0: update.version })}</span></>
           ) : state === "installing" ? (
-            <><LoaderCircle className="spin" size={18} /><span>正在安装 {update?.version}</span></>
+            <><LoaderCircle className="spin" size={18} /><span>{translate("正在安装 {{value0}}", { value0: update?.version })}</span></>
           ) : state === "error" ? (
-            <><RefreshCw size={18} /><span>更新操作失败，请稍后重试</span></>
+            <><RefreshCw size={18} /><span>{translate("更新操作失败，请稍后重试")}</span></>
           ) : distribution === "portable" ? (
-            <span>便携版通过新版 ZIP 更新</span>
+            <span>{translate("便携版通过新版 ZIP 更新")}</span>
           ) : distribution === "browser" ? (
-            <span>浏览器预览</span>
+            <span>{translate("浏览器预览")}</span>
           ) : distribution === "unknown" ? (
-            <span>当前分发方式不支持自动更新</span>
+            <span>{translate("当前分发方式不支持自动更新")}</span>
           ) : (
-            <span>{supported ? "尚未检查" : "正在读取版本"}</span>
+            <span>{supported ? translate("尚未检查") : translate("正在读取版本")}</span>
           )}
         </div>
 
         {state === "installing" && (
           <progress
             className="update-progress"
-            aria-label="更新下载进度"
+            aria-label={translate("更新下载进度")}
             max={1}
             value={progress?.fraction}
           />
@@ -113,13 +114,11 @@ export function UpdateSettings() {
           >
             {state === "checking"
               ? <LoaderCircle className="spin" size={16} />
-              : <RefreshCw size={16} />}
-            检查更新
-          </button>
+              : <RefreshCw size={16} />}{translate("检查更新")}</button>
           {(state === "available" || (state === "error" && update)) && (
             <button className="dialog-save" type="button" onClick={() => void install()}>
               <CloudDownload size={16} />
-              {state === "error" ? "重试安装" : "下载并安装"}
+              {state === "error" ? translate("重试安装") : translate("下载并安装")}
             </button>
           )}
         </div>

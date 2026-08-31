@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
   Download,
@@ -30,10 +31,10 @@ import { MotionPresence } from "./MotionPresence";
 import { StableImage } from "./StableImage";
 
 const CATEGORIES: { id: SharedMediaCategory; label: string; icon: typeof ImageIcon }[] = [
-  { id: "media", label: "图片与视频", icon: ImageIcon },
-  { id: "file", label: "文件", icon: FileText },
-  { id: "link", label: "链接", icon: Link2 },
-  { id: "audio", label: "音频", icon: Headphones },
+  { id: "media", get label() { return translate("图片与视频"); }, icon: ImageIcon },
+  { id: "file", get label() { return translate("文件"); }, icon: FileText },
+  { id: "link", get label() { return translate("链接"); }, icon: Link2 },
+  { id: "audio", get label() { return translate("音频"); }, icon: Headphones },
 ];
 
 interface SharedMediaBrowserProps {
@@ -205,7 +206,7 @@ export function SharedMediaBrowser({
 
   return (
     <div className="shared-media-browser">
-      <div className="shared-media-tabs" role="tablist" aria-label="共享媒体分类">
+      <div className="shared-media-tabs" role="tablist" aria-label={translate("共享媒体分类")}>
         {CATEGORIES.map(({ id, label, icon: Icon }) => (
           <button key={id} type="button" role="tab" aria-selected={category === id} onClick={() => setCategory(id)}>
             <Icon size={15} /><span>{label}</span>
@@ -217,33 +218,33 @@ export function SharedMediaBrowser({
         setAppliedQuery(query.trim());
       }}>
         <Search size={15} />
-        <input aria-label="搜索共享媒体" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索" />
-        <button type="submit">搜索</button>
+        <input aria-label={translate("搜索共享媒体")} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={translate("搜索")} />
+        <button type="submit">{translate("搜索")}</button>
       </form>
       <div className="shared-media-date-filter">
-        <label>开始日期<input aria-label="共享媒体开始日期" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label>
-        <label>结束日期<input aria-label="共享媒体结束日期" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label>
+        <label>{translate("开始日期")}<input aria-label={translate("共享媒体开始日期")} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label>
+        <label>{translate("结束日期")}<input aria-label={translate("共享媒体结束日期")} type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label>
       </div>
       {selected.size > 0 && (
-        <div className="shared-media-selection" role="toolbar" aria-label="共享媒体批量操作">
-          <strong>{selected.size} 项</strong>
-          <button type="button" disabled={actionPending || selectedMessages.every((message) => !messageFile(message))} onClick={() => void downloadSelected()}><Download size={15} />下载</button>
-          <select aria-label="共享媒体转发目标" value={forwardTargetId} onChange={(event) => setForwardTargetId(event.target.value)} disabled={actionPending}>
-            <option value="">转发到...</option>
+        <div className="shared-media-selection" role="toolbar" aria-label={translate("共享媒体批量操作")}>
+          <strong>{translate("{{value0}} 项", { value0: selected.size })}</strong>
+          <button type="button" disabled={actionPending || selectedMessages.every((message) => !messageFile(message))} onClick={() => void downloadSelected()}><Download size={15} />{translate("下载")}</button>
+          <select aria-label={translate("共享媒体转发目标")} value={forwardTargetId} onChange={(event) => setForwardTargetId(event.target.value)} disabled={actionPending}>
+            <option value="">{translate("转发到...")}</option>
             {forwardTargets.map((chat) => <option key={chat.id} value={chat.id}>{chat.title}</option>)}
           </select>
-          <button type="button" disabled={actionPending || !forwardTargetId} onClick={() => void forwardSelected()}><Forward size={15} />转发</button>
+          <button type="button" disabled={actionPending || !forwardTargetId} onClick={() => void forwardSelected()}><Forward size={15} />{translate("转发")}</button>
           <button
             className="is-danger"
             type="button"
             disabled={actionPending || !permissionsReady || (!canDeleteOnlyForSelf && !canDeleteForAllUsers)}
             title={!permissionsReady
-              ? "正在读取删除权限"
+              ? translate("正在读取删除权限")
               : !canDeleteOnlyForSelf && !canDeleteForAllUsers
-                ? "所选消息没有共同的删除范围"
-                : "删除所选消息"}
+                ? translate("所选消息没有共同的删除范围")
+                : translate("删除所选消息")}
             onClick={() => setDeleteDialogOpen(true)}
-          ><Trash2 size={15} />删除</button>
+          ><Trash2 size={15} />{translate("删除")}</button>
         </div>
       )}
       <div ref={resultsRef} className={`shared-media-results ${category === "media" ? "is-grid" : ""}`} aria-busy={loading} data-search-state={loading ? "updating" : "settled"}>
@@ -252,7 +253,7 @@ export function SharedMediaBrowser({
           const usableSource = source && !failedMediaSources.has(source) ? source : undefined;
           return (
             <div className={`shared-media-item ${selected.has(message.id) ? "is-selected" : ""}`} data-motion-key={message.id} key={message.id}>
-              <label className="shared-media-check"><input type="checkbox" aria-label={`选择 ${message.id}`} checked={selected.has(message.id)} onChange={() => toggleSelected(message.id)} /></label>
+              <label className="shared-media-check"><input type="checkbox" aria-label={translate("选择 {{value0}}", { value0: message.id })} checked={selected.has(message.id)} onChange={() => toggleSelected(message.id)} /></label>
               <button className="shared-media-open" type="button" onClick={() => onOpenMessage(message.chatId, message.id)}>
                 {category === "media" ? usableSource ? <StableImage
                   src={usableSource}
@@ -274,7 +275,7 @@ export function SharedMediaBrowser({
                 /> : <span className="shared-media-fallback"><ImageIcon size={22} /></span> : (
                   <span className="shared-media-type-icon">{category === "file" ? <FileText size={19} /> : category === "link" ? <Link2 size={19} /> : <Headphones size={19} />}</span>
                 )}
-                <span className="shared-media-copy"><strong>{messageContentText(message.content) || "媒体消息"}</strong><time dateTime={message.sentAt}>{formatChatTime(message.sentAt)}</time></span>
+                <span className="shared-media-copy"><strong>{messageContentText(message.content) || translate("媒体消息")}</strong><time dateTime={message.sentAt}>{formatChatTime(message.sentAt)}</time></span>
               </button>
             </div>
           );
@@ -282,13 +283,13 @@ export function SharedMediaBrowser({
         <MotionPresence present={showLoading || (!loading && visibleMessages.length === 0)} variant="status">
           {showLoading || (!loading && visibleMessages.length === 0) ? (
             <div key={showLoading ? "loading" : "empty"} className="shared-media-empty" role="status">
-              {showLoading ? <><LoaderCircle className="spin" size={19} />正在读取</> : "没有匹配的内容"}
+              {showLoading ? <><LoaderCircle className="spin" size={19} />{translate("正在读取")}</> : translate("没有匹配的内容")}
             </div>
           ) : null}
         </MotionPresence>
       </div>
-      {!loading && page.hasMore && <button className="shared-media-more" type="button" disabled={loadingMore} onClick={() => void loadMore()}>{showLoadingMore && <LoaderCircle className="spin" size={15} />}{loadingMore ? "正在加载" : "加载更多"}</button>}
-      <div className="shared-media-count">{page.totalCount ?? page.messages.length} 项</div>
+      {!loading && page.hasMore && <button className="shared-media-more" type="button" disabled={loadingMore} onClick={() => void loadMore()}>{showLoadingMore && <LoaderCircle className="spin" size={15} />}{loadingMore ? translate("正在加载") : translate("加载更多")}</button>}
+      <div className="shared-media-count">{translate("{{value0}} 项", { value0: page.totalCount ?? page.messages.length })}</div>
       <MotionPresence present={deleteDialogOpen}>
         {deleteDialogOpen ? <DeleteMessagesDialog
           count={selectedMessages.length}

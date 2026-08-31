@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   Check,
   CheckCircle2,
@@ -76,19 +77,19 @@ export function ChatContextMenu({
   };
 
   const nativeMenu = useNativeContextMenu({
-    label: `会话操作：${chat.title}`,
+    label: translate("会话操作：{{value0}}", { value0: chat.title }),
     colorTheme: currentColorTheme(),
     keyboardNavigation,
     items: [
       {
         id: "pin",
-        label: pinned ? "取消置顶" : "置顶",
+        label: pinned ? translate("取消置顶") : translate("置顶"),
         icon: "pin",
         disabled: busy,
       },
       {
         id: "folders",
-        label: "分组",
+        label: translate("分组"),
         icon: "folder",
         disabled: busy || customFolders.length === 0,
         children: customFolders.map((folder) => ({
@@ -101,7 +102,7 @@ export function ChatContextMenu({
       },
       ...(chat.kind === "group" ? [{
         id: "leave",
-        label: "退出群组",
+        label: translate("退出群组"),
         icon: "leave" as const,
         danger: true,
         disabled: busy,
@@ -121,7 +122,7 @@ export function ChatContextMenu({
 
   return (
     <ContextMenuSurface
-      label={`会话操作：${chat.title}`}
+      label={translate("会话操作：{{value0}}", { value0: chat.title })}
       point={point}
       keyboardNavigation={keyboardNavigation}
       restoreFocus={restoreFocus}
@@ -139,7 +140,7 @@ export function ChatContextMenu({
             : pinned
               ? <PinOff size={17} strokeWidth={1.9} />
               : <Pin size={17} strokeWidth={1.9} />}
-          <span>{pinned ? "取消置顶" : "置顶"}</span>
+          <span>{pinned ? translate("取消置顶") : translate("置顶")}</span>
         </button>
         <button
           type="button"
@@ -152,7 +153,7 @@ export function ChatContextMenu({
           onClick={() => setFoldersOpen(true)}
         >
           <FolderInput size={17} strokeWidth={1.9} />
-          <span>分组</span>
+          <span>{translate("分组")}</span>
           <ChevronRight className="context-menu-chevron" size={16} />
         </button>
         {chat.kind === "group" && (
@@ -167,12 +168,12 @@ export function ChatContextMenu({
             }}
           >
             <LogOut size={17} strokeWidth={1.9} />
-            <span>退出群组</span>
+            <span>{translate("退出群组")}</span>
           </button>
         )}
       </ContextMenuPanel>
       {foldersOpen && (
-        <ContextMenuPanel submenu className="chat-folder-submenu" role="menu" aria-label="选择分组">
+        <ContextMenuPanel submenu className="chat-folder-submenu" role="menu" aria-label={translate("选择分组")}>
           {customFolders.map((folder) => {
             const included = chat.folderIds.includes(folder.id);
             const key = `folder:${folder.id}`;
@@ -181,7 +182,9 @@ export function ChatContextMenu({
                 type="button"
                 role="menuitemcheckbox"
                 aria-checked={included}
-                aria-label={`${included ? "从" : "添加到"}${folder.title}`}
+                aria-label={included
+                  ? translate("从{{value0}}移除", { value0: folder.title })
+                  : translate("添加到{{value0}}", { value0: folder.title })}
                 disabled={busy}
                 key={folder.id}
                 onClick={() => void run(
@@ -241,13 +244,13 @@ export function FolderContextMenu({
   };
 
   const nativeMenu = useNativeContextMenu({
-    label: `分组操作：${folder.title}`,
+    label: translate("分组操作：{{value0}}", { value0: folder.title }),
     colorTheme: currentColorTheme(),
     keyboardNavigation,
     items: [
-      ...(custom ? [{ id: "edit", label: "编辑文件夹", icon: "edit" as const, disabled: busy }] : []),
-      { id: "read", label: "标记为已读", icon: "check", disabled: busy || unreadCount === 0 },
-      ...(custom ? [{ id: "delete", label: "删除", icon: "trash" as const, danger: true, disabled: busy }] : []),
+      ...(custom ? [{ id: "edit", label: translate("编辑文件夹"), icon: "edit" as const, disabled: busy }] : []),
+      { id: "read", label: translate("标记为已读"), icon: "check", disabled: busy || unreadCount === 0 },
+      ...(custom ? [{ id: "delete", label: translate("删除"), icon: "trash" as const, danger: true, disabled: busy }] : []),
     ],
   }, point, (actionId) => {
     onClose();
@@ -260,7 +263,7 @@ export function FolderContextMenu({
 
   return (
     <ContextMenuSurface
-      label={`分组操作：${folder.title}`}
+      label={translate("分组操作：{{value0}}", { value0: folder.title })}
       point={point}
       keyboardNavigation={keyboardNavigation}
       restoreFocus={restoreFocus}
@@ -273,20 +276,20 @@ export function FolderContextMenu({
             onEdit();
           }}>
             <Pencil size={17} strokeWidth={1.9} />
-            <span>编辑文件夹</span>
+            <span>{translate("编辑文件夹")}</span>
           </button>
         )}
         <button
           type="button"
           role="menuitem"
           disabled={busy || unreadCount === 0}
-          title={unreadCount === 0 ? "该分组没有未读会话" : undefined}
+          title={unreadCount === 0 ? translate("该分组没有未读会话") : undefined}
           onClick={() => void markRead()}
         >
           {markingRead
             ? <LoaderCircle className="spin" size={17} />
             : <CheckCircle2 size={17} strokeWidth={1.9} />}
-          <span>标记为已读</span>
+          <span>{translate("标记为已读")}</span>
         </button>
         {custom && (
           <button className="is-danger" type="button" role="menuitem" disabled={busy} onClick={() => {
@@ -294,7 +297,7 @@ export function FolderContextMenu({
             onRequestDelete();
           }}>
             <Trash2 size={17} strokeWidth={1.9} />
-            <span>删除</span>
+            <span>{translate("删除")}</span>
           </button>
         )}
       </ContextMenuPanel>

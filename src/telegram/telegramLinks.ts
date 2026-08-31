@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { TelegramLinkTarget } from "./types";
 
 const TELEGRAM_WEB_HOSTS = new Set(["t.me", "telegram.me", "telegram.dog"]);
@@ -91,23 +92,23 @@ export const telegramUrlDisplayText = (value: string) => {
 
 const incompatibleLabelFor = (linkType?: string) => {
   const normalized = linkType?.toLowerCase() ?? "";
-  if (normalized.includes("theme") || normalized.includes("textcompositionstyle")) return "Telegram 主题链接";
-  if (normalized.includes("sticker")) return "Telegram 贴纸包链接";
-  if (normalized.includes("invite")) return "Telegram 邀请链接";
-  if (normalized.includes("proxy")) return "Telegram 代理链接";
-  if (normalized.includes("invoice") || normalized.includes("purchase") || normalized.includes("gift")) return "Telegram 支付或礼物链接";
-  if (normalized.includes("webapp") || normalized.includes("game")) return "Telegram 小程序链接";
-  if (normalized.includes("authentication") || normalized.includes("oauth") || normalized.includes("passport") || normalized.includes("login") || normalized.includes("confirmation")) return "Telegram 身份验证链接";
-  if (normalized.includes("language")) return "Telegram 语言包链接";
-  if (normalized.includes("background")) return "Telegram 背景链接";
-  if (normalized.includes("call") || normalized.includes("videochat")) return "Telegram 通话链接";
-  if (normalized.includes("bot")) return "Telegram 机器人操作链接";
-  return "此 Telegram 链接";
+  if (normalized.includes("theme") || normalized.includes("textcompositionstyle")) return translate("Telegram 主题链接");
+  if (normalized.includes("sticker")) return translate("Telegram 贴纸包链接");
+  if (normalized.includes("invite")) return translate("Telegram 邀请链接");
+  if (normalized.includes("proxy")) return translate("Telegram 代理链接");
+  if (normalized.includes("invoice") || normalized.includes("purchase") || normalized.includes("gift")) return translate("Telegram 支付或礼物链接");
+  if (normalized.includes("webapp") || normalized.includes("game")) return translate("Telegram 小程序链接");
+  if (normalized.includes("authentication") || normalized.includes("oauth") || normalized.includes("passport") || normalized.includes("login") || normalized.includes("confirmation")) return translate("Telegram 身份验证链接");
+  if (normalized.includes("language")) return translate("Telegram 语言包链接");
+  if (normalized.includes("background")) return translate("Telegram 背景链接");
+  if (normalized.includes("call") || normalized.includes("videochat")) return translate("Telegram 通话链接");
+  if (normalized.includes("bot")) return translate("Telegram 机器人操作链接");
+  return translate("此 Telegram 链接");
 };
 
 export const unsupportedTelegramLink = (
   linkType?: string,
-  reason = `${incompatibleLabelFor(linkType)}与 Notgram 不兼容`,
+  reason = translate("{{value0}}与 Notgram 不兼容", { value0: incompatibleLabelFor(linkType) }),
 ): TelegramLinkTarget => ({ kind: "unsupported", linkType, reason });
 
 export const knownUnsupportedTelegramLink = (value: string): TelegramLinkTarget | undefined => {

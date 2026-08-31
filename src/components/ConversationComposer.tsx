@@ -1,3 +1,5 @@
+import { translate } from "../i18n";
+import { useTranslation } from "react-i18next";
 import {
   Check,
   Edit3,
@@ -124,11 +126,11 @@ type AttachmentPreviewSession =
   | { kind: "video"; id: string; draftKey: string; attachmentId: string };
 
 const ATTACHMENT_KIND_LABELS: Record<OutgoingAttachment["kind"], string> = {
-  photo: "图片",
-  video: "视频",
-  audio: "音频",
+  get photo() { return translate("图片"); },
+  get video() { return translate("视频"); },
+  get audio() { return translate("音频"); },
   animation: "GIF",
-  document: "文件",
+  get document() { return translate("文件"); },
 };
 
 const attachmentSizeLabel = (size: number) => {
@@ -183,6 +185,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   onSendInlineResult,
   onSendBotStart,
 }: ConversationComposerProps) {
+  useTranslation();
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
   const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(draftKey));
   const loadLocalAttachmentDraft = useTelegramStore((state) => state.loadLocalAttachmentDraft);
@@ -890,7 +893,7 @@ export const ConversationComposer = memo(function ConversationComposer({
     pendingAttachmentsRef.current = next;
     setPendingAttachments(next);
     setAttachmentNotice(files.length > available
-      ? `一次最多发送 ${TELEGRAM_ALBUM_MAX_ITEMS} 个附件`
+      ? translate("一次最多发送 {{value0}} 个附件", { value0: TELEGRAM_ALBUM_MAX_ITEMS })
       : undefined);
     persistPendingAttachments(next);
 
@@ -1176,10 +1179,10 @@ export const ConversationComposer = memo(function ConversationComposer({
         }}
       />
       {pendingAttachments.length > 0 && (
-        <section className="composer-attachment-preview" aria-label="待发送附件">
+        <section className="composer-attachment-preview" aria-label={translate("待发送附件")}>
           <header className="composer-attachment-header">
-            <strong>待发送</strong>
-            <span>{pendingAttachments.length} 项</span>
+            <strong>{translate("待发送")}</strong>
+            <span>{translate("{{value0}} 个附件", { value0: pendingAttachments.length })}</span>
           </header>
           <div className="composer-attachment-grid" data-count={pendingAttachments.length}>
             {pendingAttachments.map((pending) => {
@@ -1198,8 +1201,8 @@ export const ConversationComposer = memo(function ConversationComposer({
                         <button
                           className="composer-attachment-media-button"
                           type="button"
-                          aria-label={`预览 ${attachment.file.name}`}
-                          title="预览附件"
+                          aria-label={translate("预览 {{value0}}", { value0: attachment.file.name })}
+                          title={translate("预览附件")}
                           onClick={() => openPendingAttachmentPreview(pending)}
                         >
                           {attachment.kind === "video" ? (
@@ -1221,8 +1224,8 @@ export const ConversationComposer = memo(function ConversationComposer({
                   <button
                     className="composer-attachment-remove"
                     type="button"
-                    aria-label={`移除 ${attachment.file.name}`}
-                    title="移除附件"
+                    aria-label={translate("移除 {{value0}}", { value0: attachment.file.name })}
+                    title={translate("移除附件")}
                     onClick={() => removePendingAttachment(pending.id)}
                   >
                     <X size={14} />
@@ -1233,7 +1236,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           </div>
           <div className="composer-attachment-options">
             <fieldset className="attachment-mode-control">
-              <legend className="sr-only">附件发送方式</legend>
+              <legend className="sr-only">{translate("附件发送方式")}</legend>
               <label>
                 <input
                   type="radio"
@@ -1242,7 +1245,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                   disabled={!mediaModeAvailable}
                   onChange={() => updateAttachmentOptions({ mode: "media" })}
                 />
-                <span>媒体</span>
+                <span>{translate("媒体")}</span>
               </label>
               <label>
                 <input
@@ -1255,7 +1258,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                     muteVideos: false,
                   })}
                 />
-                <span>原文件</span>
+                <span>{translate("原文件")}</span>
               </label>
             </fieldset>
             <label>
@@ -1264,9 +1267,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                 checked={attachmentSpoiler}
                 disabled={attachmentMode === "file" || !hasPreviewableAttachments}
                 onChange={(event) => updateAttachmentOptions({ hasSpoiler: event.target.checked })}
-              />
-              剧透
-            </label>
+              />{translate("剧透")}</label>
             {pendingAttachments.some(({ attachment }) => attachment.kind === "video") && (
               <label>
                 <input
@@ -1274,9 +1275,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                   checked={muteVideos}
                   disabled={attachmentMode === "file"}
                   onChange={(event) => updateAttachmentOptions({ muteVideos: event.target.checked })}
-                />
-                作为静音动画
-              </label>
+                />{translate("作为静音动画")}</label>
             )}
           </div>
           <footer>
@@ -1290,7 +1289,7 @@ export const ConversationComposer = memo(function ConversationComposer({
               onClick={() => void sendPendingAttachments()}
             >
               {showAttachmentPending ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
-              <span>发送附件</span>
+              <span>{translate("发送附件")}</span>
             </button>
           </footer>
         </section>
@@ -1304,10 +1303,10 @@ export const ConversationComposer = memo(function ConversationComposer({
       {(queuedMessageCount > 0 || failedQueuedMessageCount > 0 || queuedAttachmentCount > 0 || failedAttachmentCount > 0) && (
         <div className="composer-outbox-status" role="status">
           {[
-            failedQueuedMessageCount > 0 ? `${failedQueuedMessageCount} 条离线消息需要手动重试` : undefined,
-            failedAttachmentCount > 0 ? `${failedAttachmentCount} 个离线附件需要手动重试` : undefined,
-            queuedMessageCount > 0 ? `${queuedMessageCount} 条消息将在联网后发送` : undefined,
-            queuedAttachmentCount > 0 ? `${queuedAttachmentCount} 个附件将在联网后上传` : undefined,
+            failedQueuedMessageCount > 0 ? translate("{{value0}} 条离线消息需要手动重试", { value0: failedQueuedMessageCount }) : undefined,
+            failedAttachmentCount > 0 ? translate("{{value0}} 个离线附件需要手动重试", { value0: failedAttachmentCount }) : undefined,
+            queuedMessageCount > 0 ? translate("{{value0}} 条消息将在联网后发送", { value0: queuedMessageCount }) : undefined,
+            queuedAttachmentCount > 0 ? translate("{{value0}} 个附件将在联网后上传", { value0: queuedAttachmentCount }) : undefined,
           ].filter(Boolean).join("；")}
         </div>
       )}
@@ -1332,8 +1331,8 @@ export const ConversationComposer = memo(function ConversationComposer({
           <button
             className="icon-button"
             type="button"
-            aria-label={editingMessage ? "取消编辑" : "取消回复"}
-            title={editingMessage ? "取消编辑" : "取消回复"}
+            aria-label={editingMessage ? translate("取消编辑") : translate("取消回复")}
+            title={editingMessage ? translate("取消编辑") : translate("取消回复")}
             onClick={editingMessage ? onCancelEditing : cancelReply}
           >
             <X size={17} strokeWidth={1.9} />
@@ -1342,7 +1341,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       )}
       <MotionPresence present={mentionSuggestions.length > 0} variant="popover">
         {mentionSuggestions.length > 0 ? (
-          <section className="mention-suggestion-panel" role="listbox" aria-label="提及成员">
+          <section className="mention-suggestion-panel" role="listbox" aria-label={translate("提及成员")}>
             {mentionSuggestions.map((user, index) => (
               <button
                 className={index === activeMentionSuggestionIndex ? "is-active" : ""}
@@ -1357,7 +1356,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                 <Avatar avatar={user.avatar} size="small" />
                 <span className="mention-suggestion-copy">
                   <strong>{user.displayName}</strong>
-                  <small>{user.username ? `@${user.username.replace(/^@/, "")}` : "无用户名"}</small>
+                  <small>{user.username ? `@${user.username.replace(/^@/, "")}` : translate("无用户名")}</small>
                 </span>
                 {index < 9 ? <kbd>Ctrl+{index + 1}</kbd> : null}
               </button>
@@ -1367,7 +1366,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       </MotionPresence>
       <MotionPresence present={botSuggestions.length > 0} variant="popover">
         {botSuggestions.length > 0 ? (
-          <section ref={botSuggestionPanelRef} className="bot-suggestion-panel" role="listbox" aria-label="机器人命令建议">
+          <section ref={botSuggestionPanelRef} className="bot-suggestion-panel" role="listbox" aria-label={translate("机器人命令建议")}>
             {botSuggestionGroups.map((group) => {
               const groupStartIndex = botSuggestionIndex;
               botSuggestionIndex += group.suggestions.length;
@@ -1391,7 +1390,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                   aria-label={botUsername ? `@${botUsername}` : `ID ${group.botUserId}`}
                 >
                   <div className="bot-suggestion-group-heading">
-                    <strong>{botUser?.displayName ?? "机器人"}</strong>
+                    <strong>{botUser?.displayName ?? translate("机器人")}</strong>
                     <small>{botUsername ? `@${botUsername}` : `ID ${group.botUserId}`}</small>
                   </div>
                   {group.suggestions.map((suggestion, index) => {
@@ -1424,9 +1423,9 @@ export const ConversationComposer = memo(function ConversationComposer({
       </MotionPresence>
       <MotionPresence present={Boolean(showInlineLoading || inlineResults)} variant="popover">
         {showInlineLoading || inlineResults ? (
-          <section className="inline-query-panel" aria-label="Inline 查询结果">
-            {inlineResults ? inlineResults.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; mentionEntitiesRef.current = []; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? "图片" : result.kind === "file" ? "文件" : "结果"}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>) : <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />正在查询机器人</div>}
-            {inlineResults?.hasMore && <button type="button" className="inline-query-more" disabled={inlineLoading} onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>{showInlineLoading && <LoaderCircle className="spin" size={15} />}加载更多结果</button>}
+          <section className="inline-query-panel" aria-label={translate("Inline 查询结果")}>
+            {inlineResults ? inlineResults.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; mentionEntitiesRef.current = []; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? translate("图片") : result.kind === "file" ? translate("文件") : translate("结果")}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>) : <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />{translate("正在查询机器人")}</div>}
+            {inlineResults?.hasMore && <button type="button" className="inline-query-more" disabled={inlineLoading} onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>{showInlineLoading && <LoaderCircle className="spin" size={15} />}{translate("加载更多结果")}</button>}
           </section>
         ) : null}
       </MotionPresence>
@@ -1434,8 +1433,8 @@ export const ConversationComposer = memo(function ConversationComposer({
         <button
           className="icon-button"
           type="button"
-          aria-label="添加附件"
-          title={editingMessage ? "完成编辑后添加附件" : attachmentPending ? "正在选择文件" : "添加附件"}
+          aria-label={translate("添加附件")}
+          title={editingMessage ? translate("完成编辑后添加附件") : attachmentPending ? translate("正在选择文件") : translate("添加附件")}
           disabled={Boolean(editingMessage) || attachmentPending}
           onClick={() => {
             fileInputRef.current?.click();
@@ -1542,17 +1541,17 @@ export const ConversationComposer = memo(function ConversationComposer({
             void submitMessage();
           }}
           rows={1}
-          placeholder={editingMessage ? "编辑消息" : "写一条消息"}
-          aria-label="消息内容"
+          placeholder={editingMessage ? translate("编辑消息") : translate("写一条消息")}
+          aria-label={translate("消息内容")}
           aria-busy={sending}
         />
         <button
           className={`icon-button emoji-trigger ${emojiPickerOpen ? "is-active" : ""}`}
           type="button"
-          aria-label="表情"
+          aria-label={translate("表情")}
           aria-expanded={emojiPickerOpen}
           aria-controls="emoji-picker"
-          title="表情"
+          title={translate("表情")}
           disabled={Boolean(editingMessage)}
           onPointerEnter={(event) => {
             if (event.pointerType === "mouse") scheduleEmojiPickerOpen();
@@ -1567,8 +1566,8 @@ export const ConversationComposer = memo(function ConversationComposer({
         <button
           className="send-button icon-button"
           type="button"
-          aria-label={editingMessage ? "保存编辑" : "发送消息"}
-          title={editingMessage ? "保存编辑" : "发送消息"}
+          aria-label={editingMessage ? translate("保存编辑") : translate("发送消息")}
+          title={editingMessage ? translate("保存编辑") : translate("发送消息")}
           disabled={(!draft.trim() && pendingAttachments.length === 0) || sending || attachmentPending}
           onClick={() => void submitMessage()}
         >
@@ -1582,7 +1581,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       {draggingFiles && (
         <div className="composer-file-drop-overlay" role="status">
           <Paperclip size={24} />
-          <strong>添加到待发送附件</strong>
+          <strong>{translate("添加到待发送附件")}</strong>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { Message, QueuedOutgoingMessage } from "../telegram/types";
 
 const OUTBOX_MESSAGE_PREFIX = "outbox:";
@@ -37,7 +38,7 @@ export const messageFromOutbox = (
       ? {
           kind: "file",
           fileName: attachmentCount > 1
-            ? `${firstAttachment.name} 等 ${attachmentCount} 个附件`
+            ? translate("{{value0}} 等 {{value1}} 个附件", { value0: firstAttachment.name, value1: attachmentCount })
             : firstAttachment.name,
           sizeLabel: totalBytes >= 1024 * 1024
             ? `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { Headphones, LoaderCircle } from "lucide-react";
 import { useMemo } from "react";
 import { localMediaSource } from "../media/localMediaSource";
@@ -35,20 +36,20 @@ export function ProfilePlaylist({
   );
 
   if (loading && audios.length === 0) {
-    return <div className="profile-detail-empty" role="status"><LoaderCircle className="spin" size={20} />正在读取音乐</div>;
+    return <div className="profile-detail-empty" role="status"><LoaderCircle className="spin" size={20} />{translate("正在读取音乐")}</div>;
   }
 
   if (audios.length === 0) {
     return (
       <div className="profile-detail-empty" role="status">
         <Headphones size={24} />
-        <span>{title}还没有公开资料音乐</span>
+        <span>{translate("{{value0}} 还没有公开资料音乐", { value0: title })}</span>
       </div>
     );
   }
 
   return (
-    <div className="profile-playlist" aria-label={`${title}的音乐`}>
+    <div className="profile-playlist" aria-label={translate("{{value0}}的音乐", { value0: title })}>
       {audios.map((audio, index) => {
         const content = audio.content;
         const label = audio.title || content.fileName;
@@ -86,7 +87,7 @@ export function ProfilePlaylist({
           </article>
         );
       })}
-      <p className="profile-playlist-count">{totalCount} 首资料音乐</p>
+      <p className="profile-playlist-count">{translate("{{value0}} 首资料音乐", { value0: totalCount })}</p>
     </div>
   );
 }

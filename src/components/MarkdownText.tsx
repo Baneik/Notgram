@@ -1,3 +1,5 @@
+import { translate } from "../i18n";
+import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { memo, useMemo, type ReactNode } from "react";
@@ -12,6 +14,7 @@ interface MarkdownTextProps {
 }
 
 function MarkdownText({ text, className, highlightQuery }: MarkdownTextProps) {
+  useTranslation();
   const highlight = (children: ReactNode) => highlightTextNodes(children, highlightQuery);
   const components = useMemo<Components>(() => ({
     a: ({ children, href }) => {
@@ -20,7 +23,7 @@ function MarkdownText({ text, className, highlightQuery }: MarkdownTextProps) {
         ? <a href={safe} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>{highlight(children)}</a>
         : <>{highlight(children)}</>;
     },
-    img: ({ alt }) => <span className="rich-image-alt">{alt || "图片"}</span>,
+    img: ({ alt }) => <span className="rich-image-alt">{alt || translate("图片")}</span>,
     p: ({ children }) => <p>{highlight(children)}</p>,
     h1: ({ children }) => <h1>{highlight(children)}</h1>,
     h2: ({ children }) => <h2>{highlight(children)}</h2>,

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { mapTdForumTopic, asTdObject, asTdObjects, tdId, tdNumber } from "./tdlibMapper";
 import { numericId } from "./tdlibRequests";
 import { identityTextField } from "./identityText";
@@ -153,7 +154,7 @@ export class TauriForumTopicService {
   }
 
   async createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic> {
-    const name = identityTextField(input.name, 128, "话题名称", true);
+    const name = identityTextField(input.name, 128, translate("话题名称"), true);
     const iconColor = input.iconColor ?? 0x6fb9f0;
     const info = await this.context.request({
       "@type": "createForumTopic",
@@ -179,13 +180,13 @@ export class TauriForumTopicService {
       notification_settings: null,
       draft_message: null,
     });
-    if (!topic) throw new Error("TDLib 未返回新话题");
+    if (!topic) throw new Error(translate("TDLib 未返回新话题"));
     this.context.emitForumTopicsChanged(input.chatId);
     return topic;
   }
 
   async editForumTopic(chatId: string, topicId: string, name: string) {
-    const normalized = identityTextField(name, 128, "话题名称", true);
+    const normalized = identityTextField(name, 128, translate("话题名称"), true);
     await this.context.request({
       "@type": "editForumTopic",
       chat_id: numericId(chatId),

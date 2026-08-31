@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
 import {
   useCallback,
@@ -248,14 +249,14 @@ export function NavigationRail({
 
   return (
     <>
-    <nav className="navigation-rail" aria-label="聊天文件夹">
+    <nav className="navigation-rail" aria-label={translate("聊天文件夹")}>
       <div ref={accountSwitcherRef} className={`rail-account-switcher ${accountMenu ? "is-open" : ""}`}>
         <button
           className="rail-account"
           type="button"
-          aria-label="切换账号"
+          aria-label={translate("切换账号")}
           aria-expanded={Boolean(accountMenu)}
-          title={`当前账号：${accountName}`}
+          title={translate("当前账号：{{value0}}", { value0: accountName })}
           onClick={(event) => openAccountMenu(event.currentTarget)}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -304,13 +305,13 @@ export function NavigationRail({
             <span className="rail-icon"><FolderIcon name={folder.iconName} /></span><span>{folder.title}</span>
           </button>
         ))}
-        <button className="rail-button" type="button" aria-label="管理文件夹" title="管理文件夹" onClick={onManageFolders}>
-          <span className="rail-icon"><FolderCog size={23} strokeWidth={1.8} /></span><span>管理</span>
+        <button className="rail-button" type="button" aria-label={translate("管理文件夹")} title={translate("管理文件夹")} onClick={onManageFolders}>
+          <span className="rail-icon"><FolderCog size={23} strokeWidth={1.8} /></span><span>{translate("管理")}</span>
         </button>
       </div>
       <div className="rail-footer">
-        <button className="rail-button rail-settings" type="button" aria-label="设置" title="设置" onClick={onOpenSettings}>
-          <span className="rail-icon"><Settings size={23} strokeWidth={1.8} /></span><span>设置</span>
+        <button className="rail-button rail-settings" type="button" aria-label={translate("设置")} title={translate("设置")} onClick={onOpenSettings}>
+          <span className="rail-icon"><Settings size={23} strokeWidth={1.8} /></span><span>{translate("设置")}</span>
         </button>
       </div>
     </nav>

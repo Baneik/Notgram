@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { Chat, Message } from "../telegram/types";
 
 export type ManagedDownloadKind = "video" | "file" | "audio" | "voice";
@@ -64,7 +65,7 @@ const downloadKind = (message: Message): ManagedDownloadKind | undefined => {
 };
 
 export const formatDownloadSize = (bytes?: number) => {
-  if (!Number.isFinite(bytes) || (bytes ?? 0) <= 0) return "大小未知";
+  if (!Number.isFinite(bytes) || (bytes ?? 0) <= 0) return translate("大小未知");
   const value = bytes!;
   const unit = value < 1024 ? "B" : value < 1024 ** 2 ? "KB" : value < 1024 ** 3 ? "MB" : "GB";
   const divisor = unit === "B" ? 1 : unit === "KB" ? 1024 : unit === "MB" ? 1024 ** 2 : 1024 ** 3;
@@ -108,7 +109,7 @@ const fallbackDownloadItem = (request: ManagedDownloadRequest): ManagedDownloadI
     fileId: request.fileId,
     fileName: request.fileName,
     chatId: request.chatId ?? "",
-    chatTitle: request.chatTitle ?? "未知会话",
+    chatTitle: request.chatTitle ?? translate("未知会话"),
     messageId: request.messageId ?? "",
     sentAt: request.sentAt ?? request.requestedAt,
     kind: request.kind ?? "file",
@@ -143,7 +144,7 @@ const downloadItemFromMessage = (
     fileId: content.fileId,
     fileName: currentDownloadFileName(request.fileName, content.fileName),
     chatId: message.chatId,
-    chatTitle: chatTitle ?? request.chatTitle ?? "未知会话",
+    chatTitle: chatTitle ?? request.chatTitle ?? translate("未知会话"),
     messageId: message.id,
     sentAt: message.sentAt,
     kind,
@@ -237,7 +238,7 @@ export class ManagedDownloadIndex {
         status: "pending",
         error: undefined,
         chatId: source.chatId,
-        chatTitle: chats.get(source.chatId)?.title ?? existing?.chatTitle ?? "未知会话",
+        chatTitle: chats.get(source.chatId)?.title ?? existing?.chatTitle ?? translate("未知会话"),
         messageId: source.id,
         sentAt: source.sentAt,
         kind: downloadKind(source) ?? existing?.kind ?? "file",

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   ArrowLeft,
   Check,
@@ -101,27 +102,27 @@ export function ForumTopicsView({
   return (
     <section
       className="forum-topics-view"
-      aria-label={`${chat.title} 话题`}
+      aria-label={translate("{{value0}} 话题", { value0: chat.title })}
       aria-hidden={mobileViewport && !mobileChatOpen ? true : undefined}
       inert={mobileViewport && !mobileChatOpen ? true : undefined}
     >
       <header className="conversation-header forum-topics-header">
-        <button className="mobile-back icon-button" type="button" aria-label="返回会话列表" title="返回会话列表" onClick={onBack}>
+        <button className="mobile-back icon-button" type="button" aria-label={translate("返回会话列表")} title={translate("返回会话列表")} onClick={onBack}>
           <ArrowLeft size={20} strokeWidth={1.9} />
         </button>
         <button className="conversation-profile-trigger" type="button" aria-label={chat.title} title={chat.title}>
           <Avatar avatar={chat.avatar} size="medium" />
           <span className="conversation-title">
             <strong>{chat.title}</strong>
-            <span className="conversation-typing-status">话题</span>
+            <span className="conversation-typing-status">{translate("话题")}</span>
           </span>
         </button>
         {canCreate && (
           <button
             className="icon-button forum-topic-create"
             type="button"
-            aria-label="创建话题"
-            title="创建话题"
+            aria-label={translate("创建话题")}
+            title={translate("创建话题")}
             onClick={() => setCreating(true)}
           >
             <Plus size={20} strokeWidth={2} />
@@ -137,13 +138,13 @@ export function ForumTopicsView({
               autoFocus
               value={newName}
               maxLength={128}
-              placeholder="话题名称"
+              placeholder={translate("话题名称")}
               onChange={(event) => setNewName(event.target.value)}
             />
-            <button className="icon-button" type="submit" aria-label="确认创建" title="确认创建" disabled={!newName.trim() || pendingTopicId === "new"}>
+            <button className="icon-button" type="submit" aria-label={translate("确认创建")} title={translate("确认创建")} disabled={!newName.trim() || pendingTopicId === "new"}>
               <Check size={18} strokeWidth={2} />
             </button>
-            <button className="icon-button" type="button" aria-label="取消创建" title="取消创建" onClick={() => { setCreating(false); setNewName(""); }} disabled={pendingTopicId === "new"}>
+            <button className="icon-button" type="button" aria-label={translate("取消创建")} title={translate("取消创建")} onClick={() => { setCreating(false); setNewName(""); }} disabled={pendingTopicId === "new"}>
               <X size={18} strokeWidth={2} />
             </button>
           </form>
@@ -152,7 +153,7 @@ export function ForumTopicsView({
         <MotionPresence present={showLoading || (!loading && orderedTopics.length === 0)} variant="status">
           {showLoading || (!loading && orderedTopics.length === 0) ? (
             <div key={showLoading ? "loading" : "empty"} className="forum-topics-state" role="status">
-              {showLoading ? "正在加载话题" : "暂无话题"}
+              {showLoading ? translate("正在加载话题") : translate("暂无话题")}
             </div>
           ) : null}
         </MotionPresence>
@@ -164,8 +165,8 @@ export function ForumTopicsView({
                   <form className="forum-topic-form forum-topic-edit" onSubmit={(event) => void submitEdit(event, topic.id)}>
                     <span className="forum-topic-icon" style={{ backgroundColor: topicIconColor(topic.iconColor) }}><Hash size={17} /></span>
                     <input autoFocus value={editingName} maxLength={128} onChange={(event) => setEditingName(event.target.value)} />
-                    <button className="icon-button" type="submit" aria-label="保存话题" title="保存" disabled={!editingName.trim() || pendingTopicId === topic.id}><Check size={18} /></button>
-                    <button className="icon-button" type="button" aria-label="取消编辑" title="取消" onClick={() => setEditingTopicId(undefined)} disabled={pendingTopicId === topic.id}><X size={18} /></button>
+                    <button className="icon-button" type="submit" aria-label={translate("保存话题")} title={translate("保存")} disabled={!editingName.trim() || pendingTopicId === topic.id}><Check size={18} /></button>
+                    <button className="icon-button" type="button" aria-label={translate("取消编辑")} title={translate("取消")} onClick={() => setEditingTopicId(undefined)} disabled={pendingTopicId === topic.id}><X size={18} /></button>
                   </form>
                 ) : (
                   <>
@@ -173,17 +174,17 @@ export function ForumTopicsView({
                       <span className="forum-topic-icon" style={{ backgroundColor: topicIconColor(topic.iconColor) }}><Hash size={17} /></span>
                       <span className="forum-topic-copy">
                         <span className="forum-topic-name">{topic.name}</span>
-                        <span className="forum-topic-preview">{topic.lastMessage ? messagePreviewText(topic.lastMessage.content) : "暂无消息"}</span>
+                        <span className="forum-topic-preview">{topic.lastMessage ? messagePreviewText(topic.lastMessage.content) : translate("暂无消息")}</span>
                       </span>
                       <span className="forum-topic-meta">
-                        {topic.isPinned && <Pin size={14} strokeWidth={1.9} aria-label="已置顶" />}
-                        {topic.isClosed && <LockKeyhole size={14} strokeWidth={1.9} aria-label="已关闭" />}
+                        {topic.isPinned && <Pin size={14} strokeWidth={1.9} aria-label={translate("已置顶")} />}
+                        {topic.isClosed && <LockKeyhole size={14} strokeWidth={1.9} aria-label={translate("已关闭")} />}
                         {(topic.unreadCount > 0 || topic.unreadReactionCount > 0) && (
                           <strong
                             className={topic.unreadCount === 0 ? "has-reaction" : undefined}
                             aria-label={topic.unreadCount > 0
-                              ? `${topic.unreadCount} 条未读消息`
-                              : `${topic.unreadReactionCount} 条未读回应`}
+                              ? translate("{{value0}} 条未读消息", { value0: topic.unreadCount })
+                              : translate("{{value0}} 条未读回应", { value0: topic.unreadReactionCount })}
                           >
                             {formatUnreadCount(topic.unreadCount > 0
                               ? topic.unreadCount
@@ -196,8 +197,8 @@ export function ForumTopicsView({
                       <button
                         className="icon-button"
                         type="button"
-                        aria-label={`${topic.name} 更多操作`}
-                        title="更多操作"
+                        aria-label={translate("{{value0}} 更多操作", { value0: topic.name })}
+                        title={translate("更多操作")}
                         disabled={pendingTopicId === topic.id}
                         onClick={() => setMenuTopicId((value) => value === topic.id ? undefined : topic.id)}
                       >
@@ -205,9 +206,9 @@ export function ForumTopicsView({
                       </button>
                       <MotionPresence present={menuTopicId === topic.id} variant="popover">
                         {menuTopicId === topic.id ? <div className="forum-topic-menu" role="menu">
-                          <button type="button" role="menuitem" onClick={() => { setEditingTopicId(topic.id); setEditingName(topic.name); setMenuTopicId(undefined); }}><Pencil size={16} />重命名</button>
-                          {canManage && <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "pinned")}><Pin size={16} />{topic.isPinned ? "取消置顶" : "置顶"}</button>}
-                          <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "closed")}><LockKeyhole size={16} />{topic.isClosed ? "重新开启" : "关闭话题"}</button>
+                          <button type="button" role="menuitem" onClick={() => { setEditingTopicId(topic.id); setEditingName(topic.name); setMenuTopicId(undefined); }}><Pencil size={16} />{translate("重命名")}</button>
+                          {canManage && <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "pinned")}><Pin size={16} />{topic.isPinned ? translate("取消置顶") : translate("置顶")}</button>}
+                          <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "closed")}><LockKeyhole size={16} />{topic.isClosed ? translate("重新开启") : translate("关闭话题")}</button>
                         </div> : null}
                       </MotionPresence>
                     </div>}

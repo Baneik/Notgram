@@ -1,3 +1,4 @@
+import { currentLanguage, translate } from "../i18n";
 import { Folder, LoaderCircle, Plus, Save, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -56,9 +57,9 @@ export function FolderManagerDialog({
   }, [activeFolder, activeId, customFolders]);
 
   const visibleChats = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("zh-CN");
+    const normalized = query.trim().toLocaleLowerCase(currentLanguage());
     return chats
-      .filter((chat) => !normalized || chat.title.toLocaleLowerCase("zh-CN").includes(normalized))
+      .filter((chat) => !normalized || chat.title.toLocaleLowerCase(currentLanguage()).includes(normalized))
       .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
   }, [chats, query]);
 
@@ -128,20 +129,20 @@ export function FolderManagerDialog({
         tabIndex={-1}
       >
         <header className="folder-dialog-header">
-          <h2 id="folder-dialog-title">聊天文件夹</h2>
-          <button className="icon-button" type="button" aria-label="关闭" title="关闭" disabled={busy} onClick={onClose}>
+          <h2 id="folder-dialog-title">{translate("聊天文件夹")}</h2>
+          <button className="icon-button" type="button" aria-label={translate("关闭")} title={translate("关闭")} disabled={busy} onClick={onClose}>
             <X size={19} />
           </button>
         </header>
         <div className="folder-dialog-body">
-          <nav className="folder-list" aria-label="自定义文件夹">
+          <nav className="folder-list" aria-label={translate("自定义文件夹")}>
             <button
               className={`folder-list-item ${activeId === NEW_FOLDER ? "is-active" : ""}`}
               type="button"
               onClick={() => selectFolder(NEW_FOLDER)}
             >
               <Plus size={17} />
-              <span>新建文件夹</span>
+              <span>{translate("新建文件夹")}</span>
             </button>
             {customFolders.map((folder) => (
               <button
@@ -155,9 +156,9 @@ export function FolderManagerDialog({
               </button>
             ))}
           </nav>
-          <section className="folder-editor" aria-label={activeFolder ? `编辑 ${activeFolder.title}` : "新建文件夹"}>
+          <section className="folder-editor" aria-label={activeFolder ? translate("编辑 {{value0}}", { value0: activeFolder.title }) : translate("新建文件夹")}>
             <label className="folder-name-field">
-              <span>名称</span>
+              <span>{translate("名称")}</span>
               <input
                 value={title}
                 maxLength={12}
@@ -168,16 +169,16 @@ export function FolderManagerDialog({
               <small>{[...title].length}/12</small>
             </label>
             <div className="folder-members-heading">
-              <h3>包含的会话</h3>
+              <h3>{translate("包含的会话")}</h3>
               <span>{selectedChatIds.size}</span>
             </div>
             <label className="folder-chat-search">
               <Search size={16} />
-              <span className="sr-only">筛选会话</span>
+              <span className="sr-only">{translate("筛选会话")}</span>
               <input
                 type="search"
                 value={query}
-                placeholder="筛选会话"
+                placeholder={translate("筛选会话")}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
@@ -198,13 +199,11 @@ export function FolderManagerDialog({
             <footer className="folder-editor-actions">
               {activeFolder && (deleteConfirm ? (
                 <div className="folder-delete-confirm">
-                  <button type="button" disabled={busy} onClick={() => setDeleteConfirm(false)}>取消</button>
-                  <button className="is-danger" type="button" disabled={busy} onClick={() => void remove()}>
-                    删除文件夹
-                  </button>
+                  <button type="button" disabled={busy} onClick={() => setDeleteConfirm(false)}>{translate("取消")}</button>
+                  <button className="is-danger" type="button" disabled={busy} onClick={() => void remove()}>{translate("删除文件夹")}</button>
                 </div>
               ) : (
-                <button className="folder-delete" type="button" disabled={busy} aria-label="删除文件夹" title="删除文件夹" onClick={() => setDeleteConfirm(true)}>
+                <button className="folder-delete" type="button" disabled={busy} aria-label={translate("删除文件夹")} title={translate("删除文件夹")} onClick={() => setDeleteConfirm(true)}>
                   <Trash2 size={17} />
                 </button>
               ))}
@@ -216,7 +215,7 @@ export function FolderManagerDialog({
                   onClick={() => void save()}
                 >
                   {busy ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
-                  <span>保存</span>
+                  <span>{translate("保存")}</span>
                 </button>
               )}
             </footer>

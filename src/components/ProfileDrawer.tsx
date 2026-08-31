@@ -1,3 +1,4 @@
+import { currentLanguage, translate } from "../i18n";
 import {
   ArrowLeft,
   AtSign,
@@ -74,15 +75,15 @@ interface ProfileDrawerProps {
 }
 
 const roleLabel = (role: "owner" | "administrator" | "member") =>
-  role === "owner" ? "群主" : role === "administrator" ? "管理员" : "成员";
+  role === "owner" ? translate("群主") : role === "administrator" ? translate("管理员") : translate("成员");
 
 const pageTitle = (page: ProfilePage) => {
   switch (page) {
-    case "commonGroups": return "共同群组";
-    case "members": return "成员";
-    case "sharedMedia": return "共享媒体";
-    case "playlist": return "音乐";
-    default: return "资料";
+    case "commonGroups": return translate("共同群组");
+    case "members": return translate("成员");
+    case "sharedMedia": return translate("共享媒体");
+    case "playlist": return translate("音乐");
+    default: return translate("资料");
   }
 };
 
@@ -209,7 +210,7 @@ export function ProfileDrawer({
     return (
       <div className="profile-detail-page">
         <header className="profile-detail-header">
-          <button className="icon-button" type="button" aria-label="返回资料" title="返回" onClick={() => setPage("main")}>
+          <button className="icon-button" type="button" aria-label={translate("返回资料")} title={translate("返回")} onClick={() => setPage("main")}>
             <ArrowLeft size={19} />
           </button>
           <div>
@@ -227,14 +228,14 @@ export function ProfileDrawer({
                     <span>
                       <strong>{group.title}</strong>
                       <small>{group.memberCount
-                        ? `${group.memberCount.toLocaleString("zh-CN")} 位成员`
-                        : "共同群组"}</small>
+                        ? translate("{{value0}} 位成员", { value0: group.memberCount.toLocaleString(currentLanguage()) })
+                        : translate("共同群组")}</small>
                     </span>
                     <ChevronRight size={16} aria-hidden="true" />
                   </button>
                 ))}
               </div>
-            ) : <div className="profile-detail-empty" role="status">{(profile.groupInCommonCount ?? 0) > 0 ? "暂时无法读取群组列表" : "没有共同群组"}</div>
+            ) : <div className="profile-detail-empty" role="status">{(profile.groupInCommonCount ?? 0) > 0 ? translate("暂时无法读取群组列表") : translate("没有共同群组")}</div>
           ) : null}
           {page === "members" ? (
             profile.canViewMembers ? (
@@ -256,8 +257,8 @@ export function ProfileDrawer({
                       {member.user.id !== currentUserId ? (
                         <button
                           type="button"
-                          aria-label={`向 ${member.user.displayName} 发消息`}
-                          title="发消息"
+                          aria-label={translate("向 {{value0}} 发消息", { value0: member.user.displayName })}
+                          title={translate("发消息")}
                           onClick={() => void onStartPrivateChat(member.user.id)}
                         >
                           <MessageCircle size={16} />
@@ -274,12 +275,12 @@ export function ProfileDrawer({
                     onClick={() => void onLoadMoreMembers(profile.chatId!)}
                   >
                     {showMembersLoading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
-                    <span>{state.membersLoading ? "正在加载成员" : "加载更多成员"}</span>
+                    <span>{state.membersLoading ? translate("正在加载成员") : translate("加载更多成员")}</span>
                   </button>
                 ) : null}
                 {state.membersError ? <p className="profile-state is-error" role="alert">{state.membersError}</p> : null}
               </>
-            ) : <div className="profile-detail-empty" role="status">此频道不公开成员列表</div>
+            ) : <div className="profile-detail-empty" role="status">{translate("此频道不公开成员列表")}</div>
           ) : null}
           {page === "sharedMedia" && profile.chatId ? (
             <SharedMediaBrowser
@@ -323,15 +324,15 @@ export function ProfileDrawer({
         aria-labelledby="profile-drawer-title"
         tabIndex={-1}
       >
-        <h2 id="profile-drawer-title" className="sr-only">资料</h2>
-        <button ref={closeRef} className="profile-close icon-button" type="button" aria-label="关闭资料" title="关闭" onClick={onClose}>
+        <h2 id="profile-drawer-title" className="sr-only">{translate("资料")}</h2>
+        <button ref={closeRef} className="profile-close icon-button" type="button" aria-label={translate("关闭资料")} title={translate("关闭")} onClick={onClose}>
           <X size={19} />
         </button>
         {page !== "main" ? renderDetailPage() : (
           <div className={`profile-drawer-scroll ${showProfileSkeleton ? "is-loading" : ""}`.trim()}>
             {showProfileSkeleton ? (
               <section className={`profile-loading-shell ${showProfileLoading ? "is-active" : ""}`.trim()} role="status">
-                <span className="sr-only">正在加载资料</span>
+                <span className="sr-only">{translate("正在加载资料")}</span>
                 <div className="profile-loading-hero" aria-hidden="true">
                   <span className="profile-loading-placeholder is-avatar" />
                   <span className="profile-loading-placeholder is-title" />
@@ -343,8 +344,8 @@ export function ProfileDrawer({
               {statusKind ? (
                 <div key={statusKind} className={`profile-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"}>
                   {statusKind === "error" ? (
-                    <><span>{state.error}</span><button className="dialog-secondary" type="button" onClick={onRetry}><RefreshCw size={15} /><span>重试</span></button></>
-                  ) : <span>没有可显示的资料</span>}
+                    <><span>{state.error}</span><button className="dialog-secondary" type="button" onClick={onRetry}><RefreshCw size={15} /><span>{translate("重试")}</span></button></>
+                  ) : <span>{translate("没有可显示的资料")}</span>}
                 </div>
               ) : null}
             </MotionPresence>
@@ -355,8 +356,8 @@ export function ProfileDrawer({
                     <button
                       className="profile-avatar-button"
                       type="button"
-                      aria-label={`查看 ${profile.title} 的头像和历史头像`}
-                      title="查看头像"
+                      aria-label={translate("查看 {{value0}} 的头像和历史头像", { value0: profile.title })}
+                      title={translate("查看头像")}
                       onClick={openProfileAvatar}
                     >
                       <Avatar avatar={profile.avatar} size="large" />
@@ -365,8 +366,8 @@ export function ProfileDrawer({
                   <h3 id="profile-name" className={isAdministrator ? "is-administrator" : undefined}>{profile.title}</h3>
                   <span className={`profile-status ${profileIsBot ? "is-bot" : ""}`.trim()}>
                     {profileIsBot && isAdministrator
-                      ? "机器人 · 管理员"
-                      : profileIsBot ? "机器人" : isAdministrator ? "管理员" : profile.statusLabel}
+                      ? translate("机器人 · 管理员")
+                      : profileIsBot ? translate("机器人") : isAdministrator ? translate("管理员") : profile.statusLabel}
                   </span>
                   {profile.bio ? (
                     <MessageRichText
@@ -382,21 +383,21 @@ export function ProfileDrawer({
                   <div className="profile-actions">
                     {profile.kind === "user" && profile.userId && profile.userId !== currentUserId ? (
                       <button type="button" onClick={() => void onStartPrivateChat(profile.userId!)}>
-                        <MessageCircle size={18} /><span>发消息</span>
+                        <MessageCircle size={18} /><span>{translate("发消息")}</span>
                       </button>
                     ) : null}
                     {canManageChat && profile.chatId && (profile.kind === "group" || profile.kind === "channel") ? (
                       <button type="button" onClick={() => onManageChat(profile.chatId!)}>
-                        <Shield size={18} /><span>管理</span>
+                        <Shield size={18} /><span>{translate("管理")}</span>
                       </button>
                     ) : null}
                     {profile.userId && profile.kind === "user" ? (
                       <button
                         className={localBlockedUser ? "is-active" : undefined}
                         type="button"
-                        aria-label={localBlockedUser ? "解除屏蔽" : "屏蔽"}
+                        aria-label={localBlockedUser ? translate("解除屏蔽") : translate("屏蔽")}
                         aria-pressed={Boolean(localBlockedUser)}
-                        title={localBlockedUser ? "解除屏蔽" : "屏蔽"}
+                        title={localBlockedUser ? translate("解除屏蔽") : translate("屏蔽")}
                         onClick={() => {
                           if (localBlockedUser) {
                             unblockLocalUser(activeAccountId, profile.userId!);
@@ -411,49 +412,49 @@ export function ProfileDrawer({
                         }}
                       >
                         {localBlockedUser ? <Eye size={18} /> : <EyeOff size={18} />}
-                        <span>屏蔽</span>
+                        <span>{translate("屏蔽")}</span>
                       </button>
                     ) : null}
                     {profile.userId && profile.kind === "user" ? (
                       <button
                         className={isBlocked ? "is-active" : undefined}
                         type="button"
-                        aria-label={isBlocked ? "移出黑名单" : "黑名单"}
+                        aria-label={isBlocked ? translate("移出黑名单") : translate("黑名单")}
                         aria-pressed={isBlocked}
-                        title={isBlocked ? "移出黑名单" : "黑名单"}
+                        title={isBlocked ? translate("移出黑名单") : translate("黑名单")}
                         onClick={() => void onToggleBlock(profile.userId!, "user", !isBlocked)}
                       >
-                        {isBlocked ? <ShieldCheck size={18} /> : <Ban size={18} />}<span>黑名单</span>
+                        {isBlocked ? <ShieldCheck size={18} /> : <Ban size={18} />}<span>{translate("黑名单")}</span>
                       </button>
                     ) : null}
                     {profile.chatId && profile.kind === "channel" ? (
                       <button type="button" onClick={() => void onToggleBlock(profile.chatId!, "chat", !isBlocked)}>
-                        <Ban size={18} /><span>{isBlocked ? "解除屏蔽" : "屏蔽频道"}</span>
+                        <Ban size={18} /><span>{isBlocked ? translate("解除屏蔽") : translate("屏蔽频道")}</span>
                       </button>
                     ) : null}
                     {(profile.chatId || reportChatId) && (profile.kind === "user" || profile.kind === "group" || profile.kind === "channel") ? (
                       <button type="button" onClick={() => setReportOpen(true)}>
-                        <Flag size={18} /><span>举报</span>
+                        <Flag size={18} /><span>{translate("举报")}</span>
                       </button>
                     ) : null}
                   </div>
                   {(profile.kind === "user" || profile.kind === "self") ? (
-                    <section className="profile-identity-card" aria-label="用户账户信息">
+                    <section className="profile-identity-card" aria-label={translate("用户账户信息")}>
                       {profile.username ? (
-                        <div><AtSign size={18} /><span><strong>@{profile.username}</strong><small>用户名</small></span></div>
+                        <div><AtSign size={18} /><span><strong>@{profile.username}</strong><small>{translate("用户名")}</small></span></div>
                       ) : null}
                       {profile.phoneNumber && profile.kind === "self" ? (
-                        <div><Phone size={18} /><span><strong>{profile.phoneNumber}</strong><small>手机号</small></span></div>
+                        <div><Phone size={18} /><span><strong>{profile.phoneNumber}</strong><small>{translate("手机号")}</small></span></div>
                       ) : null}
-                      <div><Fingerprint size={18} /><span><strong>{profile.userId}</strong><small>用户 ID</small></span></div>
-                      <div><Network size={18} /><span><strong>{profile.dataCenterId ? `DC${profile.dataCenterId}, ${profile.dataCenterLocation}` : profile.dataCenterLocation}</strong><small>数据中心</small></span></div>
+                      <div><Fingerprint size={18} /><span><strong>{profile.userId}</strong><small>{translate("用户 ID")}</small></span></div>
+                      <div><Network size={18} /><span><strong>{profile.dataCenterId ? `DC${profile.dataCenterId}, ${profile.dataCenterLocation}` : profile.dataCenterLocation}</strong><small>{translate("数据中心")}</small></span></div>
                     </section>
                   ) : null}
-                  <nav className="profile-navigation" aria-label="资料详情">
+                  <nav className="profile-navigation" aria-label={translate("资料详情")}>
                     {profile.groupInCommonCount !== undefined && profile.kind === "user" ? (
                       <button type="button" onClick={() => setPage("commonGroups")}>
                         <span className="profile-navigation-icon"><Users size={18} /></span>
-                        <span><strong>共同群组</strong><small>查看你们都加入的群组</small></span>
+                        <span><strong>{translate("共同群组")}</strong><small>{translate("查看你们都加入的群组")}</small></span>
                         <span className="profile-navigation-value">{profile.groupInCommonCount}</span>
                         <ChevronRight size={17} aria-hidden="true" />
                       </button>
@@ -461,7 +462,7 @@ export function ProfileDrawer({
                     {(profile.kind === "user" || profile.kind === "self") ? (
                       <button type="button" onClick={() => setPage("playlist")}>
                         <span className="profile-navigation-icon"><Headphones size={18} /></span>
-                        <span><strong>音乐</strong><small>资料歌单</small></span>
+                        <span><strong>{translate("音乐")}</strong><small>{translate("资料歌单")}</small></span>
                         <span className="profile-navigation-value">{profile.profileAudioCount ?? 0}</span>
                         <ChevronRight size={17} aria-hidden="true" />
                       </button>
@@ -469,15 +470,15 @@ export function ProfileDrawer({
                     {profile.chatId ? (
                       <button type="button" onClick={() => setPage("sharedMedia")}>
                         <span className="profile-navigation-icon"><Image size={18} /></span>
-                        <span><strong>共享媒体</strong><small>图片、文件、链接与音频</small></span>
+                        <span><strong>{translate("共享媒体")}</strong><small>{translate("图片、文件、链接与音频")}</small></span>
                         <ChevronRight size={17} aria-hidden="true" />
                       </button>
                     ) : null}
                     {(profile.kind === "group" || profile.kind === "channel") ? (
                       <button type="button" onClick={() => setPage("members")}>
                         <span className="profile-navigation-icon"><Users size={18} /></span>
-                        <span><strong>成员</strong><small>{profile.canViewMembers ? "查看群组成员" : "成员列表未公开"}</small></span>
-                        {profile.memberCount !== undefined ? <span className="profile-navigation-value">{profile.memberCount.toLocaleString("zh-CN")}</span> : null}
+                        <span><strong>{translate("成员")}</strong><small>{profile.canViewMembers ? translate("查看群组成员") : translate("成员列表未公开")}</small></span>
+                        {profile.memberCount !== undefined ? <span className="profile-navigation-value">{profile.memberCount.toLocaleString(currentLanguage())}</span> : null}
                         <ChevronRight size={17} aria-hidden="true" />
                       </button>
                     ) : null}
@@ -489,7 +490,7 @@ export function ProfileDrawer({
         )}
       </section>
       <MotionPresence present={Boolean(reportOpen && (profile?.chatId || reportChatId))}>
-        {reportOpen && (profile?.chatId || reportChatId) ? <ReportDialog chatId={profile?.chatId ?? reportChatId!} messageIds={[]} title={profile?.title ?? "聊天"} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onDeleteChat={onDeleteChat} onClose={() => setReportOpen(false)} /> : null}
+        {reportOpen && (profile?.chatId || reportChatId) ? <ReportDialog chatId={profile?.chatId ?? reportChatId!} messageIds={[]} title={profile?.title ?? translate("聊天")} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onDeleteChat={onDeleteChat} onClose={() => setReportOpen(false)} /> : null}
       </MotionPresence>
     </div>
   );

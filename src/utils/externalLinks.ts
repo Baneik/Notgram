@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { MouseEvent } from "react";
 import { telegramStore } from "../store/telegramStore";
@@ -28,7 +29,7 @@ export const safeExternalHref = (value?: string) => {
 
 export const openExternalLink = async (value: string) => {
   const href = safeExternalHref(value);
-  if (!href) throw new Error("不支持此外链地址");
+  if (!href) throw new Error(translate("不支持此外链地址"));
   if (await openTelegramLinkInApp(href)) return;
   if (isTauri()) {
     await invoke("notgram_open_external_url", { url: href });

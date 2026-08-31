@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 export const THEME_IDS = ["notgram-light", "notgram-dark"] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 export type ColorScheme = "light" | "dark";
@@ -9,8 +10,8 @@ export interface ThemeDefinition {
 }
 
 export const THEME_DEFINITIONS: Record<ThemeId, ThemeDefinition> = {
-  "notgram-light": { id: "notgram-light", label: "浅色", colorScheme: "light" },
-  "notgram-dark": { id: "notgram-dark", label: "深色", colorScheme: "dark" },
+  "notgram-light": { id: "notgram-light", get label() { return translate("浅色"); }, colorScheme: "light" },
+  "notgram-dark": { id: "notgram-dark", get label() { return translate("深色"); }, colorScheme: "dark" },
 };
 
 /** The CSS contract every theme must provide. Keep component CSS dependent on these aliases. */

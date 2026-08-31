@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   AlertCircle,
   BellOff,
@@ -58,12 +59,12 @@ export function SenderActionMenu({
   onDismiss,
 }: SenderActionMenuProps) {
   const nativeMenu = useNativeContextMenu({
-    label: "成员操作",
+    label: translate("成员操作"),
     colorTheme: currentColorTheme(),
     items: [
       { id: "mention", label: `@${senderName}`, icon: "at", disabled: !onMention },
-      { id: "private", label: "私聊", icon: "message", disabled: !onPrivateChat },
-      { id: "search", label: "搜索成员消息", icon: "search" },
+      { id: "private", label: translate("私聊"), icon: "message", disabled: !onPrivateChat },
+      { id: "search", label: translate("搜索成员消息"), icon: "search" },
     ],
   }, position, (actionId) => {
     onDismiss();
@@ -73,7 +74,7 @@ export function SenderActionMenu({
   }, onDismiss);
   if (nativeMenu) return null;
   return (
-    <ContextMenuSurface label="成员操作" point={position} onClose={onDismiss}>
+    <ContextMenuSurface label={translate("成员操作")} point={position} onClose={onDismiss}>
       <ContextMenuPanel>
         <button type="button" role="menuitem" disabled={!onMention} onClick={() => { onDismiss(); onMention?.(); }}>
           <AtSign size={16} strokeWidth={1.9} />
@@ -81,11 +82,11 @@ export function SenderActionMenu({
         </button>
         <button type="button" role="menuitem" disabled={!onPrivateChat} onClick={() => { onDismiss(); onPrivateChat?.(); }}>
           <MessageCircle size={16} strokeWidth={1.9} />
-          <span>私聊</span>
+          <span>{translate("私聊")}</span>
         </button>
         <button type="button" role="menuitem" onClick={() => { onDismiss(); onSearch(); }}>
           <Search size={16} strokeWidth={1.9} />
-          <span>搜索 {senderName} 的消息</span>
+          <span>{translate("搜索 {{value0}} 的消息", { value0: senderName })}</span>
         </button>
       </ContextMenuPanel>
     </ContextMenuSurface>
@@ -164,56 +165,56 @@ export function MessageActionMenu({
     avatar: target.avatar,
   }));
   const nativeItems: NativeContextMenuItem[] = permissions ? [
-    ...(permissions.canReply ? [{ id: "reply", label: "回复", icon: "reply" as const }] : []),
+    ...(permissions.canReply ? [{ id: "reply", label: translate("回复"), icon: "reply" as const }] : []),
     ...(permissions.canForward ? [{
       id: "forward",
-      label: "转发",
+      label: translate("转发"),
       icon: "forward" as const,
       actionable: true,
       children: quickForwardItems.length > 0 ? quickForwardItems : undefined,
     }] : []),
     ...(permissions.canForward && onForwardAlbum ? [{
       id: "merge-forward",
-      label: "合并转发",
+      label: translate("合并转发"),
       icon: "forward" as const,
       actionable: true,
       children: quickMergeForwardItems.length > 0 ? quickMergeForwardItems : undefined,
     }] : []),
     ...(permissions.canForward && onRepeat
-      ? [{ id: "repeat", label: "复读", icon: "repeat" as const }]
+      ? [{ id: "repeat", label: translate("复读"), icon: "repeat" as const }]
       : []),
-    { id: "copy", label: "复制", icon: "copy" },
-    ...(onSelect ? [{ id: "select", label: "选择", icon: "check" as const }] : []),
-    ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
+    { id: "copy", label: translate("复制"), icon: "copy" },
+    ...(onSelect ? [{ id: "select", label: translate("选择"), icon: "check" as const }] : []),
+    ...(onDownload ? [{ id: "download", label: translate("下载"), icon: "download" as const }] : []),
     ...(permissions.canEdit && message.content.kind === "text"
-      ? [{ id: "edit", label: "编辑", icon: "edit" as const }]
+      ? [{ id: "edit", label: translate("编辑"), icon: "edit" as const }]
       : []),
     ...(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers
-      ? [{ id: "delete", label: "删除", icon: "trash" as const, danger: true }]
+      ? [{ id: "delete", label: translate("删除"), icon: "trash" as const, danger: true }]
       : []),
-    ...(!loading && message.isPinned ? (onUnpin ? [{ id: "unpin", label: "取消置顶", icon: "pin" as const }] : [])
-      : !loading && onPin ? [{ id: "pin-message", label: "置顶消息", icon: "pin" as const }] : []),
-    ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
-    ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true }] : []),
+    ...(!loading && message.isPinned ? (onUnpin ? [{ id: "unpin", label: translate("取消置顶"), icon: "pin" as const }] : [])
+      : !loading && onPin ? [{ id: "pin-message", label: translate("置顶消息"), icon: "pin" as const }] : []),
+    ...(onPlayInWindow ? [{ id: "play-window", label: translate("以小窗播放"), icon: "play-window" as const }] : []),
+    ...(onReport ? [{ id: "report", label: translate("举报"), icon: "trash" as const, danger: true }] : []),
   ] : [
-    { id: "reply", label: "回复", icon: "reply", disabled: true },
-    { id: "forward", label: "转发", icon: "forward", disabled: true },
+    { id: "reply", label: translate("回复"), icon: "reply", disabled: true },
+    { id: "forward", label: translate("转发"), icon: "forward", disabled: true },
     ...(onForwardAlbum
-      ? [{ id: "merge-forward", label: "合并转发", icon: "forward" as const, disabled: true }]
+      ? [{ id: "merge-forward", label: translate("合并转发"), icon: "forward" as const, disabled: true }]
       : []),
-    ...(onRepeat ? [{ id: "repeat", label: "复读", icon: "repeat" as const, disabled: true }] : []),
-    { id: "copy", label: "复制", icon: "copy" },
-    ...(onSelect ? [{ id: "select", label: "选择", icon: "check" as const }] : []),
-    ...(onDownload ? [{ id: "download", label: "下载", icon: "download" as const }] : []),
+    ...(onRepeat ? [{ id: "repeat", label: translate("复读"), icon: "repeat" as const, disabled: true }] : []),
+    { id: "copy", label: translate("复制"), icon: "copy" },
+    ...(onSelect ? [{ id: "select", label: translate("选择"), icon: "check" as const }] : []),
+    ...(onDownload ? [{ id: "download", label: translate("下载"), icon: "download" as const }] : []),
     ...(message.content.kind === "text"
-      ? [{ id: "edit", label: "编辑", icon: "edit" as const, disabled: true }]
+      ? [{ id: "edit", label: translate("编辑"), icon: "edit" as const, disabled: true }]
       : []),
-    { id: "delete", label: "删除", icon: "trash", danger: true, disabled: true },
-    ...(onPlayInWindow ? [{ id: "play-window", label: "以小窗播放", icon: "play-window" as const }] : []),
-    ...(onReport ? [{ id: "report", label: "举报", icon: "trash" as const, danger: true, disabled: true }] : []),
+    { id: "delete", label: translate("删除"), icon: "trash", danger: true, disabled: true },
+    ...(onPlayInWindow ? [{ id: "play-window", label: translate("以小窗播放"), icon: "play-window" as const }] : []),
+    ...(onReport ? [{ id: "report", label: translate("举报"), icon: "trash" as const, danger: true, disabled: true }] : []),
   ];
   const nativeMenu = useNativeContextMenu({
-    label: "消息操作",
+    label: translate("消息操作"),
     colorTheme: currentColorTheme(),
     keyboardNavigation,
     items: nativeItems,
@@ -254,7 +255,7 @@ export function MessageActionMenu({
       ref={menuRef}
       className="message-action-menu"
       role="menu"
-      aria-label="消息操作"
+      aria-label={translate("消息操作")}
       tabIndex={-1}
       style={fallbackPosition}
       data-submenu-side={fallbackSubmenuSide}
@@ -268,25 +269,25 @@ export function MessageActionMenu({
         <>
           <button type="button" role="menuitem" onClick={onCopy}>
             <Copy size={16} strokeWidth={1.9} />
-            <span>复制</span>
+            <span>{translate("复制")}</span>
           </button>
           {onSelect && (
             <button type="button" role="menuitem" onClick={onSelect}>
               <Check size={16} strokeWidth={1.9} />
-              <span>选择</span>
+              <span>{translate("选择")}</span>
             </button>
           )}
           {onDownload && (
             <button type="button" role="menuitem" onClick={onDownload}>
               <Download size={16} strokeWidth={1.9} />
-              <span>下载</span>
+              <span>{translate("下载")}</span>
             </button>
           )}
           <div className="message-action-status" role="status">
             {loading ? (
-              <><LoaderCircle className="spin" size={15} />正在读取操作权限</>
+              <><LoaderCircle className="spin" size={15} />{translate("正在读取操作权限")}</>
             ) : (
-              <><AlertCircle size={15} />无法读取操作权限</>
+              <><AlertCircle size={15} />{translate("无法读取操作权限")}</>
             )}
           </div>
         </>
@@ -295,7 +296,7 @@ export function MessageActionMenu({
           {permissions.canReply && (
             <button type="button" role="menuitem" onClick={onReply}>
               <Reply size={16} strokeWidth={1.9} />
-              <span>回复</span>
+              <span>{translate("回复")}</span>
             </button>
           )}
           {permissions.canForward && quickForwardTargets.length > 0 ? (
@@ -313,11 +314,11 @@ export function MessageActionMenu({
                 onClick={onForward}
               >
                 <Forward size={16} strokeWidth={1.9} />
-                <span>转发</span>
+                <span>{translate("转发")}</span>
                 <ChevronRight className="context-menu-chevron" size={15} strokeWidth={1.9} />
               </button>
               {expandedForwardAction === "forward" && (
-                <div className="message-action-submenu" role="menu" aria-label="快速转发">
+                <div className="message-action-submenu" role="menu" aria-label={translate("快速转发")}>
                   {quickForwardTargets.map((target) => (
                     <button type="button" role="menuitem" key={target.id} onClick={() => onQuickForward(target)}>
                       <Avatar avatar={target.avatar} size="small" />
@@ -330,7 +331,7 @@ export function MessageActionMenu({
           ) : permissions.canForward ? (
             <button type="button" role="menuitem" onClick={onForward}>
               <Forward size={16} strokeWidth={1.9} />
-              <span>转发</span>
+              <span>{translate("转发")}</span>
             </button>
           ) : null}
           {permissions.canForward && onForwardAlbum && quickForwardTargets.length > 0 ? (
@@ -348,11 +349,11 @@ export function MessageActionMenu({
                 onClick={onForwardAlbum}
               >
                 <Forward size={16} strokeWidth={1.9} />
-                <span>合并转发</span>
+                <span>{translate("合并转发")}</span>
                 <ChevronRight className="context-menu-chevron" size={15} strokeWidth={1.9} />
               </button>
               {expandedForwardAction === "merge-forward" && (
-                <div className="message-action-submenu" role="menu" aria-label="快速合并转发">
+                <div className="message-action-submenu" role="menu" aria-label={translate("快速合并转发")}>
                   {quickForwardTargets.map((target) => (
                     <button type="button" role="menuitem" key={target.id} onClick={() => onQuickForwardAlbum?.(target)}>
                       <Avatar avatar={target.avatar} size="small" />
@@ -365,61 +366,61 @@ export function MessageActionMenu({
           ) : permissions.canForward && onForwardAlbum ? (
             <button type="button" role="menuitem" onClick={onForwardAlbum}>
               <Forward size={16} strokeWidth={1.9} />
-              <span>合并转发</span>
+              <span>{translate("合并转发")}</span>
             </button>
           ) : null}
           {permissions.canForward && onRepeat && (
             <button type="button" role="menuitem" onClick={onRepeat}>
               <Repeat2 size={16} strokeWidth={1.9} />
-              <span>复读</span>
+              <span>{translate("复读")}</span>
             </button>
           )}
           <button type="button" role="menuitem" onClick={onCopy}>
             <Copy size={16} strokeWidth={1.9} />
-            <span>复制</span>
+            <span>{translate("复制")}</span>
           </button>
           {onSelect && (
             <button type="button" role="menuitem" onClick={onSelect}>
               <Check size={16} strokeWidth={1.9} />
-              <span>选择</span>
+              <span>{translate("选择")}</span>
             </button>
           )}
           {onDownload && (
             <button type="button" role="menuitem" onClick={onDownload}>
               <Download size={16} strokeWidth={1.9} />
-              <span>下载</span>
+              <span>{translate("下载")}</span>
             </button>
           )}
           {permissions.canEdit && message.content.kind === "text" && (
             <button type="button" role="menuitem" onClick={onEdit}>
               <Edit3 size={16} strokeWidth={1.9} />
-              <span>编辑</span>
+              <span>{translate("编辑")}</span>
             </button>
           )}
           {(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers) && (
             <button className="is-danger" type="button" role="menuitem" onClick={onDelete}>
               <Trash2 size={16} strokeWidth={1.9} />
-              <span>删除</span>
+              <span>{translate("删除")}</span>
             </button>
           )}
           {!loading && message.isPinned ? onUnpin && (
             <button type="button" role="menuitem" onClick={onUnpin}>
               <PinOff size={16} strokeWidth={1.9} />
-              <span>取消置顶</span>
+              <span>{translate("取消置顶")}</span>
             </button>
           ) : !loading && onPin && (
             <button type="button" role="menuitem" onClick={onPin}>
               <Pin size={16} strokeWidth={1.9} />
-              <span>置顶消息</span>
+              <span>{translate("置顶消息")}</span>
             </button>
           )}
           {onPlayInWindow && (
             <button type="button" role="menuitem" onClick={onPlayInWindow}>
               <PictureInPicture2 size={16} strokeWidth={1.9} />
-              <span>以小窗播放</span>
+              <span>{translate("以小窗播放")}</span>
             </button>
           )}
-          {onReport && <button className="is-danger" type="button" role="menuitem" onClick={onReport}><Flag size={16} strokeWidth={1.9} /><span>举报</span></button>}
+          {onReport && <button className="is-danger" type="button" role="menuitem" onClick={onReport}><Flag size={16} strokeWidth={1.9} /><span>{translate("举报")}</span></button>}
         </>
       )}
     </div>
@@ -470,8 +471,8 @@ export function DeleteMessagesDialog({
         <div className="message-delete-heading">
           <span><Trash2 size={18} strokeWidth={1.9} /></span>
           <div>
-            <h3 id="message-delete-title">{batch || count > 1 ? `删除 ${count} 条消息` : "删除消息"}</h3>
-            <p>选择这次删除对谁生效</p>
+            <h3 id="message-delete-title">{batch || count > 1 ? translate("删除 {{value0}} 条消息", { value0: count }) : translate("删除消息")}</h3>
+            <p>{translate("选择这次删除对谁生效")}</p>
           </div>
         </div>
         {preview && <p className="message-delete-preview">{preview}</p>}
@@ -480,35 +481,33 @@ export function DeleteMessagesDialog({
             <button
               className="message-delete-option"
               type="button"
-              aria-label="仅对我删除"
+              aria-label={translate("仅对我删除")}
               disabled={pending}
               onClick={() => confirm("self")}
             >
               <span className="message-delete-option-icon">
                 {pending && pendingScope === "self" ? <LoaderCircle className="spin" size={18} /> : <UserRoundX size={18} />}
               </span>
-              <span><strong>仅对我删除</strong><small>其他成员仍能看到{count > 1 ? "这些消息" : "这条消息"}</small></span>
+              <span><strong>{translate("仅对我删除")}</strong><small>{translate("其他成员仍能看到")}{count > 1 ? translate("这些消息") : translate("这条消息")}</small></span>
             </button>
           )}
           {canDeleteForAllUsers && (
             <button
               className="message-delete-option is-for-everyone"
               type="button"
-              aria-label="为所有人删除"
+              aria-label={translate("为所有人删除")}
               disabled={pending}
               onClick={() => confirm("all")}
             >
               <span className="message-delete-option-icon">
                 {pending && pendingScope === "all" ? <LoaderCircle className="spin" size={18} /> : <UsersRound size={18} />}
               </span>
-              <span><strong>为所有人删除</strong><small>从所有成员的聊天记录中移除</small></span>
+              <span><strong>{translate("为所有人删除")}</strong><small>{translate("从所有成员的聊天记录中移除")}</small></span>
             </button>
           )}
         </div>
         <div className="message-delete-actions">
-          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>
-            取消
-          </button>
+          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>{translate("取消")}</button>
         </div>
       </section>
     </div>
@@ -535,26 +534,25 @@ export function PinMessageDialog({ message, pending, allowOnlyForSelf, allowNoti
       <section ref={dialogRef} className="message-pin-dialog" role="dialog" aria-modal="true" aria-labelledby="pin-message-title" tabIndex={-1}>
         <header className="message-pin-heading">
           <span className="message-pin-heading-icon"><Pin size={19} strokeWidth={2} /></span>
-          <div><h3 id="pin-message-title">置顶消息</h3><p>让这条消息显示在会话顶部</p></div>
+          <div><h3 id="pin-message-title">{translate("置顶消息")}</h3><p>{translate("让这条消息显示在会话顶部")}</p></div>
         </header>
-        <p className="message-pin-preview">{message.content.kind === "text" ? message.content.text : "这条消息"}</p>
+        <p className="message-pin-preview">{message.content.kind === "text" ? message.content.text : translate("这条消息")}</p>
         <div className="message-pin-options">
           {allowOnlyForSelf && <label className={`message-pin-option${onlyForSelf ? " is-selected" : ""}`}>
             <input type="checkbox" checked={onlyForSelf} onChange={(event) => setOnlyForSelf(event.target.checked)} />
             <span className="message-pin-option-icon"><UserRound size={17} strokeWidth={1.9} /></span>
-            <span><strong>仅为我置顶</strong><small>其他成员不会看到这条置顶</small></span>
+            <span><strong>{translate("仅为我置顶")}</strong><small>{translate("其他成员不会看到这条置顶")}</small></span>
           </label>}
           {allowNotification && !onlyForSelf && <label className={`message-pin-option${disableNotification ? " is-selected" : ""}`}>
             <input type="checkbox" checked={disableNotification} onChange={(event) => setDisableNotification(event.target.checked)} />
             <span className="message-pin-option-icon"><BellOff size={17} strokeWidth={1.9} /></span>
-            <span><strong>静音置顶通知</strong><small>不会向群成员发送置顶提醒</small></span>
+            <span><strong>{translate("静音置顶通知")}</strong><small>{translate("不会向群成员发送置顶提醒")}</small></span>
           </label>}
         </div>
         <div className="message-delete-actions">
-          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
+          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>{translate("取消")}</button>
           <button className="dialog-primary message-pin-confirm" type="button" disabled={pending} onClick={() => onConfirm(disableNotification, onlyForSelf)}>
-            {pending ? <LoaderCircle className="spin" size={16} /> : <Pin size={16} />}置顶消息
-          </button>
+            {pending ? <LoaderCircle className="spin" size={16} /> : <Pin size={16} />}{translate("置顶消息")}</button>
         </div>
       </section>
     </div>
@@ -587,20 +585,18 @@ export function AutoDeleteDialog({ currentTime, pending, onConfirm, onClose }: A
       <section ref={dialogRef} className="auto-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="auto-delete-title" tabIndex={-1}>
         <header className="message-forward-heading">
           <span className="message-forward-heading-icon"><Trash2 size={18} strokeWidth={1.9} /></span>
-          <div><h3 id="auto-delete-title">自动删除消息</h3><p>新消息会在设定时间后自动删除，历史消息不会受影响</p></div>
+          <div><h3 id="auto-delete-title">{translate("自动删除消息")}</h3><p>{translate("新消息会在设定时间后自动删除，历史消息不会受影响")}</p></div>
         </header>
-        <label className="auto-delete-field">删除时间
-          <select aria-label="自动删除时长" value={selection} onChange={(event) => setSelection(event.target.value)} disabled={pending}>
-            {AUTO_DELETE_PRESETS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            <option value="custom">自定义</option>
+        <label className="auto-delete-field">{translate("删除时间")}<select aria-label={translate("自动删除时长")} value={selection} onChange={(event) => setSelection(event.target.value)} disabled={pending}>
+            {AUTO_DELETE_PRESETS.map(([value, label]) => <option key={value} value={value}>{translate(label)}</option>)}
+            <option value="custom">{translate("自定义")}</option>
           </select>
         </label>
-        {selection === "custom" && <label className="auto-delete-field">自定义天数
-          <input aria-label="自定义天数" type="number" min={1} max={365} step={1} value={customDays} onChange={(event) => setCustomDays(event.target.value)} disabled={pending} />
+        {selection === "custom" && <label className="auto-delete-field">{translate("自定义天数")}<input aria-label={translate("自定义天数")} type="number" min={1} max={365} step={1} value={customDays} onChange={(event) => setCustomDays(event.target.value)} disabled={pending} />
         </label>}
         <div className="message-delete-actions">
-          <button className="dialog-primary" type="button" disabled={pending || !valid} onClick={() => onConfirm(seconds)}>{pending ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}保存</button>
-          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
+          <button className="dialog-primary" type="button" disabled={pending || !valid} onClick={() => onConfirm(seconds)}>{pending ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{translate("保存")}</button>
+          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>{translate("取消")}</button>
         </div>
       </section>
     </div>

@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:portable": "node scripts/build-portable.mjs",
+    "i18n:check": "node scripts/verify-i18n.mjs",
     "motion:check": "node scripts/verify-motion-contract.mjs",
     "check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check.ps1",
     "check:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check.ps1 -Release",
@@ -49,6 +50,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@babel/parser": "^8.0.4",
     "@playwright/test": "^1.62.1",
     "@tauri-apps/cli": "^2.11.4",
     "@types/katex": "^0.16.8",

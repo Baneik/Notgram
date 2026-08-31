@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { tdNumber, type TdObject } from "./tdlibMapper";
 import { numericId } from "./tdlibRequests";
@@ -45,7 +46,7 @@ export class TdRequestBroker {
     const extra = crypto.randomUUID();
     const response = this.waitForResponse(
       extra,
-      `TDLib ${requestType} 请求超时。`,
+      translate("TDLib {{value0}} 请求超时。", { value0: requestType }),
       timeoutMs,
     );
     void this.invokeCommand("telegram_send", {
@@ -117,7 +118,7 @@ export class TdRequestBroker {
 
   async requestPreparedProfilePhoto() {
     const extra = crypto.randomUUID();
-    const response = this.waitForResponse(extra, "更新头像请求超时。");
+    const response = this.waitForResponse(extra, translate("更新头像请求超时。"));
     try {
       const selected = await this.invokeCommand("telegram_pick_profile_photo", { extra });
       if (!selected) {
@@ -133,7 +134,7 @@ export class TdRequestBroker {
 
   async requestPreparedChatPhoto(chatId: string) {
     const extra = crypto.randomUUID();
-    const response = this.waitForResponse(extra, "更新聊天头像请求超时。");
+    const response = this.waitForResponse(extra, translate("更新聊天头像请求超时。"));
     try {
       const selected = await this.invokeCommand("telegram_pick_chat_photo", {
         chatId: numericId(chatId),
@@ -210,6 +211,9 @@ export class TdRequestBroker {
   private responseError(update: TdObject) {
     const code = tdNumber(update.code);
     const suffix = code === undefined ? "" : ` (${code})`;
-    return new Error(`${String(update.message ?? "TDLib 请求失败")}${suffix}`);
+    return new Error(translate("{{value0}}{{value1}}", {
+      value0: String(update.message ?? translate("TDLib 请求失败")),
+      value1: suffix,
+    }));
   }
 }

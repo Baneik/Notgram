@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   Archive,
   ArchiveRestore,
@@ -74,7 +75,7 @@ export function ChatActionMenu({
       ref={menuRef}
       className="chat-action-menu"
       role="menu"
-      aria-label="会话操作"
+      aria-label={translate("会话操作")}
       aria-busy={busy}
       tabIndex={-1}
       onKeyDown={(event) => handleMenuKeyboard(event, onClose)}
@@ -88,11 +89,11 @@ export function ChatActionMenu({
         {icon("pin", pinned
           ? <PinOff size={16} strokeWidth={1.9} />
           : <Pin size={16} strokeWidth={1.9} />)}
-        <span>{pinned ? "取消置顶" : "置顶会话"}</span>
+        <span>{pinned ? translate("取消置顶") : translate("置顶会话")}</span>
       </button>
       <button type="button" role="menuitem" disabled={busy} onClick={onOpenPinned}>
         <Pin size={16} strokeWidth={1.9} />
-        <span>查看置顶消息</span>
+        <span>{translate("查看置顶消息")}</span>
       </button>
       <button
         type="button"
@@ -104,7 +105,7 @@ export function ChatActionMenu({
         }}
       >
         <Search size={16} strokeWidth={1.9} />
-        <span>搜索消息</span>
+        <span>{translate("搜索消息")}</span>
       </button>
       <button
         type="button"
@@ -116,29 +117,29 @@ export function ChatActionMenu({
         }}
       >
         <ListChecks size={16} strokeWidth={1.9} />
-        <span>多选</span>
+        <span>{translate("多选")}</span>
       </button>
       <button
         type="button"
         role="menuitem"
         disabled={busy || !canSetAutoDelete}
-        title={!canSetAutoDelete ? "当前账号不能修改自动删除时间" : undefined}
+        title={!canSetAutoDelete ? translate("当前账号不能修改自动删除时间") : undefined}
         onClick={onOpenAutoDelete}
       >
         <Clock3 size={16} strokeWidth={1.9} />
-        <span>自动删除消息</span>
+        <span>{translate("自动删除消息")}</span>
       </button>
       <button
         type="button"
         role="menuitem"
         disabled={busy || chat.kind === "saved"}
-        title={chat.kind === "saved" ? "收藏夹不支持静音" : undefined}
+        title={chat.kind === "saved" ? translate("收藏夹不支持静音") : undefined}
         onClick={() => void run("mute", () => onSetMuted(!chat.muted))}
       >
         {icon("mute", chat.muted
           ? <Bell size={16} strokeWidth={1.9} />
           : <BellOff size={16} strokeWidth={1.9} />)}
-        <span>{chat.muted ? "取消静音" : "静音通知"}</span>
+        <span>{chat.muted ? translate("取消静音") : translate("静音通知")}</span>
       </button>
       <button
         type="button"
@@ -149,7 +150,7 @@ export function ChatActionMenu({
         {icon("archive", archived
           ? <ArchiveRestore size={16} strokeWidth={1.9} />
           : <Archive size={16} strokeWidth={1.9} />)}
-        <span>{archived ? "移出归档" : "归档会话"}</span>
+        <span>{archived ? translate("移出归档") : translate("归档会话")}</span>
       </button>
     </div>
   );

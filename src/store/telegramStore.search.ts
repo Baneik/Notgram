@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { TelegramTransport } from "../telegram/transport";
 import { chatMessageSearchCriteriaActive } from "../telegram/messageSearch";
 import type { ChatMessageSearchInput, GlobalSearchFilter } from "../telegram/types";
@@ -72,7 +73,7 @@ export const createSearchController = ({
         set({
           chatMessageSearch: {
             ...emptyChatMessageSearch(normalizedInput),
-            error: "Telegram 就绪后才能搜索",
+            error: translate("Telegram 就绪后才能搜索"),
           },
         });
         return;
@@ -96,7 +97,7 @@ export const createSearchController = ({
         });
       } catch (error) {
         if (generation !== chatMessageSearchGeneration) return;
-        set({ chatMessageSearch: { ...emptyChatMessageSearch(normalizedInput), error: onError(error, "无法搜索聊天消息") } });
+        set({ chatMessageSearch: { ...emptyChatMessageSearch(normalizedInput), error: onError(error, translate("无法搜索聊天消息")) } });
       }
     },
 
@@ -116,7 +117,7 @@ export const createSearchController = ({
         set({ chatMessageSearch: mergeChatMessageSearchPage(current, page) });
       } catch (error) {
         if (generation !== chatMessageSearchGeneration) return;
-        set({ chatMessageSearch: { ...current, loadingMore: false, error: onError(error, "无法加载更多聊天搜索结果") } });
+        set({ chatMessageSearch: { ...current, loadingMore: false, error: onError(error, translate("无法加载更多聊天搜索结果")) } });
       }
     },
 
@@ -141,7 +142,7 @@ export const createSearchController = ({
         set({
           globalSearch: {
             ...emptyGlobalSearch(normalized, filter),
-            error: "Telegram 就绪后才能搜索",
+            error: translate("Telegram 就绪后才能搜索"),
           },
         });
         return;
@@ -170,7 +171,7 @@ export const createSearchController = ({
         set({
           globalSearch: {
             ...emptyGlobalSearch(normalized, filter),
-            error: onError(error, "全局搜索失败"),
+            error: onError(error, translate("全局搜索失败")),
           },
         });
       }
@@ -196,7 +197,7 @@ export const createSearchController = ({
           globalSearch: {
             ...current,
             loading: false,
-            error: onError(error, "无法加载更多搜索结果"),
+            error: onError(error, translate("无法加载更多搜索结果")),
           },
         });
       }

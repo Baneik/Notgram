@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
 import {
   Profiler,
@@ -90,7 +91,7 @@ const DEFAULT_SIDEBAR_WIDTH = 360;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
 const EMPTY_MESSAGES: Message[] = [];
 const ADD_ACCOUNT_RETURN_STORAGE_KEY = "notgram:add-account-return";
-const UNAVAILABLE_CHAT_ERROR = "会话不存在或当前账号无权访问";
+const unavailableChatError = () => translate("会话不存在或当前账号无权访问");
 
 const readAddAccountReturnId = () => {
   try {
@@ -500,11 +501,11 @@ export function App() {
       setManagedDownloadRequests((current) => {
         const record = current.get(key);
         if (!record || record.status === "cancelled") return current;
-        const message = error instanceof Error ? error.message : "文件下载失败";
+        const message = error instanceof Error ? error.message : translate("文件下载失败");
         const next = new Map(current);
         next.set(key, {
           ...record,
-          status: message.includes("取消") ? "cancelled" : "failed",
+          status: message.includes(translate("取消")) ? "cancelled" : "failed",
           error: message,
           updatedAt: new Date().toISOString(),
         });
@@ -848,7 +849,7 @@ export function App() {
     if (location.chatId) {
       const state = telegramStore.getState();
       if (!state.chats.has(location.chatId)) {
-        telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+        telegramStore.setState({ operationError: unavailableChatError() });
         return;
       }
       const targetChat = state.chats.get(location.chatId);
@@ -940,7 +941,7 @@ export function App() {
   ) => {
     const state = telegramStore.getState();
     if (!state.chats.has(chatId)) {
-      telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+      telegramStore.setState({ operationError: unavailableChatError() });
       return;
     }
     const targetTopicId = state.chats.get(chatId)?.isForum
@@ -1033,7 +1034,7 @@ export function App() {
     chatOpenGenerationRef.current = generation;
     const state = telegramStore.getState();
     if (!state.chats.has(chatId)) {
-      telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+      telegramStore.setState({ operationError: unavailableChatError() });
       return;
     }
     const cachedTarget = state.messages.get(chatId)?.find((message) => message.id === messageId);
@@ -1062,7 +1063,7 @@ export function App() {
     if (chatOpenGenerationRef.current !== generation) return;
     const loadedState = telegramStore.getState();
     if (!loadedState.chats.has(chatId)) {
-      telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+      telegramStore.setState({ operationError: unavailableChatError() });
       return;
     }
     const targetTopicId = loadedState.chats.get(chatId)?.isForum
@@ -1245,7 +1246,7 @@ export function App() {
     }
     const targetChat = state.chats.get(route.chatId);
     if (!targetChat) {
-      telegramStore.setState({ operationError: UNAVAILABLE_CHAT_ERROR });
+      telegramStore.setState({ operationError: unavailableChatError() });
       clearPendingNotificationRoute();
       return;
     }
@@ -1376,12 +1377,12 @@ export function App() {
     const management = groupManagement?.chatId === sidebarSearchChatId ? groupManagement : undefined;
     for (const member of management?.members ?? []) add(member.user.id, member.user.displayName);
     for (const message of sidebarSearchMessages) {
-      if (message.senderId === "self") add(message.senderId, "我");
+      if (message.senderId === "self") add(message.senderId, translate("我"));
       else if (message.senderId.startsWith("chat:")) {
         const senderChat = chats.get(message.senderId.slice("chat:".length));
-        add(message.senderId, senderChat?.title ?? "群组账号");
+        add(message.senderId, senderChat?.title ?? translate("群组账号"));
       } else {
-        add(message.senderId, users.get(message.senderId)?.displayName ?? "Telegram 用户");
+        add(message.senderId, users.get(message.senderId)?.displayName ?? translate("Telegram 用户"));
       }
     }
     return options.sort((left, right) => left.label.localeCompare(right.label, "zh-Hans"));
@@ -1528,7 +1529,7 @@ export function App() {
     return phase === "error" ? (
       <div className="startup-screen startup-error" role="alert">
         <CircleAlert size={19} />
-        <span>{error ?? "无法载入会话"}</span>
+        <span>{error ?? translate("无法载入会话")}</span>
       </div>
     ) : (
       <div className="startup-screen" role="status">
@@ -1610,7 +1611,7 @@ export function App() {
           folders={folders}
           activeChatId={activeChatId}
           folderId={chatFilter}
-          folderTitle={folders.find((folder) => folder.id === chatFilter)?.title ?? "聊天"}
+          folderTitle={folders.find((folder) => folder.id === chatFilter)?.title ?? translate("聊天")}
           searchQuery={searchQuery}
           searchInputRef={searchInputRef}
           onSearchChange={updateSearchQuery}
@@ -1911,7 +1912,7 @@ export function App() {
       {accountSwitching && (
         <div className="account-switch-overlay" role="status" aria-live="polite">
           <LoaderCircle className="spin" size={20} />
-          <span>正在切换账号</span>
+          <span>{translate("正在切换账号")}</span>
         </div>
       )}
       <AudioPlaybackHost />
@@ -1919,14 +1920,14 @@ export function App() {
         {error ? <div className="runtime-error" role="alert">
           <CircleAlert size={17} />
           <span>{error}</span>
-          <button type="button" aria-label="关闭错误提示" title="关闭" onClick={clearError}><X size={16} /></button>
+          <button type="button" aria-label={translate("关闭错误提示")} title={translate("关闭")} onClick={clearError}><X size={16} /></button>
         </div> : null}
       </MotionPresence>
       <MotionPresence present={Boolean(operationError)} variant="toast">
         {operationError ? <div className="operation-error" role="alert">
           <CircleAlert size={17} />
           <span>{operationError}</span>
-          <button type="button" aria-label="关闭操作提示" title="关闭" onClick={clearOperationError}><X size={16} /></button>
+          <button type="button" aria-label={translate("关闭操作提示")} title={translate("关闭")} onClick={clearOperationError}><X size={16} /></button>
         </div> : null}
       </MotionPresence>
       <MotionPresence present={settingsOpen}>
@@ -1985,12 +1986,12 @@ export function App() {
       <MotionPresence present={Boolean(pendingConfirmation)}>
         {pendingConfirmation ? <ConfirmActionDialog
           title={pendingConfirmation.kind === "leaveGroup"
-            ? `退出“${pendingConfirmation.title}”？`
-            : `删除“${pendingConfirmation.title}”？`}
+            ? translate("退出“{{value0}}”？", { value0: pendingConfirmation.title })
+            : translate("删除“{{value0}}”？", { value0: pendingConfirmation.title })}
           description={pendingConfirmation.kind === "leaveGroup"
-            ? "退出后，您将无法继续在这个群组中收发消息。"
-            : "只会删除文件夹，不会删除其中的聊天。"}
-          confirmLabel={pendingConfirmation.kind === "leaveGroup" ? "退出群组" : "删除"}
+            ? translate("退出后，您将无法继续在这个群组中收发消息。")
+            : translate("只会删除文件夹，不会删除其中的聊天。")}
+          confirmLabel={pendingConfirmation.kind === "leaveGroup" ? translate("退出群组") : translate("删除")}
           onConfirm={() => pendingConfirmation.kind === "leaveGroup"
             ? leaveGroup(pendingConfirmation.chatId)
             : deleteChatFolder(pendingConfirmation.folderId)}

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { LoaderCircle, UserPlus } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { TelegramAccount, User } from "../telegram/types";
@@ -68,7 +69,7 @@ export function AccountSwitcherMenu({
   };
 
   return (
-    <div className="account-switcher-inline" role="menu" aria-label="切换账号">
+    <div className="account-switcher-inline" role="menu" aria-label={translate("切换账号")}>
       <div className="account-switcher-list">
         {visibleAccounts.map((account, index) => (
           <button
@@ -97,7 +98,7 @@ export function AccountSwitcherMenu({
         {pending
           ? <LoaderCircle className="spin" size={18} />
           : <UserPlus size={18} strokeWidth={1.9} />}
-        <span>添加新账号</span>
+        <span>{translate("添加新账号")}</span>
       </button>
     </div>
   );

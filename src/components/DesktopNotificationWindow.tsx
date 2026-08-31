@@ -1,3 +1,5 @@
+import { translate } from "../i18n";
+import { useTranslation } from "react-i18next";
 import { Bell, X } from "lucide-react";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
@@ -39,6 +41,7 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
   onDismiss,
   onOpen,
 }: DesktopNotificationCardProps) {
+  useTranslation();
   const itemRef = useRef(item);
   itemRef.current = item;
   const [failedAvatarSource, setFailedAvatarSource] = useState<string>();
@@ -77,8 +80,8 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
         <button
           className="desktop-notification-close"
           type="button"
-          aria-label="关闭通知"
-          title="关闭通知"
+          aria-label={translate("关闭通知")}
+          title={translate("关闭通知")}
           onClick={handleDismiss}
         >
           <X size={15} strokeWidth={2} />
@@ -87,7 +90,7 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
       <button
         className="desktop-notification-open"
         type="button"
-        aria-label={`打开 ${item.title} 的消息`}
+        aria-label={translate("打开 {{value0}} 的消息", { value0: item.title })}
         onClick={handleOpen}
       >
         <span
@@ -251,7 +254,7 @@ export function DesktopNotificationWindow() {
       ref={stageRef}
       className="desktop-notification-stage"
       role="region"
-      aria-label="桌面通知"
+      aria-label={translate("桌面通知")}
       aria-live="polite"
     >
       {notifications.map((item) => (

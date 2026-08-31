@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { Check, ChevronDown, Search } from "lucide-react";
 import {
   useCallback,
@@ -132,7 +133,7 @@ export function PhoneNumberField({ disabled = false, onChange }: PhoneNumberFiel
 
   return (
     <div className="auth-phone-field">
-      <span className="auth-phone-label">手机号码</span>
+      <span className="auth-phone-label">{translate("手机号码")}</span>
       <div className="auth-phone-row" ref={rootRef}>
         <div className={`auth-country-picker ${open ? "is-open" : ""}`} onBlur={closeCountriesOnBlur}>
           <Search className="auth-country-search-icon" size={15} />
@@ -141,7 +142,7 @@ export function PhoneNumberField({ disabled = false, onChange }: PhoneNumberFiel
             className="auth-country-input"
             type="text"
             role="combobox"
-            aria-label="国家或地区"
+            aria-label={translate("国家或地区")}
             aria-autocomplete="list"
             aria-expanded={open}
             aria-controls="auth-country-options"
@@ -151,7 +152,7 @@ export function PhoneNumberField({ disabled = false, onChange }: PhoneNumberFiel
             autoComplete="off"
             disabled={disabled}
             value={open ? query : country.name}
-            placeholder="国家或区号"
+            placeholder={translate("国家或区号")}
             onFocus={openCountries}
             onChange={updateQuery}
             onKeyDown={handleCountryKeyDown}
@@ -161,8 +162,8 @@ export function PhoneNumberField({ disabled = false, onChange }: PhoneNumberFiel
             className="auth-country-toggle"
             type="button"
             tabIndex={-1}
-            aria-label="展开国家或地区"
-            title="选择国家或地区"
+            aria-label={translate("展开国家或地区")}
+            title={translate("选择国家或地区")}
             disabled={disabled}
             onClick={toggleCountries}
           >
@@ -170,7 +171,7 @@ export function PhoneNumberField({ disabled = false, onChange }: PhoneNumberFiel
           </button>
 
           {open && (
-            <div className="auth-country-options" id="auth-country-options" role="listbox" aria-label="国家或地区列表">
+            <div className="auth-country-options" id="auth-country-options" role="listbox" aria-label={translate("国家或地区列表")}>
               {filteredCountries.length > 0 ? filteredCountries.map((option, index) => (
                 <button
                   key={option.code}
@@ -190,7 +191,7 @@ export function PhoneNumberField({ disabled = false, onChange }: PhoneNumberFiel
                   {option.code === country.code && <Check size={15} />}
                 </button>
               )) : (
-                <div className="auth-country-empty">没有匹配的国家或区号</div>
+                <div className="auth-country-empty">{translate("没有匹配的国家或区号")}</div>
               )}
             </div>
           )}
@@ -202,8 +203,8 @@ export function PhoneNumberField({ disabled = false, onChange }: PhoneNumberFiel
           inputMode="tel"
           autoFocus
           autoComplete="tel-national"
-          aria-label="号码"
-          placeholder="手机号码"
+          aria-label={translate("号码")}
+          placeholder={translate("手机号码")}
           maxLength={24}
           required
           disabled={disabled}

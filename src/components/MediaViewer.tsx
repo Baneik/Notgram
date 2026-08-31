@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
   ChevronLeft,
@@ -65,7 +66,7 @@ function MediaViewerThumbnail({
     <button
       className={selected ? "is-active" : undefined}
       type="button"
-      aria-label={`查看 ${message.content.fileName}`}
+      aria-label={translate("查看 {{value0}}", { value0: message.content.fileName })}
       aria-current={selected ? "true" : undefined}
       onClick={onSelect}
     >
@@ -82,7 +83,7 @@ function MediaViewerThumbnail({
         <span
           className="media-progress"
           role="progressbar"
-          aria-label={`下载 ${message.content.fileName}`}
+          aria-label={translate("下载 {{value0}}", { value0: message.content.fileName })}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round((message.content.progress ?? 0) * 100)}
@@ -180,9 +181,13 @@ export function MediaViewer({
   const canSave = allowSave && Boolean(content.localPath);
   const downloadUnavailable = !canSave && !canDownload && !content.isDownloading;
   const imageDetails = [
-    `数据中心：${content.dataCenterId ? `DC${content.dataCenterId}` : "Telegram 自动选择"}`,
-    `尺寸：${content.width && content.height ? `${content.width} × ${content.height}` : "未知"}`,
-    `大小：${content.sizeLabel}`,
+    translate("数据中心：{{value0}}", {
+      value0: content.dataCenterId ? `DC${content.dataCenterId}` : translate("Telegram 自动选择"),
+    }),
+    translate("尺寸：{{value0}}", {
+      value0: content.width && content.height ? `${content.width} × ${content.height}` : translate("未知"),
+    }),
+    translate("大小：{{value0}}", { value0: content.sizeLabel }),
   ];
   const handleDownload = () => {
     if (allowSave && content.localPath) return onSave(content.localPath, content.fileName);
@@ -255,7 +260,7 @@ export function MediaViewer({
         className="media-viewer"
         role="dialog"
         aria-modal="true"
-        aria-label={`图片查看器：${content.fileName}`}
+        aria-label={translate("图片查看器：{{value0}}", { value0: content.fileName })}
         tabIndex={-1}
       >
         <main
@@ -271,9 +276,9 @@ export function MediaViewer({
           <button
             className="media-viewer-download"
             type="button"
-            aria-label="下载图片"
+            aria-label={translate("下载图片")}
             aria-busy={content.isDownloading || undefined}
-            title={content.isDownloading ? "原图下载中" : canSave ? "保存到下载目录" : "下载原图"}
+            title={content.isDownloading ? translate("原图下载中") : canSave ? translate("保存到下载目录") : translate("下载原图")}
             disabled={content.isDownloading || downloadUnavailable}
             onClick={() => void handleDownload()}
           >
@@ -281,7 +286,7 @@ export function MediaViewer({
               ? <LoaderCircle className="spin" size={19} />
               : <Download size={19} />}
           </button>
-          <aside className="media-viewer-details" aria-label="图片详细信息">
+          <aside className="media-viewer-details" aria-label={translate("图片详细信息")}>
             {imageDetails.map((detail) => <span key={detail}>{detail}</span>)}
           </aside>
           {source && !failed ? (
@@ -300,33 +305,31 @@ export function MediaViewer({
               {showDownloading
                 ? <LoaderCircle className="spin" size={34} />
                 : <ImageOff size={38} strokeWidth={1.5} />}
-              <span>{failed ? "图片加载失败" : showDownloading ? "图片正在下载" : "原图尚未下载"}</span>
+              <span>{failed ? translate("图片加载失败") : showDownloading ? translate("图片正在下载") : translate("原图尚未下载")}</span>
               {failed && (
                 <button type="button" onClick={() => {
                   setFailedSource(undefined);
                   setRetryKey((current) => current + 1);
-                }}>重试加载</button>
+                }}>{translate("重试加载")}</button>
               )}
               {canDownload && (
                 <button type="button" onClick={() => void onDownload(content.fileId!, content.fileName)}>
-                  <Download size={17} />
-                  下载原图
-                </button>
+                  <Download size={17} />{translate("下载原图")}</button>
               )}
             </div>
           )}
           {previousId && (
-            <button className="media-viewer-nav is-previous" type="button" aria-label="上一张" title="上一张" onClick={() => onActiveMessageChange(previousId)}>
+            <button className="media-viewer-nav is-previous" type="button" aria-label={translate("上一张")} title={translate("上一张")} onClick={() => onActiveMessageChange(previousId)}>
               <ChevronLeft size={30} />
             </button>
           )}
           {nextId && (
-            <button className="media-viewer-nav is-next" type="button" aria-label="下一张" title="下一张" onClick={() => onActiveMessageChange(nextId)}>
+            <button className="media-viewer-nav is-next" type="button" aria-label={translate("下一张")} title={translate("下一张")} onClick={() => onActiveMessageChange(nextId)}>
               <ChevronRight size={30} />
             </button>
           )}
           {messages.length > 1 && (
-            <nav className="media-viewer-thumbnails" aria-label="会话图片预览">
+            <nav className="media-viewer-thumbnails" aria-label={translate("会话图片预览")}>
               {thumbnailMessages.map((message) => (
                 <MediaViewerThumbnail
                   key={message.id}

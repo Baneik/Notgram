@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { asTdObject, tdChatListId, tdNumber, type TdObject } from "./tdlibMapper";
 import type {
   AuthorizationState,
@@ -9,7 +10,7 @@ import type {
 
 export const numericId = (id: string) => {
   const value = Number(id);
-  if (!Number.isSafeInteger(value)) throw new Error(`无效的 Telegram 标识符：${id}`);
+  if (!Number.isSafeInteger(value)) throw new Error(translate("无效的 Telegram 标识符：{{value0}}", { value0: id }));
   return value;
 };
 
@@ -61,13 +62,13 @@ export const chatListObject = (chatListId: string): TdObject => {
   if (chatListId === "main") return listObject("chatListMain");
   if (chatListId === "archive") return listObject("chatListArchive");
   const folderId = /^folder:(\d+)$/.exec(chatListId)?.[1];
-  if (!folderId) throw new Error(`无效的聊天列表：${chatListId}`);
+  if (!folderId) throw new Error(translate("无效的聊天列表：{{value0}}", { value0: chatListId }));
   return folderListObject(folderId);
 };
 
 export const chatFolderNumericId = (folderId: string) => {
   const value = /^folder:(\d+)$/.exec(folderId)?.[1];
-  if (!value) throw new Error(`无效的聊天文件夹：${folderId}`);
+  if (!value) throw new Error(translate("无效的聊天文件夹：{{value0}}", { value0: folderId }));
   return Number(value);
 };
 

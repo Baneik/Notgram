@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { ChatDraft } from "../telegram/types";
 import { hasChatDraftContent } from "../telegram/chatDraft";
 
@@ -242,7 +243,7 @@ export class DraftSyncController {
             );
           }
           this.dependencies.reportError(
-            error instanceof Error ? error.message : "草稿同步失败",
+            error instanceof Error ? error.message : translate("草稿同步失败"),
           );
           return;
         }

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { getVersion } from "@tauri-apps/api/app";
 import { isTauri } from "@tauri-apps/api/core";
 import versionSource from "../../version.json";
@@ -76,7 +77,7 @@ export class AppUpdater {
 
   async install(onProgress: (progress: AppUpdateProgress) => void): Promise<void> {
     const update = this.update;
-    if (!update) throw new Error("没有可安装的更新");
+    if (!update) throw new Error(translate("没有可安装的更新"));
 
     let downloadedBytes = 0;
     let totalBytes: number | undefined;

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { LoaderCircle, Network, Save, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -9,7 +10,7 @@ const defaultProxySettings: ProxySettings = {
   mode: "system",
   profiles: [{
     id: "proxy-1",
-    name: "代理 1",
+    get name() { return translate("代理 1"); },
     endpoint: {
       type: "http",
       server: "127.0.0.1",
@@ -81,17 +82,17 @@ export function UnauthenticatedSettingsDialog({ onClose }: UnauthenticatedSettin
         <header className="login-settings-header">
           <div>
             <Network size={20} />
-            <h2 ref={titleRef} id="login-settings-title" tabIndex={-1}>登录设置</h2>
+            <h2 ref={titleRef} id="login-settings-title" tabIndex={-1}>{translate("登录设置")}</h2>
           </div>
-          <button className="icon-button" type="button" aria-label="关闭" title="关闭" disabled={pending} onClick={onClose}>
+          <button className="icon-button" type="button" aria-label={translate("关闭")} title={translate("关闭")} disabled={pending} onClick={onClose}>
             <X size={19} />
           </button>
         </header>
 
         <div className="login-settings-body">
           <div className="login-settings-intro">
-            <strong>代理连接</strong>
-            <span>登录前仅可调整 Telegram 网络连接</span>
+            <strong>{translate("代理连接")}</strong>
+            <span>{translate("登录前仅可调整 Telegram 网络连接")}</span>
           </div>
           <ProxySettingsEditor
             settings={draft}
@@ -105,10 +106,10 @@ export function UnauthenticatedSettingsDialog({ onClose }: UnauthenticatedSettin
         </div>
 
         <footer className="login-settings-actions">
-          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>取消</button>
+          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>{translate("取消")}</button>
           <button className="dialog-save" type="submit" disabled={pending}>
             {pending ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
-            <span>保存代理</span>
+            <span>{translate("保存代理")}</span>
           </button>
         </footer>
       </form>

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   Check,
   ChevronLeft,
@@ -118,8 +119,8 @@ export function ForwardMessagesDialog({
             <button
               className="message-forward-heading-icon"
               type="button"
-              aria-label="返回会话选择"
-              title="返回"
+              aria-label={translate("返回会话选择")}
+              title={translate("返回")}
               disabled={pending}
               onClick={() => setForumTarget(undefined)}
             >
@@ -129,16 +130,16 @@ export function ForwardMessagesDialog({
             <span className="message-forward-heading-icon"><Forward size={18} strokeWidth={1.9} /></span>
           )}
           <div>
-            <h3 id="message-forward-title">转发 {selectedCount} 条消息</h3>
+            <h3 id="message-forward-title">{translate("转发 {{value0}} 条消息", { value0: selectedCount })}</h3>
             <p>{forumTarget
-              ? `选择“${forumTarget.title}”中的话题`
-              : selectedTargets.length > 0 ? `已选择 ${selectedTargets.length} 个会话` : "选择一个或多个目标会话"}</p>
+              ? translate("选择“{{value0}}”中的话题", { value0: forumTarget.title })
+              : selectedTargets.length > 0 ? translate("已选择 {{value0}} 个会话", { value0: selectedTargets.length }) : translate("选择一个或多个目标会话")}</p>
           </div>
           <button
             className="icon-button"
             type="button"
-            aria-label="关闭转发"
-            title="关闭"
+            aria-label={translate("关闭转发")}
+            title={translate("关闭")}
             disabled={pending}
             onClick={onClose}
           >
@@ -147,12 +148,12 @@ export function ForwardMessagesDialog({
         </header>
         <label className="forward-target-search">
           <Search size={16} strokeWidth={1.8} />
-          <span className="sr-only">{forumTarget ? "搜索目标话题" : "搜索目标会话"}</span>
+          <span className="sr-only">{forumTarget ? translate("搜索目标话题") : translate("搜索目标会话")}</span>
           <input
             ref={searchRef}
             value={forumTarget ? topicQuery : query}
             onChange={(event) => forumTarget ? setTopicQuery(event.target.value) : onQueryChange(event.target.value)}
-            placeholder={forumTarget ? "搜索话题" : "搜索会话"}
+            placeholder={forumTarget ? translate("搜索话题") : translate("搜索会话")}
             type="search"
             disabled={pending}
             onKeyDown={(event) => {
@@ -189,9 +190,9 @@ export function ForwardMessagesDialog({
           }}
         >
           {forumTarget ? topicsLoading && topics.length === 0 ? (
-            <div className="forward-target-empty"><LoaderCircle className="spin" size={18} />正在加载话题</div>
+            <div className="forward-target-empty"><LoaderCircle className="spin" size={18} />{translate("正在加载话题")}</div>
           ) : topics.length === 0 ? (
-            <div className="forward-target-empty">没有匹配的话题</div>
+            <div className="forward-target-empty">{translate("没有匹配的话题")}</div>
           ) : topics.map((topic) => {
             const selection = { chat: forumTarget, topicId: topic.id };
             const selected = isSelected(selection);
@@ -205,14 +206,14 @@ export function ForwardMessagesDialog({
                 onClick={() => chooseTopic(topic)}
               >
                 <span className="forward-topic-icon"><Hash size={17} /></span>
-                <span><strong>{topic.name}</strong><small>{topic.isClosed ? "话题已关闭" : topic.lastMessage ? messageSummary(topic.lastMessage.content) : "暂无消息"}</small></span>
+                <span><strong>{topic.name}</strong><small>{topic.isClosed ? translate("话题已关闭") : topic.lastMessage ? messageSummary(topic.lastMessage.content) : translate("暂无消息")}</small></span>
                 {pending && pendingTargetId === forwardTargetKey(selection)
                   ? <LoaderCircle className="spin" size={16} />
                   : <span className="forward-target-check" aria-hidden="true">{selected ? <Check size={15} strokeWidth={2.4} /> : null}</span>}
               </button>
             );
           }) : targets.length === 0 ? (
-            <div className="forward-target-empty">没有匹配的会话</div>
+            <div className="forward-target-empty">{translate("没有匹配的会话")}</div>
           ) : targets.map((target) => {
             const selection = { chat: target };
             const selected = !target.isForum && isSelected(selection);
@@ -230,8 +231,8 @@ export function ForwardMessagesDialog({
                 <span>
                   <strong>{target.title}</strong>
                   <small>{topicCount > 0
-                    ? `已选择 ${topicCount} 个话题`
-                    : target.id === currentChatId ? "当前会话" : target.preview}</small>
+                    ? translate("已选择 {{value0}} 个话题", { value0: topicCount })
+                    : target.id === currentChatId ? translate("当前会话") : target.preview}</small>
                 </span>
                 {target.isForum
                   ? <ChevronLeft className="forward-target-arrow" size={18} strokeWidth={1.8} />
@@ -248,8 +249,8 @@ export function ForwardMessagesDialog({
               value={description}
               maxLength={1024}
               rows={2}
-              aria-label="转发附言"
-              placeholder="附带一条消息（可选）"
+              aria-label={translate("转发附言")}
+              placeholder={translate("附带一条消息（可选）")}
               disabled={pending}
               onChange={(event) => setDescription(event.target.value)}
             />
@@ -260,9 +261,7 @@ export function ForwardMessagesDialog({
             disabled={pending || selectedTargets.length === 0}
             onClick={() => onConfirm(selectedTargets, description)}
           >
-            {pending ? <LoaderCircle className="spin" size={16} /> : <Forward size={16} />}
-            转发
-          </button>
+            {pending ? <LoaderCircle className="spin" size={16} /> : <Forward size={16} />}{translate("转发")}</button>
         </footer>
       </section>
     </div>

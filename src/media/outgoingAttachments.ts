@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type {
   OutgoingAttachment,
   OutgoingAttachmentKind,
@@ -67,7 +68,7 @@ const waitForMediaState = (
   }
   const timer = globalThis.setTimeout(() => {
     cleanup();
-    reject(new Error("媒体元数据读取超时"));
+    reject(new Error(translate("媒体元数据读取超时")));
   }, PROBE_TIMEOUT_MS);
   const cleanup = () => {
     globalThis.clearTimeout(timer);
@@ -80,7 +81,7 @@ const waitForMediaState = (
   };
   const onError = () => {
     cleanup();
-    reject(new Error("无法读取媒体元数据"));
+    reject(new Error(translate("无法读取媒体元数据")));
   };
   element.addEventListener(eventName, onReady, { once: true });
   element.addEventListener("error", onError, { once: true });
@@ -182,14 +183,14 @@ const probePhoto = async (file: File): Promise<Partial<OutgoingAttachment>> => {
   image.src = source;
   try {
     await new Promise<void>((resolve, reject) => {
-      const timer = globalThis.setTimeout(() => reject(new Error("图片元数据读取超时")), PROBE_TIMEOUT_MS);
+      const timer = globalThis.setTimeout(() => reject(new Error(translate("图片元数据读取超时"))), PROBE_TIMEOUT_MS);
       image.onload = () => {
         globalThis.clearTimeout(timer);
         resolve();
       };
       image.onerror = () => {
         globalThis.clearTimeout(timer);
-        reject(new Error("无法读取图片元数据"));
+        reject(new Error(translate("无法读取图片元数据")));
       };
     });
     return {
@@ -217,14 +218,14 @@ export const prepareHighQualityPhoto = async (file: File): Promise<File> => {
   image.src = source;
   try {
     await new Promise<void>((resolve, reject) => {
-      const timer = globalThis.setTimeout(() => reject(new Error("图片高清准备超时")), PROBE_TIMEOUT_MS);
+      const timer = globalThis.setTimeout(() => reject(new Error(translate("图片高清准备超时"))), PROBE_TIMEOUT_MS);
       image.onload = () => {
         globalThis.clearTimeout(timer);
         resolve();
       };
       image.onerror = () => {
         globalThis.clearTimeout(timer);
-        reject(new Error("无法读取图片高清尺寸"));
+        reject(new Error(translate("无法读取图片高清尺寸")));
       };
     });
     const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);

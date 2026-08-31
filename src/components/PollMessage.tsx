@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { Check, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { MessagePollContent } from "../telegram/types";
@@ -36,7 +37,7 @@ export function PollMessage({ poll, messageId, chatId, highlightQuery, onSearchH
   };
 
   return (
-    <section className="poll-message" aria-label={poll.type === "quiz" ? "测验" : "投票"}>
+    <section className="poll-message" aria-label={poll.type === "quiz" ? translate("测验") : translate("投票")}>
       <header>
         <MessageRichText
           text={poll.question}
@@ -44,7 +45,7 @@ export function PollMessage({ poll, messageId, chatId, highlightQuery, onSearchH
           highlightQuery={highlightQuery}
           onSearchHashtag={onSearchHashtag}
         />
-        <small>{poll.type === "quiz" ? "测验" : poll.isAnonymous ? "匿名投票" : "公开投票"}</small>
+        <small>{poll.type === "quiz" ? translate("测验") : poll.isAnonymous ? translate("匿名投票") : translate("公开投票")}</small>
       </header>
       <div className="poll-options">
         {poll.options.map((option) => {
@@ -99,9 +100,7 @@ export function PollMessage({ poll, messageId, chatId, highlightQuery, onSearchH
           )}
           onClick={() => void submit(selection)}
         >
-          {pending && <LoaderCircle className="spin" size={14} />}
-          提交投票
-        </button>
+          {pending && <LoaderCircle className="spin" size={14} />}{translate("提交投票")}</button>
       )}
       {poll.explanation && (
         <div className="poll-explanation">
@@ -114,13 +113,11 @@ export function PollMessage({ poll, messageId, chatId, highlightQuery, onSearchH
         </div>
       )}
       <footer>
-        <span>{poll.totalVoterCount} 票{poll.isClosed ? " · 已结束" : ""}</span>
+        <span>{translate("{{value0}} 票", { value0: poll.totalVoterCount })}{poll.isClosed ? translate(" · 已结束") : ""}</span>
         {poll.restrictionReason && <span>{poll.restrictionReason}</span>}
         {alreadyVoted && poll.allowsRevoting && !poll.isClosed && (
           <button type="button" disabled={pending} onClick={() => void submit([])}>
-            <RotateCcw size={13} />
-            撤回投票
-          </button>
+            <RotateCcw size={13} />{translate("撤回投票")}</button>
         )}
       </footer>
     </section>

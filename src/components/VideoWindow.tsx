@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { isTauri } from "@tauri-apps/api/core";
 import { PhysicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -462,7 +463,12 @@ export function VideoWindow({ id }: VideoWindowProps) {
       className={`video-window ${fullscreen ? `is-fullscreen is-${fullscreenLayer}` : "is-windowed"} ${controlsVisible ? "is-controls-visible" : ""} ${descriptor ? "is-ready" : ""}`}
       tabIndex={-1}
       role="group"
-      aria-label={descriptor ? `${fullscreen ? fullscreenLayer === "preview" ? "视频预览" : "视频播放" : "小窗播放"}：${descriptor.label}` : "视频播放窗口"}
+      aria-label={descriptor ? translate("{{value0}}：{{value1}}", {
+        value0: fullscreen
+          ? fullscreenLayer === "preview" ? translate("视频预览") : translate("视频播放")
+          : translate("小窗播放"),
+        value1: descriptor.label,
+      }) : translate("视频播放窗口")}
       data-video-mode={fullscreen ? fullscreenLayer : "window"}
       onPointerMove={revealControls}
       onPointerDown={handleSurfacePointerDown}
@@ -565,7 +571,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
             setPlaying(false);
           }}
         />
-      ) : <div className="video-window-loading" aria-label="正在准备视频">
+      ) : <div className="video-window-loading" aria-label={translate("正在准备视频")}>
         {showPreparing ? <LoaderCircle className="spin" size={26} /> : null}
       </div>}
 
@@ -579,24 +585,24 @@ export function VideoWindow({ id }: VideoWindowProps) {
       <div className="video-window-controls video-windowed-controls">
         <div className="video-window-topbar">
           <div className="video-window-volume">
-            <button type="button" aria-label={muted ? "打开声音" : "静音"} title={muted ? "打开声音" : "静音"} onClick={toggleMuted}>
+            <button type="button" aria-label={muted ? translate("打开声音") : translate("静音")} title={muted ? translate("打开声音") : translate("静音")} onClick={toggleMuted}>
               {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
-            <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="音量" onChange={(event) => updateVolume(Number(event.currentTarget.value))} />
+            <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label={translate("音量")} onChange={(event) => updateVolume(Number(event.currentTarget.value))} />
           </div>
           <div className="video-window-actions">
-            <button type="button" aria-label="全屏播放" title="全屏（F）" onClick={() => void toggleFullscreen()}><Maximize2 size={18} /></button>
-            <button type="button" aria-label="关闭小窗" title="关闭" onClick={() => void closeWindow()}><X size={20} /></button>
+            <button type="button" aria-label={translate("全屏播放")} title={translate("全屏（F）")} onClick={() => void toggleFullscreen()}><Maximize2 size={18} /></button>
+            <button type="button" aria-label={translate("关闭小窗")} title={translate("关闭")} onClick={() => void closeWindow()}><X size={20} /></button>
           </div>
         </div>
         {!playing && !showBuffering && (
-          <button className="video-window-center-play" type="button" aria-label="播放" title="播放" onClick={() => void togglePlayback()}>
+          <button className="video-window-center-play" type="button" aria-label={translate("播放")} title={translate("播放")} onClick={() => void togglePlayback()}>
             <Play size={34} fill="currentColor" />
           </button>
         )}
         <div className="video-window-bottom">
           <span>{formatPlaybackTime(currentTime)}</span>
-          <input type="range" min={0} max={duration || 0} step={0.1} value={Math.min(currentTime, duration || 0)} aria-label="小窗播放进度" style={progressStyle} onChange={(event) => seek(Number(event.currentTarget.value))} />
+          <input type="range" min={0} max={duration || 0} step={0.1} value={Math.min(currentTime, duration || 0)} aria-label={translate("小窗播放进度")} style={progressStyle} onChange={(event) => seek(Number(event.currentTarget.value))} />
           <span>-{formatPlaybackTime(remainingTime)}</span>
         </div>
       </div>
@@ -604,12 +610,12 @@ export function VideoWindow({ id }: VideoWindowProps) {
       <div className="video-window-controls video-fullscreen-controls">
         <div className="video-fullscreen-top">
           <div className="video-window-volume">
-            <button type="button" aria-label={muted ? "打开声音" : "静音"} title={muted ? "打开声音" : "静音"} onClick={toggleMuted}>
+            <button type="button" aria-label={muted ? translate("打开声音") : translate("静音")} title={muted ? translate("打开声音") : translate("静音")} onClick={toggleMuted}>
               {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
-            <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="音量" onChange={(event) => updateVolume(Number(event.currentTarget.value))} />
+            <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label={translate("音量")} onChange={(event) => updateVolume(Number(event.currentTarget.value))} />
           </div>
-          <button className="video-fullscreen-play" type="button" aria-label={playing ? "暂停" : "播放"} title={playing ? "暂停" : "播放"} onClick={() => void togglePlayback()}>
+          <button className="video-fullscreen-play" type="button" aria-label={playing ? translate("暂停") : translate("播放")} title={playing ? translate("暂停") : translate("播放")} onClick={() => void togglePlayback()}>
             {showBuffering
               ? <LoaderCircle className="spin" size={24} />
               : playing
@@ -618,23 +624,23 @@ export function VideoWindow({ id }: VideoWindowProps) {
           </button>
           <div className="video-window-actions">
             {descriptor?.downloadable && (
-              <button type="button" aria-label="下载视频" title="下载视频" onClick={requestDownload}><Download size={18} /></button>
+              <button type="button" aria-label={translate("下载视频")} title={translate("下载视频")} onClick={requestDownload}><Download size={18} /></button>
             )}
-            <button type="button" aria-label="小窗播放" title="小窗播放" onClick={() => void updateWindowMode(false)}><PictureInPicture2 size={18} /></button>
-            <button type="button" aria-label={fullscreenLayer === "preview" ? "放大" : "缩小"} title={fullscreenLayer === "preview" ? "放大" : "缩小"} onClick={toggleFullscreenLayer}>
+            <button type="button" aria-label={translate("小窗播放")} title={translate("小窗播放")} onClick={() => void updateWindowMode(false)}><PictureInPicture2 size={18} /></button>
+            <button type="button" aria-label={fullscreenLayer === "preview" ? translate("放大") : translate("缩小")} title={fullscreenLayer === "preview" ? translate("放大") : translate("缩小")} onClick={toggleFullscreenLayer}>
               {fullscreenLayer === "preview" ? <Maximize2 size={18} /> : <Minimize2 size={18} />}
             </button>
-            <button type="button" aria-label="关闭播放窗口" title="关闭" onClick={() => void closeWindow()}><X size={19} /></button>
+            <button type="button" aria-label={translate("关闭播放窗口")} title={translate("关闭")} onClick={() => void closeWindow()}><X size={19} /></button>
           </div>
         </div>
         <div className="video-fullscreen-progress">
           <span>{formatPlaybackTime(currentTime)}</span>
-          <input type="range" min={0} max={duration || 0} step={0.1} value={Math.min(currentTime, duration || 0)} aria-label="全屏播放进度" style={progressStyle} onChange={(event) => seek(Number(event.currentTarget.value))} />
+          <input type="range" min={0} max={duration || 0} step={0.1} value={Math.min(currentTime, duration || 0)} aria-label={translate("全屏播放进度")} style={progressStyle} onChange={(event) => seek(Number(event.currentTarget.value))} />
           <span>-{formatPlaybackTime(remainingTime)}</span>
         </div>
         {descriptor?.streaming && (
           <span className="video-fullscreen-speed">
-            {showBuffering ? "缓冲中" : "加载"} · {formatTransferSpeed(downloadSpeed)}
+            {showBuffering ? translate("缓冲中") : translate("加载")} · {formatTransferSpeed(downloadSpeed)}
           </span>
         )}
       </div>

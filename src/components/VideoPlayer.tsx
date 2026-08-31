@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { LoaderCircle, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import {
   useEffect,
@@ -763,8 +764,8 @@ export function VideoPlayer({
       <button
         className="video-mute"
         type="button"
-        aria-label={muted ? "打开声音" : "静音"}
-        title={muted ? "打开声音" : "静音"}
+        aria-label={muted ? translate("打开声音") : translate("静音")}
+        title={muted ? translate("打开声音") : translate("静音")}
         onClick={(event) => {
           stopControlClick(event);
           claimKeyboardTarget();
@@ -778,8 +779,8 @@ export function VideoPlayer({
         <button
           className="video-start"
           type="button"
-          aria-label={failed ? `重试播放 ${label}` : playing ? `暂停 ${label}` : `播放 ${label}`}
-          title={failed ? "重试播放" : playing ? "暂停" : "播放"}
+          aria-label={failed ? translate("重试播放 {{value0}}", { value0: label }) : playing ? translate("暂停 {{value0}}", { value0: label }) : translate("播放 {{value0}}", { value0: label })}
+          title={failed ? translate("重试播放") : playing ? translate("暂停") : translate("播放")}
           onClick={(event) => {
             stopControlClick(event);
             togglePlaybackFromControl();
@@ -802,7 +803,7 @@ export function VideoPlayer({
         max={duration || 0}
         step={0.1}
         value={Math.min(currentTime, duration || 0)}
-        aria-label="播放进度"
+        aria-label={translate("播放进度")}
         style={progressStyle}
         onClick={stopControlClick}
         onFocus={claimKeyboardTarget}
@@ -810,7 +811,7 @@ export function VideoPlayer({
       />
       {isStreaming && (showBuffering || downloadSpeed > 0) && (
         <span className="video-buffer-status" aria-live="polite">
-          {showBuffering ? "缓冲中" : "加载"} · {formatTransferSpeed(downloadSpeed)}
+          {showBuffering ? translate("缓冲中") : translate("加载")} · {formatTransferSpeed(downloadSpeed)}
         </span>
       )}
     </div>

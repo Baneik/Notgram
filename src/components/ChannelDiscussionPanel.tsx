@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   Check,
   ChevronLeft,
@@ -145,11 +146,11 @@ const senderFor = (
   chats: ReadonlyMap<string, Chat>,
   currentUserId: string,
 ) => {
-  if (message.senderId === currentUserId || message.outgoing) return "你";
+  if (message.senderId === currentUserId || message.outgoing) return translate("你");
   if (message.senderId.startsWith("chat:")) {
-    return chats.get(message.senderId.slice("chat:".length))?.title ?? "频道管理员";
+    return chats.get(message.senderId.slice("chat:".length))?.title ?? translate("频道管理员");
   }
-  return users.get(message.senderId)?.displayName ?? "Telegram 用户";
+  return users.get(message.senderId)?.displayName ?? translate("Telegram 用户");
 };
 
 const avatarFor = (
@@ -159,10 +160,10 @@ const avatarFor = (
   currentUserId: string,
 ) => {
   if (message.senderId === currentUserId || message.outgoing) {
-    return users.get(currentUserId)?.avatar ?? { label: "我", color: "#d16f45" };
+    return users.get(currentUserId)?.avatar ?? { label: translate("我"), color: "#d16f45" };
   }
   if (message.senderId.startsWith("chat:")) {
-    return chats.get(message.senderId.slice("chat:".length))?.avatar ?? { label: "频", color: "#73828c" };
+    return chats.get(message.senderId.slice("chat:".length))?.avatar ?? { label: translate("频"), color: "#73828c" };
   }
   return users.get(message.senderId)?.avatar ?? { label: "?", color: "#73828c" };
 };
@@ -227,7 +228,7 @@ export function ChannelDiscussionPanel({
         ...channel,
         id: discussionChatId,
         kind: "group",
-        title: `${channel.title} 讨论`,
+        title: translate("{{value0}} 讨论", { value0: channel.title }),
       }), [channel, discussionChatId, storedDiscussionChat]);
   const targetChatsById = useMemo(() => new Map([
     ...forwardTargets.map((target) => [target.id, target] as const),
@@ -518,10 +519,10 @@ export function ChannelDiscussionPanel({
   return (
     <section
       className={`channel-discussion-panel ${forwarding.selectionMode ? "is-selecting-messages" : ""}`}
-      aria-label={`${channel.title} 的讨论`}
+      aria-label={translate("{{value0}} 的讨论", { value0: channel.title })}
     >
       <header className="channel-discussion-header">
-        <button className="icon-button" type="button" aria-label="返回频道" title="返回频道" onClick={onClose}>
+        <button className="icon-button" type="button" aria-label={translate("返回频道")} title={translate("返回频道")} onClick={onClose}>
           <ChevronLeft size={21} strokeWidth={2} />
         </button>
         <div className="channel-discussion-heading">
@@ -532,7 +533,7 @@ export function ChannelDiscussionPanel({
       <div
         className="channel-discussion-messages"
         role="log"
-        aria-label="留言列表"
+        aria-label={translate("留言列表")}
         onPointerUp={preserveComposerFocus}
       >
         <div className="channel-discussion-stream">
@@ -552,18 +553,15 @@ export function ChannelDiscussionPanel({
 
           {loading && comments.length === 0 ? (
             <div className="channel-discussion-empty" role="status">
-              <LoaderCircle className="spin" size={18} />
-              正在加载留言
-            </div>
+              <LoaderCircle className="spin" size={18} />{translate("正在加载留言")}</div>
           ) : loadError && comments.length === 0 ? (
             <div className="channel-discussion-empty channel-discussion-error" role="alert">
-              <span>留言加载失败</span>
+              <span>{translate("留言加载失败")}</span>
               <button className="text-button" type="button" onClick={onRetry}>
-                <RotateCcw size={14} strokeWidth={2} />重试
-              </button>
+                <RotateCcw size={14} strokeWidth={2} />{translate("重试")}</button>
             </div>
           ) : comments.length === 0 ? (
-            <div className="channel-discussion-empty">还没有留言</div>
+            <div className="channel-discussion-empty">{translate("还没有留言")}</div>
           ) : comments.map((comment, index) => {
             const senderName = senderFor(comment, users, targetChatsById, currentUserId);
             const profileAvailable = !comment.outgoing &&
@@ -584,8 +582,8 @@ export function ChannelDiscussionPanel({
                     <button
                       className="message-sender-avatar"
                       type="button"
-                      aria-label={`查看 ${senderName} 的资料`}
-                      title="查看资料"
+                      aria-label={translate("查看 {{value0}} 的资料", { value0: senderName })}
+                      title={translate("查看资料")}
                       disabled={!profileAvailable}
                       onClick={() => profileAvailable && onOpenSenderProfile(comment.senderId)}
                       onContextMenu={(event) => profileAvailable && openSenderMenu(event, comment, senderName)}
@@ -608,7 +606,7 @@ export function ChannelDiscussionPanel({
                     serviceMembers={comment.content.kind === "service"
                       ? comment.content.memberUserIds?.map((userId) => ({
                           id: userId,
-                          name: users.get(userId)?.displayName ?? "Telegram 用户",
+                          name: users.get(userId)?.displayName ?? translate("Telegram 用户"),
                           profileAvailable: users.has(userId),
                         }))
                       : undefined}
@@ -654,14 +652,14 @@ export function ChannelDiscussionPanel({
       </div>
 
       {forwarding.selectionMode ? (
-        <div className="message-selection-bar" role="toolbar" aria-label="消息选择操作">
-          <span>{forwarding.selectedIds.size > 0 ? "复制或转发所选消息" : "点击消息进行选择"}</span>
+        <div className="message-selection-bar" role="toolbar" aria-label={translate("消息选择操作")}>
+          <span>{forwarding.selectedIds.size > 0 ? translate("复制或转发所选消息") : translate("点击消息进行选择")}</span>
           <div className="message-selection-actions">
             <button
               className={`icon-button ${selectionCopied ? "is-confirmed" : ""}`}
               type="button"
-              aria-label="复制所选消息"
-              title="复制"
+              aria-label={translate("复制所选消息")}
+              title={translate("复制")}
               disabled={forwarding.selectedIds.size === 0 || selectionCopying}
               onClick={() => void copySelectedMessages()}
             >
@@ -670,8 +668,8 @@ export function ChannelDiscussionPanel({
             <button
               className="icon-button"
               type="button"
-              aria-label="转发所选消息"
-              title="转发"
+              aria-label={translate("转发所选消息")}
+              title={translate("转发")}
               disabled={forwarding.selectedIds.size === 0}
               onClick={forwarding.openSelectedDialog}
             >
@@ -680,8 +678,8 @@ export function ChannelDiscussionPanel({
             <button
               className="icon-button"
               type="button"
-              aria-label="取消选择"
-              title="取消选择"
+              aria-label={translate("取消选择")}
+              title={translate("取消选择")}
               onClick={() => {
                 forwarding.clearSelection();
                 focusComposer();

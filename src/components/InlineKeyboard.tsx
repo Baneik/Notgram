@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { Check, LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -101,7 +102,7 @@ export function InlineKeyboard({
   };
 
   return (
-    <div className="message-inline-keyboard" aria-label="机器人快捷操作">
+    <div className="message-inline-keyboard" aria-label={translate("机器人快捷操作")}>
       {markup.rows.map((row, rowIndex) => (
         <div
           className="message-inline-keyboard-row"
@@ -118,7 +119,7 @@ export function InlineKeyboard({
                 disabled={disabled}
                 key={key}
                 type="button"
-                title={button.kind === "unsupported" ? "暂不支持此操作" : button.text}
+                title={button.kind === "unsupported" ? translate("暂不支持此操作") : button.text}
                 onClick={() => void activate(button, key)}
               >
                 {pendingKey === key

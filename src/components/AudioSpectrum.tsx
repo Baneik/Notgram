@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { useEffect, useRef } from "react";
 import { audioPlaybackController } from "../media/audioPlayback";
 import { usePreferencesStore } from "../store/preferencesStore";
@@ -104,7 +105,7 @@ export function AudioSpectrum({
       className={`audio-spectrum ${className}`.trim()}
       data-motion-active={playing && !reduceMotion && documentVisible ? "true" : "false"}
       role="img"
-      aria-label="音频频谱"
+      aria-label={translate("音频频谱")}
     />
   );
 }

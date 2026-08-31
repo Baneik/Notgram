@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   AlertCircle,
   ChevronDown,
@@ -582,8 +583,8 @@ function AudioFloatingController() {
     <button
       className="audio-floating-play"
       type="button"
-      aria-label={playback.playing ? "暂停" : "播放"}
-      title={playback.playing ? "暂停" : "播放"}
+      aria-label={playback.playing ? translate("暂停") : translate("播放")}
+      title={playback.playing ? translate("暂停") : translate("播放")}
       onClick={() => audioPlaybackController.toggle()}
     >
       {playback.loading
@@ -594,19 +595,19 @@ function AudioFloatingController() {
   );
 
   const previousButton = (
-    <button type="button" disabled={!hasPrevious && playback.currentTime <= 0} aria-label="上一条音频" title="上一条音频" onClick={() => audioPlaybackController.previous()}>
+    <button type="button" disabled={!hasPrevious && playback.currentTime <= 0} aria-label={translate("上一条音频")} title={translate("上一条音频")} onClick={() => audioPlaybackController.previous()}>
       <SkipBack size={17} fill="currentColor" />
     </button>
   );
 
   const nextButton = (
-    <button type="button" disabled={!hasNext} aria-label="下一条音频" title="下一条音频" onClick={() => audioPlaybackController.next()}>
+    <button type="button" disabled={!hasNext} aria-label={translate("下一条音频")} title={translate("下一条音频")} onClick={() => audioPlaybackController.next()}>
       <SkipForward size={17} fill="currentColor" />
     </button>
   );
 
   const volumeButton = (
-    <button type="button" aria-label={muted ? "取消静音" : "静音"} title={muted ? "取消静音" : "静音"} onClick={() => audioPlaybackController.toggleMuted()}>
+    <button type="button" aria-label={muted ? translate("取消静音") : translate("静音")} title={muted ? translate("取消静音") : translate("静音")} onClick={() => audioPlaybackController.toggleMuted()}>
       {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
     </button>
   );
@@ -616,7 +617,7 @@ function AudioFloatingController() {
       ref={controllerRef}
       className={`audio-floating-controller ${compact ? "is-compact" : ""} ${dragging ? "is-dragging" : ""}`}
       style={position ? { left: position.x, top: position.y } as CSSProperties : undefined}
-      aria-label={`正在播放 ${track.label}`}
+      aria-label={translate("正在播放 {{value0}}", { value0: track.label })}
       onPointerDown={beginDrag}
       onPointerMove={drag}
       onPointerUp={finishDrag}
@@ -633,10 +634,10 @@ function AudioFloatingController() {
           {playButton}
           {nextButton}
           {volumeButton}
-          <button type="button" aria-label="展开播放器" title="展开播放器" onClick={() => setCompact(false)}>
+          <button type="button" aria-label={translate("展开播放器")} title={translate("展开播放器")} onClick={() => setCompact(false)}>
             <ChevronUp size={17} />
           </button>
-          <button type="button" aria-label="关闭播放" title="关闭播放" onClick={() => audioPlaybackController.close()}>
+          <button type="button" aria-label={translate("关闭播放")} title={translate("关闭播放")} onClick={() => audioPlaybackController.close()}>
             <X size={16} />
           </button>
         </div>
@@ -644,10 +645,10 @@ function AudioFloatingController() {
         <>
           <header>
             <strong title={track.label}>{track.label}</strong>
-            <button type="button" aria-label="缩小播放器" title="缩小播放器" onClick={() => setCompact(true)}>
+            <button type="button" aria-label={translate("缩小播放器")} title={translate("缩小播放器")} onClick={() => setCompact(true)}>
               <ChevronDown size={17} />
             </button>
-            <button type="button" aria-label="关闭播放" title="关闭播放" onClick={() => audioPlaybackController.close()}>
+            <button type="button" aria-label={translate("关闭播放")} title={translate("关闭播放")} onClick={() => audioPlaybackController.close()}>
               <X size={16} />
             </button>
           </header>
@@ -660,7 +661,7 @@ function AudioFloatingController() {
                 max={playback.duration || 0}
                 step={0.1}
                 value={Math.min(playback.currentTime, playback.duration || 0)}
-                aria-label="播放进度"
+                aria-label={translate("播放进度")}
                 onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
               />
               <span>{formatPlaybackTime(playback.currentTime)} / {formatPlaybackTime(playback.duration)}</span>
@@ -681,22 +682,22 @@ function AudioFloatingController() {
                   max={1}
                   step={0.01}
                   value={playback.muted ? 0 : playback.volume}
-                  aria-label="音量"
+                  aria-label={translate("音量")}
                   onChange={(event) => audioPlaybackController.setVolume(Number(event.currentTarget.value))}
                 />
               </div>
-              <button className="playback-rate" type="button" aria-label={`播放速度 ${playback.playbackRate} 倍`} title="切换播放速度" onClick={() => audioPlaybackController.cyclePlaybackRate()}>
+              <button className="playback-rate" type="button" aria-label={translate("播放速度 {{value0}} 倍", { value0: playback.playbackRate })} title={translate("切换播放速度")} onClick={() => audioPlaybackController.cyclePlaybackRate()}>
                 {playback.playbackRate}x
               </button>
               {track.onCancelDownload ? (
-                <button type="button" aria-label={`取消下载 ${track.label}`} title="取消下载" onClick={track.onCancelDownload}>
+                <button type="button" aria-label={translate("取消下载 {{value0}}", { value0: track.label })} title={translate("取消下载")} onClick={track.onCancelDownload}>
                   <span className="audio-floating-transfer">
                     <MediaProgressRing progress={track.downloadProgress} size={22} />
                     <X size={11} />
                   </span>
                 </button>
               ) : (
-                <button type="button" disabled={!track.onDownload} aria-label={`下载 ${track.label}`} title="下载音频" onClick={track.onDownload}>
+                <button type="button" disabled={!track.onDownload} aria-label={translate("下载 {{value0}}", { value0: track.label })} title={translate("下载音频")} onClick={track.onDownload}>
                   <Download size={16} />
                 </button>
               )}

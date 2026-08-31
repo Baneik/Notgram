@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { TelegramTransport } from "../telegram/transport";
 import type { QueuedOutgoingMessage } from "../telegram/types";
 import { attachmentOutbox } from "./attachmentOutbox";
@@ -73,7 +74,7 @@ export const createOutboxController = ({
         try {
           if (item.attachments?.length) {
             const stored = await attachmentOutbox.get(item.id);
-            if (!stored) throw new Error("离线附件已过期或文件内容已变更，请重新选择");
+            if (!stored) throw new Error(translate("离线附件已过期或文件内容已变更，请重新选择"));
             const sent = await transport.sendFiles({
               chatId: item.chatId,
               topicId: item.topicId,
@@ -83,7 +84,7 @@ export const createOutboxController = ({
               replyToMessageId: item.replyToMessageId,
               replyQuote: item.replyQuote,
             });
-            if (!sent) throw new Error("附件上传未完成");
+            if (!sent) throw new Error(translate("附件上传未完成"));
           } else {
             await transport.sendMessage({
               chatId: item.chatId,
@@ -98,13 +99,13 @@ export const createOutboxController = ({
         } catch (error) {
           setOutbox(get().outbox.map((candidate) =>
             candidate.id === item.id
-              ? { ...candidate, status: "failed", error: onError(error, "离线发送失败") }
+              ? { ...candidate, status: "failed", error: onError(error, translate("离线发送失败")) }
               : candidate,
           ));
           set({
             operationError: onError(
               error,
-              item.attachments?.length ? "离线附件恢复发送失败" : "离线消息恢复发送失败",
+              item.attachments?.length ? translate("离线附件恢复发送失败") : translate("离线消息恢复发送失败"),
             ),
           });
           await persistOutboxState();

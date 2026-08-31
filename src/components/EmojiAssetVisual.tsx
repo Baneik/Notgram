@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -83,7 +84,7 @@ export function EmojiAssetVisual({
       data-asset-id={asset.id}
     >
       {!source && !failed ? <LoaderCircle className="spin" size={18} /> : failed ? (
-        <span className="emoji-asset-fallback">{asset.emoji ?? "贴纸"}</span>
+        <span className="emoji-asset-fallback">{asset.emoji ?? translate("贴纸")}</span>
       ) : usingFullAsset && asset.mimeType === "application/x-tgsticker" ? (
         <TgsSticker src={source!} label={label} autoplay={autoplay} onError={markFailed} />
       ) : usingFullAsset && (asset.mimeType === "video/webm" || asset.kind === "animation") ? (

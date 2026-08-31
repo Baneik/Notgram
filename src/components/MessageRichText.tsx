@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   Fragment,
@@ -326,8 +327,8 @@ function CollapsibleBlockQuote({
           ref={expandButtonRef}
           className="rich-blockquote-expand"
           type="button"
-          aria-label={preview ? `展开引用：${preview}` : "展开引用"}
-          title="展开引用"
+          aria-label={preview ? translate("展开引用：{{value0}}", { value0: preview }) : translate("展开引用")}
+          title={translate("展开引用")}
           onClick={() => setExpanded(true)}
         >
           <span className="rich-blockquote-fade" aria-hidden="true" />
@@ -338,8 +339,8 @@ function CollapsibleBlockQuote({
         <button
           className="rich-blockquote-collapse"
           type="button"
-          aria-label="收起引用"
-          title="收起引用"
+          aria-label={translate("收起引用")}
+          title={translate("收起引用")}
           onClick={(event) => {
             const buttonBounds = event.currentTarget.getBoundingClientRect();
             const pointerClientY = event.detail > 0

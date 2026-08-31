@@ -1,21 +1,22 @@
+import { currentLanguage, translate } from "../i18n";
 export const formatChatTime = (isoDate: string) => {
   const date = new Date(isoDate);
   const today = new Date();
   if (date.toDateString() === today.toDateString()) {
-    return new Intl.DateTimeFormat("zh-CN", {
+    return new Intl.DateTimeFormat(currentLanguage(), {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
     }).format(date);
   }
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(currentLanguage(), {
     month: "numeric",
     day: "numeric",
   }).format(date);
 };
 
 export const formatMessageTime = (isoDate: string) =>
-  new Intl.DateTimeFormat("zh-CN", {
+  new Intl.DateTimeFormat(currentLanguage(), {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -30,16 +31,16 @@ export const localDateKey = (isoDate: string) => {
 
 export const formatMessageDay = (isoDate: string, now = new Date()) => {
   const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return "日期未知";
+  if (Number.isNaN(date.getTime())) return translate("日期未知");
 
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const messageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const dayDifference = Math.round(
     (today.getTime() - messageDay.getTime()) / 86_400_000,
   );
-  if (dayDifference === 0) return "今天";
-  if (dayDifference === 1) return "昨天";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (dayDifference === 0) return translate("今天");
+  if (dayDifference === 1) return translate("昨天");
+  return new Intl.DateTimeFormat(currentLanguage(), {
     year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
     month: "long",
     day: "numeric",

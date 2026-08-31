@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { Avatar, Chat, Message, User } from "../telegram/types";
 
 export interface MessageSearchIdentity {
@@ -17,14 +18,14 @@ export const messageSearchSender = (
 ): MessageSearchIdentity => {
   if (message.senderId.startsWith("chat:")) {
     const senderChat = chats.get(message.senderId.slice("chat:".length));
-    const name = senderChat?.title ?? "群组账号";
+    const name = senderChat?.title ?? translate("群组账号");
     return { name, avatar: senderChat?.avatar ?? fallbackAvatar(name) };
   }
 
   const sender = users.get(message.senderId);
   if (sender) return { name: sender.displayName, avatar: sender.avatar };
 
-  const name = message.outgoing || message.senderId === "self" ? "我" : "Telegram 用户";
+  const name = message.outgoing || message.senderId === "self" ? translate("我") : translate("Telegram 用户");
   return { name, avatar: fallbackAvatar(name) };
 };
 

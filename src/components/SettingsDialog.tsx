@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   ArrowLeft,
   Activity,
@@ -95,22 +96,22 @@ interface SettingsCategory {
 }
 
 const categories: SettingsCategory[] = [
-  { id: "account", label: "我的账号", icon: UserCircle },
+  { id: "account", get label() { return translate("我的账号"); }, icon: UserCircle },
   { id: "notgram", label: "Notgram", icon: SendHorizontal },
-  { id: "notifications", label: "通知与声音", icon: Bell },
-  { id: "chats", label: "聊天设置", icon: MessageCircle },
-  { id: "advanced", label: "高级设置", icon: SlidersHorizontal },
-  { id: "performance", label: "性能监控", icon: Activity },
-  { id: "diagnostics", label: "诊断与隐私", icon: ShieldCheck },
-  { id: "updates", label: "软件更新", icon: CloudDownload },
-  { id: "power", label: "电池和动画", icon: BatteryCharging },
+  { id: "notifications", get label() { return translate("通知与声音"); }, icon: Bell },
+  { id: "chats", get label() { return translate("聊天设置"); }, icon: MessageCircle },
+  { id: "advanced", get label() { return translate("高级设置"); }, icon: SlidersHorizontal },
+  { id: "performance", get label() { return translate("性能监控"); }, icon: Activity },
+  { id: "diagnostics", get label() { return translate("诊断与隐私"); }, icon: ShieldCheck },
+  { id: "updates", get label() { return translate("软件更新"); }, icon: CloudDownload },
+  { id: "power", get label() { return translate("电池和动画"); }, icon: BatteryCharging },
 ];
 
 const emptySettings: ProxySettings = {
   mode: "system",
   profiles: [{
     id: "proxy-1",
-    name: "代理 1",
+    get name() { return translate("代理 1"); },
     endpoint: {
       type: "http",
       server: "127.0.0.1",
@@ -133,11 +134,11 @@ const emptyStorageSettings: StorageSettings = {
 };
 
 const cacheHealthLabels: Record<CacheHealth, string> = {
-  empty: "尚未生成",
-  healthy: "健康",
-  migrated: "已从旧版本迁移",
-  invalid: "已失效，等待重建",
-  rebuilt: "刚刚重建",
+  get empty() { return translate("尚未生成"); },
+  get healthy() { return translate("健康"); },
+  get migrated() { return translate("已从旧版本迁移"); },
+  get invalid() { return translate("已失效，等待重建"); },
+  get rebuilt() { return translate("刚刚重建"); },
 };
 
 const cacheCategories: Array<{
@@ -145,11 +146,11 @@ const cacheCategories: Array<{
   key: "images" | "videos" | "audio" | "documents" | "other";
   label: string;
 }> = [
-  { id: "image", key: "images", label: "图片" },
-  { id: "video", key: "videos", label: "视频" },
-  { id: "audio", key: "audio", label: "音频" },
-  { id: "document", key: "documents", label: "文件" },
-  { id: "other", key: "other", label: "其他" },
+  { id: "image", key: "images", get label() { return translate("图片"); } },
+  { id: "video", key: "videos", get label() { return translate("视频"); } },
+  { id: "audio", key: "audio", get label() { return translate("音频"); } },
+  { id: "document", key: "documents", get label() { return translate("文件"); } },
+  { id: "other", key: "other", get label() { return translate("其他"); } },
 ];
 
 const formatBytes = (bytes: number) => {
@@ -320,7 +321,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
       value === true &&
       !await requestDesktopNotificationPermission()
     ) {
-      setPreferenceError("系统通知权限未开启");
+      setPreferenceError(translate("系统通知权限未开启"));
       return;
     }
     if (key === "blockZalgoText") {
@@ -343,7 +344,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
       return true;
     } catch {
       setPendingZalgoTextPreference(undefined);
-      setPreferenceError("设置已保存，请手动重启 Notgram 后生效");
+      setPreferenceError(translate("设置已保存，请手动重启 Notgram 后生效"));
       return false;
     }
   };
@@ -377,11 +378,9 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
             ref={settingsTitleRef}
             id="settings-title"
             tabIndex={standalone ? -1 : undefined}
-          >
-            设置
-          </h2>
+          >{translate("设置")}</h2>
           {!standalone && (
-            <button className="icon-button" type="button" aria-label="关闭" title="关闭" onClick={onClose}>
+            <button className="icon-button" type="button" aria-label={translate("关闭")} title={translate("关闭")} onClick={onClose}>
               <X size={19} />
             </button>
           )}
@@ -389,7 +388,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
 
         <nav
           className="settings-categories"
-          aria-label="设置分类"
+          aria-label={translate("设置分类")}
           aria-hidden={compactViewport && detailOpen ? true : undefined}
           inert={compactViewport && detailOpen ? true : undefined}
         >
@@ -424,8 +423,8 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               ref={settingsBackRef}
               className="settings-mobile-back icon-button"
               type="button"
-              aria-label="返回设置分类"
-              title="返回"
+              aria-label={translate("返回设置分类")}
+              title={translate("返回")}
               onClick={() => {
                 setDetailOpen(false);
                 requestAnimationFrame(() => {
@@ -503,9 +502,11 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
       <MotionPresence present={pendingZalgoTextPreference !== undefined}>
         {pendingZalgoTextPreference !== undefined ? (
           <ConfirmActionDialog
-            title={`${pendingZalgoTextPreference ? "开启" : "关闭"} Zalgo 文本屏蔽？`}
-            description="更改此设置后需要重启 Notgram。确认后软件将立即重启并应用新设置。"
-            confirmLabel="重启 Notgram"
+            title={translate("{{value0}} Zalgo 文本屏蔽？", {
+              value0: pendingZalgoTextPreference ? translate("开启") : translate("关闭"),
+            })}
+            description={translate("更改此设置后需要重启 Notgram。确认后软件将立即重启并应用新设置。")}
+            confirmLabel={translate("重启 Notgram")}
             onConfirm={confirmZalgoTextPreference}
             onClose={() => setPendingZalgoTextPreference(undefined)}
           />
@@ -539,22 +540,22 @@ function PreferenceSettings({
     disabled?: boolean;
   }> = category === "notgram"
     ? [
-        { key: "blockZalgoText" as const, label: "屏蔽 Zalgo 文本" },
-        { key: "blockTypingStatus" as const, label: "屏蔽输入状态" },
+        { key: "blockZalgoText" as const, label: translate("屏蔽 Zalgo 文本") },
+        { key: "blockTypingStatus" as const, label: translate("屏蔽输入状态") },
       ]
     : category === "notifications"
     ? [
-        { key: "notificationsEnabled" as const, label: "桌面通知" },
-        { key: "notificationPreview" as const, label: "显示消息预览", disabled: !preferences.notificationsEnabled },
-        { key: "notificationSound" as const, label: "通知声音", disabled: !preferences.notificationsEnabled },
+        { key: "notificationsEnabled" as const, label: translate("桌面通知") },
+        { key: "notificationPreview" as const, label: translate("显示消息预览"), disabled: !preferences.notificationsEnabled },
+        { key: "notificationSound" as const, label: translate("通知声音"), disabled: !preferences.notificationsEnabled },
       ]
     : category === "chats"
       ? [
-          { key: "sendOnEnter" as const, label: "Enter 键发送" },
+          { key: "sendOnEnter" as const, label: translate("Enter 键发送") },
         ]
       : [
-          { key: "autoplayAnimations" as const, label: "自动播放动画" },
-          { key: "reduceMotion" as const, label: "减少动态效果" },
+          { key: "autoplayAnimations" as const, label: translate("自动播放动画") },
+          { key: "reduceMotion" as const, label: translate("减少动态效果") },
         ];
 
   return (
@@ -565,34 +566,30 @@ function PreferenceSettings({
           <div className="settings-section-heading">
             <Gauge size={18} strokeWidth={1.8} />
             <div>
-              <h4 id="chat-display-heading">显示</h4>
-              <span>主题、字体与界面比例</span>
+              <h4 id="chat-display-heading">{translate("显示")}</h4>
+              <span>{translate("主题、字体与界面比例")}</span>
             </div>
           </div>
           <div className="display-preference-list">
             <div className="theme-preference">
-              <strong>界面样式</strong>
-              <div className="theme-segmented-control" aria-label="界面样式">
+              <strong>{translate("界面样式")}</strong>
+              <div className="theme-segmented-control" aria-label={translate("界面样式")}>
                 <button
                   type="button"
                   aria-pressed={preferences.themeId === "notgram-light"}
                   onClick={() => onChange("themeId", "notgram-light")}
                 >
-                  <Sun size={15} />
-                  浅色
-                </button>
+                  <Sun size={15} />{translate("浅色")}</button>
                 <button
                   type="button"
                   aria-pressed={preferences.themeId === "notgram-dark"}
                   onClick={() => onChange("themeId", "notgram-dark")}
                 >
-                  <Moon size={15} />
-                  深色
-                </button>
+                  <Moon size={15} />{translate("深色")}</button>
               </div>
             </div>
             <NumericStepper
-              label="消息字体大小"
+              label={translate("消息字体大小")}
               value={preferences.chatFontSize}
               minimum={12}
               maximum={20}
@@ -600,7 +597,7 @@ function PreferenceSettings({
               onChange={(value) => onChange("chatFontSize", value)}
             />
             <NumericStepper
-              label="界面缩放比例"
+              label={translate("界面缩放比例")}
               value={preferences.interfaceScale}
               minimum={80}
               maximum={150}
@@ -609,22 +606,18 @@ function PreferenceSettings({
               onChange={(value) => onChange("interfaceScale", value)}
             />
             <div className="theme-preference">
-              <strong>未读消息计数器位置</strong>
-              <div className="theme-segmented-control" aria-label="未读消息计数器位置">
+              <strong>{translate("未读消息计数器位置")}</strong>
+              <div className="theme-segmented-control" aria-label={translate("未读消息计数器位置")}>
                 <button
                   type="button"
                   aria-pressed={preferences.unreadBadgePosition === "right"}
                   onClick={() => onChange("unreadBadgePosition", "right")}
-                >
-                  右侧
-                </button>
+                >{translate("右侧")}</button>
                 <button
                   type="button"
                   aria-pressed={preferences.unreadBadgePosition === "avatar"}
                   onClick={() => onChange("unreadBadgePosition", "avatar")}
-                >
-                  头像右下角
-                </button>
+                >{translate("头像右下角")}</button>
               </div>
             </div>
           </div>
@@ -644,9 +637,7 @@ function PreferenceSettings({
               onChange("unreadBadgePosition", "right");
             }}
           >
-            <RotateCcw size={15} strokeWidth={2} />
-            恢复显示默认值
-          </button>
+            <RotateCcw size={15} strokeWidth={2} />{translate("恢复显示默认值")}</button>
         </section>
       )}
       {category === "chats" && (
@@ -654,13 +645,13 @@ function PreferenceSettings({
           <div className="settings-section-heading">
             <SlidersHorizontal size={18} strokeWidth={1.8} />
             <div>
-              <h4 id="chat-density-heading">间距与密度</h4>
-              <span>分别调整会话列表、消息分组和气泡留白</span>
+              <h4 id="chat-density-heading">{translate("间距与密度")}</h4>
+              <span>{translate("分别调整会话列表、消息分组和气泡留白")}</span>
             </div>
           </div>
           <div className="display-preference-list">
             <NumericStepper
-              label="会话列表行高"
+              label={translate("会话列表行高")}
               value={preferences.chatListRowHeight}
               minimum={56}
               maximum={88}
@@ -669,7 +660,7 @@ function PreferenceSettings({
               onChange={(value) => onChange("chatListRowHeight", value)}
             />
             <NumericStepper
-              label="消息组间距"
+              label={translate("消息组间距")}
               value={preferences.messageGroupSpacing}
               minimum={4}
               maximum={18}
@@ -677,7 +668,7 @@ function PreferenceSettings({
               onChange={(value) => onChange("messageGroupSpacing", value)}
             />
             <NumericStepper
-              label="同组消息间距"
+              label={translate("同组消息间距")}
               value={preferences.messageRowSpacing}
               minimum={0}
               maximum={6}
@@ -685,7 +676,7 @@ function PreferenceSettings({
               onChange={(value) => onChange("messageRowSpacing", value)}
             />
             <NumericStepper
-              label="消息气泡纵向留白"
+              label={translate("消息气泡纵向留白")}
               value={preferences.messageBubblePadding}
               minimum={4}
               maximum={12}
@@ -709,9 +700,7 @@ function PreferenceSettings({
               onChange("messageBubblePadding", 8);
             }}
           >
-            <RotateCcw size={15} strokeWidth={2} />
-            恢复间距默认值
-          </button>
+            <RotateCcw size={15} strokeWidth={2} />{translate("恢复间距默认值")}</button>
         </section>
       )}
       <section className="settings-section">
@@ -730,9 +719,7 @@ function PreferenceSettings({
           ))}
         </div>
         {category === "power" && systemReduceMotion && (
-          <p className="preference-policy-note" role="status">
-            系统已启用“减少动态效果”，Notgram 会自动停用过渡和动画播放。
-          </p>
+          <p className="preference-policy-note" role="status">{translate("系统已启用“减少动态效果”，Notgram 会自动停用过渡和动画播放。")}</p>
         )}
       </section>
       {error && <div className="settings-error" role="alert">{error}</div>}
@@ -766,7 +753,7 @@ function NumericStepper({
       <div className="numeric-stepper" role="group" aria-label={label}>
         <button
           type="button"
-          aria-label={`减小${label}`}
+          aria-label={translate("减小{{value0}}", { value0: label })}
           disabled={value <= minimum}
           onClick={() => commit(value - step)}
         >
@@ -786,7 +773,7 @@ function NumericStepper({
         </label>
         <button
           type="button"
-          aria-label={`增大${label}`}
+          aria-label={translate("增大{{value0}}", { value0: label })}
           disabled={value >= maximum}
           onClick={() => commit(value + step)}
         >
@@ -860,13 +847,13 @@ function AccountSettings({
   return (
     <div className="settings-detail-scroll account-settings">
       {currentUser && showProfileLoading ? (
-        <div className="settings-empty" role="status"><LoaderCircle className="spin" size={20} /><span>正在读取账号资料</span></div>
+        <div className="settings-empty" role="status"><LoaderCircle className="spin" size={20} /><span>{translate("正在读取账号资料")}</span></div>
       ) : currentUser && profile ? (
         <section className="settings-section account-profile-section" aria-labelledby="account-profile-heading">
           <div className="settings-section-heading">
             <UserCircle size={18} strokeWidth={1.8} />
             <div>
-              <h4 id="account-profile-heading">当前账号资料</h4>
+              <h4 id="account-profile-heading">{translate("当前账号资料")}</h4>
               <span>{profile.statusLabel}</span>
             </div>
           </div>
@@ -874,7 +861,7 @@ function AccountSettings({
             <div className="account-profile-header">
               <div className="account-profile-avatar">
                 <Avatar avatar={profile.avatar} size="large" />
-                <button type="button" aria-label="更换头像" title="更换头像" disabled={profilePending} onClick={chooseAvatar}>
+                <button type="button" aria-label={translate("更换头像")} title={translate("更换头像")} disabled={profilePending} onClick={chooseAvatar}>
                   {profilePending ? <LoaderCircle className="spin" size={15} /> : <Camera size={15} />}
                 </button>
                 <input
@@ -892,57 +879,55 @@ function AccountSettings({
               </div>
               <div className="account-profile-summary">
                 <strong>{profile.title}</strong>
-                <span>{profile.bio || "未设置签名"}</span>
+                <span>{profile.bio || translate("未设置签名")}</span>
               </div>
               {!editing && (
-                <button className="account-profile-edit" type="button" aria-label="编辑账号资料" title="编辑资料" onClick={() => setEditing(true)}>
+                <button className="account-profile-edit" type="button" aria-label={translate("编辑账号资料")} title={translate("编辑资料")} onClick={() => setEditing(true)}>
                   <Pencil size={17} />
                 </button>
               )}
             </div>
 
             {editing ? (
-              <div className="account-profile-editor" role="group" aria-label="编辑账号资料">
+              <div className="account-profile-editor" role="group" aria-label={translate("编辑账号资料")}>
                 <div className="account-name-fields">
-                  <label><span>名字</span><input value={draft.firstName} maxLength={64} aria-invalid={!draft.firstName.trim()} onChange={(event) => setDraft((value) => ({ ...value, firstName: event.target.value }))} /></label>
-                  <label><span>姓氏</span><input value={draft.lastName} maxLength={64} onChange={(event) => setDraft((value) => ({ ...value, lastName: event.target.value }))} /></label>
+                  <label><span>{translate("名字")}</span><input value={draft.firstName} maxLength={64} aria-invalid={!draft.firstName.trim()} onChange={(event) => setDraft((value) => ({ ...value, firstName: event.target.value }))} /></label>
+                  <label><span>{translate("姓氏")}</span><input value={draft.lastName} maxLength={64} onChange={(event) => setDraft((value) => ({ ...value, lastName: event.target.value }))} /></label>
                 </div>
-                <label><span>用户名</span><div className="account-username-input"><AtSign size={15} /><input value={draft.username} maxLength={32} aria-invalid={usernameInvalid} onChange={(event) => setDraft((value) => ({ ...value, username: event.target.value }))} /></div></label>
-                <label><span>签名</span><textarea value={draft.bio} maxLength={140} rows={3} onChange={(event) => setDraft((value) => ({ ...value, bio: event.target.value }))} /></label>
-                {usernameInvalid && <small className="account-field-error">用户名需包含 5 至 32 个英文字母、数字或下划线</small>}
+                <label><span>{translate("用户名")}</span><div className="account-username-input"><AtSign size={15} /><input value={draft.username} maxLength={32} aria-invalid={usernameInvalid} onChange={(event) => setDraft((value) => ({ ...value, username: event.target.value }))} /></div></label>
+                <label><span>{translate("签名")}</span><textarea value={draft.bio} maxLength={140} rows={3} onChange={(event) => setDraft((value) => ({ ...value, bio: event.target.value }))} /></label>
+                {usernameInvalid && <small className="account-field-error">{translate("用户名需包含 5 至 32 个英文字母、数字或下划线")}</small>}
                 <div className="account-profile-editor-actions">
-                  <button className="dialog-secondary" type="button" disabled={profilePending} onClick={() => setEditing(false)}><X size={16} /><span>取消</span></button>
+                  <button className="dialog-secondary" type="button" disabled={profilePending} onClick={() => setEditing(false)}><X size={16} /><span>{translate("取消")}</span></button>
                   <button className="dialog-save" type="button" disabled={profilePending || !draft.firstName.trim() || usernameInvalid} onClick={() => void saveProfile()}>
-                    {profilePending ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}<span>保存资料</span>
+                    {profilePending ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}<span>{translate("保存资料")}</span>
                   </button>
                 </div>
               </div>
             ) : (
               <div className="account-profile-details">
-                <div><Phone size={18} /><span><small>手机号</small><strong>{profile.phoneNumber || "未提供"}</strong></span></div>
-                <div><AtSign size={18} /><span><small>用户名</small><strong>{profile.username ? `@${profile.username}` : "未设置"}</strong></span></div>
-                <div><Fingerprint size={18} /><span><small>用户 ID</small><strong>{profile.userId}</strong></span></div>
-                <div><Network size={18} /><span><small>数据中心</small><strong>{profile.dataCenterId ? `DC${profile.dataCenterId}, ${profile.dataCenterLocation}` : profile.dataCenterLocation}</strong></span></div>
-                <div className="account-profile-bio"><FileText size={18} /><span><small>签名</small><strong>{profile.bio || "未设置"}</strong></span></div>
+                <div><Phone size={18} /><span><small>{translate("手机号")}</small><strong>{profile.phoneNumber || translate("未提供")}</strong></span></div>
+                <div><AtSign size={18} /><span><small>{translate("用户名")}</small><strong>{profile.username ? `@${profile.username}` : translate("未设置")}</strong></span></div>
+                <div><Fingerprint size={18} /><span><small>{translate("用户 ID")}</small><strong>{profile.userId}</strong></span></div>
+                <div><Network size={18} /><span><small>{translate("数据中心")}</small><strong>{profile.dataCenterId ? `DC${profile.dataCenterId}, ${profile.dataCenterLocation}` : profile.dataCenterLocation}</strong></span></div>
+                <div className="account-profile-bio"><FileText size={18} /><span><small>{translate("签名")}</small><strong>{profile.bio || translate("未设置")}</strong></span></div>
               </div>
             )}
           </div>
           {profileState.updateError && <div className="settings-error" role="alert">{profileState.updateError}</div>}
           {logoutConfirmation ? (
-            <div className="account-logout-confirm" role="group" aria-label="确认退出登录">
-              <p>退出后将删除此账号在本机的 TDLib 数据和界面缓存，其他账号不受影响。</p>
+            <div className="account-logout-confirm" role="group" aria-label={translate("确认退出登录")}>
+              <p>{translate("退出后将删除此账号在本机的 TDLib 数据和界面缓存，其他账号不受影响。")}</p>
               <div>
-                <button className="dialog-secondary" type="button" disabled={pending} onClick={() => setLogoutConfirmation(false)}>取消</button>
+                <button className="dialog-secondary" type="button" disabled={pending} onClick={() => setLogoutConfirmation(false)}>{translate("取消")}</button>
                 <button className="dialog-danger" type="button" disabled={pending} onClick={onLogOut}>
-                  {pending && <LoaderCircle className="spin" size={16} />}
-                  退出登录
-                </button>
+                  {pending && <LoaderCircle className="spin" size={16} />}{translate("退出登录")}</button>
               </div>
             </div>
           ) : (
             <button className="account-command is-danger" type="button" disabled={pending} onClick={() => setLogoutConfirmation(true)}>
               <LogOut size={18} />
-              <span>退出当前账号</span>
+              <span>{translate("退出当前账号")}</span>
             </button>
           )}
         </section>
@@ -1055,8 +1040,8 @@ function AdvancedSettings({
         <div className="settings-section-heading">
           <Network size={18} strokeWidth={1.8} />
           <div>
-            <h4 id="connection-heading">连接</h4>
-            <span>Telegram 网络与代理</span>
+            <h4 id="connection-heading">{translate("连接")}</h4>
+            <span>{translate("Telegram 网络与代理")}</span>
           </div>
         </div>
 
@@ -1074,12 +1059,12 @@ function AdvancedSettings({
         <div className="settings-section-heading">
           <HardDrive size={18} strokeWidth={1.8} />
           <div>
-            <h4 id="storage-heading">存储路径</h4>
-            <span>缓存路径重启后生效</span>
+            <h4 id="storage-heading">{translate("存储路径")}</h4>
+            <span>{translate("缓存路径重启后生效")}</span>
           </div>
         </div>
         <label className="auth-field">
-          <span>缓存路径</span>
+          <span>{translate("缓存路径")}</span>
           <input
             value={storageDraft.cachePath}
             placeholder={storageDraft.defaultCachePath}
@@ -1087,7 +1072,7 @@ function AdvancedSettings({
           />
         </label>
         <label className="auth-field">
-          <span>下载路径</span>
+          <span>{translate("下载路径")}</span>
           <input
             value={storageDraft.downloadPath}
             placeholder={storageDraft.defaultDownloadPath}
@@ -1105,7 +1090,7 @@ function AdvancedSettings({
           }))}
         >
           <RotateCcw size={15} strokeWidth={2} />
-          <span>恢复默认路径</span>
+          <span>{translate("恢复默认路径")}</span>
         </button>
         <div className="settings-inline-actions">
           <button
@@ -1115,10 +1100,9 @@ function AdvancedSettings({
             onClick={onRebuildCache}
           >
             <RotateCcw size={15} strokeWidth={2} />
-            <span>重建界面缓存</span>
+            <span>{translate("重建界面缓存")}</span>
           </button>
-          <span className="cache-health" role="status">
-            缓存状态：{cacheHealthLabels[cacheHealth]}
+          <span className="cache-health" role="status">{translate("缓存状态：")}{cacheHealthLabels[cacheHealth]}
           </span>
         </div>
         </section>
@@ -1127,13 +1111,13 @@ function AdvancedSettings({
           <div className="settings-section-heading">
             <HardDrive size={18} strokeWidth={1.8} />
             <div>
-              <h4 id="media-cache-heading">媒体缓存</h4>
-              <span>当前消息、播放中和下载中的文件会受到保护</span>
+              <h4 id="media-cache-heading">{translate("媒体缓存")}</h4>
+              <span>{translate("当前消息、播放中和下载中的文件会受到保护")}</span>
             </div>
           </div>
           <div className="cache-usage-summary" aria-live="polite">
-            <strong>{cacheUsage ? formatBytes(cacheUsage.total.bytes) : "正在统计"}</strong>
-            <span>{cacheUsage ? `${cacheUsage.total.files} 个文件` : "请稍候"}</span>
+            <strong>{cacheUsage ? formatBytes(cacheUsage.total.bytes) : translate("正在统计")}</strong>
+            <span>{cacheUsage ? translate("{{value0}} 个文件", { value0: cacheUsage.total.files }) : translate("请稍候")}</span>
             <button
               className="storage-reset"
               type="button"
@@ -1141,11 +1125,11 @@ function AdvancedSettings({
               onClick={onRefreshCache}
             >
               <RotateCcw className={busy ? "spin" : undefined} size={15} strokeWidth={2} />
-              <span>刷新</span>
+              <span>{translate("刷新")}</span>
             </button>
           </div>
           {cacheUsage && (
-            <div className="cache-category-list" aria-label="缓存类型">
+            <div className="cache-category-list" aria-label={translate("缓存类型")}>
               {cacheCategories.map((category) => {
                 const usage = cacheUsage[category.key];
                 return (
@@ -1157,23 +1141,23 @@ function AdvancedSettings({
                       onChange={(event) => toggleCacheCategory(category.id, event.target.checked)}
                     />
                     <span>{category.label}</span>
-                    <small>{formatBytes(usage.bytes)} · {usage.files} 个</small>
+                    <small>{formatBytes(usage.bytes)} · {translate("{{value0}} 个", { value0: usage.files })}</small>
                   </label>
                 );
               })}
             </div>
           )}
           <label className="auth-field cache-retention-field">
-            <span>自动清理周期</span>
+            <span>{translate("自动清理周期")}</span>
             <select
               value={cacheRetentionDays}
               disabled={busy}
               onChange={(event) => setCacheRetentionDays("cacheRetentionDays", Number(event.target.value))}
             >
-              <option value={0}>不自动清理</option>
-              <option value={7}>7 天前</option>
-              <option value={30}>30 天前</option>
-              <option value={90}>90 天前</option>
+              <option value={0}>{translate("不自动清理")}</option>
+              <option value={7}>{translate("7 天前")}</option>
+              <option value={30}>{translate("30 天前")}</option>
+              <option value={90}>{translate("90 天前")}</option>
             </select>
           </label>
           <div className="cache-cleanup-actions">
@@ -1187,7 +1171,7 @@ function AdvancedSettings({
               )}
             >
               {busy ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
-              <span>清理所选</span>
+              <span>{translate("清理所选")}</span>
             </button>
             <button
               className="dialog-danger"
@@ -1196,17 +1180,18 @@ function AdvancedSettings({
               onClick={() => void onClearCache(cacheCategories.map((category) => category.id))}
             >
               <Trash2 size={16} />
-              <span>清理全部缓存</span>
+              <span>{translate("清理全部缓存")}</span>
             </button>
           </div>
           {cacheCleanupResult && (
-            <p className="cache-cleanup-result" role="status">
-              已清理 {formatBytes(cacheCleanupResult.removedBytes)}，共 {cacheCleanupResult.removedFiles} 个文件
-              {cacheCleanupResult.skippedProtectedFiles > 0
-                ? `；已保护 ${cacheCleanupResult.skippedProtectedFiles} 个正在使用的文件`
+            <p className="cache-cleanup-result" role="status">{translate("已清理 {{value0}}，共 {{value1}} 个文件", {
+                value0: formatBytes(cacheCleanupResult.removedBytes),
+                value1: cacheCleanupResult.removedFiles,
+              })}{cacheCleanupResult.skippedProtectedFiles > 0
+                ? translate("；已保护 {{value0}} 个正在使用的文件", { value0: cacheCleanupResult.skippedProtectedFiles })
                 : ""}
               {cacheCleanupResult.failedFiles > 0
-                ? `；${cacheCleanupResult.failedFiles} 个文件清理失败`
+                ? translate("；{{value0}} 个文件清理失败", { value0: cacheCleanupResult.failedFiles })
                 : ""}
             </p>
           )}
@@ -1216,16 +1201,16 @@ function AdvancedSettings({
           <div className="settings-section-heading">
             <CloudDownload size={18} strokeWidth={1.8} />
             <div>
-              <h4 id="auto-download-heading">自动下载</h4>
-              <span>浏览会话时会提前缓存上方约 1.5 屏的封面，下载目录不受影响</span>
+              <h4 id="auto-download-heading">{translate("自动下载")}</h4>
+              <span>{translate("浏览会话时会提前缓存上方约 1.5 屏的封面，下载目录不受影响")}</span>
             </div>
           </div>
           <div className="preference-list">
             {([
-              ["autoDownloadImages", "图片、贴纸与动画"],
-              ["autoDownloadVideos", "视频与视频消息"],
-              ["autoDownloadAudio", "音频与语音"],
-              ["autoDownloadFiles", "普通文件"],
+              ["autoDownloadImages", translate("图片、贴纸与动画")],
+              ["autoDownloadVideos", translate("视频与视频消息")],
+              ["autoDownloadAudio", translate("音频与语音")],
+              ["autoDownloadFiles", translate("普通文件")],
             ] as const).map(([key, label]) => (
               <label className="preference-row" key={key}>
                 <span>{label}</span>
@@ -1239,7 +1224,7 @@ function AdvancedSettings({
             ))}
           </div>
           <label className="auth-field auto-download-limit">
-            <span>单个文件上限</span>
+            <span>{translate("单个文件上限")}</span>
             <span className="auto-download-limit-control">
               <input
                 type="number"
@@ -1259,13 +1244,13 @@ function AdvancedSettings({
           <div className="settings-section-heading">
             <Code2 size={18} strokeWidth={1.8} />
             <div>
-              <h4 id="developer-mode-heading">开发者模式</h4>
-              <span>启用调试辅助操作</span>
+              <h4 id="developer-mode-heading">{translate("开发者模式")}</h4>
+              <span>{translate("启用调试辅助操作")}</span>
             </div>
           </div>
           <div className="preference-list">
             <label className="preference-row">
-              <span>开发者模式</span>
+              <span>{translate("开发者模式")}</span>
               <input
                 type="checkbox"
                 role="switch"
@@ -1283,7 +1268,7 @@ function AdvancedSettings({
       <footer className="settings-actions">
         <button className="auth-submit dialog-save" type="submit" disabled={busy}>
           {busy ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
-          <span>保存更改</span>
+          <span>{translate("保存更改")}</span>
         </button>
       </footer>
     </>

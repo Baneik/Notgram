@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { Message } from "../telegram/types";
 
 export const isMessageStreaming = (message: Pick<Message, "isPending" | "content">) =>
@@ -121,11 +122,11 @@ export const notificationPresentation = ({
   senderName?: string;
   messageText: string;
 }) => {
-  if (!showPreview) return { title: "Notgram", body: "收到一条新消息" };
+  if (!showPreview) return { title: "Notgram", body: translate("收到一条新消息") };
   const titleParts = [chatTitle, topicTitle]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
-  const message = messageText.trim() || "收到一条新消息";
+  const message = messageText.trim() || translate("收到一条新消息");
   const sender = senderName?.trim();
   return {
     title: titleParts.join(" · ") || "Notgram",

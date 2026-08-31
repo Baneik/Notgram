@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   createContext,
   useContext,
@@ -72,7 +73,7 @@ export function TextSpoiler({ spoilerId, children }: {
       data-spoiler-state={revealed ? "revealed" : "concealed"}
       role={revealed ? undefined : "button"}
       tabIndex={revealed ? undefined : 0}
-      aria-label={revealed ? undefined : "显示遮罩文字"}
+      aria-label={revealed ? undefined : translate("显示遮罩文字")}
       onClick={reveal}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") reveal(event);
@@ -153,8 +154,8 @@ export function MediaSpoiler({ active, resetKey, concealedOverlay, children }: {
             <button
               className="media-spoiler-reveal"
               type="button"
-              aria-label="显示遮罩媒体"
-              title="显示媒体"
+              aria-label={translate("显示遮罩媒体")}
+              title={translate("显示媒体")}
               onClick={() => setRevealed(true)}
             />
           )}

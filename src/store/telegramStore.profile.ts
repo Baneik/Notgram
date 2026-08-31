@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { TelegramTransport } from "../telegram/transport";
 import type { ChatProfile } from "../telegram/types";
 import { emptyProfileState } from "./profileState";
@@ -149,7 +150,7 @@ export const createProfileController = ({
           accountProfile: {
             target: { kind: "current" },
             loading: false,
-            error: onError(error, "无法读取账号资料"),
+            error: onError(error, translate("无法读取账号资料")),
           },
         });
       }
@@ -173,7 +174,7 @@ export const createProfileController = ({
             accountProfile: {
               ...latest,
               updating: false,
-              updateError: onError(error, "无法更新账号资料"),
+              updateError: onError(error, translate("无法更新账号资料")),
             },
           });
         }
@@ -207,7 +208,7 @@ export const createProfileController = ({
             accountProfile: {
               ...latest,
               updating: false,
-              updateError: onError(error, "无法更新头像"),
+              updateError: onError(error, translate("无法更新头像")),
             },
           });
         }
@@ -219,7 +220,7 @@ export const createProfileController = ({
       { kind: "chat", chatId },
       `chat:${chatId}`,
       () => transport.getChatProfile(chatId),
-      "无法读取聊天资料",
+      translate("无法读取聊天资料"),
     ),
 
     loadMoreChatProfileMembers: async (chatId) => {
@@ -267,7 +268,7 @@ export const createProfileController = ({
               profile: {
                 ...latest,
                 membersLoading: false,
-                membersError: onError(error, "鏃犳硶鍔犺浇鏇村鎴愬憳"),
+                membersError: onError(error, translate("无法加载更多成员")),
               },
             });
           }
@@ -280,7 +281,7 @@ export const createProfileController = ({
       { kind: "user", userId },
       `user:${userId}`,
       () => transport.getUserProfile(userId),
-      "无法读取用户资料",
+      translate("无法读取用户资料"),
     ),
 
     clearProfile: () => {
@@ -297,7 +298,7 @@ export const createProfileController = ({
         set({ contacts, contactsLoading: false });
       } catch (error) {
         if (generation !== contactsGeneration) return;
-        set({ contactsLoading: false, contactsError: onError(error, "无法读取联系人") });
+        set({ contactsLoading: false, contactsError: onError(error, translate("无法读取联系人")) });
       }
     },
   };

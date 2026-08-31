@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { LoaderCircle, Plus, Sticker, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -74,45 +75,41 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
       >
         <header className="sticker-set-header">
           <span>
-            <h2 id="sticker-set-title">{stickerSet?.title ?? "贴纸包"}</h2>
-            <small>{stickerSet ? `${stickerSet.size} 张贴纸` : "正在读取贴纸包"}</small>
+            <h2 id="sticker-set-title">{stickerSet?.title ?? translate("贴纸包")}</h2>
+            <small>{stickerSet ? translate("{{value0}} 张贴纸", { value0: stickerSet.size }) : translate("正在读取贴纸包")}</small>
           </span>
-          <button className="icon-button" type="button" aria-label="关闭贴纸包预览" title="关闭" disabled={addPending} onClick={onClose}>
+          <button className="icon-button" type="button" aria-label={translate("关闭贴纸包预览")} title={translate("关闭")} disabled={addPending} onClick={onClose}>
             <X size={19} />
           </button>
         </header>
 
         {loading ? (
           <div className="sticker-set-state" role="status">
-            <LoaderCircle className="spin" size={22} />
-            正在加载贴纸包
-          </div>
+            <LoaderCircle className="spin" size={22} />{translate("正在加载贴纸包")}</div>
         ) : failed || !stickerSet ? (
           <div className="sticker-set-state is-error" role="alert">
-            <Sticker size={24} strokeWidth={1.7} />
-            无法加载这个贴纸包
-          </div>
+            <Sticker size={24} strokeWidth={1.7} />{translate("无法加载这个贴纸包")}</div>
         ) : (
           <div className="sticker-set-body">
-            <div className="sticker-set-stage" aria-label="贴纸预览">
+            <div className="sticker-set-stage" aria-label={translate("贴纸预览")}>
               {selectedSticker ? (
                 <EmojiAssetVisual
                   key={selectedSticker.id}
                   asset={selectedSticker}
                   autoplay={autoplayAnimations}
-                  label={`预览贴纸 ${selectedSticker.emoji ?? ""}`.trim()}
+                  label={translate("预览贴纸 {{value0}}", { value0: selectedSticker.emoji ?? "" }).trim()}
                   eager
                 />
               ) : <Sticker size={48} strokeWidth={1.4} />}
             </div>
-            <div className="sticker-set-list" role="group" aria-label="贴纸列表">
+            <div className="sticker-set-list" role="group" aria-label={translate("贴纸列表")}>
               {stickerSet.stickers.map((sticker) => {
                 const selected = sticker.id === selectedSticker?.id;
                 return (
                   <button
                     type="button"
                     className={selected ? "is-selected" : ""}
-                    aria-label={`预览贴纸 ${sticker.emoji ?? ""}`.trim()}
+                    aria-label={translate("预览贴纸 {{value0}}", { value0: sticker.emoji ?? "" }).trim()}
                     aria-pressed={selected}
                     key={sticker.id}
                     onClick={() => setSelectedStickerId(sticker.id)}
@@ -120,7 +117,7 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
                     <EmojiAssetVisual
                       asset={sticker}
                       autoplay={false}
-                      label={`贴纸 ${sticker.emoji ?? ""}`.trim()}
+                      label={translate("贴纸 {{value0}}", { value0: sticker.emoji ?? "" }).trim()}
                     />
                   </button>
                 );
@@ -137,7 +134,7 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
             onClick={() => void addSet()}
           >
             {addPending ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
-            {addPending ? "正在添加" : "添加贴纸"}
+            {addPending ? translate("正在添加") : translate("添加贴纸")}
           </button>
         </footer>
       </section>

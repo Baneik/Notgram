@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { AlertTriangle, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -54,9 +55,7 @@ export function ConfirmActionDialog({
           </div>
         </div>
         <div className="message-delete-actions">
-          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>
-            取消
-          </button>
+          <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>{translate("取消")}</button>
           <button className="dialog-danger" type="button" disabled={pending} onClick={() => void confirm()}>
             {pending && <LoaderCircle className="spin" size={16} />}
             <span>{confirmLabel}</span>

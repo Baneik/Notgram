@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -161,8 +162,8 @@ const MessageSourceLocateButton = ({
   <button
     className="message-source-locate"
     type="button"
-    aria-label={`跳转到消息原位置：${messageSummary(message.content)}`}
-    title="跳转到消息原位置"
+    aria-label={translate("跳转到消息原位置：{{value0}}", { value0: messageSummary(message.content) })}
+    title={translate("跳转到消息原位置")}
     onClick={(event) => {
       event.stopPropagation();
       onLocate(message.chatId, message.id);
@@ -177,8 +178,8 @@ const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, 
 ));
 VirtualMessageListContent.displayName = "VirtualMessageListContent";
 
-const EmptyMessageList = () => <div className="messages-empty">没有匹配的消息</div>;
-const EmptyPinnedMessageList = () => <div className="messages-empty">当前没有置顶消息</div>;
+const EmptyMessageList = () => <div className="messages-empty">{translate("没有匹配的消息")}</div>;
+const EmptyPinnedMessageList = () => <div className="messages-empty">{translate("当前没有置顶消息")}</div>;
 const MessageListFooter = () => <div className="message-list-end-sentinel" aria-hidden="true" />;
 const messageListComponents: Components<VirtualMessageBlock> = {
   EmptyPlaceholder: EmptyMessageList,
@@ -1853,7 +1854,7 @@ export function Conversation({
         inert={mobileViewHidden ? true : undefined}
       >
         <div className="conversation-empty-mark">N</div>
-        <h2>选择一个对话</h2>
+        <h2>{translate("选择一个对话")}</h2>
       </section>
     );
   }
@@ -1904,9 +1905,9 @@ export function Conversation({
   };
 
   const composerContextTitle = editingMessage
-    ? "编辑消息"
+    ? translate("编辑消息")
     : replyingTo
-      ? "回复"
+      ? translate("回复")
       : undefined;
   const composerContextSubject = replyingTo
     ? senderNameForMessage(replyingTo, users, chat, forwardTargetsById)
@@ -1917,21 +1918,21 @@ export function Conversation({
     memberLabels.has(replyingTo.senderId),
   );
   const typingNames = typingUserIds.map((userId) =>
-    localBlockedUsersById.get(userId)?.alias ?? users.get(userId)?.displayName ?? "成员"
+    localBlockedUsersById.get(userId)?.alias ?? users.get(userId)?.displayName ?? translate("成员")
   );
   const typingStatus = typingUserIds.length === 0 || chat.kind === "saved" || chat.kind === "channel"
     ? undefined
     : chat.kind === "direct"
-      ? "正在输入..."
+      ? translate("正在输入...")
       : typingUserIds.length === 1
-        ? `${typingNames[0]} 正在输入...`
+        ? translate("{{value0}} 正在输入...", { value0: typingNames[0] })
         : typingUserIds.length === 2
-          ? `${typingNames.join("、")} 正在输入...`
-          : `${typingNames.slice(0, 2).join("、")} 等 ${typingUserIds.length} 人正在输入...`;
+          ? translate("{{value0}} 正在输入...", { value0: typingNames.join("、") })
+          : translate("{{value0}} 等 {{value1}} 人正在输入...", { value0: typingNames.slice(0, 2).join("、"), value1: typingUserIds.length });
   const headerStatus = conversationHeaderStatus({
     chat,
     peer: chat.peerId ? users.get(chat.peerId) : undefined,
-    typingStatus: topic?.isClosed ? "话题已关闭" : typingStatus,
+    typingStatus: topic?.isClosed ? translate("话题已关闭") : typingStatus,
     memberCount: groupManagement?.chatId === chat.id
       ? groupManagement.memberCount ?? chat.memberCount
       : chat.memberCount,
@@ -2203,7 +2204,9 @@ export function Conversation({
         if (selection && !selection.isCollapsed) return;
         composerInputRef.current?.focus({ preventScroll: true });
       }}
-      aria-label={`${topic ? `${topic.name} 话题` : chat.title} 对话`}
+      aria-label={translate("{{value0}} 对话", {
+        value0: topic ? translate("{{value0}} 话题", { value0: topic.name }) : chat.title,
+      })}
     >
       <header className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
         {selectionMode ? (
@@ -2211,23 +2214,23 @@ export function Conversation({
             <button
               className="icon-button"
               type="button"
-              aria-label="取消选择"
-              title="取消选择"
+              aria-label={translate("取消选择")}
+              title={translate("取消选择")}
               onClick={forwarding.clearSelection}
             >
               <X size={20} strokeWidth={2} />
             </button>
             <div className="message-selection-title">
-              <strong>已选择 {selectedMessageIds.size} 条</strong>
-              <span>最多可同时转发 100 条消息</span>
+              <strong>{translate("已选择 {{value0}} 条", { value0: selectedMessageIds.size })}</strong>
+              <span>{translate("最多可同时转发 100 条消息")}</span>
             </div>
             <div className="conversation-actions">
               <button
                 ref={chatMenuButtonRef}
                 className={`icon-button ${chatMenuOpen ? "is-active" : ""}`}
                 type="button"
-                aria-label="更多操作"
-                title="更多操作"
+                aria-label={translate("更多操作")}
+                title={translate("更多操作")}
                 aria-haspopup="menu"
                 aria-expanded={chatMenuOpen}
                 disabled={chatManagementPending}
@@ -2270,8 +2273,8 @@ export function Conversation({
             <button
               className="icon-button pinned-messages-back"
               type="button"
-              aria-label="返回会话"
-              title="返回会话"
+              aria-label={translate("返回会话")}
+              title={translate("返回会话")}
               onClick={closePinnedMessages}
             >
               <ChevronLeft size={21} strokeWidth={2} />
@@ -2280,8 +2283,8 @@ export function Conversation({
               <Pin size={18} strokeWidth={1.9} />
             </span>
             <div className="pinned-view-title">
-              <strong>置顶消息</strong>
-              <span>{pinnedMessagesLoading ? "正在读取" : `${allPinnedMessages.length} 条消息`}</span>
+              <strong>{translate("置顶消息")}</strong>
+              <span>{pinnedMessagesLoading ? translate("正在读取") : translate("{{value0}} 条消息", { value0: allPinnedMessages.length })}</span>
             </div>
           </>
         ) : (
@@ -2290,8 +2293,8 @@ export function Conversation({
               <button
                 className="mobile-back icon-button"
                 type="button"
-                aria-label="返回会话列表"
-                title="返回会话列表"
+                aria-label={translate("返回会话列表")}
+                title={translate("返回会话列表")}
                 onClick={onBack}
               >
                 <ChevronLeft size={21} strokeWidth={2} />
@@ -2300,8 +2303,8 @@ export function Conversation({
             <button
               className="conversation-profile-trigger"
               type="button"
-              aria-label={`查看 ${chat.title} 资料`}
-              title="查看资料"
+              aria-label={translate("查看 {{value0}} 资料", { value0: chat.title })}
+              title={translate("查看资料")}
               onClick={onOpenProfile}
             >
               <span className="conversation-title">
@@ -2316,8 +2319,8 @@ export function Conversation({
                 ref={chatMenuButtonRef}
                 className={`icon-button ${chatMenuOpen ? "is-active" : ""}`}
                 type="button"
-                aria-label="更多操作"
-                title="更多操作"
+                aria-label={translate("更多操作")}
+                title={translate("更多操作")}
                 aria-haspopup="menu"
                 aria-expanded={chatMenuOpen}
                 disabled={chatManagementPending}
@@ -2371,7 +2374,7 @@ export function Conversation({
         <MotionPresence present={showPinnedLoading} variant="status">
           {showPinnedLoading ? <div className="pinned-messages-loading" role="status">
             <LoaderCircle className="spin" size={18} />
-            <span>正在读取置顶消息</span>
+            <span>{translate("正在读取置顶消息")}</span>
           </div> : null}
         </MotionPresence>
         <MotionPresence present={showPositioning} variant="status">
@@ -2380,11 +2383,11 @@ export function Conversation({
             role="status"
           >
             <LoaderCircle className="spin" size={18} />
-            <span>正在加载消息</span>
+            <span>{translate("正在加载消息")}</span>
           </div> : null}
         </MotionPresence>
         <MotionPresence present={showHistoryLoading} variant="status">
-          {showHistoryLoading ? <div className="history-loading" aria-label="正在加载更早消息">
+          {showHistoryLoading ? <div className="history-loading" aria-label={translate("正在加载更早消息")}>
             <LoaderCircle className="spin" size={16} />
           </div> : null}
         </MotionPresence>
@@ -2412,7 +2415,7 @@ export function Conversation({
           scrollerRef={setMessageListRef}
           isScrolling={setMessageListScrolling}
           role="log"
-          aria-label={pinnedViewOpen ? "置顶消息列表" : "消息列表"}
+          aria-label={pinnedViewOpen ? translate("置顶消息列表") : translate("消息列表")}
           aria-busy={
             positioning ||
             (pinnedViewOpen && pinnedMessagesLoading) ||
@@ -2446,7 +2449,7 @@ export function Conversation({
             const senderChatDetails = senderChat ? forwardTargetsById.get(senderChat) : undefined;
             const realSenderName = sender?.displayName ??
               senderChatDetails?.title ??
-              (chat.kind === "direct" ? chat.title : "Telegram 用户");
+              (chat.kind === "direct" ? chat.title : translate("Telegram 用户"));
             const realSenderAvatar = sender?.avatar ??
               senderChatDetails?.avatar ??
               (chat.kind === "direct" ? chat.avatar : undefined);
@@ -2478,11 +2481,11 @@ export function Conversation({
                           : ""}`}
                         type="button"
                         aria-label={localBlockedUser && !localBlockGroupRevealed
-                          ? `显示 ${localBlockedUser.alias} 的连续消息和真实身份`
-                          : `查看 ${senderName} 资料`}
+                          ? translate("显示 {{value0}} 的连续消息和真实身份", { value0: localBlockedUser.alias })
+                          : translate("查看 {{value0}} 资料", { value0: senderName })}
                         title={localBlockedUser && !localBlockGroupRevealed
-                          ? "临时显示这个消息组"
-                          : "查看资料"}
+                          ? translate("临时显示这个消息组")
+                          : translate("查看资料")}
                         onClick={() => {
                           if (localBlockedUser && localBlockGroup && !localBlockGroupRevealed) {
                             revealLocalBlockedGroup(localBlockGroup.id);
@@ -2548,7 +2551,7 @@ export function Conversation({
                         !revealedLocalBlockMessages.has(message.id)
                       );
                       const displayedForwardLabel = locallyConcealed && forwardSource?.label
-                        ? "转发自 受限来源"
+                        ? translate("转发自 受限来源")
                         : forwardSource?.label;
                       const displayedSenderName = blockedUser && !blockedGroupRevealed
                         ? blockedUser.alias
@@ -2587,9 +2590,9 @@ export function Conversation({
                           <button
                             className="channel-post-discussion"
                             type="button"
-                            aria-label={`${message.interaction?.replyCount
-                              ? `${message.interaction.replyCount} 条评论`
-                              : "查看留言"}`}
+                            aria-label={message.interaction?.replyCount
+                              ? translate("{{value0}} 条评论", { value0: message.interaction.replyCount })
+                              : translate("查看留言")}
                             onClick={() => {
                               openChannelDiscussion(message);
                               onOpenDiscussion(message.id);
@@ -2597,8 +2600,8 @@ export function Conversation({
                           >
                             <MessageCircle size={16} strokeWidth={2} aria-hidden="true" />
                             <span>{message.interaction?.replyCount
-                              ? `${message.interaction.replyCount}条评论`
-                              : "留言"}</span>
+                              ? translate("{{value0}}条评论", { value0: message.interaction.replyCount })
+                              : translate("留言")}</span>
                             <ChevronRight size={15} strokeWidth={2} aria-hidden="true" />
                           </button>
                         ) : undefined}
@@ -2607,7 +2610,7 @@ export function Conversation({
                               const blockedMember = localBlockedUsersById.get(userId);
                               return {
                                 id: userId,
-                                name: blockedMember?.alias ?? users.get(userId)?.displayName ?? "Telegram 用户",
+                                name: blockedMember?.alias ?? users.get(userId)?.displayName ?? translate("Telegram 用户"),
                                 profileAvailable: !blockedMember && users.has(userId),
                               };
                             })
@@ -2690,7 +2693,7 @@ export function Conversation({
                         data-media-album-id={segment.albumId}
                         key={`album:${segment.albumId}:${segment.messages[0]?.renderKey ?? segment.messages[0]?.id}`}
                         role="group"
-                        aria-label={`${segment.messages.length} 项媒体相册`}
+                        aria-label={translate("{{value0}} 项媒体相册", { value0: segment.messages.length })}
                       >
                         {albumReply && (
                           <button
@@ -2748,8 +2751,11 @@ export function Conversation({
           <button
             className={`conversation-jump-button jump-to-attention ${!hasPrimaryAttention ? "has-reaction" : ""} ${awayFromLatest || jumpHistoryCount > 0 ? "is-stacked" : ""}`}
             type="button"
-            aria-label={`${hasPrimaryAttention ? "跳到提及或引用" : "跳到回应"}，${attentionMessageIds.length} 条待查看`}
-            title={hasPrimaryAttention ? "跳到提及或引用" : "跳到回应"}
+            aria-label={translate("{{value0}}，{{value1}} 条待查看", {
+              value0: hasPrimaryAttention ? translate("跳到提及或引用") : translate("跳到回应"),
+              value1: attentionMessageIds.length,
+            })}
+            title={hasPrimaryAttention ? translate("跳到提及或引用") : translate("跳到回应")}
             onClick={() => {
               const messageId = attentionMessageIds.at(-1);
               if (chat && messageId) {
@@ -2770,11 +2776,11 @@ export function Conversation({
               className="conversation-jump-button jump-to-latest"
               type="button"
               aria-label={jumpHistoryCount > 0
-                ? `返回跳转前位置，可回退 ${jumpHistoryCount} 次`
+                ? translate("返回跳转前位置，可回退 {{value0}} 次", { value0: jumpHistoryCount })
                 : newMessageNotice?.key === currentScrollKey && newMessageNotice.count > 0
-                  ? `跳到最新消息，${newMessageNotice.count} 条新消息`
-                  : "跳到最新消息"}
-              title={jumpHistoryCount > 0 ? "返回跳转前位置" : "跳到最新消息"}
+                  ? translate("跳到最新消息，{{value0}} 条新消息", { value0: newMessageNotice.count })
+                  : translate("跳到最新消息")}
+              title={jumpHistoryCount > 0 ? translate("返回跳转前位置") : translate("跳到最新消息")}
               onClick={() => {
                 if (jumpHistoryCount === 0 || !returnFromJump()) {
                   jumpToLatest("smooth", true);
@@ -2945,14 +2951,14 @@ export function Conversation({
       </MotionPresence>
 
       {pinnedViewOpen ? null : selectionMode ? (
-        <div className="message-selection-bar" role="toolbar" aria-label="消息选择操作">
-          <span>{selectedMessageIds.size > 0 ? "复制或转发所选消息" : "点击或拖动选择消息"}</span>
+        <div className="message-selection-bar" role="toolbar" aria-label={translate("消息选择操作")}>
+          <span>{selectedMessageIds.size > 0 ? translate("复制或转发所选消息") : translate("点击或拖动选择消息")}</span>
           <div className="message-selection-actions">
             <button
               className={`icon-button ${selectionCopied ? "is-confirmed" : ""}`}
               type="button"
-              aria-label="复制已选消息"
-              title={selectionCopied ? "已复制" : "复制文本"}
+              aria-label={translate("复制已选消息")}
+              title={selectionCopied ? translate("已复制") : translate("复制文本")}
               disabled={selectedMessageIds.size === 0 || selectionCopying}
               onClick={() => void copySelectedMessages()}
             >
@@ -2961,8 +2967,8 @@ export function Conversation({
             <button
               className="icon-button"
               type="button"
-              aria-label="转发已选消息"
-              title="转发"
+              aria-label={translate("转发已选消息")}
+              title={translate("转发")}
               disabled={selectedMessageIds.size === 0}
               onClick={forwarding.openSelectedDialog}
             >
@@ -2975,15 +2981,15 @@ export function Conversation({
           <button
             className="bot-start-button"
             type="button"
-            aria-label="启动机器人"
-            title="启动机器人"
+            aria-label={translate("启动机器人")}
+            title={translate("启动机器人")}
             disabled={botStartSending || (connectionStatus !== "online" && connectionStatus !== "syncing")}
             onClick={() => void onConfirmBotStart()}
           >
             {botStartSending
               ? <LoaderCircle className="spin" size={18} strokeWidth={1.9} />
               : <Play size={17} strokeWidth={2} fill="currentColor" />}
-            <span>{botStartSending ? "正在启动" : "开始"}</span>
+            <span>{botStartSending ? translate("正在启动") : translate("开始")}</span>
           </button>
         </div>
       ) : !isChannelConversation ? (

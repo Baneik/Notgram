@@ -1,14 +1,15 @@
+import { currentLanguage, translate } from "../i18n";
 import { messageContentText } from "../telegram/messageContent";
 import type { Chat, Message, User } from "../telegram/types";
 
-const copyTimestamp = new Intl.DateTimeFormat("zh-CN", {
-  year: "numeric",
-  month: "numeric",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-}).format;
+const copyTimestamp = (date: Date) => new Intl.DateTimeFormat(currentLanguage(), {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 
 const senderNameForCopy = (
   message: Message,
@@ -18,11 +19,11 @@ const senderNameForCopy = (
 ) => {
   const userName = users.get(message.senderId)?.displayName;
   if (userName) return userName;
-  if (message.outgoing) return "你";
+  if (message.outgoing) return translate("你");
   if (message.senderId.startsWith("chat:")) {
-    return chats.get(message.senderId.slice("chat:".length))?.title ?? "Telegram 用户";
+    return chats.get(message.senderId.slice("chat:".length))?.title ?? translate("Telegram 用户");
   }
-  return chat.kind === "direct" ? chat.title : "Telegram 用户";
+  return chat.kind === "direct" ? chat.title : translate("Telegram 用户");
 };
 
 const replyAuthorForCopy = (
@@ -35,7 +36,7 @@ const replyAuthorForCopy = (
   if (!message.replyTo || message.replyTo.kind !== "message") return undefined;
   const target = message.replyTo.messageId ? messagesById.get(message.replyTo.messageId) : undefined;
   if (target) return senderNameForCopy(target, users, chat, chats);
-  if (message.replyTo.outgoing) return "你";
+  if (message.replyTo.outgoing) return translate("你");
   return undefined;
 };
 
@@ -63,9 +64,11 @@ export const formatSelectedMessages = (
 ) => {
   return messages.map((message) => {
     const replyAuthor = replyAuthorForCopy(message, messagesById, users, chat, chats);
-    const prefix = `[${copyTimestamp(new Date(message.sentAt))}] ${senderNameForCopy(message, users, chat, chats)}${
-      replyAuthor ? ` 回复 ${replyAuthor}` : ""
-    }:`;
+    const prefix = translate("[{{value0}}] {{value1}}{{value2}}:", {
+      value0: copyTimestamp(new Date(message.sentAt)),
+      value1: senderNameForCopy(message, users, chat, chats),
+      value2: replyAuthor ? translate(" 回复 {{value0}}", { value0: replyAuthor }) : "",
+    });
     const lines = [prefix];
     const quote = quoteForCopy(message, messagesById);
     if (quote) lines.push(...quoteLines(quote));

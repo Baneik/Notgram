@@ -1,3 +1,4 @@
+import { currentLanguage, translate } from "../i18n";
 import { Ban, Check, EyeOff, LoaderCircle, LogOut, MonitorSmartphone, ShieldAlert, UserRoundX } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocalUserBlocks } from "../store/localUserBlocks";
@@ -18,22 +19,22 @@ interface ReportDialogProps {
 
 export const reportReasonLabel = (title: string) => {
   const normalized = title.trim().toLowerCase();
-  if (/spam|scam|垃圾|诈骗/.test(normalized)) return "垃圾信息或诈骗";
-  if (/violence|danger|physical harm|暴力|危险/.test(normalized)) return "暴力或危险内容";
-  if (/porn|sexual|adult content|色情|成人内容/.test(normalized)) return "色情或成人内容";
-  if (/child|minor|儿童|未成年/.test(normalized)) return "儿童伤害";
-  if (/copyright|intellectual property|trademark|counterfeit|版权|商标|假冒商品/.test(normalized)) return "侵犯知识产权";
-  if (/unrelated location|location-based|wrong location|位置无关|地点无关/.test(normalized)) return "与标注地点无关";
-  if (/\bfake\b|impersonat|pretending to be|虚假账号|冒充/.test(normalized)) return "虚假账号或冒充他人";
-  if (/illegal drugs|narcotic|drug sale|毒品|违禁药物/.test(normalized)) return "毒品或违禁药物";
-  if (/personal details|private (?:data|information)|dox|个人信息|隐私信息/.test(normalized)) return "泄露个人信息";
-  if (/hate speech|仇恨言论/.test(normalized)) return "仇恨言论";
-  if (/terror|极端主义|恐怖主义/.test(normalized)) return "恐怖主义或极端主义";
-  if (/harass|bully|骚扰|霸凌/.test(normalized)) return "骚扰或霸凌";
-  if (/self[- ]?harm|suicide|自残|自杀/.test(normalized)) return "自残或自杀内容";
-  if (/^other$|^custom$|^something else$|^don't like$|其他|不喜欢/.test(normalized)) return "其他原因";
+  if (/spam|scam|垃圾|诈骗/.test(normalized)) return translate("垃圾信息或诈骗");
+  if (/violence|danger|physical harm|暴力|危险/.test(normalized)) return translate("暴力或危险内容");
+  if (/porn|sexual|adult content|色情|成人内容/.test(normalized)) return translate("色情或成人内容");
+  if (/child|minor|儿童|未成年/.test(normalized)) return translate("儿童伤害");
+  if (/copyright|intellectual property|trademark|counterfeit|版权|商标|假冒商品/.test(normalized)) return translate("侵犯知识产权");
+  if (/unrelated location|location-based|wrong location|位置无关|地点无关/.test(normalized)) return translate("与标注地点无关");
+  if (/\bfake\b|impersonat|pretending to be|虚假账号|冒充/.test(normalized)) return translate("虚假账号或冒充他人");
+  if (/illegal drugs|narcotic|drug sale|毒品|违禁药物/.test(normalized)) return translate("毒品或违禁药物");
+  if (/personal details|private (?:data|information)|dox|个人信息|隐私信息/.test(normalized)) return translate("泄露个人信息");
+  if (/hate speech|仇恨言论/.test(normalized)) return translate("仇恨言论");
+  if (/terror|极端主义|恐怖主义/.test(normalized)) return translate("恐怖主义或极端主义");
+  if (/harass|bully|骚扰|霸凌/.test(normalized)) return translate("骚扰或霸凌");
+  if (/self[- ]?harm|suicide|自残|自杀/.test(normalized)) return translate("自残或自杀内容");
+  if (/^other$|^custom$|^something else$|^don't like$|其他|不喜欢/.test(normalized)) return translate("其他原因");
   if (/[\u3400-\u9fff]/u.test(title)) return title;
-  return title.trim() || "其他原因";
+  return title.trim() || translate("其他原因");
 };
 
 export function ReportDialog({ chatId, messageIds, title, onGetOptions, onSubmit, onDeleteChat, onClose }: ReportDialogProps) {
@@ -54,10 +55,10 @@ export function ReportDialog({ chatId, messageIds, title, onGetOptions, onSubmit
     setPending(true); setError(undefined);
     const reported = await onSubmit({ chatId, messageIds, optionId, text: text.trim() || undefined });
     if (reported) { if (deleteChat && onDeleteChat) await onDeleteChat(); onClose(); }
-    else setError("举报未提交，请检查说明后重试");
+    else setError(translate("举报未提交，请检查说明后重试"));
     setPending(false);
   };
-  return <div className="profile-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title"><header><div><h2 id="report-dialog-title">举报“{title}”</h2><small>{messageIds.length > 1 ? `已选择 ${messageIds.length} 条消息` : "举报会发送给 Telegram 审核"}</small></div><button className="icon-button" type="button" aria-label="关闭举报" onClick={onClose}>×</button></header>{!options ? <div className="profile-state"><LoaderCircle className="spin" size={22} /></div> : <div className="report-dialog-body"><div><span>举报原因</span><div className="report-reason-options" role="radiogroup" aria-label="举报原因">{displayOptions?.map((option) => <button className={option.id === optionId ? "is-selected" : ""} key={option.id} type="button" role="radio" aria-checked={option.id === optionId} onClick={() => setOptionId(option.id)}>{reportReasonLabel(option.title)}</button>)}</div></div>{selected?.requiresText && <label><span>补充说明</span><textarea aria-label="举报说明" value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} rows={4} placeholder="请描述具体问题" /> </label>}{onDeleteChat && <label className="management-check"><input type="checkbox" checked={deleteChat} onChange={(event) => setDeleteChat(event.target.checked)} /><span>同时删除这个会话</span></label>}{error && <div className="profile-state is-error" role="alert">{error}</div>}<footer><button className="dialog-secondary" type="button" onClick={onClose}>取消</button><button className="dialog-danger" type="button" disabled={pending || !optionId || Boolean(selected?.requiresText && !text.trim())} onClick={() => void submit()}>{pending ? <LoaderCircle className="spin" size={15} /> : <ShieldAlert size={15} />}提交举报</button></footer></div>}</section></div>;
+  return <div className="profile-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title"><header><div><h2 id="report-dialog-title">{translate("举报“")}{title}”</h2><small>{messageIds.length > 1 ? translate("已选择 {{value0}} 条消息", { value0: messageIds.length }) : translate("举报会发送给 Telegram 审核")}</small></div><button className="icon-button" type="button" aria-label={translate("关闭举报")} onClick={onClose}>×</button></header>{!options ? <div className="profile-state"><LoaderCircle className="spin" size={22} /></div> : <div className="report-dialog-body"><div><span>{translate("举报原因")}</span><div className="report-reason-options" role="radiogroup" aria-label={translate("举报原因")}>{displayOptions?.map((option) => <button className={option.id === optionId ? "is-selected" : ""} key={option.id} type="button" role="radio" aria-checked={option.id === optionId} onClick={() => setOptionId(option.id)}>{reportReasonLabel(option.title)}</button>)}</div></div>{selected?.requiresText && <label><span>{translate("补充说明")}</span><textarea aria-label={translate("举报说明")} value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} rows={4} placeholder={translate("请描述具体问题")} /> </label>}{onDeleteChat && <label className="management-check"><input type="checkbox" checked={deleteChat} onChange={(event) => setDeleteChat(event.target.checked)} /><span>{translate("同时删除这个会话")}</span></label>}{error && <div className="profile-state is-error" role="alert">{error}</div>}<footer><button className="dialog-secondary" type="button" onClick={onClose}>{translate("取消")}</button><button className="dialog-danger" type="button" disabled={pending || !optionId || Boolean(selected?.requiresText && !text.trim())} onClick={() => void submit()}>{pending ? <LoaderCircle className="spin" size={15} /> : <ShieldAlert size={15} />}{translate("提交举报")}</button></footer></div>}</section></div>;
 }
 
 export function SafetySettings() {
@@ -81,7 +82,7 @@ export function SafetySettings() {
   const [sessions, setSessions] = useState<DeviceSession[]>([]);
   const [privacyRules, setPrivacyRulesState] = useState<Partial<Record<PrivacySettingKey, PrivacyRule[]>>>({});
   const privacySettings: Array<{ key: PrivacySettingKey; label: string }> = [
-    { key: "showStatus", label: "最后上线与在线状态" }, { key: "showPhoneNumber", label: "手机号码" }, { key: "showProfilePhoto", label: "头像" }, { key: "allowCalls", label: "来电" }, { key: "allowChatInvites", label: "新聊天邀请" }, { key: "allowSecretChats", label: "秘密聊天" },
+    { key: "showStatus", label: translate("最后上线与在线状态") }, { key: "showPhoneNumber", label: translate("手机号码") }, { key: "showProfilePhoto", label: translate("头像") }, { key: "allowCalls", label: translate("来电") }, { key: "allowChatInvites", label: translate("新聊天邀请") }, { key: "allowSecretChats", label: translate("秘密聊天") },
   ];
   useEffect(() => {
     void load();
@@ -96,9 +97,9 @@ export function SafetySettings() {
     setPrivacyError(undefined);
     try {
       if (await setPrivacyRules(key, rules)) setPrivacyRulesState((current) => ({ ...current, [key]: rules }));
-      else setPrivacyError("隐私设置未保存");
+      else setPrivacyError(translate("隐私设置未保存"));
     } catch (error) {
-      setPrivacyError(error instanceof Error ? error.message : "隐私设置未保存");
+      setPrivacyError(error instanceof Error ? error.message : translate("隐私设置未保存"));
     } finally {
       setPrivacyPending(undefined);
     }
@@ -109,28 +110,26 @@ export function SafetySettings() {
         <div className="settings-section-heading">
           <EyeOff size={18} />
           <div>
-            <h4 id="local-blocked-users-heading">屏蔽管理</h4>
-            <span>在所有群聊中用动物身份遮罩这些用户</span>
+            <h4 id="local-blocked-users-heading">{translate("屏蔽管理")}</h4>
+            <span>{translate("在所有群聊中用动物身份遮罩这些用户")}</span>
           </div>
         </div>
         <div className="blocked-sender-list local-blocked-user-list">
           {localBlockedUsers.length === 0 ? (
-            <p className="settings-empty">暂无屏蔽用户</p>
+            <p className="settings-empty">{translate("暂无屏蔽用户")}</p>
           ) : localBlockedUsers.map((user) => (
             <div className="blocked-sender-row" key={`${user.accountId}:${user.userId}`}>
               <Avatar avatar={user.realAvatar} size="small" />
               <span>
                 <strong>{user.realName}</strong>
-                <small>群聊中显示为 {user.alias} {user.aliasAvatar.label}</small>
+                <small>{translate("群聊中显示为 {{value0}} {{value1}}", { value0: user.alias, value1: user.aliasAvatar.label })}</small>
               </span>
               <button
                 className="dialog-secondary"
                 type="button"
                 onClick={() => unblockLocalUser(activeAccountId, user.userId)}
               >
-                <UserRoundX size={14} />
-                解除屏蔽
-              </button>
+                <UserRoundX size={14} />{translate("解除屏蔽")}</button>
             </div>
           ))}
         </div>
@@ -139,21 +138,21 @@ export function SafetySettings() {
         <div className="settings-section-heading">
           <Ban size={18} />
           <div>
-            <h4 id="blocked-senders-heading">Telegram 黑名单</h4>
-            <span>屏蔽对象不会再出现在消息通知中</span>
+            <h4 id="blocked-senders-heading">{translate("Telegram 黑名单")}</h4>
+            <span>{translate("屏蔽对象不会再出现在消息通知中")}</span>
           </div>
         </div>
         <div className="blocked-sender-list" aria-busy={loading}>
           {showLoading ? (
             <div className="settings-loading"><LoaderCircle className="spin" size={18} /></div>
           ) : blockedSenders.length === 0 ? (
-            <p className="settings-empty">暂无屏蔽对象</p>
+            <p className="settings-empty">{translate("暂无屏蔽对象")}</p>
           ) : blockedSenders.map((sender) => (
             <div className="blocked-sender-row" key={`${sender.kind}:${sender.id}`}>
               <Avatar avatar={sender.avatar} size="small" />
               <span>
                 <strong>{sender.title}</strong>
-                <small>{sender.kind === "user" ? "用户" : "频道"}</small>
+                <small>{sender.kind === "user" ? translate("用户") : translate("频道")}</small>
               </span>
               <button
                 className="dialog-secondary"
@@ -167,9 +166,7 @@ export function SafetySettings() {
               >
                 {pending === sender.id
                   ? <LoaderCircle className="spin" size={14} />
-                  : <UserRoundX size={14} />}
-                解除屏蔽
-              </button>
+                  : <UserRoundX size={14} />}{translate("解除屏蔽")}</button>
             </div>
           ))}
         </div>
@@ -179,8 +176,8 @@ export function SafetySettings() {
         <div className="settings-section-heading">
           <MonitorSmartphone size={18} />
           <div>
-            <h4 id="sessions-heading">设备会话</h4>
-            <span>可以随时终止陌生设备</span>
+            <h4 id="sessions-heading">{translate("设备会话")}</h4>
+            <span>{translate("可以随时终止陌生设备")}</span>
           </div>
         </div>
         <div className="session-list">
@@ -189,11 +186,14 @@ export function SafetySettings() {
               <div>
                 <strong>{session.applicationName} · {session.deviceModel}</strong>
                 <small>
-                  {session.platform} {session.systemVersion} · {session.location || session.ipAddress || "未知位置"} · 最近活动 {new Date(session.lastActiveAt).toLocaleString("zh-CN")}
+                  {session.platform} {session.systemVersion} · {translate("{{value0}} · 最近活动 {{value1}}", {
+                    value0: session.location || session.ipAddress || translate("未知位置"),
+                    value1: new Date(session.lastActiveAt).toLocaleString(currentLanguage()),
+                  })}
                 </small>
               </div>
               {session.isCurrent ? (
-                <span className="session-current">当前设备</span>
+                <span className="session-current">{translate("当前设备")}</span>
               ) : (
                 <button
                   className="dialog-secondary"
@@ -202,9 +202,7 @@ export function SafetySettings() {
                     if (await terminateSession(session.id)) await refreshSessions();
                   }}
                 >
-                  <LogOut size={14} />
-                  终止
-                </button>
+                  <LogOut size={14} />{translate("终止")}</button>
               )}
             </div>
           ))}
@@ -216,17 +214,15 @@ export function SafetySettings() {
           onClick={async () => {
             if (await terminateAllOtherSessions()) await refreshSessions();
           }}
-        >
-          终止其他所有会话
-        </button>
+        >{translate("终止其他所有会话")}</button>
       </section>
 
       <section className="settings-section" aria-labelledby="privacy-rules-heading">
         <div className="settings-section-heading">
           <ShieldAlert size={18} />
           <div>
-            <h4 id="privacy-rules-heading">Telegram 隐私规则</h4>
-            <span>设置状态、手机号、头像、来电和新聊天默认范围</span>
+            <h4 id="privacy-rules-heading">{translate("Telegram 隐私规则")}</h4>
+            <span>{translate("设置状态、手机号、头像、来电和新聊天默认范围")}</span>
           </div>
         </div>
         <div className="privacy-rule-list">
@@ -244,9 +240,9 @@ export function SafetySettings() {
                     event.target.value as PrivacyRule["kind"],
                   )}
                 >
-                  <option value="allowAll">所有人</option>
-                  <option value="allowContacts">我的联系人</option>
-                  <option value="restrictAll">没人</option>
+                  <option value="allowAll">{translate("所有人")}</option>
+                  <option value="allowContacts">{translate("我的联系人")}</option>
+                  <option value="restrictAll">{translate("没人")}</option>
                 </select>
               </label>
             );
@@ -259,11 +255,11 @@ export function SafetySettings() {
         <div className="settings-section-heading">
           <Check size={18} />
           <div>
-            <h4>举报与恢复</h4>
-            <span>举报后仍可在聊天资料中恢复屏蔽或重新加入会话</span>
+            <h4>{translate("举报与恢复")}</h4>
+            <span>{translate("举报后仍可在聊天资料中恢复屏蔽或重新加入会话")}</span>
           </div>
         </div>
-        <p className="settings-help">举报会包含你选择的消息范围和原因；提交前可选择同时删除会话。</p>
+        <p className="settings-help">{translate("举报会包含你选择的消息范围和原因；提交前可选择同时删除会话。")}</p>
       </section>
     </div>
   );

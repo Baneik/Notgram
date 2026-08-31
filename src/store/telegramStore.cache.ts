@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type {
   CachedTelegramSnapshot,
   Chat,
@@ -38,7 +39,7 @@ const sanitizeCachedUser = (user: User): User => {
     : sanitizeIdentityText(user.lastName, "", 64);
   const displayName = sanitizeIdentityText(
     user.displayName,
-    sanitizeIdentityText(`${firstName ?? ""} ${lastName ?? ""}`, "Telegram 用户", 128),
+    sanitizeIdentityText(`${firstName ?? ""} ${lastName ?? ""}`, translate("Telegram 用户"), 128),
     128,
   );
   return {
@@ -54,7 +55,7 @@ const sanitizeCachedUser = (user: User): User => {
 };
 
 const sanitizeCachedChat = (chat: Chat): Chat => {
-  const title = sanitizeIdentityText(chat.title, "未命名会话", 128);
+  const title = sanitizeIdentityText(chat.title, translate("未命名会话"), 128);
   return {
     ...chat,
     title,
@@ -70,7 +71,7 @@ const sanitizeMessageOrigin = (origin?: MessageOrigin): MessageOrigin | undefine
   if (origin.kind === "hiddenUser") {
     return {
       ...origin,
-      senderName: sanitizeIdentityText(origin.senderName, "Telegram 用户", 64),
+      senderName: sanitizeIdentityText(origin.senderName, translate("Telegram 用户"), 64),
     };
   }
   if (origin.kind === "chat" || origin.kind === "channel") {
@@ -104,7 +105,7 @@ const sanitizeCachedMessage = (message: Message): Message => ({
                 ? undefined
                 : sanitizeIdentityText(
                     message.forwardInfo.source.senderName,
-                    "Telegram 用户",
+                    translate("Telegram 用户"),
                     64,
                   ),
             }
@@ -116,7 +117,7 @@ const sanitizeCachedMessage = (message: Message): Message => ({
 const sanitizeCachedProfile = (profile: ChatProfile): ChatProfile => {
   const title = sanitizeIdentityText(
     profile.title,
-    profile.kind === "group" || profile.kind === "channel" ? "未命名会话" : "Telegram 用户",
+    profile.kind === "group" || profile.kind === "channel" ? translate("未命名会话") : translate("Telegram 用户"),
     128,
   );
   return {
@@ -142,7 +143,7 @@ const sanitizeCachedProfile = (profile: ChatProfile): ChatProfile => {
 
 const sanitizeCachedTopic = (topic: ForumTopic): ForumTopic => ({
   ...topic,
-  name: sanitizeIdentityText(topic.name, "未命名话题", 128),
+  name: sanitizeIdentityText(topic.name, translate("未命名话题"), 128),
   lastMessage: topic.lastMessage ? sanitizeCachedMessage(topic.lastMessage) : undefined,
 });
 
@@ -285,7 +286,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       users: (value.users as unknown as User[]).map(sanitizeCachedUser),
       folders: (value.folders as CachedTelegramSnapshot["folders"]).map((folder) => ({
         ...folder,
-        title: sanitizeIdentityText(folder.title, "聊天文件夹", 12),
+        title: sanitizeIdentityText(folder.title, translate("聊天文件夹"), 12),
       })),
       chats: (value.chats as unknown as Chat[]).map((chat) => {
         const result = {
@@ -465,7 +466,7 @@ export const cachedSnapshotFrom = (
     users: [...state.users.values()].map(sanitizeCachedUser),
     folders: state.folders.map((folder) => ({
       ...folder,
-      title: sanitizeIdentityText(folder.title, "聊天文件夹", 12),
+      title: sanitizeIdentityText(folder.title, translate("聊天文件夹"), 12),
     })),
     chats: [...state.chats.values()].map(cacheableChat),
     messages: recentMessagesForCache(state),

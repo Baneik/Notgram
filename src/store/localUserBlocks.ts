@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { Avatar, User } from "../telegram/types";
@@ -29,30 +30,30 @@ interface LocalUserBlocksState {
 const STORAGE_KEY = "notgram:local-user-blocks:v1";
 
 export const animalIdentities: readonly AnimalIdentity[] = [
-  { id: "bear", name: "小熊", emoji: "🐻", color: "#8b6b55" },
-  { id: "cat", name: "小猫", emoji: "🐱", color: "#ad7b54" },
-  { id: "dog", name: "小狗", emoji: "🐶", color: "#92715b" },
-  { id: "rabbit", name: "兔子", emoji: "🐰", color: "#b27b8d" },
-  { id: "fox", name: "狐狸", emoji: "🦊", color: "#c86e46" },
-  { id: "panda", name: "熊猫", emoji: "🐼", color: "#5d6469" },
-  { id: "koala", name: "考拉", emoji: "🐨", color: "#77818b" },
-  { id: "tiger", name: "老虎", emoji: "🐯", color: "#bf7a38" },
-  { id: "lion", name: "狮子", emoji: "🦁", color: "#a77a3c" },
-  { id: "frog", name: "青蛙", emoji: "🐸", color: "#5b8f63" },
-  { id: "penguin", name: "企鹅", emoji: "🐧", color: "#4d6878" },
-  { id: "owl", name: "猫头鹰", emoji: "🦉", color: "#7b684f" },
-  { id: "dolphin", name: "海豚", emoji: "🐬", color: "#4d89a6" },
-  { id: "whale", name: "鲸鱼", emoji: "🐳", color: "#557ca3" },
-  { id: "otter", name: "水獭", emoji: "🦦", color: "#856853" },
-  { id: "hedgehog", name: "刺猬", emoji: "🦔", color: "#8f704f" },
-  { id: "squirrel", name: "松鼠", emoji: "🐿️", color: "#a76643" },
-  { id: "duck", name: "小鸭", emoji: "🦆", color: "#6f9062" },
-  { id: "seal", name: "海豹", emoji: "🦭", color: "#71838d" },
-  { id: "parrot", name: "鹦鹉", emoji: "🦜", color: "#4f8a72" },
-  { id: "butterfly", name: "蝴蝶", emoji: "🦋", color: "#7778ad" },
-  { id: "bee", name: "蜜蜂", emoji: "🐝", color: "#a88435" },
-  { id: "octopus", name: "章鱼", emoji: "🐙", color: "#a75f76" },
-  { id: "turtle", name: "海龟", emoji: "🐢", color: "#59866d" },
+  { id: "bear", get name() { return translate("小熊"); }, emoji: "🐻", color: "#8b6b55" },
+  { id: "cat", get name() { return translate("小猫"); }, emoji: "🐱", color: "#ad7b54" },
+  { id: "dog", get name() { return translate("小狗"); }, emoji: "🐶", color: "#92715b" },
+  { id: "rabbit", get name() { return translate("兔子"); }, emoji: "🐰", color: "#b27b8d" },
+  { id: "fox", get name() { return translate("狐狸"); }, emoji: "🦊", color: "#c86e46" },
+  { id: "panda", get name() { return translate("熊猫"); }, emoji: "🐼", color: "#5d6469" },
+  { id: "koala", get name() { return translate("考拉"); }, emoji: "🐨", color: "#77818b" },
+  { id: "tiger", get name() { return translate("老虎"); }, emoji: "🐯", color: "#bf7a38" },
+  { id: "lion", get name() { return translate("狮子"); }, emoji: "🦁", color: "#a77a3c" },
+  { id: "frog", get name() { return translate("青蛙"); }, emoji: "🐸", color: "#5b8f63" },
+  { id: "penguin", get name() { return translate("企鹅"); }, emoji: "🐧", color: "#4d6878" },
+  { id: "owl", get name() { return translate("猫头鹰"); }, emoji: "🦉", color: "#7b684f" },
+  { id: "dolphin", get name() { return translate("海豚"); }, emoji: "🐬", color: "#4d89a6" },
+  { id: "whale", get name() { return translate("鲸鱼"); }, emoji: "🐳", color: "#557ca3" },
+  { id: "otter", get name() { return translate("水獭"); }, emoji: "🦦", color: "#856853" },
+  { id: "hedgehog", get name() { return translate("刺猬"); }, emoji: "🦔", color: "#8f704f" },
+  { id: "squirrel", get name() { return translate("松鼠"); }, emoji: "🐿️", color: "#a76643" },
+  { id: "duck", get name() { return translate("小鸭"); }, emoji: "🦆", color: "#6f9062" },
+  { id: "seal", get name() { return translate("海豹"); }, emoji: "🦭", color: "#71838d" },
+  { id: "parrot", get name() { return translate("鹦鹉"); }, emoji: "🦜", color: "#4f8a72" },
+  { id: "butterfly", get name() { return translate("蝴蝶"); }, emoji: "🦋", color: "#7778ad" },
+  { id: "bee", get name() { return translate("蜜蜂"); }, emoji: "🐝", color: "#a88435" },
+  { id: "octopus", get name() { return translate("章鱼"); }, emoji: "🐙", color: "#a75f76" },
+  { id: "turtle", get name() { return translate("海龟"); }, emoji: "🐢", color: "#59866d" },
 ] as const;
 
 const isAvatar = (value: unknown): value is Avatar => {

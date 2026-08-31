@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { TelegramAccount, TelegramAccountState, User } from "../telegram/types";
 import { sanitizeIdentityText } from "../telegram/identityText";
 import type { TelegramState } from "./telegramStore.types";
@@ -43,7 +44,7 @@ const registrationKey = (accountId: string, user: User) =>
 
 export const accountStatePatch = (accountState: TelegramAccountState) => ({
   accounts: accountState.accounts.map((account) => {
-    const displayName = sanitizeIdentityText(account.displayName, "Telegram 账号", 128);
+    const displayName = sanitizeIdentityText(account.displayName, translate("Telegram 账号"), 128);
     return {
       ...account,
       displayName,

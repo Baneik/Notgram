@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -222,7 +223,7 @@ const mapChatInviteLink = (value: unknown): ChatInviteLink | undefined => {
   const pricing = asTdObject(raw.subscription_pricing);
   return {
     inviteLink,
-    name: typeof raw.name === "string" ? raw.name : "邀请链接",
+    name: typeof raw.name === "string" ? raw.name : translate("邀请链接"),
     creatorUserId: tdId(raw.creator_user_id) || undefined,
     createdAt: unixDate(raw.date) ?? new Date(0).toISOString(),
     editedAt: unixDate(raw.edit_date),
@@ -488,11 +489,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!status.linked) {
       const detail =
         status.error ??
-        `未找到 tdjson 动态库。搜索路径：${status.searchedPaths.join("、")}`;
+        translate("未找到 tdjson 动态库。搜索路径：{{value0}}", { value0: status.searchedPaths.join("、") });
       throw new Error(detail);
     }
     if (!status.credentialsConfigured) {
-      throw new Error("TDLib 已加载，但缺少 NOTGRAM_API_ID / NOTGRAM_API_HASH。");
+      throw new Error(translate("TDLib 已加载，但缺少 NOTGRAM_API_ID / NOTGRAM_API_HASH。"));
     }
     this.proxySettings = await this.getProxySettings();
     this.runtimeProxyProfileId = activeProxyProfile(this.proxySettings)?.id;
@@ -538,7 +539,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.unlistenUpdate = undefined;
       this.unlistenUpdates = undefined;
       this.unlistenError = undefined;
-      this.requestBroker.rejectAll(new Error("TDLib runtime 已关闭。"));
+      this.requestBroker.rejectAll(new Error(translate("TDLib runtime 已关闭。")));
       this.listener = undefined;
       this.resetSessionState();
     }
@@ -668,8 +669,8 @@ export class TauriTelegramTransport implements TelegramTransport {
       case "registration":
         await this.request({
           "@type": "registerUser",
-          first_name: identityTextField(action.firstName, 64, "名字", true),
-          last_name: identityTextField(action.lastName, 64, "姓氏"),
+          first_name: identityTextField(action.firstName, 64, translate("名字"), true),
+          last_name: identityTextField(action.lastName, 64, translate("姓氏")),
           disable_notification: false,
         });
     }
@@ -700,7 +701,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       proxy: endpoint ? proxyValue(endpoint) : null,
     });
     const seconds = tdNumber(response.seconds);
-    if (seconds === undefined) throw new Error("TDLib 未返回代理延迟");
+    if (seconds === undefined) throw new Error(translate("TDLib 未返回代理延迟"));
     return Math.max(0, Math.round(seconds * 1000));
   }
 
@@ -766,19 +767,19 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
     this.upsertChat(raw);
     const chat = this.mapChat(raw);
-    if (!chat) throw new Error("TDLib 未返回私聊");
+    if (!chat) throw new Error(translate("TDLib 未返回私聊"));
     return chat;
   }
 
   async createChat(input: CreateChatInput) {
-    const title = identityTextField(input.title, 128, "名称", true);
-    const description = profileField(input.description ?? "", 255, "简介");
-    const username = profileField(input.username ?? "", 32, "公开用户名");
+    const title = identityTextField(input.title, 128, translate("名称"), true);
+    const description = profileField(input.description ?? "", 255, translate("简介"));
+    const username = profileField(input.username ?? "", 32, translate("公开用户名"));
     if (input.isPublic && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(username)) {
-      throw new Error("公开用户名需包含 5 至 32 个英文字母、数字或下划线，并以字母开头");
+      throw new Error(translate("公开用户名需包含 5 至 32 个英文字母、数字或下划线，并以字母开头"));
     }
     const memberUserIds = [...new Set(input.memberUserIds)];
-    if (memberUserIds.length > 200) throw new Error("初始成员不能超过 200 人");
+    if (memberUserIds.length > 200) throw new Error(translate("初始成员不能超过 200 人"));
     const numericUserIds = memberUserIds.map(numericId);
 
     let chatId: string;
@@ -791,7 +792,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         message_auto_delete_time: 0,
       });
       chatId = tdId(created.chat_id);
-      if (!chatId) throw new Error("TDLib 未返回新群组标识");
+      if (!chatId) throw new Error(translate("TDLib 未返回新群组标识"));
       rawChat = await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
     } else {
       rawChat = await this.request({
@@ -805,7 +806,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         for_import: false,
       });
       chatId = tdId(rawChat.id);
-      if (!chatId) throw new Error("TDLib 未返回新超级群组标识");
+      if (!chatId) throw new Error(translate("TDLib 未返回新超级群组标识"));
       if (numericUserIds.length > 0) {
         await this.request({
           "@type": "addChatMembers",
@@ -815,7 +816,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       }
       const type = asTdObject(rawChat.type);
       const supergroupId = tdId(type?.supergroup_id);
-      if (!supergroupId) throw new Error("TDLib 未返回超级群组类型信息");
+      if (!supergroupId) throw new Error(translate("TDLib 未返回超级群组类型信息"));
       if (input.isPublic && username) {
         await this.request({
           "@type": "setSupergroupUsername",
@@ -857,7 +858,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
     this.upsertChat(rawChat);
     const chat = this.mapChat(rawChat);
-    if (!chat) throw new Error("TDLib 未返回已创建的聊天");
+    if (!chat) throw new Error(translate("TDLib 未返回已创建的聊天"));
     return chat;
   }
 
@@ -870,14 +871,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.upsertChat(rawChat);
     const type = asTdObject(rawChat.type);
     if (!type || (type["@type"] !== "chatTypeBasicGroup" && type["@type"] !== "chatTypeSupergroup")) {
-      throw new Error("只有群组和频道支持成员管理");
+      throw new Error(translate("只有群组和频道支持成员管理"));
     }
     const isBasic = type["@type"] === "chatTypeBasicGroup";
     const chatType = isBasic
       ? "basicGroup" as const
       : type.is_channel === true ? "channel" as const : "supergroup" as const;
     const groupId = tdId(isBasic ? type.basic_group_id : type.supergroup_id);
-    if (!groupId) throw new Error("群组标识无效");
+    if (!groupId) throw new Error(translate("群组标识无效"));
     const group = isBasic
       ? await this.request({ "@type": "getBasicGroup", basic_group_id: numericId(groupId) })
       : await this.request({ "@type": "getSupergroup", supergroup_id: numericId(groupId) });
@@ -888,7 +889,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       ? mapChatAdminRightsFromTd(statusObject?.rights)
       : undefined;
     const capabilities = deriveChatManagementCapabilities(chatType, status, adminRights);
-    if (!capabilities.canOpenManagement) throw new Error("当前账号没有群组管理权限");
+    if (!capabilities.canOpenManagement) throw new Error(translate("当前账号没有群组管理权限"));
     const offset = Math.max(0, memberOffset);
     const administratorLabelsPromise = this.getChatAdministratorLabels(chatId).catch((): Record<string, string> => {
       // Member data remains usable on chats where the administrator list is unavailable.
@@ -996,7 +997,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const rawChat = this.rawChats.get(chatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
     const type = asTdObject(rawChat.type);
     const supergroupId = tdId(type?.supergroup_id);
-    if (!supergroupId || type?.["@type"] !== "chatTypeSupergroup" || type.is_channel === true) throw new Error("慢速模式只适用于超级群组");
+    if (!supergroupId || type?.["@type"] !== "chatTypeSupergroup" || type.is_channel === true) throw new Error(translate("慢速模式只适用于超级群组"));
     await this.request({ "@type": "setChatSlowModeDelay", chat_id: numericId(chatId), slow_mode_delay: delaySeconds });
   }
 
@@ -1030,7 +1031,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       const actor = actorId ? await this.loadUser(actorId) : undefined;
       const action = asTdObject(event.action);
       const kind = typeof action?.["@type"] === "string" ? action["@type"] : "event";
-      const summary = kind.replace(/^chatEventAction/, "").replace(/([A-Z])/g, " $1").trim() || "群组设置更新";
+      const summary = kind.replace(/^chatEventAction/, "").replace(/([A-Z])/g, " $1").trim() || translate("群组设置更新");
       return { id: tdId(event.id) || `${event.date ?? 0}`, date: new Date((tdNumber(event.date) ?? 0) * 1000).toISOString(), actor, summary, kind };
     }));
     const nextEventId = events.at(-1)?.id;
@@ -1039,7 +1040,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async getChatInviteLinks({ chatId, creatorUserId, revoked = false, offsetDate = 0, offsetLink = "", limit = 30 }: GetChatInviteLinksInput): Promise<ChatInviteLinkPage> {
     const creatorId = creatorUserId || this.currentUserId;
-    if (!creatorId) throw new Error("无法确定邀请链接创建者");
+    if (!creatorId) throw new Error(translate("无法确定邀请链接创建者"));
     const result = await this.request({ "@type": "getChatInviteLinks", chat_id: numericId(chatId), creator_user_id: numericId(creatorId), is_revoked: revoked, offset_date: offsetDate, offset_invite_link: offsetLink, limit: Math.max(1, Math.min(limit, 100)) });
     const links = asTdObjects(result.invite_links).map(mapChatInviteLink).filter((link): link is ChatInviteLink => Boolean(link));
     const last = links.at(-1);
@@ -1061,7 +1062,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       creates_join_request: input.createsJoinRequest === true,
     };
     const link = mapChatInviteLink(await this.request(request));
-    if (!link) throw new Error("TDLib 未返回邀请链接");
+    if (!link) throw new Error(translate("TDLib 未返回邀请链接"));
     return link;
   }
 
@@ -1072,13 +1073,13 @@ export class TauriTelegramTransport implements TelegramTransport {
       "@type": "editChatInviteLink", chat_id: numericId(input.chatId), invite_link: input.inviteLink, name: input.name.trim(), expiration_date: input.expirationDate ?? 0, member_limit: input.memberLimit ?? 0, creates_join_request: input.createsJoinRequest === true,
     };
     const link = mapChatInviteLink(await this.request(request));
-    if (!link) throw new Error("TDLib 未返回已更新的邀请链接");
+    if (!link) throw new Error(translate("TDLib 未返回已更新的邀请链接"));
     return link;
   }
 
   async revokeChatInviteLink(chatId: string, inviteLink: string): Promise<ChatInviteLink> {
     const link = mapChatInviteLink(await this.request({ "@type": "revokeChatInviteLink", chat_id: numericId(chatId), invite_link: inviteLink }));
-    if (!link) throw new Error("TDLib 未返回已撤销的邀请链接");
+    if (!link) throw new Error(translate("TDLib 未返回已撤销的邀请链接"));
     return link;
   }
 
@@ -1106,7 +1107,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private async resolveBotUser(botUsername: string): Promise<{ userId: string; username: string }> {
     const username = botUsername.replace(/^@/, "").trim();
-    if (!username || !/^[A-Za-z0-9_]{5,32}$/.test(username)) throw new Error("机器人用户名无效");
+    if (!username || !/^[A-Za-z0-9_]{5,32}$/.test(username)) throw new Error(translate("机器人用户名无效"));
     const result = await this.request({ "@type": "searchPublicChats", query: username, limit: 10 });
     const chatIds = Array.isArray(result.chat_ids) ? result.chat_ids.map(tdId).filter(Boolean) : [];
     for (const chatId of chatIds) {
@@ -1125,7 +1126,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       );
       if (user?.isBot && exactUsername) return { userId, username: exactUsername };
     }
-    throw new Error("找不到这个机器人");
+    throw new Error(translate("找不到这个机器人"));
   }
 
   async getBotCommandSuggestions(
@@ -1318,9 +1319,9 @@ export class TauriTelegramTransport implements TelegramTransport {
       if (!id) return [];
       const content = asTdObject(raw.input_message_content);
       const formatted = asTdObject(content?.text);
-      const messageText = typeof formatted?.text === "string" ? formatted.text : typeof raw.title === "string" ? raw.title : "Inline 结果";
+      const messageText = typeof formatted?.text === "string" ? formatted.text : typeof raw.title === "string" ? raw.title : translate("Inline 结果");
       const kind = raw["@type"] === "inlineQueryResultPhoto" ? "photo" : raw["@type"] === "inlineQueryResultVideo" ? "video" : raw["@type"] === "inlineQueryResultDocument" ? "file" : "article";
-      return [{ id, kind, title: typeof raw.title === "string" ? raw.title : "Inline 结果", description: typeof raw.description === "string" ? raw.description : undefined, messageText, fileName: typeof raw.title === "string" ? raw.title : undefined }];
+      return [{ id, kind, title: typeof raw.title === "string" ? raw.title : translate("Inline 结果"), description: typeof raw.description === "string" ? raw.description : undefined, messageText, fileName: typeof raw.title === "string" ? raw.title : undefined }];
     });
     const nextOffset = typeof result.next_offset === "string" && result.next_offset ? result.next_offset : undefined;
     return { queryId: String(result.inline_query_id ?? ""), results: mapped, nextOffset, hasMore: Boolean(nextOffset) };
@@ -1351,7 +1352,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         return chat && id ? {
           id,
           kind: "chat" as const,
-          title: mappedChat?.title ?? "已屏蔽频道",
+          title: mappedChat?.title ?? translate("已屏蔽频道"),
           avatar: mappedChat?.avatar ?? { label: "?", color: "#73808c" },
         } : undefined;
       }
@@ -1367,16 +1368,16 @@ export class TauriTelegramTransport implements TelegramTransport {
   async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportOptions> {
     const result = await this.request({ "@type": "reportChat", chat_id: numericId(chatId), option_id: "", message_ids: messageIds.map(numericId), text: "" });
     if (result["@type"] === "reportChatResultOptionRequired") {
-      return { title: typeof result.title === "string" ? result.title : "选择举报原因", options: asTdObjects(result.options).flatMap((raw) => { const id = typeof raw.id === "string" ? raw.id : ""; const title = typeof raw.text === "string" ? raw.text : "其他"; return id ? [{ id, title }] : []; }) };
+      return { title: typeof result.title === "string" ? result.title : translate("选择举报原因"), options: asTdObjects(result.options).flatMap((raw) => { const id = typeof raw.id === "string" ? raw.id : ""; const title = typeof raw.text === "string" ? raw.text : translate("其他"); return id ? [{ id, title }] : []; }) };
     }
-    if (result["@type"] === "reportChatResultTextRequired") return { title: "补充举报说明", options: [{ id: typeof result.option_id === "string" ? result.option_id : "", title: "其他", requiresText: result.is_optional !== true }] };
-    return { title: "举报原因", options: [] };
+    if (result["@type"] === "reportChatResultTextRequired") return { title: translate("补充举报说明"), options: [{ id: typeof result.option_id === "string" ? result.option_id : "", title: translate("其他"), requiresText: result.is_optional !== true }] };
+    return { title: translate("举报原因"), options: [] };
   }
 
   async reportChat({ chatId, messageIds, optionId, text = "" }: ReportChatInput): Promise<void> {
     const result = await this.request({ "@type": "reportChat", chat_id: numericId(chatId), option_id: optionId, message_ids: messageIds.map(numericId), text: text.slice(0, 1000) });
     if (["reportChatResultOk", "reportChatResultMessagesRequired"].includes(String(result["@type"]))) return;
-    if (result["@type"] === "reportChatResultTextRequired" && !text.trim() && result.is_optional !== true) throw new Error("请补充举报说明");
+    if (result["@type"] === "reportChatResultTextRequired" && !text.trim() && result.is_optional !== true) throw new Error(translate("请补充举报说明"));
   }
 
   async getActiveSessions(): Promise<DeviceSession[]> {
@@ -1413,14 +1414,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (parsed.protocol === "tg:" && parsed.hostname.toLowerCase() === "user") {
       const userId = parsed.searchParams.get("id");
       if (!userId || !/^-?\d+$/.test(userId)) {
-        return unsupportedTelegramLink(undefined, "Telegram 用户链接无效");
+        return unsupportedTelegramLink(undefined, translate("Telegram 用户链接无效"));
       }
       const rawUser = this.rawUsers.get(userId) ?? await this.request({
         "@type": "getUser",
         user_id: numericId(userId),
       }).catch(() => undefined);
       if (!rawUser || !tdId(rawUser.id)) {
-        return unsupportedTelegramLink(undefined, "找不到链接中的 Telegram 用户");
+        return unsupportedTelegramLink(undefined, translate("找不到链接中的 Telegram 用户"));
       }
       this.upsertUser(rawUser);
       return { kind: "user", userId };
@@ -1441,7 +1442,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         ? rawLinkType.start_parameter
         : "";
       if (!/^[A-Za-z0-9_]{5,32}$/.test(botUsername)) {
-        return unsupportedTelegramLink(linkType, "Telegram 机器人链接无效");
+        return unsupportedTelegramLink(linkType, translate("Telegram 机器人链接无效"));
       }
       const rawChat = await this.request({
         "@type": "searchPublicChat",
@@ -1451,14 +1452,14 @@ export class TauriTelegramTransport implements TelegramTransport {
       const chatType = asTdObject(rawChat?.type);
       const botUserId = tdId(chatType?.user_id);
       if (!rawChat || !chatId || chatType?.["@type"] !== "chatTypePrivate" || !botUserId) {
-        return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 机器人");
+        return unsupportedTelegramLink(linkType, translate("找不到链接中的 Telegram 机器人"));
       }
       const rawUser = this.rawUsers.get(botUserId) ?? await this.request({
         "@type": "getUser",
         user_id: numericId(botUserId),
       }).catch(() => undefined);
       if (asTdObject(rawUser?.type)?.["@type"] !== "userTypeBot") {
-        return unsupportedTelegramLink(linkType, "链接目标不是 Telegram 机器人");
+        return unsupportedTelegramLink(linkType, translate("链接目标不是 Telegram 机器人"));
       }
       this.upsertUser(rawUser);
       this.upsertChat(rawChat);
@@ -1474,7 +1475,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       const phoneNumber = typeof rawLinkType?.phone_number === "string"
         ? rawLinkType.phone_number
         : undefined;
-      if (!phoneNumber) return unsupportedTelegramLink(linkType, "Telegram 用户链接无效");
+      if (!phoneNumber) return unsupportedTelegramLink(linkType, translate("Telegram 用户链接无效"));
       const rawUser = await this.request({
         "@type": "searchUserByPhoneNumber",
         phone_number: phoneNumber,
@@ -1482,7 +1483,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       }).catch(() => undefined);
       const userId = tdId(rawUser?.id);
       if (!rawUser || !userId) {
-        return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 用户");
+        return unsupportedTelegramLink(linkType, translate("找不到链接中的 Telegram 用户"));
       }
       this.upsertUser(rawUser);
       if (rawLinkType?.open_profile === false) {
@@ -1520,16 +1521,16 @@ export class TauriTelegramTransport implements TelegramTransport {
         // group/channel has been deleted or is no longer accessible. Do not expose
         // that stale id to the UI, otherwise it becomes an empty active conversation.
         if (!rawChat) {
-          return unsupportedTelegramLink(linkType, "链接目标会话不存在或当前账号无权访问");
+          return unsupportedTelegramLink(linkType, translate("链接目标会话不存在或当前账号无权访问"));
         }
         if (!this.mapChat(rawChat)) {
-          return unsupportedTelegramLink(linkType, "链接目标会话不存在或当前账号无权访问");
+          return unsupportedTelegramLink(linkType, translate("链接目标会话不存在或当前账号无权访问"));
         }
         this.upsertChat(rawChat);
         this.emitMessage(linkedMessage);
         return { chatId: linkedChatId, messageId: linkedMessageId };
       }
-      return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 消息，或当前账号无权访问");
+      return unsupportedTelegramLink(linkType, translate("找不到链接中的 Telegram 消息，或当前账号无权访问"));
     }
     if (parsed.protocol !== "tg:" && path[0]?.toLowerCase() === "c" && /^\d+$/.test(path[1] ?? "")) {
       const internalChatId = `-100${path[1]}`;
@@ -1538,7 +1539,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.upsertChat(raw);
         return { chatId: internalChatId };
       }
-      return unsupportedTelegramLink(undefined, "找不到链接中的 Telegram 会话，或当前账号无权访问");
+      return unsupportedTelegramLink(undefined, translate("找不到链接中的 Telegram 会话，或当前账号无权访问"));
     }
     const domain = linkType === "internalLinkTypePublicChat" && typeof rawLinkType?.chat_username === "string"
       ? rawLinkType.chat_username
@@ -1547,11 +1548,11 @@ export class TauriTelegramTransport implements TelegramTransport {
       return unsupportedTelegramLink(linkType ?? "internalLinkTypeUnknownDeepLink");
     }
     const raw = await this.request({ "@type": "searchPublicChat", username: domain }).catch(() => undefined);
-    if (!raw) return unsupportedTelegramLink(linkType, "找不到链接中的 Telegram 会话或用户");
+    if (!raw) return unsupportedTelegramLink(linkType, translate("找不到链接中的 Telegram 会话或用户"));
     const chatId = tdId(raw.id);
     const chatType = asTdObject(raw.type);
     if (!chatId || !["chatTypePrivate", "chatTypeSupergroup", "chatTypeBasicGroup"].includes(String(chatType?.["@type"]))) {
-      return unsupportedTelegramLink(linkType, "此 Telegram 会话类型暂时无法在 Notgram 中打开");
+      return unsupportedTelegramLink(linkType, translate("此 Telegram 会话类型暂时无法在 Notgram 中打开"));
     }
     this.upsertChat(raw);
     return { chatId };
@@ -1598,7 +1599,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   async setChatMuted(chatId: string, muted: boolean) {
     const raw = this.rawChats.get(chatId) ?? await this.refreshChat(chatId);
     const currentSettings = asTdObject(raw.notification_settings);
-    if (!currentSettings) throw new Error("无法读取会话通知设置");
+    if (!currentSettings) throw new Error(translate("无法读取会话通知设置"));
     await this.request({
       "@type": "setChatNotificationSettings",
       chat_id: numericId(chatId),
@@ -1631,7 +1632,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async createChatFolder(title: string, chatIds: string[]) {
     const includedChatIds = [...new Set(chatIds)].map(numericId);
-    if (includedChatIds.length === 0) throw new Error("请至少选择一个会话");
+    if (includedChatIds.length === 0) throw new Error(translate("请至少选择一个会话"));
     const info = await this.request({
       "@type": "createChatFolder",
       folder: this.newChatFolder(title, includedChatIds),
@@ -1685,7 +1686,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         folderId === undefined || !customFolderIds.includes(folderId)
       )
     ) {
-      throw new Error("文件夹顺序不完整");
+      throw new Error(translate("文件夹顺序不完整"));
     }
     const mainChatListPosition = uniqueIds.indexOf("main");
     await this.request({
@@ -2284,7 +2285,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.finishInitialChatSync();
         this.listener?.({
           type: "sync.error",
-          message: error instanceof Error ? error.message : "无法同步 Telegram 数据",
+          message: error instanceof Error ? error.message : translate("无法同步 Telegram 数据"),
         });
       });
   }
@@ -2596,9 +2597,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   private folderName(title: string): TdObject {
     let normalized: string;
     try {
-      normalized = identityTextField(title, 12, "文件夹名称", true);
+      normalized = identityTextField(title, 12, translate("文件夹名称"), true);
     } catch {
-      throw new Error("文件夹名称需要包含 1 至 12 个字符，且只能使用受支持字符");
+      throw new Error(translate("文件夹名称需要包含 1 至 12 个字符，且只能使用受支持字符"));
     }
     return {
       "@type": "chatFolderName",
@@ -2636,7 +2637,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private upsertFolderInfo(info: TdObject): ChatFolder {
     const id = tdNumber(info.id);
-    if (id === undefined) throw new Error("TDLib 未返回文件夹标识");
+    if (id === undefined) throw new Error(translate("TDLib 未返回文件夹标识"));
     const existingIndex = this.rawFolderInfos.findIndex((item) => tdNumber(item.id) === id);
     if (existingIndex >= 0) {
       this.rawFolderInfos = this.rawFolderInfos.map((item, index) =>
@@ -2647,7 +2648,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
     this.emitFolders();
     const folder = mapTdChatFolders([info]).find((item) => item.id === `folder:${id}`);
-    if (!folder) throw new Error("TDLib 未返回文件夹资料");
+    if (!folder) throw new Error(translate("TDLib 未返回文件夹资料"));
     return folder;
   }
 
@@ -2886,14 +2887,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (pending && local?.is_downloading_completed === true) {
       this.pendingDownloads.delete(fileId);
       if (typeof local.path !== "string" || !local.path) {
-        pending.reject(new Error("TDLib 下载完成但未提供本地文件路径"));
+        pending.reject(new Error(translate("TDLib 下载完成但未提供本地文件路径")));
         return;
       }
       void invoke<string>("telegram_save_downloaded_file", {
         sourcePath: local.path,
         fileName: pending.fileName,
       }).then(() => pending.resolve()).catch((error: unknown) => {
-        pending.reject(error instanceof Error ? error : new Error("无法保存下载文件"));
+        pending.reject(error instanceof Error ? error : new Error(translate("无法保存下载文件")));
       });
     }
   }
@@ -3474,7 +3475,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.exhaustedChatLists.clear();
     this.fileDownloads.reset();
     for (const pending of this.pendingDownloads.values()) {
-      pending.reject(new Error("TDLib 会话已重置，下载未完成"));
+      pending.reject(new Error(translate("TDLib 会话已重置，下载未完成")));
     }
     this.pendingDownloads.clear();
     this.rawFolderInfos = [];

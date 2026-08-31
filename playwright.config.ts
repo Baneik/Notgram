@@ -14,6 +14,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:1422",
     headless: true,
+    locale: "zh-CN",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     launchOptions: { args: ["--mute-audio"] },

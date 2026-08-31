@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { LoaderCircle } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type {
@@ -66,7 +67,7 @@ const senderPresentation = (
     if (user) return { name: user.displayName, avatar: user.avatar, available: true };
   }
   return {
-    name: "Telegram 用户",
+    name: translate("Telegram 用户"),
     avatar: { label: "?", color: "#73828c" },
     available: false,
   };
@@ -127,7 +128,7 @@ export function MessageReactions({
       setDetails((current) => current?.requestId === requestId ? {
         ...current,
         loading: false,
-        error: error instanceof Error ? error.message : "无法读取回应者",
+        error: error instanceof Error ? error.message : translate("无法读取回应者"),
       } : current);
     }
   }, [chatId, hiddenSenderIds, messageId, onLoadSenders]);
@@ -183,7 +184,7 @@ export function MessageReactions({
 
   return (
     <>
-      <div className="message-reactions" role="group" aria-label="消息回应">
+      <div className="message-reactions" role="group" aria-label={translate("消息回应")}>
         {reactions.map((reaction) => {
           const label = reactionLabel(reaction);
           const avatarIds = reaction.recentSenderIds.slice(0, 3);
@@ -195,7 +196,7 @@ export function MessageReactions({
               className={reaction.chosen ? "is-chosen" : ""}
               key={messageReactionTypeKey(reaction.type)}
               aria-pressed={reaction.type.kind === "emoji" ? reaction.chosen : undefined}
-              aria-label={`${label}，${reaction.totalCount} 个回应，右键查看回应者`}
+              aria-label={translate("{{value0}}，{{value1}} 个回应，右键查看回应者", { value0: label, value1: reaction.totalCount })}
               aria-disabled={reaction.type.kind !== "emoji" || pending}
               onClick={() => void toggleReaction(reaction)}
               onContextMenu={(event) => {
@@ -242,7 +243,7 @@ export function MessageReactions({
 
       {details && (
         <ContextMenuSurface
-          label={`${reactionLabel(details.reaction)} 的回应者`}
+          label={translate("{{value0}} 的回应者", { value0: reactionLabel(details.reaction) })}
           point={details.point}
           className="reaction-details-surface"
           restoreFocus={() => details.returnFocus.focus({ preventScroll: true })}
@@ -267,17 +268,15 @@ export function MessageReactions({
                 );
               })}
               {details.senders.length === 0 && !details.loading && !details.error && (
-                <p className="reaction-details-status">暂无可显示的回应者</p>
+                <p className="reaction-details-status">{translate("暂无可显示的回应者")}</p>
               )}
             </div>
             {details.error && <p className="reaction-details-status is-error" role="status">{details.error}</p>}
             {details.limited && (
-              <p className="reaction-details-status">Telegram 仅提供最近的回应者</p>
+              <p className="reaction-details-status">{translate("Telegram 仅提供最近的回应者")}</p>
             )}
             {details.nextOffset && !details.loading && (
-              <button className="reaction-details-more" type="button" role="menuitem" onClick={loadMore}>
-                加载更多
-              </button>
+              <button className="reaction-details-more" type="button" role="menuitem" onClick={loadMore}>{translate("加载更多")}</button>
             )}
           </ContextMenuPanel>
         </ContextMenuSurface>

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { MonitorCog } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -41,13 +42,13 @@ export function DesktopStartupSettings() {
       <div className="settings-section-heading">
         <MonitorCog size={18} strokeWidth={1.8} />
         <div>
-          <h4 id="desktop-startup-heading">桌面启动</h4>
-          <span>Windows 登录与后台驻留</span>
+          <h4 id="desktop-startup-heading">{translate("桌面启动")}</h4>
+          <span>{translate("Windows 登录与后台驻留")}</span>
         </div>
       </div>
       <div className="preference-list">
         <label className="preference-row">
-          <span>登录 Windows 时启动 Notgram</span>
+          <span>{translate("登录 Windows 时启动 Notgram")}</span>
           <input
             type="checkbox"
             role="switch"

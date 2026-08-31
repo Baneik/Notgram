@@ -22,6 +22,9 @@ try {
     npm run motion:check
     if ($LASTEXITCODE -ne 0) { throw "Motion contract check failed." }
 
+    npm run i18n:check
+    if ($LASTEXITCODE -ne 0) { throw "Translation completeness check failed." }
+
     npm test
     if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed." }
 

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 const decodeBase64Url = (value: string) => {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
@@ -61,7 +62,7 @@ export const resolveTdlibDataCenter = async (
   for (const remoteId of remoteIds) {
     if (!remoteId) continue;
     const id = parseTdlibRemoteFileDataCenter(remoteId);
-    if (id) return { id, location: DATA_CENTER_LOCATIONS[id] ?? "Telegram 数据中心" };
+    if (id) return { id, location: DATA_CENTER_LOCATIONS[id] ?? translate("Telegram 数据中心") };
   }
 
   try {
@@ -69,11 +70,11 @@ export const resolveTdlibDataCenter = async (
     const rawId = option.value;
     const id = typeof rawId === "number" ? rawId : Number(rawId);
     if (Number.isFinite(id) && id > 0) {
-      return { id, location: DATA_CENTER_LOCATIONS[id] ?? "Telegram 数据中心" };
+      return { id, location: DATA_CENTER_LOCATIONS[id] ?? translate("Telegram 数据中心") };
     }
   } catch {
     // TDLib builds may not expose the internal dc_id option.
   }
 
-  return { id: undefined, location: "Telegram 自动选择" };
+  return { id: undefined, location: translate("Telegram 自动选择") };
 };

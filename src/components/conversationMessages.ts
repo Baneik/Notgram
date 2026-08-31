@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { Chat, Message, MessageContent, User } from "../telegram/types";
 import { messageContentText } from "../telegram/messageContent";
 
@@ -32,11 +33,11 @@ export const senderNameForMessage = (
 ) => {
   const knownUserName = users.get(message.senderId)?.displayName;
   if (knownUserName) return knownUserName;
-  if (message.outgoing) return "你";
+  if (message.outgoing) return translate("你");
   const senderChat = senderChatId(message.senderId);
   return users.get(message.senderId)?.displayName ??
     (senderChat ? chats?.get(senderChat)?.title : undefined) ??
-    (chat.kind === "direct" ? chat.title : "Telegram 用户");
+    (chat.kind === "direct" ? chat.title : translate("Telegram 用户"));
 };
 
 export const forwardSourceFor = (
@@ -70,7 +71,7 @@ export const forwardSourceFor = (
         : undefined;
   const sourceName = info.source?.senderName ??
     (info.source?.chatId ? chats.get(info.source.chatId)?.title : undefined);
-  const label = name ? `转发自 ${name}` : sourceName ? `转发自 ${sourceName}` : "已转发";
+  const label = name ? translate("转发自 {{value0}}", { value0: name }) : sourceName ? translate("转发自 {{value0}}", { value0: sourceName }) : translate("已转发");
   if (sourceChatId && sourceMessageId) {
     return { label, navigation: { kind: "message", chatId: sourceChatId, messageId: sourceMessageId } };
   }
@@ -132,7 +133,7 @@ export const replyPreviewFor = (
 ): ReplyPreview | undefined => {
   if (!message.replyTo) return undefined;
   if (message.replyTo.kind === "story") {
-    return { author: "动态", text: "回复了一条动态" };
+    return { author: translate("动态"), text: translate("回复了一条动态") };
   }
   const target = message.replyTo.messageId
     ? messagesById.get(message.replyTo.messageId)
@@ -162,9 +163,9 @@ export const replyPreviewFor = (
         ? chats?.get(origin.chatId)?.title ?? origin.authorSignature
         : undefined;
   return {
-    author: hydratedAuthor || originAuthor || (message.replyTo.outgoing ? "你" : "回复消息"),
+    author: hydratedAuthor || originAuthor || (message.replyTo.outgoing ? translate("你") : translate("回复消息")),
     text: message.replyTo.quote ||
-      (message.replyTo.content ? messageSummary(message.replyTo.content) : "原消息不可用"),
+      (message.replyTo.content ? messageSummary(message.replyTo.content) : translate("原消息不可用")),
     chatId: message.replyTo.chatId ?? message.chatId,
     messageId: message.replyTo.messageId,
     isCurrentUser: message.replyTo.senderId === currentUserId ||

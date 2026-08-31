@@ -1,3 +1,4 @@
+import { currentLanguage, translate } from "../i18n";
 import {
   asTdObject,
   asTdObjects,
@@ -35,7 +36,7 @@ export const profileField = (
 ) => {
   const normalized = value.trim();
   if ((required && !normalized) || [...normalized].length > maximum) {
-    throw new Error(`${label}格式不正确`);
+    throw new Error(translate("{{value0}}格式不正确", { value0: label }));
   }
   return normalized;
 };
@@ -71,17 +72,17 @@ export class TauriProfileService {
       userId = tdId(me.id);
       this.context.setCurrentUserId(userId || undefined);
     }
-    if (!userId) throw new Error("TDLib 未返回当前用户");
+    if (!userId) throw new Error(translate("TDLib 未返回当前用户"));
     return this.loadUserProfile(userId, "self");
   }
 
   async updateCurrentUserProfile(input: UpdateCurrentUserProfileInput): Promise<ChatProfile> {
-    const firstName = identityTextField(input.firstName, 64, "名字", true);
-    const lastName = identityTextField(input.lastName, 64, "姓氏");
-    const username = profileField(input.username, 32, "用户名");
-    const bio = profileField(input.bio, 140, "签名");
+    const firstName = identityTextField(input.firstName, 64, translate("名字"), true);
+    const lastName = identityTextField(input.lastName, 64, translate("姓氏"));
+    const username = profileField(input.username, 32, translate("用户名"));
+    const bio = profileField(input.bio, 140, translate("签名"));
     if (username && (!/^[A-Za-z0-9_]+$/.test(username) || username.length < 5)) {
-      throw new Error("用户名需包含 5 至 32 个英文字母、数字或下划线");
+      throw new Error(translate("用户名需包含 5 至 32 个英文字母、数字或下划线"));
     }
 
     await this.context.request({ "@type": "setName", first_name: firstName, last_name: lastName });
@@ -90,7 +91,7 @@ export class TauriProfileService {
     const me = await this.context.request({ "@type": "getMe" });
     this.context.upsertUser(me);
     const userId = tdId(me.id) || this.context.getCurrentUserId();
-    if (!userId) throw new Error("TDLib 未返回当前用户");
+    if (!userId) throw new Error(translate("TDLib 未返回当前用户"));
     this.context.setCurrentUserId(userId);
     return this.loadUserProfile(userId, "self");
   }
@@ -101,7 +102,7 @@ export class TauriProfileService {
     const me = await this.context.request({ "@type": "getMe" });
     this.context.upsertUser(me);
     const userId = tdId(me.id) || this.context.getCurrentUserId();
-    if (!userId) throw new Error("TDLib 未返回当前用户");
+    if (!userId) throw new Error(translate("TDLib 未返回当前用户"));
     this.context.setCurrentUserId(userId);
     return this.loadUserProfile(userId, "self");
   }
@@ -113,11 +114,11 @@ export class TauriProfileService {
     });
     this.context.upsertChat(rawChat);
     const chat = this.context.mapChat(rawChat);
-    if (!chat) throw new Error("TDLib 未返回聊天资料");
+    if (!chat) throw new Error(translate("TDLib 未返回聊天资料"));
     const type = asTdObject(rawChat.type);
     if (type?.["@type"] === "chatTypePrivate") {
       const userId = tdId(type.user_id);
-      if (!userId) throw new Error("聊天缺少用户标识");
+      if (!userId) throw new Error(translate("聊天缺少用户标识"));
       const profile = await this.loadUserProfile(
         userId,
         userId === this.context.getCurrentUserId() ? "self" : "user",
@@ -130,7 +131,7 @@ export class TauriProfileService {
         secret_chat_id: numericId(tdId(type.secret_chat_id)),
       });
       const userId = tdId(secret.user_id);
-      if (!userId) throw new Error("秘密聊天缺少用户标识");
+      if (!userId) throw new Error(translate("秘密聊天缺少用户标识"));
       return { ...await this.loadUserProfile(userId, "user"), chatId: chat.id };
     }
     if (type?.["@type"] === "chatTypeBasicGroup") {
@@ -145,7 +146,7 @@ export class TauriProfileService {
         chatId: chat.id,
         title: chat.title,
         avatar: chat.avatar,
-        statusLabel: `${members.length} 位成员`,
+        statusLabel: translate("{{value0}} 位成员", { value0: members.length }),
         bio: typeof full.description === "string" && full.description.trim()
           ? full.description.trim()
           : undefined,
@@ -195,8 +196,11 @@ export class TauriProfileService {
         title: chat.title,
         avatar: chat.avatar,
         statusLabel: memberCount
-          ? `${memberCount.toLocaleString("zh-CN")} 位${isChannel ? "订阅者" : "成员"}`
-          : isChannel ? "频道" : "群组",
+          ? translate("{{value0}} 位{{value1}}", {
+            value0: memberCount.toLocaleString(currentLanguage()),
+            value1: isChannel ? translate("订阅者") : translate("成员"),
+          })
+          : isChannel ? translate("频道") : translate("群组"),
         bio: typeof full.description === "string" && full.description.trim()
           ? full.description.trim()
           : undefined,
@@ -208,7 +212,7 @@ export class TauriProfileService {
           (memberCount === undefined || recentValues.length < memberCount),
       };
     }
-    throw new Error("暂不支持此聊天资料类型");
+    throw new Error(translate("暂不支持此聊天资料类型"));
   }
 
   async getChatProfileMembers(
@@ -255,7 +259,7 @@ export class TauriProfileService {
         "",
         16,
       );
-      return [[userId, customTitle || (administrator.is_owner === true ? "群主" : "管理员")]];
+      return [[userId, customTitle || (administrator.is_owner === true ? translate("群主") : translate("管理员"))]];
     }));
   }
 
@@ -273,7 +277,7 @@ export class TauriProfileService {
       : [];
     const users = await Promise.all(userIds.map((userId) => this.loadUser(userId)));
     return users.filter((user): user is User => Boolean(user))
-      .sort((left, right) => left.displayName.localeCompare(right.displayName, "zh-CN"));
+      .sort((left, right) => left.displayName.localeCompare(right.displayName, currentLanguage()));
   }
 
   async loadUser(userId: string): Promise<User | undefined> {
@@ -293,10 +297,10 @@ export class TauriProfileService {
       kind === "user"
         ? this.loadGroupsInCommon(userId).catch(() => [])
         : Promise.resolve([]),
-      this.loadUserProfilePhotos(userId, user?.displayName ?? "用户").catch(() => []),
+      this.loadUserProfilePhotos(userId, user?.displayName ?? translate("用户")).catch(() => []),
       this.loadUserProfileAudios(userId).catch(() => ({ totalCount: 0, audios: [] })),
     ]);
-    if (!user) throw new Error("TDLib 未返回用户资料");
+    if (!user) throw new Error(translate("TDLib 未返回用户资料"));
     const bio = mapTdFormattedText(full.bio);
     return {
       id: `user:${user.id}`,
@@ -306,8 +310,8 @@ export class TauriProfileService {
       title: user.displayName,
       avatar: user.avatar,
       statusLabel: user.isBot
-        ? "机器人"
-        : user.presence === "online" ? "在线" : user.lastSeenLabel ?? "离线",
+        ? translate("机器人")
+        : user.presence === "online" ? translate("在线") : user.lastSeenLabel ?? translate("离线"),
       bio: bio.text || undefined,
       bioEntities: bio.entities,
       firstName: user.firstName,
@@ -379,9 +383,9 @@ export class TauriProfileService {
           kind: "media" as const,
           mediaType: "photo" as const,
           fileName: index === 0
-            ? `${displayName} 的当前头像.jpg`
-            : `${displayName} 的历史头像 ${index}.jpg`,
-          caption: index === 0 ? "当前头像" : "历史头像",
+            ? translate("{{value0}} 的当前头像.jpg", { value0: displayName })
+            : translate("{{value0}} 的历史头像 {{value1}}.jpg", { value0: displayName, value1: index }),
+          caption: index === 0 ? translate("当前头像") : translate("历史头像"),
         },
       }];
     });

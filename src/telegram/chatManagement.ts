@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type {
   ChatAdminRightKey,
   ChatAdminRights,
@@ -11,42 +12,42 @@ import type {
 import { identityTextField } from "./identityText";
 
 export const CHAT_PERMISSION_LABELS: Record<ChatPermissionKey, string> = {
-  canSendBasicMessages: "发送文字",
-  canSendAudios: "发送音乐",
-  canSendDocuments: "发送文件",
-  canSendPhotos: "发送照片",
-  canSendVideos: "发送视频",
-  canSendVideoNotes: "发送视频消息",
-  canSendVoiceNotes: "发送语音消息",
-  canSendPolls: "发送投票",
-  canSendOtherMessages: "发送贴纸和 GIF",
-  canAddLinkPreviews: "添加链接预览",
-  canReactToMessages: "添加消息回应",
-  canEditTag: "编辑成员标签",
-  canChangeInfo: "修改群资料",
-  canInviteUsers: "邀请成员",
-  canPinMessages: "置顶消息",
-  canCreateTopics: "创建话题",
+  get canSendBasicMessages() { return translate("发送文字"); },
+  get canSendAudios() { return translate("发送音乐"); },
+  get canSendDocuments() { return translate("发送文件"); },
+  get canSendPhotos() { return translate("发送照片"); },
+  get canSendVideos() { return translate("发送视频"); },
+  get canSendVideoNotes() { return translate("发送视频消息"); },
+  get canSendVoiceNotes() { return translate("发送语音消息"); },
+  get canSendPolls() { return translate("发送投票"); },
+  get canSendOtherMessages() { return translate("发送贴纸和 GIF"); },
+  get canAddLinkPreviews() { return translate("添加链接预览"); },
+  get canReactToMessages() { return translate("添加消息回应"); },
+  get canEditTag() { return translate("编辑成员标签"); },
+  get canChangeInfo() { return translate("修改群资料"); },
+  get canInviteUsers() { return translate("邀请成员"); },
+  get canPinMessages() { return translate("置顶消息"); },
+  get canCreateTopics() { return translate("创建话题"); },
 };
 
 export const CHAT_ADMIN_RIGHT_LABELS: Record<ChatAdminRightKey, string> = {
-  canManageChat: "管理群组",
-  canChangeInfo: "修改资料",
-  canPostMessages: "发布消息",
-  canEditMessages: "编辑消息",
-  canDeleteMessages: "删除消息",
-  canInviteUsers: "邀请成员",
-  canRestrictMembers: "限制成员",
-  canPinMessages: "置顶消息",
-  canManageTopics: "管理话题",
-  canPromoteMembers: "添加管理员",
-  canManageVideoChats: "管理视频聊天",
-  canPostStories: "发布故事",
-  canEditStories: "编辑故事",
-  canDeleteStories: "删除故事",
-  canManageDirectMessages: "管理私信",
-  canManageTags: "管理标签",
-  isAnonymous: "匿名管理员",
+  get canManageChat() { return translate("管理群组"); },
+  get canChangeInfo() { return translate("修改资料"); },
+  get canPostMessages() { return translate("发布消息"); },
+  get canEditMessages() { return translate("编辑消息"); },
+  get canDeleteMessages() { return translate("删除消息"); },
+  get canInviteUsers() { return translate("邀请成员"); },
+  get canRestrictMembers() { return translate("限制成员"); },
+  get canPinMessages() { return translate("置顶消息"); },
+  get canManageTopics() { return translate("管理话题"); },
+  get canPromoteMembers() { return translate("添加管理员"); },
+  get canManageVideoChats() { return translate("管理视频聊天"); },
+  get canPostStories() { return translate("发布故事"); },
+  get canEditStories() { return translate("编辑故事"); },
+  get canDeleteStories() { return translate("删除故事"); },
+  get canManageDirectMessages() { return translate("管理私信"); },
+  get canManageTags() { return translate("管理标签"); },
+  get isAnonymous() { return translate("匿名管理员"); },
 };
 
 export const DEFAULT_CHAT_PERMISSIONS: ChatPermissions = {
@@ -153,12 +154,12 @@ const CHAT_MEMBER_TAG_EMOJI = /(?:\p{Extended_Pictographic}|\p{Regional_Indicato
 export const chatMemberTagError = (value: string) => {
   const tag = value.trim();
   if (Array.from(tag).length > 16 || /[\r\n]/.test(value) || CHAT_MEMBER_TAG_EMOJI.test(tag)) {
-    return "成员标签需要包含 0 至 16 个非表情字符且不能换行";
+    return translate("成员标签需要包含 0 至 16 个非表情字符且不能换行");
   }
   try {
-    identityTextField(value, 16, "成员标签");
+    identityTextField(value, 16, translate("成员标签"));
   } catch {
-    return "成员标签需要包含 0 至 16 个非表情字符且不能换行";
+    return translate("成员标签需要包含 0 至 16 个非表情字符且不能换行");
   }
   return undefined;
 };

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   AlertCircle,
   Download,
@@ -106,8 +107,8 @@ export function AudioPlayer({
   const muted = playback.muted || playback.volume <= 0;
   const canPlay = Boolean(source || (fileId !== undefined && size && size > 0));
   const playbackLabel = canPlay
-    ? playing ? `暂停 ${label}` : `播放 ${label}`
-    : `${label} 暂不可播放`;
+    ? playing ? translate("暂停 {{value0}}", { value0: label }) : translate("播放 {{value0}}", { value0: label })
+    : translate("{{value0}} 暂不可播放", { value0: label });
 
   return (
     <div className={`audio-player ${active ? "is-active" : ""}`} role="group" aria-label={label}>
@@ -115,7 +116,7 @@ export function AudioPlayer({
         className="audio-play"
         type="button"
         aria-label={playbackLabel}
-        title={canPlay ? playing ? "暂停" : "播放" : "音频文件暂不可用"}
+        title={canPlay ? playing ? translate("暂停") : translate("播放") : translate("音频文件暂不可用")}
         disabled={!canPlay}
         onClick={() => audioPlaybackController.toggle(track)}
       >
@@ -138,7 +139,7 @@ export function AudioPlayer({
             max={duration || 0}
             step={0.1}
             value={Math.min(currentTime, duration || 0)}
-            aria-label="播放进度"
+            aria-label={translate("播放进度")}
             disabled={!active || duration <= 0}
             onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
           />
@@ -149,8 +150,8 @@ export function AudioPlayer({
             <button
               className="playback-rate"
               type="button"
-              aria-label={`播放速度 ${playbackRate} 倍`}
-              title="切换播放速度"
+              aria-label={translate("播放速度 {{value0}} 倍", { value0: playbackRate })}
+              title={translate("切换播放速度")}
               disabled={!active}
               onClick={() => audioPlaybackController.cyclePlaybackRate()}
             >
@@ -159,8 +160,8 @@ export function AudioPlayer({
             <div className="audio-inline-volume">
               <button
                 type="button"
-                aria-label={muted ? "取消静音" : "静音"}
-                title={muted ? "取消静音" : "静音"}
+                aria-label={muted ? translate("取消静音") : translate("静音")}
+                title={muted ? translate("取消静音") : translate("静音")}
                 disabled={!active}
                 onClick={() => audioPlaybackController.toggleMuted()}
               >
@@ -172,13 +173,13 @@ export function AudioPlayer({
                 max={1}
                 step={0.01}
                 value={playback.muted ? 0 : playback.volume}
-                aria-label="音量"
+                aria-label={translate("音量")}
                 disabled={!active}
                 onChange={(event) => audioPlaybackController.setVolume(Number(event.currentTarget.value))}
               />
             </div>
             {onCancelDownload ? (
-              <button className="audio-download" type="button" aria-label={`取消下载 ${label}`} title="取消下载" onClick={onCancelDownload}>
+              <button className="audio-download" type="button" aria-label={translate("取消下载 {{value0}}", { value0: label })} title={translate("取消下载")} onClick={onCancelDownload}>
                 <span
                   className="audio-transfer-indicator"
                   role="progressbar"
@@ -191,7 +192,7 @@ export function AudioPlayer({
                 </span>
               </button>
             ) : onDownload && (
-              <button className="audio-download" type="button" aria-label={`下载 ${label}`} title="下载音频" onClick={onDownload}>
+              <button className="audio-download" type="button" aria-label={translate("下载 {{value0}}", { value0: label })} title={translate("下载音频")} onClick={onDownload}>
                 <Download size={15} />
               </button>
             )}

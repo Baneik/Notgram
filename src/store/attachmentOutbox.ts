@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { OutgoingAttachment, QueuedOutgoingAttachment } from "../telegram/types";
 
 const DATABASE_NAME = "notgram-attachment-outbox";
@@ -51,7 +52,7 @@ const openDatabase = () => new Promise<IDBDatabase>((resolve, reject) => {
     if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME, { keyPath: "id" });
   };
   request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(request.error ?? new Error("无法打开附件发件箱"));
+  request.onerror = () => reject(request.error ?? new Error(translate("无法打开附件发件箱")));
 });
 
 const totalBytes = (batch: StoredBatch) => batch.files.reduce((sum, file) => sum + file.size, 0);
@@ -104,29 +105,29 @@ const cloneStoredBatch = (batch: StoredBatch): StoredBatch => ({
 const readAllIndexedDb = async (database: IDBDatabase) => new Promise<StoredBatch[]>((resolve, reject) => {
   const request = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).getAll();
   request.onsuccess = () => resolve((request.result as StoredBatch[]).map(cloneStoredBatch));
-  request.onerror = () => reject(request.error ?? new Error("无法读取附件发件箱"));
+  request.onerror = () => reject(request.error ?? new Error(translate("无法读取附件发件箱")));
 });
 
 const putIndexedDb = async (database: IDBDatabase, batch: StoredBatch) => new Promise<void>((resolve, reject) => {
   const transaction = database.transaction(STORE_NAME, "readwrite");
   const request = transaction.objectStore(STORE_NAME).put(batch);
   transaction.oncomplete = () => resolve();
-  transaction.onerror = () => reject(transaction.error ?? request.error ?? new Error("无法保存附件发件箱"));
-  transaction.onabort = () => reject(transaction.error ?? new Error("附件发件箱写入已取消"));
+  transaction.onerror = () => reject(transaction.error ?? request.error ?? new Error(translate("无法保存附件发件箱")));
+  transaction.onabort = () => reject(transaction.error ?? new Error(translate("附件发件箱写入已取消")));
 });
 
 const getIndexedDb = async (database: IDBDatabase, id: string) => new Promise<StoredBatch | undefined>((resolve, reject) => {
   const request = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(id);
   request.onsuccess = () => resolve(request.result ? cloneStoredBatch(request.result as StoredBatch) : undefined);
-  request.onerror = () => reject(request.error ?? new Error("无法读取附件发件箱"));
+  request.onerror = () => reject(request.error ?? new Error(translate("无法读取附件发件箱")));
 });
 
 const deleteIndexedDb = async (database: IDBDatabase, id: string) => new Promise<void>((resolve, reject) => {
   const transaction = database.transaction(STORE_NAME, "readwrite");
   const request = transaction.objectStore(STORE_NAME).delete(id);
   transaction.oncomplete = () => resolve();
-  transaction.onerror = () => reject(transaction.error ?? request.error ?? new Error("无法清理附件发件箱"));
-  transaction.onabort = () => reject(transaction.error ?? new Error("附件发件箱清理已取消"));
+  transaction.onerror = () => reject(transaction.error ?? request.error ?? new Error(translate("无法清理附件发件箱")));
+  transaction.onabort = () => reject(transaction.error ?? new Error(translate("附件发件箱清理已取消")));
 });
 
 const purgeIndexedDb = async (database: IDBDatabase) => {
@@ -174,14 +175,14 @@ export class AttachmentOutboxStore {
       files,
     };
     const bytes = totalBytes(batch);
-    if (bytes > MAX_BATCH_BYTES) throw new Error("附件总大小超过离线发件箱单批次上限 512 MB");
+    if (bytes > MAX_BATCH_BYTES) throw new Error(translate("附件总大小超过离线发件箱单批次上限 512 MB"));
 
     if (!hasIndexedDb()) {
       deleteExpiredMemoryBatches();
       const existing = [...memoryBatches.values()].filter((value) => value.id !== input.id);
-      if (existing.length >= MAX_BATCHES) throw new Error("离线发件箱最多保留 50 批附件");
+      if (existing.length >= MAX_BATCHES) throw new Error(translate("离线发件箱最多保留 50 批附件"));
       if (existing.reduce((sum, value) => sum + totalBytes(value), 0) + bytes > MAX_TOTAL_BYTES) {
-        throw new Error("离线发件箱已达到磁盘配额，请先发送或删除旧附件");
+        throw new Error(translate("离线发件箱已达到磁盘配额，请先发送或删除旧附件"));
       }
       memoryBatches.set(input.id, batch);
       return;
@@ -190,9 +191,9 @@ export class AttachmentOutboxStore {
     const database = await openDatabase();
     const active = await purgeIndexedDb(database);
     const existing = active.filter((value) => value.id !== input.id);
-    if (existing.length >= MAX_BATCHES) throw new Error("离线发件箱最多保留 50 批附件");
+    if (existing.length >= MAX_BATCHES) throw new Error(translate("离线发件箱最多保留 50 批附件"));
     if (existing.reduce((sum, value) => sum + totalBytes(value), 0) + bytes > MAX_TOTAL_BYTES) {
-      throw new Error("离线发件箱已达到磁盘配额，请先发送或删除旧附件");
+      throw new Error(translate("离线发件箱已达到磁盘配额，请先发送或删除旧附件"));
     }
     await putIndexedDb(database, batch);
     database.close();

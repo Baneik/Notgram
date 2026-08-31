@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   Check,
   ChevronDown,
@@ -31,11 +32,11 @@ interface GlobalSearchResultsProps {
 }
 
 const filters: Array<{ id: GlobalSearchFilter; label: string }> = [
-  { id: "all", label: "全部" },
-  { id: "message", label: "消息" },
-  { id: "media", label: "媒体" },
-  { id: "file", label: "文件" },
-  { id: "link", label: "链接" },
+  { id: "all", get label() { return translate("全部"); } },
+  { id: "message", get label() { return translate("消息"); } },
+  { id: "media", get label() { return translate("媒体"); } },
+  { id: "file", get label() { return translate("文件"); } },
+  { id: "link", get label() { return translate("链接"); } },
 ];
 
 export interface SidebarSearchSenderOption {
@@ -60,7 +61,7 @@ function ChatSearchSenderPicker({
   const optionsRef = useRef<HTMLDivElement>(null);
   const popupId = useId();
   const selectedLabel = options.find((option) => option.id === senderId)?.label ?? (
-    senderId ? "已选成员" : "所有成员"
+    senderId ? translate("已选成员") : translate("所有成员")
   );
   const normalizedMemberQuery = memberQuery.trim().toLocaleLowerCase();
   const visibleOptions = normalizedMemberQuery
@@ -110,7 +111,7 @@ function ChatSearchSenderPicker({
           ref={triggerRef}
           className="chat-search-member-trigger"
           type="button"
-          aria-label={`成员筛选：${selectedLabel}`}
+          aria-label={translate("成员筛选：{{value0}}", { value0: selectedLabel })}
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? popupId : undefined}
@@ -127,8 +128,8 @@ function ChatSearchSenderPicker({
           <button
             className="chat-search-member-clear"
             type="button"
-            aria-label="清除成员筛选"
-            title="清除成员筛选"
+            aria-label={translate("清除成员筛选")}
+            title={translate("清除成员筛选")}
             onClick={() => selectSender(undefined)}
           >
             <X size={15} />
@@ -136,16 +137,16 @@ function ChatSearchSenderPicker({
         )}
       </div>
       <MotionPresence present={open} variant="popover">
-        {open ? <div id={popupId} className="chat-search-member-popup" role="dialog" aria-label="选择成员">
+        {open ? <div id={popupId} className="chat-search-member-popup" role="dialog" aria-label={translate("选择成员")}>
           <label className="chat-search-member-field">
             <Search size={14} strokeWidth={1.8} />
-            <span className="sr-only">搜索成员</span>
+            <span className="sr-only">{translate("搜索成员")}</span>
             <input
               ref={searchRef}
               type="search"
               value={memberQuery}
-              placeholder="搜索成员"
-              aria-label="搜索成员"
+              placeholder={translate("搜索成员")}
+              aria-label={translate("搜索成员")}
               onChange={(event) => setMemberQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== "ArrowDown") return;
@@ -154,7 +155,7 @@ function ChatSearchSenderPicker({
               }}
             />
             {memberQuery && (
-              <button type="button" aria-label="清除成员搜索" title="清除成员搜索" onClick={() => setMemberQuery("")}>
+              <button type="button" aria-label={translate("清除成员搜索")} title={translate("清除成员搜索")} onClick={() => setMemberQuery("")}>
                 <X size={13} />
               </button>
             )}
@@ -162,12 +163,12 @@ function ChatSearchSenderPicker({
           <div
             ref={optionsRef}
             className="chat-search-member-options"
-            aria-label="成员列表"
+            aria-label={translate("成员列表")}
             onKeyDown={(event) => handleMenuKeyboard(event, () => closePicker(true))}
           >
             {!normalizedMemberQuery && (
               <button type="button" aria-pressed={!senderId} onClick={() => selectSender(undefined)}>
-                <span>所有成员</span>
+                <span>{translate("所有成员")}</span>
                 {!senderId && <Check size={14} />}
               </button>
             )}
@@ -183,7 +184,7 @@ function ChatSearchSenderPicker({
               </button>
             ))}
             {visibleOptions.length === 0 && (
-              <div className="chat-search-member-empty" role="status">没有匹配的成员</div>
+              <div className="chat-search-member-empty" role="status">{translate("没有匹配的成员")}</div>
             )}
           </div>
         </div> : null}
@@ -229,14 +230,14 @@ export function ChatSearchResults({
     ? "error"
     : prompt ? "prompt" : empty ? "empty" : undefined;
   return (
-    <section className="global-search-results-panel chat-search-results-panel" aria-label={`搜索${chat.title}中的消息`}>
+    <section className="global-search-results-panel chat-search-results-panel" aria-label={translate("搜索{{value0}}中的消息", { value0: chat.title })}>
       <div className="global-search-controls chat-search-controls">
         <ChatSearchSenderPicker senderId={senderId} options={senderOptions} onChange={onSenderChange} />
       </div>
       <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading} data-search-state={primaryLoading ? "updating" : "settled"}>
         {stateMatchesInput && !showLoading && state.messages.length > 0 && (
           <section className="global-result-section" aria-labelledby="chat-message-results">
-            <h2 id="chat-message-results">{chat.title}中的消息<span>{total}</span></h2>
+            <h2 id="chat-message-results">{translate("{{value0}} 中的消息", { value0: chat.title })}<span>{total}</span></h2>
             <div className="global-message-results">
               {state.messages.map((message) => (
                 <MessageSearchResult
@@ -254,17 +255,17 @@ export function ChatSearchResults({
         )}
         <MotionPresence present={Boolean(statusKind)} variant="status">
           {statusKind ? (
-            <div key={statusKind} className={`global-search-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"} aria-label={statusKind === "loading" ? "正在搜索" : undefined}>
+            <div key={statusKind} className={`global-search-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"} aria-label={statusKind === "loading" ? translate("正在搜索") : undefined}>
               {statusKind === "loading" ? <LoaderCircle className="spin" size={21} />
                 : statusKind === "error" ? state.error
-                  : <span>{statusKind === "prompt" ? "输入关键词搜索此会话" : "没有搜索结果"}</span>}
+                  : <span>{statusKind === "prompt" ? translate("输入关键词搜索此会话") : translate("没有搜索结果")}</span>}
             </div>
           ) : null}
         </MotionPresence>
         {stateMatchesInput && state.nextFromMessageId && (
           <button className="global-search-more" type="button" disabled={state.loadingMore} onClick={() => void onLoadMore()}>
             {showLoadingMore && <LoaderCircle className="spin" size={16} />}
-            <span>加载更多</span>
+            <span>{translate("加载更多")}</span>
           </button>
         )}
       </div>
@@ -327,10 +328,10 @@ export function GlobalSearchResults({
   return (
     <section
       className="global-search-results-panel"
-      aria-label="搜索结果"
+      aria-label={translate("搜索结果")}
     >
       <div className="global-search-controls">
-        <div className="global-search-filters" role="tablist" aria-label="搜索类型">
+        <div className="global-search-filters" role="tablist" aria-label={translate("搜索类型")}>
           {filters.map((option) => (
             <button
               key={option.id}
@@ -348,7 +349,7 @@ export function GlobalSearchResults({
       <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading} data-search-state={primaryLoading ? "updating" : "settled"}>
         {!showLoading && matchingChats.length > 0 && (
           <section className="global-result-section" aria-labelledby="global-chat-results">
-            <h2 id="global-chat-results">聊天</h2>
+            <h2 id="global-chat-results">{translate("聊天")}</h2>
             <div className="global-chat-results">
               {matchingChats.map((chat) => (
                 <button className="global-chat-result" type="button" key={chat.id} onClick={() => onOpenChat(chat.id)}>
@@ -364,9 +365,7 @@ export function GlobalSearchResults({
         )}
         {current && !showLoading && messages.length > 0 && (
           <section className="global-result-section" aria-labelledby="global-message-results">
-            <h2 id="global-message-results">
-              消息
-              <span>{state.totalCount > messages.length ? state.totalCount : messages.length}</span>
+            <h2 id="global-message-results">{translate("消息")}<span>{state.totalCount > messages.length ? state.totalCount : messages.length}</span>
             </h2>
             <div className="global-message-results">
               {messages.map((message) => (
@@ -385,10 +384,10 @@ export function GlobalSearchResults({
         )}
         <MotionPresence present={Boolean(statusKind)} variant="status">
           {statusKind ? (
-            <div key={statusKind} className={`global-search-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"} aria-label={statusKind === "loading" ? "正在搜索" : undefined}>
+            <div key={statusKind} className={`global-search-state ${statusKind === "error" ? "is-error" : ""}`.trim()} role={statusKind === "error" ? "alert" : "status"} aria-label={statusKind === "loading" ? translate("正在搜索") : undefined}>
               {statusKind === "loading" ? <LoaderCircle className="spin" size={21} /> : statusKind === "error" ? (
-                <><span>{state.error}</span><button className="dialog-secondary" type="button" onClick={() => void onSearch(normalizedQuery, filter)}>重试</button></>
-              ) : <span>没有搜索结果</span>}
+                <><span>{state.error}</span><button className="dialog-secondary" type="button" onClick={() => void onSearch(normalizedQuery, filter)}>{translate("重试")}</button></>
+              ) : <span>{translate("没有搜索结果")}</span>}
             </div>
           ) : null}
         </MotionPresence>
@@ -400,7 +399,7 @@ export function GlobalSearchResults({
             onClick={() => void onLoadMore()}
           >
             {showLoadingMore && <LoaderCircle className="spin" size={16} />}
-            <span>加载更多</span>
+            <span>{translate("加载更多")}</span>
           </button>
         )}
       </div>
