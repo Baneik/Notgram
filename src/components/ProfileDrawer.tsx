@@ -15,6 +15,7 @@ import {
   Phone,
   RefreshCw,
   Shield,
+  ShieldCheck,
   Users,
   X,
 } from "lucide-react";
@@ -126,6 +127,7 @@ export function ProfileDrawer({
   const localBlockedUsers = useLocalUserBlocks((store) => store.users);
   const blockLocalUser = useLocalUserBlocks((store) => store.blockUser);
   const unblockLocalUser = useLocalUserBlocks((store) => store.unblockUser);
+  const markLocalBlockedUserReactionsRead = useTelegramStore((store) => store.markLocalBlockedUserReactionsRead);
   const colorTheme = usePreferencesStore((store) => colorThemeForThemeId(store.themeId));
   const profile = state.value;
   const users = useTelegramStore((store) => store.users);
@@ -390,7 +392,11 @@ export function ProfileDrawer({
                     ) : null}
                     {profile.userId && profile.kind === "user" ? (
                       <button
+                        className={localBlockedUser ? "is-active" : undefined}
                         type="button"
+                        aria-label={localBlockedUser ? "解除屏蔽" : "屏蔽"}
+                        aria-pressed={Boolean(localBlockedUser)}
+                        title={localBlockedUser ? "解除屏蔽" : "屏蔽"}
                         onClick={() => {
                           if (localBlockedUser) {
                             unblockLocalUser(activeAccountId, profile.userId!);
@@ -400,16 +406,24 @@ export function ProfileDrawer({
                               displayName: profile.title,
                               avatar: profile.avatar,
                             });
+                            void markLocalBlockedUserReactionsRead(profile.userId!);
                           }
                         }}
                       >
                         {localBlockedUser ? <Eye size={18} /> : <EyeOff size={18} />}
-                        <span>{localBlockedUser ? "解除屏蔽" : "屏蔽"}</span>
+                        <span>屏蔽</span>
                       </button>
                     ) : null}
                     {profile.userId && profile.kind === "user" ? (
-                      <button type="button" onClick={() => void onToggleBlock(profile.userId!, "user", !isBlocked)}>
-                        <Ban size={18} /><span>{isBlocked ? "移出黑名单" : "加入黑名单"}</span>
+                      <button
+                        className={isBlocked ? "is-active" : undefined}
+                        type="button"
+                        aria-label={isBlocked ? "移出黑名单" : "黑名单"}
+                        aria-pressed={isBlocked}
+                        title={isBlocked ? "移出黑名单" : "黑名单"}
+                        onClick={() => void onToggleBlock(profile.userId!, "user", !isBlocked)}
+                      >
+                        {isBlocked ? <ShieldCheck size={18} /> : <Ban size={18} />}<span>黑名单</span>
                       </button>
                     ) : null}
                     {profile.chatId && profile.kind === "channel" ? (

@@ -1719,6 +1719,27 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("keeps unread reaction senders and types for local filtering", () => {
+    expect(mapTdMessage({
+      id: 77,
+      chat_id: 7,
+      sender_id: { "@type": "messageSenderUser", user_id: 11 },
+      date: 1_700_000_000,
+      unread_reactions: [{
+        type: { "@type": "reactionTypeEmoji", emoji: "👍" },
+        sender_id: { "@type": "messageSenderUser", user_id: 42 },
+        is_big: false,
+      }],
+      content: {
+        "@type": "messageText",
+        text: { "@type": "formattedText", text: "hello", entities: [] },
+      },
+    })).toMatchObject({
+      containsUnreadReaction: true,
+      unreadReactions: [{ senderId: "42", type: { kind: "emoji", emoji: "👍" } }],
+    });
+  });
+
   it("maps message operation permissions without inferring missing rights", () => {
     expect(mapTdMessageProperties({
       "@type": "messageProperties",

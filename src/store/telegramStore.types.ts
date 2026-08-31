@@ -210,6 +210,7 @@ export interface TelegramState {
     replyQuote?: MessageReplyQuote,
   ) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
+  markLocalBlockedUserReactionsRead: (userId?: string) => Promise<void>;
   dismissMessageAttention: (chatId: string, messageIds: string[]) => void;
   loadMessageProperties: (
     chatId: string,

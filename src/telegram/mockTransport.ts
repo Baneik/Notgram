@@ -2479,6 +2479,7 @@ export class MockTelegramTransport implements TelegramTransport {
     );
     for (const message of readMessages) {
       message.containsUnreadReaction = false;
+      message.unreadReactions = [];
       this.listener?.({ type: "message.upsert", message: clone(message) });
     }
     const chat = this.snapshot.chats.find((item) => item.id === chatId);

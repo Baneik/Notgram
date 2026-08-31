@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockSnapshot } from "../telegram/mockData";
 import { MockTelegramTransport } from "../telegram/mockTransport";
 import type { TelegramEventListener } from "../telegram/transport";
@@ -40,6 +40,11 @@ import {
   DEFAULT_CHAT_PERMISSIONS,
   deriveChatManagementCapabilities,
 } from "../telegram/chatManagement";
+import { localUserBlocksStore } from "./localUserBlocks";
+
+afterEach(() => {
+  localUserBlocksStore.setState({ users: [] });
+});
 
 describe("telegram store", () => {
   it("moves cached history and pending state when a group is upgraded", async () => {
@@ -4072,6 +4077,67 @@ describe("chat filtering", () => {
 
     transport.finishReactionRead();
     await vi.waitFor(() => expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false));
+  });
+
+  it("marks unread reactions from locally blocked users as read remotely", async () => {
+    class BlockedReactionTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+      readonly reactionReads: string[] = [];
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      dispatch(event: TelegramEvent) {
+        this.eventListener?.(event);
+      }
+
+      override async markAllChatReactionsRead(chatId: string) {
+        this.reactionReads.push(chatId);
+        await super.markAllChatReactionsRead(chatId);
+      }
+    }
+
+    localUserBlocksStore.setState({ users: [{
+      accountId: "default",
+      userId: "u-mia",
+      realName: "Mia Chen",
+      realAvatar: { label: "MC", color: "#8d6cab" },
+      alias: "小熊",
+      aliasAvatar: { label: "X", color: "#8b6b55" },
+      identityId: "bear",
+      blockedAt: "2026-08-21T00:00:00.000Z",
+    }] });
+    const transport = new BlockedReactionTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const template = store.getState().messages.get("chat-product")?.at(-1)!;
+
+    transport.dispatch({
+      type: "message.upsert",
+      message: {
+        ...template,
+        id: "blocked-reaction",
+        containsUnreadReaction: true,
+        interaction: {
+          viewCount: 0,
+          forwardCount: 0,
+          replyCount: 0,
+          reactions: [{
+            type: { kind: "emoji", emoji: "👍" },
+            totalCount: 1,
+            chosen: false,
+            recentSenderIds: ["u-mia"],
+          }],
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(transport.reactionReads).toEqual(["chat-product"]));
+    await vi.waitFor(() => expect(store.getState().messages.get("chat-product")
+      ?.find((message) => message.id === "blocked-reaction")?.containsUnreadReaction)
+      .toBe(false));
   });
 
   it("surfaces incompatible Telegram links instead of treating reserved routes as chats", async () => {

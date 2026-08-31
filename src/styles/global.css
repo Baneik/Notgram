@@ -517,6 +517,7 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .chat-row-topline time { flex: 0 0 auto; color: var(--subtle); font-size: 11px; }
 .chat-preview { min-width: 0; display: flex; align-items: center; gap: 4px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .chat-preview.is-draft { color: var(--color-status-danger); }
+.chat-preview.is-local-block-concealed { color: var(--muted); font-style: italic; }
 .chat-preview svg { flex: 0 0 auto; color: var(--accent); }
 .chat-preview-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-preview-sender { color: var(--color-text-link); font-weight: 650; }
@@ -3241,7 +3242,8 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   background: var(--color-accent-soft); border: 1px solid color-mix(in srgb, var(--color-border-focus) 72%, transparent); border-radius: 7px;
   cursor: pointer; font-size: 12px; font-weight: 650;
 }
-.profile-actions button:hover { color: var(--color-text-on-accent); background: var(--accent); border-color: var(--accent); }
+.profile-actions button:hover, .profile-actions button.is-active { color: var(--color-text-on-accent); background: var(--accent); border-color: var(--accent); }
+.profile-actions button.is-active { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent); }
 .profile-secondary-content { animation: motion-status-in var(--motion-duration-standard) var(--motion-ease-enter) both; }
 .profile-identity-card { margin: 11px 14px; overflow: hidden; background: var(--color-bg-surface); border: 1px solid var(--line); border-radius: 7px; }
 .profile-identity-card > div { min-width: 0; min-height: 49px; padding: 7px 11px; display: grid; grid-template-columns: 25px minmax(0, 1fr); align-items: center; gap: 8px; }

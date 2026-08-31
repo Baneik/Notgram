@@ -72,6 +72,8 @@ import {
 } from "./attachmentOutbox";
 import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 import { recordConversationSentMessages } from "./conversationActivity";
+import { localUserBlocksStore } from "./localUserBlocks";
+import { messageHasUnreadLocalBlockedReaction } from "../utils/localBlockedReactions";
 
 export type {
   ChatFilter,
@@ -212,6 +214,7 @@ export const createTelegramStore = (
     const seenReactionMessageIds = new Map<string, Set<string>>();
     const reactionAttentionLoads = new Map<string, Promise<void>>();
     const reactionReadRequests = new Set<string>();
+    const blockedReactionReadRequests = new Set<string>();
     let attentionReadGeneration = 0;
     const messageChangeListeners = new Set<MessageChangeListener>();
     const publishMessageChange = (event: MessageChangeEvent) => {
@@ -335,6 +338,62 @@ export const createTelegramStore = (
       removeUnreadAttention(chatId, removableIds);
       seenReactionMessageIds.delete(chatId);
     };
+    const localBlockedReactionUserIds = () => new Set(
+      localUserBlocksStore.getState().users
+        .filter((user) => user.accountId === get().activeAccountId)
+        .map((user) => user.userId),
+    );
+    const clearChatReactionUnreadState = (chatId: string) => {
+      clearUnreadReactionAttention(chatId);
+      const chats = new Map(get().chats);
+      const chat = chats.get(chatId);
+      if (chat && (chat.unreadReactionCount ?? 0) > 0) {
+        chats.set(chatId, { ...chat, unreadReactionCount: 0 });
+      }
+      const forumTopics = new Map(get().forumTopics);
+      if (forumTopics.has(chatId)) {
+        forumTopics.set(chatId, (forumTopics.get(chatId) ?? []).map((topic) => ({
+          ...topic,
+          unreadReactionCount: 0,
+        })));
+      }
+      set({ chats, forumTopics });
+    };
+    const markBlockedChatReactionsRead = (chatId: string): Promise<void> => {
+      if (
+        get().authorization.kind !== "ready" ||
+        blockedReactionReadRequests.has(chatId) ||
+        reactionReadRequests.has(chatId)
+      ) return Promise.resolve();
+      const requestGeneration = attentionReadGeneration;
+      blockedReactionReadRequests.add(chatId);
+      reactionReadRequests.add(chatId);
+      return transport.markAllChatReactionsRead(chatId)
+        .then(() => {
+          if (requestGeneration !== attentionReadGeneration) return;
+          clearChatReactionUnreadState(chatId);
+          set({ operationError: undefined });
+          scheduleCacheWrite();
+        })
+        .catch((error) => {
+          if (requestGeneration !== attentionReadGeneration) return;
+          set({ operationError: errorMessage(error, "无法更新屏蔽回应的已读状态") });
+        })
+        .finally(() => {
+          if (requestGeneration !== attentionReadGeneration) return;
+          blockedReactionReadRequests.delete(chatId);
+          reactionReadRequests.delete(chatId);
+        });
+    };
+    const queueBlockedReactionReads = (messages: readonly Message[]) => {
+      const blockedSenderIds = localBlockedReactionUserIds();
+      if (blockedSenderIds.size === 0) return;
+      for (const message of messages) {
+        if (messageHasUnreadLocalBlockedReaction(message, blockedSenderIds)) {
+          void markBlockedChatReactionsRead(message.chatId);
+        }
+      }
+    };
     const reconcileMessageAttention = (
       message: Message,
       previous: Message | undefined,
@@ -433,6 +492,7 @@ export const createTelegramStore = (
         const messages = new Map(get().messages);
         messages.set(chatId, upsertMessages(messages.get(chatId) ?? [], found));
         set({ messages });
+        queueBlockedReactionReads(found);
         addUnreadReactionAttention(found);
         publishMessageChange({ type: "upsert", messages: found, liveMessages: [] });
       })()
@@ -669,6 +729,7 @@ export const createTelegramStore = (
       seenReactionMessageIds.clear();
       reactionAttentionLoads.clear();
       reactionReadRequests.clear();
+      blockedReactionReadRequests.clear();
       attentionReadGeneration += 1;
       for (const timer of readTimers.values()) globalThis.clearTimeout(timer);
       readTimers.clear();
@@ -1532,6 +1593,7 @@ export const createTelegramStore = (
 
       if (event.type === "message.replace") {
         const chatId = event.message.chatId;
+        queueBlockedReactionReads([event.message]);
         const previousMessage = get().messages.get(chatId)
           ?.find((message) => message.id === event.oldMessageId || message.id === event.message.id);
         reconcileMessageAttention(event.message, previousMessage, false);
@@ -1576,6 +1638,7 @@ export const createTelegramStore = (
         for (const [chatId, incoming] of incomingByChat) {
           const existing = messages.get(chatId) ?? [];
           for (const message of incoming) {
+            queueBlockedReactionReads([message]);
             reconcileMessageAttention(
               message,
               existing.find((candidate) => candidate.id === message.id),
@@ -1634,6 +1697,7 @@ export const createTelegramStore = (
 
       const messages = new Map(get().messages);
       const existingMessages = messages.get(event.message.chatId) ?? [];
+      queueBlockedReactionReads([event.message]);
       const isNewLiveMessage = event.animateEntrance === true &&
         !existingMessages.some((message) => message.id === event.message.id);
       reconcileMessageAttention(
@@ -2025,6 +2089,7 @@ export const createTelegramStore = (
           });
           for (const chatMessages of messages.values()) {
             addUnreadReactionAttention(chatMessages);
+            queueBlockedReactionReads(chatMessages);
           }
           if (authorization.kind === "ready" && get().connectionStatus === "online") {
             for (const chat of chats.values()) {
@@ -2704,6 +2769,17 @@ export const createTelegramStore = (
       markActiveChatRead: async () => {
         const chatId = get().activeChatId;
         if (chatId) await markActiveConversationRead(chatId);
+      },
+      markLocalBlockedUserReactionsRead: async (userId) => {
+        const blockedSenderIds = localBlockedReactionUserIds();
+        if (userId) blockedSenderIds.add(userId);
+        const chatIds = new Set<string>();
+        for (const [chatId, messages] of get().messages) {
+          if (messages.some((message) => messageHasUnreadLocalBlockedReaction(message, blockedSenderIds))) {
+            chatIds.add(chatId);
+          }
+        }
+        await Promise.all([...chatIds].map((chatId) => markBlockedChatReactionsRead(chatId)));
       },
 
       dismissMessageAttention: (chatId, messageIds) => {

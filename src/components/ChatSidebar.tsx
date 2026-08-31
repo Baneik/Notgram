@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
@@ -24,6 +25,7 @@ import { ChatSearchResults, GlobalSearchResults, type SidebarSearchSenderOption 
 import { ChatContextMenu } from "./SidebarContextMenus";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { usePreferencesStore, type UnreadBadgePosition } from "../store/preferencesStore";
+import { useLocalUserBlocks } from "../store/localUserBlocks";
 import { useFlipListMotion } from "../hooks/useFlipListMotion";
 
 interface ChatSidebarProps {
@@ -126,6 +128,12 @@ export function ChatSidebar({
   mobileChatOpen = false,
 }: ChatSidebarProps) {
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
+  const localBlockedUsers = useLocalUserBlocks((state) => state.users);
+  const localBlockedUserIds = useMemo(() => new Set(
+    localBlockedUsers
+      .filter((user) => user.accountId === accountId)
+      .map((user) => user.userId),
+  ), [accountId, localBlockedUsers]);
   const sidebarRef = useRef<HTMLElement>(null);
   const chatListRef = useRef<HTMLDivElement>(null);
   const chatListScrollTopByFolderRef = useRef(new Map<string, number>());
@@ -516,6 +524,10 @@ export function ChatSidebar({
                           : undefined
                     )
                   : undefined}
+                previewConcealed={Boolean(
+                  (chat.previewSenderId && localBlockedUserIds.has(chat.previewSenderId)) ||
+                  (chat.kind === "direct" && chat.peerId && localBlockedUserIds.has(chat.peerId)),
+                )}
                 folderId={folderId}
                 active={activeChatId === chat.id}
                 onOpenContextMenu={openContextMenu}
@@ -588,6 +600,7 @@ const ChatRow = memo(function ChatRow({
   chat,
   unreadBadgePosition,
   previewSenderName,
+  previewConcealed,
   folderId,
   active,
   onSelectChat,
@@ -605,6 +618,7 @@ const ChatRow = memo(function ChatRow({
   chat: Chat;
   unreadBadgePosition: UnreadBadgePosition;
   previewSenderName?: string;
+  previewConcealed?: boolean;
   folderId: string;
   active: boolean;
   onSelectChat: (chatId: string) => void;
@@ -707,17 +721,17 @@ const ChatRow = memo(function ChatRow({
           <time dateTime={chat.updatedAt}>{formatChatTime(chat.updatedAt)}</time>
         </span>
         <span className="chat-row-bottomline">
-          <span className={`chat-preview ${draftPreview ? "is-draft" : ""}`}>
+          <span className={`chat-preview ${draftPreview ? "is-draft" : ""} ${previewConcealed ? "is-local-block-concealed" : ""}`}>
             {draftPreview ? (
               <span className="chat-preview-message">草稿：{draftPreview}</span>
             ) : (
               <>
                 {chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}
                 <span className="chat-preview-message">
-                  {previewSenderName && chat.kind === "group" && (
+                  {!previewConcealed && previewSenderName && chat.kind === "group" && (
                     <span className="chat-preview-sender">{`${previewSenderName}: `}</span>
                   )}
-                  {chat.preview}
+                  {previewConcealed ? "消息已屏蔽" : chat.preview}
                 </span>
               </>
             )}

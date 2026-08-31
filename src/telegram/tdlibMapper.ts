@@ -1730,6 +1730,13 @@ export const mapTdMessageProperties = (raw: TdObject): MessagePermissions => {
   };
 };
 
+const mapTdUnreadReactions = (value: unknown) => asTdObjects(value).flatMap((entry) => {
+  const type = mapTdReactionType(entry.type);
+  if (!type) return [];
+  const senderId = tdId(entry.sender_id) || messageSenderId(entry.sender_id) || undefined;
+  return [{ type, ...(senderId ? { senderId } : {}) }];
+});
+
 export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const id = tdId(raw.id);
   const chatId = tdId(raw.chat_id);
@@ -1749,6 +1756,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const needAnotherReplyQuote = failed && sendingState.need_another_reply_quote === true;
   const needDropReply = failed && sendingState.need_drop_reply === true;
   const needAnotherSender = failed && sendingState.need_another_sender === true;
+  const unreadReactions = mapTdUnreadReactions(raw.unread_reactions);
   let content = mapTdMessageContent(raw.content, raw.is_outgoing === true);
   if (
     content.kind === "service" && content.memberUserIds?.length === 0 &&
@@ -1793,6 +1801,7 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     isPending: raw.is_pending === true,
     containsUnreadMention: raw.contains_unread_mention === true,
     containsUnreadReaction: Array.isArray(raw.unread_reactions) && raw.unread_reactions.length > 0,
+    ...(unreadReactions.length > 0 ? { unreadReactions } : {}),
     content,
   };
 };

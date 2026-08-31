@@ -417,6 +417,12 @@ export function Conversation({
     () => new Set(localBlockedUsersById.keys()),
     [localBlockedUsersById],
   );
+  const localBlockedReactionUserIds = useMemo(
+    () => new Set(localBlockedUsers
+      .filter((user) => user.accountId === activeAccountId)
+      .map((user) => user.userId)),
+    [activeAccountId, localBlockedUsers],
+  );
   const [revealedLocalBlockMessages, setRevealedLocalBlockMessages] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -2667,6 +2673,7 @@ export function Conversation({
                         autoDownloadPolicy={autoDownloadPolicy}
                         locallyConcealed={locallyConcealed}
                         localBlockGroupId={blockedGroup?.id}
+                        blockedReactionSenderIds={localBlockedReactionUserIds}
                         onRevealLocallyBlocked={blockedUser
                           ? () => revealLocalBlockedMessage(message.id)
                           : undefined}
@@ -2837,6 +2844,7 @@ export function Conversation({
             onBotCallback,
             onOpenMedia: openMediaViewer,
             onOpenStickerSet,
+            blockedReactionSenderIds: localBlockedReactionUserIds,
           }}
         />
       )}

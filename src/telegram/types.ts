@@ -842,6 +842,11 @@ export interface MessageReactionSender {
   addedAt?: string;
 }
 
+export interface UnreadMessageReaction {
+  senderId?: string;
+  type: MessageReactionType;
+}
+
 export interface MessageReactionSenderPage {
   totalCount: number;
   senders: MessageReactionSender[];
@@ -912,6 +917,7 @@ export interface Message {
   isPending?: boolean;
   containsUnreadMention?: boolean;
   containsUnreadReaction?: boolean;
+  unreadReactions?: UnreadMessageReaction[];
   replyMarkup?: MessageInlineKeyboard;
   content: MessageContent;
 }

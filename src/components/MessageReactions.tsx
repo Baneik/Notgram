@@ -14,6 +14,7 @@ import {
   ContextMenuSurface,
   type ContextMenuPoint,
 } from "./ContextMenuSurface";
+import { messageReactionTypeKey } from "../utils/localBlockedReactions";
 
 interface MessageReactionsProps {
   messageId: string;
@@ -30,6 +31,7 @@ interface MessageReactionsProps {
     chatId?: string,
   ) => Promise<MessageReactionSenderPage>;
   onOpenSenderProfile: (senderId: string) => void;
+  hiddenSenderIds?: ReadonlySet<string>;
 }
 
 interface ReactionDetailsState {
@@ -44,12 +46,6 @@ interface ReactionDetailsState {
   limited: boolean;
   requestId: number;
 }
-
-const reactionKey = (type: MessageReactionType) => {
-  if (type.kind === "emoji") return `emoji:${type.emoji}`;
-  if (type.kind === "customEmoji") return `custom:${type.customEmojiId}`;
-  return "paid";
-};
 
 const reactionLabel = (reaction: MessageReaction) => {
   if (reaction.type.kind === "emoji") return reaction.type.emoji;
@@ -79,9 +75,12 @@ const senderPresentation = (
 const mergeSenders = (
   current: MessageReactionSender[],
   incoming: MessageReactionSender[],
+  hiddenSenderIds: ReadonlySet<string>,
 ) => {
   const byId = new Map(current.map((sender) => [sender.senderId, sender]));
-  for (const sender of incoming) byId.set(sender.senderId, sender);
+  for (const sender of incoming) {
+    if (!hiddenSenderIds.has(sender.senderId)) byId.set(sender.senderId, sender);
+  }
   return [...byId.values()];
 };
 
@@ -95,6 +94,7 @@ export function MessageReactions({
   onReaction,
   onLoadSenders,
   onOpenSenderProfile,
+  hiddenSenderIds = new Set(),
 }: MessageReactionsProps) {
   const [reactionPending, setReactionPending] = useState<string>();
   const [details, setDetails] = useState<ReactionDetailsState>();
@@ -115,8 +115,8 @@ export function MessageReactions({
       if (requestIdRef.current !== requestId) return;
       setDetails((current) => current?.requestId === requestId ? {
         ...current,
-        senders: mergeSenders(current.senders, page.senders),
-        totalCount: page.totalCount,
+        senders: mergeSenders(current.senders, page.senders, hiddenSenderIds),
+        totalCount: Math.min(current.totalCount, page.totalCount),
         nextOffset: page.nextOffset,
         loading: false,
         error: undefined,
@@ -130,7 +130,7 @@ export function MessageReactions({
         error: error instanceof Error ? error.message : "无法读取回应者",
       } : current);
     }
-  }, [chatId, messageId, onLoadSenders]);
+  }, [chatId, hiddenSenderIds, messageId, onLoadSenders]);
 
   const openDetails = useCallback((
     reaction: MessageReaction,
@@ -144,7 +144,9 @@ export function MessageReactions({
       reaction,
       point,
       returnFocus,
-      senders: reaction.recentSenderIds.map((senderId) => ({
+      senders: reaction.recentSenderIds
+        .filter((senderId) => !hiddenSenderIds.has(senderId))
+        .map((senderId) => ({
         senderId,
         type: reaction.type,
         outgoing: false,
@@ -155,7 +157,7 @@ export function MessageReactions({
       requestId,
     });
     if (canLoad) void loadDetailsPage(reaction, requestId);
-  }, [canGetAddedReactions, loadDetailsPage]);
+  }, [canGetAddedReactions, hiddenSenderIds, loadDetailsPage]);
 
   const loadMore = useCallback(() => {
     if (!details?.nextOffset || details.loading) return;
@@ -191,7 +193,7 @@ export function MessageReactions({
             <button
               type="button"
               className={reaction.chosen ? "is-chosen" : ""}
-              key={reactionKey(reaction.type)}
+              key={messageReactionTypeKey(reaction.type)}
               aria-pressed={reaction.type.kind === "emoji" ? reaction.chosen : undefined}
               aria-label={`${label}，${reaction.totalCount} 个回应，右键查看回应者`}
               aria-disabled={reaction.type.kind !== "emoji" || pending}

@@ -70,6 +70,7 @@ import { MediaSpoiler } from "./Spoiler";
 import { MessageReactions } from "./MessageReactions";
 import { writeClipboardText } from "../utils/clipboard";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { visibleMessageReactions } from "../utils/localBlockedReactions";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 const INLINE_META_LOWERING_PX = 2.5;
@@ -161,6 +162,7 @@ export interface MessageBubbleProps {
   locallyConcealed?: boolean;
   localBlockGroupId?: string;
   onRevealLocallyBlocked?: () => void;
+  blockedReactionSenderIds?: ReadonlySet<string>;
 }
 
 function MessageBubbleComponent({
@@ -223,6 +225,7 @@ function MessageBubbleComponent({
   locallyConcealed = false,
   localBlockGroupId,
   onRevealLocallyBlocked,
+  blockedReactionSenderIds = new Set(),
 }: MessageBubbleProps) {
   const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
   const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
@@ -343,7 +346,7 @@ function MessageBubbleComponent({
         },
       )
     : undefined;
-  const reactions = message.interaction?.reactions ?? [];
+  const reactions = visibleMessageReactions(message, blockedReactionSenderIds);
   const showReactionFooter = !selectionMode && !isService && reactions.length > 0;
 
   useLayoutEffect(() => {
@@ -1191,6 +1194,7 @@ function MessageBubbleComponent({
                 onReaction={onReaction}
                 onLoadSenders={onLoadReactionSenders}
                 onOpenSenderProfile={onOpenSenderProfile}
+                hiddenSenderIds={blockedReactionSenderIds}
               />
               {messageMeta}
             </div>
@@ -1293,6 +1297,7 @@ export interface MessageBubblePreviewProps {
   onBotCallback?: MessageBubbleProps["onBotCallback"];
   onOpenMedia?: MessageBubbleProps["onOpenMedia"];
   onOpenStickerSet?: MessageBubbleProps["onOpenStickerSet"];
+  blockedReactionSenderIds?: ReadonlySet<string>;
 }
 
 export function MessageBubblePreview({
@@ -1341,6 +1346,7 @@ export function MessageBubblePreview({
   onBotCallback = previewCallback,
   onOpenMedia,
   onOpenStickerSet,
+  blockedReactionSenderIds,
 }: MessageBubblePreviewProps) {
   return (
     <MessageBubbleComponent
@@ -1389,6 +1395,7 @@ export function MessageBubblePreview({
       onSearchHashtag={onSearchHashtag}
       onOpenMedia={onOpenMedia}
       onOpenStickerSet={onOpenStickerSet}
+      blockedReactionSenderIds={blockedReactionSenderIds}
       autoplayAnimations={autoplayAnimations}
       autoDownloadPolicy={autoDownloadPolicy}
     />
