@@ -13,6 +13,13 @@ import {
 import { effectiveReduceMotion } from "../utils/motionPreference";
 import { setZalgoTextBlockingEnabled } from "../telegram/identityText";
 import {
+  AD_BLOCK_KEYWORD_LENGTH_LIMIT,
+  AD_BLOCK_KEYWORD_LIMIT,
+  AD_BLOCK_REGEX_LENGTH_LIMIT,
+  AD_BLOCK_REGEX_LIMIT,
+  sanitizeAdBlockEntries,
+} from "../utils/adBlocking";
+import {
   applyLanguagePreference,
   isLanguagePreference,
   type LanguagePreference,
@@ -29,6 +36,11 @@ export interface AppPreferences {
   sendOnEnter: boolean;
   blockTypingStatus: boolean;
   blockZalgoText: boolean;
+  adBlockingEnabled: boolean;
+  blockSponsoredMessages: boolean;
+  customAdBlockingEnabled: boolean;
+  adBlockKeywords: string[];
+  adBlockRegexRules: string[];
   developerMode: boolean;
   autoplayAnimations: boolean;
   autoDownloadImages: boolean;
@@ -66,6 +78,11 @@ const defaults: AppPreferences = {
   sendOnEnter: true,
   blockTypingStatus: true,
   blockZalgoText: true,
+  adBlockingEnabled: true,
+  blockSponsoredMessages: true,
+  customAdBlockingEnabled: false,
+  adBlockKeywords: [],
+  adBlockRegexRules: [],
   developerMode: false,
   autoplayAnimations: true,
   autoDownloadImages: true,
@@ -113,6 +130,19 @@ const readPreferences = (): AppPreferences => {
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       blockTypingStatus,
       blockZalgoText: stored.blockZalgoText ?? defaults.blockZalgoText,
+      adBlockingEnabled: stored.adBlockingEnabled ?? defaults.adBlockingEnabled,
+      blockSponsoredMessages: stored.blockSponsoredMessages ?? defaults.blockSponsoredMessages,
+      customAdBlockingEnabled: stored.customAdBlockingEnabled ?? defaults.customAdBlockingEnabled,
+      adBlockKeywords: sanitizeAdBlockEntries(
+        stored.adBlockKeywords,
+        AD_BLOCK_KEYWORD_LIMIT,
+        AD_BLOCK_KEYWORD_LENGTH_LIMIT,
+      ),
+      adBlockRegexRules: sanitizeAdBlockEntries(
+        stored.adBlockRegexRules,
+        AD_BLOCK_REGEX_LIMIT,
+        AD_BLOCK_REGEX_LENGTH_LIMIT,
+      ),
       developerMode: stored.developerMode ?? defaults.developerMode,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
       autoDownloadImages: stored.autoDownloadImages ?? defaults.autoDownloadImages,
@@ -266,6 +296,11 @@ preferencesStore.subscribe((state) => {
     sendOnEnter: state.sendOnEnter,
     blockTypingStatus: state.blockTypingStatus,
     blockZalgoText: state.blockZalgoText,
+    adBlockingEnabled: state.adBlockingEnabled,
+    blockSponsoredMessages: state.blockSponsoredMessages,
+    customAdBlockingEnabled: state.customAdBlockingEnabled,
+    adBlockKeywords: state.adBlockKeywords,
+    adBlockRegexRules: state.adBlockRegexRules,
     developerMode: state.developerMode,
     autoplayAnimations: state.autoplayAnimations,
     autoDownloadImages: state.autoDownloadImages,

@@ -31,6 +31,11 @@ import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/te
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { localUserBlocksStore } from "../store/localUserBlocks";
 import { messageContentText } from "../telegram/messageContent";
+import {
+  adBlockingTextForContent,
+  messageMatchesAdBlockingRules,
+  textMatchesAdBlockingRules,
+} from "../utils/adBlocking";
 import type { Message, TelegramLinkTarget } from "../telegram/types";
 import { isTelegramBotStartLink, isTelegramUserLink } from "../telegram/telegramLinks";
 import { connectionPresentation } from "../telegram/connectionState";
@@ -141,6 +146,9 @@ export function App() {
   const activeChatId = useTelegramStore((state) => state.activeChatId);
   const activeChatMessages = useTelegramStore((state) =>
     activeChatId ? state.messages.get(activeChatId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES
+  );
+  const activeSponsoredMessages = useTelegramStore((state) =>
+    activeChatId ? state.sponsoredMessages.get(activeChatId) : undefined,
   );
   const activeRemovingSource = useTelegramStore((state) =>
     activeChatId ? state.removingMessages.get(activeChatId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES
@@ -272,11 +280,31 @@ export function App() {
   const sendFiles = useTelegramStore((state) => state.sendFiles);
   const cancelFileUpload = useTelegramStore((state) => state.cancelFileUpload);
   const loadMoreHistory = useTelegramStore((state) => state.loadMoreHistory);
+  const clickChatSponsoredMessage = useTelegramStore((state) => state.clickChatSponsoredMessage);
   const clearError = useTelegramStore((state) => state.clearError);
   const clearOperationError = useTelegramStore((state) => state.clearOperationError);
   const clearMediaCache = useTelegramStore((state) => state.clearMediaCache);
   const recoverFile = useTelegramStore((state) => state.recoverFile);
   const cacheRetentionDays = usePreferencesStore((state) => state.cacheRetentionDays);
+  const adBlockingEnabled = usePreferencesStore((state) => state.adBlockingEnabled);
+  const blockSponsoredMessages = usePreferencesStore((state) => state.blockSponsoredMessages);
+  const customAdBlockingEnabled = usePreferencesStore((state) => state.customAdBlockingEnabled);
+  const adBlockKeywords = usePreferencesStore((state) => state.adBlockKeywords);
+  const adBlockRegexRules = usePreferencesStore((state) => state.adBlockRegexRules);
+  const visibleSponsoredMessages = useMemo(() => {
+    if (!adBlockingEnabled) return [];
+    const messages = activeSponsoredMessages?.messages ?? [];
+    if (blockSponsoredMessages) return [];
+    return messages.filter((message) => !textMatchesAdBlockingRules(
+      adBlockingTextForContent(message.content),
+      {
+        enabled: adBlockingEnabled,
+        customEnabled: customAdBlockingEnabled,
+        keywords: adBlockKeywords,
+        regexRules: adBlockRegexRules,
+      },
+    ));
+  }, [activeSponsoredMessages, adBlockingEnabled, blockSponsoredMessages, customAdBlockingEnabled, adBlockKeywords, adBlockRegexRules]);
   const authenticate = useTelegramStore((state) => state.authenticate);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [mobileViewport, setMobileViewport] = useState(false);
@@ -384,6 +412,12 @@ export function App() {
       if (state.activeAccountId !== accountId) return;
       const preferences = preferencesStore.getState();
       const chat = state.chats.get(message.chatId);
+      if (messageMatchesAdBlockingRules(message, {
+        enabled: preferences.adBlockingEnabled,
+        customEnabled: preferences.customAdBlockingEnabled,
+        keywords: preferences.adBlockKeywords,
+        regexRules: preferences.adBlockRegexRules,
+      })) return;
       if (
         chat?.kind === "group" &&
         localUserBlocksStore.getState().users.some((user) =>
@@ -1501,10 +1535,16 @@ export function App() {
       // Channel discussion replies can share the channel chat in TDLib. Keep
       // them available to the discussion panel, but never mix them into the
       // channel's post timeline.
-      return chats.get(activeChatId ?? "")?.kind === "channel"
+      const visible = chats.get(activeChatId ?? "")?.kind === "channel"
         ? scoped.filter((message) => message.isChannelPost === true || message.content.kind === "service")
         : scoped;
-    }, [activeChatId, activeChatMessages, activeTopicId, chats],
+      return visible.filter((message) => !messageMatchesAdBlockingRules(message, {
+        enabled: adBlockingEnabled,
+        customEnabled: customAdBlockingEnabled,
+        keywords: adBlockKeywords,
+        regexRules: adBlockRegexRules,
+      }));
+    }, [activeChatId, activeChatMessages, activeTopicId, chats, adBlockingEnabled, customAdBlockingEnabled, adBlockKeywords, adBlockRegexRules],
   );
   const activeRemovingMessages = useMemo(
     () => activeTopicId
@@ -1805,6 +1845,8 @@ export function App() {
           scrollScope={activeTopicId ? `${activeAccountId}:topic:${activeTopicId}` : activeAccountId}
           scrollRequest={conversationScrollRequest}
           messages={activeDisplayMessages}
+          sponsoredMessages={visibleSponsoredMessages}
+          sponsoredMessagesBetween={activeSponsoredMessages?.messagesBetween}
           chatMessages={activeChatMessages}
           forwardTargets={forwardTargets}
           forumTopics={forumTopics}
@@ -1858,6 +1900,7 @@ export function App() {
           onCancelFileUpload={cancelFileUpload}
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
+          onClickSponsoredMessage={clickChatSponsoredMessage}
           onViewportReady={finishConversationSnapshot}
           mobileViewport={mobileViewport}
           mobileChatOpen={mobileChatOpen}

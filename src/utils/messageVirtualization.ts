@@ -1,4 +1,4 @@
-import type { Message } from "../telegram/types";
+import type { Message, SponsoredMessage } from "../telegram/types";
 import { localDateKey } from "./formatters";
 import {
   groupConsecutiveMessages,
@@ -15,11 +15,16 @@ export interface VirtualMessageBlock {
   id: string;
   firstMessage: Message;
   messages: Message[];
+  sponsoredMessage?: SponsoredMessage;
   segments: MediaAlbumSegment[];
   positions: ReadonlyMap<string, MessageGroupPosition>;
   startsNewDay: boolean;
   continuesBefore: boolean;
   continuesAfter: boolean;
+}
+
+export interface SponsoredTimelineOptions {
+  messagesBetween: number;
 }
 
 const segmentMessages = (segment: MediaAlbumSegment) =>
@@ -98,4 +103,78 @@ export const indexMessagesByVirtualBlock = (blocks: VirtualMessageBlock[]) => {
     block.messages.forEach((message) => indexes.set(message.id, blockIndex));
   });
   return indexes;
+};
+
+/** Inserts sponsored blocks without turning them into ordinary message records. */
+export const virtualizeMessageTimeline = (
+  messages: Message[],
+  sponsoredMessages: SponsoredMessage[],
+  options: SponsoredTimelineOptions,
+  maximumMessages = MAX_MESSAGES_PER_VIRTUAL_BLOCK,
+  groupAdjacentMessages = true,
+): VirtualMessageBlock[] => {
+  const blocks = virtualizeMessageGroups(messages, maximumMessages, groupAdjacentMessages);
+  if (sponsoredMessages.length === 0) return blocks;
+  const interval = Math.max(0, Math.floor(options.messagesBetween));
+  if (interval === 0) {
+    const first = blocks[0]?.firstMessage;
+    if (!first) return sponsoredMessages.map((sponsored) => ({
+      id: `sponsored:${sponsored.id}`,
+      firstMessage: undefined as never,
+      messages: [],
+      sponsoredMessage: sponsored,
+      segments: [],
+      positions: new Map(),
+      startsNewDay: false,
+      continuesBefore: false,
+      continuesAfter: false,
+    }));
+    return [
+      ...sponsoredMessages.map((sponsored) => ({
+        id: `sponsored:${sponsored.id}`,
+        firstMessage: first,
+        messages: [],
+        sponsoredMessage: sponsored,
+        segments: [],
+        positions: new Map(),
+        startsNewDay: false,
+        continuesBefore: false,
+        continuesAfter: false,
+      })),
+      ...blocks,
+    ];
+  }
+  const result: VirtualMessageBlock[] = [];
+  let ordinaryCount = 0;
+  let sponsoredIndex = 0;
+  for (const block of blocks) {
+    result.push(block);
+    ordinaryCount += block.messages.length;
+    while (sponsoredIndex < sponsoredMessages.length && ordinaryCount >= interval) {
+      const sponsored = sponsoredMessages[sponsoredIndex++]!;
+      result.push({
+        id: `sponsored:${sponsored.id}`,
+        firstMessage: block.firstMessage,
+        messages: [],
+        sponsoredMessage: sponsored,
+        segments: [],
+        positions: new Map(),
+        startsNewDay: false,
+        continuesBefore: false,
+        continuesAfter: false,
+      });
+      ordinaryCount = 0;
+    }
+  }
+  return result.concat(sponsoredMessages.slice(sponsoredIndex).map((sponsored) => ({
+    id: `sponsored:${sponsored.id}`,
+    firstMessage: blocks.at(-1)?.firstMessage as Message,
+    messages: [],
+    sponsoredMessage: sponsored,
+    segments: [],
+    positions: new Map(),
+    startsNewDay: false,
+    continuesBefore: false,
+    continuesAfter: false,
+  })));
 };

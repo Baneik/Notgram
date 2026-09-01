@@ -34,6 +34,7 @@ import type {
   ConnectionStatus,
   ForumTopic,
   Message,
+  SponsoredMessage,
   MessagePermissions,
   MessageReactionSenderPage,
   MessageReactionType,
@@ -91,6 +92,7 @@ import {
 import {
   indexMessagesByVirtualBlock,
   virtualizeMessageGroups,
+  virtualizeMessageTimeline,
   type VirtualMessageBlock,
 } from "../utils/messageVirtualization";
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
@@ -133,6 +135,8 @@ import {
 import { loadMessageActionPermissions } from "../utils/messageActionPermissions";
 import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
 import { mediaAlbumMessagesFor } from "../utils/mediaAlbums";
+import { messageContentText } from "../telegram/messageContent";
+import { openExternalLink } from "../utils/externalLinks";
 import {
   localBlockedMessageGroups,
   replySenderId,
@@ -184,6 +188,43 @@ VirtualMessageListContent.displayName = "VirtualMessageListContent";
 const EmptyMessageList = () => <div className="messages-empty">{translate("没有匹配的消息")}</div>;
 const EmptyPinnedMessageList = () => <div className="messages-empty">{translate("当前没有置顶消息")}</div>;
 const MessageListFooter = () => <div className="message-list-end-sentinel" aria-hidden="true" />;
+
+const SponsoredMessageCard = ({
+  message,
+  onClick,
+}: {
+  message: SponsoredMessage;
+  onClick: () => void;
+}) => {
+  const contentText = messageContentText(message.content).trim();
+  return (
+    <article className="sponsored-message-card" data-sponsored-message-id={message.id}>
+      <div className="sponsored-message-header">
+        <Avatar avatar={message.sponsor.avatar} size="small" />
+        <div className="sponsored-message-heading">
+          <strong>{message.title}</strong>
+          <span>{message.isRecommended ? translate("推荐") : translate("赞助")}</span>
+        </div>
+        <span className="sponsored-message-mark" aria-hidden="true">AD</span>
+      </div>
+      {contentText && <p>{contentText}</p>}
+      {message.sponsor.info && <small className="sponsored-message-info">{message.sponsor.info}</small>}
+      <button
+        className="sponsored-message-action"
+        type="button"
+        onClick={() => {
+          onClick();
+          if (message.sponsor.url) void openExternalLink(message.sponsor.url).catch(() => undefined);
+        }}
+      >
+        <span>{message.buttonText}</span>
+        <ArrowUpRight size={14} strokeWidth={2} />
+      </button>
+      {message.additionalInfo && <small className="sponsored-message-additional">{message.additionalInfo}</small>}
+    </article>
+  );
+};
+
 const messageListComponents: Components<VirtualMessageBlock> = {
   EmptyPlaceholder: EmptyMessageList,
   Footer: MessageListFooter,
@@ -204,6 +245,8 @@ interface ConversationProps {
   scrollScope: string;
   scrollRequest?: ConversationScrollRequest;
   messages: Message[];
+  sponsoredMessages?: SponsoredMessage[];
+  sponsoredMessagesBetween?: number;
   chatMessages: Message[];
   forwardTargets: Chat[];
   forumTopics: Map<string, ForumTopic[]>;
@@ -303,6 +346,7 @@ interface ConversationProps {
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string, chatId?: string) => void;
   onOpenStickerSet: (stickerSetId: string) => void;
+  onClickSponsoredMessage?: (chatId: string, messageId: string, isMediaClick?: boolean) => Promise<void>;
   onStartPrivateChat: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;
   onSetChatMuted: (muted: boolean) => Promise<boolean>;
@@ -332,6 +376,8 @@ export function Conversation({
   scrollScope,
   scrollRequest,
   messages,
+  sponsoredMessages = [],
+  sponsoredMessagesBetween = 0,
   chatMessages,
   forwardTargets,
   forumTopics,
@@ -385,6 +431,7 @@ export function Conversation({
   onOpenMention,
   onSearchHashtag,
   onOpenStickerSet,
+  onClickSponsoredMessage,
   onStartPrivateChat,
   onSetChatPinned,
   onSetChatMuted,
@@ -716,13 +763,15 @@ export function Conversation({
 
   const messageProjection = useMemo(() => {
     const startedAt = performance.now();
-    const blocks = virtualizeMessageGroups(
+    const blocks = virtualizeMessageTimeline(
       renderedMessages,
+      pinnedViewOpen ? [] : sponsoredMessages,
+      { messagesBetween: sponsoredMessagesBetween },
       undefined,
       chat?.kind !== "channel",
     );
     return { blocks, durationMs: performance.now() - startedAt };
-  }, [chat?.kind, renderedMessages]);
+  }, [chat?.kind, pinnedViewOpen, renderedMessages, sponsoredMessages, sponsoredMessagesBetween]);
   const visibleMessageBlocks = messageProjection.blocks;
   const messageItemIndexes = useMemo(
     () => indexMessagesByVirtualBlock(visibleMessageBlocks),
@@ -2441,6 +2490,17 @@ export function Conversation({
           minOverscanItemCount={{ top: 2, bottom: 2 }}
           {...messageListHandlers}
           itemContent={(_, groupModel) => {
+            if (groupModel.sponsoredMessage) {
+              const sponsored = groupModel.sponsoredMessage;
+              return (
+                <SponsoredMessageCard
+                  message={sponsored}
+                  onClick={() => {
+                    void onClickSponsoredMessage?.(chat?.id ?? sponsored.chatId, sponsored.id, false);
+                  }}
+                />
+              );
+            }
             const { firstMessage, messages: messageGroup, positions, startsNewDay } = groupModel;
             const reserveSenderAvatar = !isChannelConversation && firstMessage.content.kind !== "service" &&
               firstMessage.content.kind !== "unsupported" &&

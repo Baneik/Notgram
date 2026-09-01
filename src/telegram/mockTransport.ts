@@ -80,6 +80,7 @@ import type {
   TelegramSnapshot,
   UpdateCurrentUserProfileInput,
   ChatHistoryPage,
+  ChatSponsoredMessages,
   User,
 } from "./types";
 import {
@@ -1684,6 +1685,36 @@ export class MockTelegramTransport implements TelegramTransport {
       hasMore: offset + page.length < history.length,
       messageIds: page.map((message) => message.id),
     };
+  }
+
+  async getChatSponsoredMessages(chatId: string): Promise<ChatSponsoredMessages> {
+    if (chatId !== "chat-release") return { messages: [], messagesBetween: 0 };
+    return clone({
+      messages: [{
+        id: "sponsored-release-1",
+        chatId,
+        isRecommended: false,
+        canBeReported: true,
+        sponsor: {
+          url: "https://example.com/notgram-studio",
+          info: "Notgram Studio",
+          avatar: { label: "NS", color: "#397a78", imagePath: mockProfilePhotoUrl },
+        },
+        title: "Notgram Studio",
+        buttonText: "View details",
+        accentColorId: 2,
+        additionalInfo: "Sponsored preview",
+        content: {
+          kind: "text",
+          text: "Build focused Telegram workflows with Notgram Studio.",
+        },
+      }],
+      messagesBetween: 0,
+    });
+  }
+
+  async clickChatSponsoredMessage() {
+    // The mock transport has no remote impression endpoint.
   }
 
   private ensureForumTopics(chatId: string) {

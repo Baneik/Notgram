@@ -43,6 +43,7 @@ import type {
   GetChatJoinRequestsInput,
   LocalAttachmentDraft,
   Message,
+  ChatSponsoredMessages,
   MessagePermissions,
   MessageReactionSenderPage,
   MessageReactionType,
@@ -116,6 +117,7 @@ export interface TelegramState {
   chatListReady: boolean;
   chatLists: Map<string, ChatListState>;
   messages: Map<string, Message[]>;
+  sponsoredMessages: Map<string, ChatSponsoredMessages>;
   subscribeMessageChanges: (listener: MessageChangeListener) => () => void;
   removingMessages: Map<string, Message[]>;
   unreadAttentionMessageIds: Map<string, string[]>;
@@ -192,6 +194,8 @@ export interface TelegramState {
   ) => Promise<boolean>;
   markChatFolderRead: (folderId: string) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
+  loadChatSponsoredMessages: (chatId: string) => Promise<void>;
+  clickChatSponsoredMessage: (chatId: string, messageId: string, isMediaClick?: boolean) => Promise<void>;
   loadMessage: (
     chatId: string,
     messageId: string,

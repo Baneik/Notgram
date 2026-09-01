@@ -10,10 +10,40 @@ import {
   mapTdMessageContent,
   mapTdMessageProperties,
   mapTdMessageReactionSenders,
+  mapTdSponsoredMessages,
   mapTdUser,
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("maps sponsored messages as independent timeline entries", () => {
+    const result = mapTdSponsoredMessages({
+      "@type": "sponsoredMessages",
+      messages_between: 12,
+      messages: [{
+        "@type": "sponsoredMessage",
+        message_id: "9007199254740991",
+        is_recommended: true,
+        can_be_reported: false,
+        title: "Sponsor",
+        button_text: "Open",
+        accent_color_id: 3,
+        background_custom_emoji_id: "0",
+        additional_info: "Info",
+        sponsor: { "@type": "advertisementSponsor", url: "https://example.com", info: "Brand" },
+        content: { "@type": "messageText", text: { "@type": "formattedText", text: "Sponsored body", entities: [] } },
+      }],
+    }, "-1001");
+
+    expect(result.messagesBetween).toBe(12);
+    expect(result.messages[0]).toMatchObject({
+      id: "9007199254740991",
+      chatId: "-1001",
+      isRecommended: true,
+      sponsor: { url: "https://example.com", info: "Brand" },
+      content: { kind: "text", text: "Sponsored body" },
+    });
+  });
+
   it("encodes legacy and upgraded group chat identifiers", () => {
     expect(chatIdFromBasicGroupId(53)).toBe("-53");
     expect(chatIdFromSupergroupId(91)).toBe("-1000000000091");

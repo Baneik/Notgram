@@ -72,6 +72,13 @@ import { UpdateSettings } from "./UpdateSettings";
 import { SafetySettings } from "./SafetySettings";
 import { ProxySettingsEditor } from "./ProxySettingsEditor";
 import type { LanguagePreference } from "../i18n";
+import {
+  AD_BLOCK_KEYWORD_LENGTH_LIMIT,
+  AD_BLOCK_KEYWORD_LIMIT,
+  AD_BLOCK_REGEX_LENGTH_LIMIT,
+  AD_BLOCK_REGEX_LIMIT,
+  isValidAdBlockRegex,
+} from "../utils/adBlocking";
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -200,6 +207,11 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const blockZalgoText = usePreferencesStore((state) => state.blockZalgoText);
+  const adBlockingEnabled = usePreferencesStore((state) => state.adBlockingEnabled);
+  const blockSponsoredMessages = usePreferencesStore((state) => state.blockSponsoredMessages);
+  const customAdBlockingEnabled = usePreferencesStore((state) => state.customAdBlockingEnabled);
+  const adBlockKeywords = usePreferencesStore((state) => state.adBlockKeywords);
+  const adBlockRegexRules = usePreferencesStore((state) => state.adBlockRegexRules);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
@@ -225,6 +237,11 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     sendOnEnter,
     blockTypingStatus,
     blockZalgoText,
+    adBlockingEnabled,
+    blockSponsoredMessages,
+    customAdBlockingEnabled,
+    adBlockKeywords,
+    adBlockRegexRules,
     developerMode,
     autoplayAnimations,
     autoDownloadImages,
@@ -560,6 +577,7 @@ function PreferenceSettings({
 
   return (
     <div className="settings-detail-scroll preference-settings">
+      {category === "notgram" && <AdBlockingSettings preferences={preferences} onChange={onChange} />}
       {category === "notgram" && <DesktopStartupSettings />}
       {category === "chats" && (
         <section className="settings-section" aria-labelledby="chat-display-heading">
@@ -724,6 +742,147 @@ function PreferenceSettings({
       </section>
       {error && <div className="settings-error" role="alert">{error}</div>}
     </div>
+  );
+}
+
+function AdBlockingSettings({
+  preferences,
+  onChange,
+}: {
+  preferences: AppPreferences;
+  onChange: PreferenceSettingsProps["onChange"];
+}) {
+  const [keywordDraft, setKeywordDraft] = useState("");
+  const addKeywords = (value: string) => {
+    const entries = value.split(/[，,\n]/).map((entry) => entry.trim()).filter(Boolean);
+    if (entries.length === 0) return;
+    const next = [...preferences.adBlockKeywords];
+    for (const entry of entries) {
+      if (entry.length > AD_BLOCK_KEYWORD_LENGTH_LIMIT || next.length >= AD_BLOCK_KEYWORD_LIMIT) break;
+      if (!next.some((candidate) => candidate.localeCompare(entry, undefined, { sensitivity: "base" }) === 0)) {
+        next.push(entry);
+      }
+    }
+    onChange("adBlockKeywords", next);
+    setKeywordDraft("");
+  };
+  const updateRegex = (index: number, value: string) => {
+    const next = [...preferences.adBlockRegexRules];
+    next[index] = value.slice(0, AD_BLOCK_REGEX_LENGTH_LIMIT);
+    onChange("adBlockRegexRules", next);
+  };
+  return (
+    <section className="settings-section ad-blocking-settings" aria-labelledby="ad-blocking-heading">
+      <div className="settings-section-heading">
+        <ShieldCheck size={18} strokeWidth={1.8} />
+        <div>
+          <h4 id="ad-blocking-heading">{translate("广告屏蔽")}</h4>
+          <span>{translate("管理频道广告和自定义内容规则")}</span>
+        </div>
+      </div>
+      <div className="preference-list ad-blocking-switches">
+        <label className="preference-row">
+          <span>{translate("广告屏蔽")}</span>
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label={translate("广告屏蔽")}
+            checked={preferences.adBlockingEnabled}
+            onChange={(event) => onChange("adBlockingEnabled", event.target.checked)}
+          />
+        </label>
+        <label className="preference-row">
+          <span>{translate("屏蔽频道广告")}</span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={preferences.blockSponsoredMessages}
+            disabled={!preferences.adBlockingEnabled}
+            onChange={(event) => onChange("blockSponsoredMessages", event.target.checked)}
+          />
+        </label>
+        <label className="preference-row">
+          <span>{translate("自定义屏蔽")}</span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={preferences.customAdBlockingEnabled}
+            disabled={!preferences.adBlockingEnabled}
+            onChange={(event) => onChange("customAdBlockingEnabled", event.target.checked)}
+          />
+        </label>
+      </div>
+      <div className={`ad-blocking-editor ${!preferences.adBlockingEnabled || !preferences.customAdBlockingEnabled ? "is-disabled" : ""}`}>
+        <div className="ad-blocking-editor-heading">
+          <strong>{translate("关键词")}</strong>
+          <span>{preferences.adBlockKeywords.length}/{AD_BLOCK_KEYWORD_LIMIT}</span>
+        </div>
+        <div className="ad-keyword-input-wrap">
+          {preferences.adBlockKeywords.map((keyword) => (
+            <span className="ad-keyword-chip" key={keyword}>
+              <span>{keyword}</span>
+              <button
+                type="button"
+                aria-label={translate("移除关键词 {{value0}}", { value0: keyword })}
+                title={translate("移除关键词")}
+                onClick={() => onChange("adBlockKeywords", preferences.adBlockKeywords.filter((candidate) => candidate !== keyword))}
+              ><X size={12} /></button>
+            </span>
+          ))}
+          <input
+            className="ad-keyword-input"
+            type="text"
+            value={keywordDraft}
+            maxLength={AD_BLOCK_KEYWORD_LENGTH_LIMIT}
+            disabled={!preferences.adBlockingEnabled || !preferences.customAdBlockingEnabled || preferences.adBlockKeywords.length >= AD_BLOCK_KEYWORD_LIMIT}
+            placeholder={translate("输入关键词后按 Enter")}
+            aria-label={translate("添加屏蔽关键词")}
+            onChange={(event) => setKeywordDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === "," || event.key === "，") {
+                event.preventDefault();
+                addKeywords(keywordDraft);
+              }
+            }}
+            onBlur={() => addKeywords(keywordDraft)}
+            size={Math.max(8, Math.min(28, keywordDraft.length + 1))}
+          />
+        </div>
+        <div className="ad-blocking-editor-heading ad-regex-heading">
+          <strong>{translate("正则表达式")}</strong>
+          <span>{preferences.adBlockRegexRules.length}/{AD_BLOCK_REGEX_LIMIT}</span>
+        </div>
+        <div className="ad-regex-list">
+          {preferences.adBlockRegexRules.map((rule, index) => (
+            <div className="ad-regex-row" key={index}>
+              <textarea
+                rows={2}
+                value={rule}
+                maxLength={AD_BLOCK_REGEX_LENGTH_LIMIT}
+                disabled={!preferences.adBlockingEnabled || !preferences.customAdBlockingEnabled}
+                aria-label={translate("正则表达式 {{value0}}", { value0: index + 1 })}
+                aria-invalid={rule.trim() !== "" && !isValidAdBlockRegex(rule)}
+                onChange={(event) => updateRegex(index, event.target.value)}
+              />
+              <button
+                className="icon-button"
+                type="button"
+                aria-label={translate("移除正则表达式 {{value0}}", { value0: index + 1 })}
+                title={translate("移除正则表达式")}
+                onClick={() => onChange("adBlockRegexRules", preferences.adBlockRegexRules.filter((_, candidate) => candidate !== index))}
+              ><Trash2 size={15} /></button>
+              {rule.trim() !== "" && !isValidAdBlockRegex(rule) && <small className="ad-regex-error">{translate("正则表达式语法无效")}</small>}
+            </div>
+          ))}
+        </div>
+        <button
+          className="account-command ad-regex-add"
+          type="button"
+          disabled={!preferences.adBlockingEnabled || !preferences.customAdBlockingEnabled || preferences.adBlockRegexRules.length >= AD_BLOCK_REGEX_LIMIT}
+          onClick={() => onChange("adBlockRegexRules", [...preferences.adBlockRegexRules, ""])}
+        ><Plus size={15} />{translate("添加正则表达式")}</button>
+      </div>
+    </section>
   );
 }
 

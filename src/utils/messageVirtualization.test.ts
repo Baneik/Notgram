@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
 import {
   indexMessagesByVirtualBlock,
+  virtualizeMessageTimeline,
   virtualizeMessageGroups,
 } from "./messageVirtualization";
 
@@ -17,6 +18,29 @@ const message = (id: string, overrides: Partial<Message> = {}): Message => ({
 });
 
 describe("message virtualization", () => {
+  it("inserts sponsored entries without changing message block identities", () => {
+    const sponsored = {
+      id: "sponsored-1",
+      chatId: "chat",
+      isRecommended: false,
+      canBeReported: false,
+      sponsor: { url: "https://example.com", avatar: { label: "S", color: "#123456" } },
+      title: "Sponsor",
+      buttonText: "Open",
+      accentColorId: 0,
+      content: { kind: "text" as const, text: "Ad" },
+    };
+    const blocks = virtualizeMessageTimeline(
+      [message("1"), message("2"), message("3")],
+      [sponsored],
+      { messagesBetween: 2 },
+      1,
+    );
+    expect(blocks.map((block) => block.id)).toEqual(["1", "2", "sponsored:sponsored-1", "3"]);
+    expect(blocks[2]?.messages).toEqual([]);
+    expect(blocks[2]?.sponsoredMessage?.id).toBe("sponsored-1");
+  });
+
   it("bounds long consecutive groups while retaining bubble positions", () => {
     const blocks = virtualizeMessageGroups(
       Array.from({ length: 11 }, (_, index) => message(String(index + 1))),

@@ -25,6 +25,8 @@ import type {
   MessageRichTextRun,
   MessageTextEntity,
   MessageTextEntityKind,
+  ChatSponsoredMessages,
+  SponsoredMessage,
   User,
 } from "./types";
 import { messagePreviewText } from "./messageContent";
@@ -1804,6 +1806,74 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
     containsUnreadReaction: Array.isArray(raw.unread_reactions) && raw.unread_reactions.length > 0,
     ...(unreadReactions.length > 0 ? { unreadReactions } : {}),
     content,
+  };
+};
+
+const advertisementSponsorAvatar = (
+  value: unknown,
+  title: string,
+  identity: string,
+) => {
+  const photo = asTdObject(value);
+  const sizes = asTdObjects(photo?.sizes);
+  const smallest = sizes.reduce<TdObject | undefined>((best, candidate) => {
+    const area = (tdNumber(candidate.width) ?? 0) * (tdNumber(candidate.height) ?? 0);
+    const bestArea = (tdNumber(best?.width) ?? Number.POSITIVE_INFINITY) *
+      (tdNumber(best?.height) ?? Number.POSITIVE_INFINITY);
+    return area <= bestArea ? candidate : best;
+  }, undefined);
+  return {
+    label: initials(title),
+    color: colorFor(`sponsor:${identity}`),
+    ...(smallest?.photo ? avatarFile(smallest.photo) : {}),
+  };
+};
+
+export const mapTdSponsoredMessages = (
+  value: unknown,
+  chatIdValue: unknown,
+): ChatSponsoredMessages => {
+  const result = asTdObject(value);
+  const chatId = tdId(chatIdValue);
+  const messages = asTdObjects(result?.messages).flatMap((raw): SponsoredMessage[] => {
+    const id = tdId(raw.message_id);
+    const sponsor = asTdObject(raw.sponsor);
+    if (!chatId || !id || !sponsor) return [];
+    const title = sanitizeIdentityText(
+      typeof raw.title === "string" ? raw.title : "",
+      translate("赞助消息"),
+      128,
+    );
+    const backgroundCustomEmojiId = tdId(raw.background_custom_emoji_id);
+    return [{
+      id,
+      chatId,
+      isRecommended: raw.is_recommended === true,
+      canBeReported: raw.can_be_reported === true,
+      sponsor: {
+        url: typeof sponsor.url === "string" ? sponsor.url : "",
+        info: typeof sponsor.info === "string" && sponsor.info.trim()
+          ? sponsor.info.trim()
+          : undefined,
+        avatar: advertisementSponsorAvatar(sponsor.photo, title, id),
+      },
+      title,
+      buttonText: typeof raw.button_text === "string" && raw.button_text.trim()
+        ? raw.button_text.trim()
+        : translate("打开"),
+      accentColorId: tdNumber(raw.accent_color_id) ?? 0,
+      backgroundCustomEmojiId: backgroundCustomEmojiId && backgroundCustomEmojiId !== "0"
+        ? backgroundCustomEmojiId
+        : undefined,
+      additionalInfo: typeof raw.additional_info === "string" && raw.additional_info.trim()
+        ? raw.additional_info.trim()
+        : undefined,
+      content: mapTdMessageContent(raw.content),
+    }];
+  });
+  return {
+    messages,
+    messagesBetween: Math.max(0, Math.floor(tdNumber(result?.messages_between) ?? 0)),
   };
 };
 

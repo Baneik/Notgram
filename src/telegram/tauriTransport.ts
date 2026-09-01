@@ -10,6 +10,7 @@ import {
   mapTdChatDraft,
   mapTdChatFolders,
   mapTdMessage,
+  mapTdSponsoredMessages,
   messageSenderId,
   mapTdUser,
   tdId,
@@ -97,6 +98,7 @@ import type {
   ChatProfile,
   ChatProfileMembersPage,
   ChatHistoryPage,
+  ChatSponsoredMessages,
   ChatListPage,
   DeleteMessageInput,
   EditMessageInput,
@@ -1751,6 +1753,29 @@ export class TauriTelegramTransport implements TelegramTransport {
       .finally(() => this.historyLoads.delete(chatId));
     this.historyLoads.set(chatId, load);
     return load;
+  }
+
+  async getChatSponsoredMessages(chatId: string): Promise<ChatSponsoredMessages> {
+    chatId = this.canonicalChatId(chatId);
+    const result = await this.request({
+      "@type": "getChatSponsoredMessages",
+      chat_id: numericId(chatId),
+    });
+    return mapTdSponsoredMessages(result, chatId);
+  }
+
+  async clickChatSponsoredMessage(
+    chatId: string,
+    messageId: string,
+    isMediaClick = false,
+  ) {
+    await this.request({
+      "@type": "clickChatSponsoredMessage",
+      chat_id: numericId(this.canonicalChatId(chatId)),
+      message_id: numericId(messageId),
+      is_media_click: isMediaClick,
+      from_fullscreen: false,
+    });
   }
 
   async getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage> {

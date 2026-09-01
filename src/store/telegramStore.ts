@@ -777,6 +777,7 @@ export const createTelegramStore = (
         chatListReady: false,
         chatLists: new Map(),
         messages: new Map(),
+        sponsoredMessages: new Map(),
         removingMessages: new Map(),
         unreadAttentionMessageIds: new Map(),
         drafts: new Map(),
@@ -1484,6 +1485,9 @@ export const createTelegramStore = (
               void refreshForumConversation(activeChatId);
             } else {
               void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
+              if (get().chats.get(activeChatId)?.kind === "channel") {
+                void get().loadChatSponsoredMessages(activeChatId);
+              }
             }
           }
           if (get().connectionStatus === "online") {
@@ -1512,6 +1516,9 @@ export const createTelegramStore = (
               void refreshForumConversation(activeChatId);
             } else {
               void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
+              if (get().chats.get(activeChatId)?.kind === "channel") {
+                void get().loadChatSponsoredMessages(activeChatId);
+              }
             }
           }
           if (get().authorization.kind === "ready") {
@@ -2053,6 +2060,7 @@ export const createTelegramStore = (
       chatListReady: false,
       chatLists: new Map(),
       messages: new Map(),
+      sponsoredMessages: new Map(),
       subscribeMessageChanges: (listener) => {
         messageChangeListeners.add(listener);
         return () => messageChangeListeners.delete(listener);
@@ -2177,6 +2185,10 @@ export const createTelegramStore = (
             accountPending: false,
             accountSwitching: false,
           });
+          const initialChatId = get().activeChatId;
+          if (initialChatId && get().chats.get(initialChatId)?.kind === "channel") {
+            void get().loadChatSponsoredMessages(initialChatId);
+          }
           for (const chatMessages of messages.values()) {
             addUnreadReactionAttention(chatMessages);
             queueBlockedReactionReads(chatMessages);
@@ -2451,6 +2463,7 @@ export const createTelegramStore = (
         } else {
           void loadHistory(chatId, "ensure");
           void markChatRead(chatId);
+          if (targetChat?.kind === "channel") void get().loadChatSponsoredMessages(chatId);
         }
         if ((targetChat?.unreadReactionCount ?? 0) > 0) {
           void refreshUnreadReactionAttention(chatId);
@@ -2730,6 +2743,20 @@ export const createTelegramStore = (
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         return topicId ? loadForumTopicHistory(chatId, topicId, "older") : loadHistory(chatId, "older");
       },
+      loadChatSponsoredMessages: async (chatId) => {
+        if (get().authorization.kind !== "ready" || get().chats.get(chatId)?.kind !== "channel") return;
+        try {
+          const sponsored = await transport.getChatSponsoredMessages(chatId);
+          if (get().chats.get(chatId)?.kind !== "channel") return;
+          const next = new Map(get().sponsoredMessages);
+          next.set(chatId, sponsored);
+          set({ sponsoredMessages: next });
+        } catch {
+          // Sponsored messages are optional and unavailable on older TDLib builds.
+        }
+      },
+      clickChatSponsoredMessage: (chatId, messageId, isMediaClick = false) =>
+        transport.clickChatSponsoredMessage(chatId, messageId, isMediaClick),
       loadMessage: async (chatId, messageId, options) => {
         const navigationGeneration = conversationGeneration;
         if (!options?.forceContext && (get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {

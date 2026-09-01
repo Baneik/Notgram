@@ -15,6 +15,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "canTransferOwnership",
     "cancelDownloadFile",
     "changeStickerSet",
+    "clickChatSponsoredMessage",
     "setChatMemberStatus",
     "setChatMemberTag",
     "addMessageReaction",
@@ -43,6 +44,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChat",
     "getChatFolder",
     "getChatHistory",
+    "getChatSponsoredMessages",
     "getMessageThread",
     "getMessageThreadHistory",
     "getChatMessageByDate",
@@ -196,6 +198,20 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         return Err("Local files cannot be sent through the generic TDLib bridge".to_string());
     }
     match request_type {
+        "getChatSponsoredMessages" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+        }
+        "clickChatSponsoredMessage" => {
+            validate_message_target(request)?;
+            if request
+                .get("is_media_click")
+                .and_then(Value::as_bool)
+                .is_none()
+                || request.get("from_fullscreen").and_then(Value::as_bool) != Some(false)
+            {
+                return Err("Invalid sponsored message click context".to_string());
+            }
+        }
         "cancelDownloadFile" => {
             validate_nonzero_identifier(request, "file_id")?;
             if request
@@ -2213,6 +2229,34 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&local_file).is_err());
+    }
+
+    #[test]
+    fn validates_sponsored_message_requests() {
+        let get = json!({
+            "@type": "getChatSponsoredMessages",
+            "chat_id": -100123,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&get).is_ok());
+
+        let click = json!({
+            "@type": "clickChatSponsoredMessage",
+            "chat_id": -100123,
+            "message_id": 91,
+            "is_media_click": true,
+            "from_fullscreen": false,
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&click).is_ok());
+
+        let mut fullscreen = click.clone();
+        fullscreen["from_fullscreen"] = json!(true);
+        assert!(validate_webview_tdlib_request(&fullscreen).is_err());
+
+        let mut invalid_chat = get;
+        invalid_chat["chat_id"] = json!(0);
+        assert!(validate_webview_tdlib_request(&invalid_chat).is_err());
     }
 
     #[test]

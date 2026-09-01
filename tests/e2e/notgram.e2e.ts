@@ -843,6 +843,35 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await expect(typingSwitch).not.toBeChecked();
 });
 
+test("channel sponsored messages stay in an independent timeline block and can be disabled", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+  const sponsored = page.locator('[data-sponsored-message-id="sponsored-release-1"]');
+  await expect(sponsored).toBeVisible();
+  await expect(sponsored).toContainText("Notgram Studio");
+  await expect(page.locator('[data-message-id="sponsored-release-1"]')).toHaveCount(0);
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await settings.getByRole("button", { name: /Notgram/ }).click();
+  await settings.getByRole("switch", { name: "屏蔽频道广告" }).uncheck();
+  await settings.getByRole("button", { name: "关闭" }).click();
+  await expect(sponsored).toHaveCount(0);
+});
+
+test("custom ad blocking hides matching messages and keeps rule editing local", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "设置" });
+  await settings.getByRole("button", { name: /Notgram/ }).click();
+  await settings.getByRole("switch", { name: "自定义屏蔽" }).check();
+  const keyword = settings.getByRole("textbox", { name: "添加屏蔽关键词" });
+  await keyword.fill("交互稿");
+  await keyword.press("Enter");
+  await settings.getByRole("button", { name: "关闭" }).click();
+  await expect(page.getByText("我把交互稿更新到最新版本了", { exact: true })).toHaveCount(0);
+});
+
 test("Zalgo blocking changes only after restart confirmation", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();

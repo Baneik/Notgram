@@ -22,6 +22,7 @@ import type {
   StreamFileInput,
   SendMessageInput,
   ChatHistoryPage,
+  ChatSponsoredMessages,
   ChatListPage,
   CacheCleanupInput,
   CacheCleanupResult,
@@ -157,6 +158,12 @@ export interface TelegramTransport {
   reorderChatFolders(folderIds: string[]): Promise<void>;
   setChatFolderMembership(folderId: string, chatId: string, included: boolean): Promise<void>;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
+  getChatSponsoredMessages(chatId: string): Promise<ChatSponsoredMessages>;
+  clickChatSponsoredMessage(
+    chatId: string,
+    messageId: string,
+    isMediaClick?: boolean,
+  ): Promise<void>;
   getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage>;
   getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined>;
   loadForumTopicHistory(chatId: string, topicId: string, limit?: number): Promise<ChatHistoryPage>;

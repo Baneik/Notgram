@@ -922,6 +922,32 @@ export interface Message {
   content: MessageContent;
 }
 
+export interface AdvertisementSponsor {
+  url: string;
+  info?: string;
+  avatar: Avatar;
+}
+
+/** A TDLib sponsored message is not an ordinary history message. */
+export interface SponsoredMessage {
+  id: string;
+  chatId: string;
+  isRecommended: boolean;
+  canBeReported: boolean;
+  sponsor: AdvertisementSponsor;
+  title: string;
+  buttonText: string;
+  accentColorId: number;
+  backgroundCustomEmojiId?: string;
+  additionalInfo?: string;
+  content: MessageContent;
+}
+
+export interface ChatSponsoredMessages {
+  messages: SponsoredMessage[];
+  messagesBetween: number;
+}
+
 export interface TelegramSnapshot {
   currentUserId: string;
   authorization: AuthorizationState;
