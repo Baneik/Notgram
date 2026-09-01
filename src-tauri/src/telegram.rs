@@ -177,7 +177,11 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "mainThreadStallCount",
     "maxShiftScore",
     "maxFrameGapMs",
+    "mediaDurationKnown",
+    "mediaErrorCode",
     "mediaKind",
+    "mediaNetworkState",
+    "mediaReadyState",
     "messageUpdateCount",
     "chatUpdateCount",
     "fileUpdateCount",
@@ -1147,6 +1151,22 @@ mod tests {
                         "bottleneckStage": 4,
                         "bottleneckDurationMs": 28.0,
                         "windowKind": 1,
+                    }),
+                )
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .log_performance(
+                    "media_playback_error",
+                    json!({
+                        "durationMs": 0,
+                        "mediaKind": 1,
+                        "streaming": true,
+                        "mediaErrorCode": 4,
+                        "mediaReadyState": 0,
+                        "mediaNetworkState": 3,
+                        "mediaDurationKnown": false,
                     }),
                 )
                 .is_ok()

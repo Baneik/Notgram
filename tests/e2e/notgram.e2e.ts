@@ -8428,6 +8428,32 @@ test("video fullscreen has a persistent preview layer, playback layer, and mini-
   await popup.close();
 });
 
+test("video fullscreen preview closes from its blank surface", async ({ page }) => {
+  await page.setViewportSize({ width: 1_100, height: 720 });
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  const player = page.locator('[data-message-id="p-video"] .video-player');
+  await player.scrollIntoViewIfNeeded();
+
+  const popupPromise = page.waitForEvent("popup");
+  await player.dblclick();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  const window = popup.locator(".video-window");
+  const video = popup.locator("video");
+  await expect(window).toHaveAttribute("data-video-mode", "preview");
+  await video.evaluate((element) => {
+    element.style.width = "70%";
+    element.style.margin = "0 auto";
+  });
+  const videoBounds = await video.boundingBox();
+  expect(videoBounds?.x).toBeGreaterThan(0);
+
+  const popupClosed = popup.waitForEvent("close");
+  await popup.mouse.click(Math.max(4, (videoBounds?.x ?? 20) / 2), 120);
+  await popupClosed;
+});
+
 test("photo albums stay compact while keeping captions in the media viewer", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();

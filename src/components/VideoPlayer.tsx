@@ -747,12 +747,17 @@ export function VideoPlayer({
           mediaPlaybackCoordinator.clear(playbackId);
           mediaPlaybackCoordinator.release(event.currentTarget);
         }}
-        onError={() => {
+        onError={(event) => {
           if (suspendingRef.current) return;
+          const video = event.currentTarget;
           logPerformance("media_playback_error", {
             durationMs: 0,
             mediaKind: 1,
             streaming: streamingRef.current,
+            mediaErrorCode: video.error?.code ?? 0,
+            mediaReadyState: video.readyState,
+            mediaNetworkState: video.networkState,
+            mediaDurationKnown: Number.isFinite(video.duration) && video.duration > 0,
           });
           setBuffering(false);
           setFailed(true);

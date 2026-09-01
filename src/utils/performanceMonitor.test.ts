@@ -135,6 +135,10 @@ describe("performance monitor", () => {
       durationMs: 0,
       mediaKind: 1,
       streaming: true,
+      mediaErrorCode: 4,
+      mediaReadyState: 0,
+      mediaNetworkState: 3,
+      mediaDurationKnown: false,
     });
 
     expect(getPerformanceRecords()[0]).toMatchObject({
@@ -148,6 +152,15 @@ describe("performance monitor", () => {
       category: "media",
       severity: "critical",
       details: { causeDomain: 6, causeKind: 11 },
+    });
+    expect(getPerformanceRecords()[2]).toMatchObject({
+      event: "media_playback_error",
+      details: {
+        mediaErrorCode: 4,
+        mediaReadyState: 0,
+        mediaNetworkState: 3,
+        mediaDurationKnown: false,
+      },
     });
     expect(getPerformanceRecords()[2]).toMatchObject({
       event: "media_playback_error",

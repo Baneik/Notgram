@@ -24,6 +24,9 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Serialize native Range downloads per media file so concurrent header and metadata-tail
+  probes cannot replace each other's TDLib download window and leave sparse, unplayable media.
+- Close layered fullscreen video from the blank surface in both preview and playback modes.
 - Advance native audio stream buffer windows with the active playback position and
   preserve validated audio MIME types, preventing large high-bitrate files such as
   FLAC tracks from stalling after the initial 8 MiB range.

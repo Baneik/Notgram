@@ -424,11 +424,16 @@ export function VideoWindow({ id }: VideoWindowProps) {
 
   const isOutsideRenderedVideo = (clientX: number, clientY: number) => {
     const video = videoRef.current;
-    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return false;
+    if (!video) return false;
+    const aspectRatio = video.videoWidth > 0 && video.videoHeight > 0
+      ? video.videoWidth / video.videoHeight
+      : descriptorRef.current?.aspectRatio;
+    if (!aspectRatio || !Number.isFinite(aspectRatio) || aspectRatio <= 0) return false;
     const bounds = video.getBoundingClientRect();
-    const scale = Math.min(bounds.width / video.videoWidth, bounds.height / video.videoHeight);
-    const renderedWidth = video.videoWidth * scale;
-    const renderedHeight = video.videoHeight * scale;
+    if (bounds.width <= 0 || bounds.height <= 0) return false;
+    const scale = Math.min(bounds.width / aspectRatio, bounds.height);
+    const renderedWidth = aspectRatio * scale;
+    const renderedHeight = scale;
     const left = bounds.left + (bounds.width - renderedWidth) / 2;
     const top = bounds.top + (bounds.height - renderedHeight) / 2;
     return clientX < left || clientX > left + renderedWidth ||
@@ -439,8 +444,7 @@ export function VideoWindow({ id }: VideoWindowProps) {
     if (event.button !== 0) return;
     const target = event.target;
     if (target instanceof Element && target.closest("button, input")) return;
-    if (fullscreenRef.current && fullscreenLayerRef.current === "playback" &&
-      isOutsideRenderedVideo(event.clientX, event.clientY)) {
+    if (fullscreenRef.current && isOutsideRenderedVideo(event.clientX, event.clientY)) {
       event.preventDefault();
       void closeWindow();
       return;
@@ -560,12 +564,17 @@ export function VideoWindow({ id }: VideoWindowProps) {
             setBufferedEnd(0);
             publishState();
           }}
-          onError={() => {
+          onError={(event) => {
+            const video = event.currentTarget;
             logPerformance("media_playback_error", {
               durationMs: 0,
               mediaKind: 1,
               streaming: Boolean(descriptorRef.current?.streaming),
               fullscreen: fullscreenRef.current,
+              mediaErrorCode: video.error?.code ?? 0,
+              mediaReadyState: video.readyState,
+              mediaNetworkState: video.networkState,
+              mediaDurationKnown: Number.isFinite(video.duration) && video.duration > 0,
             });
             setBuffering(false);
             setPlaying(false);

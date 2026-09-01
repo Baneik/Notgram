@@ -5,7 +5,7 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::PathBuf,
-    sync::{Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -60,6 +60,7 @@ struct RegisteredMedia {
     mime_type: String,
     progress: Option<FileProgress>,
     playback: StreamPlayback,
+    request_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Serialize)]
@@ -110,6 +111,7 @@ impl MediaStreamRegistry {
                 mime_type,
                 progress: None,
                 playback: StreamPlayback::default(),
+                request_lock: Arc::new(Mutex::new(())),
             });
         drop(inner);
         self.changed.notify_all();
@@ -221,13 +223,13 @@ impl MediaStreamRegistry {
             .collect()
     }
 
-    fn size(&self, file_id: i32) -> Option<u64> {
+    fn stream_descriptor(&self, file_id: i32) -> Option<(u64, Arc<Mutex<()>>)> {
         self.inner
             .lock()
             .expect("media stream registry poisoned")
             .files
             .get(&file_id)
-            .map(|media| media.size)
+            .map(|media| (media.size, Arc::clone(&media.request_lock)))
     }
 
     fn wait_for_permitted_range(
@@ -507,7 +509,7 @@ fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
         Err(_) => return error_response(StatusCode::BAD_REQUEST, "Invalid Telegram media file"),
     };
     let registry = app.state::<MediaStreamRegistry>();
-    let Some(size) = registry.size(file_id) else {
+    let Some((size, request_lock)) = registry.stream_descriptor(file_id) else {
         return error_response(
             StatusCode::NOT_FOUND,
             "Telegram media stream is not registered",
@@ -529,9 +531,19 @@ fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
         }
     };
 
+    // Keep permission waits outside the per-file lock so speculative reads cannot block metadata probes.
     let permitted_length = match registry.wait_for_permitted_range(file_id, start, length) {
         Ok(value) => value,
         Err(message) => return error_response(StatusCode::GATEWAY_TIMEOUT, &message),
+    };
+    let _request_guard = match request_lock.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Media stream request lock is unavailable",
+            );
+        }
     };
     if let Err(message) =
         app.state::<TelegramRuntime>()
@@ -622,6 +634,23 @@ mod tests {
     }
 
     #[test]
+    fn serializes_range_requests_for_each_registered_file() {
+        let registry = MediaStreamRegistry::default();
+        registry.register(7, 12, "video/mp4").unwrap();
+        registry.register(8, 12, "video/mp4").unwrap();
+
+        let (_, first) = registry.stream_descriptor(7).unwrap();
+        let (_, same_file) = registry.stream_descriptor(7).unwrap();
+        let (_, other_file) = registry.stream_descriptor(8).unwrap();
+
+        assert!(Arc::ptr_eq(&first, &same_file));
+        assert!(!Arc::ptr_eq(&first, &other_file));
+        let _guard = first.lock().unwrap();
+        assert!(same_file.try_lock().is_err());
+        assert!(other_file.try_lock().is_ok());
+    }
+
+    #[test]
     fn protects_registered_streams_and_active_downloads() {
         let registry = MediaStreamRegistry::default();
         let stream = PathBuf::from("stream.mp4");
@@ -691,6 +720,7 @@ mod tests {
                 paused: true,
                 active: true,
             },
+            request_lock: Arc::new(Mutex::new(())),
         };
         assert!(permitted_response_bytes(&media, 0, MAX_RESPONSE_BYTES) > 0);
         assert_eq!(
