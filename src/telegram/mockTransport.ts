@@ -1082,7 +1082,7 @@ export class MockTelegramTransport implements TelegramTransport {
       ownershipTransfer: { available: true },
       memberHasMore: false,
     });
-    this.appendChatAudit(id, "群组已创建");
+    this.appendChatAudit(id, input.kind === "channel" ? "频道已创建" : "群组已创建");
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
     return clone(chat);
   }

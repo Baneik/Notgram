@@ -1,6 +1,8 @@
 import { translate } from "../i18n";
 import { useTranslation } from "react-i18next";
 import {
+  Bell,
+  BellOff,
   Check,
   Edit3,
   FileText,
@@ -92,7 +94,7 @@ interface ConversationComposerProps {
   failedQueuedMessageCount: number;
   queuedAttachmentCount: number;
   failedAttachmentCount: number;
-  onSendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => Promise<boolean>;
+  onSendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[], disableNotification?: boolean) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
   onDraftChange: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
@@ -102,6 +104,7 @@ interface ConversationComposerProps {
     captionEntities?: MessageTextEntity[],
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
+    disableNotification?: boolean,
   ) => Promise<boolean>;
   onCancelEditing: () => void;
   onCancelReply: () => void;
@@ -109,6 +112,7 @@ interface ConversationComposerProps {
   onGetInlineResults: (botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
   onSendInlineResult: (botUserId: string, queryId: string, resultId: string, replyToMessageId?: string) => Promise<boolean>;
   onSendBotStart: (botUserId: string, parameter?: string) => Promise<boolean>;
+  enableSilentSending?: boolean;
 }
 
 const LOCAL_DRAFT_DELAY_MS = 750;
@@ -184,6 +188,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   onGetInlineResults,
   onSendInlineResult,
   onSendBotStart,
+  enableSilentSending = false,
 }: ConversationComposerProps) {
   useTranslation();
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
@@ -210,6 +215,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [muteVideos, setMuteVideos] = useState(localAttachmentDraft?.muteVideos ?? false);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [disableNotification, setDisableNotification] = useState(false);
   const [botSuggestions, setBotSuggestions] = useState<BotCommandSuggestion[]>([]);
   const [activeBotSuggestionIndex, setActiveBotSuggestionIndex] = useState(0);
   const [mentionSuggestions, setMentionSuggestions] = useState<User[]>([]);
@@ -950,6 +956,7 @@ export const ConversationComposer = memo(function ConversationComposer({
         caption.entities,
         replyingTo?.id ?? chatDraft?.replyToMessageId,
         activeReplyQuote,
+        disableNotification,
       );
       if (!sent) return;
       closeAttachmentPreviewSession();
@@ -1043,6 +1050,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       replyingTo?.id ?? chatDraft?.replyToMessageId,
       activeReplyQuote,
       submitted.entities,
+      disableNotification,
     );
     setSending(false);
     if (sent) {
@@ -1153,6 +1161,7 @@ export const ConversationComposer = memo(function ConversationComposer({
             chatId={chatId}
             replyToMessageId={replyingTo?.id ?? chatDraft?.replyToMessageId}
             replyQuote={activeReplyQuote}
+            disableNotification={disableNotification}
             onEmoji={insertEmoji}
             onAssetSent={cancelReply}
             onClose={closeEmojiPicker}
@@ -1563,6 +1572,19 @@ export const ConversationComposer = memo(function ConversationComposer({
         >
           <Smile size={21} strokeWidth={1.8} />
         </button>
+        {enableSilentSending && <button
+          className={`icon-button composer-notification-toggle ${disableNotification ? "is-active" : ""}`}
+          type="button"
+          aria-label={translate("静默发送")}
+          aria-pressed={disableNotification}
+          title={disableNotification ? translate("已开启静默发送") : translate("开启静默发送")}
+          disabled={Boolean(editingMessage)}
+          onClick={() => setDisableNotification((enabled) => !enabled)}
+        >
+          {disableNotification
+            ? <BellOff size={20} strokeWidth={1.8} />
+            : <Bell size={20} strokeWidth={1.8} />}
+        </button>}
         <button
           className="send-button icon-button"
           type="button"

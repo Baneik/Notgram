@@ -49,6 +49,16 @@ export const inputMessageText = (text: string | TdObject, clearDraft: boolean): 
   clear_draft: clearDraft,
 });
 
+export const messageSendOptions = (disableNotification = false): TdObject | null => disableNotification ? ({
+  "@type": "messageSendOptions",
+  disable_notification: disableNotification,
+  from_background: false,
+  protect_content: false,
+  update_order_of_installed_sticker_sets: false,
+  scheduling_state: null,
+  paid_message_star_count: 0,
+}) : null;
+
 export const listObject = (type: "chatListMain" | "chatListArchive") => ({
   "@type": type,
 });

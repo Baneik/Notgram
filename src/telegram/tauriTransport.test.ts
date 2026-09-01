@@ -3017,6 +3017,31 @@ describe("TauriTelegramTransport message operations", () => {
     }]);
   });
 
+  it("sets TDLib silent-send options when requested", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+
+    await transport.sendMessage({
+      chatId: "7",
+      text: "silent",
+      disableNotification: true,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      "@type": "sendMessage",
+      options: {
+        "@type": "messageSendOptions",
+        disable_notification: true,
+      },
+    });
+  });
+
   it("keeps supported formatting inside a partial quote", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

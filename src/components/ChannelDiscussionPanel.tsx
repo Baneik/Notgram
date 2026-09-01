@@ -84,6 +84,7 @@ interface ChannelDiscussionPanelProps {
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
     entities?: MessageTextEntity[],
+    _disableNotification?: boolean,
   ) => Promise<boolean>;
   onSendFiles: (
     attachments: OutgoingAttachment[],
@@ -91,6 +92,7 @@ interface ChannelDiscussionPanelProps {
     captionEntities?: MessageTextEntity[],
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
+    _disableNotification?: boolean,
   ) => Promise<boolean>;
   onEditMessage: (
     messageId: string,

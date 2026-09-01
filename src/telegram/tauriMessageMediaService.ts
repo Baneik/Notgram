@@ -22,6 +22,7 @@ import {
   formattedTextObject,
   forumTopicObject,
   inputMessageText,
+  messageSendOptions,
   numericId,
 } from "./tdlibRequests";
 import { hasChatDraftContent } from "./chatDraft";
@@ -238,6 +239,7 @@ export interface TauriMessageMediaServiceContext {
     topicId?: string,
     replyToMessageId?: string,
     replyQuote?: { text: string; position: number },
+    disableNotification?: boolean,
   ) => Promise<boolean>;
 }
 
@@ -556,7 +558,7 @@ export class TauriMessageMediaService {
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
       reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
-      options: null,
+      options: messageSendOptions(input.disableNotification),
       reply_markup: null,
       input_message_content: {
         "@type": "inputMessageSticker",
@@ -579,7 +581,7 @@ export class TauriMessageMediaService {
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
       reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
-      options: null,
+      options: messageSendOptions(input.disableNotification),
       reply_markup: null,
       input_message_content: {
         "@type": "inputMessageAnimation",
@@ -607,7 +609,7 @@ export class TauriMessageMediaService {
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
       reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
-      options: null,
+      options: messageSendOptions(input.disableNotification),
       reply_markup: null,
       input_message_content: inputMessageText(text, input.clearDraft !== false),
     });
@@ -837,6 +839,7 @@ export class TauriMessageMediaService {
         input.replyQuote
           ? { text: input.replyQuote.text, position: input.replyQuote.position }
           : undefined,
+        input.disableNotification,
       );
       if (!sent) return false;
       captionPending = undefined;

@@ -859,6 +859,22 @@ test("channel sponsored messages stay in an independent timeline block and can b
   await expect(sponsored).toHaveCount(0);
 });
 
+test("channel owners can publish posts and toggle silent sending", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await expect(composer).toBeVisible();
+  const silentToggle = page.getByRole("button", { name: "静默发送" });
+  await expect(silentToggle).toHaveAttribute("aria-pressed", "false");
+
+  await silentToggle.click();
+  await expect(silentToggle).toHaveAttribute("aria-pressed", "true");
+  await composer.fill("频道所有者发布的新帖子");
+  await page.getByRole("button", { name: "发送消息" }).click();
+  await expect(page.getByText("频道所有者发布的新帖子", { exact: true })).toBeVisible();
+});
+
 test("custom ad blocking hides matching messages and keeps rule editing local", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();

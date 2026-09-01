@@ -306,16 +306,18 @@ export interface TelegramState {
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
     chatId?: string,
+    disableNotification?: boolean,
   ) => Promise<boolean>;
   sendAnimation: (
     asset: EmojiPickerAsset,
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
     chatId?: string,
+    disableNotification?: boolean,
   ) => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
-  sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => Promise<boolean>;
+  sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[], disableNotification?: boolean) => Promise<boolean>;
   editMessage: (messageId: string, text: string, entities?: MessageTextEntity[], chatId?: string) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean, chatId?: string) => Promise<boolean>;
   updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
@@ -365,6 +367,7 @@ export interface TelegramState {
     captionEntities?: MessageTextEntity[],
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
+    disableNotification?: boolean,
   ) => Promise<boolean>;
   cancelFileUpload: (messageId: string, chatId?: string) => Promise<void>;
   clearError: () => void;

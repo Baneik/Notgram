@@ -1,4 +1,7 @@
 export const en = {
+  "静默发送": "Send silently",
+  "已开启静默发送": "Silent sending enabled",
+  "开启静默发送": "Enable silent sending",
   " · {{value0}} 到期": "·{{value0}} Expired",
   " · 主链接": "· Primary link",
   " · 已结束": "· Ended",

@@ -667,7 +667,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   position: relative; grid-column: 3; min-width: 0; height: 100%; min-height: 0; display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto; background: var(--chat-canvas);
 }
-.conversation.is-channel-conversation { grid-template-rows: auto minmax(0, 1fr); }
+.conversation.is-channel-conversation { grid-template-rows: auto minmax(0, 1fr) auto; }
 .forum-topics-view {
   grid-column: 3; min-width: 0; height: 100%; min-height: 0; display: grid;
   grid-template-rows: auto minmax(0, 1fr); background: var(--chat-canvas);
@@ -2330,7 +2330,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .composer-context-copy small { color: var(--muted); font-size: 11px; }
 .composer {
   width: 100%; min-height: 50px; max-height: 300px; margin: 0; padding: 5px 6px; display: grid; overflow: hidden;
-  grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: end; gap: 1px; background: var(--color-bg-surface);
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: end; gap: 1px; background: var(--color-bg-surface);
   border-radius: 0; box-shadow: inset 0 1px var(--line);
 }
 .composer-context + .composer { border-radius: 0; box-shadow: inset 0 1px var(--color-border-subtle); }
@@ -2340,6 +2340,8 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 }
 .composer textarea::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .composer textarea:disabled { opacity: 0.7; }
+.composer-notification-toggle.is-active { color: var(--accent); background: var(--accent-soft); }
+.composer-notification-toggle:disabled { opacity: 0.62; }
 .send-button {
   position: relative; width: 30px; height: 30px; margin: 4px; overflow: hidden; isolation: isolate;
   color: var(--color-text-on-accent); background: color-mix(in srgb, var(--accent) 82%, white);

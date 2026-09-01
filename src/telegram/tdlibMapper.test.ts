@@ -1041,6 +1041,17 @@ describe("TDLib mapper", () => {
       text: "有成员通过邀请链接加入了群聊",
       memberUserIds: ["7"],
     });
+
+    expect(mapTdMessage({
+      id: 101,
+      chat_id: 9,
+      sender_id: { "@type": "messageSenderChat", chat_id: 9 },
+      date: 1_700_000_000,
+      content: { "@type": "messageSupergroupChatCreate", title: "乱七八糟" },
+    }, { isChannel: true })?.content).toEqual({
+      kind: "service",
+      text: "频道已创建：乱七八糟",
+    });
   });
 
   it("maps additional interactive content instead of using an unsupported placeholder", () => {

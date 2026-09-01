@@ -1477,6 +1477,7 @@ pub async fn telegram_send_pasted_files(
     caption: Option<PastedUploadCaption>,
     reply_to_message_id: Option<i64>,
     reply_quote: Option<PastedUploadReplyQuote>,
+    disable_notification: bool,
     runtime: State<'_, TelegramRuntime>,
 ) -> Result<bool, String> {
     validate_webview_extra(&extra)?;
@@ -1608,7 +1609,7 @@ pub async fn telegram_send_pasted_files(
         fallback_files.push(fallback_file);
     }
 
-    let request = if prepared.len() == 1 {
+    let mut request = if prepared.len() == 1 {
         security::prepared_upload_request_with_caption_and_topic_and_reply(
             chat_id,
             &extra,
@@ -1629,6 +1630,18 @@ pub async fn telegram_send_pasted_files(
             reply_to.clone().unwrap_or(Value::Null),
         )?
     };
+    let send_options = json!({
+        "@type": "messageSendOptions",
+        "disable_notification": disable_notification,
+        "from_background": false,
+        "protect_content": false,
+        "update_order_of_installed_sticker_sets": false,
+        "scheduling_state": null,
+        "paid_message_star_count": 0
+    });
+    if disable_notification {
+        request["options"] = send_options.clone();
+    }
     let fallback_request = if fallback_files.iter().any(Option::is_some) {
         let fallback_uploads = prepared
             .iter()
@@ -1669,6 +1682,12 @@ pub async fn telegram_send_pasted_files(
     } else {
         None
     };
+    let fallback_request = fallback_request.map(|mut fallback| {
+        if disable_notification {
+            fallback["options"] = send_options;
+        }
+        fallback
+    });
     if let Some(fallback_request) = fallback_request {
         runtime.send_with_fallback(&request, fallback_request)?;
     } else {

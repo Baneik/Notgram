@@ -3628,7 +3628,7 @@ export const createTelegramStore = (
         }
       },
 
-      sendSticker: async (asset, replyToMessageId, replyQuote, preferredChatId) => {
+      sendSticker: async (asset, replyToMessageId, replyQuote, preferredChatId, disableNotification) => {
         const chatId = preferredChatId ?? get().activeChatId;
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         if (!chatId) return false;
@@ -3643,6 +3643,7 @@ export const createTelegramStore = (
             asset,
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
+            disableNotification,
           });
           recordConversationSentMessages(get().activeAccountId, chatId);
           set({ operationError: undefined });
@@ -3654,7 +3655,7 @@ export const createTelegramStore = (
         }
       },
 
-      sendAnimation: async (asset, replyToMessageId, replyQuote, preferredChatId) => {
+      sendAnimation: async (asset, replyToMessageId, replyQuote, preferredChatId, disableNotification) => {
         const chatId = preferredChatId ?? get().activeChatId;
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         if (!chatId) return false;
@@ -3669,6 +3670,7 @@ export const createTelegramStore = (
             asset,
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
+            disableNotification,
           });
           recordConversationSentMessages(get().activeAccountId, chatId);
           set({ operationError: undefined });
@@ -3825,7 +3827,7 @@ export const createTelegramStore = (
         }
       },
 
-      sendMessage: async (text, replyToMessageId, replyQuote, entities) => {
+      sendMessage: async (text, replyToMessageId, replyQuote, entities, disableNotification) => {
         const chatId = get().activeChatId;
         const topicId = get().activeTopicId;
         const formatted = trimComposerFormattedText(text, entities ?? []);
@@ -3845,6 +3847,7 @@ export const createTelegramStore = (
             ...(formatted.entities.length ? { entities: formatted.entities } : {}),
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
+            disableNotification,
             createdAt: new Date().toISOString(),
             status: "queued",
           };
@@ -3891,6 +3894,7 @@ export const createTelegramStore = (
             entities: formatted.entities,
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
+            disableNotification,
           });
           draftSync.markAwaitingAck(draftKey, clearGeneration);
           const currentDraft = get().drafts.get(draftKey);
@@ -4179,6 +4183,7 @@ export const createTelegramStore = (
         captionEntities,
         replyToMessageId,
         replyQuote,
+        disableNotification,
       ) => {
         const chatId = get().activeChatId;
         const topicId = get().activeTopicId;
@@ -4201,6 +4206,7 @@ export const createTelegramStore = (
               ...(formattedCaption.entities.length ? { entities: formattedCaption.entities } : {}),
               replyToMessageId,
               replyQuote: replyToMessageId ? replyQuote : undefined,
+              disableNotification,
               kind: "attachments",
               attachments: metadata,
               createdAt,
@@ -4230,6 +4236,7 @@ export const createTelegramStore = (
             captionEntities: formattedCaption.entities,
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
+            disableNotification,
           });
           if (sent) {
             recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);

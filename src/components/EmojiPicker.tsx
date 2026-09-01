@@ -25,6 +25,7 @@ interface EmojiPickerProps {
   chatId: string;
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
+  disableNotification?: boolean;
   onEmoji: (emoji: string) => void;
   onAssetSent: () => void;
   onClose: () => void;
@@ -108,6 +109,7 @@ export function EmojiPicker({
   chatId,
   replyToMessageId,
   replyQuote,
+  disableNotification = false,
   onEmoji,
   onAssetSent,
   onClose,
@@ -227,15 +229,15 @@ export function EmojiPicker({
     if (sendingAssetId) return;
     setSendingAssetId(asset.id);
     const sent = asset.kind === "animation"
-      ? await sendAnimation(asset, replyToMessageId, replyQuote, chatId)
-      : await sendSticker(asset, replyToMessageId, replyQuote, chatId);
+      ? await sendAnimation(asset, replyToMessageId, replyQuote, chatId, disableNotification)
+      : await sendSticker(asset, replyToMessageId, replyQuote, chatId, disableNotification);
     setSendingAssetId(undefined);
     if (sent) {
       onClose();
       onAssetSent();
       onRequestComposerFocus();
     }
-  }, [chatId, onAssetSent, onClose, onRequestComposerFocus, replyQuote, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
+  }, [chatId, disableNotification, onAssetSent, onClose, onRequestComposerFocus, replyQuote, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
 
   const closeAndRestoreComposerFocus = () => {
     onClose();

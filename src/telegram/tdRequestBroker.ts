@@ -84,6 +84,7 @@ export class TdRequestBroker {
     captionEntities?: MessageTextEntity[],
     replyToMessageId?: string,
     replyQuote?: { text: string; position: number },
+    disableNotification = false,
   ) {
     const extra = crypto.randomUUID();
     this.preparedFiles.set(extra, onError);
@@ -104,6 +105,7 @@ export class TdRequestBroker {
         } : undefined,
         replyToMessageId: replyToMessageId ? numericId(replyToMessageId) : undefined,
         replyQuote,
+        disableNotification,
       });
       if (!sent) {
         this.preparedFiles.delete(extra);

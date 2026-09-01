@@ -1740,7 +1740,7 @@ const mapTdUnreadReactions = (value: unknown) => asTdObjects(value).flatMap((ent
   return [{ type, ...(senderId ? { senderId } : {}) }];
 });
 
-export const mapTdMessage = (raw: TdObject): Message | undefined => {
+export const mapTdMessage = (raw: TdObject, options: { isChannel?: boolean } = {}): Message | undefined => {
   const id = tdId(raw.id);
   const chatId = tdId(raw.chat_id);
   if (!id || !chatId) return undefined;
@@ -1761,6 +1761,14 @@ export const mapTdMessage = (raw: TdObject): Message | undefined => {
   const needAnotherSender = failed && sendingState.need_another_sender === true;
   const unreadReactions = mapTdUnreadReactions(raw.unread_reactions);
   let content = mapTdMessageContent(raw.content, raw.is_outgoing === true);
+  const rawContent = asTdObject(raw.content);
+  if (
+    options.isChannel === true &&
+    (rawContent?.["@type"] === "messageBasicGroupChatCreate" ||
+      rawContent?.["@type"] === "messageSupergroupChatCreate")
+  ) {
+    content = serviceContent(labeledText(translate("频道已创建"), rawContent.title));
+  }
   if (
     content.kind === "service" && content.memberUserIds?.length === 0 &&
     senderId !== "unknown" && !senderId.startsWith("chat:")

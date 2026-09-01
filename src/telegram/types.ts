@@ -990,6 +990,7 @@ export interface QueuedOutgoingMessage {
   caption?: string;
   attachments?: QueuedOutgoingAttachment[];
   error?: string;
+  disableNotification?: boolean;
 }
 
 export interface QueuedOutgoingAttachment {
@@ -1050,6 +1051,7 @@ export interface SendMessageInput {
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
   clearDraft?: boolean;
+  disableNotification?: boolean;
 }
 
 export interface SendEmojiAssetInput {
@@ -1058,6 +1060,7 @@ export interface SendEmojiAssetInput {
   asset: EmojiPickerAsset;
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
+  disableNotification?: boolean;
 }
 
 export interface EditMessageInput {
@@ -1156,6 +1159,7 @@ export interface SendFilesInput {
   captionEntities?: MessageTextEntity[];
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
+  disableNotification?: boolean;
 }
 
 export const TELEGRAM_ALBUM_MAX_ITEMS = 10;

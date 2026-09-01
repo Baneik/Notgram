@@ -83,6 +83,7 @@ export const createOutboxController = ({
               captionEntities: item.entities,
               replyToMessageId: item.replyToMessageId,
               replyQuote: item.replyQuote,
+              disableNotification: item.disableNotification,
             });
             if (!sent) throw new Error(translate("附件上传未完成"));
           } else {
@@ -93,6 +94,7 @@ export const createOutboxController = ({
               entities: item.entities,
               replyToMessageId: item.replyToMessageId,
               replyQuote: item.replyQuote,
+              disableNotification: item.disableNotification,
               clearDraft: !get().drafts.has(topicKey(item.chatId, item.topicId)),
             });
           }

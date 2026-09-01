@@ -266,6 +266,7 @@ interface ConversationProps {
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
     entities?: MessageTextEntity[],
+    disableNotification?: boolean,
   ) => Promise<boolean>;
   onEditMessage: (
     messageId: string,
@@ -330,6 +331,7 @@ interface ConversationProps {
     captionEntities?: MessageTextEntity[],
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
+    disableNotification?: boolean,
   ) => Promise<boolean>;
   onCancelFileUpload: (messageId: string, chatId?: string) => Promise<void>;
   onLoadOlder: () => Promise<void>;
@@ -1417,9 +1419,10 @@ export function Conversation({
     replyToMessageId?: string,
     selectedReplyQuote?: MessageReplyQuote,
     entities?: MessageTextEntity[],
+    disableNotification?: boolean,
   ) => {
     jumpToLatest("auto");
-    return onSendMessage(text, replyToMessageId, selectedReplyQuote, entities);
+    return onSendMessage(text, replyToMessageId, selectedReplyQuote, entities, disableNotification);
   }, [jumpToLatest, onSendMessage]);
 
   const sendFilesAndFollowLatest = useCallback(async (
@@ -1428,6 +1431,7 @@ export function Conversation({
     captionEntities?: MessageTextEntity[],
     replyToMessageId?: string,
     selectedReplyQuote?: MessageReplyQuote,
+    disableNotification?: boolean,
   ) => {
     jumpToLatest("auto");
     return onSendFiles(
@@ -1436,6 +1440,7 @@ export function Conversation({
       captionEntities,
       replyToMessageId,
       selectedReplyQuote,
+      disableNotification,
     );
   }, [jumpToLatest, onSendFiles]);
 
@@ -1912,6 +1917,7 @@ export function Conversation({
   }
 
   const isChannelConversation = chat.kind === "channel";
+  const canPostChannel = isChannelConversation && chat.management?.status === "owner";
   const reloadChannelDiscussion = async (post: Message) => {
     openChannelDiscussion(post);
   };
@@ -3055,7 +3061,7 @@ export function Conversation({
             <span>{botStartSending ? translate("正在启动") : translate("开始")}</span>
           </button>
         </div>
-      ) : !isChannelConversation ? (
+      ) : (!isChannelConversation || canPostChannel) ? (
       <ConversationComposer
         key={topic ? `${chat.id}:${topic.id}` : chat.id}
         chatId={chat.id}
@@ -3094,6 +3100,7 @@ export function Conversation({
         onGetInlineResults={onGetInlineResults}
         onSendInlineResult={onSendInlineResult}
         onSendBotStart={onSendBotStart}
+        enableSilentSending={canPostChannel}
       />
       ) : null}
 

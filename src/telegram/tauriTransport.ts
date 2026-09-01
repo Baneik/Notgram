@@ -427,6 +427,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       topicId,
       replyToMessageId,
       replyQuote,
+      disableNotification,
     ) => this.requestPreparedPastedFiles(
       chatId,
       files,
@@ -435,6 +436,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       topicId,
       replyToMessageId,
       replyQuote,
+      disableNotification,
     ),
   });
   private updateHandlers: TdUpdateHandlers = {
@@ -2085,10 +2087,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     topicId?: string,
     replyToMessageId?: string,
     replyQuote?: { text: string; position: number },
+    disableNotification = false,
   ) {
     return this.requestBroker.requestPreparedPastedFiles(chatId, files, caption, (error) => {
       this.listener?.({ type: "sync.error", message: error.message, fatal: false });
-    }, topicId, captionEntities, replyToMessageId, replyQuote);
+    }, topicId, captionEntities, replyToMessageId, replyQuote, disableNotification);
   }
 
 
@@ -3235,7 +3238,11 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private mapMessage(raw: TdObject) {
     raw = this.canonicalizeRawMessage(raw);
-    const mapped = mapTdMessage(raw);
+    const rawChat = this.rawChats.get(tdId(raw.chat_id) ?? "");
+    const chatType = asTdObject(rawChat?.type);
+    const mapped = mapTdMessage(raw, {
+      isChannel: chatType?.["@type"] === "chatTypeSupergroup" && chatType.is_channel === true,
+    });
     const message = mapped &&
       this.dataCenterId !== undefined &&
       (mapped.content.kind === "media" || mapped.content.kind === "file") &&
