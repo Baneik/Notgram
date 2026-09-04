@@ -155,3 +155,9 @@ if (typeof window !== "undefined") {
 
 export const useLocalUserBlocks = <T,>(selector: (state: LocalUserBlocksState) => T) =>
   useStore(localUserBlocksStore, selector);
+
+export const removeAccountLocalBlocks = (accountId: string) => {
+  const users = localUserBlocksStore.getState().users.filter((user) => user.accountId !== accountId);
+  globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(users));
+  localUserBlocksStore.setState({ users });
+};

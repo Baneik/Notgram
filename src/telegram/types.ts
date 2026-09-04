@@ -959,7 +959,10 @@ export interface TelegramSnapshot {
   drafts?: ChatDraft[];
 }
 
+export type LocalUnsentState = Pick<CachedTelegramSnapshot, "currentUserId" | "savedAt" | "drafts" | "localAttachmentDrafts" | "outbox">;
+
 export interface CachedTelegramSnapshot {
+  accountId?: string;
   version: 1 | 2 | 3;
   savedAt: string;
   currentUserId: string;

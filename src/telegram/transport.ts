@@ -89,6 +89,7 @@ export interface TelegramTransport {
   loadCachedSnapshot(): Promise<CachedTelegramSnapshot | undefined>;
   saveCachedSnapshot(snapshot: CachedTelegramSnapshot): Promise<void>;
   clearCachedSnapshot(): Promise<void>;
+  saveLocalState?(accountId: string, value: import("./types").LocalUnsentState): Promise<void>;
   getAccountState(): Promise<TelegramAccountState>;
   registerCurrentAccount(account: Omit<TelegramAccount, "id">): Promise<TelegramAccountState>;
   selectAccount(accountId: string): Promise<TelegramAccountState>;

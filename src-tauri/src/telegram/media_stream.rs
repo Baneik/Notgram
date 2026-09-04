@@ -73,6 +73,7 @@ pub struct MediaStreamStatus {
 
 #[derive(Default)]
 struct RegistryInner {
+    observed_files: HashMap<i32, PathBuf>,
     files: HashMap<i32, RegisteredMedia>,
     active_downloads: HashMap<i32, PathBuf>,
 }
@@ -173,6 +174,7 @@ impl MediaStreamRegistry {
 
     pub fn clear(&self) {
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        inner.observed_files.clear();
         inner.files.clear();
         inner.active_downloads.clear();
         drop(inner);
@@ -189,6 +191,7 @@ impl MediaStreamRegistry {
         let mut changed = false;
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
         for (file_id, progress, active) in files {
+            inner.observed_files.insert(file_id, progress.path.clone());
             if active {
                 inner
                     .active_downloads
@@ -221,6 +224,26 @@ impl MediaStreamRegistry {
             )
             .cloned()
             .collect()
+    }
+
+    pub fn recovery_path(&self, file_id: i32) -> Result<PathBuf, String> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| "Media registry unavailable")?;
+        if inner.active_downloads.contains_key(&file_id)
+            || inner
+                .files
+                .get(&file_id)
+                .is_some_and(|media| media.playback.active && !media.playback.paused)
+        {
+            return Err("File is currently downloading or playing".into());
+        }
+        inner
+            .observed_files
+            .get(&file_id)
+            .cloned()
+            .ok_or("File was not observed in this account".into())
     }
 
     fn stream_descriptor(&self, file_id: i32) -> Option<(u64, Arc<Mutex<()>>)> {

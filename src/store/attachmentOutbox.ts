@@ -2,7 +2,7 @@ import { translate } from "../i18n";
 import type { OutgoingAttachment, QueuedOutgoingAttachment } from "../telegram/types";
 
 const DATABASE_NAME = "notgram-attachment-outbox";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const STORE_NAME = "batches";
 const MAX_BATCH_BYTES = 512 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
@@ -21,6 +21,7 @@ interface StoredFile {
 
 interface StoredBatch {
   version: 1;
+  accountId?: string;
   id: string;
   createdAt: string;
   persistent?: boolean;
@@ -29,6 +30,7 @@ interface StoredBatch {
 }
 
 interface AttachmentBatchInput {
+  accountId?: string;
   id: string;
   createdAt: string;
   persistent?: boolean;
@@ -49,7 +51,10 @@ const openDatabase = () => new Promise<IDBDatabase>((resolve, reject) => {
   const request = globalThis.indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
   request.onupgradeneeded = () => {
     const database = request.result;
-    if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME, { keyPath: "id" });
+    const store = database.objectStoreNames.contains(STORE_NAME)
+      ? request.transaction!.objectStore(STORE_NAME)
+      : database.createObjectStore(STORE_NAME, { keyPath: "id" });
+    if (!store.indexNames.contains("accountId")) store.createIndex("accountId", "accountId");
   };
   request.onsuccess = () => resolve(request.result);
   request.onerror = () => reject(request.error ?? new Error(translate("无法打开附件发件箱")));
@@ -110,10 +115,22 @@ const readAllIndexedDb = async (database: IDBDatabase) => new Promise<StoredBatc
 
 const putIndexedDb = async (database: IDBDatabase, batch: StoredBatch) => new Promise<void>((resolve, reject) => {
   const transaction = database.transaction(STORE_NAME, "readwrite");
-  const request = transaction.objectStore(STORE_NAME).put(batch);
+  const store = transaction.objectStore(STORE_NAME);
+  const request = store.getAll();
+  let failure: Error | undefined;
+  request.onsuccess = () => {
+    const existing = (request.result as StoredBatch[]).filter((item) => item.id !== batch.id);
+    const previous = (request.result as StoredBatch[]).find((item) => item.id === batch.id);
+    if (previous && previous.accountId !== batch.accountId) failure = new Error("Attachment belongs to another account");
+    else if (existing.length >= MAX_BATCHES || existing.reduce((sum, item) => sum + totalBytes(item), 0) + totalBytes(batch) > MAX_TOTAL_BYTES) {
+      failure = new Error(translate("离线发件箱已达到磁盘配额，请先发送或删除旧附件"));
+    }
+    if (failure) transaction.abort();
+    else store.put(batch);
+  };
   transaction.oncomplete = () => resolve();
-  transaction.onerror = () => reject(transaction.error ?? request.error ?? new Error(translate("无法保存附件发件箱")));
-  transaction.onabort = () => reject(transaction.error ?? new Error(translate("附件发件箱写入已取消")));
+  transaction.onerror = () => reject(failure ?? transaction.error ?? new Error(translate("无法保存附件发件箱")));
+  transaction.onabort = () => reject(failure ?? transaction.error ?? new Error(translate("附件发件箱写入已取消")));
 });
 
 const getIndexedDb = async (database: IDBDatabase, id: string) => new Promise<StoredBatch | undefined>((resolve, reject) => {
@@ -130,18 +147,10 @@ const deleteIndexedDb = async (database: IDBDatabase, id: string) => new Promise
   transaction.onabort = () => reject(transaction.error ?? new Error(translate("附件发件箱清理已取消")));
 });
 
-const purgeIndexedDb = async (database: IDBDatabase) => {
-  const batches = await readAllIndexedDb(database);
-  const cutoff = Date.now() - EXPIRED_AFTER_MS;
-  const expired = batches.filter((batch) =>
-    !batch.persistent && Date.parse(batch.createdAt) < cutoff,
-  );
-  await Promise.all(expired.map((batch) => deleteIndexedDb(database, batch.id)));
-  return batches.filter((batch) => batch.persistent || Date.parse(batch.createdAt) >= cutoff);
-};
 
 export class AttachmentOutboxStore {
   async put(input: AttachmentBatchInput) {
+    if (input.metadata.length !== input.attachments.length) throw new Error("Attachment metadata does not match files");
     const files: StoredFile[] = [];
     for (const [index, attachment] of input.attachments.entries()) {
       const metadata = input.metadata[index];
@@ -168,6 +177,7 @@ export class AttachmentOutboxStore {
     }
     const batch: StoredBatch = {
       version: 1,
+      accountId: input.accountId ?? "default",
       id: input.id,
       createdAt: input.createdAt,
       persistent: input.persistent,
@@ -189,25 +199,17 @@ export class AttachmentOutboxStore {
     }
 
     const database = await openDatabase();
-    const active = await purgeIndexedDb(database);
-    const existing = active.filter((value) => value.id !== input.id);
-    if (existing.length >= MAX_BATCHES) throw new Error(translate("离线发件箱最多保留 50 批附件"));
-    if (existing.reduce((sum, value) => sum + totalBytes(value), 0) + bytes > MAX_TOTAL_BYTES) {
-      throw new Error(translate("离线发件箱已达到磁盘配额，请先发送或删除旧附件"));
-    }
-    await putIndexedDb(database, batch);
-    database.close();
+    try { await putIndexedDb(database, batch); } finally { database.close(); }
   }
 
-  async get(id: string): Promise<AttachmentBatch | undefined> {
+  async get(id: string, accountId = "default"): Promise<AttachmentBatch | undefined> {
     const batch = hasIndexedDb()
       ? await openDatabase().then(async (database) => {
-          const result = await getIndexedDb(database, id);
-          database.close();
-          return result;
+          try { return await getIndexedDb(database, id); } finally { database.close(); }
         })
       : (deleteExpiredMemoryBatches(), memoryBatches.get(id));
-    if (!batch || batch.version !== 1) return undefined;
+    if (!batch || batch.version !== 1 || batch.accountId !== accountId) return undefined;
+    if (!batch.persistent && Date.parse(batch.createdAt) < Date.now() - EXPIRED_AFTER_MS) return undefined;
     const byStorageId = new Map(batch.files.map((file) => [file.storageId, file]));
     const attachments: OutgoingAttachment[] = [];
     for (const item of batch.metadata) {
@@ -218,7 +220,7 @@ export class AttachmentOutboxStore {
         source.lastModified !== item.lastModified ||
         source.fingerprint !== item.fingerprint
       ) return undefined;
-      const match = source.storageId;
+      if (source.blob.size !== source.size || await fingerprint(source.blob as File) !== source.fingerprint) return undefined;
       const fileObject = new File([source.blob], source.name, {
         type: source.mimeType,
         lastModified: source.lastModified,
@@ -226,6 +228,7 @@ export class AttachmentOutboxStore {
       const thumbnail = item.thumbnailStorageId
         ? byStorageId.get(item.thumbnailStorageId)
         : undefined;
+      if (thumbnail && await fingerprint(thumbnail.blob as File) !== thumbnail.fingerprint) return undefined;
       attachments.push({
         file: fileObject,
         kind: item.kind,
@@ -247,15 +250,74 @@ export class AttachmentOutboxStore {
     return { attachments, metadata: batch.metadata.map((value) => ({ ...value })) };
   }
 
-  async remove(id: string) {
+  async remove(id: string, accountId?: string) {
     if (!hasIndexedDb()) {
-      memoryBatches.delete(id);
+      if (!accountId || memoryBatches.get(id)?.accountId === accountId) memoryBatches.delete(id);
       return;
     }
     const database = await openDatabase();
-    await deleteIndexedDb(database, id);
-    database.close();
+    try {
+      if (!accountId || (await getIndexedDb(database, id))?.accountId === accountId) await deleteIndexedDb(database, id);
+    } finally { database.close(); }
   }
+  async claimLegacy(accountId: string, referencedIds: string[]) {
+    const ids = new Set(referencedIds);
+    if (!hasIndexedDb()) {
+      for (const batch of memoryBatches.values()) if (!batch.accountId && ids.has(batch.id)) batch.accountId = accountId;
+      return;
+    }
+    const database = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction(STORE_NAME, "readwrite");
+        const request = tx.objectStore(STORE_NAME).openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          const batch = cursor.value as StoredBatch;
+          if (!batch.accountId && ids.has(batch.id)) cursor.update({ ...batch, accountId });
+          cursor.continue();
+        };
+        tx.oncomplete = () => resolve();
+        tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("Unable to migrate attachment ownership"));
+      });
+    } finally { database.close(); }
+  }
+
+  async list(accountId: string) {
+    let batches: StoredBatch[];
+    if (!hasIndexedDb()) batches = [...memoryBatches.values()];
+    else {
+      const database = await openDatabase();
+      try { batches = await readAllIndexedDb(database); } finally { database.close(); }
+    }
+    return batches.filter((batch) => batch.accountId === accountId).map(({ files, ...batch }) => ({
+      ...batch, bytes: files.reduce((sum, file) => sum + file.size, 0),
+    }));
+  }
+
+  async removeAccount(accountId: string) {
+    if (!hasIndexedDb()) {
+      for (const [id, batch] of memoryBatches) if (batch.accountId === accountId) memoryBatches.delete(id);
+      return;
+    }
+    const database = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction(STORE_NAME, "readwrite");
+        const request = tx.objectStore(STORE_NAME).index("accountId").openKeyCursor(IDBKeyRange.only(accountId));
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          tx.objectStore(STORE_NAME).delete(cursor.primaryKey);
+          cursor.continue();
+        };
+        tx.oncomplete = () => resolve();
+        tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("Unable to remove account attachments"));
+      });
+    } finally { database.close(); }
+  }
+
 }
 
 export const attachmentOutbox = new AttachmentOutboxStore();

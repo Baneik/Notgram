@@ -1323,6 +1323,38 @@ pub async fn telegram_send(
 }
 
 #[tauri::command]
+pub fn telegram_recover_file(
+    app: AppHandle,
+    file_id: i32,
+    extra: String,
+    runtime: State<'_, TelegramRuntime>,
+    registry: State<'_, media_stream::MediaStreamRegistry>,
+) -> Result<(), String> {
+    validate_webview_extra(&extra)?;
+    if file_id <= 0 {
+        return Err("Invalid file identifier".into());
+    }
+    let path = registry.recovery_path(file_id)?;
+    if path.exists() {
+        // Never delete a real file merely because a WebView image failed to load.
+        return runtime.send(&json!({"@type": "getFile", "file_id": file_id, "@extra": extra}));
+    }
+    let roots = [
+        crate::storage::tdlib_cache_directory(&app)?.join("files"),
+        crate::storage::tdlib_database_directory(&app)?,
+    ];
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        || !roots.iter().any(|root| path.starts_with(root))
+    {
+        return Err("Stale file is outside the active account storage".into());
+    }
+    runtime.send(&json!({"@type": "deleteFile", "file_id": file_id, "@extra": extra}))
+}
+
+#[tauri::command]
 pub fn telegram_log_performance(
     app: AppHandle,
     event: String,

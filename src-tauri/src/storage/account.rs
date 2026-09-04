@@ -228,6 +228,7 @@ fn clear_account_storage(app: &AppHandle, account_id: &str) -> Result<(), String
         remove_directory_if_present(&app_data_root.join("accounts").join(account_id))?;
         remove_directory_if_present(&cache_root.join("accounts").join(account_id))?;
     }
+    remove_directory_if_present(&super::local_state::account_directory(app, account_id)?)?;
     super::database_key::remove_database_key(app, account_id)?;
     Ok(())
 }
@@ -286,23 +287,7 @@ fn account_registry_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn load_account_registry(app: &AppHandle) -> Result<AccountRegistry, String> {
     let path = account_registry_path(app)?;
-    let backup = path.with_extension("bak");
-    let readable_path = if path.is_file() {
-        &path
-    } else if backup.is_file() {
-        &backup
-    } else {
-        return Ok(AccountRegistry::default());
-    };
-    let protected = fs::read(readable_path).map_err(|error| {
-        format!(
-            "Unable to read account registry {}: {error}",
-            readable_path.display()
-        )
-    })?;
-    let serialized = crate::proxy::unprotect(&protected)?;
-    let registry: AccountRegistry = serde_json::from_slice(&serialized)
-        .map_err(|error| format!("Unable to parse account registry: {error}"))?;
+    let registry: AccountRegistry = super::persistence::read_json(&path, true)?.unwrap_or_default();
     validate_account_id(&registry.active_account_id)?;
     for account in &registry.accounts {
         validate_account_id(&account.id)?;
@@ -312,46 +297,7 @@ fn load_account_registry(app: &AppHandle) -> Result<AccountRegistry, String> {
 
 fn save_account_registry(app: &AppHandle, registry: &AccountRegistry) -> Result<(), String> {
     let path = account_registry_path(app)?;
-    let temporary = path.with_extension("tmp");
-    let backup = path.with_extension("bak");
-    let serialized = serde_json::to_vec(registry)
-        .map_err(|error| format!("Unable to serialize account registry: {error}"))?;
-    let protected = crate::proxy::protect(&serialized)?;
-    fs::write(&temporary, protected).map_err(|error| {
-        format!(
-            "Unable to write account registry {}: {error}",
-            temporary.display()
-        )
-    })?;
-    if backup.exists() {
-        fs::remove_file(&backup).map_err(|error| {
-            format!(
-                "Unable to remove account registry backup {}: {error}",
-                backup.display()
-            )
-        })?;
-    }
-    if path.exists() {
-        fs::rename(&path, &backup).map_err(|error| {
-            format!(
-                "Unable to rotate account registry {}: {error}",
-                path.display()
-            )
-        })?;
-    }
-    if let Err(error) = fs::rename(&temporary, &path) {
-        if backup.exists() {
-            let _ = fs::rename(&backup, &path);
-        }
-        return Err(format!(
-            "Unable to replace account registry {}: {error}",
-            path.display()
-        ));
-    }
-    if backup.exists() {
-        let _ = fs::remove_file(backup);
-    }
-    Ok(())
+    super::persistence::write_json(&path, registry, true)
 }
 
 #[cfg(test)]

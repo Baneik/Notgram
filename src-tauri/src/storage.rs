@@ -2,6 +2,8 @@ pub(crate) mod account;
 mod cache;
 mod database_key;
 pub(crate) mod file_actions;
+pub(crate) mod local_state;
+pub(crate) mod persistence;
 
 use account::{account_cache_directory, account_database_directory, active_account_id};
 use cache::{
@@ -15,7 +17,6 @@ use serde_json::{Map, Value};
 use std::{
     collections::HashMap,
     env, fs,
-    io::Write,
     path::{Path, PathBuf},
     sync::Mutex,
     time::{Duration, SystemTime},
@@ -100,8 +101,18 @@ const MAX_SNAPSHOT_CHUNK_ITEMS: usize = 64;
 
 #[derive(Default)]
 pub struct SnapshotCacheWriteState {
-    writes: Mutex<HashMap<String, Map<String, Value>>>,
+    writes: Mutex<HashMap<String, StagedSnapshot>>,
 }
+
+struct StagedSnapshot {
+    snapshot: Map<String, Value>,
+    bytes: usize,
+    items: usize,
+    touched: std::time::Instant,
+}
+
+const MAX_SNAPSHOT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_SNAPSHOT_ITEMS: usize = 50_000;
 
 impl SnapshotCacheWriteState {
     fn begin(&self, transaction_id: &str, header: Value) -> Result<(), String> {
@@ -121,10 +132,28 @@ impl SnapshotCacheWriteState {
             .writes
             .lock()
             .map_err(|_| "UI cache staging lock is unavailable".to_string())?;
+        writes.retain(|_, write| write.touched.elapsed() < Duration::from_secs(120));
+        let bytes = serde_json::to_vec(&snapshot)
+            .map_err(|e| e.to_string())?
+            .len();
+        if bytes > MAX_SNAPSHOT_BYTES {
+            return Err("UI cache header exceeds byte budget".into());
+        }
+        if writes.contains_key(transaction_id) {
+            return Err("UI cache transaction already exists".into());
+        }
         if !writes.contains_key(transaction_id) && writes.len() >= MAX_STAGED_SNAPSHOT_WRITES {
             return Err("Too many staged UI cache writes".to_string());
         }
-        writes.insert(transaction_id.to_string(), snapshot);
+        writes.insert(
+            transaction_id.to_string(),
+            StagedSnapshot {
+                snapshot,
+                bytes,
+                items: 0,
+                touched: std::time::Instant::now(),
+            },
+        );
         Ok(())
     }
 
@@ -144,7 +173,20 @@ impl SnapshotCacheWriteState {
         let snapshot = writes
             .get_mut(transaction_id)
             .ok_or_else(|| "UI cache transaction was not started".to_string())?;
+        let bytes = serde_json::to_vec(&values)
+            .map_err(|e| e.to_string())?
+            .len();
+        if snapshot.touched.elapsed() >= Duration::from_secs(120)
+            || snapshot.bytes + bytes > MAX_SNAPSHOT_BYTES
+            || snapshot.items + values.len() > MAX_SNAPSHOT_ITEMS
+        {
+            return Err("UI cache transaction expired or exceeded capacity".into());
+        }
+        snapshot.bytes += bytes;
+        snapshot.items += values.len();
+        snapshot.touched = std::time::Instant::now();
         let target = snapshot
+            .snapshot
             .get_mut(section)
             .and_then(Value::as_array_mut)
             .ok_or_else(|| "UI cache section is not an array".to_string())?;
@@ -157,7 +199,8 @@ impl SnapshotCacheWriteState {
             .lock()
             .map_err(|_| "UI cache staging lock is unavailable".to_string())?
             .remove(transaction_id)
-            .map(Value::Object)
+            .filter(|write| write.touched.elapsed() < Duration::from_secs(120))
+            .map(|write| Value::Object(write.snapshot))
             .ok_or_else(|| "UI cache transaction was not started".to_string())
     }
 
@@ -298,25 +341,33 @@ pub async fn telegram_read_snapshot_cache(app: AppHandle) -> Result<Option<Value
 }
 
 fn read_snapshot_cache_value(app: &AppHandle) -> Result<Option<Value>, String> {
-    let path = snapshot_cache_path(app)?;
-    let backup = path.with_extension("bak");
-    let readable_path = if path.is_file() {
-        path
-    } else if backup.is_file() {
-        backup
-    } else {
-        return Ok(None);
+    let account_id = active_account_id(app)?;
+    let local = local_state::read(app, &account_id)?;
+    let cached = persistence::read_json::<Value>(&snapshot_cache_path(app)?, true);
+    let mut snapshot = match cached {
+        Ok(value) => value,
+        Err(error) if local.is_none() => return Err(error),
+        Err(_) => None,
     };
-    let protected = fs::read(&readable_path).map_err(|error| {
-        format!(
-            "Unable to read UI cache {}: {error}",
-            readable_path.display()
-        )
-    })?;
-    let serialized = crate::proxy::unprotect(&protected)?;
-    let snapshot: Value = serde_json::from_slice(&serialized)
-        .map_err(|error| format!("Unable to parse UI cache: {error}"))?;
-    Ok(Some(snapshot))
+    if let Some(local) = local {
+        let value = snapshot.get_or_insert_with(|| {
+            serde_json::json!({
+                "version": 3, "savedAt": local["savedAt"], "currentUserId": local["currentUserId"],
+                "users": [], "chats": [], "messages": [], "folders": []
+            })
+        });
+        for field in local_state::LOCAL_FIELDS {
+            value[field] = local[field].clone();
+        }
+    } else if let Some(value) = &snapshot {
+        if local_state::LOCAL_FIELDS
+            .iter()
+            .all(|field| value.get(field).is_some_and(Value::is_array))
+        {
+            local_state::write(app, &account_id, value)?;
+        }
+    }
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -328,10 +379,25 @@ pub async fn telegram_write_snapshot_cache(app: AppHandle, snapshot: Value) -> R
 
 #[tauri::command]
 pub fn telegram_begin_snapshot_cache_write(
+    app: AppHandle,
     state: State<'_, SnapshotCacheWriteState>,
     transaction_id: String,
-    header: Value,
+    mut header: Value,
 ) -> Result<(), String> {
+    let account_id = active_account_id(&app)?;
+    if header
+        .get("accountId")
+        .and_then(Value::as_str)
+        .is_some_and(|owner| owner != account_id)
+    {
+        return Err("Account changed before snapshot save".into());
+    }
+    let object = header.as_object_mut().ok_or("Invalid snapshot header")?;
+    object.insert("accountId".into(), Value::String(account_id));
+    object.insert(
+        "__nativeSnapshotPath".into(),
+        Value::String(snapshot_cache_path(&app)?.display().to_string()),
+    );
     state.begin(&transaction_id, header)
 }
 
@@ -351,8 +417,13 @@ pub async fn telegram_commit_snapshot_cache_write(
     state: State<'_, SnapshotCacheWriteState>,
     transaction_id: String,
 ) -> Result<(), String> {
-    let snapshot = state.take(&transaction_id)?;
-    tauri::async_runtime::spawn_blocking(move || write_snapshot_cache_value(&app, snapshot))
+    let mut snapshot = state.take(&transaction_id)?;
+    let path = snapshot
+        .as_object_mut()
+        .and_then(|s| s.remove("__nativeSnapshotPath"))
+        .and_then(|p| p.as_str().map(PathBuf::from))
+        .ok_or("Missing snapshot write context")?;
+    tauri::async_runtime::spawn_blocking(move || write_snapshot_cache_at(&app, snapshot, path))
         .await
         .map_err(|error| format!("Unable to join UI cache writer: {error}"))?
 }
@@ -366,44 +437,30 @@ pub fn telegram_abort_snapshot_cache_write(
 }
 
 fn write_snapshot_cache_value(app: &AppHandle, snapshot: Value) -> Result<(), String> {
-    let path = snapshot_cache_path(app)?;
-    let temporary = path.with_extension("tmp");
-    let backup = path.with_extension("bak");
-    let serialized = serde_json::to_vec(&snapshot)
-        .map_err(|error| format!("Unable to serialize UI cache: {error}"))?;
-    let protected = crate::proxy::protect(&serialized)?;
-    let mut file = fs::File::create(&temporary)
-        .map_err(|error| format!("Unable to create UI cache {}: {error}", temporary.display()))?;
-    file.write_all(&protected)
-        .map_err(|error| format!("Unable to write UI cache {}: {error}", temporary.display()))?;
-    file.sync_all()
-        .map_err(|error| format!("Unable to flush UI cache {}: {error}", temporary.display()))?;
+    write_snapshot_cache_at(app, snapshot, snapshot_cache_path(app)?)
+}
 
-    if backup.exists() {
-        fs::remove_file(&backup).map_err(|error| {
-            format!(
-                "Unable to remove old UI cache backup {}: {error}",
-                backup.display()
-            )
-        })?;
+fn write_snapshot_cache_at(
+    app: &AppHandle,
+    mut snapshot: Value,
+    path: PathBuf,
+) -> Result<(), String> {
+    let account_id = active_account_id(app)?;
+    if let Some(owner) = snapshot.get("accountId").and_then(Value::as_str)
+        && owner != account_id
+    {
+        return Err("Account changed during snapshot save".into());
     }
-    if path.exists() {
-        fs::rename(&path, &backup)
-            .map_err(|error| format!("Unable to rotate UI cache {}: {error}", path.display()))?;
-    }
-    if let Err(error) = fs::rename(&temporary, &path) {
-        if backup.exists() {
-            let _ = fs::rename(&backup, &path);
+    if local_state::LOCAL_FIELDS
+        .iter()
+        .all(|field| snapshot.get(field).is_some_and(Value::is_array))
+    {
+        local_state::write(app, &account_id, &snapshot)?;
+        for field in local_state::LOCAL_FIELDS {
+            snapshot[field] = serde_json::json!([]);
         }
-        return Err(format!(
-            "Unable to replace UI cache {}: {error}",
-            path.display()
-        ));
     }
-    if backup.exists() {
-        let _ = fs::remove_file(backup);
-    }
-    Ok(())
+    persistence::write_json(&path, &snapshot, true)
 }
 
 #[tauri::command]

@@ -329,7 +329,7 @@ export const readManagedDownloadRequests = (): ReadonlyMap<string, ManagedDownlo
 
 export const writeManagedDownloadRequests = (records: Iterable<ManagedDownloadRequest>) => {
   try {
-    const limited = [...records]
+    const limited = [...records].filter((record) => !removedAccounts.has(record.accountId))
       .sort((left, right) => left.requestedAt.localeCompare(right.requestedAt))
       .slice(-MAX_PERSISTED_DOWNLOADS);
     globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(limited));
@@ -344,4 +344,11 @@ export const collectManagedDownloads = (
   requests: Iterable<ManagedDownloadRequest>,
 ) => {
   return new ManagedDownloadIndex(messages).collect(chats, requests);
+};
+
+const removedAccounts = new Set<string>();
+export const removeAccountDownloads = (accountId: string) => {
+  const records = [...readManagedDownloadRequests().values()].filter((record) => record.accountId !== accountId);
+  globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(records));
+  removedAccounts.add(accountId);
 };

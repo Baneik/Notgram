@@ -3,6 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TdRequestBroker } from "./tdRequestBroker";
 
 describe("TdRequestBroker prepared files", () => {
+  it("uses the restricted recovery command and waits for its TDLib acknowledgement", async () => {
+    let broker!: TdRequestBroker;
+    broker = new TdRequestBroker(async (command, args) => {
+      expect(command).toBe("telegram_recover_file");
+      expect(args?.fileId).toBe(44);
+      broker.settle({ "@type": "ok", "@extra": args?.extra });
+    });
+    await expect(broker.recoverFile(44)).resolves.toEqual(expect.objectContaining({ "@type": "ok" }));
+  });
   afterEach(() => vi.useRealTimers());
 
   it("supports a bounded timeout for connection recovery requests", async () => {

@@ -72,7 +72,7 @@ export const createOutboxController = ({
         if (!item) return;
         try {
           if (item.attachments?.length) {
-            const stored = await attachmentOutbox.get(item.id);
+            const stored = await attachmentOutbox.get(item.id, get().activeAccountId);
             if (!stored) throw new Error(translate("离线附件已过期或文件内容已变更，请重新选择"));
             const sent = await transport.sendFiles({
               chatId: item.chatId,
@@ -114,8 +114,8 @@ export const createOutboxController = ({
         }
 
         setOutbox(get().outbox.filter((candidate) => candidate.id !== item.id));
-        if (item.attachments?.length) await attachmentOutbox.remove(item.id);
         if (!await persistOutboxState()) return;
+        if (item.attachments?.length) await attachmentOutbox.remove(item.id);
       }
     })();
     const tracked = operation.finally(() => {

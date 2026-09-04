@@ -461,6 +461,7 @@ export const cachedSnapshotFrom = (
   const startedAt = performance.now();
   const snapshot: CachedTelegramSnapshot = {
     version: TELEGRAM_CACHE_VERSION,
+    accountId: state.activeAccountId,
     savedAt: new Date().toISOString(),
     currentUserId: state.currentUserId ?? "",
     users: [...state.users.values()].map(sanitizeCachedUser),

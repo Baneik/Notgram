@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TelegramEventListener } from "./transport";
+import { TdRequestBroker } from "./tdRequestBroker";
 import { TauriTelegramTransport } from "./tauriTransport";
 import type { TdObject } from "./tdlibMapper";
 import type { Message, ProxySettings } from "./types";
@@ -4364,11 +4365,11 @@ describe("TauriTelegramTransport avatars", () => {
   it("invalidates a stale local file before downloading it again", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
+    const recovery = vi.spyOn(TdRequestBroker.prototype, "recoverFile").mockResolvedValue({ "@type": "ok" });
     const requests: TdObject[] = [];
     internal.listener = () => undefined;
     internal.request = async (request) => {
       requests.push(request);
-      if (request["@type"] === "deleteFile") return { "@type": "ok" };
       return {
         "@type": "file",
         id: request.file_id,
@@ -4383,9 +4384,10 @@ describe("TauriTelegramTransport avatars", () => {
     };
 
     await internal.recoverFile(44, 32);
+    expect(recovery).toHaveBeenCalledWith(44);
+    recovery.mockRestore();
 
     expect(requests).toEqual([
-      { "@type": "deleteFile", file_id: 44 },
       expect.objectContaining({
         "@type": "downloadFile",
         file_id: 44,

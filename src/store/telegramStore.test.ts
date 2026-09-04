@@ -597,7 +597,7 @@ describe("telegram store", () => {
     expect(store.getState().users.get("self")?.avatar.imagePath).toBe("C:\\cached\\self-avatar.jpg");
   });
 
-  it("discards a damaged snapshot and rebuilds from the live server", async () => {
+  it("preserves a damaged snapshot while rebuilding from the live server", async () => {
     class DamagedCacheTransport extends MockTelegramTransport {
       clears = 0;
 
@@ -624,7 +624,7 @@ describe("telegram store", () => {
     await store.getState().initialize();
     await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
 
-    expect(transport.clears).toBe(1);
+    expect(transport.clears).toBe(0);
     expect(store.getState().phase).toBe("ready");
     expect(store.getState().chats.size).toBeGreaterThan(0);
     expect(store.getState().cacheHealth).toBe("invalid");

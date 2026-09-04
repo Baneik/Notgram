@@ -6,6 +6,21 @@ import {
 } from "./attachmentOutbox";
 
 describe("attachment outbox", () => {
+  it("isolates account-owned batches and removes only the logged-out account", async () => {
+    const store = new AttachmentOutboxStore();
+    const attachments: OutgoingAttachment[] = [{ file: new File(["unsent"], "draft.txt"), kind: "document" }];
+    const a = crypto.randomUUID();
+    const b = crypto.randomUUID();
+    for (const [accountId, id] of [["a", a], ["b", b]]) {
+      await store.put({ accountId, id, persistent: true, createdAt: new Date().toISOString(), attachments,
+        metadata: await describeOutgoingAttachments(id, attachments) });
+    }
+    expect(await store.get(a, "b")).toBeUndefined();
+    await store.removeAccount("a");
+    expect(await store.get(a, "a")).toBeUndefined();
+    expect(await store.get(b, "b")).toBeDefined();
+    await store.removeAccount("b");
+  });
   it("restores native attachment metadata and verifies the persisted fingerprint", async () => {
     const id = `test-${crypto.randomUUID()}`;
     const store = new AttachmentOutboxStore();

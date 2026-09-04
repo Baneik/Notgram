@@ -602,12 +602,30 @@ export function App() {
   useEffect(() => {
     if (phase !== "ready" || cacheRetentionDays <= 0) return;
     const key = `notgram:cache-cleanup:${activeAccountId}`;
-    const lastRun = Number(globalThis.localStorage?.getItem(key) ?? 0);
-    if (Date.now() - lastRun < 86_400_000) return;
-    void clearMediaCache(["image", "video", "audio", "document", "other"], cacheRetentionDays)
-      .then((succeeded) => {
-        if (succeeded) globalThis.localStorage?.setItem(key, String(Date.now()));
-      });
+    let running = false;
+    let disposed = false;
+    const check = async () => {
+      if (disposed || running) return;
+      let lastRun = 0;
+      try { lastRun = Number(globalThis.localStorage?.getItem(key) ?? 0); } catch { /* unavailable */ }
+      if (Date.now() - lastRun < 86_400_000) return;
+      running = true;
+      try {
+        const succeeded = await clearMediaCache(["image", "video", "audio", "document", "other"], cacheRetentionDays);
+        if (succeeded && !disposed) globalThis.localStorage?.setItem(key, String(Date.now()));
+      } finally { running = false; }
+    };
+    const wake = () => { void check().catch(() => undefined); };
+    wake();
+    const timer = globalThis.setInterval(wake, 60_000);
+    globalThis.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      disposed = true;
+      globalThis.clearInterval(timer);
+      globalThis.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
   }, [activeAccountId, cacheRetentionDays, clearMediaCache, phase]);
   const openChatManagement = useCallback((chatId: string) => {
     if (chats.get(chatId)?.management?.canOpenManagement !== true) return;

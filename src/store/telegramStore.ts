@@ -1,3 +1,6 @@
+import { removeAccountLocalBlocks } from "./localUserBlocks";
+import { removeAccountActivity } from "./conversationActivity";
+import { removeAccountDownloads } from "../utils/downloadManager";
 import { translate } from "../i18n";
 import { isCaptionContent } from "../telegram/messageContent";
 import { useStore } from "zustand";
@@ -675,9 +678,41 @@ export const createTelegramStore = (
       cacheDirtySince = undefined;
     };
 
+    let localSaveTimer: ReturnType<typeof setTimeout> | undefined;
+    let savedLocalReferences: unknown[] = [];
+    const flushUnsentState = async () => {
+      if (localSaveTimer) globalThis.clearTimeout(localSaveTimer);
+      localSaveTimer = undefined;
+      if (!transport.saveLocalState) return flushCachedSnapshot();
+      const state = get();
+      if (!state.currentUserId) return;
+      const accountId = state.activeAccountId;
+      const value = {
+        currentUserId: state.currentUserId,
+        savedAt: new Date().toISOString(),
+        drafts: [...state.drafts.values()],
+        localAttachmentDrafts: [...state.localAttachmentDrafts.values()],
+        outbox: state.outbox,
+      };
+      const operation = cacheWrite.catch(() => undefined).then(() => transport.saveLocalState!(accountId, value));
+      cacheWrite = operation;
+      await operation;
+    };
+
     const scheduleCacheWrite = () => {
       const state = get();
       if (state.authorization.kind !== "ready" || !state.currentUserId) return;
+      const references = [state.drafts, state.localAttachmentDrafts, state.outbox];
+      if (transport.saveLocalState && references.some((value, index) => value !== savedLocalReferences[index])) {
+        savedLocalReferences = references;
+        if (localSaveTimer) globalThis.clearTimeout(localSaveTimer);
+        localSaveTimer = globalThis.setTimeout(() => {
+          void flushUnsentState().catch(() => set({
+            cacheHealth: "invalid",
+            operationError: translate("无法保存附件草稿"),
+          }));
+        }, 500);
+      }
       const now = Date.now();
       cacheDirtySince ??= now;
       const deadline = cacheDirtySince + CACHE_WRITE_MAX_DELAY_MS;
@@ -721,7 +756,9 @@ export const createTelegramStore = (
       const localAttachmentDrafts = new Map(get().localAttachmentDrafts);
       localAttachmentDrafts.delete(draftKey);
       set({ localAttachmentDrafts });
-      void attachmentOutbox.remove(current.batchId).catch(() => undefined);
+      void flushUnsentState().then(() => attachmentOutbox.remove(current.batchId)).catch(() => {
+        set({ cacheHealth: "invalid" });
+      });
       scheduleCacheWrite();
     };
 
@@ -744,6 +781,9 @@ export const createTelegramStore = (
 
     const clearCachedData = (clearSnapshot = true) => {
       cancelScheduledCacheWrite();
+      if (localSaveTimer) globalThis.clearTimeout(localSaveTimer);
+      localSaveTimer = undefined;
+      savedLocalReferences = [];
       sharedMediaIndex.clear();
       cachedMessageIds.clear();
       historyLoadPromises.clear();
@@ -850,12 +890,14 @@ export const createTelegramStore = (
 
     const flushCachedSnapshot = async () => {
       cancelScheduledCacheWrite();
-      await cacheWrite.catch(() => undefined);
+      if (localSaveTimer) globalThis.clearTimeout(localSaveTimer);
+      localSaveTimer = undefined;
       const state = get();
       if (state.authorization.kind === "ready" && state.currentUserId) {
-        await transport.saveCachedSnapshot(
-          cachedSnapshotFrom(state, profileController.getCachedProfiles()),
-        );
+        const snapshot = cachedSnapshotFrom(state, profileController.getCachedProfiles());
+        const operation = cacheWrite.catch(() => undefined).then(() => transport.saveCachedSnapshot(snapshot));
+        cacheWrite = operation;
+        await operation;
         set({ cacheHealth: "healthy" });
       }
     };
@@ -865,9 +907,6 @@ export const createTelegramStore = (
       const snapshot = migration.snapshot;
       set({ cacheHealth: migration.health });
       if (!snapshot) {
-        if (migration.health === "invalid") {
-          void transport.clearCachedSnapshot().catch(() => undefined);
-        }
         return;
       }
       const current = get();
@@ -2117,10 +2156,13 @@ export const createTelegramStore = (
           if (!settingsOnly) {
             try {
               hydrateCachedSnapshot(await transport.loadCachedSnapshot());
+              await attachmentOutbox.claimLegacy(get().activeAccountId, [
+                ...[...get().localAttachmentDrafts.values()].map((draft) => draft.batchId),
+                ...get().outbox.filter((item) => item.attachments?.length).map((item) => item.id),
+              ]);
             } catch {
               // A corrupt or unavailable cache must not block the live connection.
               set({ cacheHealth: "invalid" });
-              void transport.clearCachedSnapshot().catch(() => undefined);
             }
           }
           const snapshot = await transport.connect(applyEvent, { settingsOnly });
@@ -2416,6 +2458,11 @@ export const createTelegramStore = (
           await transport.logOut();
           await transport.disconnect();
           disconnected = true;
+          await attachmentOutbox.removeAccount(accountId);
+          removeAccountLocalBlocks(accountId);
+          removeAccountActivity(accountId);
+          removeAccountDownloads(accountId);
+          globalThis.localStorage?.removeItem(`notgram:cache-cleanup:${accountId}`);
           applyAccountState(await transport.removeAccount(accountId));
           reloadApplication();
           return true;
@@ -3740,7 +3787,7 @@ export const createTelegramStore = (
         const localDraft = get().localAttachmentDrafts.get(draftKey);
         if (!localDraft) return [];
         try {
-          const stored = await attachmentOutbox.get(localDraft.batchId);
+          const stored = await attachmentOutbox.get(localDraft.batchId, get().activeAccountId);
           if (stored && stored.attachments.length === localDraft.attachments.length) {
             return stored.attachments;
           }
@@ -3762,6 +3809,7 @@ export const createTelegramStore = (
           const metadata = await describeOutgoingAttachments(batchId, attachments);
           await attachmentOutbox.put({
             id: batchId,
+            accountId: get().activeAccountId,
             createdAt: updatedAt,
             persistent: true,
             attachments,
@@ -3782,13 +3830,14 @@ export const createTelegramStore = (
             updatedAt,
           });
           set({ localAttachmentDrafts, operationError: undefined });
-          scheduleCacheWrite();
+          await flushUnsentState();
           if (previous?.batchId && previous.batchId !== batchId) {
             await attachmentOutbox.remove(previous.batchId).catch(() => undefined);
           }
           return true;
         } catch (error) {
-          await attachmentOutbox.remove(batchId).catch(() => undefined);
+          // A failed acknowledgement may still follow a successful disk commit.
+          // Keep both blob versions until committed references can be reconciled.
           if (localAttachmentDraftGenerations.get(draftKey) === generation) {
             set({ operationError: errorMessage(error, translate("无法保存附件草稿")) });
           }
@@ -3819,7 +3868,7 @@ export const createTelegramStore = (
         const localAttachmentDrafts = new Map(get().localAttachmentDrafts);
         localAttachmentDrafts.delete(draftKey);
         set({ localAttachmentDrafts });
-        scheduleCacheWrite();
+        await flushUnsentState();
         await attachmentOutbox.remove(current.batchId).catch(() => undefined);
       },
 
@@ -3958,10 +4007,10 @@ export const createTelegramStore = (
           const item = get().outbox.find((candidate) => candidate.id === queuedItemId);
           if (!item) return false;
           setOutbox(get().outbox.filter((candidate) => candidate.id !== queuedItemId));
+          if (!await persistOutboxState()) return false;
           if (item.attachments?.length) {
             await attachmentOutbox.remove(queuedItemId).catch(() => undefined);
           }
-          await persistOutboxState();
           set({ operationError: undefined });
           return true;
         }
@@ -4202,7 +4251,7 @@ export const createTelegramStore = (
           const createdAt = new Date().toISOString();
           try {
             const metadata = await describeOutgoingAttachments(id, attachments);
-            await attachmentOutbox.put({ id, createdAt, attachments, metadata });
+            await attachmentOutbox.put({ id, accountId: get().activeAccountId, createdAt, attachments, metadata });
             const previousOutbox = get().outbox;
             const previousMessages = get().messages;
             const item: QueuedOutgoingMessage = {
@@ -4224,7 +4273,6 @@ export const createTelegramStore = (
             set({ operationError: undefined });
             if (!await persistOutboxState()) {
               set({ outbox: previousOutbox, messages: previousMessages });
-              await attachmentOutbox.remove(id).catch(() => undefined);
               return false;
             }
             recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);
@@ -4263,8 +4311,8 @@ export const createTelegramStore = (
           const item = get().outbox.find((candidate) => candidate.id === itemId);
           if (!item) return;
           setOutbox(get().outbox.filter((candidate) => candidate.id !== itemId));
+          if (!await persistOutboxState()) return;
           await attachmentOutbox.remove(itemId).catch(() => undefined);
-          await persistOutboxState();
           set({ operationError: undefined });
           return;
         }

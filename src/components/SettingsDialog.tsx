@@ -1076,7 +1076,7 @@ function AccountSettings({
           {profileState.updateError && <div className="settings-error" role="alert">{profileState.updateError}</div>}
           {logoutConfirmation ? (
             <div className="account-logout-confirm" role="group" aria-label={translate("确认退出登录")}>
-              <p>{translate("退出后将删除此账号在本机的 TDLib 数据和界面缓存，其他账号不受影响。")}</p>
+              <p>{translate("退出后将删除此账号的本地草稿、待发送消息与附件、下载记录及缓存。已下载或另存的文件会保留。其他账号不受影响。")}</p>
               <div>
                 <button className="dialog-secondary" type="button" disabled={pending} onClick={() => setLogoutConfirmation(false)}>{translate("取消")}</button>
                 <button className="dialog-danger" type="button" disabled={pending} onClick={onLogOut}>

@@ -150,3 +150,9 @@ export const recordConversationSentMessages = (
 export const useConversationActivity = <T,>(
   selector: (state: ConversationActivityState) => T,
 ) => useStore(conversationActivityStore, selector);
+
+export const removeAccountActivity = (accountId: string) => {
+  const records = conversationActivityStore.getState().records.filter((record) => record.accountId !== accountId);
+  globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(records));
+  conversationActivityStore.setState({ records });
+};

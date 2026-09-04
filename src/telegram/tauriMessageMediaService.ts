@@ -178,6 +178,7 @@ const mapStickerSetSummary = (value: unknown): StickerSetSummary | undefined => 
 };
 
 export interface TauriMessageMediaServiceContext {
+  recoverFile: (fileId: number) => Promise<unknown>;
   request: (request: TdObject) => Promise<TdObject>;
   rawMessages: Map<string, Map<string, TdObject>>;
   emitMessage: (raw?: TdObject, animateEntrance?: boolean) => void;
@@ -729,10 +730,7 @@ export class TauriMessageMediaService {
 
   async recoverFile(fileId: number, priority = 32) {
     this.context.fileDownloads.cancel(fileId);
-    await this.context.request({
-      "@type": "deleteFile",
-      file_id: fileId,
-    });
+    await this.context.recoverFile(fileId);
     await this.context.fileDownloads.cache(fileId, priority);
   }
 

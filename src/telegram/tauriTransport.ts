@@ -407,6 +407,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     },
   );
   private messageMediaService = new TauriMessageMediaService({
+    recoverFile: (fileId) => this.requestBroker.recoverFile(fileId),
     request: (request) => this.request(request),
     rawMessages: this.rawMessages,
     emitMessage: (raw, animateEntrance) => this.emitMessage(raw, animateEntrance),
@@ -620,6 +621,10 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async logOut() {
     await this.request({ "@type": "logOut" });
+  }
+
+  async saveLocalState(accountId: string, value: import("./types").LocalUnsentState) {
+    await invoke("telegram_write_local_state", { accountId, value });
   }
 
   async loadCachedSnapshot() {

@@ -41,6 +41,14 @@ export class TdRequestBroker {
 
   constructor(private invokeCommand: InvokeCommand = invoke) {}
 
+  async recoverFile(fileId: number) {
+    const extra = crypto.randomUUID();
+    const response = this.waitForResponse(extra, translate("文件下载失败。"));
+    void this.invokeCommand("telegram_recover_file", { fileId, extra })
+      .catch((error) => this.reject(extra, error));
+    return response;
+  }
+
   async request(request: TdObject, timeoutMs = 30_000) {
     const requestType = typeof request["@type"] === "string" ? request["@type"] : "unknown";
     const extra = crypto.randomUUID();
