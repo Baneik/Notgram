@@ -58,6 +58,14 @@ const createHarness = () => {
 };
 
 describe("telegram store outbox controller", () => {
+  it("retains the last durable version when a new write fails", async () => {
+    const harness = createHarness();
+    harness.controller.setOutbox([item("unsent")]);
+    harness.flushCachedSnapshot.mockRejectedValueOnce(new Error("disk full"));
+    expect(await harness.controller.persistOutboxState()).toBe(false);
+    expect(harness.transport.clearCachedSnapshot).not.toHaveBeenCalled();
+    expect(harness.getState().outbox).toEqual([item("unsent")]);
+  });
   it("keeps the rendered message projection in sync with queue state", () => {
     const harness = createHarness();
     harness.controller.setOutbox([item("queued-1")]);

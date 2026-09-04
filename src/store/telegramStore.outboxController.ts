@@ -56,7 +56,6 @@ export const createOutboxController = ({
       await flushCachedSnapshot();
       return true;
     } catch {
-      await transport.clearCachedSnapshot().catch(() => undefined);
       set({ cacheHealth: "invalid" });
       return false;
     }

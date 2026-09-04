@@ -21,25 +21,45 @@ const mergeMessages = (current: Message[], incoming: Message[]) => [...new Map(
 export class SharedMediaIndex {
   private entries = new Map<string, SharedMediaCacheEntry>();
 
-  constructor(private readonly ttlMs = DEFAULT_TTL_MS) {}
+  constructor(private readonly ttlMs = DEFAULT_TTL_MS, private readonly maxEntries = 100) {}
+
+  clear() {
+    this.entries.clear();
+  }
+
+  private prune(now: number) {
+    for (const [key, entry] of this.entries) {
+      if (now - entry.cachedAt > this.ttlMs) this.entries.delete(key);
+    }
+    while (this.entries.size > this.maxEntries) {
+      this.entries.delete(this.entries.keys().next().value!);
+    }
+  }
 
   read(input: Pick<SharedMediaSearchInput, "chatId" | "category" | "query">, now = Date.now()) {
-    const entry = this.entries.get(cacheKey(input.chatId, input.category, input.query));
+    this.prune(now);
+    const key = cacheKey(input.chatId, input.category, input.query);
+    const entry = this.entries.get(key);
     if (!entry || now - entry.cachedAt > this.ttlMs) return undefined;
+    this.entries.delete(key);
+    this.entries.set(key, entry);
     return { ...entry, messages: structuredClone(entry.messages), cached: true } satisfies SharedMediaPage;
   }
 
   merge(input: SharedMediaSearchInput, page: SharedMediaPage, reset: boolean, now = Date.now()) {
+    this.prune(now);
     const key = cacheKey(input.chatId, input.category, input.query);
     const current = reset ? undefined : this.entries.get(key);
     const entry: SharedMediaCacheEntry = {
-      messages: mergeMessages(current?.messages ?? [], page.messages),
+      messages: mergeMessages(current?.messages ?? [], page.messages).slice(0, 500),
       totalCount: page.totalCount ?? current?.totalCount,
       nextFromMessageId: page.nextFromMessageId,
       hasMore: page.hasMore,
       cachedAt: now,
     };
+    this.entries.delete(key);
     this.entries.set(key, entry);
+    this.prune(now);
     return { ...entry, messages: structuredClone(entry.messages), cached: false } satisfies SharedMediaPage;
   }
 

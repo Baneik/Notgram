@@ -59,6 +59,16 @@ const createHarness = () => {
 afterEach(() => vi.useRealTimers());
 
 describe("telegram store profile controller", () => {
+  it("does not repopulate a reset session with a late response", async () => {
+    const pending = deferred<ChatProfile>();
+    const harness = createHarness();
+    vi.mocked(harness.transport.getChatProfile).mockReturnValue(pending.promise);
+    const request = harness.controller.loadChatProfile("chat-1");
+    harness.controller.reset();
+    pending.resolve(profile("chat-1"));
+    await request;
+    expect(harness.controller.getCachedProfiles()).toEqual([]);
+  });
   it("deduplicates an in-flight profile load and exposes hydrated cache entries", async () => {
     const pending = deferred<ChatProfile>();
     const harness = createHarness();

@@ -61,6 +61,7 @@ export const createProfileController = ({
   let profileGeneration = 0;
   let accountProfileGeneration = 0;
   let contactsGeneration = 0;
+  let sessionGeneration = 0;
   const profileCache = new Map<string, ChatProfile>();
   const profileRefreshes = new Map<string, Promise<ChatProfile>>();
 
@@ -70,8 +71,12 @@ export const createProfileController = ({
   ) => {
     const pending = profileRefreshes.get(cacheKey);
     if (pending) return pending;
+    const generation = sessionGeneration;
     const request = loadProfile().then((value) => {
+      if (generation !== sessionGeneration) return value;
+      profileCache.delete(cacheKey);
       profileCache.set(cacheKey, value);
+      while (profileCache.size > 100) profileCache.delete(profileCache.keys().next().value!);
       scheduleCacheWrite();
       return value;
     }).finally(() => {
@@ -130,6 +135,7 @@ export const createProfileController = ({
     },
 
     reset: () => {
+      sessionGeneration += 1;
       profileGeneration += 1;
       accountProfileGeneration += 1;
       contactsGeneration += 1;

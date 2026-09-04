@@ -744,6 +744,7 @@ export const createTelegramStore = (
 
     const clearCachedData = (clearSnapshot = true) => {
       cancelScheduledCacheWrite();
+      sharedMediaIndex.clear();
       cachedMessageIds.clear();
       historyLoadPromises.clear();
       cacheBoundaryPromises.clear();
@@ -3525,7 +3526,8 @@ export const createTelegramStore = (
       },
 
       loadSharedMedia: async (input, force = false) => {
-        if (!get().chats.has(input.chatId)) return undefined;
+        if (accountTransition || !get().chats.has(input.chatId)) return undefined;
+        const generation = accountGeneration;
         const reset = !input.fromMessageId;
         if (reset && !force) {
           const cached = sharedMediaIndex.read(input);
@@ -3533,10 +3535,12 @@ export const createTelegramStore = (
         }
         try {
           const page = await transport.searchSharedMedia(input);
+          if (generation !== accountGeneration || accountTransition) return undefined;
           const merged = sharedMediaIndex.merge(input, page, reset);
           set({ operationError: undefined });
           return merged;
         } catch (error) {
+          if (generation !== accountGeneration || accountTransition) return undefined;
           set({ operationError: errorMessage(error, translate("无法读取共享媒体")) });
           return undefined;
         }

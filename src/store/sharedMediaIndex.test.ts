@@ -13,6 +13,18 @@ const message = (id: string, sentAt: string): Message => ({
 });
 
 describe("SharedMediaIndex", () => {
+  it("clears a session and evicts least recently read entries", () => {
+    const index = new SharedMediaIndex(1000, 2);
+    const page = { messages: [], hasMore: false };
+    index.merge({ chatId: "1", category: "media" }, page, true, 1);
+    index.merge({ chatId: "2", category: "media" }, page, true, 2);
+    index.read({ chatId: "1", category: "media" }, 3);
+    index.merge({ chatId: "3", category: "media" }, page, true, 4);
+    expect(index.read({ chatId: "2", category: "media" }, 5)).toBeUndefined();
+    expect(index.read({ chatId: "1", category: "media" }, 5)).toBeDefined();
+    index.clear();
+    expect(index.read({ chatId: "1", category: "media" }, 5)).toBeUndefined();
+  });
   it("merges pages, reuses fresh entries, and removes deleted messages", () => {
     const index = new SharedMediaIndex(1000);
     index.merge({ chatId: "7", category: "media" }, {
