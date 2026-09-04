@@ -721,6 +721,25 @@ function MessageBubbleComponent({
     </span>
   ) : null;
 
+  const visualCaption = content.kind === "media" && hasCaption && content.caption ? (
+    <div
+      ref={textFlowRef}
+      className={`message-text-flow photo-caption-flow ${metaWrapped ? "is-meta-wrapped" : ""}`}
+      style={{ "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}
+    >
+      <MessageRichText
+        className="photo-caption"
+        text={content.caption}
+        entities={content.captionEntities}
+        highlightQuery={searchQuery}
+        onOpenMention={onOpenMention}
+        onSearchHashtag={onSearchHashtag}
+        onCollapseQuote={collapseQuote}
+      />
+      {!showReactionFooter && messageMeta}
+    </div>
+  ) : null;
+
   return (
     <article
       ref={setMessageRowRef}
@@ -894,6 +913,7 @@ function MessageBubbleComponent({
             <p>{highlightedText(content.text, searchQuery)}</p>
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
+              {content.showCaptionAboveMedia && visualCaption}
               <div
                 className={`photo-preview ${mediaLayout?.aspectRatio ? "has-media-ratio" : ""} ${content.mediaType === "photo" && usablePreviewSource && !usableFullMediaSource ? "is-preview-only" : ""}`}
                 style={mediaLayout?.aspectRatio
@@ -1061,24 +1081,7 @@ function MessageBubbleComponent({
                   />
                 )}
               </div>
-              {hasCaption && content.caption && (
-                <div
-                  ref={textFlowRef}
-                  className={`message-text-flow photo-caption-flow ${metaWrapped ? "is-meta-wrapped" : ""}`}
-                  style={{ "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}
-                >
-                  <MessageRichText
-                    className="photo-caption"
-                    text={content.caption}
-                    entities={content.captionEntities}
-                    highlightQuery={searchQuery}
-                    onOpenMention={onOpenMention}
-                    onSearchHashtag={onSearchHashtag}
-                    onCollapseQuote={collapseQuote}
-                  />
-                  {!showReactionFooter && messageMeta}
-                </div>
-              )}
+              {!content.showCaptionAboveMedia && visualCaption}
             </div>
           ) : content.kind === "poll" ? (
             <PollMessage

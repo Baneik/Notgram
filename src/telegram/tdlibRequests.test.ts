@@ -4,12 +4,30 @@ import {
   chatListObject,
   effectiveProxy,
   forumTopicObject,
+  formattedTextObject,
   mapAuthorizationState,
   numericId,
   nextProxyProfile,
 } from "./tdlibRequests";
 
 describe("TDLib request builders", () => {
+  it("serializes caption styles and links while rejecting invalid entity ranges", () => {
+    expect(formattedTextObject("caption", [
+      { kind: "bold", offset: 0, length: 7 },
+      { kind: "textUrl", href: "https://example.com", offset: 0, length: 7 },
+      { kind: "pre", language: "js", offset: 0, length: 7 },
+      { kind: "blockquote", offset: 0, length: 7 },
+      { kind: "italic", offset: -1, length: 7 },
+      { kind: "underline", offset: 0, length: 8 },
+      { kind: "mentionName", offset: 0, length: 7, userId: "invalid" },
+    ])).toMatchObject({ entities: [
+      { offset: 0, length: 7, type: { "@type": "textEntityTypeBold" } },
+      { offset: 0, length: 7, type: { "@type": "textEntityTypeTextUrl", url: "https://example.com" } },
+      { offset: 0, length: 7, type: { "@type": "textEntityTypePreCode", language: "js" } },
+      { offset: 0, length: 7, type: { "@type": "textEntityTypeBlockQuote" } },
+    ] });
+  });
+
   it("validates numeric identifiers and typed chat lists", () => {
     expect(numericId("42")).toBe(42);
     expect(() => numericId("chat-42")).toThrow("无效的 Telegram 标识符");

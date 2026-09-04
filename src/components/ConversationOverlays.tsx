@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { isEditableMessageContent } from "../telegram/messageContent";
 import {
   AlertCircle,
   BellOff,
@@ -186,7 +187,7 @@ export function MessageActionMenu({
     { id: "copy", label: translate("复制"), icon: "copy" },
     ...(onSelect ? [{ id: "select", label: translate("选择"), icon: "check" as const }] : []),
     ...(onDownload ? [{ id: "download", label: translate("下载"), icon: "download" as const }] : []),
-    ...(permissions.canEdit && message.content.kind === "text"
+    ...(permissions.canEdit && isEditableMessageContent(message.content)
       ? [{ id: "edit", label: translate("编辑"), icon: "edit" as const }]
       : []),
     ...(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers
@@ -391,7 +392,7 @@ export function MessageActionMenu({
               <span>{translate("下载")}</span>
             </button>
           )}
-          {permissions.canEdit && message.content.kind === "text" && (
+          {permissions.canEdit && isEditableMessageContent(message.content) && (
             <button type="button" role="menuitem" onClick={onEdit}>
               <Edit3 size={16} strokeWidth={1.9} />
               <span>{translate("编辑")}</span>

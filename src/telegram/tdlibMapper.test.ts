@@ -15,6 +15,20 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it.each(["messagePhoto", "messageVideo", "messageAnimation"])("preserves caption placement and formatting for %s", (type) => {
+    for (const above of [false, true]) {
+      expect(mapTdMessageContent({
+        "@type": type,
+        show_caption_above_media: above,
+        caption: { text: "caption", entities: [{ offset: 0, length: 7, type: { "@type": "textEntityTypeBold" } }] },
+      })).toMatchObject({
+        caption: "caption",
+        captionEntities: [{ offset: 0, length: 7, kind: "bold" }],
+        showCaptionAboveMedia: above,
+      });
+    }
+  });
+
   it("maps sponsored messages as independent timeline entries", () => {
     const result = mapTdSponsoredMessages({
       "@type": "sponsoredMessages",

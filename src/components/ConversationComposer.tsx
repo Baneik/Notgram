@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { isCaptionContent } from "../telegram/messageContent";
 import { useTranslation } from "react-i18next";
 import {
   Bell,
@@ -199,6 +200,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const clearLocalAttachmentDraft = useTelegramStore((state) => state.clearLocalAttachmentDraft);
   const activeReplyQuote = replyingTo ? replyQuote : chatDraft?.replyQuote;
   const composerContextMessage = editingMessage ?? replyingTo;
+  const editingCaption = Boolean(editingMessage && isCaptionContent(editingMessage.content));
   const composerContextKey = editingMessage
     ? `edit:${editingMessage.id}`
     : replyingTo
@@ -706,10 +708,11 @@ export const ConversationComposer = memo(function ConversationComposer({
       if (!previous) draftBeforeEditRef.current = draftRef.current;
       if (!previous) entitiesBeforeEditRef.current = mentionEntitiesRef.current;
       if (draftTimerRef.current) flushDraft();
-      draftRef.current = editingMessage.content.kind === "text" ? editingMessage.content.text : "";
+      draftRef.current = editingMessage.content.kind === "text" ? editingMessage.content.text
+        : isCaptionContent(editingMessage.content) ? editingMessage.content.caption ?? "" : "";
       mentionEntitiesRef.current = editingMessage.content.kind === "text"
         ? editingMessage.content.entities ?? []
-        : [];
+        : isCaptionContent(editingMessage.content) ? editingMessage.content.captionEntities ?? [] : [];
       setDraft(draftRef.current);
       stopTyping();
       focusComposer();
@@ -993,7 +996,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       return;
     }
     const submitted = trimComposerFormattedText(draftRef.current, mentionEntitiesRef.current);
-    if (!submitted.text || sending) return;
+    if ((!submitted.text && !editingCaption) || sending) return;
     closeEmojiPicker();
     if (editingMessage) {
       setSending(true);
@@ -1590,7 +1593,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           type="button"
           aria-label={editingMessage ? translate("保存编辑") : translate("发送消息")}
           title={editingMessage ? translate("保存编辑") : translate("发送消息")}
-          disabled={(!draft.trim() && pendingAttachments.length === 0) || sending || attachmentPending}
+          disabled={(!draft.trim() && !editingCaption && pendingAttachments.length === 0) || sending || attachmentPending}
           onClick={() => void submitMessage()}
         >
           {showSending

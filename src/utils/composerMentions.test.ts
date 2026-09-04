@@ -8,6 +8,14 @@ import {
 const mention = { offset: 6, length: 4, kind: "mentionName" as const, userId: "42" };
 
 describe("composer mention entities", () => {
+  it("preserves caption formatting when saving or editing outside the formatted span", () => {
+    const bold = { kind: "bold" as const, offset: 0, length: 7 };
+    expect(reconcileComposerMentionEntities("caption", "caption", [bold])).toEqual([bold]);
+    expect(reconcileComposerMentionEntities("caption", "a caption", [bold])).toEqual([{ ...bold, offset: 2 }]);
+    expect(trimComposerFormattedText("  caption  ", [{ ...bold, offset: 2 }]))
+      .toEqual({ text: "caption", entities: [bold] });
+  });
+
   it("moves intact mentions and removes mentions edited internally", () => {
     expect(reconcileComposerMentionEntities("hello @Ada", "say hello @Ada", [mention]))
       .toEqual([{ ...mention, offset: 10 }]);

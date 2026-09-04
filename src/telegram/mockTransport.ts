@@ -4,7 +4,7 @@ import {
   tallMediaPreviewUrl,
   wideMediaPreviewUrl,
 } from "./mockData";
-import { messageContentText, messagePreviewText } from "./messageContent";
+import { isCaptionContent, isEditableMessageContent, messageContentText, messagePreviewText } from "./messageContent";
 import { hasChatDraftContent } from "./chatDraft";
 import { messageSearchMatches } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
@@ -1929,7 +1929,7 @@ export class MockTelegramTransport implements TelegramTransport {
         : chat?.canPinMessages === true;
     return clone({
       canReply: true,
-      canEdit: message.outgoing && message.content.kind === "text",
+      canEdit: message.outgoing && isEditableMessageContent(message.content),
       canDeleteOnlyForSelf: !message.outgoing,
       canDeleteForAllUsers: message.outgoing,
       canForward: true,
@@ -2234,13 +2234,16 @@ export class MockTelegramTransport implements TelegramTransport {
     if (clearDraft) await this.setChatDraft({ chatId, topicId, text: "" });
   }
 
-  async editMessage({ chatId, messageId, text, entities }: EditMessageInput) {
+  async editMessage({ chatId, messageId, text, entities, showCaptionAboveMedia }: EditMessageInput) {
     const message = this.snapshot.messages.find(
       (item) => item.chatId === chatId && item.id === messageId,
     );
     if (!message) throw new Error("找不到需要编辑的消息");
-    if (message.content.kind !== "text") throw new Error("只能编辑文本消息");
-    message.content = { kind: "text", text, ...(entities?.length ? { entities } : {}) };
+    if (!isEditableMessageContent(message.content)) throw new Error("不能编辑此消息");
+    message.content = isCaptionContent(message.content)
+      ? { ...message.content, caption: text || undefined, captionEntities: entities?.length ? entities : undefined,
+          showCaptionAboveMedia: showCaptionAboveMedia ?? message.content.showCaptionAboveMedia }
+      : { kind: "text", text, ...(entities?.length ? { entities } : {}) };
     message.editedAt = new Date().toISOString();
     delete message.permissions;
     this.listener?.({ type: "message.upsert", message: clone(message) });
@@ -2452,6 +2455,7 @@ export class MockTelegramTransport implements TelegramTransport {
               duration: attachment.duration,
               caption: index === 0 ? caption : undefined,
               captionEntities: index === 0 ? captionEntities : undefined,
+              showCaptionAboveMedia: attachment.showCaptionAboveMedia,
             }
           : {
               kind: "file",

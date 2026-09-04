@@ -19,6 +19,17 @@ const belongsToSameAlbum = (left: Message, right: Message) => Boolean(
   left.outgoing === right.outgoing,
 );
 
+/** A visual album has shared text only when exactly one item owns a caption. */
+export const mediaAlbumCaptionMessage = (messages: readonly Message[]) => {
+  let owner: (Message & { content: Extract<Message["content"], { kind: "media" }> }) | undefined;
+  for (const message of messages) {
+    if (!isVisualAlbumMessage(message) || message.content.kind !== "media" || !message.content.caption) continue;
+    if (owner) return undefined;
+    owner = { ...message, content: message.content };
+  }
+  return owner;
+};
+
 export const segmentMediaAlbums = (messages: Message[]): MediaAlbumSegment[] => {
   const segments: MediaAlbumSegment[] = [];
 

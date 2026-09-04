@@ -1157,6 +1157,9 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .local-block-message-reveal:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
 .media-album { width: min(74%, 540px); margin: 1px 0; align-self: flex-start; overflow: hidden; background: var(--color-message-incoming); border-radius: 8px; box-shadow: 0 1px 2px var(--color-shadow); }
 .media-album.is-outgoing { align-self: flex-end; background: var(--outgoing); }
+.media-album-caption { min-width: 0; padding: 7px 9px; }
+.media-album-caption p { margin: 0; }
+.media-album-caption:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
 .media-album-grid { display: grid; gap: 2px; overflow: hidden; background: var(--line); }
 .media-album-row { width: 100%; min-width: 0; display: flex; gap: 2px; aspect-ratio: var(--media-album-row-ratio, 2.5) / 1; overflow: hidden; }
 .media-album-tile { min-width: 0; height: 100%; flex: var(--media-album-tile-weight, 1) 1 0; overflow: hidden; }

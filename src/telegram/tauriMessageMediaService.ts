@@ -1,3 +1,4 @@
+import { inputTextEntityType } from "./tdlibTextEntities";
 import { translate } from "../i18n";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { FileDownloadQueue } from "./fileDownloadQueue";
@@ -40,7 +41,6 @@ import type {
   ForwardMessagesResult,
   GetMessageReactionSendersInput,
   Message,
-  MessageDateTimeFormatting,
   MessagePermissions,
   MessageReplyQuote,
   MessageTextEntity,
@@ -60,50 +60,9 @@ import type {
 
 const MAX_PINNED_MESSAGE_PAGES = 100;
 
-const dateTimePartPrecisionObject = (
-  precision: MessageDateTimeFormatting["timePrecision"],
-) => {
-  switch (precision) {
-    case "none": return { "@type": "dateTimePartPrecisionNone" };
-    case "short": return { "@type": "dateTimePartPrecisionShort" };
-    case "long": return { "@type": "dateTimePartPrecisionLong" };
-    default: return { "@type": "dateTimePartPrecisionNone" };
-  }
-};
-
-const dateTimeFormattingObject = (dateTime: MessageDateTimeFormatting) => {
-  switch (dateTime.mode) {
-    case "relative": return { "@type": "dateTimeFormattingTypeRelative" };
-    case "absolute": return {
-      "@type": "dateTimeFormattingTypeAbsolute",
-      time_precision: dateTimePartPrecisionObject(dateTime.timePrecision),
-      date_precision: dateTimePartPrecisionObject(dateTime.datePrecision),
-      show_day_of_week: dateTime.showDayOfWeek === true,
-    };
-    case "original": return null;
-  }
-};
-
-const inputTextQuoteEntityType = (entity: MessageTextEntity) => {
-  switch (entity.kind) {
-    case "bold": return { "@type": "textEntityTypeBold" };
-    case "italic": return { "@type": "textEntityTypeItalic" };
-    case "underline": return { "@type": "textEntityTypeUnderline" };
-    case "strikethrough": return { "@type": "textEntityTypeStrikethrough" };
-    case "spoiler": return { "@type": "textEntityTypeSpoiler" };
-    case "customEmoji": return entity.customEmojiId
-      ? { "@type": "textEntityTypeCustomEmoji", custom_emoji_id: entity.customEmojiId }
-      : undefined;
-    case "dateTime": return entity.dateTime
-      ? {
-          "@type": "textEntityTypeDateTime",
-          unix_time: entity.dateTime.unixTime,
-          formatting_type: dateTimeFormattingObject(entity.dateTime),
-        }
-      : undefined;
-    default: return undefined;
-  }
-};
+const inputTextQuoteEntityType = (entity: MessageTextEntity) =>
+  ["bold", "italic", "underline", "strikethrough", "spoiler", "customEmoji", "dateTime"].includes(entity.kind)
+    ? inputTextEntityType(entity) : undefined;
 
 const inputTextQuoteObject = (replyQuote?: MessageReplyQuote): TdObject | null => {
   if (!replyQuote || replyQuote.text.length === 0 ||
@@ -618,7 +577,14 @@ export class TauriMessageMediaService {
 
   async editMessage(input: EditMessageInput) {
     const text = await this.formattedTextInput(input.text, input.entities);
-    const response = await this.context.request({
+    const response = await this.context.request(input.contentType === "caption" ? {
+      "@type": "editMessageCaption",
+      chat_id: numericId(input.chatId),
+      message_id: numericId(input.messageId),
+      reply_markup: null,
+      caption: text,
+      show_caption_above_media: input.showCaptionAboveMedia === true,
+    } : {
       "@type": "editMessageText",
       chat_id: numericId(input.chatId),
       message_id: numericId(input.messageId),

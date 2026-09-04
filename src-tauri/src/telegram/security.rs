@@ -37,6 +37,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "editChatFolder",
     "editForumTopic",
     "editMessageText",
+    "editMessageCaption",
     "editChatInviteLink",
     "editChatSubscriptionInviteLink",
     "enableProxy",
@@ -909,6 +910,28 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         && request.get("force").and_then(Value::as_bool) != Some(false)
     {
         return Err("Private chats must be resolved from the Telegram server".to_string());
+    }
+    if request_type == "editMessageCaption" {
+        validate_message_target(request)?;
+        let caption = request.get("caption").ok_or("Missing message caption")?;
+        if caption.get("@type").and_then(Value::as_str) != Some("formattedText")
+            || !caption.get("entities").is_some_and(Value::is_array)
+            || request
+                .get("show_caption_above_media")
+                .and_then(Value::as_bool)
+                .is_none()
+        {
+            return Err("Invalid message caption content or placement".to_string());
+        }
+        let text = caption
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or("Missing caption text")?;
+        // TDLib enforces the account-specific message_caption_length_max.
+        // Existing captions may exceed the local upload form's default limit.
+        if text.contains('\0') {
+            return Err("Invalid caption text".to_string());
+        }
     }
     if request_type == "editMessageText" {
         let content_type = request
@@ -1816,6 +1839,34 @@ mod tests {
     use super::*;
 
     const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
+
+    #[test]
+    fn validates_caption_edits_and_allows_clearing_text() {
+        let request = json!({
+            "@type": "editMessageCaption", "chat_id": 7, "message_id": 12,
+            "reply_markup": null, "show_caption_above_media": true,
+            "caption": { "@type": "formattedText", "text": "caption", "entities": [] },
+            "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&request).is_ok());
+        let mut cleared = request.clone();
+        cleared["caption"]["text"] = json!("");
+        assert!(validate_webview_tdlib_request(&cleared).is_ok());
+        for (pointer, value) in [
+            ("/message_id", json!(0)),
+            ("/caption/text", json!("invalid\0caption")),
+            ("/caption/@type", json!("inputFileLocal")),
+            ("/caption/entities", json!(null)),
+            ("/show_caption_above_media", json!("true")),
+        ] {
+            let mut invalid = request.clone();
+            *invalid.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                validate_webview_tdlib_request(&invalid).is_err(),
+                "{pointer}"
+            );
+        }
+    }
 
     #[test]
     fn preserves_uuid_webview_correlations_and_extracts_native_request_types() {

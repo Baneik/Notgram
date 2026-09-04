@@ -427,6 +427,7 @@ const mediaContent = (
     height?: number;
     duration?: number;
     hasSpoiler?: boolean;
+    showCaptionAboveMedia?: boolean;
     stickerSetId?: string;
     includePendingUpload?: boolean;
   } = {},
@@ -1092,6 +1093,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         width: tdNumber(largest?.width) ?? tdNumber(minithumbnail?.width),
         height: tdNumber(largest?.height) ?? tdNumber(minithumbnail?.height),
         hasSpoiler: content.has_spoiler === true,
+        showCaptionAboveMedia: content.show_caption_above_media === true,
         includePendingUpload,
       });
     }
@@ -1115,6 +1117,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
           width: tdNumber(video?.width),
           height: tdNumber(video?.height),
           hasSpoiler: content.has_spoiler === true,
+          showCaptionAboveMedia: content.show_caption_above_media === true,
           includePendingUpload,
         },
       );
@@ -1133,6 +1136,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
           width: tdNumber(animation?.width),
           height: tdNumber(animation?.height),
           hasSpoiler: content.has_spoiler === true,
+          showCaptionAboveMedia: content.show_caption_above_media === true,
           includePendingUpload,
         },
       );

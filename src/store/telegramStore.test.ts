@@ -2283,6 +2283,38 @@ describe("telegram store", () => {
     });
   });
 
+  it("edits and clears the selected media caption with its formatting and placement", async () => {
+    class CaptionTransport extends MockTelegramTransport {
+      editInputs: EditMessageInput[] = [];
+      override async editMessage(input: EditMessageInput) {
+        this.editInputs.push(input);
+        await super.editMessage(input);
+      }
+    }
+    const transport = new CaptionTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const messages = new Map(store.getState().messages);
+    messages.set("chat-product", messages.get("chat-product")!.map((message) =>
+      message.id === "p-5" && message.content.kind === "media"
+        ? { ...message, content: { ...message.content, showCaptionAboveMedia: true } } : message));
+    store.setState({ messages });
+    const entities = [{ kind: "bold" as const, offset: 0, length: 7 }];
+    await expect(store.getState().editMessage("p-5", "caption", entities)).resolves.toBe(true);
+    expect(transport.editInputs[0]).toMatchObject({
+      chatId: "chat-product", messageId: "p-5", text: "caption", entities,
+      contentType: "caption", showCaptionAboveMedia: true,
+    });
+    expect(store.getState().messages.get("chat-product")!.find((message) => message.id === "p-5"))
+      .toMatchObject({ content: { kind: "media", caption: "caption", captionEntities: entities } });
+    await expect(store.getState().editMessage("p-5", "")).resolves.toBe(true);
+    expect(transport.editInputs[1]).toMatchObject({ contentType: "caption", text: "", entities: [] });
+    expect(store.getState().messages.get("chat-product")!.find((message) => message.id === "p-5")!.content)
+      .toMatchObject({ kind: "media", caption: undefined });
+    await expect(store.getState().editMessage("p-2", "")).resolves.toBe(false);
+    expect(transport.editInputs).toHaveLength(2);
+  });
+
   it("routes message actions to a cached discussion chat when the channel is active", async () => {
     class DiscussionActionTransport extends MockTelegramTransport {
       reactionInputs: SetMessageReactionInput[] = [];

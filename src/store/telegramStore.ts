@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { isCaptionContent } from "../telegram/messageContent";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isTauri } from "@tauri-apps/api/core";
@@ -3928,13 +3929,16 @@ export const createTelegramStore = (
         const chatId = location?.chatId;
         const formatted = trimComposerFormattedText(text, entities ?? []);
         const normalizedText = formatted.text;
-        if (!chatId || !normalizedText) return false;
+        const content = location?.message.content;
+        const caption = content && isCaptionContent(content) ? content : undefined;
+        if (!chatId || (!normalizedText && !caption)) return false;
         try {
           await transport.editMessage({
             chatId,
             messageId,
             text: normalizedText,
             entities: formatted.entities,
+            ...(caption ? { contentType: "caption" as const, showCaptionAboveMedia: caption.showCaptionAboveMedia } : {}),
           });
           set({ operationError: undefined });
           return true;

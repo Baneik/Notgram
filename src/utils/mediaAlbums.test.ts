@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
-import { mediaAlbumMessagesFor, segmentMediaAlbums } from "./mediaAlbums";
+import { mediaAlbumCaptionMessage, mediaAlbumMessagesFor, segmentMediaAlbums } from "./mediaAlbums";
 
 const message = (
   id: string,
@@ -22,6 +22,35 @@ const message = (
 const ids = (messages: Message[]) => messages.map(({ id }) => id);
 
 describe("media album segmentation", () => {
+  it("finds the sole caption owner at any position without copying its text to other items", () => {
+    for (const outgoing of [false, true]) {
+      for (const ownerIndex of [0, 1, 2]) {
+        const messages = [0, 1, 2].map((index) => message(String(index), "album", "photo", { outgoing }));
+        const owner = messages[ownerIndex]!;
+        if (owner.content.kind !== "media") throw new Error("Expected media");
+        owner.content.caption = "description\nsecond line";
+        owner.content.captionEntities = [{ kind: "bold", offset: 0, length: 11 }];
+        owner.content.showCaptionAboveMedia = true;
+        expect(mediaAlbumCaptionMessage(messages)).toEqual(owner);
+        expect(messages.filter((item) => item.content.kind === "media" && item.content.caption)).toHaveLength(1);
+      }
+    }
+  });
+
+  it("has no shared caption when absent or when multiple items have captions, even identical ones", () => {
+    const messages = [message("1", "album"), message("2", "album")];
+    expect(mediaAlbumCaptionMessage(messages)).toBeUndefined();
+    for (const item of messages) {
+      if (item.content.kind === "media") item.content.caption = "same caption";
+    }
+    expect(mediaAlbumCaptionMessage(messages)).toBeUndefined();
+    if (messages[1]!.content.kind === "media") messages[1]!.content.caption = "different caption";
+    expect(mediaAlbumCaptionMessage(messages)).toBeUndefined();
+    expect(mediaAlbumCaptionMessage([message("3", "album", "audio", {
+      content: { kind: "media", mediaType: "audio", fileName: "song", sizeLabel: "1 MB", caption: "audio caption" },
+    })])).toBeUndefined();
+  });
+
   it("groups consecutive visual media with the same album id in message order", () => {
     const segments = segmentMediaAlbums([
       message("1", "album-a", "photo"),

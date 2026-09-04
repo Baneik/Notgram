@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { inputTextEntityType } from "./tdlibTextEntities";
 import { asTdObject, tdChatListId, tdNumber, type TdObject } from "./tdlibMapper";
 import type {
   AuthorizationState,
@@ -25,11 +26,10 @@ export const formattedTextObject = (
   "@type": "formattedText",
   text,
   entities: entities.flatMap((entity) => {
+    const type = inputTextEntityType(entity);
     if (
-      entity.kind !== "mentionName" ||
-      !entity.userId ||
-      !Number.isSafeInteger(Number(entity.userId)) ||
-      Number(entity.userId) <= 0 ||
+      !type ||
+      !Number.isInteger(entity.offset) || !Number.isInteger(entity.length) ||
       entity.offset < 0 ||
       entity.length <= 0 ||
       entity.offset + entity.length > text.length
@@ -37,7 +37,7 @@ export const formattedTextObject = (
     return [{
       offset: entity.offset,
       length: entity.length,
-      type: { "@type": "textEntityTypeMentionName", user_id: Number(entity.userId) },
+      type,
     }];
   }),
 });

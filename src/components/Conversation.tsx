@@ -134,8 +134,9 @@ import {
 } from "../utils/composerInsertion";
 import { loadMessageActionPermissions } from "../utils/messageActionPermissions";
 import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
-import { mediaAlbumMessagesFor } from "../utils/mediaAlbums";
-import { messageContentText } from "../telegram/messageContent";
+import { mediaAlbumCaptionMessage, mediaAlbumMessagesFor } from "../utils/mediaAlbums";
+import { isEditableMessageContent, messageContentText } from "../telegram/messageContent";
+import { MessageRichText } from "./MessageRichText";
 import { openExternalLink } from "../utils/externalLinks";
 import {
   localBlockedMessageGroups,
@@ -1506,7 +1507,8 @@ export function Conversation({
       } finally {
         selectionClampActiveRef.current = false;
       }
-      const messageId = boundary.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+      const messageElement = boundary.closest<HTMLElement>("[data-message-id], [data-caption-message-id]");
+      const messageId = messageElement?.dataset.messageId ?? messageElement?.dataset.captionMessageId;
       const message = messageId ? messagesByIdRef.current.get(messageId) : undefined;
       const sourceText = message?.content.kind === "text"
         ? message.content.text
@@ -2140,7 +2142,7 @@ export function Conversation({
   };
 
   const startEditing = (message: Message) => {
-    if (message.content.kind !== "text") return;
+    if (!isEditableMessageContent(message.content)) return;
     setReplyingTo(undefined);
     setReplyQuote(undefined);
     setEditingMessage(message);
@@ -2756,6 +2758,37 @@ export function Conversation({
 
                     const albumReply = segment.messages.map(replyPreviewForMessage).find(Boolean);
                     const albumRows = layoutMediaAlbum(segment.messages);
+                    const captionMessage = mediaAlbumCaptionMessage(segment.messages);
+                    const captionBlock = captionMessage && localBlockGroupByMessageId.get(captionMessage.id);
+                    const captionConcealed = captionMessage && localBlockedUsersById.has(captionMessage.senderId) &&
+                      !(captionBlock && revealedLocalBlockGroups.has(captionBlock.id)) &&
+                      !revealedLocalBlockMessages.has(captionMessage.id);
+                    const albumCaption = captionMessage && !captionConcealed ? (
+                      <div
+                        className="media-album-caption"
+                        data-caption-message-id={captionMessage.id}
+                        tabIndex={0}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          void openActionMenu(captionMessage, event.clientX, event.clientY, event.currentTarget);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                          event.preventDefault();
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          void openActionMenu(captionMessage, bounds.left, bounds.top, event.currentTarget, undefined, true);
+                        }}
+                      >
+                        <MessageRichText
+                          text={captionMessage.content.caption!}
+                          entities={captionMessage.content.captionEntities}
+                          onOpenMention={onOpenMention}
+                          onSearchHashtag={onSearchHashtag}
+                          onCollapseQuote={(collapse, pointerY, anchor) =>
+                            collapseExpandedQuote(captionMessage.id, collapse, pointerY, anchor)}
+                        />
+                      </div>
+                    ) : null;
                     return (
                       <div
                         className={`media-album ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
@@ -2779,6 +2812,7 @@ export function Conversation({
                             <small>{albumReply.text}</small>
                           </button>
                         )}
+                        {captionMessage?.content.showCaptionAboveMedia ? albumCaption : null}
                         <div
                           className="media-album-grid"
                           data-count={segment.messages.length}
@@ -2807,6 +2841,7 @@ export function Conversation({
                             </div>
                           ))}
                         </div>
+                        {!captionMessage?.content.showCaptionAboveMedia ? albumCaption : null}
                       </div>
                     );
                   })}

@@ -3557,6 +3557,30 @@ describe("TauriTelegramTransport message operations", () => {
     ]);
   });
 
+  it("edits and clears captions through TDLib without losing placement", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async (request) => {
+      requests.push(request);
+      return { "@type": "ok" };
+    };
+    for (const text of ["caption", ""]) {
+      const entities = text ? [{ kind: "bold" as const, offset: 0, length: text.length }] : [];
+      await transport.editMessage({
+        chatId: "7", messageId: "13", text, entities,
+        contentType: "caption", showCaptionAboveMedia: true,
+      });
+      expect(requests.at(-1)).toEqual({
+        "@type": "editMessageCaption", chat_id: 7, message_id: 13, reply_markup: null,
+        caption: { "@type": "formattedText", text, entities: text
+          ? [{ offset: 0, length: 7, type: { "@type": "textEntityTypeBold" } }] : [] },
+        show_caption_above_media: true,
+      });
+    }
+    expect(requests.some((request) => request["@type"] === "editMessageText")).toBe(false);
+  });
+
   it("carries the reply target and quote into every pasted upload group", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

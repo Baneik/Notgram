@@ -1,6 +1,13 @@
 import { translate } from "../i18n";
 import type { MessageContent } from "./types";
 
+export const isCaptionContent = (content: MessageContent): content is Extract<MessageContent, { kind: "media" | "file" }> =>
+  content.kind === "file" || (content.kind === "media" &&
+    content.mediaType !== "sticker" && content.mediaType !== "videoNote");
+
+export const isEditableMessageContent = (content: MessageContent) =>
+  content.kind === "text" || isCaptionContent(content);
+
 export const messageContentText = (content: MessageContent) => {
   if (
     content.kind === "text" ||

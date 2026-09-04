@@ -733,6 +733,7 @@ interface TransferableMessageContent {
   stickerSetId?: string;
   caption?: string;
   captionEntities?: MessageTextEntity[];
+  showCaptionAboveMedia?: boolean;
   mimeType?: string;
   fileId?: number;
   dataCenterId?: number;
@@ -1068,6 +1069,8 @@ export interface EditMessageInput {
   messageId: string;
   text: string;
   entities?: MessageTextEntity[];
+  contentType?: "text" | "caption";
+  showCaptionAboveMedia?: boolean;
 }
 
 export interface DeleteMessageInput {

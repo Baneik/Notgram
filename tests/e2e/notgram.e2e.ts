@@ -6316,8 +6316,8 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await expect.poll(() => sentAlbum.locator(".media-album-grid img").evaluateAll((images) =>
     new Set(images.map((image) => (image as HTMLImageElement).currentSrc)).size,
   )).toBe(2);
-  await expect(sentAlbum.locator(".media-album-captions")).toHaveCount(0);
-  await expect(sentAlbum).not.toContainText("粘贴图片说明");
+  await expect(sentAlbum.locator(".media-album-caption")).toHaveText("粘贴图片说明");
+  await expect(sentAlbum.locator(".photo-caption")).toHaveCount(0);
   await expect(composer).toBeFocused();
 
   await composer.fill("短说明不应收窄图片");
@@ -8468,6 +8468,120 @@ test("video fullscreen preview closes from its blank surface", async ({ page }) 
   const popupClosed = popup.waitForEvent("close");
   await popup.mouse.click(Math.max(4, (videoBounds?.x ?? 20) / 2), 120);
   await popupClosed;
+});
+
+test("album captions follow the sole owner, placement, and live content updates", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /产品讨论/ }).first().click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const album = page.locator('[data-media-album-id="mock-album-product"]');
+  const caption = album.locator(".media-album-caption");
+  for (const ownerId of ["p-tall", "p-5"]) {
+    for (const above of [false, true]) {
+      await page.evaluate(async ({ ownerId, above }) => {
+        const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as {
+          telegramStore: { getState: () => { messages: Map<string, Message[]> }; setState: (state: { messages: Map<string, Message[]> }) => void };
+        };
+        const messages = new Map(telegramStore.getState().messages);
+        messages.set("chat-product", messages.get("chat-product")!.map((message) =>
+          message.mediaAlbumId === "mock-album-product" && message.content.kind === "media"
+            ? { ...message, content: { ...message.content,
+                caption: message.id === ownerId ? "相册描述\n第二行完整显示" : undefined,
+                captionEntities: message.id === ownerId ? [{ kind: "bold", offset: 0, length: 4 }] : undefined,
+                showCaptionAboveMedia: above,
+              } }
+            : message));
+        telegramStore.setState({ messages });
+      }, { ownerId, above });
+      await expect(caption).toHaveAttribute("data-caption-message-id", ownerId);
+      await expect(caption).toHaveText("相册描述\n第二行完整显示");
+      await expect(caption.locator("strong")).toHaveText("相册描述");
+      await expect(album.locator(".photo-caption")).toHaveCount(0);
+      const placement = await album.evaluate((element) => {
+        const caption = element.querySelector(".media-album-caption")!.getBoundingClientRect();
+        const grid = element.querySelector(".media-album-grid")!.getBoundingClientRect();
+        return { above: caption.bottom <= grid.top + 1, below: caption.top >= grid.bottom - 1,
+          contained: caption.right <= element.getBoundingClientRect().right + 1 };
+      });
+      expect(above ? placement.above : placement.below).toBe(true);
+      expect(placement.contained).toBe(true);
+    }
+  }
+  await revealVirtualMessage(page, "p-tall");
+  await album.scrollIntoViewIfNeeded();
+  await expect(caption).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: "test-results/album-caption-above.png" });
+  // Identical text on two items still means two independent captions.
+  for (const text of ["相册描述\n第二行完整显示", ""]) {
+    await page.evaluate(async (text) => {
+      const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as {
+        telegramStore: { getState: () => { messages: Map<string, Message[]> }; setState: (state: { messages: Map<string, Message[]> }) => void };
+      };
+      const messages = new Map(telegramStore.getState().messages);
+      messages.set("chat-product", messages.get("chat-product")!.map((message) =>
+        message.mediaAlbumId === "mock-album-product" && message.content.kind === "media"
+          ? { ...message, content: { ...message.content, caption: text, captionEntities: undefined } } : message));
+      telegramStore.setState({ messages });
+    }, text);
+    await expect(caption).toHaveCount(0);
+  }
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as {
+      telegramStore: { getState: () => { messages: Map<string, Message[]> }; setState: (state: { messages: Map<string, Message[]> }) => void };
+    };
+    const messages = new Map(telegramStore.getState().messages);
+    messages.set("chat-product", messages.get("chat-product")!.map((message) =>
+      message.mediaAlbumId === "mock-album-product" && message.content.kind === "media"
+        ? { ...message, mediaAlbumId: undefined, content: { ...message.content,
+            caption: "单张媒体上方说明", showCaptionAboveMedia: true } } : message));
+    telegramStore.setState({ messages });
+  });
+  const photo = page.locator('[data-message-id="p-5"]');
+  await expect(photo.locator(".photo-caption")).toHaveText("单张媒体上方说明");
+  expect(await photo.evaluate((element) =>
+    element.querySelector(".photo-caption-flow")!.getBoundingClientRect().bottom <=
+      element.querySelector(".photo-preview")!.getBoundingClientRect().top + 1,
+  )).toBe(true);
+});
+
+test("sent album captions can be edited, removed, and owned by a later item", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("整组说明");
+  const buffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  await page.locator('input[type="file"]').setInputFiles([
+    { name: "caption-first.png", mimeType: "image/png", buffer },
+    { name: "caption-second.png", mimeType: "image/png", buffer },
+  ]);
+  await expect(page.locator(".composer-attachment-item")).toHaveCount(2);
+  await composer.press("Enter");
+  const album = page.locator(".media-album.is-outgoing").last();
+  const caption = album.locator(".media-album-caption");
+  await expect(caption).toHaveText("整组说明");
+  await caption.click({ button: "right" });
+  await chooseMessageMenuItem(page, "编辑");
+  await expect(composer).toHaveValue("整组说明");
+  await composer.fill("");
+  await page.getByRole("button", { name: "保存编辑", exact: true }).click();
+  await expect(caption).toHaveCount(0);
+  const second = album.locator(".message-row").nth(1);
+  const secondId = await second.getAttribute("data-message-id");
+  await second.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "编辑");
+  await expect(composer).toHaveValue("");
+  await composer.fill("第二项承载的说明");
+  await composer.press("Enter");
+  await expect(caption).toHaveAttribute("data-caption-message-id", secondId!);
+  await expect(caption).toHaveText("第二项承载的说明");
+  await caption.focus();
+  await caption.press("Shift+F10");
+  await chooseMessageMenuItem(page, "编辑");
+  await expect(composer).toHaveValue("第二项承载的说明");
+  await composer.fill("修改后的整组说明");
+  await composer.press("Enter");
+  await expect(caption).toHaveText("修改后的整组说明");
+  await expect(caption).toHaveAttribute("data-caption-message-id", secondId!);
+  await expect(album.locator(".photo-caption")).toHaveCount(0);
 });
 
 test("photo albums stay compact while keeping captions in the media viewer", async ({ page }) => {
