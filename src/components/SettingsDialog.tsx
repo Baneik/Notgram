@@ -264,6 +264,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const setPreference = usePreferencesStore((state) => state.setPreference);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
   const [detailOpen, setDetailOpen] = useState(false);
+  const [storageDetailsOpen, setStorageDetailsOpen] = useState(false);
   const [compactViewport, setCompactViewport] = useState(false);
   const [draft, setDraft] = useState<ProxySettings>(emptySettings);
   const [storageDraft, setStorageDraft] = useState<StorageSettings>(emptyStorageSettings);
@@ -312,11 +313,16 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const active = categories.find((category) => category.id === activeCategory) ?? categories[0];
   const ActiveIcon = active.icon;
   const busy = pending || storagePending;
+  const storageDetailsTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const closeStorageDetails = () => {
+    setStorageDetailsOpen(false);
+    requestAnimationFrame(() => storageDetailsTriggerRef.current?.focus({ preventScroll: true }));
+  };
   const settingsTitleRef = useRef<HTMLHeadingElement>(null);
   const activeCategoryButtonRef = useRef<HTMLButtonElement>(null);
   const settingsBackRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalFocus<HTMLFormElement>(
-    onClose,
+    () => storageDetailsOpen ? closeStorageDetails() : onClose(),
     busy || pendingZalgoTextPreference !== undefined,
     standalone ? settingsTitleRef : undefined,
   );
@@ -407,8 +413,8 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
         <nav
           className="settings-categories"
           aria-label={translate("设置分类")}
-          aria-hidden={compactViewport && detailOpen ? true : undefined}
-          inert={compactViewport && detailOpen ? true : undefined}
+          aria-hidden={storageDetailsOpen || (compactViewport && detailOpen) || undefined}
+          inert={storageDetailsOpen || (compactViewport && detailOpen) || undefined}
         >
           {categories.map((category) => {
             const Icon = category.icon;
@@ -433,8 +439,8 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
 
         <main
           className={`settings-detail ${activeCategory === "advanced" ? "is-advanced" : ""}`}
-          aria-hidden={compactViewport && !detailOpen ? true : undefined}
-          inert={compactViewport && !detailOpen ? true : undefined}
+          aria-hidden={storageDetailsOpen || (compactViewport && !detailOpen) || undefined}
+          inert={storageDetailsOpen || (compactViewport && !detailOpen) || undefined}
         >
           <header className="settings-detail-header">
             <button
@@ -470,6 +476,10 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
           ) : activeCategory === "advanced" ? (
             <AdvancedSettings
               draft={draft}
+              onOpenStorageDetails={(button) => {
+                storageDetailsTriggerRef.current = button;
+                setStorageDetailsOpen(true);
+              }}
               storageDraft={storageDraft}
               busy={busy}
               pending={pending}
@@ -515,6 +525,13 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
             />
           )}
         </main>
+        {storageDetailsOpen && (
+          <StorageDataPanel
+            settings={storageDraft}
+            setSettings={setStorageDraft}
+            onClose={closeStorageDetails}
+          />
+        )}
         </form>
       </div>
       <MotionPresence present={pendingZalgoTextPreference !== undefined}>
@@ -1101,6 +1118,7 @@ function AccountSettings({
 }
 
 interface AdvancedSettingsProps {
+  onOpenStorageDetails: (button: HTMLButtonElement) => void;
   draft: ProxySettings;
   storageDraft: StorageSettings;
   busy: boolean;
@@ -1134,6 +1152,7 @@ interface AdvancedSettingsProps {
 }
 
 function AdvancedSettings({
+  onOpenStorageDetails,
   draft,
   storageDraft,
   busy,
@@ -1219,7 +1238,14 @@ function AdvancedSettings({
         <div className="settings-section-heading">
           <HardDrive size={18} strokeWidth={1.8} />
           <div>
-            <h4 id="storage-heading">{translate("存储路径")}</h4>
+            <div className="storage-heading-title">
+              <h4 id="storage-heading">{translate("存储路径")}</h4>
+              {isTauri() && (
+                <button className="storage-reset" type="button" onClick={(event) => onOpenStorageDetails(event.currentTarget)}>
+                  {translate("存储详情")}
+                </button>
+              )}
+            </div>
             <span>{translate("缓存路径重启后生效")}</span>
           </div>
         </div>
@@ -1266,8 +1292,6 @@ function AdvancedSettings({
           </span>
         </div>
         </section>
-
-        <StorageDataPanel settings={storageDraft} setSettings={setStorageDraft} />
 
         <section className="settings-section" aria-labelledby="media-cache-heading">
           <div className="settings-section-heading">

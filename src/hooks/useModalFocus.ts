@@ -11,7 +11,7 @@ const FOCUSABLE_SELECTOR = [
 
 const focusableElements = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
-    .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+    .filter((element) => !element.closest("[inert], [hidden], [aria-hidden='true']"));
 
 export const useModalFocus = <T extends HTMLElement>(
   onClose: () => void,
