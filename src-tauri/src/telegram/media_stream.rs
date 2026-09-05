@@ -5,7 +5,10 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::PathBuf,
-    sync::{Arc, Condvar, Mutex},
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -73,13 +76,17 @@ pub struct MediaStreamStatus {
 
 #[derive(Default)]
 struct RegistryInner {
+    focused_chat: Option<i64>,
     observed_files: HashMap<i32, PathBuf>,
+    file_chats: HashMap<i32, HashSet<i64>>,
+    file_policy: HashMap<i32, (bool, Option<std::time::SystemTime>)>,
     files: HashMap<i32, RegisteredMedia>,
     active_downloads: HashMap<i32, PathBuf>,
 }
 
 #[derive(Default)]
 pub struct MediaStreamRegistry {
+    generation: AtomicU64,
     inner: Mutex<RegistryInner>,
     changed: Condvar,
 }
@@ -93,6 +100,9 @@ struct MediaChunk {
 }
 
 impl MediaStreamRegistry {
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
     pub fn register(&self, file_id: i32, size: u64, mime_type: &str) -> Result<(), String> {
         if file_id <= 0 || size == 0 {
             return Err("Invalid Telegram media stream descriptor".to_string());
@@ -173,8 +183,12 @@ impl MediaStreamRegistry {
     }
 
     pub fn clear(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        inner.focused_chat = None;
         inner.observed_files.clear();
+        inner.file_chats.clear();
+        inner.file_policy.clear();
         inner.files.clear();
         inner.active_downloads.clear();
         drop(inner);
@@ -184,12 +198,10 @@ impl MediaStreamRegistry {
     pub fn observe_update(&self, update: &Value) {
         let mut files = Vec::new();
         collect_file_progress(update, &mut files);
-        if files.is_empty() {
-            return;
-        }
-
         let mut changed = false;
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        collect_file_chats(update, &mut inner.file_chats);
+        collect_file_policies(update, &mut inner.file_policy, None);
         for (file_id, progress, active) in files {
             inner.observed_files.insert(file_id, progress.path.clone());
             if active {
@@ -210,6 +222,34 @@ impl MediaStreamRegistry {
         }
     }
 
+    pub fn set_focus(&self, chat_id: Option<i64>) {
+        self.inner
+            .lock()
+            .expect("media stream registry poisoned")
+            .focused_chat = chat_id;
+    }
+
+    pub fn protected_chat_ids(&self) -> HashSet<i64> {
+        let inner = self
+            .inner
+            .lock()
+            .expect("Media stream registry unavailable");
+        inner
+            .active_downloads
+            .keys()
+            .chain(
+                inner
+                    .files
+                    .iter()
+                    .filter(|(_, media)| media.playback.active)
+                    .map(|(id, _)| id),
+            )
+            .filter_map(|id| inner.file_chats.get(id))
+            .flat_map(|chats| chats.iter().copied())
+            .chain(inner.focused_chat)
+            .collect()
+    }
+
     pub fn protected_paths(&self) -> HashSet<PathBuf> {
         let inner = self.inner.lock().expect("media stream registry poisoned");
         inner
@@ -224,6 +264,28 @@ impl MediaStreamRegistry {
             )
             .cloned()
             .collect()
+    }
+
+    pub fn check_expiry(&self, path: &std::path::Path) -> Result<(), String> {
+        self.check_policy(path, false)
+    }
+
+    pub fn check_export(&self, path: &std::path::Path) -> Result<(), String> {
+        self.check_policy(path, true)
+    }
+
+    fn check_policy(&self, path: &std::path::Path, exporting: bool) -> Result<(), String> {
+        let inner = self.inner.lock().map_err(|_| "File policy unavailable")?;
+        for (id, observed) in &inner.observed_files {
+            if (observed == path || observed.canonicalize().ok().as_deref() == Some(path))
+                && let Some((denied, expires)) = inner.file_policy.get(id)
+                && ((exporting && *denied)
+                    || expires.is_some_and(|time| time <= std::time::SystemTime::now()))
+            {
+                return Err("This message cannot be saved or has expired".into());
+            }
+        }
+        Ok(())
     }
 
     pub fn recovery_path(&self, file_id: i32) -> Result<PathBuf, String> {
@@ -343,6 +405,7 @@ impl MediaStreamRegistry {
                 let mime_type = media.mime_type.clone();
                 drop(inner);
 
+                self.check_expiry(&progress.path)?;
                 let mut file = File::open(&progress.path)
                     .map_err(|error| format!("Unable to open streamed media: {error}"))?;
                 file.seek(SeekFrom::Start(start))
@@ -388,6 +451,85 @@ fn normalized_media_mime_type(mime_type: &str) -> String {
         | "audio/wave" | "audio/x-wav" | "audio/vnd.wave" | "audio/flac" | "audio/x-flac"
         | "audio/webm" => normalized,
         _ => "video/mp4".to_string(),
+    }
+}
+
+fn collect_file_chats(value: &Value, chats: &mut HashMap<i32, HashSet<i64>>) {
+    if let Some(object) = value.as_object() {
+        if object.get("@type").and_then(Value::as_str) == Some("message")
+            && let Some(chat_id) = object.get("chat_id").and_then(Value::as_i64)
+        {
+            let mut files = Vec::new();
+            collect_file_progress(value, &mut files);
+            for (id, _, _) in files {
+                chats.entry(id).or_default().insert(chat_id);
+            }
+        }
+        for nested in object.values() {
+            collect_file_chats(nested, chats);
+        }
+    } else if let Some(values) = value.as_array() {
+        for nested in values {
+            collect_file_chats(nested, chats);
+        }
+    }
+}
+
+fn collect_file_policies(
+    value: &Value,
+    policies: &mut HashMap<i32, (bool, Option<std::time::SystemTime>)>,
+    inherited: Option<(bool, Option<std::time::SystemTime>)>,
+) {
+    match value {
+        Value::Object(object) => {
+            let policy = if object.get("@type").and_then(Value::as_str) == Some("message") {
+                let denied = object.get("can_be_saved").and_then(Value::as_bool) == Some(false)
+                    || object
+                        .get("self_destruct_type")
+                        .is_some_and(|value| !value.is_null());
+                let seconds = ["self_destruct_in", "auto_delete_in"]
+                    .iter()
+                    .filter_map(|key| object.get(*key).and_then(Value::as_f64))
+                    .filter(|value| value.is_finite() && *value > 0.0)
+                    .min_by(f64::total_cmp);
+                Some((
+                    denied,
+                    seconds.and_then(|seconds| {
+                        std::time::SystemTime::now()
+                            .checked_add(Duration::from_secs_f64(seconds.min(315_360_000.0)))
+                    }),
+                ))
+            } else {
+                inherited
+            };
+            if let Some(policy) = policy
+                && object.contains_key("local")
+                && let Some(id) = object
+                    .get("id")
+                    .and_then(Value::as_i64)
+                    .and_then(|id| i32::try_from(id).ok())
+            {
+                policies
+                    .entry(id)
+                    .and_modify(|old| {
+                        old.0 |= policy.0;
+                        old.1 = match (old.1, policy.1) {
+                            (Some(a), Some(b)) => Some(a.min(b)),
+                            (a, b) => a.or(b),
+                        };
+                    })
+                    .or_insert(policy);
+            }
+            for nested in object.values() {
+                collect_file_policies(nested, policies, policy);
+            }
+        }
+        Value::Array(values) => {
+            for nested in values {
+                collect_file_policies(nested, policies, inherited);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -532,6 +674,14 @@ fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
         Err(_) => return error_response(StatusCode::BAD_REQUEST, "Invalid Telegram media file"),
     };
     let registry = app.state::<MediaStreamRegistry>();
+    let generation = request
+        .uri()
+        .query()
+        .and_then(|query| query.strip_prefix("session="))
+        .and_then(|value| value.parse::<u64>().ok());
+    if generation != Some(registry.generation()) {
+        return error_response(StatusCode::FORBIDDEN, "Media session expired");
+    }
     let Some((size, request_lock)) = registry.stream_descriptor(file_id) else {
         return error_response(
             StatusCode::NOT_FOUND,
@@ -575,6 +725,9 @@ fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
         return error_response(StatusCode::SERVICE_UNAVAILABLE, &message);
     }
     match registry.read_range(file_id, start, permitted_length) {
+        Ok(_) if generation != Some(registry.generation()) => {
+            error_response(StatusCode::FORBIDDEN, "Media session expired")
+        }
         Ok(chunk) => Response::builder()
             .status(StatusCode::PARTIAL_CONTENT)
             .header(header::CONTENT_TYPE, chunk.mime_type)
@@ -584,6 +737,7 @@ fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
                 format!("bytes {}-{}/{}", chunk.start, chunk.end, chunk.total),
             )
             .header(header::CONTENT_LENGTH, chunk.bytes.len())
+            .header(header::CACHE_CONTROL, "no-store")
             .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body(chunk.bytes)
             .expect("valid media stream response"),
@@ -599,6 +753,14 @@ pub fn respond<R: Runtime>(
     thread::spawn(move || responder.respond(media_response(&app, request)));
 }
 
+#[tauri::command]
+pub fn telegram_set_media_focus(
+    chat_id: Option<i64>,
+    registry: tauri::State<'_, MediaStreamRegistry>,
+) {
+    registry.set_focus(chat_id);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,6 +768,43 @@ mod tests {
         env, fs,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn restrictions_survive_file_updates_and_session_urls_are_revoked() {
+        let registry = MediaStreamRegistry::default();
+        let original_generation = registry.generation();
+        let message = serde_json::json!({"@type":"message", "id":1, "chat_id":20,
+            "can_be_saved":false, "auto_delete_in":10,
+            "content":{"file":{"id":42,"local":{"path":""}}}});
+        registry.observe_update(&message);
+        registry.observe_update(&serde_json::json!({"@type":"updateFile", "file":{"id":42,"local":{"path":"media.jpg"}}}));
+        assert!(
+            registry
+                .check_export(std::path::Path::new("media.jpg"))
+                .is_err()
+        );
+        assert!(
+            registry
+                .check_expiry(std::path::Path::new("media.jpg"))
+                .is_ok()
+        );
+        registry
+            .inner
+            .lock()
+            .unwrap()
+            .file_policy
+            .get_mut(&42)
+            .unwrap()
+            .1 = Some(std::time::SystemTime::UNIX_EPOCH);
+        assert!(
+            registry
+                .check_expiry(std::path::Path::new("media.jpg"))
+                .is_err()
+        );
+        registry.clear();
+        assert_ne!(original_generation, registry.generation());
+        assert!(registry.inner.lock().unwrap().observed_files.is_empty());
+    }
 
     #[test]
     fn parses_bounded_open_and_suffix_ranges() {

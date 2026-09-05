@@ -1,3 +1,4 @@
+import { messageExpired } from "../telegram/messageLifecycle";
 import type {
   Message,
   SharedMediaCategory,
@@ -43,7 +44,7 @@ export class SharedMediaIndex {
     if (!entry || now - entry.cachedAt > this.ttlMs) return undefined;
     this.entries.delete(key);
     this.entries.set(key, entry);
-    return { ...entry, messages: structuredClone(entry.messages), cached: true } satisfies SharedMediaPage;
+    return { ...entry, messages: structuredClone(entry.messages.filter((message) => !messageExpired(message, now))), cached: true } satisfies SharedMediaPage;
   }
 
   merge(input: SharedMediaSearchInput, page: SharedMediaPage, reset: boolean, now = Date.now()) {
@@ -60,7 +61,7 @@ export class SharedMediaIndex {
     this.entries.delete(key);
     this.entries.set(key, entry);
     this.prune(now);
-    return { ...entry, messages: structuredClone(entry.messages), cached: false } satisfies SharedMediaPage;
+    return { ...entry, messages: structuredClone(entry.messages.filter((message) => !messageExpired(message, now))), cached: false } satisfies SharedMediaPage;
   }
 
   remove(chatId: string, messageIds: string[]) {

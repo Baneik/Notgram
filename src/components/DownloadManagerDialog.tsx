@@ -1,3 +1,5 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { flushAccountMetadata } from "../store/accountMetadata";
 import { translate } from "../i18n";
 import {
   AudioLines,
@@ -52,6 +54,16 @@ export function DownloadManagerDialog({
   onOpenDirectory,
   onClose,
 }: DownloadManagerDialogProps) {
+  const [locationError, setLocationError] = useState<string>();
+  const locate = async (item: ManagedDownloadItem) => {
+    try {
+      setLocationError(undefined);
+      if (isTauri() && item.savedPath) {
+        await flushAccountMetadata();
+        await invoke("telegram_locate_download", { fileId: item.fileId });
+      } else await onOpenDirectory();
+    } catch { setLocationError(translate("文件已移动、删除或保存位置不可用")); }
+  };
   const [filter, setFilter] = useState<DownloadFilter>("all");
   const [selectedFileIds, setSelectedFileIds] = useState<ReadonlySet<number>>(() => new Set());
   const dialogRef = useModalFocus<HTMLDivElement>(onClose);
@@ -192,7 +204,7 @@ export function DownloadManagerDialog({
               />
               <span className={`download-kind-icon kind-${item.kind}`}><DownloadKindIcon item={item} /></span>
               <span className="download-item-copy">
-                <strong title={item.fileName}>{item.fileName}</strong>
+                <strong title={item.savedPath ?? item.fileName}>{item.fileName}</strong>
                 <small>{item.chatTitle} · {formatDownloadSize(item.size)}</small>
                 <span className="download-progress-track" role="progressbar" aria-label={translate("{{value0}} 下载进度", { value0: item.fileName })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(item.progress * 100)}>
                   <span style={{ width: `${item.progress * 100}%` }} />
@@ -208,13 +220,14 @@ export function DownloadManagerDialog({
                 ) : item.status === "pending" || item.status === "failed" || item.status === "cancelled" ? (
                   <button type="button" aria-label={translate("下载 {{value0}}", { value0: item.fileName })} title={translate("开始下载")} onClick={() => void onDownload(item.fileId, item.fileName)}><Download size={17} /></button>
                 ) : (
-                  <button type="button" aria-label={translate("在下载目录中查看 {{value0}}", { value0: item.fileName })} title={translate("打开下载目录")} onClick={() => void onOpenDirectory()}><FolderOpen size={17} /></button>
+                  <button type="button" aria-label={translate("在下载目录中查看 {{value0}}", { value0: item.fileName })} title={translate("打开下载目录")} onClick={() => void locate(item)}><FolderOpen size={17} /></button>
                 )}
               </span>
             </article>
           ))}
         </section>
 
+        {locationError && <p role="alert">{locationError}</p>}
         <footer className="download-manager-footer">
           <span>{translate("{{value0}} 项", { value0: filteredItems.length })}</span>
           <button type="button" onClick={() => void onOpenDirectory()}>

@@ -70,14 +70,35 @@ export const createOutboxController = ({
       ) {
         const item = get().outbox.find((candidate) => candidate.status === "queued");
         if (!item) return;
+        const accountId = get().activeAccountId;
+        const currentAccount = () => get().activeAccountId === accountId;
+        setOutbox(get().outbox.map((candidate) => candidate.id === item.id ? { ...candidate, status: "sending" } : candidate));
+        if (!await persistOutboxState()) {
+          setOutbox(get().outbox.map((candidate) => candidate.id === item.id ? { ...candidate, status: "failed" } : candidate));
+          return;
+        }
+        if (!currentAccount()) return;
         try {
           if (item.attachments?.length) {
             const stored = await attachmentOutbox.get(item.id, get().activeAccountId);
             if (!stored) throw new Error(translate("离线附件已过期或文件内容已变更，请重新选择"));
-            const sent = await transport.sendFiles({
+            const acceptedIds = new Set(item.acceptedAttachmentIds ?? []);
+            const remaining = stored.attachments.filter((_, index) => !acceptedIds.has(stored.metadata[index].storageId));
+            const sent = remaining.length === 0 || await transport.sendFiles({
               chatId: item.chatId,
               topicId: item.topicId,
-              attachments: stored.attachments,
+              attachments: remaining,
+              onGroupAccepted: async (attachments) => {
+                if (!currentAccount()) throw new Error("Account changed during send");
+                for (const attachment of attachments) {
+                  const index = stored.attachments.indexOf(attachment);
+                  if (index >= 0) acceptedIds.add(stored.metadata[index].storageId);
+                }
+                setOutbox(get().outbox.map((candidate) => candidate.id === item.id
+                  ? { ...candidate, acceptedAttachmentIds: [...acceptedIds], caption: undefined, entities: undefined }
+                  : candidate));
+                if (!await persistOutboxState()) throw new Error(translate("无法保存重试队列"));
+              },
               caption: item.caption,
               captionEntities: item.entities,
               replyToMessageId: item.replyToMessageId,
@@ -98,6 +119,7 @@ export const createOutboxController = ({
             });
           }
         } catch (error) {
+          if (!currentAccount()) return;
           setOutbox(get().outbox.map((candidate) =>
             candidate.id === item.id
               ? { ...candidate, status: "failed", error: onError(error, translate("离线发送失败")) }
@@ -113,9 +135,10 @@ export const createOutboxController = ({
           return;
         }
 
+        if (!currentAccount()) return;
         setOutbox(get().outbox.filter((candidate) => candidate.id !== item.id));
         if (!await persistOutboxState()) return;
-        if (item.attachments?.length) await attachmentOutbox.remove(item.id);
+        if (item.attachments?.length) await attachmentOutbox.remove(item.id, accountId);
       }
     })();
     const tracked = operation.finally(() => {

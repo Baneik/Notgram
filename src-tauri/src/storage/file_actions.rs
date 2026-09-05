@@ -4,7 +4,7 @@ use std::{
     io,
     path::{Path, PathBuf},
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
@@ -26,6 +26,8 @@ pub fn telegram_save_downloaded_file(
     if !source.starts_with(&trusted_files) {
         return Err("Downloaded file is outside the active TDLib files directory".to_string());
     }
+    app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
+        .check_export(&source)?;
     let directory = download_directory(&app)?;
     let destination = copy_to_available_download(
         &source,
@@ -38,6 +40,8 @@ pub fn telegram_save_downloaded_file(
 #[tauri::command]
 pub fn telegram_open_cached_file(app: AppHandle, source_path: String) -> Result<(), String> {
     let source = trusted_local_file(&app, &source_path)?;
+    app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
+        .check_export(&source)?;
     open_path(&source)
 }
 
@@ -48,6 +52,8 @@ pub async fn telegram_save_cached_file_as(
     file_name: String,
 ) -> Result<bool, String> {
     let source = trusted_local_file(&app, &source_path)?;
+    app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
+        .check_export(&source)?;
     let Some(selected) = app
         .dialog()
         .file()
@@ -69,6 +75,9 @@ pub async fn telegram_save_cached_file_as(
     if destination == source {
         return Ok(true);
     }
+    trusted_local_file(&app, &source.display().to_string())?;
+    app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
+        .check_export(&source)?;
     fs::copy(&source, &destination).map_err(|error| {
         format!(
             "Unable to save cached file to {}: {error}",

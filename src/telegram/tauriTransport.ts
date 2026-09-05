@@ -624,6 +624,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async saveLocalState(accountId: string, value: import("./types").LocalUnsentState) {
+    if (this.settingsOnly) return;
     await invoke("telegram_write_local_state", { accountId, value });
   }
 
@@ -632,6 +633,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
+    if (this.settingsOnly) return;
     await this.accountStorage.saveCachedSnapshot(snapshot);
   }
 
@@ -736,7 +738,12 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async clearMediaCache(input: import("./types").CacheCleanupInput) {
-    return this.accountStorage.clearMediaCache(input);
+    const generation = this.hydrationGeneration;
+    const deleted = await this.requestBroker.optimizeStorage(input.categories, input.olderThanDays, this.hydrationFocusChatId);
+    if (generation !== this.hydrationGeneration) throw new Error("Account changed during cleanup");
+    const result = await this.accountStorage.clearMediaCache(input);
+    return { ...result, removedBytes: result.removedBytes + (tdNumber(deleted.size) ?? 0),
+      removedFiles: result.removedFiles + (tdNumber(deleted.count) ?? 0) };
   }
 
   async getCurrentUserProfile(): Promise<ChatProfile> {
@@ -1746,6 +1753,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
     this.upsertFolderInfo(info);
     await this.refreshChat(chatId);
+  }
+
+  discardChatHistoryCache(chatId: string) {
+    if (this.historyLoads.has(chatId)) return;
+    this.exhaustedHistories.delete(chatId);
+    this.historyCursors.delete(chatId);
+    for (const id of this.rawMessages.get(chatId)?.keys() ?? []) this.unindexMessageFiles(chatId, id);
+    this.rawMessages.delete(chatId);
   }
 
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
@@ -2935,7 +2950,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       void invoke<string>("telegram_save_downloaded_file", {
         sourcePath: local.path,
         fileName: pending.fileName,
-      }).then(() => pending.resolve()).catch((error: unknown) => {
+      }).then((path) => pending.resolve(path)).catch((error: unknown) => {
         pending.reject(error instanceof Error ? error : new Error(translate("无法保存下载文件")));
       });
     }
@@ -2969,6 +2984,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatMessages.set(message.id, raw);
     this.rawMessages.set(message.chatId, chatMessages);
     this.indexMessageFiles(message.chatId, message.id, raw);
+    this.boundMessageCache();
     this.listener?.({
       type: "message.upsert",
       message,
@@ -3043,6 +3059,23 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (changed) this.listener?.({ type: "forumTopics.changed", ...changed });
   }
 
+  private boundMessageCache() {
+    let total = [...this.rawMessages.values()].reduce((sum, messages) => sum + messages.size, 0);
+    for (const [chatId, messages] of this.rawMessages) {
+      const limit = chatId === this.hydrationFocusChatId ? 5000 : 500;
+      for (const [id, raw] of messages) {
+        if (messages.size <= limit && total <= 20_000) break;
+        if (raw.sending_state || raw.is_pending === true) continue;
+        messages.delete(id);
+        this.unindexMessageFiles(chatId, id);
+        this.clearRichMessageHydration(`${chatId}:${id}`);
+        this.pendingMessagePatches.delete(`${chatId}:${id}`);
+        total -= 1;
+      }
+      if (messages.size === 0) this.rawMessages.delete(chatId);
+    }
+  }
+
   private emitMessages(rawMessages: TdObject[], cacheRelevant = true) {
     const messages = new Map<string, Message>();
     const uniqueRawMessages = new Map<string, TdObject>();
@@ -3072,6 +3105,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         ...(cacheRelevant ? {} : { cacheRelevant: false }),
       });
     }
+    this.boundMessageCache();
     for (const raw of uniqueRawMessages.values()) {
       this.enqueueHydration(() => this.ensureReplyContent(raw));
       this.enqueueHydration(() => this.ensureFullRichMessage(raw));
@@ -3089,6 +3123,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   setConversationFocus(chatId?: string) {
+    if (!this.settingsOnly) void invoke("telegram_set_media_focus", { chatId: chatId ? Number(chatId) : undefined }).catch(() => undefined);
     if (this.hydrationFocusChatId === chatId) return;
     this.hydrationFocusChatId = chatId;
     this.hydrationGeneration += 1;

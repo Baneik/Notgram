@@ -21,7 +21,7 @@ export function Avatar({ avatar, size = "medium" }: AvatarProps) {
     "160px",
   );
   const imageSource = avatar.imagePath
-    ? isTauri() ? convertFileSrc(avatar.imagePath) : avatar.imagePath
+    ? isTauri() ? convertFileSrc(avatar.imagePath, "notgram-asset") : avatar.imagePath
     : undefined;
   return (
     <span

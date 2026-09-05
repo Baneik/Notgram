@@ -1,4 +1,5 @@
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
+import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { messageContentText } from "../telegram/messageContent";
 import type { Message } from "../telegram/types";
 
@@ -27,7 +28,7 @@ export const writeClipboardText = async (text: string) => {
 
 const clipboardImageSource = (path?: string) => {
   if (!path) return undefined;
-  return isTauri() ? convertFileSrc(path) : path;
+  return isTauri() ? convertFileSrc(path, "notgram-asset") : path;
 };
 
 const imageBlobAsPng = async (blob: Blob) => {
@@ -73,6 +74,7 @@ export const writeClipboardImage = async (source: string, text?: string) => {
 };
 
 export const copyMessageContent = async (message: Message) => {
+  if (!messageCanBeSaved(message)) throw new Error("This message cannot be saved");
   const content = message.content;
   if (
     content.kind === "media" &&

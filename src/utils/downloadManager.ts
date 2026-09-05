@@ -1,3 +1,4 @@
+import { readAccountMetadata, writeAccountMetadata, subscribeAccountMetadata } from "../store/accountMetadata";
 import { translate } from "../i18n";
 import type { Chat, Message } from "../telegram/types";
 
@@ -11,6 +12,7 @@ export type ManagedDownloadStatus =
   | "cancelled";
 
 export interface ManagedDownloadRequest {
+  savedPath?: string;
   accountId: string;
   fileId: number;
   fileName: string;
@@ -27,6 +29,7 @@ export interface ManagedDownloadRequest {
 }
 
 export interface ManagedDownloadItem {
+  savedPath?: string;
   fileId: number;
   fileName: string;
   chatId: string;
@@ -106,8 +109,9 @@ const downloadFileId = (message: Message) => {
 const fallbackDownloadItem = (request: ManagedDownloadRequest): ManagedDownloadItem => {
   const status = requestStatus(request);
   return {
+    savedPath: request.savedPath,
     fileId: request.fileId,
-    fileName: request.fileName,
+    fileName: request.savedPath?.split(/[\\/]/).pop() || request.fileName,
     chatId: request.chatId ?? "",
     chatTitle: request.chatTitle ?? translate("未知会话"),
     messageId: request.messageId ?? "",
@@ -141,8 +145,9 @@ const downloadItemFromMessage = (
     ? 1
     : Math.max(0, Math.min(status === "downloading" ? 0.99 : 1, sizeProgress ?? content.progress ?? 0));
   return {
+    savedPath: request.savedPath,
     fileId: content.fileId,
-    fileName: currentDownloadFileName(request.fileName, content.fileName),
+    fileName: request.savedPath?.split(/[\\/]/).pop() || currentDownloadFileName(request.fileName, content.fileName),
     chatId: message.chatId,
     chatTitle: chatTitle ?? request.chatTitle ?? translate("未知会话"),
     messageId: message.id,
@@ -302,7 +307,7 @@ export const createManagedDownloadRequest = (
 
 export const readManagedDownloadRequests = (): ReadonlyMap<string, ManagedDownloadRequest> => {
   try {
-    const value = globalThis.localStorage?.getItem(STORAGE_KEY);
+    const value = readAccountMetadata(STORAGE_KEY);
     const parsed = value ? JSON.parse(value) : undefined;
     if (!Array.isArray(parsed)) return new Map();
     const records = new Map<string, ManagedDownloadRequest>();
@@ -332,7 +337,7 @@ export const writeManagedDownloadRequests = (records: Iterable<ManagedDownloadRe
     const limited = [...records].filter((record) => !removedAccounts.has(record.accountId))
       .sort((left, right) => left.requestedAt.localeCompare(right.requestedAt))
       .slice(-MAX_PERSISTED_DOWNLOADS);
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(limited));
+    writeAccountMetadata(STORAGE_KEY, JSON.stringify(limited));
   } catch {
     // Download history remains usable in memory when storage is unavailable.
   }
@@ -349,6 +354,8 @@ export const collectManagedDownloads = (
 const removedAccounts = new Set<string>();
 export const removeAccountDownloads = (accountId: string) => {
   const records = [...readManagedDownloadRequests().values()].filter((record) => record.accountId !== accountId);
-  globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(records));
+  writeAccountMetadata(STORAGE_KEY, JSON.stringify(records));
   removedAccounts.add(accountId);
 };
+
+export const subscribeDownloadMetadata = (callback: () => void) => subscribeAccountMetadata(STORAGE_KEY, callback);

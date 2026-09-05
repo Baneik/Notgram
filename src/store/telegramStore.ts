@@ -1,3 +1,5 @@
+import { messageExpired } from "../telegram/messageLifecycle";
+import { initializeAccountMetadata, flushAccountMetadata } from "./accountMetadata";
 import { removeAccountLocalBlocks } from "./localUserBlocks";
 import { removeAccountActivity } from "./conversationActivity";
 import { removeAccountDownloads } from "../utils/downloadManager";
@@ -590,6 +592,34 @@ export const createTelegramStore = (
           reactionReadRequests.delete(chatId);
         });
     };
+    let expiryMessages: TelegramState["messages"] | undefined;
+    let expiryChats: TelegramState["chats"] | undefined;
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleMessageExpiry = () => {
+      if (expiryMessages === get().messages && expiryChats === get().chats) return;
+      expiryMessages = get().messages; expiryChats = get().chats;
+      if (expiryTimer) globalThis.clearTimeout(expiryTimer);
+      let earliest = Infinity;
+      for (const messages of get().messages.values()) {
+        for (const message of messages) if (message.expiresAt) earliest = Math.min(earliest, Date.parse(message.expiresAt));
+      }
+      for (const chat of get().chats.values()) if (chat.previewExpiresAt) earliest = Math.min(earliest, Date.parse(chat.previewExpiresAt));
+      if (!Number.isFinite(earliest)) return;
+      expiryTimer = globalThis.setTimeout(() => {
+        expiryTimer = undefined;
+        expiryMessages = undefined; expiryChats = undefined;
+        for (const [chatId, messages] of get().messages) {
+          for (const message of messages) if (messageExpired(message)) removeMessageImmediately(chatId, message.id);
+        }
+        const chats = new Map(get().chats);
+        for (const [id, chat] of chats) if (chat.previewExpiresAt && Date.parse(chat.previewExpiresAt) <= Date.now()) {
+          chats.set(id, { ...chat, preview: "", previewSenderId: undefined, previewExpiresAt: undefined });
+        }
+        set({ chats });
+        scheduleMessageExpiry();
+      }, Math.min(60_000, Math.max(0, earliest - Date.now())));
+    };
+
     const markMessageRemoving = (chatId: string, messageId: string) => {
       const key = `${chatId}:${messageId}`;
       const previous = removalTimers.get(key);
@@ -699,9 +729,28 @@ export const createTelegramStore = (
       await operation;
     };
 
+    const boundInactiveHistory = () => {
+      const current = get();
+      let total = [...current.messages.values()].reduce((sum, items) => sum + items.length, 0);
+      if (total <= 10_000 && current.messages.size <= 100) return;
+      const messages = new Map(current.messages);
+      const histories = new Map(current.histories);
+      const protectedChats = new Set(current.outbox.map((item) => item.chatId));
+      for (const [chatId, items] of messages) {
+        if (total <= 10_000 && messages.size <= 100) break;
+        if (current.chats.get(chatId)?.isForum || chatId === current.activeChatId || protectedChats.has(chatId) || histories.get(chatId)?.loading) continue;
+        if (items.some((message) => message.delivery === "sending")) continue;
+        total -= items.length;
+        messages.delete(chatId); histories.delete(chatId); cachedMessageIds.delete(chatId);
+        transport.discardChatHistoryCache?.(chatId);
+      }
+      if (messages.size !== current.messages.size) set({ messages, histories });
+    };
     const scheduleCacheWrite = () => {
+      boundInactiveHistory();
       const state = get();
       if (state.authorization.kind !== "ready" || !state.currentUserId) return;
+      scheduleMessageExpiry();
       const references = [state.drafts, state.localAttachmentDrafts, state.outbox];
       if (transport.saveLocalState && references.some((value, index) => value !== savedLocalReferences[index])) {
         savedLocalReferences = references;
@@ -784,6 +833,8 @@ export const createTelegramStore = (
       if (localSaveTimer) globalThis.clearTimeout(localSaveTimer);
       localSaveTimer = undefined;
       savedLocalReferences = [];
+      if (expiryTimer) globalThis.clearTimeout(expiryTimer);
+      expiryTimer = undefined;
       sharedMediaIndex.clear();
       cachedMessageIds.clear();
       historyLoadPromises.clear();
@@ -2147,6 +2198,17 @@ export const createTelegramStore = (
           operationError: undefined,
         });
         try {
+          await initializeAccountMetadata();
+          const pendingCleanup = globalThis.localStorage?.getItem("notgram:pending-account-cleanup");
+          if (pendingCleanup) {
+            await attachmentOutbox.removeAccount(pendingCleanup);
+            removeAccountLocalBlocks(pendingCleanup);
+            removeAccountActivity(pendingCleanup);
+            removeAccountDownloads(pendingCleanup);
+            await flushAccountMetadata();
+            await transport.removeAccount(pendingCleanup);
+            globalThis.localStorage?.removeItem("notgram:pending-account-cleanup");
+          }
           if (!skipAccountState) {
             applyAccountState(await transport.getAccountState());
             if (preserveAccountPending) set({ accountPending: true });
@@ -2456,14 +2518,17 @@ export const createTelegramStore = (
           await draftSync.flushPending();
           await flushCachedSnapshot();
           await transport.logOut();
+          globalThis.localStorage?.setItem("notgram:pending-account-cleanup", accountId);
           await transport.disconnect();
           disconnected = true;
           await attachmentOutbox.removeAccount(accountId);
           removeAccountLocalBlocks(accountId);
           removeAccountActivity(accountId);
           removeAccountDownloads(accountId);
+          await flushAccountMetadata();
           globalThis.localStorage?.removeItem(`notgram:cache-cleanup:${accountId}`);
           applyAccountState(await transport.removeAccount(accountId));
+          globalThis.localStorage?.removeItem("notgram:pending-account-cleanup");
           reloadApplication();
           return true;
         } catch (error) {
@@ -2473,7 +2538,7 @@ export const createTelegramStore = (
             accountSwitching: false,
             accountError: error instanceof Error ? error.message : translate("退出登录失败"),
           });
-          if (disconnected) reloadApplication();
+          if (disconnected) set({ phase: "error", error: translate("账号已退出，本地数据清理未完成。重启后将继续清理。") });
           return false;
         }
       },
@@ -3801,21 +3866,24 @@ export const createTelegramStore = (
 
       saveLocalAttachmentDraft: async (draftKey, chatId, attachments, options) => {
         if (!get().chats.has(chatId) || attachments.length === 0) return false;
+        const accountId = get().activeAccountId;
         const generation = (localAttachmentDraftGenerations.get(draftKey) ?? 0) + 1;
         localAttachmentDraftGenerations.set(draftKey, generation);
         const batchId = `draft:${globalThis.crypto.randomUUID()}`;
         const updatedAt = new Date().toISOString();
         try {
           const metadata = await describeOutgoingAttachments(batchId, attachments);
+          if (get().activeAccountId !== accountId) return false;
           await attachmentOutbox.put({
             id: batchId,
-            accountId: get().activeAccountId,
+            accountId,
             createdAt: updatedAt,
             persistent: true,
+            recovery: { draftKey, chatId, ...options },
             attachments,
             metadata,
           });
-          if (localAttachmentDraftGenerations.get(draftKey) !== generation) {
+          if (get().activeAccountId !== accountId || localAttachmentDraftGenerations.get(draftKey) !== generation) {
             await attachmentOutbox.remove(batchId).catch(() => undefined);
             return false;
           }
@@ -4113,8 +4181,9 @@ export const createTelegramStore = (
 
       downloadFile: async (fileId, fileName) => {
         try {
-          await transport.downloadFile(fileId, fileName);
+          const path = await transport.downloadFile(fileId, fileName);
           set({ operationError: undefined });
+          return path;
         } catch (error) {
           set({ operationError: error instanceof Error ? error.message : translate("文件下载失败") });
           throw error;
@@ -4251,7 +4320,7 @@ export const createTelegramStore = (
           const createdAt = new Date().toISOString();
           try {
             const metadata = await describeOutgoingAttachments(id, attachments);
-            await attachmentOutbox.put({ id, accountId: get().activeAccountId, createdAt, attachments, metadata });
+            await attachmentOutbox.put({ id, accountId: get().activeAccountId, createdAt, attachments, metadata, recovery: { chatId, topicId, caption: formattedCaption.text } });
             const previousOutbox = get().outbox;
             const previousMessages = get().messages;
             const item: QueuedOutgoingMessage = {

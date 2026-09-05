@@ -3133,7 +3133,7 @@ test("media cache controls clean selected data and protect active files", async 
   await cacheSection.getByLabel("自动清理周期").selectOption("30");
   await cacheSection.getByRole("button", { name: "清理所选" }).click();
   await expect(cacheSection.locator(".cache-cleanup-result"))
-    .toContainText("已清理 6.0 MB，共 9 个文件；已保护 1 个正在使用的文件");
+    .toContainText("已清理 6.0 MB，共 9 个文件；已保留 1 个受保护文件");
   await expect(cacheSection.locator(".cache-usage-summary")).toContainText("40.5 MB");
 
   const autoSection = page.locator("section", {
@@ -3143,10 +3143,10 @@ test("media cache controls clean selected data and protect active files", async 
   await expect(autoSection.getByRole("switch", { name: "视频与视频消息" })).not.toBeChecked();
   await expect(autoSection.getByLabel("单个文件上限")).toHaveValue("10");
 
-  await cacheSection.getByRole("button", { name: "清理全部缓存" }).click();
+  await cacheSection.getByRole("button", { name: "清理全部媒体缓存" }).click();
   await expect(cacheSection.locator(".cache-usage-summary")).toContainText("0 B");
   await expect(cacheSection.locator(".cache-cleanup-result"))
-    .toContainText("已清理 40.5 MB，共 9 个文件；已保护 1 个正在使用的文件");
+    .toContainText("已清理 40.5 MB，共 9 个文件；已保留 1 个受保护文件");
   expect(await horizontalOverflow(page)).toBe(false);
 
   await page.getByRole("button", { name: "关闭", exact: true }).click();

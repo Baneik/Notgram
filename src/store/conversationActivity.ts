@@ -1,3 +1,4 @@
+import { readAccountMetadata, writeAccountMetadata, subscribeAccountMetadata } from "./accountMetadata";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type { Chat } from "../telegram/types";
@@ -35,7 +36,7 @@ const isActivityRecord = (value: unknown): value is ConversationActivityRecord =
 
 const readRecords = () => {
   try {
-    const serialized = globalThis.localStorage?.getItem(STORAGE_KEY);
+    const serialized = readAccountMetadata(STORAGE_KEY);
     if (!serialized) return [];
     const parsed = JSON.parse(serialized) as unknown;
     return Array.isArray(parsed) ? parsed.filter(isActivityRecord).slice(-MAX_RECORDS) : [];
@@ -46,7 +47,7 @@ const readRecords = () => {
 
 const writeRecords = (records: ConversationActivityRecord[]) => {
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(records));
+    writeAccountMetadata(STORAGE_KEY, JSON.stringify(records));
   } catch {
     // Activity ranking remains available for the current session.
   }
@@ -153,6 +154,8 @@ export const useConversationActivity = <T,>(
 
 export const removeAccountActivity = (accountId: string) => {
   const records = conversationActivityStore.getState().records.filter((record) => record.accountId !== accountId);
-  globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(records));
+  writeAccountMetadata(STORAGE_KEY, JSON.stringify(records));
   conversationActivityStore.setState({ records });
 };
+
+subscribeAccountMetadata(STORAGE_KEY, () => conversationActivityStore.setState({ records: readRecords() }));

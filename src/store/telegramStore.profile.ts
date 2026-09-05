@@ -128,7 +128,7 @@ export const createProfileController = ({
 
     hydrateCachedProfiles: (profiles) => {
       profileCache.clear();
-      for (const profile of profiles) {
+      for (const profile of profiles.slice(-100)) {
         const key = profileCacheKey(profile);
         if (key) profileCache.set(key, profile);
       }
@@ -163,17 +163,20 @@ export const createProfileController = ({
     },
 
     updateCurrentUserProfile: async (input) => {
+      const generation = sessionGeneration;
       const current = get().accountProfile;
       if (current.target?.kind !== "current" || current.updating) return false;
       set({ accountProfile: { ...current, updating: true, updateError: undefined } });
       try {
         const value = await transport.updateCurrentUserProfile(input);
+        if (generation !== sessionGeneration) return false;
         const latest = get().accountProfile;
         if (latest.target?.kind !== "current") return false;
         set({ accountProfile: { ...latest, value, loading: false, updating: false, updateError: undefined } });
         void registerCurrentAccount();
         return true;
       } catch (error) {
+        if (generation !== sessionGeneration) return false;
         const latest = get().accountProfile;
         if (latest.target?.kind === "current") {
           set({
@@ -189,11 +192,13 @@ export const createProfileController = ({
     },
 
     changeCurrentUserAvatar: async (file) => {
+      const generation = sessionGeneration;
       const current = get().accountProfile;
       if (current.target?.kind !== "current" || current.updating) return false;
       set({ accountProfile: { ...current, updating: true, updateError: undefined } });
       try {
         const value = await transport.setCurrentUserAvatar(file);
+        if (generation !== sessionGeneration) return false;
         const latest = get().accountProfile;
         if (latest.target?.kind !== "current") return false;
         set({
@@ -208,6 +213,7 @@ export const createProfileController = ({
         if (value) void registerCurrentAccount();
         return Boolean(value);
       } catch (error) {
+        if (generation !== sessionGeneration) return false;
         const latest = get().accountProfile;
         if (latest.target?.kind === "current") {
           set({

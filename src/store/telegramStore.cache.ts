@@ -1,3 +1,4 @@
+import { messageCanBeCached } from "../telegram/messageLifecycle";
 import { translate } from "../i18n";
 import type {
   CachedTelegramSnapshot,
@@ -15,7 +16,7 @@ import { logPerformance } from "../utils/performanceMonitor";
 import { channelDiscussionProjection } from "./telegramStore.messages";
 import type { TelegramState } from "./telegramStore.types";
 
-export const TELEGRAM_CACHE_VERSION = 3 as const;
+export const TELEGRAM_CACHE_VERSION = 4 as const;
 const MAX_CACHED_MESSAGES_PER_CHAT = 60;
 const MAX_CACHED_MESSAGES = 5_000;
 const MAX_CACHED_FORUM_CHATS = 20;
@@ -58,6 +59,7 @@ const sanitizeCachedChat = (chat: Chat): Chat => {
   const title = sanitizeIdentityText(chat.title, translate("未命名会话"), 128);
   return {
     ...chat,
+    ...(chat.previewCacheable === false ? { preview: "", previewSenderId: undefined } : {}),
     title,
     avatar: {
       ...chat.avatar,
@@ -144,7 +146,7 @@ const sanitizeCachedProfile = (profile: ChatProfile): ChatProfile => {
 const sanitizeCachedTopic = (topic: ForumTopic): ForumTopic => ({
   ...topic,
   name: sanitizeIdentityText(topic.name, translate("未命名话题"), 128),
-  lastMessage: topic.lastMessage ? sanitizeCachedMessage(topic.lastMessage) : undefined,
+  lastMessage: topic.lastMessage && messageCanBeCached(topic.lastMessage) ? sanitizeCachedMessage(topic.lastMessage) : undefined,
 });
 
 export type CacheHealth = "empty" | "healthy" | "migrated" | "invalid" | "rebuilt";
@@ -194,7 +196,7 @@ const isLocalAttachmentDraft = (value: unknown): value is LocalAttachmentDraft =
 
 export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration => {
   if (value === undefined || value === null) return { health: "empty" };
-  if (!isRecord(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3)) {
+  if (!isRecord(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4)) {
     return { health: "invalid" };
   }
   if (
@@ -227,7 +229,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
         hasStringKey(item, "text") &&
         hasStringKey(item, "createdAt") &&
         isRecord(item) &&
-        (item.status === "queued" || item.status === "failed") &&
+        (item.status === "queued" || item.status === "failed" || item.status === "sending") &&
         (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string") &&
         (item.replyQuote === undefined || (
           isRecord(item.replyQuote) &&
@@ -282,7 +284,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     snapshot: {
       ...(value as unknown as CachedTelegramSnapshot),
       version: TELEGRAM_CACHE_VERSION,
-      outbox: value.version === 1 ? [] : (value.outbox ?? []),
+      outbox: value.version === 1 ? [] : ((value.outbox ?? []) as CachedTelegramSnapshot["outbox"])!.map((item) => item.status === "sending" ? { ...item, status: "failed", error: translate("发送中断，请先核对聊天记录再重试") } : item),
       users: (value.users as unknown as User[]).map(sanitizeCachedUser),
       folders: (value.folders as CachedTelegramSnapshot["folders"]).map((folder) => ({
         ...folder,
@@ -291,6 +293,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       chats: (value.chats as unknown as Chat[]).map((chat) => {
         const result = {
           ...sanitizeCachedChat(chat),
+          ...(value.version !== 4 ? { preview: "", previewSenderId: undefined } : {}),
           unreadMentionCount: Number.isFinite(chat.unreadMentionCount)
             ? Math.max(0, chat.unreadMentionCount)
             : 0,
@@ -302,15 +305,15 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
         delete result.canCreateTopics;
         return result;
       }),
-      messages: (value.messages as unknown as Message[]).map(sanitizeCachedMessage),
+      messages: (value.version === 4 ? value.messages as unknown as Message[] : []).filter(messageCanBeCached).map(sanitizeCachedMessage),
       profiles: (value.profiles as ChatProfile[] | undefined)?.map(sanitizeCachedProfile),
-      forumTopics: value.version === 3
+      forumTopics: value.version === 4
         ? (value.forumTopics ?? []).map((entry) => ({
             ...entry,
             topics: entry.topics.map(sanitizeCachedTopic),
           }))
         : [],
-      lastForumTopicIds: value.version === 3 ? (value.lastForumTopicIds ?? []) : [],
+      lastForumTopicIds: value.version === 3 || value.version === 4 ? (value.lastForumTopicIds ?? []) : [],
     },
   };
 };
@@ -430,7 +433,7 @@ export const recentMessagesForCache = (state: TelegramState) => {
   const seen = new Set<string>();
   const append = (message: Message) => {
     const key = `${message.chatId}:${message.id}`;
-    if (messages.length >= MAX_CACHED_MESSAGES || seen.has(key)) return;
+    if (!messageCanBeCached(message) || messages.length >= MAX_CACHED_MESSAGES || seen.has(key)) return;
     seen.add(key);
     messages.push(cacheableMessage(message));
   };
@@ -476,7 +479,7 @@ export const cachedSnapshotFrom = (
     outbox: state.outbox ?? [],
     activeChatId: state.activeChatId,
     chatFilter: state.chatFilter,
-    profiles: profiles.map(sanitizeCachedProfile),
+    profiles: profiles.slice(-100).map((profile) => sanitizeCachedProfile({ ...profile, members: profile.members.slice(0, 100), groupsInCommon: profile.groupsInCommon?.slice(0, 50) })),
     forumTopics: forumTopicsForCache(state),
     lastForumTopicIds: lastForumTopicIdsForCache(state),
   };

@@ -46,7 +46,7 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
   itemRef.current = item;
   const [failedAvatarSource, setFailedAvatarSource] = useState<string>();
   const avatarSource = item.avatar.imagePath
-    ? isTauri() ? convertFileSrc(item.avatar.imagePath) : item.avatar.imagePath
+    ? isTauri() ? convertFileSrc(item.avatar.imagePath, "notgram-asset") : item.avatar.imagePath
     : undefined;
   const handleOpen = useCallback(() => onOpen(item), [item, onOpen]);
   const handleDismiss = useCallback(() => onDismiss(item), [item, onDismiss]);

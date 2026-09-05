@@ -63,6 +63,17 @@ pub fn run() {
         .manage(telegram::TelegramRuntime::new())
         .manage(telegram::media_stream::MediaStreamRegistry::default())
         .manage(storage::SnapshotCacheWriteState::default())
+        .manage(storage::paths::SessionStorage::default())
+        .manage(storage::assets::AccountAssets::default())
+        .register_asynchronous_uri_scheme_protocol(
+            "notgram-asset",
+            |context, request, responder| {
+                let app = context.app_handle().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    responder.respond(storage::assets::respond(&app, request))
+                });
+            },
+        )
         .manage(context_menu_window::ContextMenuWindowState::default())
         .manage(desktop_notification::DesktopNotificationWindowState::default())
         .register_asynchronous_uri_scheme_protocol(
@@ -101,6 +112,7 @@ pub fn run() {
             proxy::telegram_save_proxy_settings,
             storage::telegram_storage_settings,
             storage::telegram_save_storage_settings,
+            storage::paths::telegram_remove_migration_backup,
             storage::file_actions::telegram_save_downloaded_file,
             storage::file_actions::telegram_open_cached_file,
             storage::file_actions::telegram_save_cached_file_as,
@@ -109,6 +121,16 @@ pub fn run() {
             storage::telegram_clear_media_cache,
             storage::telegram_read_snapshot_cache,
             storage::local_state::telegram_write_local_state,
+            storage::metadata::telegram_read_account_metadata,
+            storage::metadata::telegram_write_account_metadata,
+            storage::blobs::telegram_begin_blob,
+            storage::blobs::telegram_append_blob,
+            storage::blobs::telegram_commit_blob,
+            storage::blobs::telegram_read_blob_chunk,
+            storage::blobs::telegram_attachment_batch,
+            storage::blobs::telegram_attachment_inventory,
+            storage::inventory::telegram_storage_inventory,
+            storage::metadata::telegram_locate_download,
             storage::telegram_write_snapshot_cache,
             storage::telegram_begin_snapshot_cache_write,
             storage::telegram_append_snapshot_cache_chunk,
@@ -122,11 +144,13 @@ pub fn run() {
             telegram::telegram_start,
             telegram::telegram_send,
             telegram::telegram_recover_file,
+            telegram::telegram_optimize_storage,
             telegram::telegram_log_performance,
             telegram::telegram_log_performance_batch,
             telegram::telegram_read_performance_records,
             telegram::telegram_clear_performance_records,
             telegram::telegram_register_media_stream,
+            telegram::media_stream::telegram_set_media_focus,
             telegram::telegram_update_media_stream,
             telegram::telegram_suspend_media_stream,
             telegram::telegram_media_stream_status,

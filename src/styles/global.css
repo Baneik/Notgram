@@ -3640,3 +3640,5 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   }
   .rich-spoiler.is-concealed { background: CanvasText; forced-color-adjust: none; }
 }
+
+.storage-data-panel p, .storage-data-panel .auth-field > small, .storage-data-panel .auth-field > span { overflow-wrap: anywhere; }

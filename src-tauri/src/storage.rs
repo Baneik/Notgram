@@ -1,8 +1,13 @@
 pub(crate) mod account;
+pub(crate) mod assets;
+pub(crate) mod blobs;
 mod cache;
 mod database_key;
 pub(crate) mod file_actions;
+pub(crate) mod inventory;
 pub(crate) mod local_state;
+pub(crate) mod metadata;
+pub(crate) mod paths;
 pub(crate) mod persistence;
 
 use account::{account_cache_directory, account_database_directory, active_account_id};
@@ -21,7 +26,7 @@ use std::{
     sync::Mutex,
     time::{Duration, SystemTime},
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +44,8 @@ pub struct StorageSettings {
     pub download_path: String,
     pub default_cache_path: String,
     pub default_download_path: String,
+    pub effective_cache_path: String,
+    pub migration_backups: Vec<paths::MigrationBackupSummary>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -233,6 +240,7 @@ pub fn telegram_save_storage_settings(
 ) -> Result<StorageSettings, String> {
     let configured = configured_preferences(&app, preferences)?;
     let resolved = resolve_preferences(&app, configured.clone())?;
+    paths::schedule(&app, &resolved)?;
     create_storage_directories(&resolved)?;
     save_preferences(&app, &configured)?;
     settings_from_preferences(&app, configured)
@@ -261,7 +269,7 @@ pub fn telegram_clear_media_cache(
 
     let root = trusted_tdlib_files_directory(&app)?;
     let mut protected = protected_cache_paths(&root, &request.protected_paths);
-    if let Some(snapshot) = read_snapshot_cache_value(&app)? {
+    if let Ok(Some(snapshot)) = read_snapshot_cache_value(&app) {
         protected.extend(cached_asset_paths(&snapshot, std::slice::from_ref(&root)));
     }
     protected.extend(canonical_paths_within_root(
@@ -276,8 +284,8 @@ pub fn telegram_clear_media_cache(
     let modified_before = request.older_than_days.and_then(|days| {
         SystemTime::now().checked_sub(Duration::from_secs(u64::from(days) * 86_400))
     });
-    let result = clear_cache_files(
-        &root,
+    let mut result = clear_cache_files(
+        &sent_media,
         &request.categories.into_iter().collect(),
         modified_before,
         &protected,
@@ -285,6 +293,7 @@ pub fn telegram_clear_media_cache(
     if let Some(cutoff) = sent_media_cutoff {
         remove_empty_sent_media_directories(&sent_media, cutoff);
     }
+    result.usage = cache_usage(&root)?;
     Ok(result)
 }
 
@@ -359,13 +368,15 @@ fn read_snapshot_cache_value(app: &AppHandle) -> Result<Option<Value>, String> {
         for field in local_state::LOCAL_FIELDS {
             value[field] = local[field].clone();
         }
-    } else if let Some(value) = &snapshot {
-        if local_state::LOCAL_FIELDS
+    } else if let Some(value) = &snapshot
+        && local_state::LOCAL_FIELDS
             .iter()
             .all(|field| value.get(field).is_some_and(Value::is_array))
-        {
-            local_state::write(app, &account_id, value)?;
-        }
+    {
+        local_state::write(app, &account_id, value)?;
+    }
+    if let Some(value) = snapshot.as_mut() {
+        paths::rebase_snapshot(app, value)?;
     }
     Ok(snapshot)
 }
@@ -483,12 +494,8 @@ pub fn telegram_clear_snapshot_cache(
 }
 
 pub fn tdlib_cache_directory(app: &AppHandle) -> Result<PathBuf, String> {
-    let preferences = load_preferences(app)?;
-    let resolved = resolve_preferences(app, preferences)?;
-    let directory = account_cache_directory(
-        PathBuf::from(&resolved.cache_path),
-        &active_account_id(app)?,
-    );
+    let directory =
+        account_cache_directory(paths::effective_cache_root(app)?, &active_account_id(app)?);
     fs::create_dir_all(&directory).map_err(|error| {
         format!(
             "Unable to create cache directory {}: {error}",
@@ -552,8 +559,7 @@ fn authorize_snapshot_assets(app: &AppHandle, snapshot: &Value) -> Result<(), St
         .collect::<Vec<_>>();
 
     for path in cached_asset_paths(snapshot, &roots) {
-        app.asset_protocol_scope()
-            .allow_file(&path)
+        assets::allow(app, &path)
             .map_err(|error| format!("Unable to authorize a cached TDLib asset: {error}"))?;
     }
     Ok(())
@@ -575,6 +581,8 @@ fn settings_from_preferences(
         download_path: preferences.download_path,
         default_cache_path: default_cache_path_template(app),
         default_download_path: default_download_path_template(),
+        effective_cache_path: paths::effective_cache_root(app)?.display().to_string(),
+        migration_backups: paths::backup_summaries(app)?,
     })
 }
 
@@ -731,32 +739,17 @@ fn preferences_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn load_preferences(app: &AppHandle) -> Result<StoragePreferences, String> {
     let path = preferences_path(app)?;
-    if !path.is_file() {
-        return Ok(StoragePreferences {
+    Ok(
+        persistence::read_json(&path, false)?.unwrap_or(StoragePreferences {
             cache_path: String::new(),
             download_path: String::new(),
-        });
-    }
-    let serialized = fs::read(&path).map_err(|error| {
-        format!(
-            "Unable to read storage settings {}: {error}",
-            path.display()
-        )
-    })?;
-    serde_json::from_slice(&serialized)
-        .map_err(|error| format!("Unable to parse storage settings: {error}"))
+        }),
+    )
 }
 
 fn save_preferences(app: &AppHandle, preferences: &StoragePreferences) -> Result<(), String> {
     let path = preferences_path(app)?;
-    let serialized = serde_json::to_vec_pretty(preferences)
-        .map_err(|error| format!("Unable to serialize storage settings: {error}"))?;
-    fs::write(&path, serialized).map_err(|error| {
-        format!(
-            "Unable to save storage settings {}: {error}",
-            path.display()
-        )
-    })
+    persistence::write_json(&path, preferences, false)
 }
 
 fn default_cache_path(app: &AppHandle) -> Result<PathBuf, String> {

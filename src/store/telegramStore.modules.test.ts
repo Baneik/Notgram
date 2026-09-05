@@ -188,7 +188,7 @@ describe("telegram store cache and accounts", () => {
 
     expect(migrateCachedSnapshot(legacy)).toMatchObject({
       health: "migrated",
-      snapshot: { version: 3, currentUserId: mockSnapshot.currentUserId },
+      snapshot: { version: 4, currentUserId: mockSnapshot.currentUserId },
     });
     expect(migrateCachedSnapshot(legacy).snapshot?.chats[0]).not.toHaveProperty("management");
     expect(migrateCachedSnapshot(legacy).snapshot?.chats[0]).not.toHaveProperty("canCreateTopics");
@@ -345,7 +345,7 @@ describe("draft sync controller", () => {
   it("sanitizes cached identity fields while preserving message content", () => {
     const dirtyName = "所\u0334\u035f謂\u034f星\u0361Ⓥ🔥(●—●)|\u202e";
     const cached = {
-      version: 3,
+      version: 4,
       savedAt: "2026-08-01T10:00:00Z",
       currentUserId: mockSnapshot.currentUserId,
       users: [{ ...mockSnapshot.users[0], displayName: dirtyName, firstName: dirtyName }],

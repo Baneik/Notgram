@@ -244,7 +244,7 @@ export function ContextMenuWindow() {
           const Icon = icons[item.icon];
           const expanded = item.id === expandedId;
           const avatarSource = item.avatar?.imagePath
-            ? isTauri() ? convertFileSrc(item.avatar.imagePath) : item.avatar.imagePath
+            ? isTauri() ? convertFileSrc(item.avatar.imagePath, "notgram-asset") : item.avatar.imagePath
             : undefined;
           const itemClassName = [
             item.danger ? "is-danger" : "",
@@ -305,7 +305,7 @@ export function ContextMenuWindow() {
           {expandedItem.children.map((child) => {
             const ChildIcon = icons[child.icon];
             const childAvatarSource = child.avatar?.imagePath
-              ? isTauri() ? convertFileSrc(child.avatar.imagePath) : child.avatar.imagePath
+              ? isTauri() ? convertFileSrc(child.avatar.imagePath, "notgram-asset") : child.avatar.imagePath
               : undefined;
             return (
               <button

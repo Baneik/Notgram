@@ -1,3 +1,4 @@
+import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { translate } from "../i18n";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
@@ -30,7 +31,7 @@ interface MediaViewerProps {
 
 const sourceFromPath = (path?: string) => {
   if (!path) return undefined;
-  return isTauri() ? convertFileSrc(path) : path;
+  return isTauri() ? convertFileSrc(path, "notgram-asset") : path;
 };
 
 const MIN_ZOOM = 1;
@@ -174,11 +175,11 @@ export function MediaViewer({
   if (!active) return null;
   const content = active.content;
   const failed = Boolean(source && failedSource === source);
-  const canDownload = content.fileId !== undefined &&
+  const canDownload = messageCanBeSaved(active) && content.fileId !== undefined &&
     content.canDownload !== false &&
     !content.isDownloading &&
     !content.isDownloaded;
-  const canSave = allowSave && Boolean(content.localPath);
+  const canSave = allowSave && messageCanBeSaved(active) && Boolean(content.localPath);
   const downloadUnavailable = !canSave && !canDownload && !content.isDownloading;
   const imageDetails = [
     translate("数据中心：{{value0}}", {

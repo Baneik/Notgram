@@ -1,3 +1,4 @@
+import { activeNativeAccount, nativeAttachmentsAvailable, persistNativeBlob, MAX_ATTACHMENT_BATCH_BYTES } from "../store/nativeBlobs";
 import { inputTextEntityType } from "./tdlibTextEntities";
 import { translate } from "../i18n";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -205,8 +206,8 @@ export interface TauriMessageMediaServiceContext {
 
 export interface PendingDownload {
   fileName: string;
-  promise: Promise<void>;
-  resolve: () => void;
+  promise: Promise<string>;
+  resolve: (path: string) => void;
   reject: (error: Error) => void;
 }
 
@@ -670,9 +671,9 @@ export class TauriMessageMediaService {
   async downloadFile(fileId: number, fileName: string) {
     const existing = this.context.pendingDownloads.get(fileId);
     if (existing) return existing.promise;
-    let resolveDownload!: () => void;
+    let resolveDownload!: (path: string) => void;
     let rejectDownload!: (error: Error) => void;
-    const promise = new Promise<void>((resolve, reject) => {
+    const promise = new Promise<string>((resolve, reject) => {
       resolveDownload = resolve;
       rejectDownload = reject;
     });
@@ -735,12 +736,12 @@ export class TauriMessageMediaService {
   }
 
   async streamFile({ fileId, size, mimeType }: StreamFileInput) {
-    await invoke("telegram_register_media_stream", {
+    const session = await invoke<number>("telegram_register_media_stream", {
       fileId,
       size,
       mimeType: mimeType ?? "video/mp4",
     });
-    return convertFileSrc(String(fileId), "notgram-media");
+    return `${convertFileSrc(String(fileId), "notgram-media")}?session=${session}`;
   }
 
   async suspendFileStream(fileId: number) {
@@ -776,6 +777,9 @@ export class TauriMessageMediaService {
 
   async sendFiles(input: SendFilesInput) {
     if (input.attachments.length === 0) return false;
+    if (input.attachments.reduce((sum, attachment) => sum + attachment.file.size + (attachment.thumbnail?.size ?? 0), 0) > MAX_ATTACHMENT_BATCH_BYTES) {
+      throw new Error(translate("附件总大小超过离线发件箱单批次上限 512 MB"));
+    }
     const groups = input.attachments.reduce<typeof input.attachments[]>((result, attachment) => {
       const family = attachmentAlbumFamily(attachment.kind);
       const existing = family === "animation"
@@ -806,6 +810,7 @@ export class TauriMessageMediaService {
         input.disableNotification,
       );
       if (!sent) return false;
+      await input.onGroupAccepted?.(group);
       captionPending = undefined;
       captionEntitiesPending = undefined;
     }
@@ -843,6 +848,10 @@ export class TauriMessageMediaService {
   }
 
   private preparePastedFile = async (file: File): Promise<PreparedPastedFile> => {
+    if (nativeAttachmentsAvailable()) {
+      const blob = await persistNativeBlob(file, await activeNativeAccount());
+      return { name: file.name, mimeType: file.type || "application/octet-stream", blobToken: blob.token };
+    }
     const bytes = new Uint8Array(await file.arrayBuffer());
     const chunks: string[] = [];
     for (let offset = 0; offset < bytes.length; offset += 0x8000) {

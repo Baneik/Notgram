@@ -1,7 +1,6 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::{
     fs,
-    io::Write,
     path::{Path, PathBuf},
 };
 use tauri::AppHandle;
@@ -72,72 +71,37 @@ pub(super) fn remove_database_key(app: &AppHandle, account_id: &str) -> Result<(
 }
 
 fn read_protected_string(path: &Path) -> Result<Option<String>, String> {
-    let backup = path.with_extension("bak");
-    let readable = if path.is_file() {
-        path
-    } else if backup.is_file() {
-        &backup
-    } else {
-        return Ok(None);
-    };
-    let protected = fs::read(readable).map_err(|error| {
-        format!(
-            "Unable to read protected value {}: {error}",
-            readable.display()
-        )
-    })?;
-    let value = String::from_utf8(crate::proxy::unprotect(&protected)?)
-        .map_err(|_| "Protected database key is not valid UTF-8".to_string())?;
-    if value.trim().is_empty() {
-        return Err("Protected database key is empty".to_string());
+    let mut error = None;
+    for candidate in [path.to_path_buf(), path.with_extension("bak")] {
+        if !candidate.is_file() {
+            continue;
+        }
+        let result = fs::read(&candidate)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| crate::proxy::unprotect(&bytes))
+            .and_then(|bytes| {
+                String::from_utf8(bytes).map_err(|_| "Protected key is not UTF-8".to_string())
+            })
+            .and_then(|value| {
+                if value.trim().is_empty() {
+                    Err("Protected key is empty".to_string())
+                } else {
+                    Ok(value)
+                }
+            });
+        match result {
+            Ok(value) => return Ok(Some(value)),
+            Err(cause) => error = Some(cause),
+        }
     }
-    Ok(Some(value))
+    match error {
+        Some(error) => Err(error),
+        None => Ok(None),
+    }
 }
 
 fn write_protected_string(path: &Path, value: &str) -> Result<(), String> {
-    let temporary = path.with_extension("tmp");
-    let backup = path.with_extension("bak");
-    let protected = crate::proxy::protect(value.as_bytes())?;
-    let mut file = fs::File::create(&temporary).map_err(|error| {
-        format!(
-            "Unable to create database key {}: {error}",
-            temporary.display()
-        )
-    })?;
-    file.write_all(&protected).map_err(|error| {
-        format!(
-            "Unable to write database key {}: {error}",
-            temporary.display()
-        )
-    })?;
-    file.sync_all().map_err(|error| {
-        format!(
-            "Unable to flush database key {}: {error}",
-            temporary.display()
-        )
-    })?;
-    if backup.exists() {
-        fs::remove_file(&backup)
-            .map_err(|error| format!("Unable to remove old database key backup: {error}"))?;
-    }
-    if path.exists() {
-        fs::rename(path, &backup).map_err(|error| {
-            format!("Unable to rotate database key {}: {error}", path.display())
-        })?;
-    }
-    if let Err(error) = fs::rename(&temporary, path) {
-        if backup.exists() {
-            let _ = fs::rename(&backup, path);
-        }
-        return Err(format!(
-            "Unable to replace database key {}: {error}",
-            path.display()
-        ));
-    }
-    if backup.exists() {
-        let _ = fs::remove_file(backup);
-    }
-    Ok(())
+    super::persistence::atomic_write(path, &crate::proxy::protect(value.as_bytes())?)
 }
 
 fn directory_has_entries(path: &Path) -> Result<bool, String> {

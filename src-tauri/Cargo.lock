@@ -2121,6 +2121,7 @@ dependencies = [
  "libloading 0.9.0",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

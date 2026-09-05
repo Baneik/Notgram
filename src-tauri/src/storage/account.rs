@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 pub const DEFAULT_ACCOUNT_ID: &str = "default";
 
@@ -74,10 +74,10 @@ fn authorize_registered_avatar_assets(
     app: &AppHandle,
     registry: &AccountRegistry,
 ) -> Result<(), String> {
-    let preferences = super::resolve_preferences(app, super::load_preferences(app)?)?;
-    let cache_root = PathBuf::from(preferences.cache_path);
+    let cache_root = super::paths::effective_cache_root(app)?;
     let database_root = crate::distribution::app_data_directory(app)?.join("tdlib");
 
+    let mut avatars = std::collections::HashSet::new();
     for account in &registry.accounts {
         let roots = [
             account_cache_directory(cache_root.clone(), &account.id),
@@ -97,9 +97,9 @@ fn authorize_registered_avatar_assets(
         };
         // The registry is persisted data, so only authorize an existing file
         // below this account's own TDLib roots.
-        let _ = app.asset_protocol_scope().allow_file(&path);
+        avatars.insert(path);
     }
-    Ok(())
+    super::assets::set_account_avatars(app, avatars)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -169,6 +169,7 @@ pub fn telegram_select_account(
 ) -> Result<TelegramAccountState, String> {
     validate_account_id(&account_id)?;
     let mut registry = load_account_registry(&app)?;
+    super::assets::reset_session(&app);
     registry.active_account_id = account_id;
     save_account_registry(&app, &registry)?;
     authorize_registered_avatar_assets(&app, &registry)?;
@@ -190,12 +191,15 @@ pub fn telegram_remove_account(
             .map(|account| account.id.clone())
             .unwrap_or_else(|| DEFAULT_ACCOUNT_ID.to_string());
     }
+    super::assets::reset_session(&app);
     clear_account_storage(&app, &account_id)?;
     save_account_registry(&app, &registry)?;
+    save_account_registry(&app, &registry)?;
+    authorize_registered_avatar_assets(&app, &registry)?;
     Ok(registry.into())
 }
 
-pub(super) fn active_account_id(app: &AppHandle) -> Result<String, String> {
+pub(crate) fn active_account_id(app: &AppHandle) -> Result<String, String> {
     Ok(load_account_registry(app)?.active_account_id)
 }
 
@@ -216,9 +220,12 @@ pub(super) fn account_database_directory(root: PathBuf, account_id: &str) -> Pat
 }
 
 fn clear_account_storage(app: &AppHandle, account_id: &str) -> Result<(), String> {
+    let account_cache =
+        account_cache_directory(super::paths::effective_cache_root(app)?, account_id);
+    super::paths::validate_paths(&account_cache, &super::download_directory(app)?)?;
+    super::paths::remove_account_backups(app, account_id)?;
     let app_data_root = crate::distribution::app_data_directory(app)?.join("tdlib");
-    let preferences = super::resolve_preferences(app, super::load_preferences(app)?)?;
-    let cache_root = PathBuf::from(preferences.cache_path);
+    let cache_root = super::paths::effective_cache_root(app)?;
 
     if account_id == DEFAULT_ACCOUNT_ID {
         remove_directory_if_present(&app_data_root.join("database"))?;
@@ -229,6 +236,7 @@ fn clear_account_storage(app: &AppHandle, account_id: &str) -> Result<(), String
         remove_directory_if_present(&cache_root.join("accounts").join(account_id))?;
     }
     remove_directory_if_present(&super::local_state::account_directory(app, account_id)?)?;
+    super::metadata::remove_account(app, account_id)?;
     super::database_key::remove_database_key(app, account_id)?;
     Ok(())
 }
@@ -298,6 +306,21 @@ fn load_account_registry(app: &AppHandle) -> Result<AccountRegistry, String> {
 fn save_account_registry(app: &AppHandle, registry: &AccountRegistry) -> Result<(), String> {
     let path = account_registry_path(app)?;
     super::persistence::write_json(&path, registry, true)
+}
+
+pub(super) fn rebase_avatar_paths(app: &AppHandle, from: &Path, to: &Path) -> Result<(), String> {
+    let mut registry = load_account_registry(app)?;
+    for account in &mut registry.accounts {
+        if let Some(relative) = account
+            .avatar
+            .image_path
+            .as_deref()
+            .and_then(|path| Path::new(path).strip_prefix(from).ok())
+        {
+            account.avatar.image_path = Some(to.join(relative).display().to_string());
+        }
+    }
+    save_account_registry(app, &registry)
 }
 
 #[cfg(test)]

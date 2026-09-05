@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 pub(super) fn trusted_asset_roots(
     database_directory: &Path,
@@ -27,7 +27,7 @@ pub(super) fn allow_tdlib_assets(
         if !allowed_assets.insert(path.clone()) {
             continue;
         }
-        if app.asset_protocol_scope().allow_file(&path).is_err()
+        if crate::storage::assets::allow(app, &path).is_err()
             && let Some(logger) = logger
         {
             logger.write("warn", "asset_authorization_failed", json!({}));

@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
-    io::{self, Write},
+    io,
     path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
     thread,
@@ -142,9 +141,9 @@ fn persist_latest(persistence: &PlacementPersistence) {
 }
 
 fn read_placement(path: &Path) -> Option<MainWindowPlacement> {
-    let placement = fs::read(path)
+    let placement: MainWindowPlacement = crate::storage::persistence::read_json(path, false)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<MainWindowPlacement>(&bytes).ok())?;
+        .flatten()?;
     (placement.schema_version == MAIN_WINDOW_PLACEMENT_SCHEMA_VERSION
         && placement.width > 0
         && placement.height > 0)
@@ -152,20 +151,7 @@ fn read_placement(path: &Path) -> Option<MainWindowPlacement> {
 }
 
 fn write_placement(path: &Path, placement: MainWindowPlacement) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("window placement path has no parent"))?;
-    fs::create_dir_all(parent)?;
-    let temporary = path.with_extension("tmp");
-    let payload = serde_json::to_vec(&placement)?;
-    let mut file = fs::File::create(&temporary)?;
-    file.write_all(&payload)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    if path.exists() {
-        fs::remove_file(path)?;
-    }
-    fs::rename(temporary, path)
+    crate::storage::persistence::write_json(path, &placement, false).map_err(io::Error::other)
 }
 
 fn intersection_area(placement: MainWindowPlacement, work_area: WorkArea) -> u64 {

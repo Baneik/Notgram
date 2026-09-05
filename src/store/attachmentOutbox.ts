@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { activeNativeAccount, nativeAttachmentsAvailable, persistNativeBlob, restoreNativeBlob, type NativeBlob } from "./nativeBlobs";
 import { translate } from "../i18n";
 import type { OutgoingAttachment, QueuedOutgoingAttachment } from "../telegram/types";
 
@@ -17,6 +19,8 @@ interface StoredFile {
   lastModified: number;
   fingerprint: string;
   blob: Blob;
+  token?: string;
+  chunks?: string[];
 }
 
 interface StoredBatch {
@@ -25,6 +29,7 @@ interface StoredBatch {
   id: string;
   createdAt: string;
   persistent?: boolean;
+  recovery?: Record<string, unknown>;
   metadata: QueuedOutgoingAttachment[];
   files: StoredFile[];
 }
@@ -34,6 +39,7 @@ interface AttachmentBatchInput {
   id: string;
   createdAt: string;
   persistent?: boolean;
+  recovery?: Record<string, unknown>;
   attachments: OutgoingAttachment[];
   metadata: QueuedOutgoingAttachment[];
 }
@@ -58,6 +64,7 @@ const openDatabase = () => new Promise<IDBDatabase>((resolve, reject) => {
   };
   request.onsuccess = () => resolve(request.result);
   request.onerror = () => reject(request.error ?? new Error(translate("无法打开附件发件箱")));
+  request.onblocked = () => reject(new Error("Attachment database upgrade is blocked by another window"));
 });
 
 const totalBytes = (batch: StoredBatch) => batch.files.reduce((sum, file) => sum + file.size, 0);
@@ -70,6 +77,7 @@ const deleteExpiredMemoryBatches = () => {
 };
 
 const fingerprint = async (file: File) => {
+  if (nativeAttachmentsAvailable()) return (await persistNativeBlob(file, await activeNativeAccount())).fingerprint;
   try {
     const digest = await globalThis.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
     return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
@@ -181,14 +189,29 @@ export class AttachmentOutboxStore {
       id: input.id,
       createdAt: input.createdAt,
       persistent: input.persistent,
+      recovery: input.recovery,
       metadata: input.metadata.map((value) => ({ ...value })),
       files,
     };
     const bytes = totalBytes(batch);
     if (bytes > MAX_BATCH_BYTES) throw new Error(translate("附件总大小超过离线发件箱单批次上限 512 MB"));
 
+    if (nativeAttachmentsAvailable()) {
+      const accountId = batch.accountId!;
+      const nativeFiles = [];
+      for (const { blob, ...file } of files) {
+        const stored = await persistNativeBlob(blob, accountId);
+        nativeFiles.push({ ...file, ...stored });
+      }
+      await invoke("telegram_attachment_batch", { accountId, id: batch.id, remove: false,
+        value: { ...batch, files: nativeFiles } });
+      return;
+    }
+
     if (!hasIndexedDb()) {
       deleteExpiredMemoryBatches();
+      const previous = memoryBatches.get(input.id);
+      if (previous && previous.accountId !== batch.accountId) throw new Error("Attachment belongs to another account");
       const existing = [...memoryBatches.values()].filter((value) => value.id !== input.id);
       if (existing.length >= MAX_BATCHES) throw new Error(translate("离线发件箱最多保留 50 批附件"));
       if (existing.reduce((sum, value) => sum + totalBytes(value), 0) + bytes > MAX_TOTAL_BYTES) {
@@ -202,14 +225,25 @@ export class AttachmentOutboxStore {
     try { await putIndexedDb(database, batch); } finally { database.close(); }
   }
 
-  async get(id: string, accountId = "default"): Promise<AttachmentBatch | undefined> {
-    const batch = hasIndexedDb()
+  async get(id: string, accountId = "default", allowExpired = false): Promise<AttachmentBatch | undefined> {
+    let nativeBatch: StoredBatch | undefined;
+    if (nativeAttachmentsAvailable()) {
+      const value = await invoke<StoredBatch | null>("telegram_attachment_batch", { accountId, id, remove: false });
+      if (value) {
+        nativeBatch = value;
+        for (const source of nativeBatch.files) {
+          source.blob = await restoreNativeBlob(accountId, source as unknown as NativeBlob,
+            source.name, source.mimeType, source.lastModified);
+        }
+      }
+    }
+    const batch = nativeBatch ?? (hasIndexedDb()
       ? await openDatabase().then(async (database) => {
           try { return await getIndexedDb(database, id); } finally { database.close(); }
         })
-      : (deleteExpiredMemoryBatches(), memoryBatches.get(id));
+      : (deleteExpiredMemoryBatches(), memoryBatches.get(id)));
     if (!batch || batch.version !== 1 || batch.accountId !== accountId) return undefined;
-    if (!batch.persistent && Date.parse(batch.createdAt) < Date.now() - EXPIRED_AFTER_MS) return undefined;
+    if (!allowExpired && !batch.persistent && Date.parse(batch.createdAt) < Date.now() - EXPIRED_AFTER_MS) return undefined;
     const byStorageId = new Map(batch.files.map((file) => [file.storageId, file]));
     const attachments: OutgoingAttachment[] = [];
     for (const item of batch.metadata) {
@@ -221,7 +255,7 @@ export class AttachmentOutboxStore {
         source.fingerprint !== item.fingerprint
       ) return undefined;
       if (source.blob.size !== source.size || await fingerprint(source.blob as File) !== source.fingerprint) return undefined;
-      const fileObject = new File([source.blob], source.name, {
+      const fileObject = source.blob instanceof File ? source.blob : new File([source.blob], source.name, {
         type: source.mimeType,
         lastModified: source.lastModified,
       });
@@ -247,10 +281,18 @@ export class AttachmentOutboxStore {
         showCaptionAboveMedia: item.showCaptionAboveMedia,
       });
     }
+    if (nativeAttachmentsAvailable()) {
+      if (!nativeBatch) await this.put({ ...batch, attachments });
+      const database = await openDatabase();
+      try { await deleteIndexedDb(database, id); } finally { database.close(); }
+    }
     return { attachments, metadata: batch.metadata.map((value) => ({ ...value })) };
   }
 
   async remove(id: string, accountId?: string) {
+    if (nativeAttachmentsAvailable()) {
+      await invoke("telegram_attachment_batch", { accountId: accountId ?? await activeNativeAccount(), id, remove: true });
+    }
     if (!hasIndexedDb()) {
       if (!accountId || memoryBatches.get(id)?.accountId === accountId) memoryBatches.delete(id);
       return;
@@ -282,9 +324,20 @@ export class AttachmentOutboxStore {
         tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("Unable to migrate attachment ownership"));
       });
     } finally { database.close(); }
+    if (nativeAttachmentsAvailable()) {
+      const legacy = await openDatabase();
+      let owned: StoredBatch[];
+      try { owned = (await readAllIndexedDb(legacy)).filter((batch) => batch.accountId === accountId); }
+      finally { legacy.close(); }
+      for (const batch of owned) await this.get(batch.id, accountId, true);
+      await invoke("telegram_attachment_inventory", { accountId, collectGarbage: true });
+    }
   }
 
   async list(accountId: string) {
+    if (nativeAttachmentsAvailable()) return invoke<Array<Omit<StoredBatch, "files"> & { bytes: number; referenced: boolean }>>("telegram_attachment_inventory", {
+      accountId, collectGarbage: true,
+    });
     let batches: StoredBatch[];
     if (!hasIndexedDb()) batches = [...memoryBatches.values()];
     else {
@@ -292,7 +345,7 @@ export class AttachmentOutboxStore {
       try { batches = await readAllIndexedDb(database); } finally { database.close(); }
     }
     return batches.filter((batch) => batch.accountId === accountId).map(({ files, ...batch }) => ({
-      ...batch, bytes: files.reduce((sum, file) => sum + file.size, 0),
+      ...batch, referenced: false, bytes: files.reduce((sum, file) => sum + file.size, 0),
     }));
   }
 

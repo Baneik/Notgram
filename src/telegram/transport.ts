@@ -158,6 +158,7 @@ export interface TelegramTransport {
   deleteChatFolder(folderId: string): Promise<void>;
   reorderChatFolders(folderIds: string[]): Promise<void>;
   setChatFolderMembership(folderId: string, chatId: string, included: boolean): Promise<void>;
+  discardChatHistoryCache?(chatId: string): void;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
   getChatSponsoredMessages(chatId: string): Promise<ChatSponsoredMessages>;
   clickChatSponsoredMessage(
@@ -204,7 +205,7 @@ export interface TelegramTransport {
   recoverFile(fileId: number, priority?: number): Promise<void>;
   streamFile(input: StreamFileInput): Promise<string>;
   suspendFileStream(fileId: number): Promise<void>;
-  downloadFile(fileId: number, fileName: string): Promise<void>;
+  downloadFile(fileId: number, fileName: string): Promise<string | void>;
   cancelFileDownload(fileId: number): Promise<void>;
   openFile(sourcePath: string): Promise<void>;
   saveFileToDownloads(sourcePath: string, fileName: string): Promise<void>;

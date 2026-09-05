@@ -1,3 +1,4 @@
+import { readAccountMetadata, writeAccountMetadata, subscribeAccountMetadata } from "./accountMetadata";
 import { translate } from "../i18n";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
@@ -77,7 +78,7 @@ const isLocalBlockedUser = (value: unknown): value is LocalBlockedUser => {
 
 const readUsers = () => {
   try {
-    const serialized = globalThis.localStorage?.getItem(STORAGE_KEY);
+    const serialized = readAccountMetadata(STORAGE_KEY);
     if (!serialized) return [];
     const parsed = JSON.parse(serialized) as unknown;
     return Array.isArray(parsed) ? parsed.filter(isLocalBlockedUser) : [];
@@ -88,7 +89,7 @@ const readUsers = () => {
 
 const writeUsers = (users: LocalBlockedUser[]) => {
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(users));
+    writeAccountMetadata(STORAGE_KEY, JSON.stringify(users));
   } catch {
     // Local display preferences remain usable for the current session.
   }
@@ -158,6 +159,8 @@ export const useLocalUserBlocks = <T,>(selector: (state: LocalUserBlocksState) =
 
 export const removeAccountLocalBlocks = (accountId: string) => {
   const users = localUserBlocksStore.getState().users.filter((user) => user.accountId !== accountId);
-  globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(users));
+  writeAccountMetadata(STORAGE_KEY, JSON.stringify(users));
   localUserBlocksStore.setState({ users });
 };
+
+subscribeAccountMetadata(STORAGE_KEY, () => localUserBlocksStore.setState({ users: readUsers() }));

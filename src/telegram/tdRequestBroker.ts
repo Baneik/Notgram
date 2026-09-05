@@ -1,3 +1,4 @@
+import { activeNativeAccount, nativeAttachmentsAvailable } from "../store/nativeBlobs";
 import { translate } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { tdNumber, type TdObject } from "./tdlibMapper";
@@ -18,7 +19,8 @@ type InvokeCommand = (
 export interface PreparedPastedFile {
   name: string;
   mimeType: string;
-  dataBase64: string;
+  dataBase64?: string;
+  blobToken?: string;
 }
 
 export interface PreparedPastedAttachment extends PreparedPastedFile {
@@ -46,6 +48,15 @@ export class TdRequestBroker {
     const response = this.waitForResponse(extra, translate("文件下载失败。"));
     void this.invokeCommand("telegram_recover_file", { fileId, extra })
       .catch((error) => this.reject(extra, error));
+    return response;
+  }
+
+  async optimizeStorage(categories: string[], olderThanDays?: number, activeChatId?: string) {
+    const extra = crypto.randomUUID();
+    const response = this.waitForResponse(extra, translate("无法清理媒体缓存"), 120_000);
+    void this.invokeCommand("telegram_optimize_storage", {
+      categories, olderThanDays, activeChatId: activeChatId ? numericId(activeChatId) : undefined, extra,
+    }).catch((error) => this.reject(extra, error));
     return response;
   }
 
@@ -95,9 +106,12 @@ export class TdRequestBroker {
     disableNotification = false,
   ) {
     const extra = crypto.randomUUID();
-    this.preparedFiles.set(extra, onError);
+    const response = this.waitForResponse(extra, translate("附件上传未完成"), 120_000);
+    void response.catch(() => undefined);
+    void onError;
     try {
       const sent = await this.invokeCommand("telegram_send_pasted_files", {
+        accountId: nativeAttachmentsAvailable() ? await activeNativeAccount() : undefined,
         chatId: numericId(chatId),
         topicId: topicId ? numericId(topicId) : undefined,
         extra,
@@ -116,13 +130,14 @@ export class TdRequestBroker {
         disableNotification,
       });
       if (!sent) {
-        this.preparedFiles.delete(extra);
+        this.clear(extra);
         return false;
       }
     } catch (error) {
-      this.preparedFiles.delete(extra);
+      this.reject(extra, error);
       throw error;
     }
+    await response;
     return true;
   }
 

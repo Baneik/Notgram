@@ -275,24 +275,14 @@ fn preferences_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn load_preferences(app: &AppHandle) -> Result<ProxyPreferences, String> {
     let path = preferences_path(app)?;
-    if !path.is_file() {
-        return Ok(ProxyPreferences::default());
-    }
-    let protected =
-        fs::read(&path).map_err(|error| format!("无法读取代理设置 {}: {error}", path.display()))?;
-    let serialized = unprotect(&protected)?;
-    let preferences: ProxyPreferences = serde_json::from_slice(&serialized)
-        .map_err(|error| format!("无法解析代理设置: {error}"))?;
+    let preferences: ProxyPreferences =
+        crate::storage::persistence::read_json(&path, true)?.unwrap_or_default();
     preferences.normalize()
 }
 
 fn save_preferences(app: &AppHandle, preferences: &ProxyPreferences) -> Result<(), String> {
     let path = preferences_path(app)?;
-    let serialized =
-        serde_json::to_vec(preferences).map_err(|error| format!("无法序列化代理设置: {error}"))?;
-    let protected = protect(&serialized)?;
-    fs::write(&path, protected)
-        .map_err(|error| format!("无法保存代理设置 {}: {error}", path.display()))
+    crate::storage::persistence::write_json(&path, preferences, true)
 }
 
 #[cfg(target_os = "windows")]

@@ -39,7 +39,10 @@ const MAX_PASTED_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 pub struct PastedUploadFile {
     name: String,
     mime_type: String,
+    #[serde(default)]
     data_base64: String,
+    #[serde(default)]
+    blob_token: Option<String>,
     kind: String,
     width: Option<i32>,
     height: Option<i32>,
@@ -60,7 +63,10 @@ pub struct PastedUploadFile {
 pub struct PastedUploadFallback {
     name: String,
     mime_type: String,
+    #[serde(default)]
     data_base64: String,
+    #[serde(default)]
+    blob_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -68,7 +74,10 @@ pub struct PastedUploadFallback {
 pub struct PastedUploadThumbnail {
     name: String,
     mime_type: String,
+    #[serde(default)]
     data_base64: String,
+    #[serde(default)]
+    blob_token: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1355,6 +1364,46 @@ pub fn telegram_recover_file(
 }
 
 #[tauri::command]
+pub fn telegram_optimize_storage(
+    categories: Vec<String>,
+    older_than_days: Option<u32>,
+    active_chat_id: Option<i64>,
+    extra: String,
+    runtime: State<'_, TelegramRuntime>,
+    registry: State<'_, media_stream::MediaStreamRegistry>,
+) -> Result<(), String> {
+    validate_webview_extra(&extra)?;
+    if categories.is_empty()
+        || categories.len() > 5
+        || older_than_days.is_some_and(|days| days > 3650)
+    {
+        return Err("Invalid storage optimization request".into());
+    }
+    let mut file_types = Vec::new();
+    for category in categories {
+        let types: &[&str] = match category.as_str() {
+            "image" => &["fileTypePhoto", "fileTypeThumbnail", "fileTypeAnimation"],
+            "video" => &["fileTypeVideo", "fileTypeVideoNote"],
+            "audio" => &["fileTypeAudio", "fileTypeVoiceNote"],
+            "document" => &["fileTypeDocument"],
+            "other" => &["fileTypeUnknown"],
+            _ => return Err("Invalid storage category".into()),
+        };
+        file_types.extend(types.iter().map(|kind| json!({"@type": kind})));
+    }
+    let mut excluded = registry.protected_chat_ids();
+    if let Some(id) = active_chat_id {
+        excluded.insert(id);
+    }
+    runtime.send(&json!({
+        "@type": "optimizeStorage", "size": i64::MAX, "count": i32::MAX,
+        "ttl": older_than_days.unwrap_or(0) as u64 * 86400, "immunity_delay": 60,
+        "file_types": file_types, "chat_ids": [], "exclude_chat_ids": excluded,
+        "return_deleted_file_statistics": true, "chat_limit": 0, "@extra": extra
+    }))
+}
+
+#[tauri::command]
 pub fn telegram_log_performance(
     app: AppHandle,
     event: String,
@@ -1399,8 +1448,9 @@ pub fn telegram_register_media_stream(
     size: u64,
     mime_type: String,
     registry: State<'_, media_stream::MediaStreamRegistry>,
-) -> Result<(), String> {
-    registry.register(file_id, size, &mime_type)
+) -> Result<u64, String> {
+    registry.register(file_id, size, &mime_type)?;
+    Ok(registry.generation())
 }
 
 #[tauri::command]
@@ -1428,6 +1478,25 @@ pub fn telegram_media_stream_status(
     registry: State<'_, media_stream::MediaStreamRegistry>,
 ) -> Option<media_stream::MediaStreamStatus> {
     registry.status(file_id)
+}
+
+fn write_upload_payload(
+    app: &AppHandle,
+    path: &std::path::Path,
+    token: Option<&str>,
+    encoded: String,
+    limit: usize,
+) -> Result<(), String> {
+    if let Some(token) = token {
+        if !encoded.is_empty() {
+            return Err("Upload must use either a token or inline bytes".into());
+        }
+        crate::storage::blobs::materialize(app, token, path, limit as u64)
+    } else {
+        let bytes =
+            decode_pasted_upload(encoded, "Pasted file", limit.min(MAX_PASTED_UPLOAD_BYTES))?;
+        fs::write(path, bytes).map_err(|e| e.to_string())
+    }
 }
 
 fn pasted_upload_file_name(name: &str, index: usize) -> String {
@@ -1502,6 +1571,7 @@ impl Drop for SentMediaCacheGuard {
 #[allow(clippy::too_many_arguments)]
 pub async fn telegram_send_pasted_files(
     app: AppHandle,
+    account_id: Option<String>,
     chat_id: i64,
     topic_id: Option<i64>,
     extra: String,
@@ -1513,6 +1583,16 @@ pub async fn telegram_send_pasted_files(
     runtime: State<'_, TelegramRuntime>,
 ) -> Result<bool, String> {
     validate_webview_extra(&extra)?;
+    let active_account = crate::storage::account::active_account_id(&app)?;
+    if account_id
+        .as_ref()
+        .is_some_and(|account| account != &active_account)
+    {
+        return Err("Upload account changed".into());
+    }
+    let media_generation = app
+        .state::<media_stream::MediaStreamRegistry>()
+        .generation();
     let caption = caption.unwrap_or_default();
     if chat_id == 0
         || topic_id.is_some_and(|id| id <= 0)
@@ -1572,28 +1652,23 @@ pub async fn telegram_send_pasted_files(
         if file.mime_type.len() > 255 || file.mime_type.chars().any(char::is_control) {
             return Err("Invalid pasted file MIME type".to_string());
         }
-        let bytes = decode_pasted_upload(
-            file.data_base64.clone(),
-            "Pasted file",
-            MAX_PASTED_UPLOAD_BYTES,
-        )?;
         let path = pasted_upload_path(&cache_root, &file.name, index);
         fs::create_dir_all(
             path.parent()
                 .ok_or_else(|| "Unable to resolve pasted upload cache directory".to_string())?,
         )
         .map_err(|error| format!("Unable to create pasted upload cache: {error}"))?;
-        fs::write(&path, bytes)
-            .map_err(|error| format!("Unable to cache pasted upload: {error}"))?;
+        write_upload_payload(
+            &app,
+            &path,
+            file.blob_token.as_deref(),
+            file.data_base64.clone(),
+            crate::storage::blobs::MAX_FILE_BYTES as usize,
+        )?;
         let fallback_file = if let Some(fallback) = file.fallback.as_ref() {
             if fallback.mime_type.len() > 255 || fallback.mime_type.chars().any(char::is_control) {
                 return Err("Invalid fallback file MIME type".to_string());
             }
-            let bytes = decode_pasted_upload(
-                fallback.data_base64.clone(),
-                "Fallback pasted file",
-                MAX_PASTED_UPLOAD_BYTES,
-            )?;
             let fallback_path = cache_root
                 .join(format!("fallback-{}", index + 1))
                 .join(pasted_upload_file_name(&fallback.name, index));
@@ -1603,8 +1678,13 @@ pub async fn telegram_send_pasted_files(
                 })?,
             )
             .map_err(|error| format!("Unable to create fallback upload cache: {error}"))?;
-            fs::write(&fallback_path, bytes)
-                .map_err(|error| format!("Unable to cache fallback upload: {error}"))?;
+            write_upload_payload(
+                &app,
+                &fallback_path,
+                fallback.blob_token.as_deref(),
+                fallback.data_base64.clone(),
+                crate::storage::blobs::MAX_FILE_BYTES as usize,
+            )?;
             Some(crate::storage::prepare_upload_file(&fallback_path)?)
         } else {
             None
@@ -1613,14 +1693,19 @@ pub async fn telegram_send_pasted_files(
             if thumbnail.mime_type != "image/jpeg" && thumbnail.mime_type != "image/png" {
                 return Err("Invalid media thumbnail MIME type".to_string());
             }
-            let bytes = decode_pasted_upload(thumbnail.data_base64, "Media thumbnail", 200 * 1024)?;
+
             let thumbnail_name = format!(
                 "thumbnail-{index}-{}",
                 pasted_upload_file_name(&thumbnail.name, index),
             );
             let thumbnail_path = cache_root.join(thumbnail_name);
-            fs::write(&thumbnail_path, bytes)
-                .map_err(|error| format!("Unable to cache media thumbnail: {error}"))?;
+            write_upload_payload(
+                &app,
+                &thumbnail_path,
+                thumbnail.blob_token.as_deref(),
+                thumbnail.data_base64,
+                200 * 1024,
+            )?;
             Some(crate::storage::prepare_upload_file(&thumbnail_path)?)
         } else {
             None
@@ -1720,6 +1805,14 @@ pub async fn telegram_send_pasted_files(
         }
         fallback
     });
+    if crate::storage::account::active_account_id(&app)? != active_account
+        || app
+            .state::<media_stream::MediaStreamRegistry>()
+            .generation()
+            != media_generation
+    {
+        return Err("Upload session changed".into());
+    }
     if let Some(fallback_request) = fallback_request {
         runtime.send_with_fallback(&request, fallback_request)?;
     } else {

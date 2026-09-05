@@ -469,6 +469,8 @@ export interface EmojiPickerCatalog {
 }
 
 export interface Chat {
+  previewCacheable?: boolean;
+  previewExpiresAt?: string;
   id: string;
   kind: ChatKind;
   isForum?: boolean;
@@ -873,6 +875,7 @@ export interface MessageThread {
 export type MessageThreadReference = Pick<MessageThread, "chatId" | "messageId">;
 
 export interface MessagePermissions {
+  canSave?: boolean;
   canReply: boolean;
   canEdit: boolean;
   canDeleteOnlyForSelf: boolean;
@@ -892,6 +895,9 @@ export interface MessageSendFailure {
 }
 
 export interface Message {
+  canSave?: boolean;
+  selfDestruct?: boolean;
+  expiresAt?: string;
   id: string;
   renderKey?: string;
   chatId: string;
@@ -963,7 +969,7 @@ export type LocalUnsentState = Pick<CachedTelegramSnapshot, "currentUserId" | "s
 
 export interface CachedTelegramSnapshot {
   accountId?: string;
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   savedAt: string;
   currentUserId: string;
   users: User[];
@@ -989,7 +995,8 @@ export interface QueuedOutgoingMessage {
   replyToMessageId?: string;
   replyQuote?: MessageReplyQuote;
   createdAt: string;
-  status: "queued" | "failed";
+  status: "queued" | "sending" | "failed";
+  acceptedAttachmentIds?: string[];
   kind?: "text" | "attachments";
   caption?: string;
   attachments?: QueuedOutgoingAttachment[];
@@ -1158,6 +1165,7 @@ export interface OutgoingAttachment {
 }
 
 export interface SendFilesInput {
+  onGroupAccepted?: (attachments: OutgoingAttachment[]) => Promise<void>;
   chatId: string;
   topicId?: string;
   attachments: OutgoingAttachment[];
@@ -1338,6 +1346,8 @@ export interface ProxySettings {
 }
 
 export interface StorageSettings {
+  effectiveCachePath?: string;
+  migrationBackups?: Array<{ id: string; path: string; bytes: number }>;
   cachePath: string;
   downloadPath: string;
   defaultCachePath: string;

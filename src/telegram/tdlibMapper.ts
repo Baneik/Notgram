@@ -1726,6 +1726,7 @@ const mapTdReplyMarkup = (value: unknown): MessageInlineKeyboard | undefined => 
 export const mapTdMessageProperties = (raw: TdObject): MessagePermissions => {
   const includesPinPermissions = "can_be_pinned" in raw;
   return {
+    ...(typeof raw.can_be_saved === "boolean" ? { canSave: raw.can_be_saved } : {}),
     canReply: raw.can_be_replied === true,
     canEdit: raw.can_be_edited === true,
     canDeleteOnlyForSelf: raw.can_be_deleted_only_for_self === true,
@@ -1756,6 +1757,10 @@ export const mapTdMessage = (raw: TdObject, options: { isChannel?: boolean } = {
       ? tdId(topic.message_thread_id)
       : "";
 
+  const remaining = [raw.self_destruct_in, raw.auto_delete_in].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  if (remaining.length && typeof raw._notgramExpiresAt !== "string") {
+    raw._notgramExpiresAt = new Date(Date.now() + Math.min(...remaining) * 1000).toISOString();
+  }
   const senderId = messageSenderId(raw.sender_id) || "unknown";
   const sendingState = asTdObject(raw.sending_state);
   const failed = sendingState?.["@type"] === "messageSendingStateFailed";
@@ -1784,6 +1789,9 @@ export const mapTdMessage = (raw: TdObject, options: { isChannel?: boolean } = {
     id,
     chatId,
     topicId: topicId || undefined,
+    ...(typeof raw.can_be_saved === "boolean" ? { canSave: raw.can_be_saved } : {}),
+    ...(asTdObject(raw.self_destruct_type) ? { selfDestruct: true } : {}),
+    ...(typeof raw._notgramExpiresAt === "string" ? { expiresAt: raw._notgramExpiresAt } : {}),
     mediaAlbumId: mediaAlbumId && mediaAlbumId !== "0" ? mediaAlbumId : undefined,
     senderId,
     senderTag: optionalIdentityText(raw.sender_tag, 16),
@@ -1980,6 +1988,7 @@ export const mapTdChat = (
     if (folderId) folderIds.add(folderId);
   }
   const lastMessage = asTdObject(raw.last_message);
+  const lastLifecycle = lastMessage ? mapTdMessage(lastMessage) : undefined;
   const notifications = asTdObject(raw.notification_settings);
   const listOrderByFolder = Object.fromEntries(positions.flatMap((position) => {
     const order = tdId(position.order);
@@ -2021,6 +2030,8 @@ export const mapTdChat = (
     ...(memberCount !== undefined ? { memberCount } : {}),
     ...(activeUserCount !== undefined ? { activeUserCount } : {}),
     preview: lastMessage ? messagePreview(lastMessage) : translate("暂无消息"),
+    previewCacheable: lastLifecycle ? !lastLifecycle.selfDestruct && !lastLifecycle.expiresAt && lastLifecycle.canSave !== false : true,
+    previewExpiresAt: lastLifecycle?.expiresAt,
     previewSenderId: lastMessage ? messageSenderId(lastMessage.sender_id) || undefined : undefined,
     updatedAt: unixDate(lastMessage?.date),
     unreadCount: tdNumber(raw.unread_count) ?? 0,

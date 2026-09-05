@@ -52,7 +52,7 @@ const mediaSource = (message: Message) => {
   if (message.content.kind !== "media") return undefined;
   const source = message.content.localPath ?? message.content.thumbnailPath ?? message.content.previewDataUrl;
   if (!source || source.startsWith("data:") || !isTauri()) return source;
-  return convertFileSrc(source);
+  return convertFileSrc(source, "notgram-asset");
 };
 
 const mediaSourceFileId = (message: Message) => {

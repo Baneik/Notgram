@@ -1,3 +1,6 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { listenForAttachmentRecovery } from "../store/attachmentRecovery";
+import { subscribeDownloadMetadata } from "../utils/downloadManager";
 import { translate } from "../i18n";
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
 import {
@@ -502,6 +505,8 @@ export function App() {
       unsubscribe();
     };
   }, [subscribeMessageChanges]);
+  useEffect(() => subscribeDownloadMetadata(() => setManagedDownloadRequests(readManagedDownloadRequests())), []);
+
   useEffect(() => {
     writeManagedDownloadRequests(managedDownloadRequests.values());
   }, [managedDownloadRequests]);
@@ -518,7 +523,7 @@ export function App() {
       ));
       return next;
     });
-    return downloadFile(fileId, fileName).then(() => {
+    return downloadFile(fileId, fileName).then((savedPath) => {
       setManagedDownloadRequests((current) => {
         const record = current.get(key);
         if (!record) return current;
@@ -526,6 +531,7 @@ export function App() {
         next.set(key, {
           ...record,
           status: "completed",
+          savedPath: savedPath || undefined,
           error: undefined,
           updatedAt: new Date().toISOString(),
         });
@@ -599,6 +605,15 @@ export function App() {
     goBack: goBackConversationNavigation,
     goForward: goForwardConversationNavigation,
   } = conversationNavigation;
+  useEffect(() => {
+    const failed = () => { telegramStore.setState({ operationError: translate("无法保存附件草稿"), cacheHealth: "invalid" }); };
+    globalThis.addEventListener("notgram:local-save-failed", failed);
+    const listener = isTauri() ? listenForAttachmentRecovery() : Promise.resolve(() => undefined);
+    return () => {
+      globalThis.removeEventListener("notgram:local-save-failed", failed);
+      void listener.then((unlisten) => unlisten());
+    };
+  }, []);
   useEffect(() => {
     if (phase !== "ready" || cacheRetentionDays <= 0) return;
     const key = `notgram:cache-cleanup:${activeAccountId}`;

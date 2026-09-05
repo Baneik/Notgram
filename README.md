@@ -211,6 +211,23 @@ notification/sound preferences, compact chat and send-key behavior, animation
 preferences, proxy controls, and storage paths. Native file upload is available
 through a Rust-owned file picker so local paths are never exposed to the webview.
 
+Local unsent text, attachment manifests, and outbox state are stored separately
+from the replaceable UI snapshot. New attachments use account-owned DPAPI chunks
+(1 MiB per IPC transfer, 512 MiB per batch, 2 GiB total); owned legacy IndexedDB
+batches are verified and migrated on startup. Legacy batches with unknown account
+ownership are retained without guessing an owner. Settings lists recoverable
+native batches and storage layers. Media cache, exported downloads, WebView data,
+and logs are not covered by application-level DPAPI encryption.
+
+Cache directory changes take effect on restart after verified copying. The old
+cache remains as a migration backup until explicitly reclaimed in Settings. A
+failed migration keeps the previous runtime directory. Cache cleanup delegates
+ordinary media deletion to TDLib and preserves active conversations/transfers;
+it does not clear local drafts or exported downloads. Signing out removes the
+selected account's app-owned data and records while preserving exported files.
+Interrupted outbox sends require review before retry; accepted attachment groups
+are recorded so a retry can skip them.
+
 The desktop conversation list starts at 360 pixels wide and can be resized from its right edge
 down to a 300-pixel minimum. The preferred width is restored on the next launch. Default chat
 rows, avatars, message text, headers, and the composer use a unified daily-messaging scale, while

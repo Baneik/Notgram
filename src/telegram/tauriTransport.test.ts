@@ -4542,3 +4542,15 @@ describe("TauriTelegramTransport avatars", () => {
     expect(requests).toHaveLength(2);
   });
 });
+
+describe("settings window storage ownership", () => {
+  it("never writes settings-only projections over main-window drafts or snapshots", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as { settingsOnly: boolean; accountStorage: { saveCachedSnapshot: ReturnType<typeof vi.fn> } };
+    internal.settingsOnly = true;
+    internal.accountStorage.saveCachedSnapshot = vi.fn();
+    await transport.saveLocalState("default", { currentUserId: "self", savedAt: "2026-09-05T00:00:00Z", drafts: [], localAttachmentDrafts: [], outbox: [] });
+    await transport.saveCachedSnapshot({ version: 4, currentUserId: "self", savedAt: "2026-09-05T00:00:00Z", users: [], chats: [], messages: [], folders: [] });
+    expect(internal.accountStorage.saveCachedSnapshot).not.toHaveBeenCalled();
+  });
+});

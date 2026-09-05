@@ -494,7 +494,7 @@ describe("telegram store", () => {
 
   it("hydrates cached chats before the server connection finishes", async () => {
     const cachedSnapshot: CachedTelegramSnapshot = {
-      version: 1,
+      version: 4,
       savedAt: "2026-08-01T10:00:00+08:00",
       currentUserId: mockSnapshot.currentUserId,
       users: structuredClone(mockSnapshot.users),
@@ -541,7 +541,7 @@ describe("telegram store", () => {
     expect(store.getState().messages.get("chat-product")).toHaveLength(3);
     expect(store.getState().unreadAttentionMessageIds.get("chat-product"))
       .toContain(cachedSnapshot.messages[0].id);
-    expect(store.getState().cacheHealth).toBe("migrated");
+    expect(store.getState().cacheHealth).toBe("healthy");
 
     transport.release();
     await initialization;
@@ -559,7 +559,7 @@ describe("telegram store", () => {
       isDownloading: false,
     };
     const cachedSnapshot: CachedTelegramSnapshot = {
-      version: 3,
+      version: 4,
       savedAt: "2026-08-01T10:00:00+08:00",
       currentUserId: mockSnapshot.currentUserId,
       users: [cachedUser, ...structuredClone(mockSnapshot.users.filter((user) => user.id !== "self"))],
@@ -653,7 +653,7 @@ describe("telegram store", () => {
       await vi.advanceTimersByTimeAsync(10_001);
 
       expect(transport.savedSnapshot).toMatchObject({
-        version: 3,
+        version: 4,
         currentUserId: "self",
         activeChatId: "chat-product",
       });
@@ -878,7 +878,7 @@ describe("telegram store", () => {
       content: { kind: "text", text: "older cached history" },
     };
     const cachedSnapshot: CachedTelegramSnapshot = {
-      version: 1,
+      version: 4,
       savedAt: "2026-08-01T10:00:00+08:00",
       currentUserId: mockSnapshot.currentUserId,
       users: structuredClone(mockSnapshot.users),
@@ -948,7 +948,7 @@ describe("telegram store", () => {
       content: { kind: "text", text: `cached ${index}` },
     }));
     const cachedSnapshot: CachedTelegramSnapshot = {
-      version: 1,
+      version: 4,
       savedAt: "2026-08-01T10:00:00+08:00",
       currentUserId: mockSnapshot.currentUserId,
       users: structuredClone(mockSnapshot.users),
@@ -1000,7 +1000,7 @@ describe("telegram store", () => {
       .filter((message) => message.chatId === "chat-product")
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
     const cachedSnapshot: CachedTelegramSnapshot = {
-      version: 3,
+      version: 4,
       savedAt: "2026-08-01T10:00:00+08:00",
       currentUserId: mockSnapshot.currentUserId,
       users: structuredClone(mockSnapshot.users),
@@ -3169,7 +3169,7 @@ describe("chat filtering", () => {
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
     const cachedMessages = allMessages.slice(-2);
     const cachedSnapshot: CachedTelegramSnapshot = {
-      version: 3,
+      version: 4,
       savedAt: "2026-08-01T10:00:00+08:00",
       currentUserId: mockSnapshot.currentUserId,
       users: structuredClone(mockSnapshot.users),
@@ -3438,7 +3438,7 @@ describe("chat filtering", () => {
     await expect(store.getState().rebuildCachedSnapshot()).resolves.toBe(true);
     expect(transport.clears).toBe(1);
     expect(transport.savedSnapshot).toMatchObject({
-      version: 3,
+      version: 4,
       currentUserId: mockSnapshot.currentUserId,
     });
     expect(store.getState().cacheHealth).toBe("rebuilt");

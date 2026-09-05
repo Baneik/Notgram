@@ -1,3 +1,4 @@
+import { StorageDataPanel } from "./StorageDataPanel";
 import { translate } from "../i18n";
 import {
   ArrowLeft,
@@ -1266,6 +1267,8 @@ function AdvancedSettings({
         </div>
         </section>
 
+        <StorageDataPanel settings={storageDraft} setSettings={setStorageDraft} />
+
         <section className="settings-section" aria-labelledby="media-cache-heading">
           <div className="settings-section-heading">
             <HardDrive size={18} strokeWidth={1.8} />
@@ -1339,7 +1342,7 @@ function AdvancedSettings({
               onClick={() => void onClearCache(cacheCategories.map((category) => category.id))}
             >
               <Trash2 size={16} />
-              <span>{translate("清理全部缓存")}</span>
+              <span>{translate("清理全部媒体缓存")}</span>
             </button>
           </div>
           {cacheCleanupResult && (
@@ -1347,7 +1350,7 @@ function AdvancedSettings({
                 value0: formatBytes(cacheCleanupResult.removedBytes),
                 value1: cacheCleanupResult.removedFiles,
               })}{cacheCleanupResult.skippedProtectedFiles > 0
-                ? translate("；已保护 {{value0}} 个正在使用的文件", { value0: cacheCleanupResult.skippedProtectedFiles })
+                ? translate("；已保留 {{value0}} 个受保护文件", { value0: cacheCleanupResult.skippedProtectedFiles })
                 : ""}
               {cacheCleanupResult.failedFiles > 0
                 ? translate("；{{value0}} 个文件清理失败", { value0: cacheCleanupResult.failedFiles })

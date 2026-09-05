@@ -85,7 +85,7 @@ describe("telegram store outbox controller", () => {
     expect(harness.transport.sendMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({ text: "message-one" }));
     expect(harness.transport.sendMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({ text: "message-two" }));
     expect(harness.getState().outbox).toEqual([]);
-    expect(harness.flushCachedSnapshot).toHaveBeenCalledTimes(2);
+    expect(harness.flushCachedSnapshot).toHaveBeenCalledTimes(4);
   });
 
   it("preserves a partial reply quote while draining the queue", async () => {
@@ -103,4 +103,23 @@ describe("telegram store outbox controller", () => {
       replyQuote: { text: "selected", position: 5 },
     }));
   });
+  it("does not send when the durable sending marker cannot be committed", async () => {
+    const harness = createHarness();
+    harness.controller.setOutbox([item("one")]);
+    harness.flushCachedSnapshot.mockRejectedValueOnce(new Error("disk full"));
+    await harness.controller.flushOutbox();
+    expect(harness.transport.sendMessage).not.toHaveBeenCalled();
+    expect(harness.getState().outbox[0].status).toBe("failed");
+  });
+
+  it("keeps the completed-send acknowledgement out of automatic retries when its write fails", async () => {
+    const harness = createHarness();
+    harness.controller.setOutbox([item("one")]);
+    harness.flushCachedSnapshot.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("disk full"));
+    await harness.controller.flushOutbox();
+    await harness.controller.flushOutbox();
+    expect(harness.transport.sendMessage).toHaveBeenCalledTimes(1);
+    expect(harness.getState().cacheHealth).toBe("invalid");
+  });
+
 });
