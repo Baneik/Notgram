@@ -794,11 +794,6 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget, undefined, true);
         }}
       >
-        {message.isLocallyDeleted && (
-          <div className="message-local-delete-label" role="status">
-            {translate("消息已撤回，保留本地副本")}
-          </div>
-        )}
         <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${channelPost ? "is-channel-post-bubble" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             onOpenForwardSource ? (

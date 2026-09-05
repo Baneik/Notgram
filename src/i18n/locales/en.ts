@@ -1692,6 +1692,5 @@ export const en = {
   "暂无数据": "No data",
   "回收备份": "Remove backup",
   "草稿使用中": "Used by a draft",
-  "保留已撤回消息": "Keep deleted messages locally",
-  "消息已撤回，保留本地副本": "Message deleted, local copy retained"
+  "保留已撤回消息": "Keep deleted messages locally"
 } as const;
