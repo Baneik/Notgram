@@ -666,6 +666,7 @@ function MessageBubbleComponent({
   ]);
 
   const selectionDisabled = selectionPending ||
+    message.isLocallyDeleted === true ||
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
 
@@ -743,7 +744,7 @@ function MessageBubbleComponent({
   return (
     <article
       ref={setMessageRowRef}
-      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${isService ? "is-service" : ""} ${channelPost ? "is-channel-post" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${joinsSelectionBefore ? "joins-selection-before" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
+      className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${message.isLocallyDeleted ? "is-locally-deleted" : ""} ${isService ? "is-service" : ""} ${channelPost ? "is-channel-post" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${joinsSelectionBefore ? "joins-selection-before" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
       data-local-block-group={localBlockGroupId}
       onClick={(event) => {
@@ -766,7 +767,7 @@ function MessageBubbleComponent({
       <div
         className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${channelPost ? "is-channel-post-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
         style={visualShellStyle}
-        tabIndex={!locallyConcealed && !selectionMode && !isService ? 0 : undefined}
+        tabIndex={!locallyConcealed && !selectionMode && !isService && !message.isLocallyDeleted ? 0 : undefined}
         onPointerDown={(event) => {
           contextReplyQuoteRef.current = event.button === 2
             ? selectedReplyQuoteFor(event.currentTarget)
@@ -776,7 +777,7 @@ function MessageBubbleComponent({
         onContextMenu={(event) => {
           if (developerMode && event.ctrlKey && event.button === 2) return;
           event.preventDefault();
-          if (isService) return;
+          if (isService || message.isLocallyDeleted) return;
           if (selectionMode) void onToggleSelection(message);
           else {
             const replyQuote = contextReplyQuoteRef.current ?? selectedReplyQuoteFor(event.currentTarget);
@@ -785,7 +786,7 @@ function MessageBubbleComponent({
           }
         }}
         onKeyDown={(event) => {
-          if (selectionMode || isService) return;
+          if (selectionMode || isService || message.isLocallyDeleted) return;
           if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
           event.preventDefault();
           const bounds = event.currentTarget.getBoundingClientRect();
@@ -793,6 +794,11 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget, undefined, true);
         }}
       >
+        {message.isLocallyDeleted && (
+          <div className="message-local-delete-label" role="status">
+            {translate("消息已撤回，保留本地副本")}
+          </div>
+        )}
         <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${channelPost ? "is-channel-post-bubble" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             onOpenForwardSource ? (

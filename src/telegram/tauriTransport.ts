@@ -361,6 +361,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     requestPreparedProfilePhoto: () => this.requestPreparedProfilePhoto(),
   });
   private rawMessages = new Map<string, Map<string, TdObject>>();
+  private localDeleteIntents = new Set<string>();
   private pendingMessagePatches = new Map<string, TdObject>();
   private pendingDownloads = new Map<number, PendingDownload>();
   private rawMessageFileIds = new Map<string, Set<number>>();
@@ -1924,7 +1925,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async deleteMessage(input: DeleteMessageInput) {
-    return this.messageMediaService.deleteMessage(input);
+    const key = `${this.canonicalChatId(input.chatId)}:${input.messageId}`;
+    this.localDeleteIntents.add(key);
+    try {
+      return await this.messageMediaService.deleteMessage(input);
+    } catch (error) {
+      this.localDeleteIntents.delete(key);
+      throw error;
+    }
   }
 
   async forwardMessages(input: ForwardMessagesInput): Promise<ForwardMessagesResult> {
@@ -3537,15 +3545,30 @@ export class TauriTelegramTransport implements TelegramTransport {
     const ids = Array.isArray(update.message_ids) ? update.message_ids.map(tdId) : [];
     if (update.from_cache === true && update.is_permanent !== true) return;
     for (const messageId of ids) {
+      const key = `${chatId}:${messageId}`;
+      const source = this.localDeleteIntents.has(key) ? "local" : "remote";
+      this.localDeleteIntents.delete(key);
+      const preservedMessage = source === "remote"
+        ? this.mapMessage(this.rawMessages.get(chatId)?.get(messageId) ?? {})
+        : undefined;
       this.clearRichMessageHydration(`${chatId}:${messageId}`);
       this.rawMessages.get(chatId)?.delete(messageId);
       this.pendingMessagePatches.delete(`${chatId}:${messageId}`);
       this.unindexMessageFiles(chatId, messageId);
-      this.listener?.({ type: "message.remove", chatId, messageId });
+      this.listener?.({
+        type: "message.remove",
+        chatId,
+        messageId,
+        permanent: update.is_permanent === true,
+        fromCache: update.from_cache === true,
+        source,
+        ...(preservedMessage ? { preservedMessage } : {}),
+      });
     }
   }
 
   private resetSessionState() {
+    this.localDeleteIntents.clear();
     if (this.proxyConnectionTimer) globalThis.clearTimeout(this.proxyConnectionTimer);
     this.proxyConnectionTimer = undefined;
     this.connectingThroughProxy = false;

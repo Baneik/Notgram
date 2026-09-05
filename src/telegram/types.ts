@@ -921,6 +921,9 @@ export interface Message {
   isPinned?: boolean;
   permissions?: MessagePermissions;
   isRemoving?: boolean;
+  /** A local-only copy retained after a remote permanent deletion. */
+  isLocallyDeleted?: boolean;
+  locallyDeletedAt?: string;
   isPending?: boolean;
   containsUnreadMention?: boolean;
   containsUnreadReaction?: boolean;
@@ -976,6 +979,7 @@ export interface CachedTelegramSnapshot {
   folders: ChatFolder[];
   chats: Chat[];
   messages: Message[];
+  locallyDeletedMessages?: Message[];
   drafts?: ChatDraft[];
   localAttachmentDrafts?: LocalAttachmentDraft[];
   outbox?: QueuedOutgoingMessage[];
@@ -1029,7 +1033,16 @@ export type TelegramEvent =
   | { type: "message.upsert"; message: Message; animateEntrance?: boolean; cacheRelevant?: boolean }
   | { type: "message.replace"; oldMessageId: string; message: Message }
   | { type: "messages.upserted"; messages: Message[]; cacheRelevant?: boolean }
-  | { type: "message.remove"; chatId: string; messageId: string; immediate?: boolean }
+  | {
+      type: "message.remove";
+      chatId: string;
+      messageId: string;
+      immediate?: boolean;
+      permanent?: boolean;
+      fromCache?: boolean;
+      preservedMessage?: Message;
+      source?: "local" | "remote";
+    }
   | { type: "folders.replaced"; folders: ChatFolder[] }
   | { type: "chat.migrated"; fromChatId: string; toChatId: string }
   | { type: "chats.upserted"; chats: Chat[] }

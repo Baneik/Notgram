@@ -1,4 +1,4 @@
-import { messageExpired } from "../telegram/messageLifecycle";
+import { messageCanBeSaved, messageExpired } from "../telegram/messageLifecycle";
 import { initializeAccountMetadata, flushAccountMetadata } from "./accountMetadata";
 import { removeAccountLocalBlocks } from "./localUserBlocks";
 import { removeAccountActivity } from "./conversationActivity";
@@ -81,6 +81,7 @@ import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 import { recordConversationSentMessages } from "./conversationActivity";
 import { localUserBlocksStore } from "./localUserBlocks";
 import { messageHasUnreadLocalBlockedReaction } from "../utils/localBlockedReactions";
+import { preferencesStore } from "./preferencesStore";
 
 export type {
   ChatFilter,
@@ -146,6 +147,19 @@ const diagnosticChatHash = (chatId: string) => {
 
 const unreadCountBucket = (count: number) =>
   count <= 0 ? 0 : count < 10 ? 1 : count < 100 ? 2 : count < 1_000 ? 3 : 4;
+
+const canArchiveDeletedMessage = (message: Message | undefined) => Boolean(
+  message && !message.outgoing && !message.isLocallyDeleted && messageCanBeSaved(message),
+);
+
+const photoFileIdForArchive = (message: Message) =>
+  !message.outgoing &&
+  message.content.kind === "media" &&
+  message.content.mediaType === "photo" &&
+  message.content.fileId !== undefined &&
+  message.content.canDownload !== false
+    ? message.content.fileId
+    : undefined;
 
 const migrateMessageChatId = (message: Message, fromChatId: string, toChatId: string): Message => {
   const replyTo = message.replyTo?.kind === "message"
@@ -731,16 +745,25 @@ export const createTelegramStore = (
 
     const boundInactiveHistory = () => {
       const current = get();
-      let total = [...current.messages.values()].reduce((sum, items) => sum + items.length, 0);
+      let total = [...current.messages.values()].reduce(
+        (sum, items) => sum + items.filter((message) => !message.isLocallyDeleted).length,
+        0,
+      );
       if (total <= 10_000 && current.messages.size <= 100) return;
       const messages = new Map(current.messages);
       const histories = new Map(current.histories);
       const protectedChats = new Set(current.outbox.map((item) => item.chatId));
       for (const [chatId, items] of messages) {
         if (total <= 10_000 && messages.size <= 100) break;
-        if (current.chats.get(chatId)?.isForum || chatId === current.activeChatId || protectedChats.has(chatId) || histories.get(chatId)?.loading) continue;
+        if (
+          current.chats.get(chatId)?.isForum ||
+          chatId === current.activeChatId ||
+          protectedChats.has(chatId) ||
+          histories.get(chatId)?.loading ||
+          items.some((message) => message.isLocallyDeleted)
+        ) continue;
         if (items.some((message) => message.delivery === "sending")) continue;
-        total -= items.length;
+        total -= items.filter((message) => !message.isLocallyDeleted).length;
         messages.delete(chatId); histories.delete(chatId); cachedMessageIds.delete(chatId);
         transport.discardChatHistoryCache?.(chatId);
       }
@@ -970,7 +993,10 @@ export const createTelegramStore = (
       const lastForumTopicIds = new Map(
         (snapshot.lastForumTopicIds ?? []).map((entry) => [entry.chatId, entry.topicId]),
       );
-      let messages = messageMapFrom(snapshot.messages);
+      let messages = messageMapFrom([
+        ...snapshot.messages,
+        ...(snapshot.locallyDeletedMessages ?? []),
+      ]);
       const drafts = new Map((snapshot.drafts ?? []).map((draft) => [topicKey(draft.chatId, draft.topicId), draft]));
       const localAttachmentDrafts = new Map(
         (snapshot.localAttachmentDrafts ?? []).map((draft) => [draft.draftKey, draft]),
@@ -1612,6 +1638,17 @@ export const createTelegramStore = (
       }, delayMs));
     };
 
+    const maybeAutoCacheArchivePhoto = (message: Message) => {
+      if (!preferencesStore.getState().deletedMessageArchiveEnabled) return;
+      const fileId = photoFileIdForArchive(message);
+      const content = message.content.kind === "media" && message.content.mediaType === "photo"
+        ? message.content
+        : undefined;
+      if (fileId !== undefined && content && !content.isDownloaded) {
+        void get().cacheFile(fileId, 48).catch(() => undefined);
+      }
+    };
+
     const applyEvent = (event: TelegramEvent) => {
       if (event.type === "authorization.changed") {
         set({
@@ -1823,6 +1860,27 @@ export const createTelegramStore = (
         if (unreadAttention.length > 0) unreadAttentionMessageIds.set(event.chatId, unreadAttention);
         else unreadAttentionMessageIds.delete(event.chatId);
         liveAttentionCandidates.delete(`${event.chatId}:${event.messageId}`);
+        if (
+          preferencesStore.getState().deletedMessageArchiveEnabled &&
+          event.source === "remote" &&
+          event.permanent === true &&
+          canArchiveDeletedMessage(event.preservedMessage)
+        ) {
+          const archived = {
+            ...event.preservedMessage!,
+            isLocallyDeleted: true,
+            locallyDeletedAt: new Date().toISOString(),
+            permissions: undefined,
+            interaction: undefined,
+            isPinned: false,
+          };
+          const messages = new Map(get().messages);
+          messages.set(event.chatId, upsertMessage(messages.get(event.chatId) ?? [], archived));
+          set({ messages, unreadAttentionMessageIds });
+          publishMessageChange({ type: "upsert", messages: [archived], liveMessages: [] });
+          void flushCachedSnapshot().catch(() => set({ cacheHealth: "invalid" }));
+          return;
+        }
         if (event.immediate) {
           set({ unreadAttentionMessageIds });
           removeMessageImmediately(event.chatId, event.messageId);
@@ -1874,6 +1932,7 @@ export const createTelegramStore = (
         const incomingByChat = new Map<string, typeof event.messages>();
         let beforeCount = 0;
         for (const message of event.messages) {
+          maybeAutoCacheArchivePhoto(message);
           const chatMessages = incomingByChat.get(message.chatId) ?? [];
           chatMessages.push(message);
           incomingByChat.set(message.chatId, chatMessages);
@@ -1940,6 +1999,7 @@ export const createTelegramStore = (
 
       const messages = new Map(get().messages);
       const existingMessages = messages.get(event.message.chatId) ?? [];
+      maybeAutoCacheArchivePhoto(event.message);
       queueBlockedReactionReads([event.message]);
       const isNewLiveMessage = event.animateEntrance === true &&
         !existingMessages.some((message) => message.id === event.message.id);

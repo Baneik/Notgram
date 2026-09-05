@@ -7,6 +7,10 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Add an opt-in local copy of incoming messages that are permanently deleted by
+  another party, render retained copies as semi-transparent read-only messages,
+  and automatically cache original photos while the feature is enabled. Self-
+  destructing, expiring, protected, and locally deleted messages remain excluded.
 - Calibrate frame-drop estimates against the current window's active display refresh
   rate and attach bounded evidence, focus, frame-budget, script, and region context to
   performance records.

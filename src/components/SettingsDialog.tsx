@@ -205,6 +205,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const language = usePreferencesStore((state) => state.language);
   const notificationSound = usePreferencesStore((state) => state.notificationSound);
   const notificationPreview = usePreferencesStore((state) => state.notificationPreview);
+  const deletedMessageArchiveEnabled = usePreferencesStore((state) => state.deletedMessageArchiveEnabled);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const blockZalgoText = usePreferencesStore((state) => state.blockZalgoText);
@@ -235,6 +236,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     notificationsEnabled,
     notificationSound,
     notificationPreview,
+    deletedMessageArchiveEnabled,
     sendOnEnter,
     blockTypingStatus,
     blockZalgoText,
@@ -577,6 +579,7 @@ function PreferenceSettings({
     ? [
         { key: "blockZalgoText" as const, label: translate("屏蔽 Zalgo 文本") },
         { key: "blockTypingStatus" as const, label: translate("屏蔽输入状态") },
+        { key: "deletedMessageArchiveEnabled" as const, label: translate("保留已撤回消息") },
       ]
     : category === "notifications"
     ? [

@@ -3938,11 +3938,15 @@ describe("TauriTelegramTransport message operations", () => {
       reply_markup: null,
     });
 
-    expect(events).toEqual([{
+    expect(events).toEqual([expect.objectContaining({
       type: "message.remove",
       chatId: "7",
       messageId: "13",
-    }]);
+      permanent: true,
+      fromCache: false,
+      source: "remote",
+      preservedMessage: expect.objectContaining({ id: "13", content: { kind: "text", text: "message 13" } }),
+    })]);
   });
 
   it("keeps messages that TDLib removes only from its local cache", () => {

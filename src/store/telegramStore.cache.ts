@@ -213,6 +213,13 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     !value.messages.every(
       (message) => hasStringKey(message, "id") && hasStringKey(message, "chatId"),
     ) ||
+    (value.locallyDeletedMessages !== undefined && (
+      !Array.isArray(value.locallyDeletedMessages) ||
+      !value.locallyDeletedMessages.every(
+        (message) => hasStringKey(message, "id") && hasStringKey(message, "chatId") &&
+          message.isLocallyDeleted === true && hasStringKey(message, "locallyDeletedAt"),
+      )
+    )) ||
     (value.drafts !== undefined && (
       !Array.isArray(value.drafts) ||
       !value.drafts.every((draft) => hasStringKey(draft, "chatId"))
@@ -306,6 +313,9 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
         return result;
       }),
       messages: (value.version === 4 ? value.messages as unknown as Message[] : []).filter(messageCanBeCached).map(sanitizeCachedMessage),
+      locallyDeletedMessages: (value.locallyDeletedMessages as unknown as Message[] | undefined ?? [])
+        .filter((message) => message.isLocallyDeleted === true && typeof message.locallyDeletedAt === "string")
+        .map(sanitizeCachedMessage),
       profiles: (value.profiles as ChatProfile[] | undefined)?.map(sanitizeCachedProfile),
       forumTopics: value.version === 4
         ? (value.forumTopics ?? []).map((entry) => ({
@@ -474,6 +484,9 @@ export const cachedSnapshotFrom = (
     })),
     chats: [...state.chats.values()].map(cacheableChat),
     messages: recentMessagesForCache(state),
+    locallyDeletedMessages: [...state.messages.values()].flat()
+      .filter((message) => message.isLocallyDeleted === true)
+      .map(sanitizeCachedMessage),
     drafts: [...state.drafts.values()],
     localAttachmentDrafts: [...(state.localAttachmentDrafts ?? new Map()).values()],
     outbox: state.outbox ?? [],

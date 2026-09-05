@@ -33,8 +33,10 @@ export const upsertMessages = (messages: Message[], incoming: Message[]) => {
     const existing = byId.get(message.id);
     const renderKey = message.renderKey ?? existing?.renderKey;
     const discussionThread = message.discussionThread ?? existing?.discussionThread;
-    byId.set(message.id, renderKey || discussionThread
-      ? { ...message, renderKey, discussionThread }
+    const isLocallyDeleted = message.isLocallyDeleted ?? existing?.isLocallyDeleted;
+    const locallyDeletedAt = message.locallyDeletedAt ?? existing?.locallyDeletedAt;
+    byId.set(message.id, renderKey || discussionThread || isLocallyDeleted
+      ? { ...message, renderKey, discussionThread, isLocallyDeleted, locallyDeletedAt }
       : message);
   }
   return [...byId.values()].sort(compareMessages);

@@ -41,9 +41,11 @@ import {
   deriveChatManagementCapabilities,
 } from "../telegram/chatManagement";
 import { localUserBlocksStore } from "./localUserBlocks";
+import { preferencesStore } from "./preferencesStore";
 
 afterEach(() => {
   localUserBlocksStore.setState({ users: [] });
+  preferencesStore.setState({ deletedMessageArchiveEnabled: false });
 });
 
 describe("telegram store", () => {
@@ -3451,6 +3453,49 @@ describe("chat filtering", () => {
     expect(store.getState().messages.get(target.chatId)).toEqual(
       expect.arrayContaining([before, target, after]),
     );
+  });
+
+  it("keeps a remote permanent deletion as a read-only local copy when enabled", async () => {
+    class RemoteDeleteTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      dispatch(event: TelegramEvent) {
+        this.eventListener?.(event);
+      }
+    }
+
+    preferencesStore.setState({ deletedMessageArchiveEnabled: true });
+    const transport = new RemoteDeleteTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const original = store.getState().messages.get("chat-product")?.find((message) => message.id === "p-1");
+    expect(original).toBeDefined();
+
+    transport.dispatch({
+      type: "message.remove",
+      chatId: "chat-product",
+      messageId: "p-1",
+      permanent: true,
+      fromCache: false,
+      source: "remote",
+      preservedMessage: original!,
+    });
+
+    const preserved = store.getState().messages.get("chat-product")?.find((message) => message.id === "p-1");
+    expect(preserved).toMatchObject({
+      id: "p-1",
+      isLocallyDeleted: true,
+      locallyDeletedAt: expect.any(String),
+      content: original?.content,
+    });
+    expect(cachedSnapshotFrom(store.getState()).locallyDeletedMessages).toEqual([
+      expect.objectContaining({ id: "p-1", isLocallyDeleted: true }),
+    ]);
   });
 
   it("commits a fetched context once and discards a superseded navigation", async () => {

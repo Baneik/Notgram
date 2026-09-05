@@ -33,6 +33,7 @@ export interface AppPreferences {
   notificationsEnabled: boolean;
   notificationSound: boolean;
   notificationPreview: boolean;
+  deletedMessageArchiveEnabled: boolean;
   sendOnEnter: boolean;
   blockTypingStatus: boolean;
   blockZalgoText: boolean;
@@ -75,6 +76,7 @@ const defaults: AppPreferences = {
   notificationsEnabled: true,
   notificationSound: true,
   notificationPreview: true,
+  deletedMessageArchiveEnabled: false,
   sendOnEnter: true,
   blockTypingStatus: true,
   blockZalgoText: true,
@@ -127,6 +129,7 @@ const readPreferences = (): AppPreferences => {
       notificationsEnabled: stored.notificationsEnabled ?? defaults.notificationsEnabled,
       notificationSound: stored.notificationSound ?? defaults.notificationSound,
       notificationPreview: stored.notificationPreview ?? defaults.notificationPreview,
+      deletedMessageArchiveEnabled: stored.deletedMessageArchiveEnabled ?? defaults.deletedMessageArchiveEnabled,
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       blockTypingStatus,
       blockZalgoText: stored.blockZalgoText ?? defaults.blockZalgoText,
@@ -293,6 +296,7 @@ preferencesStore.subscribe((state) => {
     notificationsEnabled: state.notificationsEnabled,
     notificationSound: state.notificationSound,
     notificationPreview: state.notificationPreview,
+    deletedMessageArchiveEnabled: state.deletedMessageArchiveEnabled,
     sendOnEnter: state.sendOnEnter,
     blockTypingStatus: state.blockTypingStatus,
     blockZalgoText: state.blockZalgoText,

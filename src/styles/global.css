@@ -1053,6 +1053,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-row.is-entering-incoming { animation: message-enter-incoming var(--motion-duration-standard) var(--motion-ease-standard) both; }
 .message-row.is-entering-outgoing { animation: message-enter-outgoing var(--motion-duration-fast) var(--motion-ease-standard) both; }
 .message-row.is-removing { animation: message-delete-out var(--motion-duration-standard) var(--motion-ease-exit) both; pointer-events: none; }
+.message-row.is-locally-deleted { opacity: 0.58; }
+.message-row.is-locally-deleted .message-local-delete-label { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
 @keyframes message-enter-incoming {
   from { opacity: 1; transform: translate3d(-10px, 0, 0) scale(0.985); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
