@@ -1188,6 +1188,8 @@ export interface ChatHistoryPage {
   loadedCount: number;
   hasMore: boolean;
   messageIds: string[];
+  /** Messages from this page, committed with the history cursor by the store. */
+  messages?: Message[];
 }
 
 export interface ForumTopic {

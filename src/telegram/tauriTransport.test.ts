@@ -3974,13 +3974,14 @@ describe("TauriTelegramTransport history", () => {
 
     const page = await transport.loadChatHistory("7", 30);
 
-    expect(page).toEqual({
+    expect(page).toMatchObject({
       loadedCount: 30,
       hasMore: true,
       messageIds: expect.any(Array),
     });
     expect(page.messageIds).toHaveLength(30);
-    expect(new Set(emittedIds)).toHaveLength(30);
+    expect(page.messages).toHaveLength(30);
+    expect(emittedIds).toHaveLength(0);
     expect(cursors).toHaveLength(29);
     expect(cursors.slice(0, 3)).toEqual([0, 99, 98]);
   });
@@ -4005,13 +4006,13 @@ describe("TauriTelegramTransport history", () => {
 
     const firstPage = await transport.loadChatHistory("7", 30);
 
-    expect(firstPage).toEqual({
+    expect(firstPage).toMatchObject({
       loadedCount: 2,
       hasMore: true,
       messageIds: ["10", "9"],
     });
     const secondPage = await transport.loadChatHistory("7", 30);
-    expect(secondPage).toEqual({
+    expect(secondPage).toMatchObject({
       loadedCount: 0,
       hasMore: true,
       messageIds: ["9"],
@@ -4045,7 +4046,7 @@ describe("TauriTelegramTransport history", () => {
     const page = await transport.loadChatHistory("7", 3);
 
     expect(cursors).toEqual([0, 10, 10, 10]);
-    expect(page).toEqual({
+    expect(page).toMatchObject({
       loadedCount: 3,
       hasMore: true,
       messageIds: ["10", "9", "8"],
@@ -4067,12 +4068,12 @@ describe("TauriTelegramTransport history", () => {
       };
     };
 
-    await expect(transport.loadChatHistory("7", 30)).resolves.toEqual({
+    await expect(transport.loadChatHistory("7", 30)).resolves.toMatchObject({
       loadedCount: 1,
       hasMore: false,
       messageIds: ["10"],
     });
-    await expect(transport.loadChatHistory("7", 30)).resolves.toEqual({
+    await expect(transport.loadChatHistory("7", 30)).resolves.toMatchObject({
       loadedCount: 0,
       hasMore: false,
       messageIds: [],

@@ -1679,11 +1679,11 @@ export class MockTelegramTransport implements TelegramTransport {
     const offset = this.historyOffsets.get(chatId) ?? 0;
     const page = history.slice(offset, offset + limit);
     this.historyOffsets.set(chatId, offset + page.length);
-    this.listener?.({ type: "messages.upserted", messages: clone(page) });
     return {
       loadedCount: page.length,
       hasMore: offset + page.length < history.length,
       messageIds: page.map((message) => message.id),
+      messages: clone(page),
     };
   }
 
@@ -1788,8 +1788,12 @@ export class MockTelegramTransport implements TelegramTransport {
     const offset = this.historyOffsets.get(historyKey) ?? 0;
     const page = history.slice(offset, offset + limit);
     this.historyOffsets.set(historyKey, offset + page.length);
-    this.listener?.({ type: "messages.upserted", messages: clone(page) });
-    return { loadedCount: page.length, hasMore: offset + page.length < history.length, messageIds: page.map((message) => message.id) };
+    return {
+      loadedCount: page.length,
+      hasMore: offset + page.length < history.length,
+      messageIds: page.map((message) => message.id),
+      messages: clone(page),
+    };
   }
 
   async getMessageThreadHistory(chatId: string, messageId: string, limit = 100) {

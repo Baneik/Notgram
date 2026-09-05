@@ -53,7 +53,7 @@ describe("tauri forum topic service", () => {
     expect(harness.context.emitMessages).toHaveBeenCalledWith([
       { "@type": "message", id: "9" },
       { "@type": "message", id: "8" },
-    ]);
+    ], false);
   });
 
   it("resolves one topic once and applies live notification settings to the cache", async () => {

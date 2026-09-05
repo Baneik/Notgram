@@ -1050,6 +1050,31 @@ export const createTelegramStore = (
       publishMessageChange({ type: "reset", messages });
     };
 
+    const mergeHistoryPage = (incomingMessages: readonly Message[]) => {
+      if (incomingMessages.length === 0) return { messages: get().messages, removingMessages: get().removingMessages };
+      const messages = new Map(get().messages);
+      const removingMessages = new Map(get().removingMessages);
+      const incomingByChat = new Map<string, Message[]>();
+      for (const message of incomingMessages) {
+        const incoming = incomingByChat.get(message.chatId) ?? [];
+        incoming.push(message);
+        incomingByChat.set(message.chatId, incoming);
+      }
+      for (const [chatId, incoming] of incomingByChat) {
+        const existing = messages.get(chatId) ?? [];
+        for (const message of incoming) {
+          queueBlockedReactionReads([message]);
+          reconcileMessageAttention(message, existing.find((candidate) => candidate.id === message.id), false);
+        }
+        messages.set(chatId, upsertMessages(existing, incoming).map((message) => ({ ...message, isRemoving: false })));
+        const incomingIds = new Set(incoming.map((message) => message.id));
+        const ghosts = (removingMessages.get(chatId) ?? []).filter((message) => !incomingIds.has(message.id));
+        if (ghosts.length > 0) removingMessages.set(chatId, ghosts);
+        else removingMessages.delete(chatId);
+      }
+      return { messages, removingMessages };
+    };
+
     const loadHistory = (chatId: string, mode: "ensure" | "older") => {
       if (
         get().authorization.kind !== "ready" ||
@@ -1098,13 +1123,17 @@ export const createTelegramStore = (
           const hasUnconfirmedCache = Boolean(
             pendingCachedIds && [...pendingCachedIds].some((messageId) => !confirmedIds!.has(messageId)),
           );
+          const merged = mergeHistoryPage(page.messages ?? []);
           const nextHistories = new Map(get().histories);
           nextHistories.set(chatId, {
             loading: false,
             hasMore: page.hasMore,
             initialized: true,
           });
-          set({ histories: nextHistories });
+          set({ histories: nextHistories, messages: merged.messages, removingMessages: merged.removingMessages, operationError: undefined });
+          if (page.messages?.length) {
+            publishMessageChange({ type: "upsert", messages: page.messages, liveMessages: [] });
+          }
           if (hasUnconfirmedCache && pendingCachedIds && confirmedIds) {
             void confirmCachedHistory(
               chatId,
@@ -1238,9 +1267,13 @@ export const createTelegramStore = (
       try {
         const page = await transport.loadForumTopicHistory(chatId, topicId, 30);
         if (generation !== accountGeneration) return;
+        const merged = mergeHistoryPage(page.messages ?? []);
         const next = new Map(get().topicHistories);
         next.set(key, { loading: false, hasMore: page.hasMore, initialized: true });
-        set({ topicHistories: next, operationError: undefined });
+        set({ topicHistories: next, messages: merged.messages, removingMessages: merged.removingMessages, operationError: undefined });
+        if (page.messages?.length) {
+          publishMessageChange({ type: "upsert", messages: page.messages, liveMessages: [] });
+        }
         scheduleCacheWrite();
       } catch (error) {
         if (generation !== accountGeneration) return;

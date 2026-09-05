@@ -8,12 +8,13 @@ import type {
   ForumTopic,
   ForumTopicPage,
   GetForumTopicsInput,
+  Message,
 } from "./types";
 import type { TdObject } from "./tdlibMapper";
 
 export interface TauriForumTopicServiceContext {
   request: (request: TdObject) => Promise<TdObject>;
-  emitMessages: (rawMessages: TdObject[]) => void;
+  emitMessages: (rawMessages: TdObject[], notify?: boolean) => Message[];
   emitForumTopicsChanged: (chatId: string) => void;
 }
 
@@ -142,11 +143,12 @@ export class TauriForumTopicService {
       const nextCursor = messageIds.at(-1);
       if (nextCursor && nextCursor !== String(cursor)) this.historyCursors.set(key, Number(nextCursor));
       else this.exhaustedHistories.add(key);
-      this.context.emitMessages(rawMessages);
+      const messages = this.context.emitMessages(rawMessages, false);
       return {
         loadedCount: messageIds.length,
         hasMore: !this.exhaustedHistories.has(key),
         messageIds,
+        messages,
       };
     })().finally(() => this.historyLoads.delete(key));
     this.historyLoads.set(key, load);

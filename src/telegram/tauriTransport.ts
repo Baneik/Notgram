@@ -336,11 +336,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     upsertUser: (raw) => this.upsertUser(raw),
     mapChat: (raw) => this.mapChat(raw),
     mapMessage: (raw) => this.mapMessage(raw),
-    emitMessages: (rawMessages) => this.emitMessages(rawMessages),
+    emitMessages: (rawMessages) => { this.emitMessages(rawMessages); },
   });
   private forumTopicService = new TauriForumTopicService({
     request: (request) => this.request(request),
-    emitMessages: (rawMessages) => this.emitMessages(rawMessages),
+    emitMessages: (rawMessages, notify) => this.emitMessages(rawMessages, true, notify),
     emitForumTopicsChanged: (chatId) => this.emitForumTopicsChanged(chatId),
   });
   private rawBasicGroups = new Map<string, TdObject>();
@@ -411,7 +411,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     request: (request) => this.request(request),
     rawMessages: this.rawMessages,
     emitMessage: (raw, animateEntrance) => this.emitMessage(raw, animateEntrance),
-    emitMessages: (rawMessages) => this.emitMessages(rawMessages),
+    emitMessages: (rawMessages: TdObject[], notify?: boolean) => this.emitMessages(rawMessages, true, notify),
     mapMessage: (raw) => this.mapMessage(raw),
     ensureReplyContent: (raw) => this.ensureReplyContent(raw),
     patchMessage: (chatId, messageId, patch) => this.patchMessage(chatId, messageId, patch),
@@ -2079,13 +2079,14 @@ export class TauriTelegramTransport implements TelegramTransport {
       emitMessage: (message) => rawMessages.push(message),
       onCursor: (cursor) => this.historyCursors.set(chatId, cursor),
     });
-    this.emitMessages(rawMessages);
+    const messages = this.emitMessages(rawMessages, true, false);
     if (result.exhausted) this.exhaustedHistories.add(chatId);
 
     return {
       loadedCount: result.loadedCount,
       hasMore: !this.exhaustedHistories.has(chatId),
       messageIds: result.messageIds,
+      messages,
     };
   }
 
@@ -3076,7 +3077,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
-  private emitMessages(rawMessages: TdObject[], cacheRelevant = true) {
+  private emitMessages(rawMessages: TdObject[], cacheRelevant = true, notify = true): Message[] {
     const messages = new Map<string, Message>();
     const uniqueRawMessages = new Map<string, TdObject>();
     for (const inputRaw of rawMessages) {
@@ -3098,7 +3099,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       uniqueRawMessages.set(key, raw);
       this.ensureMessageSenderChat(raw);
     }
-    if (messages.size > 0) {
+    if (messages.size > 0 && notify) {
       this.listener?.({
         type: "messages.upserted",
         messages: [...messages.values()],
@@ -3110,6 +3111,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.enqueueHydration(() => this.ensureReplyContent(raw));
       this.enqueueHydration(() => this.ensureFullRichMessage(raw));
     }
+    return [...messages.values()];
   }
 
   private enqueueHydration(task: () => Promise<unknown> | unknown) {
