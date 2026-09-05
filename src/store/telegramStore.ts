@@ -2608,7 +2608,7 @@ export const createTelegramStore = (
           if (restoredTopicId) loadActiveForumTopic(chatId, restoredTopicId);
           void refreshForumConversation(chatId);
         } else {
-          void loadHistory(chatId, "ensure");
+          if (!options?.deferHistory) void loadHistory(chatId, "ensure");
           void markChatRead(chatId);
           if (targetChat?.kind === "channel") void get().loadChatSponsoredMessages(chatId);
         }

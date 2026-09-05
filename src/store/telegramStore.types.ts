@@ -168,7 +168,7 @@ export interface TelegramState {
   switchAccount: (accountId: string) => Promise<boolean>;
   logOutCurrentAccount: () => Promise<boolean>;
   /** Selection commits synchronously; history/read work continues in the background. */
-  selectChat: (chatId: string, options?: { forumTopicId?: string }) => void;
+  selectChat: (chatId: string, options?: { forumTopicId?: string; deferHistory?: boolean }) => void;
   selectForumTopic: (topicId?: string) => void;
   loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
   resolveForumTopic: (chatId: string, topicId: string) => Promise<ForumTopic | undefined>;

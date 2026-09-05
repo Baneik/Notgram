@@ -1801,7 +1801,9 @@ export function App() {
                   serverMessageId: restoreLocally ? undefined : serverMessageId,
                   performanceTraceId,
                 });
-                state.selectChat(chatId);
+                state.selectChat(chatId, {
+                  deferHistory: Boolean(serverMessageId && !serverMessageLoaded && !restoreLocally),
+                });
               });
               requestAnimationFrame(() => {
                 markConversationSwitch(performanceTraceId, "transitionFinished");
@@ -1819,7 +1821,12 @@ export function App() {
                   } finally {
                     markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: !loaded });
                   }
-                  if (loaded || chatOpenGenerationRef.current !== generation) return;
+                  if (chatOpenGenerationRef.current !== generation) return;
+                  // A target-centric request gives us the correct first view.
+                  // Start the ordinary first-page sync only after that view is
+                  // ready, so both remote history windows do not compete.
+                  telegramStore.getState().selectChat(chatId);
+                  if (loaded) return;
                   flushSync(() => {
                     issueConversationScrollRequest({
                       kind: "entry",

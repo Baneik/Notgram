@@ -1148,6 +1148,27 @@ describe("telegram store", () => {
     );
   });
 
+  it("can defer the ordinary history request for a target-first entry", async () => {
+    class CountingTransport extends MockTelegramTransport {
+      historyRequests = 0;
+
+      override async loadChatHistory(chatId: string, limit = 30) {
+        if (chatId === "chat-mia") this.historyRequests += 1;
+        return super.loadChatHistory(chatId, limit);
+      }
+    }
+
+    const transport = new CountingTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    store.getState().selectChat("chat-mia", { deferHistory: true });
+    await Promise.resolve();
+    expect(transport.historyRequests).toBe(0);
+
+    store.getState().selectChat("chat-mia");
+    await vi.waitFor(() => expect(transport.historyRequests).toBe(1));
+  });
+
   it("loads a snapshot and selects the first pinned chat", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
 
