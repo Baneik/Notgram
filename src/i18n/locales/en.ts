@@ -21,7 +21,7 @@ export const en = {
   "附件已恢复到原会话草稿，请核对后发送": "Attachments restored to the original chat draft. Review before sending.",
   "本地数据管理": "Local data management",
   "本次运行缓存路径：": "Cache path used by this session:",
-  "草稿、附件和账号元数据使用 Windows 用户加密；媒体缓存、下载副本和日志不属于加密存储。": "Drafts, attachments, and account metadata are encrypted for your Windows user. Media cache, exported downloads, and logs are not encrypted by the app.",
+  "新附件、草稿和账号元数据使用 Windows 用户加密；旧版附件确认归属后迁移。媒体缓存、下载副本和日志不属于加密存储。": "New attachments, drafts, and account metadata are encrypted for your Windows user. Legacy attachments migrate after ownership is confirmed. Media cache, exported downloads, and logs are not encrypted by the app.",
   "统计不完整": "Partial measurement",
   "下载副本由你保管，清理缓存和退出账号都不会删除。": "Exported downloads are yours to manage. Cache cleanup and sign-out keep them.",
   "迁移备份": "Migration backup",

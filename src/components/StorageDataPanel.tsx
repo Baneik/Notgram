@@ -59,7 +59,7 @@ export function StorageDataPanel({ settings, setSettings }: {
   return <section className="settings-section storage-data-panel" aria-label={translate("本地数据管理")}>
     <h4>{translate("本地数据管理")}</h4>
     <p>{translate("本次运行缓存路径：")} {settings.effectiveCachePath ?? settings.cachePath}</p>
-    <p>{translate("草稿、附件和账号元数据使用 Windows 用户加密；媒体缓存、下载副本和日志不属于加密存储。")}</p>
+    <p>{translate("新附件、草稿和账号元数据使用 Windows 用户加密；旧版附件确认归属后迁移。媒体缓存、下载副本和日志不属于加密存储。")}</p>
     <button type="button" className="storage-reset" disabled={busy} onClick={() => setRevision((value) => value + 1)}>{translate("刷新")}</button>
     <div className="cache-category-list">
       {layers.map((layer) => <div key={layer.kind} title={layer.path} className="cache-category-row">
