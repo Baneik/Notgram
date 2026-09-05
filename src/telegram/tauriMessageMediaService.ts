@@ -217,14 +217,24 @@ export class TauriMessageMediaService {
   async getMessageContext(chatId: string, messageId: string, limit = 31) {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const newerCount = Math.min(49, Math.floor((boundedLimit - 1) / 2));
-    const result = await this.context.request({
+    const requestContext = (onlyLocal: boolean) => this.context.request({
       "@type": "getChatHistory",
       chat_id: numericId(chatId),
       from_message_id: numericId(messageId),
       offset: -newerCount,
       limit: boundedLimit,
-      only_local: false,
+      only_local: onlyLocal,
     });
+    // TDLib may already have the target in its local database even when the
+    // frontend Store has not hydrated this chat.  Probe local state only when
+    // this transport has observed messages for the chat; a genuinely cold chat
+    // goes straight to the remote request and pays no extra round trip.
+    const knownLocally = (this.context.rawMessages.get(chatId)?.size ?? 0) > 0;
+    const localResult = knownLocally ? await requestContext(true) : undefined;
+    const localMessages = localResult ? asTdObjects(localResult.messages) : [];
+    const result = localMessages.some((raw) => tdId(raw.id) === messageId)
+      ? localResult!
+      : await requestContext(false);
     const rawMessages = asTdObjects(result.messages);
     // The caller commits this navigation window after validating its request.
     // Publishing here would mutate the visible list before navigation owns it.

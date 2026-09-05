@@ -1173,6 +1173,32 @@ describe("TauriTelegramTransport startup", () => {
     }]);
   });
 
+  it("uses an observed local context before falling back to the server", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.emitMessage(rawMessage(41));
+    internal.request = async (request) => {
+      requests.push(request);
+      return {
+        "@type": "messages",
+        messages: [rawMessage(43), rawMessage(42), rawMessage(41)],
+      };
+    };
+
+    const context = await transport.getMessageContext("7", "42", 31);
+
+    expect(context.map((message) => message.id)).toEqual(["43", "42", "41"]);
+    expect(requests).toEqual([{
+      "@type": "getChatHistory",
+      chat_id: 7,
+      from_message_id: 42,
+      offset: -15,
+      limit: 31,
+      only_local: true,
+    }]);
+  });
+
   it("uses TDLib opaque offsets and merges message and chat search results", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
