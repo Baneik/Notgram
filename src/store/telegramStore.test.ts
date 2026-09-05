@@ -1169,6 +1169,46 @@ describe("telegram store", () => {
     await vi.waitFor(() => expect(transport.historyRequests).toBe(1));
   });
 
+  it("shows cached messages before refreshing the first server page", async () => {
+    class DelayedTransport extends MockTelegramTransport {
+      historyStarted!: () => void;
+      historyRequests = 0;
+
+      override async loadChatHistory(chatId: string, limit = 30) {
+        if (chatId === "chat-mia") {
+          this.historyRequests += 1;
+          this.historyStarted();
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        return super.loadChatHistory(chatId, limit);
+      }
+    }
+
+    const transport = new DelayedTransport();
+    const historyStarted = new Promise<void>((resolve) => { transport.historyStarted = resolve; });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const messages = new Map(store.getState().messages);
+    const cached = messages.get("chat-product")?.[0];
+    if (!cached) throw new Error("Missing cached test message");
+    messages.set("chat-mia", [{ ...cached, chatId: "chat-mia", id: "cached-mia" }]);
+    const histories = new Map(store.getState().histories);
+    histories.delete("chat-mia");
+    store.setState({ messages, histories });
+
+    store.getState().selectChat("chat-mia");
+    expect(store.getState().histories.get("chat-mia")).toEqual({
+      loading: false,
+      hasMore: true,
+      initialized: true,
+    });
+    await historyStarted;
+    expect(store.getState().messages.get("chat-mia")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "cached-mia" })]),
+    );
+    await vi.waitFor(() => expect(transport.historyRequests).toBe(1));
+  });
+
   it("loads a snapshot and selects the first pinned chat", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
 

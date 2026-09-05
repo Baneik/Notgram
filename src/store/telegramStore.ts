@@ -1075,7 +1075,11 @@ export const createTelegramStore = (
       return { messages, removingMessages };
     };
 
-    const loadHistory = (chatId: string, mode: "ensure" | "older") => {
+    const loadHistory = (
+      chatId: string,
+      mode: "ensure" | "older",
+      options: { background?: boolean } = {},
+    ) => {
       if (
         get().authorization.kind !== "ready" ||
         get().connectionStatus !== "online"
@@ -1090,6 +1094,23 @@ export const createTelegramStore = (
       ) return Promise.resolve();
       const existing = historyLoadPromises.get(chatId);
       if (existing) return existing;
+
+      const cachedCount = get().messages.get(chatId)?.length ?? 0;
+      if (mode === "ensure" && cachedCount > 0) {
+        const histories = new Map(get().histories);
+        histories.set(chatId, {
+          loading: false,
+          hasMore: current?.hasMore ?? true,
+          initialized: true,
+        });
+        set({ histories });
+        // The snapshot is immediately usable. Refresh the server window in
+        // the background without keeping the conversation switch trace open.
+        queueMicrotask(() => {
+          if (generation === accountGeneration) void loadHistory(chatId, "older", { background: true });
+        });
+        return Promise.resolve();
+      }
 
       const histories = new Map(get().histories);
       histories.set(chatId, {
@@ -1106,7 +1127,7 @@ export const createTelegramStore = (
       const anchorMessagePresent = Boolean(
         anchorMessageId && (get().messages.get(chatId) ?? []).some((message) => message.id === anchorMessageId),
       );
-      const performanceTraceId = getActiveConversationTraceId();
+      const performanceTraceId = options.background ? undefined : getActiveConversationTraceId();
       markConversationSwitch(performanceTraceId, "asyncWaitStarted");
       const load = (async () => {
         try {
