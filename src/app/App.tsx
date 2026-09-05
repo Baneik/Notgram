@@ -1113,6 +1113,21 @@ export function App() {
       viewTransition: false,
       navigationKind: 3,
     });
+    const inPlace = state.activeChatId === chatId && (
+      !state.chats.get(chatId)?.isForum ||
+      (cachedTarget && cachedTarget.topicId === state.activeTopicId)
+    );
+    let preparedRequest: ConversationScrollRequest | undefined;
+    if (inPlace && (!cachedTarget || options?.loadContext)) {
+      // Own the viewport before the asynchronous context can change its data.
+      flushSync(() => {
+        preparedRequest = issueConversationScrollRequest({
+          kind: "message", chatId, messageId, performanceTraceId,
+          behavior: options?.behavior, highlight: options?.highlight,
+          revealLocallyBlocked: options?.revealLocallyBlocked, loading: true,
+        });
+      });
+    }
     if (!cachedTarget || options?.loadContext) {
       markConversationSwitch(performanceTraceId, "asyncWaitStarted");
       let loadFailed = true;
@@ -1120,12 +1135,22 @@ export function App() {
         loadFailed = !(await loadMessage(
           chatId,
           messageId,
-          { forceContext: Boolean(options?.loadContext) },
+          {
+            forceContext: Boolean(options?.loadContext),
+            isCurrent: () => chatOpenGenerationRef.current === generation,
+          },
         ));
       } finally {
         markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: loadFailed });
       }
       if (chatOpenGenerationRef.current !== generation) return;
+      if (loadFailed) {
+        if (preparedRequest) {
+          flushSync(() => { issueConversationScrollRequest({ kind: "entry", chatId }); });
+        }
+        telegramStore.setState({ operationError: translate("无法加载历史消息") });
+        return;
+      }
     }
     if (chatOpenGenerationRef.current !== generation) return;
     const loadedState = telegramStore.getState();
@@ -1155,7 +1180,9 @@ export function App() {
     );
     flushSync(() => {
       setMobileChatOpen(true);
-      issueConversationScrollRequest({
+      if (preparedRequest?.kind === "message") {
+        setConversationScrollRequest({ ...preparedRequest, loading: false });
+      } else issueConversationScrollRequest({
         kind: "message",
         chatId,
         messageId,

@@ -12,7 +12,7 @@ export const motionDuration = {
 export const conversationJumpTiming = {
   accelerate: 180,
   decelerate: 300,
-  relocationQuiet: 220,
+  relocationDeadline: 750,
   total: 480,
 } as const;
 

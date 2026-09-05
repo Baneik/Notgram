@@ -967,6 +967,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list.is-scrolling { scrollbar-color: var(--message-scrollbar-thumb) transparent; }
 .message-list.is-scrolling::-webkit-scrollbar-thumb { background-color: var(--message-scrollbar-thumb); }
 .message-list.is-history-adjusting { scrollbar-color: transparent transparent; }
+.message-list.is-entry-positioning { visibility: hidden; }
+.message-list.is-detached { overflow-anchor: auto; }
 .message-list.is-history-adjusting::-webkit-scrollbar-thumb { background-color: transparent; }
 .message-list.is-jump-transitioning { pointer-events: none; }
 .message-list.is-jump-transitioning .message-list-content { visibility: hidden; }

@@ -50,6 +50,7 @@ import {
 } from "../hooks/useConversationScroll";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { useConversationActivityTracker } from "../hooks/useConversationActivityTracker";
+import { ConversationViewportBoundary } from "./ConversationViewportBoundary";
 import {
   getConversationActivityRecords,
   quickForwardChatsAt,
@@ -1096,6 +1097,9 @@ export function Conversation({
     virtuosoRef,
     currentScrollKey,
     positioning,
+    hideUnpositionedEntry,
+    waitingForEntryTarget,
+    captureViewportBeforeUpdate,
     virtuosoKey,
     initialTopMostItemIndex,
     initialAlignToBottom,
@@ -1407,7 +1411,8 @@ export function Conversation({
     )
   );
   const showPositioning = useStableVisibility(
-    !pinnedViewOpen && positioning && renderedMessages.length === 0 && !preservePositioningFrame,
+    !pinnedViewOpen && (waitingForEntryTarget ||
+      (positioning && renderedMessages.length === 0 && !preservePositioningFrame)),
   );
 
   useLayoutEffect(() => {
@@ -1903,6 +1908,7 @@ export function Conversation({
       : undefined,
     [renderedDiscussionPost, storedMessages],
   );
+  const showNavigationLoading = useStableVisibility(scrollRequest?.kind === "message" && scrollRequest.loading === true);
   const channelDiscussionComments = renderedDiscussion?.comments ?? [];
 
   if (!chat) {
@@ -2451,6 +2457,11 @@ export function Conversation({
             <LoaderCircle className="spin" size={16} />
           </div> : null}
         </MotionPresence>
+        <MotionPresence present={showNavigationLoading} variant="status">
+          {showNavigationLoading ? <div className="history-loading" role="status" aria-label={translate("正在加载消息")}>
+            <LoaderCircle className="spin" size={16} />
+          </div> : null}
+        </MotionPresence>
         {!pinnedViewOpen && visibleMessageDay && (
           <div
             className={`conversation-date-indicator ${dateIndicatorVisible ? "is-visible" : ""}`}
@@ -2468,9 +2479,14 @@ export function Conversation({
             aria-hidden="true"
           />
         )}
+        <ConversationViewportBoundary
+          identity={virtuosoKey}
+          items={visibleMessageBlocks}
+          capture={captureViewportBeforeUpdate}
+        >
         <Virtuoso
           key={virtuosoKey}
-          className={`message-list ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (historyLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
+          className={`message-list ${awayFromLatest ? "is-detached" : ""} ${hideUnpositionedEntry ? "is-entry-positioning" : ""} ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (historyLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
           ref={virtuosoRef}
           scrollerRef={setMessageListRef}
           isScrolling={setMessageListScrolling}
@@ -2851,6 +2867,7 @@ export function Conversation({
             );
           }}
         />
+        </ConversationViewportBoundary>
         {!pinnedViewOpen && currentScrollKey && attentionMessageIds.length > 0 && (
           <button
             className={`conversation-jump-button jump-to-attention ${!hasPrimaryAttention ? "has-reaction" : ""} ${awayFromLatest || jumpHistoryCount > 0 ? "is-stacked" : ""}`}
