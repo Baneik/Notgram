@@ -1472,7 +1472,6 @@ export function App() {
       navigationKind: 2,
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
-    markConversationSwitch(performanceTraceId, "selectionCommitted");
     beginConversationSnapshot(
       conversationIdentityFor(chatId, targetTopicId),
       !state.chats.get(chatId)?.isForum || Boolean(targetTopicId),
@@ -1484,13 +1483,12 @@ export function App() {
         performanceTraceId,
         preserveVisualBottom: true,
       });
+      state.selectChat(chatId);
     });
+    markConversationSwitch(performanceTraceId, "selectionCommitted");
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "transitionFinished");
     });
-    if (state.activeChatId !== chatId || (state.chats.get(chatId)?.isForum && !state.activeTopicId)) {
-      state.selectChat(chatId);
-    }
   };
 
   const openForumTopic = (topicId: string) => {

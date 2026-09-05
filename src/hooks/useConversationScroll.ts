@@ -746,10 +746,30 @@ export const useConversationScroll = ({
     historySnapshotRef.current = undefined;
   }, []);
 
+  const cancelPendingHistoryRestore = useCallback((key?: string) => {
+    const pending = pendingHistoryRestoreRef.current;
+    if (!pending || (key && pending.key !== key)) return;
+    pendingHistoryRestoreRef.current = undefined;
+    if (historyLoadKeyRef.current === pending.key) historyLoadKeyRef.current = undefined;
+    if (historyRestoreFrameRef.current !== undefined) {
+      cancelAnimationFrame(historyRestoreFrameRef.current);
+      historyRestoreFrameRef.current = undefined;
+    }
+    if (contentAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(contentAnchorFrameRef.current);
+      contentAnchorFrameRef.current = undefined;
+    }
+    if (anchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(anchorFrameRef.current);
+      anchorFrameRef.current = undefined;
+    }
+  }, []);
+
   useLayoutEffect(() => {
     const active = historySnapshotRef.current;
     if (active && active.key !== currentScrollKey) clearHistorySnapshot();
-  }, [clearHistorySnapshot, currentScrollKey]);
+    cancelPendingHistoryRestore(currentScrollKey);
+  }, [cancelPendingHistoryRestore, clearHistorySnapshot, currentScrollKey]);
 
   const publishPositionedIdentity = useCallback((identity: string) => {
     if (positioningIdentityRef.current === identity) {
@@ -800,9 +820,14 @@ export const useConversationScroll = ({
       cancelAnimationFrame(contentAnchorFrameRef.current);
       contentAnchorFrameRef.current = undefined;
     }
+    if (anchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(anchorFrameRef.current);
+      anchorFrameRef.current = undefined;
+    }
     revealTargetTokenRef.current = undefined;
     clearJumpTransition();
     clearHistorySnapshot();
+    cancelPendingHistoryRestore();
     positioningIdentityRef.current = undefined;
     const current = scrollControlRef.current;
     scrollControlRef.current = {
@@ -814,6 +839,7 @@ export const useConversationScroll = ({
       publishPositionedIdentity(initialLocationIdentity);
     }
   }, [
+    cancelPendingHistoryRestore,
     clearHistorySnapshot,
     clearJumpTransition,
     initialLocationIdentity,
@@ -1119,6 +1145,17 @@ export const useConversationScroll = ({
     ) return false;
     const anchor = visibleAnchor(element);
     if (!anchor?.messageId) return false;
+    // A queued generic height correction belongs to the previous geometry.
+    // History prepend has its own anchor settlement and must be the only
+    // coordinator writing scrollTop until the new page is stable.
+    if (anchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(anchorFrameRef.current);
+      anchorFrameRef.current = undefined;
+    }
+    if (contentAnchorFrameRef.current !== undefined) {
+      cancelAnimationFrame(contentAnchorFrameRef.current);
+      contentAnchorFrameRef.current = undefined;
+    }
     clearHistorySnapshot();
     const historySnapshot = captureConversationJumpSnapshot(element, { isolate: true });
     if (historySnapshot) {
@@ -1960,7 +1997,8 @@ export const useConversationScroll = ({
     const pendingHistory = pendingHistoryRestoreRef.current;
     if (
       pendingHistory?.key === currentScrollKey &&
-      pendingHistory.previousFirstId !== firstVisibleMessageId
+      pendingHistory.previousFirstId !== firstVisibleMessageId &&
+      visibleMessages.length > pendingHistory.beforeCount
     ) {
       pendingHistoryRestoreRef.current = undefined;
       const historySnapshot = historySnapshotRef.current;
@@ -2219,6 +2257,10 @@ export const useConversationScroll = ({
   const onTotalListHeightChanged = useCallback(() => {
     if (!currentScrollKey || searchActive) return;
     if (performance.now() < smoothScrollUntilRef.current) return;
+    // The prepend transaction owns anchor correction until its settlement
+    // callback. Letting this generic signal schedule another RAF can make the
+    // same list receive two competing scrollTop writes during remeasurement.
+    if (pendingHistoryRestoreRef.current?.key === currentScrollKey) return;
     const memory = conversationScrollMemory.get(currentScrollKey);
     const control = scrollControlRef.current;
     if (
