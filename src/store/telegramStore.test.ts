@@ -1094,7 +1094,58 @@ describe("telegram store", () => {
     releaseHistory();
 
     await expect(pending).resolves.toBe(false);
-    expect(transport.contextRequests).toBe(0);
+    // The context read may already be in flight in parallel with the first
+    // history page.  Active-only validation must still prevent its stale
+    // result from mutating the newly selected conversation.
+    expect(transport.contextRequests).toBe(1);
+  });
+
+  it("starts unread context loading without waiting for the first history page", async () => {
+    let releaseHistory!: () => void;
+    let historyStarted!: () => void;
+    let contextStarted!: () => void;
+    let releaseContext!: () => void;
+    const historyGate = new Promise<void>((resolve) => { releaseHistory = resolve; });
+    const contextGate = new Promise<void>((resolve) => { releaseContext = resolve; });
+    const historyReady = new Promise<void>((resolve) => { historyStarted = resolve; });
+    const contextReady = new Promise<void>((resolve) => { contextStarted = resolve; });
+
+    class ParallelTransport extends MockTelegramTransport {
+      override async loadChatHistory(chatId: string, limit = 30) {
+        if (chatId === "chat-mia") {
+          historyStarted();
+          await historyGate;
+        }
+        return super.loadChatHistory(chatId, limit);
+      }
+
+      override async getMessageContext(chatId: string, messageId: string, limit = 31) {
+        if (chatId === "chat-mia") {
+          contextStarted();
+          await contextGate;
+        }
+        return super.getMessageContext(chatId, messageId, limit);
+      }
+    }
+
+    const store = createTelegramStore(new ParallelTransport());
+    await store.getState().initialize();
+    store.getState().selectChat("chat-mia");
+    await historyReady;
+
+    const pending = store.getState().loadMessage(
+      "chat-mia",
+      "m-1",
+      { forceContext: true, onlyIfActive: true },
+    );
+    await contextReady;
+    releaseHistory();
+    releaseContext();
+
+    await expect(pending).resolves.toBe(true);
+    expect(store.getState().messages.get("chat-mia")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "m-1" })]),
+    );
   });
 
   it("loads a snapshot and selects the first pinned chat", async () => {

@@ -2917,12 +2917,11 @@ export const createTelegramStore = (
         }
         if (get().authorization.kind !== "ready") return false;
         try {
-          // An unread entry request follows the initial page instead of racing it.
-          // Other callers (search, profile, history) retain their independent path.
-          const pendingHistory = options?.onlyIfActive
-            ? historyLoadPromises.get(chatId)
-            : undefined;
-          if (pendingHistory) await pendingHistory;
+          // The entry context and the first history page are independent TDLib
+          // reads.  Do not serialize them behind the initial page: a cold chat
+          // otherwise pays both network round trips before its target can settle.
+          // Generation checks below make either result safe to merge when it
+          // arrives first, and active-only callers still discard stale results.
           if (!isCurrent()) return false;
           if (!options?.forceContext && (get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
             return true;
