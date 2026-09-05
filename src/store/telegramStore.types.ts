@@ -199,7 +199,7 @@ export interface TelegramState {
   loadMessage: (
     chatId: string,
     messageId: string,
-    options?: { forceContext?: boolean; onlyIfActive?: boolean },
+    options?: { forceContext?: boolean; onlyIfActive?: boolean; isCurrent?: () => boolean },
   ) => Promise<boolean>;
   loadMessageThreadHistory: (chatId: string, messageId: string, limit?: number) => Promise<Message[] | undefined>;
   sendMessageToThread: (

@@ -1888,7 +1888,6 @@ export class MockTelegramTransport implements TelegramTransport {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const start = Math.max(0, targetIndex - Math.floor((boundedLimit - 1) / 2));
     const context = history.slice(start, start + boundedLimit);
-    this.listener?.({ type: "messages.upserted", messages: clone(context) });
     return clone(context);
   }
 

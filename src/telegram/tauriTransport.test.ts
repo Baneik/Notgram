@@ -1,3 +1,4 @@
+import type { TelegramEvent } from "./types";
 import { describe, expect, it, vi } from "vitest";
 import type { TelegramEventListener } from "./transport";
 import { TdRequestBroker } from "./tdRequestBroker";
@@ -1148,6 +1149,8 @@ describe("TauriTelegramTransport startup", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
+    const events: TelegramEvent[] = [];
+    internal.listener = (event) => events.push(event);
     internal.request = async (request) => {
       requests.push(request);
       return {
@@ -1159,6 +1162,7 @@ describe("TauriTelegramTransport startup", () => {
     const context = await transport.getMessageContext("7", "42", 31);
 
     expect(context.map((message) => message.id)).toEqual(["43", "42", "41"]);
+    expect(events.filter((event) => event.type === "messages.upserted")).toEqual([]);
     expect(requests).toEqual([{
       "@type": "getChatHistory",
       chat_id: 7,

@@ -3341,6 +3341,33 @@ describe("chat filtering", () => {
     );
   });
 
+  it("commits a fetched context once and discards a superseded navigation", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const source = mockSnapshot.messages.find((message) => message.chatId === "chat-product")!;
+    const target = { ...source, id: "deferred-context-target" };
+    let release!: (messages: Message[]) => void;
+    vi.spyOn(transport, "getMessageContext").mockImplementation(() =>
+      new Promise<Message[]>((resolve) => { release = resolve; }));
+    let current = true;
+    const changes: Message[][] = [];
+    const unsubscribe = store.subscribe((state, previous) => {
+      if (state.messages !== previous.messages) changes.push(state.messages.get(source.chatId) ?? []);
+    });
+    const cancelled = store.getState().loadMessage(source.chatId, target.id, { isCurrent: () => current });
+    current = false;
+    release([target]);
+    await expect(cancelled).resolves.toBe(false);
+    expect(changes).toHaveLength(0);
+    const loaded = store.getState().loadMessage(source.chatId, target.id);
+    release([target]);
+    await expect(loaded).resolves.toBe(true);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toContainEqual(target);
+    unsubscribe();
+  });
+
   it("loads a channel thread and sends comments to its resolved root", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

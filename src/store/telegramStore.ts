@@ -2905,7 +2905,13 @@ export const createTelegramStore = (
       clickChatSponsoredMessage: (chatId, messageId, isMediaClick = false) =>
         transport.clickChatSponsoredMessage(chatId, messageId, isMediaClick),
       loadMessage: async (chatId, messageId, options) => {
+        const generation = accountGeneration;
         const navigationGeneration = conversationGeneration;
+        const isCurrent = () => generation === accountGeneration &&
+          options?.isCurrent?.() !== false && (!options?.onlyIfActive || (
+            get().activeChatId === chatId && navigationGeneration === conversationGeneration
+          ));
+        if (!isCurrent()) return false;
         if (!options?.forceContext && (get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
           return true;
         }
@@ -2917,22 +2923,17 @@ export const createTelegramStore = (
             ? historyLoadPromises.get(chatId)
             : undefined;
           if (pendingHistory) await pendingHistory;
-          if (
-            options?.onlyIfActive &&
-            (get().activeChatId !== chatId || navigationGeneration !== conversationGeneration)
-          ) return false;
+          if (!isCurrent()) return false;
           if (!options?.forceContext && (get().messages.get(chatId) ?? []).some((message) => message.id === messageId)) {
             return true;
           }
           const context = await transport.getMessageContext(chatId, messageId, 31);
-          if (
-            options?.onlyIfActive &&
-            (get().activeChatId !== chatId || navigationGeneration !== conversationGeneration)
-          ) return false;
+          if (!isCurrent()) return false;
           let message = context.find((item) =>
             item.chatId === chatId && item.id === messageId
           );
           if (!message) message = await transport.getMessage(chatId, messageId);
+          if (!isCurrent()) return false;
           if (!message || message.chatId !== chatId || message.id !== messageId) return false;
           const messages = new Map(get().messages);
           messages.set(

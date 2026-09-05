@@ -183,7 +183,7 @@ export interface TauriMessageMediaServiceContext {
   request: (request: TdObject) => Promise<TdObject>;
   rawMessages: Map<string, Map<string, TdObject>>;
   emitMessage: (raw?: TdObject, animateEntrance?: boolean) => void;
-  emitMessages: (rawMessages: TdObject[]) => void;
+  emitMessages: (rawMessages: TdObject[], notify?: boolean) => void;
   mapMessage: (raw: TdObject) => Message | undefined;
   ensureReplyContent: (raw: TdObject) => void;
   patchMessage: (chatId: string, messageId: string, patch: TdObject) => void;
@@ -226,7 +226,9 @@ export class TauriMessageMediaService {
       only_local: false,
     });
     const rawMessages = asTdObjects(result.messages);
-    this.context.emitMessages(rawMessages);
+    // The caller commits this navigation window after validating its request.
+    // Publishing here would mutate the visible list before navigation owns it.
+    this.context.emitMessages(rawMessages, false);
     return rawMessages
       .map((raw) => this.context.mapMessage(raw))
       .filter((message): message is Message => Boolean(message));
