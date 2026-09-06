@@ -2485,12 +2485,15 @@ export const createTelegramStore = (
           }
           scheduleCacheWrite();
         } catch (error) {
+          const browserTauriMismatch = !isTauri() && transport.kind === "tauri";
           set({
             phase: "error",
             connectionStatus: "offline",
             accountPending: false,
             accountSwitching: false,
-            error: errorMessage(error, translate("无法启动 Telegram runtime")),
+            error: browserTauriMismatch
+              ? translate("当前配置需要 Notgram 桌面版；浏览器预览请将 VITE_TELEGRAM_TRANSPORT 设置为 mock")
+              : errorMessage(error, translate("无法启动 Telegram runtime")),
           });
         }
       },

@@ -904,6 +904,7 @@ export const en = {
   "无法另存文件": "Unable to save file",
   "无法同步 Telegram 数据": "Unable to synchronize Telegram data",
   "无法启动 Telegram runtime": "Unable to start Telegram runtime",
+  "当前配置需要 Notgram 桌面版；浏览器预览请将 VITE_TELEGRAM_TRANSPORT 设置为 mock": "This configuration requires the Notgram desktop app. For browser preview, set VITE_TELEGRAM_TRANSPORT to mock.",
   "无法启动机器人": "Unable to start robot",
   "无法处理入群申请": "Unable to process group membership application",
   "无法处理机器人操作": "Unable to process robot operation",
@@ -1316,7 +1317,6 @@ export const en = {
   "管理员只能读取自己邀请链接的入群申请": "Administrators can only read group membership applications with their own invitation links",
   "管理员权限": "Administrator rights",
   "管理操作": "Manage operations",
-  "管理文件夹": "Manage folders",
   "管理标签": "Manage labels",
   "管理私信": "Manage private messages",
   "管理群组": "Manage groups",
@@ -1698,5 +1698,10 @@ export const en = {
   "暂无数据": "No data",
   "回收备份": "Remove backup",
   "草稿使用中": "Used by a draft",
-  "保留已撤回消息": "Keep deleted messages locally"
+  "保留已撤回消息": "Keep deleted messages locally",
+  "搜索设置": "Search settings",
+  "没有匹配的设置": "No matching settings",
+  "背景样式": "Background style",
+  "简洁": "Plain",
+  "柔和": "Soft"
 } as const;
