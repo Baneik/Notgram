@@ -1046,6 +1046,7 @@ export type TelegramEvent =
   | { type: "folders.replaced"; folders: ChatFolder[] }
   | { type: "chat.migrated"; fromChatId: string; toChatId: string }
   | { type: "chats.upserted"; chats: Chat[] }
+  | { type: "users.upserted"; users: User[] }
   | { type: "chat.upsert"; chat: Chat; cacheRelevant?: boolean }
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
   | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }

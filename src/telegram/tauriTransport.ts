@@ -477,6 +477,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   private dataCenterId?: number;
   private bootstrapPromise?: Promise<void>;
   private initialChatSyncPending = true;
+  private initialUserSyncPending = false;
+  private initialUsers = new Map<string, User>();
   private connectionStatus?: ConnectionStatus;
   private settingsOnly = false;
   private proxyConnectionTimer?: ReturnType<typeof setTimeout>;
@@ -500,6 +502,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.settingsOnly = options.settingsOnly === true;
     this.listener = listener;
     this.initialChatSyncPending = true;
+    this.initialUserSyncPending = true;
     this.emitConnectionStatus("connecting");
     const status = await invoke<RuntimeStatus>("telegram_runtime_status");
     if (!status.linked) {
@@ -2530,6 +2533,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     const user = mapTdUser(raw);
     if (!id || !user) return;
     this.rawUsers.set(id, raw);
+    if (this.initialUserSyncPending) {
+      this.initialUsers.set(id, user);
+      return;
+    }
     this.listener?.({
       type: "user.upsert",
       user,
@@ -2778,6 +2785,11 @@ export class TauriTelegramTransport implements TelegramTransport {
   private finishInitialChatSync() {
     if (!this.initialChatSyncPending) return;
     this.initialChatSyncPending = false;
+    this.initialUserSyncPending = false;
+    if (this.initialUsers.size > 0) {
+      this.listener?.({ type: "users.upserted", users: [...this.initialUsers.values()] });
+      this.initialUsers.clear();
+    }
     const chats: Chat[] = [];
     for (const raw of this.rawChats.values()) {
       const rawId = tdId(raw.id);
@@ -3614,6 +3626,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.emittedChatMigrations.clear();
     this.basicGroupLoads.clear();
     this.rawUsers.clear();
+    this.initialUsers.clear();
     this.rawMessages.clear();
     this.pendingMessagePatches.clear();
     this.rawMessageFileIds.clear();
@@ -3653,6 +3666,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.dataCenterId = undefined;
     this.bootstrapPromise = undefined;
     this.initialChatSyncPending = true;
+    this.initialUserSyncPending = false;
   }
 
 }

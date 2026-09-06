@@ -1809,6 +1809,26 @@ export const createTelegramStore = (
         return;
       }
 
+      if (event.type === "users.upserted") {
+        const current = get();
+        const users = new Map(current.users);
+        const userIdsByUsername = new Map(current.userIdsByUsername);
+        for (const incoming of event.users) {
+          const previous = users.get(incoming.id);
+          const user = preserveUserAvatarMedia(incoming, previous);
+          users.set(user.id, user);
+          const previousUsername = normalizedUsername(previous);
+          const nextUsername = normalizedUsername(user);
+          if (previousUsername && userIdsByUsername.get(previousUsername) === user.id) {
+            userIdsByUsername.delete(previousUsername);
+          }
+          if (nextUsername) userIdsByUsername.set(nextUsername, user.id);
+        }
+        set({ users, userIdsByUsername });
+        if (event.users.length > 0) scheduleCacheWrite();
+        return;
+      }
+
       if (event.type === "user.upsert") {
         const current = get();
         const users = new Map(current.users);

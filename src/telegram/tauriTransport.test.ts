@@ -103,6 +103,29 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("batches user replay while the initial TDLib sync is pending", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & {
+      initialUserSyncPending: boolean;
+    };
+    const events: TelegramEvent[] = [];
+    internal.listener = (event) => events.push(event);
+    internal.initialUserSyncPending = true;
+
+    internal.upsertUser({ "@type": "user", id: 11, first_name: "Alice" });
+    internal.upsertUser({ "@type": "user", id: 12, first_name: "Bob" });
+    expect(events).toEqual([]);
+
+    internal.finishInitialChatSync();
+    expect(events).toContainEqual({
+      type: "users.upserted",
+      users: [
+        expect.objectContaining({ id: "11", displayName: "Alice" }),
+        expect.objectContaining({ id: "12", displayName: "Bob" }),
+      ],
+    });
+  });
+
   it("uses the avatar data-center fallback for media without a parseable remote identifier", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
