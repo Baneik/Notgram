@@ -698,10 +698,8 @@ export function Conversation({
         : chat?.kind === "channel"
           ? displayMessages
               .filter((message) => message.isChannelPost === true ||
+                Boolean(message.mediaAlbumId) ||
                 message.content.kind === "service" || message.content.kind === "unsupported")
-              .map((message) => message.mediaAlbumId
-                ? { ...message, mediaAlbumId: undefined }
-                : message)
           : displayMessages;
       return source;
     },
