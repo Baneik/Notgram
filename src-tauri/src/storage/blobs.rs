@@ -13,6 +13,8 @@ use tauri::AppHandle;
 pub const CHUNK_BYTES: usize = 1024 * 1024;
 pub const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_BATCH_METADATA_BYTES: usize = 1024 * 1024;
+const MAX_TOTAL_BATCH_METADATA_BYTES: u64 = 50 * MAX_BATCH_METADATA_BYTES as u64;
 static OPERATIONS: Mutex<()> = Mutex::new(());
 
 fn contains_id(value: &serde_json::Value, id: &str) -> bool {
@@ -26,8 +28,8 @@ fn contains_id(value: &serde_json::Value, id: &str) -> bool {
     }
 }
 
-fn referenced(app: &AppHandle, account_id: &str, id: &str) -> Result<bool, String> {
-    let path = super::local_state::account_directory(app, account_id)?.join("unsent.dat");
+fn referenced(account: &Path, id: &str) -> Result<bool, String> {
+    let path = account.join("unsent.dat");
     for path in [path.clone(), path.with_extension("bak")] {
         if let Some(value) = super::persistence::read_json::<serde_json::Value>(&path, true)?
             && contains_id(&value, id)
@@ -36,6 +38,64 @@ fn referenced(app: &AppHandle, account_id: &str, id: &str) -> Result<bool, Strin
         }
     }
     Ok(false)
+}
+
+fn remove_batch(account: &Path, path: &Path, id: &str) -> Result<bool, String> {
+    if referenced(account, id)? {
+        return Ok(false);
+    }
+    for path in [
+        path.to_path_buf(),
+        path.with_extension("bak"),
+        path.with_extension("tmp"),
+        path.with_extension("delete"),
+    ] {
+        if path.exists() {
+            fs::remove_file(path).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(true)
+}
+
+fn request_batch_removal(account: &Path, path: &Path, id: &str) -> Result<(), String> {
+    if path.exists() || path.with_extension("bak").exists() {
+        // The backup may still need this batch. Persist the request so inventory
+        // can finish deletion after both unsent generations release it.
+        fs::File::create(path.with_extension("delete"))
+            .and_then(|file| file.sync_all())
+            .map_err(|e| e.to_string())?;
+    }
+    remove_batch(account, path, id)?;
+    Ok(())
+}
+
+fn check_batch_metadata_quota(
+    all_accounts: &Path,
+    destination: &Path,
+    incoming_bytes: usize,
+) -> Result<(), String> {
+    let mut bytes = incoming_bytes as u64;
+    for account in fs::read_dir(all_accounts).map_err(|e| e.to_string())? {
+        let folder = account.map_err(|e| e.to_string())?.path().join("batches");
+        if !folder.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(folder).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path != destination && path.extension().is_some_and(|extension| extension == "dat") {
+                bytes = bytes.saturating_add(entry.metadata().map_err(|e| e.to_string())?.len());
+            }
+        }
+    }
+    // Recoverable versions share blobs and must not consume a lifetime limit of
+    // 50 sends. Keep the previous worst-case manifest budget as a byte limit.
+    if bytes > MAX_TOTAL_BATCH_METADATA_BYTES {
+        return Err(
+            "Attachment metadata quota reached; remove unused recovery batches first".into(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -64,18 +124,25 @@ pub fn telegram_attachment_inventory(
             if let Some(value) = super::persistence::read_json::<serde_json::Value>(&path, true)?
                 && let Some(files) = value["files"].as_array()
             {
+                let id = value["id"].as_str().ok_or("Invalid attachment manifest")?;
+                let primary = path.with_extension("dat");
+                if collect_garbage
+                    && primary.with_extension("delete").exists()
+                    && remove_batch(&account, &primary, id)?
+                {
+                    continue;
+                }
                 for file in files {
                     if let Some(token) = file["token"].as_str() {
                         tokens.insert(token.to_owned());
                     }
                 }
                 if path.extension().is_some_and(|extension| extension == "dat") {
-                    let id = value["id"].as_str().ok_or("Invalid attachment manifest")?;
                     result.push(serde_json::json!({
                             "id": id, "createdAt": value["createdAt"], "persistent": value["persistent"],
                             "metadata": value["metadata"], "recovery": value["recovery"],
                             "bytes": files.iter().filter_map(|file| file["size"].as_u64()).sum::<u64>(),
-                            "referenced": referenced(&app, &account_id, id)?
+                            "referenced": referenced(&account, id)?
                         }));
                 }
             }
@@ -360,21 +427,11 @@ pub fn telegram_attachment_batch(
     let _guard = OPERATIONS
         .lock()
         .map_err(|_| "Attachment storage unavailable")?;
-    let root = super::local_state::account_directory(&app, &account_id)?.join("batches");
+    let account = super::local_state::account_directory(&app, &account_id)?;
+    let root = account.join("batches");
     let path = root.join(format!("{}.dat", hex(Sha256::digest(id.as_bytes()))));
     if remove {
-        if referenced(&app, &account_id, &id)? {
-            return Ok(None);
-        }
-        for path in [
-            &path,
-            &path.with_extension("bak"),
-            &path.with_extension("tmp"),
-        ] {
-            if path.exists() {
-                fs::remove_file(path).map_err(|e| e.to_string())?;
-            }
-        }
+        request_batch_removal(&account, &path, &id)?;
         return Ok(None);
     }
     if let Some(value) = value {
@@ -384,9 +441,8 @@ pub fn telegram_attachment_batch(
         let files = value["files"]
             .as_array()
             .ok_or("Invalid attachment batch")?;
-        if files.len() > 200
-            || serde_json::to_vec(&value).map_err(|e| e.to_string())?.len() > 1024 * 1024
-        {
+        let metadata_bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?.len();
+        if files.len() > 200 || metadata_bytes > MAX_BATCH_METADATA_BYTES {
             return Err("Attachment batch metadata exceeds limit".into());
         }
         let mut bytes = 0_u64;
@@ -407,30 +463,12 @@ pub fn telegram_attachment_batch(
         if bytes > MAX_FILE_BYTES {
             return Err("Attachment batch exceeds 512 MiB".into());
         }
-        if !path.exists() {
-            let all_accounts = crate::distribution::app_config_directory(&app)?.join("local-data");
-            let mut count = 0;
-            for account in fs::read_dir(all_accounts).map_err(|e| e.to_string())? {
-                let folder = account.map_err(|e| e.to_string())?.path().join("batches");
-                if !folder.is_dir() {
-                    continue;
-                }
-                count += fs::read_dir(folder)
-                    .map_err(|e| e.to_string())?
-                    .filter_map(Result::ok)
-                    .filter(|entry| {
-                        entry
-                            .path()
-                            .extension()
-                            .is_some_and(|extension| extension == "dat")
-                    })
-                    .count();
-            }
-            if count >= 50 {
-                return Err("Attachment batch quota reached".into());
-            }
-        }
+        let all_accounts = crate::distribution::app_config_directory(&app)?.join("local-data");
+        check_batch_metadata_quota(&all_accounts, &path, metadata_bytes)?;
         super::persistence::write_json(&path, &value, true)?;
+        if path.with_extension("delete").exists() {
+            fs::remove_file(path.with_extension("delete")).map_err(|e| e.to_string())?;
+        }
         return Ok(Some(value));
     }
     super::persistence::read_json(&path, true)
@@ -439,6 +477,85 @@ pub fn telegram_attachment_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_directory(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "notgram-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn deferred_removal_preserves_both_unsent_generations() {
+        let account = test_directory("deferred-attachment-removal");
+        let path = account.join("batches/test.dat");
+        let unsent = account.join("unsent.dat");
+        let draft = serde_json::json!({"localAttachmentDrafts": [{"batchId": "draft:test"}]});
+        let empty = serde_json::json!({"localAttachmentDrafts": [], "outbox": []});
+        super::super::persistence::write_json(&path, &draft, true).unwrap();
+        super::super::persistence::write_json(&path, &draft, true).unwrap();
+        super::super::persistence::write_json(&unsent, &draft, true).unwrap();
+
+        request_batch_removal(&account, &path, "draft:test").unwrap();
+        assert!(path.is_file());
+        assert!(path.with_extension("delete").is_file());
+
+        super::super::persistence::write_json(&unsent, &empty, true).unwrap();
+        assert!(!remove_batch(&account, &path, "draft:test").unwrap());
+        assert!(path.is_file());
+        assert!(path.with_extension("bak").is_file());
+
+        super::super::persistence::write_json(&unsent, &empty, true).unwrap();
+        assert!(remove_batch(&account, &path, "draft:test").unwrap());
+        assert!(!path.exists());
+        assert!(!path.with_extension("bak").exists());
+        assert!(!path.with_extension("delete").exists());
+        request_batch_removal(&account, &path, "draft:test").unwrap();
+        fs::remove_dir_all(account).unwrap();
+    }
+
+    #[test]
+    fn recovery_batches_do_not_exhaust_quota_after_fifty_sends() {
+        let root = test_directory("attachment-recovery-quota");
+        let batches = root.join("default/batches");
+        fs::create_dir_all(&batches).unwrap();
+        for index in 0..60 {
+            let path = batches.join(format!("{index}.dat"));
+            let value = serde_json::json!({"id": format!("draft:{index}"), "files": []});
+            let size = serde_json::to_vec(&value).unwrap().len();
+            check_batch_metadata_quota(&root, &path, size).unwrap();
+            super::super::persistence::write_json(&path, &value, true).unwrap();
+        }
+        assert_eq!(fs::read_dir(&batches).unwrap().count(), 60);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn metadata_quota_remains_bounded_across_accounts_and_replacements() {
+        let root = test_directory("attachment-metadata-quota");
+        let first = root.join("first/batches/existing.dat");
+        let second = root.join("second/batches/new.dat");
+        fs::create_dir_all(first.parent().unwrap()).unwrap();
+        fs::create_dir_all(second.parent().unwrap()).unwrap();
+        fs::File::create(&first)
+            .unwrap()
+            .set_len(MAX_TOTAL_BATCH_METADATA_BYTES - 1)
+            .unwrap();
+        check_batch_metadata_quota(&root, &second, 1).unwrap();
+        assert!(check_batch_metadata_quota(&root, &second, 2).is_err());
+        check_batch_metadata_quota(&root, &first, MAX_BATCH_METADATA_BYTES).unwrap();
+        assert_eq!(
+            fs::metadata(&first).unwrap().len(),
+            MAX_TOTAL_BATCH_METADATA_BYTES - 1
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn streams_above_legacy_64_mib_and_detects_changed_chunks() {
