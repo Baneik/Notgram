@@ -127,6 +127,7 @@ import type {
   GetMessageReactionSendersInput,
   SetPollAnswerInput,
   StorageSettings,
+  StorageLayer,
   StickerSet,
   StickerSetSummary,
   StreamFileInput,
@@ -736,6 +737,14 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async saveStorageSettings(settings: StorageSettings) {
     return this.accountStorage.saveStorageSettings(settings);
+  }
+
+  async getStorageInventory() {
+    return invoke<StorageLayer[]>("telegram_storage_inventory");
+  }
+
+  async removeMigrationBackup(id: string) {
+    return invoke<number>("telegram_remove_migration_backup", { id });
   }
 
   async getCacheUsage() {

@@ -2163,6 +2163,14 @@ export class MockTelegramTransport implements TelegramTransport {
     return structuredClone(this.storageSettings);
   }
 
+  async getStorageInventory() {
+    return [];
+  }
+
+  async removeMigrationBackup(_id: string) {
+    return 0;
+  }
+
   async getCacheUsage() {
     return clone(this.cacheUsage);
   }

@@ -1369,6 +1369,14 @@ export interface StorageSettings {
   defaultDownloadPath: string;
 }
 
+export interface StorageLayer {
+  kind: string;
+  path: string;
+  bytes: number;
+  files: number;
+  partial: boolean;
+}
+
 export type CacheCategory = "image" | "video" | "audio" | "document" | "other";
 
 export interface CacheUsageItem {

@@ -1,14 +1,13 @@
 import { ArrowLeft, RotateCcw } from "lucide-react";
 import { formatDownloadSize } from "../utils/downloadManager";
 import { requestAttachmentRecovery } from "../store/attachmentRecovery";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { translate } from "../i18n";
 import { attachmentOutbox } from "../store/attachmentOutbox";
 import { useTelegramStore } from "../store/telegramStore";
-import type { StorageSettings } from "../telegram/types";
-
-interface Layer { kind: string; path: string; bytes: number; files: number; partial: boolean }
+import type { StorageLayer, StorageSettings } from "../telegram/types";
+type Layer = StorageLayer;
 type Batch = Awaited<ReturnType<typeof attachmentOutbox.list>>[number];
 
 const bytes = (value: number) => value === 0 ? "0 B" : formatDownloadSize(value);
@@ -23,6 +22,8 @@ export function StorageDataPanel({ settings, setSettings, onClose }: {
     backRef.current?.focus({ preventScroll: true });
   }, []);
   const accountId = useTelegramStore((state) => state.activeAccountId);
+  const getStorageInventory = useTelegramStore((state) => state.getStorageInventory);
+  const removeMigrationBackup = useTelegramStore((state) => state.removeMigrationBackup);
   const [layers, setLayers] = useState<Layer[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [revision, setRevision] = useState(0);
@@ -34,13 +35,13 @@ export function StorageDataPanel({ settings, setSettings, onClose }: {
     let disposed = false;
     setBusy(true);
     void Promise.all([
-      invoke<Layer[]>("telegram_storage_inventory"), attachmentOutbox.list(accountId),
+      getStorageInventory(), attachmentOutbox.list(accountId),
     ]).then(([usage, items]) => {
       if (!disposed) { setLayers(usage); setBatches(items); setError(undefined); }
     }).catch((cause) => { if (!disposed) setError(String(cause)); })
       .finally(() => { if (!disposed) setBusy(false); });
     return () => { disposed = true; };
-  }, [accountId, revision]);
+  }, [accountId, getStorageInventory, revision]);
 
   if (!isTauri()) return null;
   const labels: Record<string, string> = {
@@ -129,9 +130,8 @@ export function StorageDataPanel({ settings, setSettings, onClose }: {
                     <small>{bytes(backup.bytes)}</small>
                   </div>
                   <button className="storage-reset" type="button" disabled={busy} onClick={() => void run(async () => {
-                    await invoke("telegram_remove_migration_backup", { id: backup.id });
-                    const next = await invoke<StorageSettings>("telegram_storage_settings");
-                    setSettings((current) => ({ ...current, migrationBackups: next.migrationBackups, effectiveCachePath: next.effectiveCachePath }));
+                    await removeMigrationBackup(backup.id);
+                    setSettings((current) => ({ ...current, migrationBackups: (current.migrationBackups ?? []).filter((item) => item.id !== backup.id) }));
                   })}>{translate("回收备份")}</button>
                 </div>
               ))}

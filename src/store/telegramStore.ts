@@ -2558,6 +2558,10 @@ export const createTelegramStore = (
         }
       },
 
+      getStorageInventory: () => transport.getStorageInventory(),
+
+      removeMigrationBackup: (id) => transport.removeMigrationBackup(id),
+
       loadCacheUsage: async () => {
         set({ storagePending: true, storageError: undefined });
         try {

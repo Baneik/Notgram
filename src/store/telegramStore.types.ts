@@ -54,6 +54,7 @@ import type {
   SharedMediaPage,
   SharedMediaSearchInput,
   StorageSettings,
+  StorageLayer,
   StickerSet,
   TelegramAccount,
   UpdateCurrentUserProfileInput,
@@ -161,6 +162,8 @@ export interface TelegramState {
   testProxy: (settings: ProxySettings) => Promise<void>;
   loadStorageSettings: () => Promise<void>;
   saveStorageSettings: (settings: StorageSettings) => Promise<boolean>;
+  getStorageInventory: () => Promise<StorageLayer[]>;
+  removeMigrationBackup: (id: string) => Promise<number>;
   loadCacheUsage: () => Promise<void>;
   clearMediaCache: (categories: CacheCategory[], olderThanDays?: number) => Promise<boolean>;
   rebuildCachedSnapshot: () => Promise<boolean>;

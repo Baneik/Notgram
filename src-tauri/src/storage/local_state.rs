@@ -51,9 +51,15 @@ pub async fn telegram_read_local_state(
     if super::account::active_account_id(&app)? != account_id {
         return Err("Account changed during local read".into());
     }
-    tauri::async_runtime::spawn_blocking(move || read(&app, &account_id))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let value = read(&app, &account_id)?;
+        if super::account::active_account_id(&app)? != account_id {
+            return Err("Account changed during local read".into());
+        }
+        Ok(value)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

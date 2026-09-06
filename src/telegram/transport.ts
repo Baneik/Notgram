@@ -60,6 +60,7 @@ import type {
   UpdateCurrentUserProfileInput,
   ProxySettings,
   StorageSettings,
+  StorageLayer,
   StickerSet,
   Message,
   MessagePermissions,
@@ -102,6 +103,8 @@ export interface TelegramTransport {
   testProxy(settings: ProxySettings): Promise<number>;
   getStorageSettings(): Promise<StorageSettings>;
   saveStorageSettings(settings: StorageSettings): Promise<StorageSettings>;
+  getStorageInventory(): Promise<StorageLayer[]>;
+  removeMigrationBackup(id: string): Promise<number>;
   getCacheUsage(): Promise<CacheUsage>;
   clearMediaCache(input: CacheCleanupInput): Promise<CacheCleanupResult>;
   getCurrentUserProfile(): Promise<ChatProfile>;
