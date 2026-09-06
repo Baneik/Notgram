@@ -2381,7 +2381,14 @@ export class TauriTelegramTransport implements TelegramTransport {
       const remoteId = asTdObject(asTdObject(size)?.remote)?.id;
       return typeof remoteId === "string" ? remoteId : undefined;
     });
-    this.dataCenterId = (await resolveTdlibDataCenter(remoteIds, (request) => this.request(request))).id;
+    // Data-center metadata is only needed for media labels. Do not hold the
+    // initial chat sync on getOption: some TDLib databases take several seconds
+    // to answer that optional query while they finish opening the local store.
+    void resolveTdlibDataCenter(remoteIds, (request) => this.request(request))
+      .then((details) => {
+        this.dataCenterId = details.id;
+      })
+      .catch(() => undefined);
     if (this.currentUserId) {
       this.listener?.({ type: "currentUser.changed", userId: this.currentUserId });
     }
