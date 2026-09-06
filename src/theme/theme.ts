@@ -59,6 +59,7 @@ export const THEME_COLOR_TOKENS = [
   "--color-overlay",
   "--color-shadow",
   "--color-scrollbar-thumb",
+  "--color-surface-texture",
 ] as const;
 
 export type ThemeColorToken = (typeof THEME_COLOR_TOKENS)[number];

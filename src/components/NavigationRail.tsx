@@ -1,5 +1,5 @@
 import { translate } from "../i18n";
-import { Archive, Bell, Bot, Folder, FolderCog, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
+import { Archive, Bell, Bot, Folder, MessageCircle, Radio, Settings, UserRound, Users } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -16,6 +16,7 @@ import { Avatar } from "./Avatar";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { FolderContextMenu } from "./SidebarContextMenus";
 import { MotionPresence } from "./MotionPresence";
+import { useFlipListMotion } from "../hooks/useFlipListMotion";
 
 interface NavigationRailProps {
   filter: ChatFilter;
@@ -27,7 +28,6 @@ interface NavigationRailProps {
   accountPending: boolean;
   folderManagementPending: boolean;
   onFilterChange: (filter: ChatFilter) => void;
-  onManageFolders: () => void;
   onEditFolder: (folderId: string) => void;
   onReorderFolders: (folderIds: string[]) => void;
   onMarkFolderRead: (folderId: string) => Promise<boolean>;
@@ -36,6 +36,18 @@ interface NavigationRailProps {
   onAddAccount: () => Promise<boolean>;
   onSwitchAccount: (accountId: string) => Promise<boolean>;
 }
+
+const reorderFolderIds = (
+  folders: Array<{ id: string }>,
+  draggedId: string,
+  target: { folderId: string; edge: "before" | "after" },
+) => {
+  const reordered = folders.map((folder) => folder.id).filter((id) => id !== draggedId);
+  const targetIndex = reordered.indexOf(target.folderId);
+  if (targetIndex < 0) return reordered;
+  reordered.splice(targetIndex + (target.edge === "after" ? 1 : 0), 0, draggedId);
+  return reordered;
+};
 
 export function NavigationRail({
   folders,
@@ -47,7 +59,6 @@ export function NavigationRail({
   filter,
   folderManagementPending,
   onFilterChange,
-  onManageFolders,
   onEditFolder,
   onReorderFolders,
   onMarkFolderRead,
@@ -68,7 +79,10 @@ export function NavigationRail({
   }>();
   const closeAccountMenu = useCallback(() => setAccountMenu(undefined), []);
   const accountSwitcherRef = useRef<HTMLDivElement>(null);
+  const railActionsRef = useRef<HTMLDivElement>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string>();
+  const [dragPreviewOrder, setDragPreviewOrder] = useState<string[]>();
+  const dragPreviewOrderRef = useRef<string[] | undefined>(undefined);
   const [folderDropTarget, setFolderDropTarget] = useState<{
     folderId: string;
     edge: "before" | "after";
@@ -84,9 +98,18 @@ export function NavigationRail({
   const folderDropTargetRef = useRef<typeof folderDropTarget>(undefined);
   const suppressNextFolderClickRef = useRef(false);
   const reorderableFolders = folders.filter((folder) => folder.id !== "archive");
+  const displayFolders = dragPreviewOrder
+    ? dragPreviewOrder.map((id) => reorderableFolders.find((folder) => folder.id === id)).filter((folder): folder is typeof reorderableFolders[number] => Boolean(folder))
+    : reorderableFolders;
+  useFlipListMotion({
+    containerRef: railActionsRef,
+    itemSelector: ".rail-button[data-motion-key]",
+    dependencies: [displayFolders.map((folder) => folder.id).join(",")],
+  });
   const reorderableFoldersRef = useRef(reorderableFolders);
   const onReorderFoldersRef = useRef(onReorderFolders);
   reorderableFoldersRef.current = reorderableFolders;
+  dragPreviewOrderRef.current = dragPreviewOrder;
   onReorderFoldersRef.current = onReorderFolders;
   const contextFolder = contextMenu
     ? folders.find((folder) => folder.id === contextMenu.folderId)
@@ -103,6 +126,8 @@ export function NavigationRail({
 
   const openAccountMenu = (anchor: HTMLButtonElement) => {
     setContextMenu(undefined);
+    dragPreviewOrderRef.current = undefined;
+    setDragPreviewOrder(undefined);
     setAccountMenu((current) => current ? undefined : { anchor });
   };
 
@@ -133,6 +158,8 @@ export function NavigationRail({
     closeContextMenu();
     closeAccountMenu();
     setDraggedFolderId(undefined);
+    dragPreviewOrderRef.current = undefined;
+    setDragPreviewOrder(undefined);
     folderDropTargetRef.current = undefined;
     setFolderDropTarget(undefined);
   }, [accountPending, closeAccountMenu, closeContextMenu]);
@@ -203,6 +230,11 @@ export function NavigationRail({
       ? bounds.left + bounds.width / 2
       : bounds.top + bounds.height / 2;
     setDropTarget({ folderId, edge: pointerPosition < midpoint ? "before" : "after" });
+    const nextPreview = reorderFolderIds(reorderableFoldersRef.current, drag.folderId, { folderId, edge: pointerPosition < midpoint ? "before" : "after" });
+    if (nextPreview.join(",") !== (dragPreviewOrderRef.current ?? reorderableFoldersRef.current.map((folder) => folder.id)).join(",")) {
+      dragPreviewOrderRef.current = nextPreview;
+      setDragPreviewOrder(nextPreview);
+    }
   }, [setDropTarget]);
 
   const finishFolderDrag = useCallback((
@@ -219,14 +251,8 @@ export function NavigationRail({
       suppressNextFolderClickRef.current = true;
       globalThis.setTimeout(() => { suppressNextFolderClickRef.current = false; }, 0);
       if (!cancelled && target) {
-        const reordered = reorderableFoldersRef.current
-          .map((folder) => folder.id)
-          .filter((folderId) => folderId !== drag.folderId);
-        const targetIndex = reordered.indexOf(target.folderId);
-        if (targetIndex >= 0) {
-          reordered.splice(targetIndex + (target.edge === "after" ? 1 : 0), 0, drag.folderId);
-          onReorderFoldersRef.current(reordered);
-        }
+        const reordered = dragPreviewOrderRef.current ?? reorderFolderIds(reorderableFoldersRef.current, drag.folderId, target);
+        onReorderFoldersRef.current(reordered);
       }
     }
 
@@ -234,6 +260,8 @@ export function NavigationRail({
       drag.element.releasePointerCapture(event.pointerId);
     }
     setDraggedFolderId(undefined);
+    dragPreviewOrderRef.current = undefined;
+    setDragPreviewOrder(undefined);
     setDropTarget(undefined);
   }, [setDropTarget]);
 
@@ -283,11 +311,12 @@ export function NavigationRail({
           />
         </MotionPresence>
       </div>
-      <div className="rail-actions">
-        {reorderableFolders.map((folder) => (
+      <div ref={railActionsRef} className="rail-actions">
+        {displayFolders.map((folder) => (
           <button
             className={`rail-button ${!folderManagementPending && reorderableFolders.length > 1 ? "is-folder-draggable" : ""} ${filter === folder.id ? "is-active" : ""} ${draggedFolderId === folder.id ? "is-dragging" : ""} ${folderDropTarget?.folderId === folder.id ? `drop-${folderDropTarget.edge}` : ""}`}
             data-folder-id={folder.id}
+            data-motion-key={folder.id}
             key={folder.id}
             type="button" aria-label={folder.title} aria-pressed={filter === folder.id} title={folder.title}
             onClick={() => {
@@ -305,9 +334,6 @@ export function NavigationRail({
             <span className="rail-icon"><FolderIcon name={folder.iconName} /></span><span>{folder.title}</span>
           </button>
         ))}
-        <button className="rail-button" type="button" aria-label={translate("管理文件夹")} title={translate("管理文件夹")} onClick={onManageFolders}>
-          <span className="rail-icon"><FolderCog size={23} strokeWidth={1.8} /></span><span>{translate("管理")}</span>
-        </button>
       </div>
       <div className="rail-footer">
         <button className="rail-button rail-settings" type="button" aria-label={translate("设置")} title={translate("设置")} onClick={onOpenSettings}>

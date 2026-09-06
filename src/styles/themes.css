@@ -15,7 +15,7 @@
   --color-avatar-alias-background: #ffffff;
   --color-text-primary: #202629;
   --color-text-secondary: #5f6c72;
-  --color-text-tertiary: #77858a;
+  --color-text-tertiary: #68787d;
   --color-text-disabled: #9aa7ab;
   --color-text-on-accent: #ffffff;
   --color-border-subtle: #d7e0e0;
@@ -48,6 +48,7 @@
   --color-overlay: rgba(38, 46, 50, 0.45);
   --color-shadow: rgba(42, 54, 60, 0.22);
   --color-scrollbar-thumb: #aebdc1;
+  --color-surface-texture: none;
 }
 
 [data-theme="notgram-dark"] {
@@ -61,8 +62,8 @@
   --color-bg-selected: #2d3b46;
   --color-avatar-alias-background: #ffffff;
   --color-text-primary: #d0d4d9;
-  --color-text-secondary: #a0a7af;
-  --color-text-tertiary: #89919a;
+  --color-text-secondary: #aab1b8;
+  --color-text-tertiary: #a0a8b1;
   --color-text-disabled: #656d75;
   --color-text-on-accent: #f7f9fb;
   --color-border-subtle: #2a3036;
@@ -95,6 +96,15 @@
   --color-overlay: rgba(11, 13, 15, 0.54);
   --color-shadow: rgba(0, 0, 0, 0.28);
   --color-scrollbar-thumb: #59636d;
+  --color-surface-texture: none;
+}
+
+[data-theme="notgram-light"][data-background-style="soft"] {
+  --color-surface-texture: radial-gradient(circle at 14% 18%, rgba(63, 114, 155, 0.055) 0 1px, transparent 1.5px), radial-gradient(circle at 78% 64%, rgba(90, 112, 106, 0.045) 0 1px, transparent 1.5px);
+}
+
+[data-theme="notgram-dark"][data-background-style="soft"] {
+  --color-surface-texture: radial-gradient(circle at 14% 18%, rgba(120, 167, 200, 0.06) 0 1px, transparent 1.5px), radial-gradient(circle at 78% 64%, rgba(127, 175, 145, 0.045) 0 1px, transparent 1.5px);
 }
 
 @media (forced-colors: active) {

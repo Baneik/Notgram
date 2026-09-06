@@ -24,9 +24,11 @@ import {
   Phone,
   RotateCcw,
   Save,
+  Search,
   SendHorizontal,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Sun,
   Trash2,
   UserCircle,
@@ -231,6 +233,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const messageBubblePadding = usePreferencesStore((state) => state.messageBubblePadding);
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const themeId = usePreferencesStore((state) => state.themeId);
+  const backgroundStyle = usePreferencesStore((state) => state.backgroundStyle);
   const preferences: AppPreferences = {
     language,
     notificationsEnabled,
@@ -262,6 +265,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     messageBubblePadding,
     unreadBadgePosition,
     themeId,
+    backgroundStyle,
   };
   const setPreference = usePreferencesStore((state) => state.setPreference);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>("account");
@@ -272,6 +276,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const [storageDraft, setStorageDraft] = useState<StorageSettings>(emptyStorageSettings);
   const [preferenceError, setPreferenceError] = useState<string>();
   const [pendingZalgoTextPreference, setPendingZalgoTextPreference] = useState<boolean>();
+  const [settingsQuery, setSettingsQuery] = useState("");
 
   useEffect(() => {
     void load();
@@ -313,6 +318,9 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   };
 
   const active = categories.find((category) => category.id === activeCategory) ?? categories[0];
+  const visibleCategories = categories.filter((category) =>
+    category.label.toLocaleLowerCase().includes(settingsQuery.trim().toLocaleLowerCase()),
+  );
   const ActiveIcon = active.icon;
   const busy = pending || storagePending;
   const storageDetailsTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -418,7 +426,20 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
           aria-hidden={storageDetailsOpen || (compactViewport && detailOpen) || undefined}
           inert={storageDetailsOpen || (compactViewport && detailOpen) || undefined}
         >
-          {categories.map((category) => {
+          <label className="settings-search-field">
+            <Search size={15} strokeWidth={1.8} />
+            <span className="sr-only">{translate("搜索设置")}</span>
+            <input
+              value={settingsQuery}
+              onChange={(event) => setSettingsQuery(event.target.value)}
+              placeholder={translate("搜索设置")}
+              type="search"
+            />
+            {settingsQuery && <button type="button" aria-label={translate("清除搜索")} title={translate("清除搜索")} onClick={() => setSettingsQuery("")}><X size={14} /></button>}
+          </label>
+          {visibleCategories.length === 0 ? (
+            <p className="settings-search-empty">{translate("没有匹配的设置")}</p>
+          ) : visibleCategories.map((category) => {
             const Icon = category.icon;
             return (
               <button
@@ -627,6 +648,21 @@ function PreferenceSettings({
                   <Moon size={15} />{translate("深色")}</button>
               </div>
             </div>
+            <div className="theme-preference">
+              <strong>{translate("背景样式")}</strong>
+              <div className="theme-segmented-control" aria-label={translate("背景样式") }>
+                <button
+                  type="button"
+                  aria-pressed={preferences.backgroundStyle === "plain"}
+                  onClick={() => onChange("backgroundStyle", "plain")}
+                >{translate("简洁")}</button>
+                <button
+                  type="button"
+                  aria-pressed={preferences.backgroundStyle === "soft"}
+                  onClick={() => onChange("backgroundStyle", "soft")}
+                ><Sparkles size={15} />{translate("柔和")}</button>
+              </div>
+            </div>
             <NumericStepper
               label={translate("消息字体大小")}
               value={preferences.chatFontSize}
@@ -668,12 +704,14 @@ function PreferenceSettings({
               preferences.chatFontSize === 14 &&
               preferences.interfaceScale === 100 &&
               preferences.unreadBadgePosition === "right"
+              && preferences.backgroundStyle === "plain"
             }
             onClick={() => {
               onChange("themeId", "notgram-light");
               onChange("chatFontSize", 14);
               onChange("interfaceScale", 100);
               onChange("unreadBadgePosition", "right");
+              onChange("backgroundStyle", "plain");
             }}
           >
             <RotateCcw size={15} strokeWidth={2} />{translate("恢复显示默认值")}</button>
@@ -727,16 +765,16 @@ function PreferenceSettings({
             className="storage-reset display-reset"
             type="button"
             disabled={
-              preferences.chatListRowHeight === 74 &&
-              preferences.messageGroupSpacing === 10 &&
+              preferences.chatListRowHeight === 68 &&
+              preferences.messageGroupSpacing === 4 &&
               preferences.messageRowSpacing === 1 &&
-              preferences.messageBubblePadding === 8
+              preferences.messageBubblePadding === 4
             }
             onClick={() => {
-              onChange("chatListRowHeight", 74);
-              onChange("messageGroupSpacing", 10);
+              onChange("chatListRowHeight", 68);
+              onChange("messageGroupSpacing", 4);
               onChange("messageRowSpacing", 1);
-              onChange("messageBubblePadding", 8);
+              onChange("messageBubblePadding", 4);
             }}
           >
             <RotateCcw size={15} strokeWidth={2} />{translate("恢复间距默认值")}</button>

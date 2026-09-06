@@ -95,7 +95,7 @@ import {
 } from "../utils/conversationSwitchSnapshot";
 import { motionLifecycleTiming } from "../utils/motionTokens";
 
-const DEFAULT_SIDEBAR_WIDTH = 360;
+const DEFAULT_SIDEBAR_WIDTH = 344;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
 const EMPTY_MESSAGES: Message[] = [];
 const ADD_ACCOUNT_RETURN_STORAGE_KEY = "notgram:add-account-return";
@@ -1692,7 +1692,6 @@ export function App() {
             closeSearch();
             setChatFilter(filter);
           }}
-          onManageFolders={() => openFolderManager()}
           onEditFolder={openFolderManager}
           onReorderFolders={(folderIds) => void reorderChatFolders(folderIds)}
           onMarkFolderRead={markChatFolderRead}

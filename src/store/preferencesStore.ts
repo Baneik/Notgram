@@ -27,6 +27,7 @@ import {
 
 export type ColorTheme = ColorScheme;
 export type UnreadBadgePosition = "right" | "avatar";
+export type BackgroundStyle = "plain" | "soft";
 
 export interface AppPreferences {
   language: LanguagePreference;
@@ -59,6 +60,7 @@ export interface AppPreferences {
   messageBubblePadding: number;
   unreadBadgePosition: UnreadBadgePosition;
   themeId: ThemeId;
+  backgroundStyle: BackgroundStyle;
 }
 
 interface PreferencesState extends AppPreferences {
@@ -102,6 +104,7 @@ const defaults: AppPreferences = {
   messageBubblePadding: 8,
   unreadBadgePosition: "right",
   themeId: "notgram-light",
+  backgroundStyle: "plain",
 };
 
 const boundedInteger = (value: unknown, fallback: number, minimum: number, maximum: number) =>
@@ -195,6 +198,7 @@ const readPreferences = (): AppPreferences => {
         ? "avatar"
         : defaults.unreadBadgePosition,
       themeId: resolveThemeId(stored.themeId, stored.colorTheme),
+      backgroundStyle: stored.backgroundStyle === "soft" ? "soft" : defaults.backgroundStyle,
     };
   } catch {
     return defaults;
@@ -287,6 +291,7 @@ const applyPreferences = (preferences: AppPreferences, systemMotionReduced: bool
       void getCurrentWindow().setTheme(colorScheme).catch(() => undefined);
     }
   }
+  document.documentElement.dataset.backgroundStyle = preferences.backgroundStyle;
 };
 
 applyPreferences(initialPreferences, preferencesStore.getState().systemReduceMotion);
@@ -322,6 +327,7 @@ preferencesStore.subscribe((state) => {
     messageBubblePadding: state.messageBubblePadding,
     unreadBadgePosition: state.unreadBadgePosition,
     themeId: state.themeId,
+    backgroundStyle: state.backgroundStyle,
   };
   applyPreferences(preferences, state.systemReduceMotion);
   try {

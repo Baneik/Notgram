@@ -568,7 +568,7 @@ export function ChatSidebar({
         )))}
         tabIndex={0}
         title={translate("拖动调整会话列表宽度")}
-        onDoubleClick={() => commitWidth(360)}
+        onDoubleClick={() => commitWidth(344)}
         onKeyDown={handleResizeKey}
         onPointerDown={beginResize}
         onPointerMove={continueResize}
