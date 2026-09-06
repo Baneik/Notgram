@@ -10,13 +10,12 @@ const isVisualAlbumMessage = (message: Message) => Boolean(
   (message.content.mediaType === "photo" || message.content.mediaType === "video"),
 );
 
-const belongsToSameAlbum = (left: Message, right: Message) => Boolean(
+/** TDLib media_album_id is the authoritative identity of a media group. */
+export const belongsToSameAlbum = (left: Message, right: Message) => Boolean(
   isVisualAlbumMessage(left) &&
   isVisualAlbumMessage(right) &&
   left.mediaAlbumId === right.mediaAlbumId &&
-  left.chatId === right.chatId &&
-  left.senderId === right.senderId &&
-  left.outgoing === right.outgoing,
+  left.chatId === right.chatId,
 );
 
 /** A visual album has shared text only when exactly one item owns a caption. */

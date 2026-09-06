@@ -108,6 +108,27 @@ describe("message virtualization", () => {
     expect(blocks[0]?.positions.get("after")).toBe("last");
   });
 
+  it("groups channel albums while keeping ordinary channel posts separate", () => {
+    const channelPhoto = (id: string, albumId?: string): Message => message(id, {
+      isChannelPost: true,
+      mediaAlbumId: albumId,
+      content: albumId
+        ? { kind: "media", mediaType: "photo", fileName: `${id}.png`, sizeLabel: "1 MB" }
+        : { kind: "text", text: id },
+    });
+    const blocks = virtualizeMessageGroups([
+      channelPhoto("post-1"),
+      channelPhoto("album-1", "album"),
+      channelPhoto("album-2", "album"),
+      channelPhoto("post-2"),
+    ], 4, false);
+
+    expect(blocks.map((block) => block.messages.map(({ id }) => id))).toEqual([
+      ["post-1"], ["album-1", "album-2"], ["post-2"],
+    ]);
+    expect(blocks[1]?.segments[0]?.kind).toBe("album");
+  });
+
   it("indexes every message by its containing virtual block", () => {
     const blocks = virtualizeMessageGroups(
       Array.from({ length: 7 }, (_, index) => message(String(index + 1))),

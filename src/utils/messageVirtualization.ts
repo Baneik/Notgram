@@ -5,7 +5,7 @@ import {
   messageGroupPosition,
   type MessageGroupPosition,
 } from "./messageGrouping";
-import { segmentMediaAlbums, type MediaAlbumSegment } from "./mediaAlbums";
+import { belongsToSameAlbum, segmentMediaAlbums, type MediaAlbumSegment } from "./mediaAlbums";
 
 // Bound consecutive groups while keeping albums atomic. The group wrapper is
 // also the sticky boundary used by incoming sender avatars.
@@ -49,6 +49,14 @@ const splitSegments = (segments: MediaAlbumSegment[], maximumMessages: number) =
   return chunks;
 };
 
+const groupMediaAlbumsOnly = (messages: Message[]): Message[][] =>
+  messages.reduce<Message[][]>((groups, message) => {
+    const current = groups.at(-1);
+    if (current && belongsToSameAlbum(current.at(-1)!, message)) current.push(message);
+    else groups.push([message]);
+    return groups;
+  }, []);
+
 export const virtualizeMessageGroups = (
   messages: Message[],
   maximumMessages = MAX_MESSAGES_PER_VIRTUAL_BLOCK,
@@ -60,7 +68,7 @@ export const virtualizeMessageGroups = (
 
   const groups = groupAdjacentMessages
     ? groupConsecutiveMessages(messages)
-    : messages.map((message) => [message]);
+    : groupMediaAlbumsOnly(messages);
   return groups.flatMap((group, groupIndex) => {
     const positions = new Map(group.map((message, messageIndex) => [
       message.id,

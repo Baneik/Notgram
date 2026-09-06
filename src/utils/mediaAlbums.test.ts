@@ -83,7 +83,7 @@ describe("media album segmentation", () => {
     expect(segments.map((segment) => segment.kind)).toEqual(["message", "message", "message"]);
   });
 
-  it("separates different album ids, chats, senders, and directions", () => {
+  it("separates different album ids and chats", () => {
     const segments = segmentMediaAlbums([
       message("1", "album-a"),
       message("2", "album-b"),
@@ -96,8 +96,7 @@ describe("media album segmentation", () => {
       "message",
       "message",
       "message",
-      "message",
-      "message",
+      "album",
     ]);
   });
 
