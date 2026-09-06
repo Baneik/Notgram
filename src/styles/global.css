@@ -674,7 +674,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .app-shell, .navigation-rail, .chat-sidebar, .conversation, .forum-topics-view, .contacts-view,
 .settings-dialog, .settings-categories, .settings-detail, .settings-detail-scroll {
   background-image: var(--color-surface-texture);
-  background-size: 180px 180px;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
 }
 .conversation.is-channel-conversation { grid-template-rows: auto minmax(0, 1fr) auto; }
 .forum-topics-view {
