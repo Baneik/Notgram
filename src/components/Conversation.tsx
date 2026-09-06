@@ -2805,7 +2805,7 @@ export function Conversation({
                     ) : null;
                     return (
                       <div
-                        className={`media-album ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
+                        className={`media-album ${!isChannelConversation && firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
                         data-media-album-id={segment.albumId}
                         key={`album:${segment.albumId}:${segment.messages[0]?.renderKey ?? segment.messages[0]?.id}`}
                         role="group"
