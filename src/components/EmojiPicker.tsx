@@ -118,7 +118,9 @@ export function EmojiPicker({
   onPointerLeave,
 }: EmojiPickerProps) {
   const loadEmojiPicker = useTelegramStore((state) => state.loadEmojiPicker);
+  const getCachedEmojiPicker = useTelegramStore((state) => state.getCachedEmojiPicker);
   const loadStickerSet = useTelegramStore((state) => state.loadStickerSet);
+  const getCachedStickerSet = useTelegramStore((state) => state.getCachedStickerSet);
   const searchStickers = useTelegramStore((state) => state.searchStickers);
   const sendSticker = useTelegramStore((state) => state.sendSticker);
   const sendAnimation = useTelegramStore((state) => state.sendAnimation);
@@ -130,8 +132,8 @@ export function EmojiPicker({
   const searchRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<PickerTab>("sticker");
   const [query, setQuery] = useState("");
-  const [catalog, setCatalog] = useState<EmojiPickerCatalog>();
-  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalog, setCatalog] = useState<EmojiPickerCatalog | undefined>(getCachedEmojiPicker);
+  const [catalogLoading, setCatalogLoading] = useState(() => !getCachedEmojiPicker());
   const [recentEmojis, setRecentEmojis] = useState(readRecentEmojis);
   const [selectedStickerSetId, setSelectedStickerSetId] = useState(RECENT_STICKERS);
   const [stickerSets, setStickerSets] = useState<Map<string, StickerSet>>(() => new Map());
@@ -139,6 +141,7 @@ export function EmojiPicker({
   const [failedStickerSetIds, setFailedStickerSetIds] = useState<Set<string>>(() => new Set());
   const [stickerSearchResults, setStickerSearchResults] = useState<EmojiPickerAsset[]>([]);
   const [sendingAssetId, setSendingAssetId] = useState<string>();
+  const selectedStickerSet = stickerSets.get(selectedStickerSetId) ?? getCachedStickerSet(selectedStickerSetId);
 
   useEffect(() => {
     let active = true;
@@ -171,7 +174,7 @@ export function EmojiPicker({
     if (tab !== "sticker" || selectedStickerSetId === RECENT_STICKERS) return;
     if (stickerSets.has(selectedStickerSetId) || stickerSetLoading === selectedStickerSetId) return;
     if (failedStickerSetIds.has(selectedStickerSetId)) return;
-    setStickerSetLoading(selectedStickerSetId);
+    if (!getCachedStickerSet(selectedStickerSetId)) setStickerSetLoading(selectedStickerSetId);
     void loadStickerSet(selectedStickerSetId).then((stickerSet) => {
       if (stickerSet) {
         setStickerSets((current) => new Map(current).set(stickerSet.id, stickerSet));
@@ -180,7 +183,7 @@ export function EmojiPicker({
       }
       setStickerSetLoading((current) => current === selectedStickerSetId ? undefined : current);
     });
-  }, [failedStickerSetIds, loadStickerSet, selectedStickerSetId, stickerSetLoading, stickerSets, tab]);
+  }, [failedStickerSetIds, getCachedStickerSet, loadStickerSet, selectedStickerSetId, stickerSetLoading, stickerSets, tab]);
 
   useEffect(() => {
     if (tab !== "sticker" || !query.trim()) {
@@ -215,7 +218,7 @@ export function EmojiPicker({
     ? stickerSearchResults
     : selectedStickerSetId === RECENT_STICKERS
       ? catalog?.recentStickers ?? []
-      : stickerSets.get(selectedStickerSetId)?.stickers ?? [];
+      : selectedStickerSet?.stickers ?? [];
 
   const rememberEmoji = useCallback((emoji: string) => {
     const next = [emoji, ...recentEmojis.filter((candidate) => candidate !== emoji)].slice(0, 36);
@@ -290,7 +293,7 @@ export function EmojiPicker({
           <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />{translate("正在读取你的内容")}</div>
         ) : tab === "sticker" ? (
           <section className="emoji-section">
-            <h3>{normalizedQuery ? translate("搜索结果") : selectedStickerSetId === RECENT_STICKERS ? translate("最近使用") : stickerSets.get(selectedStickerSetId)?.title ?? translate("贴纸包")}</h3>
+            <h3>{normalizedQuery ? translate("搜索结果") : selectedStickerSetId === RECENT_STICKERS ? translate("最近使用") : selectedStickerSet?.title ?? translate("贴纸包")}</h3>
             {stickerSetLoading === selectedStickerSetId ? (
               <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />{translate("正在加载贴纸包")}</div>
             ) : failedStickerSetIds.has(selectedStickerSetId) ? (

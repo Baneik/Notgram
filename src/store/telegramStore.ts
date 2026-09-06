@@ -72,6 +72,7 @@ import { createProfileController } from "./telegramStore.profile";
 import { createOutboxController } from "./telegramStore.outboxController";
 import { createForumController } from "./telegramStore.forum";
 import { createSessionController } from "./telegramStore.session";
+import { createEmojiPickerController } from "./telegramStore.emoji";
 import { SharedMediaIndex } from "./sharedMediaIndex";
 import {
   attachmentOutbox,
@@ -883,6 +884,7 @@ export const createTelegramStore = (
       forumTopicsRefreshedAt.clear();
       searchController.reset();
       profileController.reset();
+      emojiPickerController.reset();
       set({
         currentUserId: undefined,
         users: new Map(),
@@ -2241,6 +2243,12 @@ export const createTelegramStore = (
       set,
       onError: errorMessage,
     });
+    const emojiPickerController = createEmojiPickerController({
+      transport,
+      get,
+      set,
+      onError: errorMessage,
+    });
 
     return {
       phase: "idle",
@@ -2566,6 +2574,7 @@ export const createTelegramStore = (
               messages: current.messages.values(),
             }),
           });
+          emojiPickerController.reset();
           set({
             cacheUsage: result.usage,
             cacheCleanupResult: result,
@@ -3806,39 +3815,11 @@ export const createTelegramStore = (
         return !failure;
       },
 
-      loadEmojiPicker: async () => {
-        if (get().authorization.kind !== "ready") return undefined;
-        try {
-          const catalog = await transport.getEmojiPickerCatalog();
-          set({ operationError: undefined });
-          return catalog;
-        } catch (error) {
-          set({ operationError: errorMessage(error, translate("无法读取表情与贴纸")) });
-          return undefined;
-        }
-      },
-
-      loadStickerSet: async (stickerSetId) => {
-        try {
-          const stickerSet = await transport.getStickerSet(stickerSetId);
-          set({ operationError: undefined });
-          return stickerSet;
-        } catch (error) {
-          set({ operationError: errorMessage(error, translate("无法读取贴纸包")) });
-          return undefined;
-        }
-      },
-
-      addStickerSet: async (stickerSetId) => {
-        try {
-          await transport.addStickerSet(stickerSetId);
-          set({ operationError: undefined });
-          return true;
-        } catch (error) {
-          set({ operationError: errorMessage(error, translate("添加贴纸包失败")) });
-          return false;
-        }
-      },
+      getCachedEmojiPicker: emojiPickerController.getCachedEmojiPicker,
+      loadEmojiPicker: emojiPickerController.loadEmojiPicker,
+      getCachedStickerSet: emojiPickerController.getCachedStickerSet,
+      loadStickerSet: emojiPickerController.loadStickerSet,
+      addStickerSet: emojiPickerController.addStickerSet,
 
       searchStickers: async (query, chatId) => {
         const normalized = query.trim();
@@ -3851,15 +3832,11 @@ export const createTelegramStore = (
         }
       },
 
-      loadEmojiAsset: async (asset) => {
-        try {
-          return await transport.loadEmojiAsset(asset);
-        } catch {
-          return undefined;
-        }
-      },
+      getCachedEmojiAsset: emojiPickerController.getCachedEmojiAsset,
+      loadEmojiAsset: emojiPickerController.loadEmojiAsset,
 
       sendSticker: async (asset, replyToMessageId, replyQuote, preferredChatId, disableNotification) => {
+        const accountId = get().activeAccountId;
         const chatId = preferredChatId ?? get().activeChatId;
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         if (!chatId) return false;
@@ -3876,6 +3853,8 @@ export const createTelegramStore = (
             replyQuote: replyToMessageId ? replyQuote : undefined,
             disableNotification,
           });
+          if (get().activeAccountId !== accountId) return false;
+          emojiPickerController.rememberSentSticker(asset);
           recordConversationSentMessages(get().activeAccountId, chatId);
           set({ operationError: undefined });
           scheduleCacheWrite();

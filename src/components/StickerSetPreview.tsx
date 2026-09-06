@@ -16,22 +16,24 @@ interface StickerSetPreviewProps {
 export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewProps) {
   const dialogRef = useModalFocus<HTMLElement>(onClose);
   const loadStickerSet = useTelegramStore((state) => state.loadStickerSet);
+  const getCachedStickerSet = useTelegramStore((state) => state.getCachedStickerSet);
   const addStickerSet = useTelegramStore((state) => state.addStickerSet);
   const autoplayAnimations = usePreferencesStore((state) => autoplayAllowed(
     state.autoplayAnimations,
     state,
   ));
-  const [stickerSet, setStickerSet] = useState<StickerSet>();
+  const [stickerSet, setStickerSet] = useState<StickerSet | undefined>(() => getCachedStickerSet(stickerSetId));
   const [selectedStickerId, setSelectedStickerId] = useState<string>();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !getCachedStickerSet(stickerSetId));
   const [failed, setFailed] = useState(false);
   const [addPending, setAddPending] = useState(false);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    const cached = getCachedStickerSet(stickerSetId);
+    setLoading(!cached);
     setFailed(false);
-    setStickerSet(undefined);
+    setStickerSet(cached);
     setSelectedStickerId(undefined);
     void loadStickerSet(stickerSetId).then((nextStickerSet) => {
       if (!active) return;
@@ -41,7 +43,7 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
       setLoading(false);
     });
     return () => { active = false; };
-  }, [loadStickerSet, stickerSetId]);
+  }, [getCachedStickerSet, loadStickerSet, stickerSetId]);
 
   const selectedSticker = useMemo(() => stickerSet?.stickers.find(
     (sticker) => sticker.id === selectedStickerId,

@@ -2,6 +2,7 @@ import { translate } from "../i18n";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useCachedEmojiSource } from "../hooks/useCachedEmojiSource";
 import { useTelegramStore } from "../store/telegramStore";
 import type { EmojiPickerAsset } from "../telegram/types";
 import { AutoplayVideo } from "./AutoplayVideo";
@@ -29,13 +30,15 @@ export function EmojiAssetVisual({
   className = "",
 }: EmojiAssetVisualProps) {
   const loadEmojiAsset = useTelegramStore((state) => state.loadEmojiAsset);
+  const getCachedEmojiAsset = useTelegramStore((state) => state.getCachedEmojiAsset);
   const visualRef = useRef<HTMLSpanElement>(null);
   const [visible, setVisible] = useState(eager);
-  const [loadedPath, setLoadedPath] = useState<string>();
+  const [loadedAsset, setLoadedAsset] = useState<{ fileId: number; path: string }>();
   const [failed, setFailed] = useState(false);
+  const loadedPath = getCachedEmojiAsset(asset)
+    ?? (loadedAsset?.fileId === asset.fileId ? loadedAsset.path : undefined);
 
   useEffect(() => {
-    setLoadedPath(undefined);
     setFailed(false);
     setVisible(eager);
   }, [asset.id, eager]);
@@ -62,7 +65,7 @@ export function EmojiAssetVisual({
     void loadEmojiAsset(asset).then((path) => {
       if (!active) return;
       if (path) {
-        setLoadedPath(path);
+        setLoadedAsset({ fileId: asset.fileId, path });
         setFailed(false);
       } else if (!asset.previewDataUrl && !asset.previewPath) {
         setFailed(true);
@@ -71,8 +74,12 @@ export function EmojiAssetVisual({
     return () => { active = false; };
   }, [asset, loadEmojiAsset, loadedPath, visible]);
 
-  const fullSource = assetSource(asset.localPath ?? loadedPath);
-  const previewSource = assetSource(asset.previewPath) ?? asset.previewDataUrl;
+  const fullSource = useCachedEmojiSource(
+    assetSource(loadedPath),
+    asset.kind === "sticker" && asset.mimeType !== "application/x-tgsticker",
+    visible,
+  );
+  const previewSource = useCachedEmojiSource(assetSource(asset.previewPath), true, visible) ?? asset.previewDataUrl;
   const source = fullSource ?? previewSource;
   const usingFullAsset = Boolean(fullSource);
   const markFailed = () => setFailed(true);

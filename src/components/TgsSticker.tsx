@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useElementVisibility } from "../hooks/useElementVisibility";
+import { loadTgsAnimationData } from "../media/tgsAnimationCache";
 
 interface TgsStickerProps {
   src: string;
@@ -37,21 +38,15 @@ export function TgsSticker({ src, label, autoplay, onError }: TgsStickerProps) {
   useEffect(() => {
     const container = containerElementRef.current;
     if (!container) return;
-    const controller = new AbortController();
+    let active = true;
     let animation: import("lottie-web").AnimationItem | undefined;
 
     void Promise.all([
-      fetch(src, { signal: controller.signal }).then(async (response) => {
-        if (!response.ok) throw new Error(`Unable to load TGS sticker (${response.status})`);
-        return new Uint8Array(await response.arrayBuffer());
-      }),
-      import("pako"),
+      loadTgsAnimationData(src),
       import("lottie-web/build/player/lottie_light"),
     ])
-      .then(([compressed, { ungzip }, lottieModule]) => {
-        if (controller.signal.aborted) return;
-        const serialized = ungzip(compressed, { toText: true });
-        const animationData = JSON.parse(serialized) as Record<string, unknown>;
+      .then(([animationData, lottieModule]) => {
+        if (!active) return;
         animation = lottieModule.default.loadAnimation({
           container,
           renderer: "svg",
@@ -64,14 +59,14 @@ export function TgsSticker({ src, label, autoplay, onError }: TgsStickerProps) {
         if (!shouldPlayRef.current) animation.pause();
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        if (!active || (error instanceof DOMException && error.name === "AbortError")) {
           return;
         }
         onErrorRef.current();
       });
 
     return () => {
-      controller.abort();
+      active = false;
       animation?.destroy();
       if (animationRef.current === animation) animationRef.current = undefined;
       container.replaceChildren();
