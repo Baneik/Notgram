@@ -2626,6 +2626,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   color: var(--color-status-danger); background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-elevated)); border: 1px solid color-mix(in srgb, var(--color-status-danger) 32%, var(--color-bg-elevated)); border-radius: 8px; box-shadow: 0 8px 24px var(--color-shadow); font-size: 12px;
 }
 .operation-error { color: var(--color-status-warning); background: color-mix(in srgb, var(--color-status-warning) 10%, var(--color-bg-elevated)); border-color: color-mix(in srgb, var(--color-status-warning) 32%, var(--color-bg-elevated)); }
+.runtime-error.has-operation-error { bottom: 76px; }
 .runtime-error button, .operation-error button { width: 26px; height: 26px; padding: 0; display: grid; place-items: center; color: inherit; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .runtime-error button:hover { background: color-mix(in srgb, var(--color-status-danger) 18%, var(--color-bg-elevated)); }
 .operation-error button:hover { background: color-mix(in srgb, var(--color-status-warning) 18%, var(--color-bg-elevated)); }

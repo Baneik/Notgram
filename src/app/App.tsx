@@ -2029,7 +2029,7 @@ export function App() {
       )}
       <AudioPlaybackHost />
       <MotionPresence present={Boolean(error)} variant="toast">
-        {error ? <div className="runtime-error" role="alert">
+        {error ? <div className={`runtime-error ${operationError ? "has-operation-error" : ""}`} role="alert">
           <CircleAlert size={17} />
           <span>{error}</span>
           <button type="button" aria-label={translate("关闭错误提示")} title={translate("关闭")} onClick={clearError}><X size={16} /></button>
