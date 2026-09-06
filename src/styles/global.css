@@ -2827,6 +2827,10 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .storage-current-path { min-width: 0; margin: 0; display: flex; align-items: baseline; gap: 12px; font-size: 11px; }
 .storage-current-path dt { flex-shrink: 0; color: var(--muted); }
 .storage-current-path dd { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storage-usage-summary { display: flex; flex-wrap: wrap; gap: 18px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--color-bg-surface-hover); }
+.storage-usage-summary > div { min-width: 90px; display: grid; gap: 2px; }
+.storage-usage-summary strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.storage-usage-summary span { color: var(--muted); font-size: 10px; }
 .storage-table-frame, .storage-item-list { overflow: hidden; border: 1px solid var(--line); border-radius: 6px; }
 .storage-usage-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
 .storage-usage-table th, .storage-usage-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); }

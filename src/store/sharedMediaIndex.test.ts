@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Message } from "../telegram/types";
+import type { Message, SharedMediaPage } from "../telegram/types";
 import { SharedMediaIndex } from "./sharedMediaIndex";
 
 const message = (id: string, sentAt: string): Message => ({
@@ -13,6 +13,16 @@ const message = (id: string, sentAt: string): Message => ({
 });
 
 describe("SharedMediaIndex", () => {
+  it("retains paged results beyond the old 500-row cutoff", () => {
+    const index = new SharedMediaIndex();
+    let page: SharedMediaPage = { messages: [], hasMore: true };
+    for (let offset = 0; offset < 600; offset += 40) {
+      const messages = Array.from({ length: 40 }, (_, index) => message(String(600 - offset - index), String(600 - offset - index)));
+      page = index.merge({ chatId: "large", category: "media", ...(offset ? { fromMessageId: String(601 - offset) } : {}) }, { messages, hasMore: offset < 560, nextFromMessageId: messages.at(-1)?.id }, offset === 0);
+    }
+    expect(page.messages).toHaveLength(600);
+    expect(page.hasMore).toBe(false);
+  });
   it("clears a session and evicts least recently read entries", () => {
     const index = new SharedMediaIndex(1000, 2);
     const page = { messages: [], hasMore: false };

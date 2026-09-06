@@ -6,7 +6,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{LazyLock, Mutex},
 };
 use tauri::AppHandle;
 
@@ -16,6 +16,8 @@ const MAX_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_BATCH_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_TOTAL_BATCH_METADATA_BYTES: u64 = 50 * MAX_BATCH_METADATA_BYTES as u64;
 static OPERATIONS: Mutex<()> = Mutex::new(());
+static ACTIVE_BLOBS: LazyLock<Mutex<std::collections::HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
 
 fn contains_id(value: &serde_json::Value, id: &str) -> bool {
     match value {
@@ -157,16 +159,13 @@ pub fn telegram_attachment_inventory(
                 continue;
             }
             let path = directory(&app, &account_id, &token)?;
-            let old = path
-                .join("blob.dat")
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|time| time.elapsed().ok())
-                .is_some_and(|age| age.as_secs() > 86400);
-            // Draft/outbox versions remain discoverable indefinitely. Only
-            // unreferenced staging blobs have a 24-hour crash recovery grace.
-            if old
+            // Active uploads are protected in-process. Anything no longer
+            // referenced by a manifest can be reclaimed on the next inventory.
+            let active = ACTIVE_BLOBS
+                .lock()
+                .map_err(|_| "Attachment storage unavailable")?
+                .contains(&format!("{}:{token}", account_id));
+            if !active
                 && !super::inventory::is_link(
                     &fs::symlink_metadata(&path).map_err(|e| e.to_string())?,
                 )
@@ -270,6 +269,10 @@ pub fn telegram_begin_blob(
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random).map_err(|e| e.to_string())?;
     let token = hex(random);
+    ACTIVE_BLOBS
+        .lock()
+        .map_err(|_| "Attachment storage unavailable")?
+        .insert(format!("{}:{token}", account_id));
     let path = directory(&app, &account_id, &token)?;
     fs::create_dir_all(&path).map_err(|e| e.to_string())?;
     super::persistence::write_json(
@@ -322,27 +325,31 @@ pub fn telegram_append_blob(
 }
 
 #[tauri::command]
-pub fn telegram_commit_blob(
+pub async fn telegram_commit_blob(
     app: AppHandle,
     account_id: String,
     token: String,
 ) -> Result<BlobRecord, String> {
     check_account(&app, &account_id)?;
-    let _guard = OPERATIONS
-        .lock()
-        .map_err(|_| "Attachment storage unavailable")?;
-    let mut value = record(&app, &account_id, &token)?;
-    if value.size != value.written {
-        return Err("Attachment write is incomplete".into());
-    }
-    let path = directory(&app, &account_id, &token)?;
-    let mut digest = Sha256::new();
-    for index in 0..value.chunks.len() {
-        digest.update(chunk(&path, &value, index)?);
-    }
-    value.fingerprint = Some(hex(digest.finalize()));
-    super::persistence::write_json(&path.join("blob.dat"), &value, true)?;
-    Ok(value)
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = OPERATIONS
+            .lock()
+            .map_err(|_| "Attachment storage unavailable")?;
+        let mut value = record(&app, &account_id, &token)?;
+        if value.size != value.written {
+            return Err("Attachment write is incomplete".into());
+        }
+        let path = directory(&app, &account_id, &token)?;
+        let mut digest = Sha256::new();
+        for index in 0..value.chunks.len() {
+            digest.update(chunk(&path, &value, index)?);
+        }
+        value.fingerprint = Some(hex(digest.finalize()));
+        super::persistence::write_json(&path.join("blob.dat"), &value, true)?;
+        Ok(value)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -377,7 +384,11 @@ pub(crate) fn materialize(
         &value,
         destination,
         limit,
-    )
+    )?;
+    if let Ok(mut active) = ACTIVE_BLOBS.lock() {
+        active.remove(&format!("{}:{token}", account_id));
+    }
+    Ok(())
 }
 
 fn materialize_record(
@@ -466,6 +477,13 @@ pub fn telegram_attachment_batch(
         let all_accounts = crate::distribution::app_config_directory(&app)?.join("local-data");
         check_batch_metadata_quota(&all_accounts, &path, metadata_bytes)?;
         super::persistence::write_json(&path, &value, true)?;
+        if let Ok(mut active) = ACTIVE_BLOBS.lock() {
+            for file in files {
+                if let Some(token) = file["token"].as_str() {
+                    active.remove(&format!("{}:{token}", account_id));
+                }
+            }
+        }
         if path.with_extension("delete").exists() {
             fs::remove_file(path.with_extension("delete")).map_err(|e| e.to_string())?;
         }

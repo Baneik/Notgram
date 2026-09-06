@@ -6,9 +6,11 @@ import type {
   ChatProfile,
   ForumTopic,
   LocalAttachmentDraft,
+  LocalUnsentState,
   Message,
   MessageOrigin,
   QueuedOutgoingAttachment,
+  QueuedOutgoingMessage,
   User,
 } from "../telegram/types";
 import { normalizeIdentityText, sanitizeIdentityText } from "../telegram/identityText";
@@ -194,6 +196,41 @@ const isLocalAttachmentDraft = (value: unknown): value is LocalAttachmentDraft =
   value.attachments.length > 0 &&
   value.attachments.every(isQueuedAttachment);
 
+const isQueuedMessage = (item: unknown): item is QueuedOutgoingMessage =>
+  isRecord(item) && hasStringKey(item, "id") && hasStringKey(item, "chatId") &&
+  hasStringKey(item, "text") && hasStringKey(item, "createdAt") &&
+  (item.status === "queued" || item.status === "failed" || item.status === "sending") &&
+  (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string") &&
+  (item.replyQuote === undefined || (
+    isRecord(item.replyQuote) && typeof item.replyQuote.text === "string" &&
+    typeof item.replyQuote.position === "number" && Number.isInteger(item.replyQuote.position) && item.replyQuote.position >= 0
+  )) &&
+  (item.kind === undefined || item.kind === "text" || item.kind === "attachments") &&
+  (item.caption === undefined || typeof item.caption === "string") &&
+  (item.error === undefined || typeof item.error === "string") &&
+  (item.attachments === undefined || (Array.isArray(item.attachments) && item.attachments.length > 0 && item.attachments.every(isQueuedAttachment)));
+
+const restoreOutbox = (items: QueuedOutgoingMessage[]) => items.map((item): QueuedOutgoingMessage =>
+  item.status === "sending"
+    ? { ...item, status: "failed", error: translate("发送中断，请先核对聊天记录再重试") }
+    : item,
+);
+
+export const migrateLocalUnsentState = (value: unknown): LocalUnsentState | undefined => {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value) || !hasStringKey(value, "savedAt") || !hasStringKey(value, "currentUserId") || !value.currentUserId ||
+    !Array.isArray(value.drafts) || !value.drafts.every((draft) => hasStringKey(draft, "chatId") && hasStringKey(draft, "text")) ||
+    !Array.isArray(value.localAttachmentDrafts) || !value.localAttachmentDrafts.every(isLocalAttachmentDraft) ||
+    !Array.isArray(value.outbox) || !value.outbox.every(isQueuedMessage)) {
+    throw new Error("Local drafts could not be read; existing data has been preserved");
+  }
+  const local = value as unknown as LocalUnsentState;
+  return {
+    currentUserId: local.currentUserId, savedAt: local.savedAt,
+    drafts: local.drafts, localAttachmentDrafts: local.localAttachmentDrafts, outbox: restoreOutbox(value.outbox),
+  };
+};
+
 export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration => {
   if (value === undefined || value === null) return { health: "empty" };
   if (!isRecord(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4)) {
@@ -230,30 +267,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     )) ||
     (value.outbox !== undefined && (
       !Array.isArray(value.outbox) ||
-      !value.outbox.every((item) =>
-        hasStringKey(item, "id") &&
-        hasStringKey(item, "chatId") &&
-        hasStringKey(item, "text") &&
-        hasStringKey(item, "createdAt") &&
-        isRecord(item) &&
-        (item.status === "queued" || item.status === "failed" || item.status === "sending") &&
-        (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string") &&
-        (item.replyQuote === undefined || (
-          isRecord(item.replyQuote) &&
-          typeof item.replyQuote.text === "string" &&
-          typeof item.replyQuote.position === "number" &&
-          Number.isInteger(item.replyQuote.position) &&
-          item.replyQuote.position >= 0
-        )) &&
-        (item.kind === undefined || item.kind === "text" || item.kind === "attachments") &&
-        (item.caption === undefined || typeof item.caption === "string") &&
-        (item.error === undefined || typeof item.error === "string") &&
-        (item.attachments === undefined || (
-          Array.isArray(item.attachments) &&
-          item.attachments.length > 0 &&
-          item.attachments.every(isQueuedAttachment)
-        ))
-      )
+      !value.outbox.every(isQueuedMessage)
     )) ||
     (value.activeChatId !== undefined && typeof value.activeChatId !== "string") ||
     (value.chatFilter !== undefined && typeof value.chatFilter !== "string") ||
@@ -291,7 +305,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     snapshot: {
       ...(value as unknown as CachedTelegramSnapshot),
       version: TELEGRAM_CACHE_VERSION,
-      outbox: value.version === 1 ? [] : ((value.outbox ?? []) as CachedTelegramSnapshot["outbox"])!.map((item) => item.status === "sending" ? { ...item, status: "failed", error: translate("发送中断，请先核对聊天记录再重试") } : item),
+      outbox: value.version === 1 ? [] : restoreOutbox((value.outbox ?? []) as QueuedOutgoingMessage[]),
       users: (value.users as unknown as User[]).map(sanitizeCachedUser),
       folders: (value.folders as CachedTelegramSnapshot["folders"]).map((folder) => ({
         ...folder,

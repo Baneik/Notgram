@@ -30,7 +30,7 @@ import {
   preserveUserAvatarMedia,
   shouldDiscardUnregisteredAccount,
 } from "./telegramStore.accounts";
-import { cachedSnapshotFrom, migrateCachedSnapshot } from "./telegramStore.cache";
+import { cachedSnapshotFrom, migrateCachedSnapshot, migrateLocalUnsentState } from "./telegramStore.cache";
 import {
   DRAFT_SYNC_DELAY_MS,
   DraftSyncController,
@@ -978,9 +978,12 @@ export const createTelegramStore = (
       }
     };
 
-    const hydrateCachedSnapshot = (persistedSnapshot?: CachedTelegramSnapshot) => {
+    const hydrateCachedSnapshot = (persistedSnapshot?: CachedTelegramSnapshot, localState?: ReturnType<typeof migrateLocalUnsentState>) => {
       const migration = migrateCachedSnapshot(persistedSnapshot);
-      const snapshot = migration.snapshot;
+      const snapshot = localState ? {
+        ...(migration.snapshot ?? { version: 4 as const, users: [], folders: [], chats: [], messages: [] }),
+        ...localState,
+      } : migration.snapshot;
       set({ cacheHealth: migration.health });
       if (!snapshot) {
         return;
@@ -2320,7 +2323,9 @@ export const createTelegramStore = (
           operationError: undefined,
         });
         try {
-          await initializeAccountMetadata();
+          await initializeAccountMetadata().catch((error) => {
+            set({ operationError: errorMessage(error, translate("无法加载本地账号数据")) });
+          });
           const pendingCleanup = globalThis.localStorage?.getItem("notgram:pending-account-cleanup");
           if (pendingCleanup) {
             await attachmentOutbox.removeAccount(pendingCleanup);
@@ -2338,8 +2343,18 @@ export const createTelegramStore = (
             set({ accountPending: true });
           }
           if (!settingsOnly) {
+            let persistedSnapshot: CachedTelegramSnapshot | undefined;
             try {
-              hydrateCachedSnapshot(await transport.loadCachedSnapshot());
+              persistedSnapshot = await transport.loadCachedSnapshot();
+            } catch {
+              set({ cacheHealth: "invalid" });
+            }
+            // Durable drafts remain authoritative even when the replaceable cache is invalid.
+            const localState = transport.loadLocalState
+              ? migrateLocalUnsentState(await transport.loadLocalState(get().activeAccountId))
+              : undefined;
+            hydrateCachedSnapshot(persistedSnapshot, localState);
+            try {
               await attachmentOutbox.claimLegacy(get().activeAccountId, [
                 ...[...get().localAttachmentDrafts.values()].map((draft) => draft.batchId),
                 ...get().outbox.filter((item) => item.attachments?.length).map((item) => item.id),

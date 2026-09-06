@@ -31,18 +31,31 @@ export const subscribeAccountMetadata = (key: MetadataKey, callback: () => void)
 
 export const initializeAccountMetadata = () => {
   if (!isTauri()) return Promise.resolve();
-  initialization ??= (async () => {
+  if (initialization) return initialization;
+  const operation = (async () => {
+    const failures: unknown[] = [];
     for (const key of ACCOUNT_METADATA_KEYS) {
-      const stored = await invoke<unknown[] | null>("telegram_read_account_metadata", { key });
-      const legacy = globalThis.localStorage?.getItem(key);
-      const serialized = JSON.stringify(stored ?? (legacy ? JSON.parse(legacy) : []));
-      if (stored === null && legacy) {
-        await invoke("telegram_write_account_metadata", { key, records: JSON.parse(serialized) });
+      if (values.has(key)) continue;
+      try {
+        const stored = await invoke<unknown[] | null>("telegram_read_account_metadata", { key });
+        const legacy = globalThis.localStorage?.getItem(key);
+        const records: unknown = stored ?? (legacy ? JSON.parse(legacy) : []);
+        if (!Array.isArray(records)) throw new Error("Invalid account metadata");
+        if (stored === null && legacy) {
+          await invoke("telegram_write_account_metadata", { key, records });
+        }
+        values.set(key, JSON.stringify(records));
+        if (legacy) globalThis.localStorage.removeItem(key);
+        for (const callback of subscribers.get(key) ?? []) callback();
+      } catch (error) {
+        failures.push(error);
       }
-      values.set(key, serialized);
-      if (legacy) globalThis.localStorage.removeItem(key);
-      for (const callback of subscribers.get(key) ?? []) callback();
     }
+    if (failures.length) throw new AggregateError(failures, "Some local account data could not be loaded; existing records have been preserved");
   })();
-  return initialization;
+  initialization = operation;
+  void operation.finally(() => {
+    if (initialization === operation) initialization = undefined;
+  }).catch(() => undefined);
+  return operation;
 };

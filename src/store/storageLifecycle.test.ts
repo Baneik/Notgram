@@ -57,6 +57,7 @@ describe("durable storage lifecycle", () => {
     expect(accepted).toHaveBeenCalledWith(true);
   });
 
+
   it("propagates TDLib attachment errors instead of acknowledging a staged upload", async () => {
     let broker!: TdRequestBroker;
     broker = new TdRequestBroker(async (_command, args) => {

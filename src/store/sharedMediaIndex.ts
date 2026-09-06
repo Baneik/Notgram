@@ -7,6 +7,7 @@ import type {
 } from "../telegram/types";
 
 const DEFAULT_TTL_MS = 5 * 60_000;
+const MAX_MESSAGES_PER_ENTRY = 5_000;
 
 interface SharedMediaCacheEntry extends SharedMediaPage {
   cachedAt: number;
@@ -51,11 +52,15 @@ export class SharedMediaIndex {
     this.prune(now);
     const key = cacheKey(input.chatId, input.category, input.query);
     const current = reset ? undefined : this.entries.get(key);
+    const mergedMessages = mergeMessages(current?.messages ?? [], page.messages);
+    const messages = mergedMessages.slice(0, MAX_MESSAGES_PER_ENTRY);
     const entry: SharedMediaCacheEntry = {
-      messages: mergeMessages(current?.messages ?? [], page.messages).slice(0, 500),
+      // Keep a generous bounded result set. Never report the server as exhausted
+      // when local capacity trimmed older rows.
+      messages,
       totalCount: page.totalCount ?? current?.totalCount,
       nextFromMessageId: page.nextFromMessageId,
-      hasMore: page.hasMore,
+      hasMore: page.hasMore || mergedMessages.length > messages.length,
       cachedAt: now,
     };
     this.entries.delete(key);

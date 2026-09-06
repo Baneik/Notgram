@@ -21,6 +21,10 @@ export async function restoreAttachmentBatch(accountId: string, id: string) {
   if (!await current.saveLocalAttachmentDraft(draftKey, chatId, stored.attachments, {
     mode: route?.mode === "file" ? "file" : "media", hasSpoiler: route?.hasSpoiler === true, muteVideos: route?.muteVideos === true,
   })) throw new Error(translate("无法恢复附件"));
+  if (typeof route?.caption === "string" && route.caption.trim()) {
+    if (route?.topicId) current.updateThreadDraft(draftKey, chatId, route.caption);
+    else current.updateChatDraft(chatId, route.caption);
+  }
 }
 
 // The main window owns unsent state. Settings windows must never write a stale

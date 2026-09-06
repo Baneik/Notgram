@@ -120,6 +120,7 @@ pub fn run() {
             storage::telegram_cache_usage,
             storage::telegram_clear_media_cache,
             storage::telegram_read_snapshot_cache,
+            storage::local_state::telegram_read_local_state,
             storage::local_state::telegram_write_local_state,
             storage::metadata::telegram_read_account_metadata,
             storage::metadata::telegram_write_account_metadata,

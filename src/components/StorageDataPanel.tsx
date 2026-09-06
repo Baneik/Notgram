@@ -65,6 +65,9 @@ export function StorageDataPanel({ settings, setSettings, onClose }: {
 
   const cachePath = settings.effectiveCachePath ?? settings.cachePath;
   const backups = settings.migrationBackups ?? [];
+  const measuredBytes = layers.reduce((sum, layer) => sum + layer.bytes, 0);
+  const measuredFiles = layers.reduce((sum, layer) => sum + layer.files, 0);
+  const partialLayers = layers.filter((layer) => layer.partial).length;
   return (
     <section className="storage-details-overlay" aria-labelledby="storage-details-title">
       <header className="settings-detail-header">
@@ -83,6 +86,11 @@ export function StorageDataPanel({ settings, setSettings, onClose }: {
             <dt>{translate("当前缓存路径")}</dt>
             <dd title={cachePath}>{cachePath}</dd>
           </dl>
+          <div className="storage-usage-summary" aria-live="polite">
+            <div><strong>{bytes(measuredBytes)}</strong><span>{translate("已测总占用")}</span></div>
+            <div><strong>{measuredFiles.toLocaleString()}</strong><span>{translate("已测文件数")}</span></div>
+            {partialLayers > 0 && <div><strong>{partialLayers}</strong><span>{translate("统计不完整")}</span></div>}
+          </div>
           <div className="storage-table-frame" aria-busy={busy}>
             <table className="storage-usage-table" aria-label={translate("存储占用")}>
               <thead><tr>
@@ -139,10 +147,14 @@ export function StorageDataPanel({ settings, setSettings, onClose }: {
                   <div className="storage-item-description">
                     <span title={batch.metadata.map((item) => item.name).join(", ")}>{batch.metadata.map((item) => item.name).join(", ")}</span>
                     <small>{bytes(batch.bytes)} · {new Date(batch.createdAt).toLocaleDateString()} · {batch.referenced ? translate("草稿使用中") : translate("可恢复")}</small>
+                    {typeof batch.recovery?.chatId === "string" && <small>{translate("原会话")}: {batch.recovery.chatId}{typeof batch.recovery?.topicId === "string" ? ` · ${translate("话题")} ${batch.recovery.topicId}` : ""}</small>}
+                    {typeof batch.recovery?.caption === "string" && batch.recovery.caption.trim() && <small title={batch.recovery.caption}>{translate("说明")}: {batch.recovery.caption}</small>}
                   </div>
                   <div className="settings-inline-actions">
                     <button type="button" className="storage-reset" disabled={busy || batch.referenced} onClick={() => void run(() => recover(batch))}>{translate("恢复为草稿")}</button>
-                    <button type="button" className="storage-reset storage-item-delete" disabled={busy || batch.referenced} onClick={() => void run(() => attachmentOutbox.remove(batch.id, accountId))}>{translate("删除")}</button>
+                    <button type="button" className="storage-reset storage-item-delete" disabled={busy || batch.referenced} onClick={() => {
+                      if (globalThis.confirm(translate("确定删除此附件恢复批次吗？"))) void run(() => attachmentOutbox.remove(batch.id, accountId));
+                    }}>{translate("删除")}</button>
                   </div>
                 </div>
               ))}

@@ -624,6 +624,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.request({ "@type": "logOut" });
   }
 
+  async loadLocalState(accountId: string) {
+    return (await invoke<import("./types").LocalUnsentState | null>("telegram_read_local_state", { accountId })) ?? undefined;
+  }
+
   async saveLocalState(accountId: string, value: import("./types").LocalUnsentState) {
     if (this.settingsOnly) return;
     await invoke("telegram_write_local_state", { accountId, value });

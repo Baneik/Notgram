@@ -44,6 +44,19 @@ pub(super) fn write(app: &AppHandle, account_id: &str, value: &Value) -> Result<
 }
 
 #[tauri::command]
+pub async fn telegram_read_local_state(
+    app: AppHandle,
+    account_id: String,
+) -> Result<Option<Value>, String> {
+    if super::account::active_account_id(&app)? != account_id {
+        return Err("Account changed during local read".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || read(&app, &account_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn telegram_write_local_state(
     app: AppHandle,
     account_id: String,
