@@ -49,6 +49,29 @@ afterEach(() => {
 });
 
 describe("telegram store", () => {
+  it("routes storage inventory operations through the transport boundary", async () => {
+    class StorageTransport extends MockTelegramTransport {
+      inventoryCalls = 0;
+      backupCalls = 0;
+      override async getStorageInventory() {
+        this.inventoryCalls += 1;
+        return [{ kind: "media", path: "cache", bytes: 12, files: 1, partial: false }];
+      }
+      override async removeMigrationBackup(id: string) {
+        this.backupCalls += 1;
+        expect(id).toBe("backup-1");
+        return 12;
+      }
+    }
+    const transport = new StorageTransport();
+    const store = createTelegramStore(transport);
+    await expect(store.getState().getStorageInventory()).resolves.toEqual([
+      { kind: "media", path: "cache", bytes: 12, files: 1, partial: false },
+    ]);
+    await expect(store.getState().removeMigrationBackup("backup-1")).resolves.toBe(12);
+    expect(transport.inventoryCalls).toBe(1);
+    expect(transport.backupCalls).toBe(1);
+  });
   it("moves cached history and pending state when a group is upgraded", async () => {
     class MigrationTransport extends MockTelegramTransport {
       private eventListener?: TelegramEventListener;

@@ -73,6 +73,7 @@ import type {
   SetMessageReactionInput,
   SetPollAnswerInput,
   SharedMediaSearchInput,
+  StorageLayer,
   StorageSettings,
   StickerSet,
   TelegramAccount,
@@ -2163,7 +2164,7 @@ export class MockTelegramTransport implements TelegramTransport {
     return structuredClone(this.storageSettings);
   }
 
-  async getStorageInventory() {
+  async getStorageInventory(): Promise<StorageLayer[]> {
     return [];
   }
 

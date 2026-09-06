@@ -34,11 +34,17 @@ export function StorageDataPanel({ settings, setSettings, onClose }: {
     if (!isTauri() || !accountId) return;
     let disposed = false;
     setBusy(true);
-    void Promise.all([
+    void Promise.allSettled([
       getStorageInventory(), attachmentOutbox.list(accountId),
     ]).then(([usage, items]) => {
-      if (!disposed) { setLayers(usage); setBatches(items); setError(undefined); }
-    }).catch((cause) => { if (!disposed) setError(String(cause)); })
+      if (disposed) return;
+      const failures: unknown[] = [];
+      if (usage.status === "fulfilled") setLayers(usage.value);
+      else failures.push(usage.reason);
+      if (items.status === "fulfilled") setBatches(items.value);
+      else failures.push(items.reason);
+      setError(failures.length ? failures.map(String).join("; ") : undefined);
+    })
       .finally(() => { if (!disposed) setBusy(false); });
     return () => { disposed = true; };
   }, [accountId, getStorageInventory, revision]);
