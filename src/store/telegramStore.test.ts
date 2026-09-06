@@ -3589,6 +3589,22 @@ describe("chat filtering", () => {
     expect(store.getState().messages.get(bot.chatId)?.find((message) => message.id === bot.id)?.isLocallyDeleted).not.toBe(true);
   });
 
+  it("removes a locally archived message without querying TDLib", async () => {
+    preferencesStore.setState({ deletedMessageArchiveEnabled: true });
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const original = store.getState().messages.get("chat-product")?.find((message) => message.id === "p-1")!;
+    const archived = { ...original, isLocallyDeleted: true, locallyDeletedAt: new Date().toISOString() };
+    store.setState((state) => ({
+      messages: new Map(state.messages).set("chat-product", [archived]),
+    }));
+    const getProperties = vi.spyOn(transport, "getMessageProperties");
+    await expect(store.getState().deleteMessage("p-1", false, "chat-product")).resolves.toBe(true);
+    expect(getProperties).not.toHaveBeenCalled();
+    expect(store.getState().messages.get("chat-product")).toEqual([]);
+  });
+
   it("commits a fetched context once and discards a superseded navigation", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

@@ -4255,6 +4255,14 @@ export const createTelegramStore = (
         const location = messageLocation(messageId, preferredChatId ?? get().activeChatId);
         const chatId = location?.chatId;
         if (!chatId) return false;
+        if (location.message.isLocallyDeleted) {
+          const messages = new Map(get().messages);
+          messages.set(chatId, (messages.get(chatId) ?? []).filter((message) => message.id !== messageId));
+          set({ messages, operationError: undefined });
+          sharedMediaIndex.remove(chatId, [messageId]);
+          scheduleCacheWrite();
+          return true;
+        }
         try {
           if (!await verifyDeleteScope(chatId, [messageId], revoke)) return false;
           await transport.deleteMessage({ chatId, messageId, revoke });

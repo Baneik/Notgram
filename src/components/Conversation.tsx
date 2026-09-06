@@ -1403,9 +1403,9 @@ export function Conversation({
     ? {
         ...actionMessage,
         permissions: {
-          canReply: true,
-          canEdit: false,
-          canDeleteOnlyForSelf: false,
+        canReply: true,
+        canEdit: false,
+        canDeleteOnlyForSelf: true,
           canDeleteForAllUsers: false,
           canForward: true,
         },
@@ -1453,7 +1453,11 @@ export function Conversation({
       ? `${localReplyAuthor}:\n${localReplyText}\n\n`
       : "";
     const localReplyEntities: MessageTextEntity[] = localOnlyReply && localReplyText
-      ? [{ offset: localReplyAuthor.length + 1, length: localReplyText.length, kind: "blockquote" }]
+      ? [{
+          offset: 0,
+          length: `${localReplyAuthor}:\n${localReplyText}`.length,
+          kind: "blockquote",
+        }]
       : [];
     return onSendMessage(
       `${localReplyPrefix}${text}`,
@@ -3043,8 +3047,13 @@ export function Conversation({
             ? () => void repeatMessage(actionMessageForMenu)
             : undefined}
           onDelete={() => {
-            setDeleteTarget(actionMessageForMenu);
-            setActionMenu(undefined);
+            if (actionMessageForMenu.isLocallyDeleted) {
+              setActionMenu(undefined);
+              void onDeleteMessage(actionMessageForMenu.id, false, actionMessageForMenu.chatId);
+            } else {
+              setDeleteTarget(actionMessageForMenu);
+              setActionMenu(undefined);
+            }
           }}
           onPin={actionMessageForMenu.permissions?.canPin ? () => { void openPinDialog(actionMessageForMenu); } : undefined}
           onUnpin={actionMessageForMenu.permissions?.canPin ? () => { void unpinFromMenu(actionMessageForMenu); } : undefined}
