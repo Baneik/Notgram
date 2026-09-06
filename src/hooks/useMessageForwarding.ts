@@ -137,7 +137,12 @@ export const useMessageForwarding = ({
     }
     if (selectedIds.size >= 100 || loadingIds.has(message.id)) return;
 
-    let permissions = message.permissions;
+    // A locally archived deletion no longer exists in TDLib, so asking for
+    // operation properties would return 400. It remains selectable because
+    // the local copy is still valid input for text copy/forward fallback.
+    let permissions = message.isLocallyDeleted
+      ? { canForward: true } as MessagePermissions
+      : message.permissions;
     if (!permissions) {
       setLoadingIds((current) => new Set(current).add(message.id));
       permissions = await onLoadMessageProperties(message.chatId, message.id);
@@ -161,7 +166,7 @@ export const useMessageForwarding = ({
       message.permissions?.canForward !== false);
     if (candidates.length === 0) return;
 
-    const unresolved = candidates.filter((message) => !message.permissions &&
+    const unresolved = candidates.filter((message) => !message.isLocallyDeleted && !message.permissions &&
       !selectionPermissionRequestsRef.current.has(message.id));
     const resolvedPermissions = new Map<string, MessagePermissions | undefined>();
     if (unresolved.length > 0) {
@@ -182,7 +187,7 @@ export const useMessageForwarding = ({
       });
     }
     const permitted = candidates.filter((message) =>
-      (message.permissions ?? resolvedPermissions.get(message.id))?.canForward === true
+      message.isLocallyDeleted || (message.permissions ?? resolvedPermissions.get(message.id))?.canForward === true
     );
     if (permitted.length === 0) return;
     setSelectedIds((current) => {

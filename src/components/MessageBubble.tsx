@@ -666,7 +666,6 @@ function MessageBubbleComponent({
   ]);
 
   const selectionDisabled = selectionPending ||
-    message.isLocallyDeleted === true ||
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
 
@@ -767,7 +766,7 @@ function MessageBubbleComponent({
       <div
         className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${channelPost ? "is-channel-post-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
         style={visualShellStyle}
-        tabIndex={!locallyConcealed && !selectionMode && !isService && !message.isLocallyDeleted ? 0 : undefined}
+        tabIndex={!locallyConcealed && !selectionMode && !isService ? 0 : undefined}
         onPointerDown={(event) => {
           contextReplyQuoteRef.current = event.button === 2
             ? selectedReplyQuoteFor(event.currentTarget)
@@ -777,7 +776,7 @@ function MessageBubbleComponent({
         onContextMenu={(event) => {
           if (developerMode && event.ctrlKey && event.button === 2) return;
           event.preventDefault();
-          if (isService || message.isLocallyDeleted) return;
+          if (isService) return;
           if (selectionMode) void onToggleSelection(message);
           else {
             const replyQuote = contextReplyQuoteRef.current ?? selectedReplyQuoteFor(event.currentTarget);
@@ -786,7 +785,7 @@ function MessageBubbleComponent({
           }
         }}
         onKeyDown={(event) => {
-          if (selectionMode || isService || message.isLocallyDeleted) return;
+          if (selectionMode || isService) return;
           if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
           event.preventDefault();
           const bounds = event.currentTarget.getBoundingClientRect();

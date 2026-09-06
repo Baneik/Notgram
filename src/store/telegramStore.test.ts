@@ -3521,6 +3521,74 @@ describe("chat filtering", () => {
     ]);
   });
 
+  it("does not archive bot deletions and preserves hydrated media when archiving", async () => {
+    class RemoteDeleteTransport extends MockTelegramTransport {
+      private eventListener?: TelegramEventListener;
+
+      override async connect(listener: TelegramEventListener) {
+        this.eventListener = listener;
+        return super.connect(listener);
+      }
+
+      dispatch(event: TelegramEvent) {
+        this.eventListener?.(event);
+      }
+    }
+
+    preferencesStore.setState({ deletedMessageArchiveEnabled: true });
+    const transport = new RemoteDeleteTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const source = store.getState().messages.get("chat-product")?.find((message) =>
+      message.content.kind === "media" && message.content.mediaType === "photo",
+    ) as (Message & { content: Extract<Message["content"], { kind: "media" }> }) | undefined;
+    expect(source).toBeDefined();
+    const hydrated = {
+      ...source!,
+      content: {
+        ...source!.content,
+        localPath: "C:/cache/already-downloaded.jpg",
+        isDownloaded: true,
+        downloadedSize: 42,
+      },
+    };
+    store.setState((state) => ({
+      users: new Map(state.users).set(hydrated.senderId, {
+        ...state.users.get(hydrated.senderId)!,
+        isBot: false,
+      }),
+      messages: new Map(state.messages).set(hydrated.chatId, [hydrated]),
+    }));
+    transport.dispatch({
+      type: "message.remove",
+      chatId: hydrated.chatId,
+      messageId: hydrated.id,
+      permanent: true,
+      fromCache: false,
+      source: "remote",
+      preservedMessage: { ...hydrated, content: { ...hydrated.content, localPath: undefined, isDownloaded: false } },
+    });
+    const preserved = store.getState().messages.get(hydrated.chatId)?.find((message) => message.id === hydrated.id);
+    expect(preserved?.isLocallyDeleted).toBe(true);
+    expect(preserved?.content).toMatchObject({ localPath: "C:/cache/already-downloaded.jpg", isDownloaded: true });
+
+    const bot = { ...hydrated, id: `${hydrated.id}-bot`, senderId: "u-notgram-bot" };
+    store.setState((state) => ({
+      users: new Map(state.users).set("u-notgram-bot", { ...state.users.get(hydrated.senderId)!, isBot: true }),
+      messages: new Map(state.messages).set(bot.chatId, [...(state.messages.get(bot.chatId) ?? []), bot]),
+    }));
+    transport.dispatch({
+      type: "message.remove",
+      chatId: bot.chatId,
+      messageId: bot.id,
+      permanent: true,
+      fromCache: false,
+      source: "remote",
+      preservedMessage: bot,
+    });
+    expect(store.getState().messages.get(bot.chatId)?.find((message) => message.id === bot.id)?.isLocallyDeleted).not.toBe(true);
+  });
+
   it("commits a fetched context once and discards a superseded navigation", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

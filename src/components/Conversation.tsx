@@ -1396,6 +1396,21 @@ export function Conversation({
   const actionMessage = actionMenu
     ? messagesById.get(actionMenu.messageId)
     : undefined;
+  // The server-side message is gone by definition, so operation permissions
+  // cannot be loaded for an archived copy. Keep the safe local actions
+  // available and let forwarding/replying use their local fallbacks.
+  const actionMessageForMenu = actionMessage?.isLocallyDeleted
+    ? {
+        ...actionMessage,
+        permissions: {
+          canReply: true,
+          canEdit: false,
+          canDeleteOnlyForSelf: false,
+          canDeleteForAllUsers: false,
+          canForward: true,
+        },
+      }
+    : actionMessage;
   const actionAlbumMessageIds = actionMessage
     ? mediaAlbumMessagesFor(renderedMessages, actionMessage).map((message) => message.id)
     : [];
@@ -1426,8 +1441,28 @@ export function Conversation({
     disableNotification?: boolean,
   ) => {
     jumpToLatest("auto");
-    return onSendMessage(text, replyToMessageId, selectedReplyQuote, entities, disableNotification);
-  }, [jumpToLatest, onSendMessage]);
+    const localReply = replyToMessageId
+      ? messagesByIdRef.current.get(replyToMessageId)
+      : undefined;
+    const localOnlyReply = localReply?.isLocallyDeleted === true;
+    const localReplyText = localOnlyReply ? messageContentText(localReply.content).trim() : "";
+    const localReplyAuthor = localOnlyReply && chat
+      ? senderNameForMessage(localReply, users, chat, forwardTargetsById)
+      : "";
+    const localReplyPrefix = localOnlyReply && localReplyText
+      ? `${localReplyAuthor}:\n${localReplyText}\n\n`
+      : "";
+    const localReplyEntities: MessageTextEntity[] = localOnlyReply && localReplyText
+      ? [{ offset: localReplyAuthor.length + 1, length: localReplyText.length, kind: "blockquote" }]
+      : [];
+    return onSendMessage(
+      `${localReplyPrefix}${text}`,
+      localOnlyReply ? undefined : replyToMessageId,
+      localOnlyReply ? undefined : selectedReplyQuote,
+      localOnlyReply ? [...localReplyEntities, ...(entities ?? []).map((entity) => ({ ...entity, offset: entity.offset + localReplyPrefix.length }))] : entities,
+      disableNotification,
+    );
+  }, [chat, forwardTargetsById, jumpToLatest, onSendMessage, users]);
 
   const sendFilesAndFollowLatest = useCallback(async (
     attachments: import("../telegram/types").OutgoingAttachment[],
@@ -1438,12 +1473,15 @@ export function Conversation({
     disableNotification?: boolean,
   ) => {
     jumpToLatest("auto");
+    const localOnlyReply = replyToMessageId
+      ? messagesByIdRef.current.get(replyToMessageId)?.isLocallyDeleted === true
+      : false;
     return onSendFiles(
       attachments,
       caption,
       captionEntities,
-      replyToMessageId,
-      selectedReplyQuote,
+      localOnlyReply ? undefined : replyToMessageId,
+      localOnlyReply ? undefined : selectedReplyQuote,
       disableNotification,
     );
   }, [jumpToLatest, onSendFiles]);
@@ -2051,6 +2089,10 @@ export function Conversation({
       replyQuote: selectedReplyQuote,
       keyboardNavigation,
     });
+    if (message.isLocallyDeleted) {
+      setActionLoadingId(undefined);
+      return;
+    }
     if (actionLoadingId === message.id) return;
     setActionLoadingId(message.id);
     await loadMessageActionPermissions({
@@ -2974,19 +3016,19 @@ export function Conversation({
         />
       )}
 
-      {actionMenu && actionMessage && (
+      {actionMenu && actionMessageForMenu && (
         <MessageActionMenu
           position={actionMenu}
-          message={actionMessage}
-          loading={actionLoadingId === actionMessage.id}
+          message={actionMessageForMenu}
+          loading={actionLoadingId === actionMessageForMenu.id}
           keyboardNavigation={actionMenu.keyboardNavigation}
-          onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
-          onEdit={() => startEditing(actionMessage)}
-          onForward={() => openForwardDialog([actionMessage.id])}
+          onReply={() => startReply(actionMessageForMenu, actionMenu.replyQuote)}
+          onEdit={() => startEditing(actionMessageForMenu)}
+          onForward={() => openForwardDialog([actionMessageForMenu.id])}
           forwardTargets={actionForwardTargets}
           onQuickForward={(target) => {
             closeActionMenu(false);
-            void forwarding.quickForward([actionMessage.id], target);
+            void forwarding.quickForward([actionMessageForMenu.id], target);
           }}
           onForwardAlbum={actionAlbumMessageIds.length > 1
             ? () => openForwardDialog(actionAlbumMessageIds)
@@ -2997,28 +3039,28 @@ export function Conversation({
                 void forwarding.quickForward(actionAlbumMessageIds, target);
               }
             : undefined}
-          onRepeat={chat.kind === "group" && topic?.isClosed !== true && !actionMessage.outgoing
-            ? () => void repeatMessage(actionMessage)
+          onRepeat={chat.kind === "group" && topic?.isClosed !== true && !actionMessageForMenu.outgoing
+            ? () => void repeatMessage(actionMessageForMenu)
             : undefined}
           onDelete={() => {
-            setDeleteTarget(actionMessage);
+            setDeleteTarget(actionMessageForMenu);
             setActionMenu(undefined);
           }}
-          onPin={actionMessage.permissions?.canPin ? () => { void openPinDialog(actionMessage); } : undefined}
-          onUnpin={actionMessage.permissions?.canPin ? () => { void unpinFromMenu(actionMessage); } : undefined}
-          onPlayInWindow={actionMessage.content.kind === "media" &&
-            ["video", "videoNote"].includes(actionMessage.content.mediaType)
+          onPin={actionMessageForMenu.permissions?.canPin ? () => { void openPinDialog(actionMessageForMenu); } : undefined}
+          onUnpin={actionMessageForMenu.permissions?.canPin ? () => { void unpinFromMenu(actionMessageForMenu); } : undefined}
+          onPlayInWindow={actionMessageForMenu.content.kind === "media" &&
+            ["video", "videoNote"].includes(actionMessageForMenu.content.mediaType)
             ? () => {
                 closeActionMenu(false);
-                requestVideoWindowPlayback(`${actionMessage.chatId}:${actionMessage.id}`);
+                requestVideoWindowPlayback(`${actionMessageForMenu.chatId}:${actionMessageForMenu.id}`);
               }
             : undefined}
-          onDownload={(actionMessage.content.kind === "media" || actionMessage.content.kind === "file") &&
-            actionMessage.content.fileId !== undefined &&
-            actionMessage.content.canDownload !== false &&
-            actionMessage.content.isDownloading !== true
+          onDownload={(actionMessageForMenu.content.kind === "media" || actionMessageForMenu.content.kind === "file") &&
+            actionMessageForMenu.content.fileId !== undefined &&
+            actionMessageForMenu.content.canDownload !== false &&
+            actionMessageForMenu.content.isDownloading !== true
             ? () => {
-              const content = actionMessage.content;
+              const content = actionMessageForMenu.content;
                 if ((content.kind !== "media" && content.kind !== "file") || content.fileId === undefined) return;
                 closeActionMenu(false);
                 void onDownloadFile(
@@ -3027,12 +3069,14 @@ export function Conversation({
                 );
               }
             : undefined}
-          onCopy={() => void copyMessage(actionMessage)}
+          onCopy={() => void copyMessage(actionMessageForMenu)}
           onSelect={() => {
-            forwarding.startSelection(actionMessage);
+            forwarding.startSelection(actionMessageForMenu);
             setActionMenu(undefined);
           }}
-          onReport={() => { setReportTarget(actionMessage); setActionMenu(undefined); }}
+          onReport={!actionMessageForMenu.isLocallyDeleted
+            ? () => { setReportTarget(actionMessageForMenu); setActionMenu(undefined); }
+            : undefined}
           onDismiss={() => closeActionMenu(false)}
           onClose={() => closeActionMenu(true)}
         />

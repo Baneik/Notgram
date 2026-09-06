@@ -4,7 +4,7 @@ import { removeAccountLocalBlocks } from "./localUserBlocks";
 import { removeAccountActivity } from "./conversationActivity";
 import { removeAccountDownloads } from "../utils/downloadManager";
 import { translate } from "../i18n";
-import { isCaptionContent } from "../telegram/messageContent";
+import { isCaptionContent, messageContentText } from "../telegram/messageContent";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isTauri } from "@tauri-apps/api/core";
@@ -16,6 +16,7 @@ import type {
   ChatManagement,
   ChatManagementCapabilities,
   ChatDraft,
+  ForwardMessagesResult,
   Message,
   MessagePermissions,
   QueuedOutgoingMessage,
@@ -1889,10 +1890,37 @@ export const createTelegramStore = (
           preferencesStore.getState().deletedMessageArchiveEnabled &&
           event.source === "remote" &&
           event.permanent === true &&
-          canArchiveDeletedMessage(event.preservedMessage)
+          canArchiveDeletedMessage(event.preservedMessage) &&
+          get().users.get(event.preservedMessage!.senderId)?.isBot !== true
         ) {
+          const existing = get().messages.get(event.chatId)
+            ?.find((message) => message.id === event.messageId);
+          // TDLib's deletion update may carry a fresh file object whose local
+          // path/download flag is stale. Preserve the already hydrated media
+          // snapshot from our message cache before marking it deleted.
+          const preservedContent = event.preservedMessage!.content;
+          const existingContent = existing?.content;
+          const mergedContent = existingContent?.kind === "media" && preservedContent.kind === "media"
+            ? {
+                ...preservedContent,
+                localPath: existingContent.localPath ?? preservedContent.localPath,
+                thumbnailPath: existingContent.thumbnailPath ?? preservedContent.thumbnailPath,
+                isDownloaded: existingContent.isDownloaded || preservedContent.isDownloaded,
+                downloadedSize: Math.max(existingContent.downloadedSize ?? 0, preservedContent.downloadedSize ?? 0),
+                progress: existingContent.progress ?? preservedContent.progress,
+              }
+            : existingContent?.kind === "file" && preservedContent.kind === "file"
+              ? {
+                  ...preservedContent,
+                  localPath: existingContent.localPath ?? preservedContent.localPath,
+                  isDownloaded: existingContent.isDownloaded || preservedContent.isDownloaded,
+                  downloadedSize: Math.max(existingContent.downloadedSize ?? 0, preservedContent.downloadedSize ?? 0),
+                  progress: existingContent.progress ?? preservedContent.progress,
+                }
+              : preservedContent;
           const archived = {
             ...event.preservedMessage!,
+            content: mergedContent,
             isLocallyDeleted: true,
             locallyDeletedAt: new Date().toISOString(),
             permissions: undefined,
@@ -1902,6 +1930,7 @@ export const createTelegramStore = (
           const messages = new Map(get().messages);
           messages.set(event.chatId, upsertMessage(messages.get(event.chatId) ?? [], archived));
           set({ messages, unreadAttentionMessageIds });
+          maybeAutoCacheArchivePhoto(archived);
           publishMessageChange({ type: "upsert", messages: [archived], liveMessages: [] });
           void flushCachedSnapshot().catch(() => set({ cacheHealth: "invalid" }));
           return;
@@ -3886,13 +3915,16 @@ export const createTelegramStore = (
           set({ operationError: translate("联网后才能发送贴纸") });
           return false;
         }
+        const localOnlyReply = replyToMessageId
+          ? get().messages.get(chatId)?.some((message) => message.id === replyToMessageId && message.isLocallyDeleted) === true
+          : false;
         try {
           await transport.sendSticker({
             chatId,
             topicId,
             asset,
-            replyToMessageId,
-            replyQuote: replyToMessageId ? replyQuote : undefined,
+            replyToMessageId: localOnlyReply ? undefined : replyToMessageId,
+            replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined,
             disableNotification,
           });
           if (get().activeAccountId !== accountId) return false;
@@ -3915,13 +3947,16 @@ export const createTelegramStore = (
           set({ operationError: translate("联网后才能发送 GIF") });
           return false;
         }
+        const localOnlyReply = replyToMessageId
+          ? get().messages.get(chatId)?.some((message) => message.id === replyToMessageId && message.isLocallyDeleted) === true
+          : false;
         try {
           await transport.sendAnimation({
             chatId,
             topicId,
             asset,
-            replyToMessageId,
-            replyQuote: replyToMessageId ? replyQuote : undefined,
+            replyToMessageId: localOnlyReply ? undefined : replyToMessageId,
+            replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined,
             disableNotification,
           });
           recordConversationSentMessages(get().activeAccountId, chatId);
@@ -4242,8 +4277,41 @@ export const createTelegramStore = (
           set({ operationError: translate("单次最多转发 100 条消息") });
           return undefined;
         }
+        const sourceMessages = get().messages.get(fromChatId) ?? [];
+        const archivedMessages = uniqueMessageIds
+          .map((id) => sourceMessages.find((message) => message.id === id))
+          .filter((message): message is Message => Boolean(message?.isLocallyDeleted));
+        const liveMessageIds = uniqueMessageIds.filter((id) =>
+          !archivedMessages.some((message) => message.id === id),
+        );
         try {
-          const result = await transport.forwardMessages({ fromChatId, toChatId, toTopicId, messageIds: uniqueMessageIds });
+          const result: ForwardMessagesResult = liveMessageIds.length > 0
+            ? await transport.forwardMessages({ fromChatId, toChatId, toTopicId, messageIds: liveMessageIds })
+            : { forwardedCount: 0, failedMessageIds: [] };
+          // A permanently deleted Telegram message cannot be addressed by
+          // inputMessageReplyToMessage/forwardMessages. Send its retained
+          // content as a normal message instead, keeping the operation usable
+          // and avoiding the 400 "message not found" failure.
+          for (const archived of archivedMessages) {
+            const body = messageContentText(archived.content).trim();
+            if (!body) {
+              result.failedMessageIds.push(archived.id);
+              continue;
+            }
+            const author = get().users.get(archived.senderId)?.displayName ?? translate("Telegram 用户");
+            try {
+              await transport.sendMessage({
+                chatId: toChatId,
+                topicId: toTopicId,
+                text: `${author}:\n${body}`,
+                entities: [{ offset: author.length + 1, length: body.length, kind: "blockquote" }],
+                clearDraft: false,
+              });
+              result.forwardedCount += 1;
+            } catch {
+              result.failedMessageIds.push(archived.id);
+            }
+          }
           const normalizedDescription = description?.trim();
           let descriptionError: string | undefined;
           if (result.forwardedCount > 0 && normalizedDescription) {
