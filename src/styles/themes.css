@@ -100,11 +100,11 @@
 }
 
 [data-theme="notgram-light"][data-background-style="soft"] {
-  --color-surface-texture: radial-gradient(circle at 14% 18%, rgba(63, 114, 155, 0.055) 0 1px, transparent 1.5px), radial-gradient(circle at 78% 64%, rgba(90, 112, 106, 0.045) 0 1px, transparent 1.5px);
+  --color-surface-texture: linear-gradient(135deg, rgba(63, 114, 155, 0.075), transparent 38%, rgba(90, 112, 106, 0.06) 72%, transparent), radial-gradient(circle at 14% 18%, rgba(63, 114, 155, 0.11) 0 1.2px, transparent 1.8px), radial-gradient(circle at 78% 64%, rgba(90, 112, 106, 0.09) 0 1.2px, transparent 1.8px);
 }
 
 [data-theme="notgram-dark"][data-background-style="soft"] {
-  --color-surface-texture: radial-gradient(circle at 14% 18%, rgba(120, 167, 200, 0.06) 0 1px, transparent 1.5px), radial-gradient(circle at 78% 64%, rgba(127, 175, 145, 0.045) 0 1px, transparent 1.5px);
+  --color-surface-texture: linear-gradient(135deg, rgba(120, 167, 200, 0.11), transparent 38%, rgba(127, 175, 145, 0.08) 72%, transparent), radial-gradient(circle at 14% 18%, rgba(120, 167, 200, 0.13) 0 1.2px, transparent 1.8px), radial-gradient(circle at 78% 64%, rgba(127, 175, 145, 0.1) 0 1.2px, transparent 1.8px);
 }
 
 @media (forced-colors: active) {

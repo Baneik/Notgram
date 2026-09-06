@@ -73,6 +73,12 @@ interface PreferencesState extends AppPreferences {
 }
 
 const STORAGE_KEY = "notgram:preferences:v1";
+const LEGACY_DENSITY_DEFAULTS = {
+  chatListRowHeight: 74,
+  messageGroupSpacing: 10,
+  messageRowSpacing: 1,
+  messageBubblePadding: 8,
+} as const;
 const defaults: AppPreferences = {
   language: "system",
   notificationsEnabled: true,
@@ -98,10 +104,10 @@ const defaults: AppPreferences = {
   reduceMotion: false,
   chatFontSize: 14,
   interfaceScale: 100,
-  chatListRowHeight: 74,
-  messageGroupSpacing: 10,
+  chatListRowHeight: 68,
+  messageGroupSpacing: 4,
   messageRowSpacing: 1,
-  messageBubblePadding: 8,
+  messageBubblePadding: 4,
   unreadBadgePosition: "right",
   themeId: "notgram-light",
   backgroundStyle: "plain",
@@ -122,6 +128,11 @@ const readPreferences = (): AppPreferences => {
       sendTypingStatus?: boolean;
     };
     const legacyCompact = stored.compactMode === true;
+    const legacyDensityDefaults = stored.chatListRowHeight === LEGACY_DENSITY_DEFAULTS.chatListRowHeight &&
+      stored.messageGroupSpacing === LEGACY_DENSITY_DEFAULTS.messageGroupSpacing &&
+      stored.messageRowSpacing === LEGACY_DENSITY_DEFAULTS.messageRowSpacing &&
+      stored.messageBubblePadding === LEGACY_DENSITY_DEFAULTS.messageBubblePadding;
+    const storedDensity = legacyDensityDefaults ? undefined : stored;
     const blockTypingStatus = stored.blockTypingStatus ?? (
       stored.sendTypingStatus === undefined
         ? defaults.blockTypingStatus
@@ -171,25 +182,25 @@ const readPreferences = (): AppPreferences => {
       chatFontSize: boundedInteger(stored.chatFontSize, defaults.chatFontSize, 12, 20),
       interfaceScale: boundedInteger(stored.interfaceScale, defaults.interfaceScale, 80, 150),
       chatListRowHeight: boundedInteger(
-        stored.chatListRowHeight,
+        storedDensity?.chatListRowHeight,
         legacyCompact ? 60 : defaults.chatListRowHeight,
         56,
         88,
       ),
       messageGroupSpacing: boundedInteger(
-        stored.messageGroupSpacing,
+        storedDensity?.messageGroupSpacing,
         legacyCompact ? 5 : defaults.messageGroupSpacing,
         4,
         18,
       ),
       messageRowSpacing: boundedInteger(
-        stored.messageRowSpacing,
+        storedDensity?.messageRowSpacing,
         defaults.messageRowSpacing,
         0,
         6,
       ),
       messageBubblePadding: boundedInteger(
-        stored.messageBubblePadding,
+        storedDensity?.messageBubblePadding,
         legacyCompact ? 6 : defaults.messageBubblePadding,
         4,
         12,
