@@ -92,7 +92,7 @@ describe("TdRequestBroker prepared files", () => {
     });
 
     await expect(broker.requestPreparedFile("7", reportError)).resolves.toBe(true);
-    expect(reportError).toHaveBeenCalledWith(new Error("UPLOAD_FAILED (400)"));
+    expect(reportError).toHaveBeenCalledWith(expect.objectContaining({ message: "UPLOAD_FAILED (400)", code: 400 }));
   });
 
   it("clears the prepared correlation when selection is cancelled", async () => {

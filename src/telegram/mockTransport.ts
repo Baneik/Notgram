@@ -1675,6 +1675,10 @@ export class MockTelegramTransport implements TelegramTransport {
     });
   }
 
+  resetSyncState() {
+    this.historyOffsets.clear();
+  }
+
   async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
     const history = this.snapshot.messages
       .filter((message) => message.chatId === chatId)

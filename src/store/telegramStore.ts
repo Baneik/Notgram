@@ -8,6 +8,7 @@ import { isCaptionContent } from "../telegram/messageContent";
 import { retainedMessageQuote, retainHydratedContent, updateRetainedMessageFile } from "../telegram/retainedMessages";
 import { senderNameForMessage } from "../components/conversationMessages";
 import { RetainedMessageIndex } from "./retainedMessageIndex";
+import { SyncRetryQueue } from "../telegram/syncRetryQueue";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isTauri } from "@tauri-apps/api/core";
@@ -44,6 +45,7 @@ import {
 import {
   messageMapFrom,
   pendingCachedIdsAfterConfirmation,
+  reachedCachedHistoryBoundary,
   replaceMessage,
   upsertMessage,
   upsertMessages,
@@ -233,8 +235,19 @@ export const createTelegramStore = (
     let cacheDirtySince: number | undefined;
     let cacheWrite = Promise.resolve();
     const cachedMessageIds = new Map<string, Set<string>>();
+    const rememberCachedMessage = (message: Message, isForum = get().chats.get(message.chatId)?.isForum) => {
+      if (message.isLocallyDeleted || message.isPending || message.delivery === "sending" || message.delivery === "failed") return;
+      const key = topicKey(message.chatId, isForum ? message.topicId : undefined);
+      const ids = cachedMessageIds.get(key) ?? new Set<string>();
+      ids.add(message.id);
+      cachedMessageIds.set(key, ids);
+    };
     let accountTransition = false;
     let accountGeneration = 0;
+    let syncGeneration = 0;
+    let hasConnected = false;
+    const syncRetries = new SyncRetryQueue(() =>
+      get().authorization.kind === "ready" && get().connectionStatus === "online");
     // Conversation work has a shorter lifetime than the authenticated account.
     // Keep it separate so a fast chat switch can retire pending navigation work
     // without tearing down the whole TDLib session.
@@ -875,6 +888,10 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      syncGeneration += 1;
+      hasConnected = false;
+      syncRetries.clear();
+      forumController.reset();
       cancelScheduledCacheWrite();
       if (localSaveTimer) globalThis.clearTimeout(localSaveTimer);
       localSaveTimer = undefined;
@@ -1031,9 +1048,7 @@ export const createTelegramStore = (
       const outbox = snapshot.outbox ?? [];
       cachedMessageIds.clear();
       for (const message of snapshot.messages) {
-        const ids = cachedMessageIds.get(message.chatId) ?? new Set<string>();
-        ids.add(message.id);
-        cachedMessageIds.set(message.chatId, ids);
+        rememberCachedMessage(message, chats.get(message.chatId)?.isForum);
       }
       for (const [id, chat] of current.chats) chats.set(id, chat);
       for (const [id, user] of current.users) users.set(id, user);
@@ -1139,6 +1154,7 @@ export const createTelegramStore = (
       ) return Promise.resolve();
       const current = get().histories.get(chatId);
       const generation = accountGeneration;
+      const sync = syncGeneration;
       const navigationGeneration = conversationGeneration;
       if (
         current?.loading ||
@@ -1160,7 +1176,7 @@ export const createTelegramStore = (
         // The snapshot is immediately usable. Refresh the server window in
         // the background without keeping the conversation switch trace open.
         queueMicrotask(() => {
-          if (generation === accountGeneration) void loadHistory(chatId, "older", { background: true });
+          if (generation === accountGeneration && sync === syncGeneration) void loadHistory(chatId, "older", { background: true });
         });
         return Promise.resolve();
       }
@@ -1185,7 +1201,9 @@ export const createTelegramStore = (
       const load = (async () => {
         try {
           const page = await transport.loadChatHistory(chatId, 30);
-          if (generation !== accountGeneration) return;
+          if (generation !== accountGeneration || sync !== syncGeneration) return;
+
+          syncRetries.complete(`history:${chatId}`);
 
           // The first page is enough to render the conversation. Cache-boundary
           // verification is deliberately detached from the visible loading state
@@ -1216,6 +1234,7 @@ export const createTelegramStore = (
               page.hasMore,
               generation,
               navigationGeneration,
+              sync,
             );
           }
           markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: false });
@@ -1236,7 +1255,7 @@ export const createTelegramStore = (
           });
           scheduleCacheWrite();
         } catch (error) {
-          if (generation !== accountGeneration) return;
+          if (generation !== accountGeneration || sync !== syncGeneration) return;
           const nextHistories = new Map(get().histories);
           nextHistories.set(chatId, {
             loading: false,
@@ -1247,6 +1266,7 @@ export const createTelegramStore = (
             histories: nextHistories,
             operationError: error instanceof Error ? error.message : translate("无法加载历史消息"),
           });
+          syncRetries.schedule(`history:${chatId}`, () => loadHistory(chatId, "older", options), error);
           markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: true });
           logPerformance("ui_history_data", {
             durationMs: performance.now() - startedAt,
@@ -1277,8 +1297,15 @@ export const createTelegramStore = (
       initialHasMore: boolean,
       generation: number,
       navigationGeneration: number,
+      sync: number,
+      topicId?: string,
     ) => {
-      const existing = cacheBoundaryPromises.get(chatId);
+      const key = topicKey(chatId, topicId);
+      const retry = () => topicId
+        ? loadForumTopicHistory(chatId, topicId, "older")
+        : loadHistory(chatId, "older", { background: true });
+      const retryKey = topicId ? `topic:${key}` : `history:${chatId}`;
+      const existing = cacheBoundaryPromises.get(key);
       if (existing) return existing;
       const confirmation = (async () => {
         const confirmationStartedAt = performance.now();
@@ -1289,24 +1316,27 @@ export const createTelegramStore = (
         // bounded and out of the visible history loading state.
         while (
           [...pendingCachedIds].some((messageId) => !confirmedIds.has(messageId)) &&
+          !reachedCachedHistoryBoundary(pendingCachedIds, confirmedIds) &&
           hasMore &&
           continuationPages < 8
         ) {
-          if (navigationGeneration !== conversationGeneration) return;
+          if (navigationGeneration !== conversationGeneration || generation !== accountGeneration || sync !== syncGeneration) return;
           continuationPages += 1;
           const confirmedBefore = confirmedIds.size;
-          const continuation = await transport.loadChatHistory(chatId, 30);
-          if (generation !== accountGeneration) return;
+          const continuation = await (topicId
+            ? transport.loadForumTopicHistory(chatId, topicId, 30)
+            : transport.loadChatHistory(chatId, 30));
+          if (generation !== accountGeneration || sync !== syncGeneration) return;
           // The transport has committed this cursor. Commit its data even when
           // the user switched conversations while the request was in flight.
           const merged = mergeHistoryPage(continuation.messages ?? []);
-          const histories = new Map(get().histories);
-          histories.set(chatId, {
-            loading: histories.get(chatId)?.loading ?? false,
+          const histories = new Map(topicId ? get().topicHistories : get().histories);
+          histories.set(key, {
+            loading: histories.get(key)?.loading ?? false,
             initialized: true,
             hasMore: continuation.hasMore,
           });
-          set({ histories, messages: merged.messages, removingMessages: merged.removingMessages });
+          set({ ...(topicId ? { topicHistories: histories } : { histories }), messages: merged.messages, removingMessages: merged.removingMessages });
           if (continuation.messages?.length) {
             publishMessageChange({ type: "upsert", messages: continuation.messages, liveMessages: [] });
           }
@@ -1316,8 +1346,11 @@ export const createTelegramStore = (
           if (confirmedIds.size === confirmedBefore) break;
         }
         const remainingCachedIds = pendingCachedIdsAfterConfirmation(pendingCachedIds, confirmedIds);
-        if (remainingCachedIds.size === 0) cachedMessageIds.delete(chatId);
-        else cachedMessageIds.set(chatId, remainingCachedIds);
+        if (remainingCachedIds.size === 0) cachedMessageIds.delete(key);
+        else cachedMessageIds.set(key, remainingCachedIds);
+        if (remainingCachedIds.size > 0 && hasMore && !reachedCachedHistoryBoundary(pendingCachedIds, confirmedIds) && navigationGeneration === conversationGeneration) {
+          syncRetries.schedule(retryKey, retry);
+        }
         logPerformance("ui_history_cache_confirmation", {
           durationMs: performance.now() - confirmationStartedAt,
           chatHash: diagnosticChatHash(chatId),
@@ -1325,13 +1358,19 @@ export const createTelegramStore = (
           pageCount: continuationPages + 1,
           loadedCount: confirmedIds.size - initialConfirmedIds.size,
           remainingCachedCount: remainingCachedIds.size,
-          cancelled: generation !== accountGeneration || navigationGeneration !== conversationGeneration,
+          cancelled: (generation !== accountGeneration || sync !== syncGeneration) || navigationGeneration !== conversationGeneration,
         });
         scheduleCacheWrite();
-      })().catch(() => undefined);
-      cacheBoundaryPromises.set(chatId, confirmation);
+      })().catch((error) => {
+        if (generation !== accountGeneration || sync !== syncGeneration) return;
+        set({ operationError: errorMessage(error, translate("无法加载历史消息")) });
+        if (navigationGeneration === conversationGeneration) {
+          syncRetries.schedule(retryKey, retry, error);
+        }
+      });
+      cacheBoundaryPromises.set(key, confirmation);
       void confirmation.finally(() => {
-        if (cacheBoundaryPromises.get(chatId) === confirmation) cacheBoundaryPromises.delete(chatId);
+        if (cacheBoundaryPromises.get(key) === confirmation) cacheBoundaryPromises.delete(key);
       });
       return confirmation;
     };
@@ -1347,6 +1386,8 @@ export const createTelegramStore = (
       ) return;
       const key = topicKey(chatId, topicId);
       const generation = accountGeneration;
+      const sync = syncGeneration;
+      const navigationGeneration = conversationGeneration;
       const current = get().topicHistories.get(key);
       if (current?.loading || current?.hasMore === false || (mode === "ensure" && current?.initialized)) return;
       const topicHistories = new Map(get().topicHistories);
@@ -1354,7 +1395,8 @@ export const createTelegramStore = (
       set({ topicHistories });
       try {
         const page = await transport.loadForumTopicHistory(chatId, topicId, 30);
-        if (generation !== accountGeneration) return;
+        if (generation !== accountGeneration || sync !== syncGeneration) return;
+        syncRetries.complete(`topic:${key}`);
         const merged = mergeHistoryPage(page.messages ?? []);
         const next = new Map(get().topicHistories);
         next.set(key, { loading: false, hasMore: page.hasMore, initialized: true });
@@ -1362,19 +1404,53 @@ export const createTelegramStore = (
         if (page.messages?.length) {
           publishMessageChange({ type: "upsert", messages: page.messages, liveMessages: [] });
         }
+        const pendingCachedIds = cachedMessageIds.get(key);
+        if (pendingCachedIds) {
+          void confirmCachedHistory(chatId, pendingCachedIds, new Set(page.messageIds), page.hasMore, generation, navigationGeneration, sync, topicId);
+        }
         scheduleCacheWrite();
       } catch (error) {
-        if (generation !== accountGeneration) return;
+        if (generation !== accountGeneration || sync !== syncGeneration) return;
         const next = new Map(get().topicHistories);
         next.set(key, { loading: false, hasMore: true, initialized: current?.initialized ?? false });
+        syncRetries.schedule(`topic:${key}`, () => loadForumTopicHistory(chatId, topicId, "older"), error);
         set({ topicHistories: next, operationError: errorMessage(error, translate("无法加载话题消息")) });
       }
     };
 
+    const invalidateSyncState = () => {
+      syncGeneration += 1;
+      syncRetries.clear();
+      transport.resetSyncState();
+      forumController.reset();
+      historyLoadPromises.clear();
+      cacheBoundaryPromises.clear();
+      cachedMessageIds.clear();
+      for (const messages of get().messages.values()) {
+        for (const message of messages) rememberCachedMessage(message);
+      }
+      forumTopicsRefreshedAt.clear();
+      set({ histories: new Map(), topicHistories: new Map(), chatLists: new Map() });
+    };
+
+    const refreshVisibleData = () => {
+      if (get().authorization.kind !== "ready" || get().connectionStatus !== "online") return;
+      void loadChats();
+      const { activeChatId, activeTopicId, chats } = get();
+      if (!activeChatId) return;
+      if (chats.get(activeChatId)?.isForum) {
+        if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
+        void refreshForumConversation(activeChatId, true);
+      } else {
+        void loadHistory(activeChatId, "ensure");
+      }
+    };
+
     const loadChats = async (chatListId = get().chatFilter) => {
-      if (get().authorization.kind !== "ready") return;
+      if (get().authorization.kind !== "ready" || get().connectionStatus !== "online") return;
       const current = get().chatLists.get(chatListId);
       const generation = accountGeneration;
+      const sync = syncGeneration;
       if (current?.loading || current?.hasMore === false) return;
 
       const chatLists = new Map(get().chatLists);
@@ -1382,15 +1458,17 @@ export const createTelegramStore = (
       set({ chatLists });
       try {
         const page = await transport.loadMoreChats(chatListId, 50);
-        if (generation !== accountGeneration) return;
+        if (generation !== accountGeneration || sync !== syncGeneration) return;
+        syncRetries.complete(`list:${chatListId}`);
         const nextChatLists = new Map(get().chatLists);
         nextChatLists.set(chatListId, { loading: false, hasMore: page.hasMore });
         set({ chatLists: nextChatLists, operationError: undefined });
         scheduleCacheWrite();
       } catch (error) {
-        if (generation !== accountGeneration) return;
+        if (generation !== accountGeneration || sync !== syncGeneration) return;
         const nextChatLists = new Map(get().chatLists);
         nextChatLists.set(chatListId, { loading: false, hasMore: true });
+        syncRetries.schedule(`list:${chatListId}`, () => loadChats(chatListId), error);
         set({
           chatLists: nextChatLists,
           operationError: error instanceof Error ? error.message : translate("无法加载更多会话"),
@@ -1743,9 +1821,24 @@ export const createTelegramStore = (
         return;
       }
 
+      if (event.type === "sync.required") {
+        if (get().authorization.kind === "ready") {
+          invalidateSyncState();
+          refreshVisibleData();
+        }
+        return;
+      }
+
       if (event.type === "connection.changed") {
+        const recovered = event.status === "online" && get().connectionStatus !== "online" && hasConnected;
         set({ connectionStatus: event.status });
         if (event.status === "online") {
+          hasConnected = true;
+          if (recovered) {
+            invalidateSyncState();
+            refreshVisibleData();
+          }
+          draftSync.resumePending();
           void flushOutbox();
           const activeChatId = get().activeChatId;
           if (get().authorization.kind === "ready" && activeChatId) {

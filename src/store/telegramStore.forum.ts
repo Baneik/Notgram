@@ -14,6 +14,7 @@ type StoreSetter = (
 ) => void;
 
 export interface ForumController {
+  reset: () => void;
   loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
   resolveForumTopic: (chatId: string, topicId: string) => Promise<ForumTopic | undefined>;
   createForumTopic: (chatId: string, name: string) => Promise<ForumTopicPage["topics"][number] | undefined>;
@@ -42,11 +43,13 @@ export const createForumController = ({
 }: ForumControllerOptions): ForumController => {
   const pendingLoads = new Map<string, Promise<ForumTopicPage | undefined>>();
   const pendingTopicLoads = new Map<string, Promise<ForumTopic | undefined>>();
+  let generation = 0;
 
   const loadForumTopics: ForumController["loadForumTopics"] = async (chatId, query = "") => {
     if (!get().chats.get(chatId)?.isForum) return undefined;
     const pending = pendingLoads.get(chatId);
     if (pending) return pending;
+    const currentGeneration = generation;
 
     const request = (async () => {
       const loading = new Set(get().forumTopicsLoading);
@@ -54,6 +57,7 @@ export const createForumController = ({
       set({ forumTopicsLoading: loading });
       try {
         const page = await transport.getForumTopics({ chatId, query, limit: 100 });
+        if (currentGeneration !== generation) return undefined;
         const forumTopics = new Map(get().forumTopics);
         forumTopics.set(chatId, page.topics);
         const drafts = new Map(get().drafts);
@@ -67,13 +71,16 @@ export const createForumController = ({
         onTopicsLoaded?.(chatId, query);
         return page;
       } catch (error) {
+        if (currentGeneration !== generation) return undefined;
         set({ operationError: onError(error, translate("无法加载话题列表")) });
         return undefined;
       } finally {
-        pendingLoads.delete(chatId);
-        const latest = new Set(get().forumTopicsLoading);
-        latest.delete(chatId);
-        set({ forumTopicsLoading: latest });
+        if (currentGeneration === generation) {
+          pendingLoads.delete(chatId);
+          const latest = new Set(get().forumTopicsLoading);
+          latest.delete(chatId);
+          set({ forumTopicsLoading: latest });
+        }
       }
     })();
     pendingLoads.set(chatId, request);
@@ -102,14 +109,22 @@ export const createForumController = ({
   };
 
   return {
+    reset: () => {
+      generation += 1;
+      pendingLoads.clear();
+      pendingTopicLoads.clear();
+      set({ forumTopicsLoading: new Set() });
+    },
     loadForumTopics,
     resolveForumTopic: async (chatId, topicId) => {
+      const currentGeneration = generation;
       const key = topicKey(chatId, topicId);
       const pending = pendingTopicLoads.get(key);
       if (pending) return pending;
       const cached = get().forumTopics.get(chatId)?.find((topic) => topic.id === topicId);
       const request = transport.getForumTopic(chatId, topicId)
         .then((topic) => {
+          if (currentGeneration !== generation) return undefined;
           if (!topic) return cached;
           const existing = get().forumTopics.get(chatId) ?? [];
           const forumTopics = new Map(get().forumTopics);
@@ -120,8 +135,10 @@ export const createForumController = ({
           set({ forumTopics });
           return topic;
         })
-        .catch(() => cached)
-        .finally(() => pendingTopicLoads.delete(key));
+        .catch(() => currentGeneration === generation ? cached : undefined)
+        .finally(() => {
+          if (pendingTopicLoads.get(key) === request) pendingTopicLoads.delete(key);
+        });
       pendingTopicLoads.set(key, request);
       return request;
     },

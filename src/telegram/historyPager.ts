@@ -5,12 +5,12 @@ const MAX_CONSECUTIVE_STALLS = 3;
 
 interface LoadHistoryWindowOptions {
   chatId: string;
+  topicId?: string;
   targetCount: number;
   cursor: number;
   knownMessages: Map<string, TdObject>;
   request: (request: TdObject) => Promise<TdObject>;
   emitMessage: (message: TdObject) => void;
-  onCursor?: (cursor: number) => void;
 }
 
 export interface LoadedHistoryWindow {
@@ -22,14 +22,15 @@ export interface LoadedHistoryWindow {
 
 export const loadHistoryWindow = async ({
   chatId,
+  topicId,
   targetCount,
   cursor: initialCursor,
   knownMessages,
   request,
   emitMessage,
-  onCursor,
 }: LoadHistoryWindowOptions): Promise<LoadedHistoryWindow> => {
   let loadedCount = 0;
+  let windowCount = 0;
   const messageIds: string[] = [];
   const returnedIds = new Set<string>();
   let cursor = initialCursor;
@@ -38,15 +39,15 @@ export const loadHistoryWindow = async ({
   let exhausted = false;
   const maxRequestCount = targetCount + MAX_CONSECUTIVE_STALLS + 2;
 
-  while (loadedCount < targetCount && requestCount < maxRequestCount) {
+  while (windowCount < targetCount && requestCount < maxRequestCount) {
     requestCount += 1;
     const response = await request({
-      "@type": "getChatHistory",
+      "@type": topicId ? "getForumTopicHistory" : "getChatHistory",
       chat_id: numericId(chatId),
+      ...(topicId ? { forum_topic_id: numericId(topicId) } : { only_local: false }),
       from_message_id: cursor,
       offset: 0,
-      limit: Math.min(100, targetCount - loadedCount + (cursor ? 1 : 0)),
-      only_local: false,
+      limit: Math.min(100, targetCount - windowCount + (cursor ? 1 : 0)),
     });
     const rawPage = asTdObjects(response.messages);
     if (rawPage.length === 0) {
@@ -60,6 +61,9 @@ export const loadHistoryWindow = async ({
       if (id && !returnedIds.has(id)) {
         returnedIds.add(id);
         messageIds.push(id);
+        // Revalidating a known message still fills the requested window.
+        // Otherwise reconnecting a warm cache can scan hundreds of old pages.
+        if (id !== String(initialCursor)) windowCount += 1;
       }
       if (id && !knownMessages.has(id)) addedThisRequest += 1;
       emitMessage(raw);
@@ -78,7 +82,6 @@ export const loadHistoryWindow = async ({
       continue;
     }
     cursor = nextCursor;
-    onCursor?.(cursor);
     consecutiveStalls = 0;
   }
 

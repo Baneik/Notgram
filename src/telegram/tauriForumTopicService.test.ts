@@ -49,7 +49,10 @@ describe("tauri forum topic service", () => {
       { loadedCount: 2, hasMore: true, messageIds: ["9", "8"] },
       { loadedCount: 2, hasMore: true, messageIds: ["9", "8"] },
     ]);
-    expect(harness.context.request).toHaveBeenCalledTimes(1);
+    expect(harness.context.request).toHaveBeenCalledTimes(4);
+    expect(harness.context.request).toHaveBeenNthCalledWith(1, expect.objectContaining({ from_message_id: 0, limit: 100 }));
+    expect(harness.context.request).toHaveBeenLastCalledWith(expect.objectContaining({ from_message_id: 8 }));
+    expect(harness.context.emitMessages).toHaveBeenCalledTimes(1);
     expect(harness.context.emitMessages).toHaveBeenCalledWith([
       { "@type": "message", id: "9" },
       { "@type": "message", id: "8" },

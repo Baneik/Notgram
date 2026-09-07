@@ -236,9 +236,9 @@ export class TdRequestBroker {
   private responseError(update: TdObject) {
     const code = tdNumber(update.code);
     const suffix = code === undefined ? "" : ` (${code})`;
-    return new Error(translate("{{value0}}{{value1}}", {
+    return Object.assign(new Error(translate("{{value0}}{{value1}}", {
       value0: String(update.message ?? translate("TDLib 请求失败")),
       value1: suffix,
-    }));
+    })), { code });
   }
 }

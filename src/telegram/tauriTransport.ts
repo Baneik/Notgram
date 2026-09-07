@@ -21,6 +21,8 @@ import {
 import { FileDownloadQueue } from "./fileDownloadQueue";
 import { resolveTdlibDataCenter } from "./fileDataCenter";
 import { loadHistoryWindow } from "./historyPager";
+import { installConnectionRecoveryMonitor } from "./connectionRecoveryMonitor";
+import { isRetryableSyncError } from "./syncRetryQueue";
 import {
   mapTdConnectionStatus,
   tdConnectionState,
@@ -174,8 +176,6 @@ const PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS = 3;
 const PROXY_SWITCH_AFTER_RECOVERY_ATTEMPTS = 2;
 const PROXY_RECOVERY_REQUEST_TIMEOUT_MS = 5_000;
 const GROUP_BOT_DISCOVERY_TIMEOUT_MS = 1_500;
-const WAKE_HEARTBEAT_INTERVAL_MS = 10_000;
-const WAKE_HEARTBEAT_DRIFT_MS = 25_000;
 
 const proxyPreferences = (settings: ProxySettings) => ({
   mode: settings.mode,
@@ -398,6 +398,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private chatListLoads = new Map<string, Promise<ChatListPage>>();
   private chatListCounts = new Map<string, number>();
   private chatListIds = new Map<string, Set<string>>();
+  private chatListsNeedingRefresh = new Set<string>();
   private exhaustedChatLists = new Set<string>();
   private fileDownloads = new FileDownloadQueue(
     (request) => this.request(request),
@@ -479,6 +480,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   private currentUserId?: string;
   private dataCenterId?: number;
   private bootstrapPromise?: Promise<void>;
+  private bootstrapComplete = false;
+  private bootstrapFailed = false;
+  private bootstrapRetryTimer?: ReturnType<typeof globalThis.setTimeout>;
+  private bootstrapRetryAttempt = 0;
+  private authorizationReady = false;
+  private tdConnectionStatus?: ConnectionStatus;
+  private sessionGeneration = 0;
+  private syncGeneration = 0;
   private initialChatSyncPending = true;
   private initialUserSyncPending = false;
   private initialUsers = new Map<string, User>();
@@ -491,11 +500,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private proxyRecoveryPromise?: Promise<void>;
   private proxySettings?: ProxySettings;
   private runtimeProxyProfileId?: string;
-  private networkOnlineHandler?: () => void;
-  private visibilityChangeHandler?: () => void;
-  private pageShowHandler?: () => void;
-  private wakeHeartbeatTimer?: ReturnType<typeof globalThis.setInterval>;
-  private lastWakeHeartbeatAt = 0;
+  private disposeConnectionMonitor?: () => void;
 
   async connect(
     listener: TelegramEventListener,
@@ -1775,6 +1780,18 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.refreshChat(chatId);
   }
 
+  resetSyncState() {
+    this.syncGeneration += 1;
+    this.historyCursors.clear();
+    this.exhaustedHistories.clear();
+    this.historyLoads.clear();
+    this.forumTopicService.reset();
+    this.chatListLoads.clear();
+    this.exhaustedChatLists.clear();
+    this.chatListsNeedingRefresh = new Set(this.chatListCounts.keys());
+    this.chatListIds.clear();
+  }
+
   discardChatHistoryCache(chatId: string) {
     if (this.historyLoads.has(chatId)) return;
     this.exhaustedHistories.delete(chatId);
@@ -1792,7 +1809,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (existing) return existing;
 
     const load = this.loadNextHistoryPage(chatId, Math.max(1, Math.min(limit, 100)))
-      .finally(() => this.historyLoads.delete(chatId));
+      .finally(() => {
+        if (this.historyLoads.get(chatId) === load) this.historyLoads.delete(chatId);
+      });
     this.historyLoads.set(chatId, load);
     return load;
   }
@@ -2100,6 +2119,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     chatId: string,
     targetCount: number,
   ): Promise<ChatHistoryPage> {
+    const generation = this.syncGeneration;
     const rawMessages: TdObject[] = [];
     const result = await loadHistoryWindow({
       chatId,
@@ -2108,9 +2128,14 @@ export class TauriTelegramTransport implements TelegramTransport {
       // Stage the entire window: a timeout on a later TDLib page must not
       // consume messages or advance the committed cursor before the UI gets them.
       knownMessages: new Map(this.rawMessages.get(chatId)),
-      request: (request) => this.request(request),
+      request: async (request) => {
+        const response = await this.request(request);
+        this.assertSyncGeneration(generation);
+        return response;
+      },
       emitMessage: (message) => rawMessages.push(message),
     });
+    this.assertSyncGeneration(generation);
     const messages = this.emitMessages(rawMessages, true, false);
     this.historyCursors.set(chatId, result.cursor);
     if (result.exhausted) this.exhaustedHistories.add(chatId);
@@ -2124,7 +2149,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private async request(request: TdObject, timeoutMs?: number) {
-    return this.requestBroker.request(request, timeoutMs);
+    const generation = this.sessionGeneration;
+    const response = await this.requestBroker.request(request, timeoutMs);
+    if (generation !== this.sessionGeneration) throw new Error("TDLib session superseded");
+    return response;
+  }
+
+  private assertSyncGeneration(generation: number) {
+    if (generation !== this.syncGeneration) throw new Error("TDLib synchronization superseded");
   }
 
   private async requestPreparedFile(chatId: string, topicId?: string) {
@@ -2195,6 +2227,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const state = asTdObject(update.authorization_state);
     if (!state) return;
     const mapped = mapAuthorizationState(state);
+    this.authorizationReady = mapped.kind === "ready";
     this.listener?.({ type: "authorization.changed", state: mapped });
     if (mapped.kind === "ready") this.startBootstrap();
     if (mapped.kind === "closing" || mapped.kind === "closed") {
@@ -2206,9 +2239,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     const state = tdConnectionState(update);
     const status = mapTdConnectionStatus(state);
     if (!status) return;
+    this.tdConnectionStatus = status;
 
     this.connectingThroughProxy = state?.["@type"] === "connectionStateConnectingToProxy";
-    if (!this.connectingThroughProxy && this.proxyConnectionTimer) {
+    if (!this.needsConnectionRecovery() && this.proxyConnectionTimer) {
       globalThis.clearTimeout(this.proxyConnectionTimer);
       this.proxyConnectionTimer = undefined;
     }
@@ -2222,10 +2256,12 @@ export class TauriTelegramTransport implements TelegramTransport {
       void this.rememberWorkingProxy();
     }
     this.emitConnectionStatus(
-      status === "online" && this.initialChatSyncPending ? "syncing" : status,
+      status === "online" && (this.initialChatSyncPending || this.bootstrapFailed) ? "syncing" : status,
     );
 
-    if (this.connectingThroughProxy) this.scheduleProxyRecovery();
+    if (status === "online" && this.authorizationReady && !this.bootstrapComplete) this.startBootstrap();
+
+    if (this.needsConnectionRecovery()) this.scheduleProxyRecovery();
   }
 
   private emitConnectionStatus(status: ConnectionStatus) {
@@ -2234,9 +2270,13 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "connection.changed", status });
   }
 
+  private needsConnectionRecovery() {
+    return this.connectingThroughProxy || this.tdConnectionStatus === "connecting";
+  }
+
   private scheduleProxyRecovery() {
     if (
-      !this.connectingThroughProxy ||
+      !this.needsConnectionRecovery() ||
       this.proxyConnectionTimer ||
       this.proxyRecoveryPromise
     ) return;
@@ -2250,19 +2290,24 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private async recoverStalledProxy() {
-    if (!this.connectingThroughProxy) return;
+    if (!this.needsConnectionRecovery()) return;
+    const generation = this.sessionGeneration;
     this.proxyRecoveryAttempt += 1;
     const pending = this.recoverProxyConnection();
     this.proxyRecoveryPromise = pending;
     try {
       await pending;
+      if (generation === this.sessionGeneration && this.tdConnectionStatus === "online") {
+        this.connectingThroughProxy = false;
+        this.emitConnectionStatus(this.initialChatSyncPending || this.bootstrapFailed ? "syncing" : "online");
+      }
     } catch {
       // The capped watchdog continues forever; a failed or timed-out recovery
       // must never hold the next attempt hostage.
     } finally {
       if (this.proxyRecoveryPromise === pending) this.proxyRecoveryPromise = undefined;
-      if (!this.connectingThroughProxy) return;
-      if (this.proxyRecoveryAttempt >= PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS) {
+      if (generation !== this.sessionGeneration || !this.needsConnectionRecovery()) return;
+      if (this.connectingThroughProxy && this.proxyRecoveryAttempt >= PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS) {
         this.emitConnectionStatus("proxyError");
       }
       this.scheduleProxyRecovery();
@@ -2304,7 +2349,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private requestImmediateConnectionRecovery(forceProxyRefresh = false) {
-    if (!this.listener || this.proxyRecoveryPromise) return;
+    if (!this.listener || this.proxyRecoveryPromise || this.networkReopenPromise) return;
     const hasProxy = effectiveProxy(this.proxySettings ?? {
       mode: "direct",
       profiles: [],
@@ -2320,28 +2365,21 @@ export class TauriTelegramTransport implements TelegramTransport {
       void this.recoverStalledProxy();
       return;
     }
-    void this.reopenNetworkConnections(PROXY_RECOVERY_REQUEST_TIMEOUT_MS).catch(() => undefined);
+    const generation = this.sessionGeneration;
+    void this.reopenNetworkConnections(PROXY_RECOVERY_REQUEST_TIMEOUT_MS).then(() => {
+      if (generation !== this.sessionGeneration) return;
+      if (forceProxyRefresh && this.connectionStatus === "online") {
+        this.listener?.({ type: "sync.required" });
+      }
+      if (this.authorizationReady && !this.bootstrapComplete) this.startBootstrap();
+    }).catch(() => undefined);
   }
 
   private installConnectionRecoveryListeners() {
-    if (typeof window === "undefined") return;
-    this.networkOnlineHandler = () => this.requestImmediateConnectionRecovery();
-    this.visibilityChangeHandler = () => {
-      if (document.visibilityState === "visible") this.requestImmediateConnectionRecovery();
-    };
-    this.pageShowHandler = () => this.requestImmediateConnectionRecovery();
-    window.addEventListener("online", this.networkOnlineHandler, { passive: true });
-    window.addEventListener("pageshow", this.pageShowHandler, { passive: true });
-    document.addEventListener("visibilitychange", this.visibilityChangeHandler, { passive: true });
-    this.lastWakeHeartbeatAt = Date.now();
-    this.wakeHeartbeatTimer = globalThis.setInterval(() => {
-      const now = Date.now();
-      const elapsed = now - this.lastWakeHeartbeatAt;
-      this.lastWakeHeartbeatAt = now;
-      if (elapsed >= WAKE_HEARTBEAT_DRIFT_MS) {
-        this.requestImmediateConnectionRecovery(true);
-      }
-    }, WAKE_HEARTBEAT_INTERVAL_MS);
+    this.disposeConnectionMonitor?.();
+    this.disposeConnectionMonitor = installConnectionRecoveryMonitor((force) => {
+      this.requestImmediateConnectionRecovery(force);
+    });
   }
 
   private async rememberWorkingProxy() {
@@ -2365,20 +2403,43 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private startBootstrap() {
-    if (this.bootstrapPromise) return;
-    this.emitConnectionStatus("syncing");
-    this.bootstrapPromise = this.bootstrap()
+    if (this.bootstrapPromise || this.bootstrapComplete) return;
+    if (this.bootstrapRetryTimer) globalThis.clearTimeout(this.bootstrapRetryTimer);
+    this.bootstrapRetryTimer = undefined;
+    if (this.tdConnectionStatus === "online") this.emitConnectionStatus("syncing");
+    const generation = this.sessionGeneration;
+    let retryable = true;
+    const pending = this.bootstrap()
       .then(() => {
+        if (generation !== this.sessionGeneration) return;
+        this.bootstrapComplete = true;
+        this.bootstrapFailed = false;
+        this.bootstrapRetryAttempt = 0;
         this.finishInitialChatSync();
-        if (this.connectionStatus === "syncing") this.emitConnectionStatus("online");
+        if (this.tdConnectionStatus === "online") this.emitConnectionStatus("online");
       })
       .catch((error) => {
+        if (generation !== this.sessionGeneration) return;
+        this.bootstrapFailed = true;
+        retryable = isRetryableSyncError(error);
         this.finishInitialChatSync();
         this.listener?.({
           type: "sync.error",
           message: error instanceof Error ? error.message : translate("无法同步 Telegram 数据"),
         });
+      })
+      .finally(() => {
+        if (this.bootstrapPromise !== pending) return;
+        this.bootstrapPromise = undefined;
+        if (!this.bootstrapComplete && this.authorizationReady && retryable) {
+          const delay = PROXY_RECOVERY_DELAYS_MS[Math.min(this.bootstrapRetryAttempt++, PROXY_RECOVERY_DELAYS_MS.length - 1)];
+          this.bootstrapRetryTimer = globalThis.setTimeout(() => {
+            this.bootstrapRetryTimer = undefined;
+            if (this.authorizationReady) this.startBootstrap();
+          }, delay);
+        }
       });
+    this.bootstrapPromise = pending;
   }
 
   private async bootstrap() {
@@ -2413,17 +2474,22 @@ export class TauriTelegramTransport implements TelegramTransport {
     const existing = this.chatListLoads.get(key);
     if (existing) return existing;
     const load = this.fetchChatList(chatList, limit)
-      .finally(() => this.chatListLoads.delete(key));
+      .finally(() => {
+        if (this.chatListLoads.get(key) === load) this.chatListLoads.delete(key);
+      });
     this.chatListLoads.set(key, load);
     return load;
   }
 
   private async fetchChatList(chatList: TdObject, limit: number): Promise<ChatListPage> {
+    const generation = this.syncGeneration;
     const key = chatListKey(chatList);
+    const refresh = this.chatListsNeedingRefresh.has(key);
     if (!this.exhaustedChatLists.has(key)) {
       try {
         await this.request({ "@type": "loadChats", chat_list: chatList, limit });
       } catch (error) {
+        this.assertSyncGeneration(generation);
         if (!(error instanceof Error) || !/(all chats are loaded|404)/i.test(error.message)) {
           throw error;
         }
@@ -2431,6 +2497,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       }
     }
 
+    this.assertSyncGeneration(generation);
     const previousCount = this.chatListCounts.get(key) ?? 0;
     const requestedCount = previousCount + limit;
     const result = await this.request({
@@ -2438,6 +2505,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       chat_list: chatList,
       limit: requestedCount,
     });
+    this.assertSyncGeneration(generation);
     const ids = Array.isArray(result.chat_ids) ? result.chat_ids.map(tdId).filter(Boolean) : [];
     const loadedIds = this.chatListIds.get(key) ?? new Set<string>();
     const newIds = ids.filter((id) => !loadedIds.has(id));
@@ -2450,14 +2518,17 @@ export class TauriTelegramTransport implements TelegramTransport {
     for (let index = 0; index < newIds.length; index += batchSize) {
       const batchIds = newIds.slice(index, index + batchSize);
       const batch = await Promise.allSettled(batchIds.map(async (id) => {
-        const raw = this.rawChats.get(id) ?? await this.request({
+        const raw = (refresh ? undefined : this.rawChats.get(id)) ?? await this.request({
           "@type": "getChat",
           chat_id: numericId(id),
         });
+        this.assertSyncGeneration(generation);
         this.rawChats.set(id, raw);
         await this.ensureBasicGroupMetadata(raw);
+        this.assertSyncGeneration(generation);
         return this.mapChat(raw);
       }));
+      this.assertSyncGeneration(generation);
       const fetchedChats: Chat[] = [];
       for (const [offset, result] of batch.entries()) {
         if (result.status === "fulfilled" && result.value) {
@@ -2471,6 +2542,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       const failure = batch.find((result) => result.status === "rejected");
       if (failure?.status === "rejected") throw failure.reason;
     }
+    this.chatListsNeedingRefresh.delete(key);
     return {
       loadedCount: newIds.length,
       hasMore: !this.exhaustedChatLists.has(key),
@@ -3618,6 +3690,15 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private resetSessionState() {
+    this.sessionGeneration += 1;
+    this.resetSyncState();
+    if (this.bootstrapRetryTimer) globalThis.clearTimeout(this.bootstrapRetryTimer);
+    this.bootstrapRetryTimer = undefined;
+    this.bootstrapRetryAttempt = 0;
+    this.bootstrapComplete = false;
+    this.bootstrapFailed = false;
+    this.authorizationReady = false;
+    this.tdConnectionStatus = undefined;
     this.localDeleteIntents.clear();
     if (this.proxyConnectionTimer) globalThis.clearTimeout(this.proxyConnectionTimer);
     this.proxyConnectionTimer = undefined;
@@ -3627,21 +3708,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.proxyRecoveryPromise = undefined;
     this.proxySettings = undefined;
     this.runtimeProxyProfileId = undefined;
-    if (this.networkOnlineHandler && typeof window !== "undefined") {
-      window.removeEventListener("online", this.networkOnlineHandler);
-    }
-    if (this.pageShowHandler && typeof window !== "undefined") {
-      window.removeEventListener("pageshow", this.pageShowHandler);
-    }
-    if (this.visibilityChangeHandler && typeof document !== "undefined") {
-      document.removeEventListener("visibilitychange", this.visibilityChangeHandler);
-    }
-    if (this.wakeHeartbeatTimer) globalThis.clearInterval(this.wakeHeartbeatTimer);
-    this.networkOnlineHandler = undefined;
-    this.pageShowHandler = undefined;
-    this.visibilityChangeHandler = undefined;
-    this.wakeHeartbeatTimer = undefined;
-    this.lastWakeHeartbeatAt = 0;
+    this.disposeConnectionMonitor?.();
+    this.disposeConnectionMonitor = undefined;
     this.connectionStatus = undefined;
     this.rawChats.clear();
     this.rawBasicGroups.clear();
@@ -3678,6 +3746,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.pendingSenderUserLoads.clear();
     this.chatListLoads.clear();
     this.chatListCounts.clear();
+    this.chatListsNeedingRefresh.clear();
     this.chatListIds.clear();
     this.exhaustedChatLists.clear();
     this.fileDownloads.reset();

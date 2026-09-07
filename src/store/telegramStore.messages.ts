@@ -183,6 +183,19 @@ export const channelDiscussionProjection = (
   };
 };
 
+/** Stop backfilling once a contiguous server walk passes the cached window.
+ * Missing IDs remain unconfirmed; reaching this boundary never deletes them.
+ */
+export const reachedCachedHistoryBoundary = (cachedIds: Set<string>, returnedIds: Set<string>) => {
+  const cached = [...cachedIds].map(numericMessageId);
+  if (cached.length === 0 || cached.some((id) => id === undefined || id <= 0n)) return false;
+  const oldest = (cached as bigint[]).reduce((left, right) => left < right ? left : right);
+  return [...returnedIds].some((id) => {
+    const value = numericMessageId(id);
+    return value !== undefined && value > 0n && value <= oldest;
+  });
+};
+
 export const pendingCachedIdsAfterConfirmation = (
   pendingCachedIds: Set<string>,
   confirmedIds: Set<string>,

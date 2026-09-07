@@ -226,7 +226,8 @@ describe("telegram store", () => {
     expect(after.chats).toBe(before.chats);
     expect(after.messages).toBe(before.messages);
     expect(after.drafts).toBe(before.drafts);
-    expect(after.histories).toBe(before.histories);
+    expect(after.histories).not.toBe(before.histories);
+    await vi.waitFor(() => expect(store.getState().histories.get("chat-product")?.loading).toBe(false));
   });
 
   it("keeps recoverable sync errors local and reserves the error phase for fatal runtime failures", async () => {

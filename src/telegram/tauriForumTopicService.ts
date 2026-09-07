@@ -2,6 +2,7 @@ import { translate } from "../i18n";
 import { mapTdForumTopic, asTdObject, asTdObjects, tdId, tdNumber } from "./tdlibMapper";
 import { numericId } from "./tdlibRequests";
 import { identityTextField } from "./identityText";
+import { loadHistoryWindow } from "./historyPager";
 import type {
   ChatHistoryPage,
   CreateForumTopicInput,
@@ -19,6 +20,7 @@ export interface TauriForumTopicServiceContext {
 }
 
 export class TauriForumTopicService {
+  private generation = 0;
   private exhaustedHistories = new Set<string>();
   private historyCursors = new Map<string, number>();
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
@@ -28,11 +30,16 @@ export class TauriForumTopicService {
   constructor(private readonly context: TauriForumTopicServiceContext) {}
 
   reset() {
+    this.generation += 1;
     this.exhaustedHistories.clear();
     this.historyCursors.clear();
     this.historyLoads.clear();
     this.topics.clear();
     this.topicLoads.clear();
+  }
+
+  private assertGeneration(generation: number) {
+    if (generation !== this.generation) throw new Error("TDLib synchronization superseded");
   }
 
   private topicKey(chatId: string, topicId: string) {
@@ -45,6 +52,7 @@ export class TauriForumTopicService {
   }
 
   async getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage> {
+    const generation = this.generation;
     const limit = Math.max(1, Math.min(input.limit ?? 50, 100));
     const result = await this.context.request({
       "@type": "getForumTopics",
@@ -55,6 +63,7 @@ export class TauriForumTopicService {
       offset_forum_topic_id: input.offsetTopicId ? numericId(input.offsetTopicId) : 0,
       limit,
     });
+    this.assertGeneration(generation);
     const rawTopics = asTdObjects(result.topics);
     const topics = rawTopics
       .map(mapTdForumTopic)
@@ -79,6 +88,7 @@ export class TauriForumTopicService {
   }
 
   async getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined> {
+    const generation = this.generation;
     const key = this.topicKey(chatId, topicId);
     const cached = this.topics.get(key);
     if (cached) return cached;
@@ -90,12 +100,15 @@ export class TauriForumTopicService {
         chat_id: numericId(chatId),
         forum_topic_id: numericId(topicId),
       });
+      this.assertGeneration(generation);
       const topic = mapTdForumTopic(raw);
       if (!topic || topic.chatId !== chatId || topic.id !== topicId) return undefined;
       const lastMessage = asTdObject(raw.last_message);
       if (lastMessage) this.context.emitMessages([lastMessage]);
       return this.rememberTopic(topic);
-    })().finally(() => this.topicLoads.delete(key));
+    })().finally(() => {
+      if (this.topicLoads.get(key) === load) this.topicLoads.delete(key);
+    });
     this.topicLoads.set(key, load);
     return load;
   }
@@ -122,6 +135,7 @@ export class TauriForumTopicService {
   }
 
   async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
+    const generation = this.generation;
     const key = `${chatId}:${topicId}`;
     if (this.exhaustedHistories.has(key)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
@@ -130,27 +144,33 @@ export class TauriForumTopicService {
     if (existing) return existing;
     const load = (async () => {
       const cursor = this.historyCursors.get(key) ?? 0;
-      const result = await this.context.request({
-        "@type": "getForumTopicHistory",
-        chat_id: numericId(chatId),
-        forum_topic_id: numericId(topicId),
-        from_message_id: cursor,
-        offset: 0,
-        limit: Math.max(1, Math.min(limit, 100)),
+      const rawMessages = new Map<string, TdObject>();
+      const result = await loadHistoryWindow({
+        chatId,
+        topicId,
+        cursor,
+        targetCount: Math.max(1, Math.min(limit, 100)),
+        knownMessages: new Map(cursor ? [[String(cursor), {}]] : []),
+        request: async (request) => {
+          const response = await this.context.request(request);
+          this.assertGeneration(generation);
+          return response;
+        },
+        emitMessage: (message) => rawMessages.set(tdId(message.id), message),
       });
-      const rawMessages = asTdObjects(result.messages);
-      const messageIds = rawMessages.map((message) => tdId(message.id)).filter(Boolean);
-      const nextCursor = messageIds.at(-1);
-      if (nextCursor && nextCursor !== String(cursor)) this.historyCursors.set(key, Number(nextCursor));
-      else this.exhaustedHistories.add(key);
-      const messages = this.context.emitMessages(rawMessages, false);
+      this.assertGeneration(generation);
+      const messages = this.context.emitMessages([...rawMessages.values()], false);
+      this.historyCursors.set(key, result.cursor);
+      if (result.exhausted) this.exhaustedHistories.add(key);
       return {
-        loadedCount: messageIds.length,
+        loadedCount: result.loadedCount,
         hasMore: !this.exhaustedHistories.has(key),
-        messageIds,
+        messageIds: result.messageIds,
         messages,
       };
-    })().finally(() => this.historyLoads.delete(key));
+    })().finally(() => {
+      if (this.historyLoads.get(key) === load) this.historyLoads.delete(key);
+    });
     this.historyLoads.set(key, load);
     return load;
   }

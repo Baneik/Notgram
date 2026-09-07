@@ -164,6 +164,8 @@ export interface TelegramTransport {
   reorderChatFolders(folderIds: string[]): Promise<void>;
   setChatFolderMembership(folderId: string, chatId: string, included: boolean): Promise<void>;
   discardChatHistoryCache?(chatId: string): void;
+  /** Retire in-flight pagination and restart from TDLib's latest windows. */
+  resetSyncState(): void;
   loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
   getChatSponsoredMessages(chatId: string): Promise<ChatSponsoredMessages>;
   clickChatSponsoredMessage(

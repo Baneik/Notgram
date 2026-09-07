@@ -1034,6 +1034,7 @@ export type TelegramEvent =
   | { type: "file.updated"; file: MessageFileState }
   | { type: "authorization.changed"; state: AuthorizationState }
   | { type: "connection.changed"; status: ConnectionStatus }
+  | { type: "sync.required" }
   | { type: "currentUser.changed"; userId: string }
   | { type: "message.upsert"; message: Message; animateEntrance?: boolean; cacheRelevant?: boolean }
   | { type: "message.replace"; oldMessageId: string; message: Message }

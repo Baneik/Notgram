@@ -1728,6 +1728,25 @@ describe("TauriTelegramTransport startup", () => {
       .map((request) => request.chat_id)).toEqual([3, 2, 1]);
   });
 
+  it("revalidates already loaded chat metadata after connection recovery", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.finishInitialChatSync();
+    const events: TelegramEvent[] = [];
+    internal.listener = (event) => events.push(event);
+    let title = "before sleep";
+    internal.request = async (request) => {
+      if (request["@type"] === "loadChats") throw new Error("404: All chats are loaded");
+      if (request["@type"] === "getChats") return { chat_ids: [7] };
+      return { ...rawChat(7, 1_700_000_007), title };
+    };
+    await transport.loadMoreChats("main", 50);
+    title = "after sleep";
+    transport.resetSyncState();
+    await transport.loadMoreChats("main", 50);
+    expect(events.at(-1)).toMatchObject({ type: "chats.upserted", chats: [{ title: "after sleep" }] });
+  });
+
   it("loads only the main chat list during startup", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
@@ -4260,7 +4279,7 @@ describe("TauriTelegramTransport history", () => {
       };
     };
 
-    const page = await transport.loadChatHistory("7", 1);
+    const page = await transport.loadChatHistory("7", 3);
 
     expect(cursors).toEqual([0, 99]);
     expect(page.loadedCount).toBe(1);
