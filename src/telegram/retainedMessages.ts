@@ -15,7 +15,7 @@ export const retainedMessageQuote = (
   if (!body.text) return { text: "", entities: [] as MessageTextEntity[] };
   const userId = senderId && !senderId.startsWith("chat:") ? senderId : undefined;
   const authorText = userId && !author.startsWith("@") ? `@${author}` : author;
-  const prefix = `${authorText}:\n`;
+  const prefix = `${authorText}\n`;
   const text = `${prefix}${body.text}`;
   return {
     text,

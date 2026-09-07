@@ -25,6 +25,7 @@ const COLLAPSED_QUOTE_LINES = 3.5;
 
 interface MessageRichTextProps {
   text: string;
+  chatId?: string;
   entities?: MessageTextEntity[];
   className?: string;
   highlightQuery?: string;
@@ -56,11 +57,13 @@ function MentionLink({
   value,
   children,
   onOpenMention,
+  chatId,
 }: {
   entity: MessageTextEntity;
   value: string;
   children: ReactNode;
   onOpenMention?: (username?: string, userId?: string) => void;
+  chatId?: string;
 }) {
   const username = entity.kind === "mention" && /^@[A-Za-z0-9_]{5,32}$/.test(value)
     ? value.slice(1)
@@ -79,6 +82,9 @@ function MentionLink({
     : [];
   const targetUsername = (username ?? resolvedUsername) || undefined;
   const targetUserId = resolvedUserId || entity.userId;
+  const isAdministrator = useTelegramStore((state) => Boolean(
+    chatId && targetUserId && Object.hasOwn(state.chatAdministratorLabels.get(chatId) ?? {}, targetUserId),
+  ));
   const href = targetUserId && /^\d+$/.test(targetUserId)
     ? `tg://user?id=${encodeURIComponent(targetUserId)}`
     : targetUsername
@@ -94,7 +100,7 @@ function MentionLink({
     onOpenMention(targetUsername, targetUserId);
   };
   return (
-    <a href={href} onClick={openMention}>
+    <a href={href} className={isAdministrator ? "is-administrator" : undefined} onClick={openMention}>
       {displayName || children}
     </a>
   );
@@ -133,6 +139,7 @@ const wrapEntity = (
   key: string,
   onOpenMention?: (username?: string, userId?: string) => void,
   onSearchHashtag?: (hashtag: string) => void,
+  chatId?: string,
 ) => {
   switch (entity.kind) {
     case "bold": return <strong key={key}>{children}</strong>;
@@ -180,6 +187,7 @@ const wrapEntity = (
           entity={entity}
           value={value}
           onOpenMention={onOpenMention}
+          chatId={chatId}
         >
           {children}
         </MentionLink>
@@ -197,6 +205,7 @@ const renderInlineRange = (
   highlightRanges: ReturnType<typeof textHighlightRanges>,
   onOpenMention?: (username?: string, userId?: string) => void,
   onSearchHashtag?: (hashtag: string) => void,
+  chatId?: string,
 ) => {
   const overlapping = entities.filter((entity) =>
     entity.offset < endOffset && entity.offset + entity.length > startOffset,
@@ -243,6 +252,7 @@ const renderInlineRange = (
         `${keyPrefix}:${start}:${end}:${entityIndex}`,
         onOpenMention,
         onSearchHashtag,
+        chatId,
       ),
       displayValue,
     );
@@ -376,6 +386,7 @@ const renderEntities = (
     pointerClientY: number,
     getCollapsedAnchor: () => Element | null,
   ) => void,
+  chatId?: string,
 ) => {
   const highlightRanges = textHighlightRanges(text, highlightQuery);
   const valid = entities.filter((entity) =>
@@ -395,6 +406,7 @@ const renderEntities = (
       highlightRanges,
       onOpenMention,
       onSearchHashtag,
+      chatId,
     );
   }
 
@@ -420,6 +432,7 @@ const renderEntities = (
         highlightRanges,
         onOpenMention,
         onSearchHashtag,
+        chatId,
       ));
     }
     nodes.push(
@@ -438,6 +451,7 @@ const renderEntities = (
           highlightRanges,
           onOpenMention,
           onSearchHashtag,
+          chatId,
         )}
       </CollapsibleBlockQuote>,
     );
@@ -453,6 +467,7 @@ const renderEntities = (
       highlightRanges,
       onOpenMention,
       onSearchHashtag,
+      chatId,
     ));
   }
   return nodes;
@@ -460,6 +475,7 @@ const renderEntities = (
 
 export function MessageRichText({
   text,
+  chatId,
   entities,
   className = "",
   highlightQuery,
@@ -481,6 +497,7 @@ export function MessageRichText({
           onOpenMention,
           onSearchHashtag,
           onCollapseQuote,
+          chatId,
         )}
       </TextSpoilerGroup>
     );

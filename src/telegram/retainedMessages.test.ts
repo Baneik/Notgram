@@ -8,18 +8,18 @@ describe("retained message content", () => {
   it("quotes the sender as a real Telegram mention and keeps UTF-16 body offsets", () => {
     const quote = retainedMessageQuote({ kind: "text", text: "什么🤔",
       entities: [{ kind: "bold", offset: 2, length: 2 }] }, "Lucy 😀", undefined, "12345");
-    expect(quote.text).toBe("@Lucy 😀:\n什么🤔");
+    expect(quote.text).toBe("@Lucy 😀\n什么🤔");
     expect(quote.entities).toEqual([
       { kind: "blockquote", offset: 0, length: quote.text.length },
       { kind: "mentionName", offset: 0, length: "@Lucy 😀".length, userId: "12345" },
-      { kind: "bold", offset: "@Lucy 😀:\n什么".length, length: 2 },
+      { kind: "bold", offset: "@Lucy 😀\n什么".length, length: 2 },
     ]);
     expect(inputTextEntityType(quote.entities[1])).toEqual({ "@type": "textEntityTypeMentionName", user_id: 12345 });
   });
 
   it("does not turn a channel sender into a user mention", () => {
     const quote = retainedMessageQuote({ kind: "text", text: "news" }, "Channel", undefined, "chat:-10012345");
-    expect(quote.text).toBe("Channel:\nnews");
+    expect(quote.text).toBe("Channel\nnews");
     expect(quote.entities).toHaveLength(1);
   });
 
@@ -28,10 +28,10 @@ describe("retained message content", () => {
       entities: [{ offset: 0, length: 6, kind: "bold" }] }, "Alice 😀", {
       text: "selected", position: 7, entities: [{ offset: 0, length: 8, kind: "spoiler" }],
     });
-    expect(quote.text).toBe("Alice 😀:\nselected");
+    expect(quote.text).toBe("Alice 😀\nselected");
     expect(quote.entities).toEqual([
       { offset: 0, length: quote.text.length, kind: "blockquote" },
-      { offset: "Alice 😀:\n".length, length: 8, kind: "spoiler" },
+      { offset: "Alice 😀\n".length, length: 8, kind: "spoiler" },
     ]);
   });
 
@@ -44,7 +44,7 @@ describe("retained message content", () => {
   it("covers the author and final character without nesting existing block quotes", () => {
     const quote = retainedMessageQuote({ kind: "text", text: "last!",
       entities: [{ offset: 0, length: 5, kind: "blockquote" }] }, "Alice");
-    expect(quote.text.slice(quote.entities[0].offset, quote.entities[0].length)).toBe("Alice:\nlast!");
+    expect(quote.text.slice(quote.entities[0].offset, quote.entities[0].length)).toBe("Alice\nlast!");
     expect(quote.entities).toHaveLength(1);
   });
 

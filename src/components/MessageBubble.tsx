@@ -728,6 +728,7 @@ function MessageBubbleComponent({
       style={{ "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}
     >
       <MessageRichText
+        chatId={message.chatId}
         className="photo-caption"
         text={content.caption}
         entities={content.captionEntities}
@@ -856,6 +857,7 @@ function MessageBubbleComponent({
               } as CSSProperties}
             >
               <MessageRichText
+                chatId={message.chatId}
                 text={content.text}
                 entities={content.entities}
                 highlightQuery={searchQuery}
@@ -1125,6 +1127,7 @@ function MessageBubbleComponent({
               </div>
               {content.caption && (
                 <MessageRichText
+                  chatId={message.chatId}
                   className="attachment-caption"
                   text={content.caption}
                   entities={content.captionEntities}
@@ -1180,6 +1183,7 @@ function MessageBubbleComponent({
               </div>
               {content.caption && (
                 <MessageRichText
+                  chatId={message.chatId}
                   className="attachment-caption"
                   text={content.caption}
                   entities={content.captionEntities}

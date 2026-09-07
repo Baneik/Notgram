@@ -1488,6 +1488,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .is-outgoing .message-rich-text a {
   position: relative; color: var(--color-text-link); text-decoration: none;
 }
+.message-rich-text .rich-blockquote a.is-administrator { color: var(--color-admin); }
 .message-rich-text a:not(.rich-media-link)::after {
   content: ""; position: absolute; left: 0; bottom: -2px; width: 100%; height: 2px;
   background: currentColor; pointer-events: none; transform: scaleX(0); transform-origin: bottom right;

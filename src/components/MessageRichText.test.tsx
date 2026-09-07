@@ -1,8 +1,29 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { telegramStore } from "../store/telegramStore";
+import { retainedMessageQuote } from "../telegram/retainedMessages";
 import { MessageRichText } from "./MessageRichText";
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("MessageRichText Telegram links", () => {
+  it.each(["管理员", "群主", ""])("uses the quoted user's role in the message's chat (label: %s)", (label) => {
+    const initialState = telegramStore.getInitialState();
+    vi.spyOn(telegramStore, "getInitialState").mockReturnValue({
+      ...initialState,
+      activeChatId: "other-chat",
+      chatAdministratorLabels: new Map([["source-chat", { "12345": label }]]),
+    });
+    const quote = retainedMessageQuote({ kind: "text", text: "什么🤔" }, "Lucy", undefined, "12345");
+    const html = renderToStaticMarkup(<MessageRichText {...quote} chatId="source-chat" />);
+    expect(html).toContain('href="tg://user?id=12345" class="is-administrator">Lucy</a>\n什么🤔');
+    for (const chatId of ["other-chat", undefined]) {
+      const otherHtml = renderToStaticMarkup(<MessageRichText {...quote} chatId={chatId} />);
+      expect(otherHtml).not.toContain("is-administrator");
+      expect(otherHtml).toContain('href="tg://user?id=12345">Lucy</a>\n什么🤔');
+    }
+  });
+
   it.each(["lucy", "@lucy"])("keeps an uncached quoted sender %s clickable without an @ prefix", (author) => {
     const html = renderToStaticMarkup(<MessageRichText text={`${author}\n什么🤔\n。`} entities={[
       { kind: "blockquote", offset: 0, length: `${author}\n什么🤔`.length },
