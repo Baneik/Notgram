@@ -3318,22 +3318,16 @@ describe("chat filtering", () => {
     };
     class SparseHistoryTransport extends MockTelegramTransport {
       historyRequests = 0;
-      private eventListener?: TelegramEventListener;
-
-      override async connect(listener: TelegramEventListener) {
-        this.eventListener = listener;
-        return super.connect(listener);
-      }
 
       override async loadChatHistory(_chatId: string, limit = 30): Promise<ChatHistoryPage> {
         const pageSize = Math.min(limit, 10);
         const page = allMessages.slice(this.historyRequests * pageSize, this.historyRequests * pageSize + pageSize);
         this.historyRequests += 1;
-        this.eventListener?.({ type: "messages.upserted", messages: structuredClone(page) });
         return {
           loadedCount: page.length,
           hasMore: this.historyRequests * pageSize < allMessages.length,
           messageIds: page.map((message) => message.id),
+          messages: structuredClone(page),
         };
       }
     }

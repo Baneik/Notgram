@@ -4066,6 +4066,48 @@ describe("TauriTelegramTransport message operations", () => {
 });
 
 describe("TauriTelegramTransport history", () => {
+  it("retries an uncommitted history window after a later page times out", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.emitMessage(rawMessage(12)); // Exercise an existing mutable raw cache.
+    let fail = true;
+    const cursors: number[] = [];
+    internal.request = async (request) => {
+      const cursor = Number(request.from_message_id);
+      cursors.push(cursor);
+      if (cursor === 9 && fail) throw new Error("timeout");
+      return { messages: cursor === 0
+        ? [rawMessage(10), rawMessage(9)]
+        : [rawMessage(9), rawMessage(8)] };
+    };
+    await expect(transport.loadChatHistory("7", 3)).rejects.toThrow("timeout");
+    fail = false;
+    const page = await transport.loadChatHistory("7", 3);
+    expect(cursors).toEqual([0, 9, 0, 9]);
+    expect(page.loadedCount).toBe(3);
+    expect(page.messages?.map((message) => message.id)).toEqual(["10", "9", "8"]);
+  });
+
+  it("retries failed chat hydration without losing successful peers in its batch", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.finishInitialChatSync();
+    const events: TelegramEvent[] = [];
+    internal.listener = (event) => events.push(event);
+    let fail = true;
+    internal.request = async (request) => {
+      if (request["@type"] === "loadChats") return { "@type": "ok" };
+      if (request["@type"] === "getChats") return { chat_ids: [7, 8, 9] };
+      if (request.chat_id === 8 && fail) throw new Error("timeout");
+      return rawChat(Number(request.chat_id), 1_700_000_000);
+    };
+    await expect(transport.loadMoreChats("main", 3)).rejects.toThrow("timeout");
+    fail = false;
+    await transport.loadMoreChats("main", 3);
+    expect(events.flatMap((event) => event.type === "chats.upserted"
+      ? event.chats.map((chat) => chat.id) : [])).toEqual(["7", "9", "8"]);
+  });
+
   it("keeps loading small TDLib pages until 30 unique messages are available", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

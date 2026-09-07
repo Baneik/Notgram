@@ -1296,7 +1296,21 @@ export const createTelegramStore = (
           continuationPages += 1;
           const confirmedBefore = confirmedIds.size;
           const continuation = await transport.loadChatHistory(chatId, 30);
-          if (generation !== accountGeneration || navigationGeneration !== conversationGeneration) return;
+          if (generation !== accountGeneration) return;
+          // The transport has committed this cursor. Commit its data even when
+          // the user switched conversations while the request was in flight.
+          const merged = mergeHistoryPage(continuation.messages ?? []);
+          const histories = new Map(get().histories);
+          histories.set(chatId, {
+            loading: histories.get(chatId)?.loading ?? false,
+            initialized: true,
+            hasMore: continuation.hasMore,
+          });
+          set({ histories, messages: merged.messages, removingMessages: merged.removingMessages });
+          if (continuation.messages?.length) {
+            publishMessageChange({ type: "upsert", messages: continuation.messages, liveMessages: [] });
+          }
+          scheduleCacheWrite();
           for (const messageId of continuation.messageIds) confirmedIds.add(messageId);
           hasMore = continuation.hasMore;
           if (confirmedIds.size === confirmedBefore) break;

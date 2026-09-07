@@ -2105,12 +2105,14 @@ export class TauriTelegramTransport implements TelegramTransport {
       chatId,
       targetCount,
       cursor: this.historyCursors.get(chatId) ?? 0,
-      knownMessages: this.rawMessages.get(chatId) ?? new Map<string, TdObject>(),
+      // Stage the entire window: a timeout on a later TDLib page must not
+      // consume messages or advance the committed cursor before the UI gets them.
+      knownMessages: new Map(this.rawMessages.get(chatId)),
       request: (request) => this.request(request),
       emitMessage: (message) => rawMessages.push(message),
-      onCursor: (cursor) => this.historyCursors.set(chatId, cursor),
     });
     const messages = this.emitMessages(rawMessages, true, false);
+    this.historyCursors.set(chatId, result.cursor);
     if (result.exhausted) this.exhaustedHistories.add(chatId);
 
     return {
@@ -2440,15 +2442,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     const loadedIds = this.chatListIds.get(key) ?? new Set<string>();
     const newIds = ids.filter((id) => !loadedIds.has(id));
     this.chatListCounts.set(key, Math.max(previousCount, ids.length));
-    for (const id of ids) loadedIds.add(id);
     this.chatListIds.set(key, loadedIds);
 
     // Keep TDLib and React work bounded when a list grows or is restored from a
     // large cache. Re-fetching every returned chat turns pagination into O(n^2).
-    const fetchedChats: Chat[] = [];
     const batchSize = 8;
     for (let index = 0; index < newIds.length; index += batchSize) {
-      const batch = await Promise.all(newIds.slice(index, index + batchSize).map(async (id) => {
+      const batchIds = newIds.slice(index, index + batchSize);
+      const batch = await Promise.allSettled(batchIds.map(async (id) => {
         const raw = this.rawChats.get(id) ?? await this.request({
           "@type": "getChat",
           chat_id: numericId(id),
@@ -2457,10 +2458,18 @@ export class TauriTelegramTransport implements TelegramTransport {
         await this.ensureBasicGroupMetadata(raw);
         return this.mapChat(raw);
       }));
-      fetchedChats.push(...batch.filter((chat): chat is Chat => Boolean(chat)));
-    }
-    if (fetchedChats.length > 0 && !this.initialChatSyncPending) {
-      this.listener?.({ type: "chats.upserted", chats: fetchedChats });
+      const fetchedChats: Chat[] = [];
+      for (const [offset, result] of batch.entries()) {
+        if (result.status === "fulfilled" && result.value) {
+          loadedIds.add(batchIds[offset]);
+          fetchedChats.push(result.value);
+        }
+      }
+      if (fetchedChats.length > 0 && !this.initialChatSyncPending) {
+        this.listener?.({ type: "chats.upserted", chats: fetchedChats });
+      }
+      const failure = batch.find((result) => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
     }
     return {
       loadedCount: newIds.length,
