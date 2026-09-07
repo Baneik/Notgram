@@ -4,7 +4,10 @@ import { removeAccountLocalBlocks } from "./localUserBlocks";
 import { removeAccountActivity } from "./conversationActivity";
 import { removeAccountDownloads } from "../utils/downloadManager";
 import { translate } from "../i18n";
-import { isCaptionContent, messageContentText } from "../telegram/messageContent";
+import { isCaptionContent } from "../telegram/messageContent";
+import { retainedMessageQuote, retainHydratedContent, updateRetainedMessageFile } from "../telegram/retainedMessages";
+import { senderNameForMessage } from "../components/conversationMessages";
+import { RetainedMessageIndex } from "./retainedMessageIndex";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isTauri } from "@tauri-apps/api/core";
@@ -263,7 +266,25 @@ export const createTelegramStore = (
     const blockedReactionReadRequests = new Set<string>();
     let attentionReadGeneration = 0;
     const messageChangeListeners = new Set<MessageChangeListener>();
+    const retainedMessages = new RetainedMessageIndex();
     const publishMessageChange = (event: MessageChangeEvent) => {
+      if (event.type === "reset") retainedMessages.reset(event.messages);
+      else if (event.type === "remove") retainedMessages.remove(event.chatId, event.messageIds);
+      else if (event.type === "replace") {
+        retainedMessages.remove(event.message.chatId, [event.oldMessageId]);
+        retainedMessages.upsert([event.message]);
+      } else {
+        // Match upsertMessages: late live snapshots cannot overwrite retained copies,
+        // including in downstream incremental indexes.
+        event = {
+          ...event,
+          messages: event.messages.map(message => message.isLocallyDeleted ? message
+            : retainedMessages.get(message.chatId, message.id) ?? message),
+          liveMessages: event.liveMessages.filter(message => !message.isLocallyDeleted &&
+            !retainedMessages.get(message.chatId, message.id)),
+        };
+        retainedMessages.upsert(event.messages);
+      }
       for (const listener of messageChangeListeners) listener(event);
     };
     const messageLocation = (messageId: string, preferredChatId?: string) => {
@@ -1656,6 +1677,21 @@ export const createTelegramStore = (
     };
 
     const applyEvent = (event: TelegramEvent) => {
+      if (event.type === "file.updated") {
+        const updated = retainedMessages.forFile(event.file.fileId).flatMap(message => {
+          const current = get().messages.get(message.chatId)?.find(candidate => candidate.id === message.id);
+          return current?.isLocallyDeleted ? [updateRetainedMessageFile(current, event.file)] : [];
+        });
+        if (updated.length === 0) return;
+        const messages = new Map(get().messages);
+        for (const message of updated) {
+          messages.set(message.chatId, upsertMessage(messages.get(message.chatId) ?? [], message));
+        }
+        set({ messages });
+        publishMessageChange({ type: "upsert", messages: updated, liveMessages: [] });
+        if (event.file.isDownloaded || !event.file.isDownloading) scheduleCacheWrite();
+        return;
+      }
       if (event.type === "authorization.changed") {
         set({
           authorization: event.state,
@@ -1886,6 +1922,11 @@ export const createTelegramStore = (
         if (unreadAttention.length > 0) unreadAttentionMessageIds.set(event.chatId, unreadAttention);
         else unreadAttentionMessageIds.delete(event.chatId);
         liveAttentionCandidates.delete(`${event.chatId}:${event.messageId}`);
+        const existing = get().messages.get(event.chatId)?.find(message => message.id === event.messageId);
+        if (existing?.isLocallyDeleted && event.source === "remote") {
+          set({ unreadAttentionMessageIds });
+          return;
+        }
         if (
           preferencesStore.getState().deletedMessageArchiveEnabled &&
           event.source === "remote" &&
@@ -1893,34 +1934,9 @@ export const createTelegramStore = (
           canArchiveDeletedMessage(event.preservedMessage) &&
           get().users.get(event.preservedMessage!.senderId)?.isBot !== true
         ) {
-          const existing = get().messages.get(event.chatId)
-            ?.find((message) => message.id === event.messageId);
-          // TDLib's deletion update may carry a fresh file object whose local
-          // path/download flag is stale. Preserve the already hydrated media
-          // snapshot from our message cache before marking it deleted.
-          const preservedContent = event.preservedMessage!.content;
-          const existingContent = existing?.content;
-          const mergedContent = existingContent?.kind === "media" && preservedContent.kind === "media"
-            ? {
-                ...preservedContent,
-                localPath: existingContent.localPath ?? preservedContent.localPath,
-                thumbnailPath: existingContent.thumbnailPath ?? preservedContent.thumbnailPath,
-                isDownloaded: existingContent.isDownloaded || preservedContent.isDownloaded,
-                downloadedSize: Math.max(existingContent.downloadedSize ?? 0, preservedContent.downloadedSize ?? 0),
-                progress: existingContent.progress ?? preservedContent.progress,
-              }
-            : existingContent?.kind === "file" && preservedContent.kind === "file"
-              ? {
-                  ...preservedContent,
-                  localPath: existingContent.localPath ?? preservedContent.localPath,
-                  isDownloaded: existingContent.isDownloaded || preservedContent.isDownloaded,
-                  downloadedSize: Math.max(existingContent.downloadedSize ?? 0, preservedContent.downloadedSize ?? 0),
-                  progress: existingContent.progress ?? preservedContent.progress,
-                }
-              : preservedContent;
           const archived = {
             ...event.preservedMessage!,
-            content: mergedContent,
+            content: retainHydratedContent(event.preservedMessage!.content, existing?.content),
             isLocallyDeleted: true,
             locallyDeletedAt: new Date().toISOString(),
             permissions: undefined,
@@ -1930,8 +1946,8 @@ export const createTelegramStore = (
           const messages = new Map(get().messages);
           messages.set(event.chatId, upsertMessage(messages.get(event.chatId) ?? [], archived));
           set({ messages, unreadAttentionMessageIds });
-          maybeAutoCacheArchivePhoto(archived);
           publishMessageChange({ type: "upsert", messages: [archived], liveMessages: [] });
+          maybeAutoCacheArchivePhoto(archived);
           void flushCachedSnapshot().catch(() => set({ cacheHealth: "invalid" }));
           return;
         }
@@ -4256,10 +4272,8 @@ export const createTelegramStore = (
         const chatId = location?.chatId;
         if (!chatId) return false;
         if (location.message.isLocallyDeleted) {
-          const messages = new Map(get().messages);
-          messages.set(chatId, (messages.get(chatId) ?? []).filter((message) => message.id !== messageId));
-          set({ messages, operationError: undefined });
-          sharedMediaIndex.remove(chatId, [messageId]);
+          removeMessageImmediately(chatId, messageId);
+          set({ operationError: undefined });
           scheduleCacheWrite();
           return true;
         }
@@ -4278,47 +4292,48 @@ export const createTelegramStore = (
       },
 
       forwardMessages: async (fromChatId, messageIds, toChatId, toTopicId, description) => {
-        if (!get().chats.has(fromChatId) || !get().chats.has(toChatId)) return undefined;
+        if (accountTransition || !get().chats.has(fromChatId) || !get().chats.has(toChatId)) return undefined;
+        const generation = accountGeneration;
+        const accountId = get().activeAccountId;
+        const isCurrent = () => generation === accountGeneration && !accountTransition;
         const uniqueMessageIds = [...new Set(messageIds)];
         if (uniqueMessageIds.length === 0) return undefined;
         if (uniqueMessageIds.length > 100) {
           set({ operationError: translate("单次最多转发 100 条消息") });
           return undefined;
         }
-        const sourceMessages = get().messages.get(fromChatId) ?? [];
-        const archivedMessages = uniqueMessageIds
-          .map((id) => sourceMessages.find((message) => message.id === id))
-          .filter((message): message is Message => Boolean(message?.isLocallyDeleted));
-        const liveMessageIds = uniqueMessageIds.filter((id) =>
-          !archivedMessages.some((message) => message.id === id),
-        );
+        const sourceMessages = new Map((get().messages.get(fromChatId) ?? []).map(message => [message.id, message]));
         try {
-          const result: ForwardMessagesResult = liveMessageIds.length > 0
-            ? await transport.forwardMessages({ fromChatId, toChatId, toTopicId, messageIds: liveMessageIds })
-            : { forwardedCount: 0, failedMessageIds: [] };
-          // A permanently deleted Telegram message cannot be addressed by
-          // inputMessageReplyToMessage/forwardMessages. Send its retained
-          // content as a normal message instead, keeping the operation usable
-          // and avoiding the 400 "message not found" failure.
-          for (const archived of archivedMessages) {
-            const body = messageContentText(archived.content).trim();
-            if (!body) {
-              result.failedMessageIds.push(archived.id);
-              continue;
+          const result: ForwardMessagesResult = { forwardedCount: 0, failedMessageIds: [] };
+          for (let index = 0; index < uniqueMessageIds.length;) {
+            if (!isCurrent()) return undefined;
+            const message = sourceMessages.get(uniqueMessageIds[index]);
+            const batchIds = [uniqueMessageIds[index++]];
+            // Only combine adjacent live messages, keeping archived copies in place.
+            if (!message?.isLocallyDeleted) {
+              while (index < uniqueMessageIds.length && !sourceMessages.get(uniqueMessageIds[index])?.isLocallyDeleted) {
+                batchIds.push(uniqueMessageIds[index++]);
+              }
             }
-            const author = get().users.get(archived.senderId)?.displayName ?? translate("Telegram 用户");
             try {
-              await transport.sendMessage({
-                chatId: toChatId,
-                topicId: toTopicId,
-                text: `${author}:\n${body}`,
-                entities: [{ offset: author.length + 1, length: body.length, kind: "blockquote" }],
-                clearDraft: false,
-              });
-              result.forwardedCount += 1;
+              if (!message?.isLocallyDeleted) {
+                const forwarded = await transport.forwardMessages({ fromChatId, toChatId, toTopicId, messageIds: batchIds });
+                result.forwardedCount += forwarded.forwardedCount;
+                result.failedMessageIds.push(...forwarded.failedMessageIds);
+              } else if (message.content.kind === "media" || message.content.kind === "file") {
+                await transport.sendMediaCopy({ chatId: toChatId, topicId: toTopicId, content: message.content });
+                result.forwardedCount += 1;
+              } else {
+                const author = senderNameForMessage(message, get().users, get().chats.get(fromChatId)!, get().chats);
+                const quote = retainedMessageQuote(message.content, author);
+                if (!quote.text) throw new Error(translate("消息转发失败"));
+                await transport.sendMessage({ chatId: toChatId, topicId: toTopicId, ...quote, clearDraft: false });
+                result.forwardedCount += 1;
+              }
             } catch {
-              result.failedMessageIds.push(archived.id);
+              result.failedMessageIds.push(...batchIds);
             }
+            if (!isCurrent()) return undefined;
           }
           const normalizedDescription = description?.trim();
           let descriptionError: string | undefined;
@@ -4335,6 +4350,7 @@ export const createTelegramStore = (
               descriptionError = errorMessage(error, translate("转发成功，但描述发送失败"));
             }
           }
+          if (!isCurrent()) return undefined;
           set({
             operationError: descriptionError ?? (result.failedMessageIds.length > 0
               ? translate("{{value0}} 条消息已转发，{{value1}} 条失败", { value0: result.forwardedCount, value1: result.failedMessageIds.length })
@@ -4342,7 +4358,7 @@ export const createTelegramStore = (
           });
           if (result.forwardedCount > 0) {
             recordConversationSentMessages(
-              get().activeAccountId,
+              accountId,
               toChatId,
               result.forwardedCount + (normalizedDescription && !descriptionError ? 1 : 0),
             );
@@ -4350,12 +4366,16 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return result;
         } catch (error) {
+          if (!isCurrent()) return undefined;
           set({ operationError: error instanceof Error ? error.message : translate("消息转发失败") });
           return undefined;
         }
       },
 
       cacheFile: async (fileId, priority) => {
+        if (retainedMessages.forFile(fileId).some(({ content }) =>
+          (content.kind === "media" || content.kind === "file") && content.fileId === fileId &&
+          content.isDownloaded && content.localPath)) return;
         // Callers retry opportunistic preview downloads without surfacing a
         // global runtime error, so preserve the rejection signal here.
         await transport.cacheFile(fileId, priority);
@@ -4392,7 +4412,12 @@ export const createTelegramStore = (
 
       downloadFile: async (fileId, fileName) => {
         try {
-          const path = await transport.downloadFile(fileId, fileName);
+          const retained = retainedMessages.forFile(fileId).find(({ content }) =>
+            (content.kind === "media" || content.kind === "file") && content.fileId === fileId &&
+            content.isDownloaded && content.localPath);
+          const content = retained?.content;
+          const sourcePath = content?.kind === "media" || content?.kind === "file" ? content.localPath : undefined;
+          const path = await transport.downloadFile(fileId, fileName, sourcePath);
           set({ operationError: undefined });
           return path;
         } catch (error) {

@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   asTdObject,
   asTdObjects,
+  fileDetails,
   chatIdFromBasicGroupId,
   chatIdFromSupergroupId,
   mapTdChat,
@@ -102,6 +103,7 @@ import type {
   ChatListPage,
   DeleteMessageInput,
   EditMessageInput,
+  SendMediaCopyInput,
   EmojiPickerAsset,
   EmojiPickerCatalog,
   ForwardMessagesInput,
@@ -409,6 +411,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     },
   );
   private messageMediaService = new TauriMessageMediaService({
+    sessionGeneration: () => this.hydrationGeneration,
     recoverFile: (fileId) => this.requestBroker.recoverFile(fileId),
     request: (request) => this.request(request),
     rawMessages: this.rawMessages,
@@ -1955,6 +1958,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.forwardMessages(input);
   }
 
+  async sendMediaCopy(input: SendMediaCopyInput) {
+    return this.messageMediaService.sendMediaCopy(input);
+  }
+
   async setChatDraft(input: SetChatDraftInput) {
     return this.messageMediaService.setChatDraft(input);
   }
@@ -1963,8 +1970,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.setChatTyping(chatId, typing, topicId);
   }
 
-  async downloadFile(fileId: number, fileName: string) {
-    return this.messageMediaService.downloadFile(fileId, fileName);
+  async downloadFile(fileId: number, fileName: string, sourcePath?: string) {
+    return this.messageMediaService.downloadFile(fileId, fileName, sourcePath);
   }
 
   async cancelFileDownload(fileId: number) {
@@ -2980,6 +2987,8 @@ export class TauriTelegramTransport implements TelegramTransport {
         }
       }
     }
+
+    this.listener?.({ type: "file.updated", file: { ...fileDetails(file), fileId } });
 
     const pending = this.pendingDownloads.get(fileId);
     if (pending && local?.is_downloading_completed === true) {

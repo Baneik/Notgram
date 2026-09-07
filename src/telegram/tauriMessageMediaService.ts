@@ -1,6 +1,7 @@
 import { activeNativeAccount, nativeAttachmentsAvailable, persistNativeBlob, MAX_ATTACHMENT_BATCH_BYTES } from "../store/nativeBlobs";
 import { inputTextEntityType } from "./tdlibTextEntities";
 import { translate } from "../i18n";
+import { inputMediaCopy } from "./mediaCopy";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { FileDownloadQueue } from "./fileDownloadQueue";
 import type {
@@ -50,6 +51,7 @@ import type {
   SendFileInput,
   SendFilesInput,
   SendMessageInput,
+  SendMediaCopyInput,
   SetChatDraftInput,
   SetChatMessageAutoDeleteTimeInput,
   SetMessageReactionInput,
@@ -179,6 +181,7 @@ const mapStickerSetSummary = (value: unknown): StickerSetSummary | undefined => 
 };
 
 export interface TauriMessageMediaServiceContext {
+  sessionGeneration: () => number;
   recoverFile: (fileId: number) => Promise<unknown>;
   request: (request: TdObject) => Promise<TdObject>;
   rawMessages: Map<string, Map<string, TdObject>>;
@@ -576,7 +579,9 @@ export class TauriMessageMediaService {
   }
 
   async sendMessage(input: SendMessageInput) {
+    const generation = this.context.sessionGeneration();
     const text = await this.formattedTextInput(input.text, input.entities);
+    if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
     const response = await this.context.request({
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
@@ -586,7 +591,7 @@ export class TauriMessageMediaService {
       reply_markup: null,
       input_message_content: inputMessageText(text, input.clearDraft !== false),
     });
-    if (response["@type"] === "message") this.context.emitMessage(response, true);
+    if (generation === this.context.sessionGeneration() && response["@type"] === "message") this.context.emitMessage(response, true);
   }
 
   async editMessage(input: EditMessageInput) {
@@ -618,6 +623,7 @@ export class TauriMessageMediaService {
   }
 
   async forwardMessages(input: ForwardMessagesInput): Promise<ForwardMessagesResult> {
+    const generation = this.context.sessionGeneration();
     const messageIds = [...new Set(input.messageIds.map(numericId))]
       .sort((left, right) => left - right);
     if (messageIds.length === 0) throw new Error(translate("请选择要转发的消息"));
@@ -633,6 +639,7 @@ export class TauriMessageMediaService {
       remove_caption: false,
     });
     const forwarded = Array.isArray(response.messages) ? response.messages : [];
+    if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
     const failedMessageIds: string[] = [];
     let forwardedCount = 0;
     for (const [index, messageId] of messageIds.entries()) {
@@ -645,6 +652,22 @@ export class TauriMessageMediaService {
       }
     }
     return { forwardedCount, failedMessageIds };
+  }
+
+  async sendMediaCopy(input: SendMediaCopyInput) {
+    const generation = this.context.sessionGeneration();
+    const response = await this.context.request({
+      "@type": "sendMessage",
+      chat_id: numericId(input.chatId),
+      topic_id: forumTopicObject(input.topicId),
+      reply_to: null,
+      options: null,
+      reply_markup: null,
+      input_message_content: inputMediaCopy(input.content),
+    });
+    if (generation === this.context.sessionGeneration() && response["@type"] === "message") {
+      this.context.emitMessage(response, true);
+    }
   }
 
   async setChatDraft(input: SetChatDraftInput) {
@@ -680,7 +703,8 @@ export class TauriMessageMediaService {
     });
   }
 
-  async downloadFile(fileId: number, fileName: string) {
+  async downloadFile(fileId: number, fileName: string, sourcePath?: string) {
+    if (sourcePath) return invoke<string>("telegram_save_downloaded_file", { sourcePath, fileName });
     const existing = this.context.pendingDownloads.get(fileId);
     if (existing) return existing.promise;
     let resolveDownload!: (path: string) => void;

@@ -31,6 +31,9 @@ export const upsertMessages = (messages: Message[], incoming: Message[]) => {
   const byId = new Map(messages.map((message) => [message.id, message]));
   for (const message of incoming) {
     const existing = byId.get(message.id);
+    // History/context responses started before deletion cannot replace a retained copy.
+    // Its file state is updated explicitly through file.updated events.
+    if (existing?.isLocallyDeleted && !message.isLocallyDeleted) continue;
     const renderKey = message.renderKey ?? existing?.renderKey;
     const discussionThread = message.discussionThread ?? existing?.discussionThread;
     const isLocallyDeleted = message.isLocallyDeleted ?? existing?.isLocallyDeleted;

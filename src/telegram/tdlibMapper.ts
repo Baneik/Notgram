@@ -271,7 +271,7 @@ const readableSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
-const fileDetails = (value: unknown, includePendingUpload = false) => {
+export const fileDetails = (value: unknown, includePendingUpload = false) => {
   const file = asTdObject(value);
   const local = asTdObject(file?.local);
   const remote = asTdObject(file?.remote);

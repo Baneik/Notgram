@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { retainedMessageQuote } from "../telegram/retainedMessages";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -1403,9 +1404,9 @@ export function Conversation({
     ? {
         ...actionMessage,
         permissions: {
-        canReply: true,
-        canEdit: false,
-        canDeleteOnlyForSelf: true,
+          canReply: true,
+          canEdit: false,
+          canDeleteOnlyForSelf: true,
           canDeleteForAllUsers: false,
           canForward: true,
         },
@@ -1445,25 +1446,18 @@ export function Conversation({
       ? messagesByIdRef.current.get(replyToMessageId)
       : undefined;
     const localOnlyReply = localReply?.isLocallyDeleted === true;
-    const localReplyText = localOnlyReply ? messageContentText(localReply.content).trim() : "";
     const localReplyAuthor = localOnlyReply && chat
       ? senderNameForMessage(localReply, users, chat, forwardTargetsById)
       : "";
-    const localReplyPrefix = localOnlyReply && localReplyText
-      ? `${localReplyAuthor}:\n${localReplyText}\n\n`
-      : "";
-    const localReplyEntities: MessageTextEntity[] = localOnlyReply && localReplyText
-      ? [{
-          offset: 0,
-          length: `${localReplyAuthor}:\n${localReplyText}`.length,
-          kind: "blockquote",
-        }]
-      : [];
+    const localQuote = localOnlyReply
+      ? retainedMessageQuote(localReply.content, localReplyAuthor, selectedReplyQuote)
+      : undefined;
+    const localReplyPrefix = localQuote?.text ? `${localQuote.text}\n\n` : "";
     return onSendMessage(
       `${localReplyPrefix}${text}`,
       localOnlyReply ? undefined : replyToMessageId,
       localOnlyReply ? undefined : selectedReplyQuote,
-      localOnlyReply ? [...localReplyEntities, ...(entities ?? []).map((entity) => ({ ...entity, offset: entity.offset + localReplyPrefix.length }))] : entities,
+      localOnlyReply ? [...(localQuote?.entities ?? []), ...(entities ?? []).map((entity) => ({ ...entity, offset: entity.offset + localReplyPrefix.length }))] : entities,
       disableNotification,
     );
   }, [chat, forwardTargetsById, jumpToLatest, onSendMessage, users]);

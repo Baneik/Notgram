@@ -947,25 +947,28 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
             .get("input_message_content")
             .ok_or_else(|| "Message content is missing".to_string())?;
         let content_type = content.get("@type").and_then(Value::as_str);
-        match content_type {
-            Some("inputMessageText") => {}
-            Some("inputMessageSticker") => {
-                let file_type = content
-                    .pointer("/sticker/sticker/@type")
-                    .and_then(Value::as_str);
-                if file_type != Some("inputFileId") {
-                    return Err("Stickers must reference a Telegram file identifier".to_string());
-                }
-            }
-            Some("inputMessageAnimation") => {
-                let file_type = content
-                    .pointer("/animation/animation/@type")
-                    .and_then(Value::as_str);
-                if file_type != Some("inputFileId") {
-                    return Err("Animations must reference a Telegram file identifier".to_string());
-                }
-            }
+        let file_pointer = match content_type {
+            Some("inputMessageText") => None,
+            Some("inputMessageSticker") => Some("/sticker/sticker"),
+            Some("inputMessageAnimation") => Some("/animation/animation"),
+            Some("inputMessagePhoto") => Some("/photo/photo"),
+            Some("inputMessageVideo") => Some("/video/video"),
+            Some("inputMessageVideoNote") => Some("/video_note/video_note"),
+            Some("inputMessageVoiceNote") => Some("/voice_note/voice_note"),
+            Some("inputMessageAudio") => Some("/audio/audio"),
+            Some("inputMessageDocument") => Some("/document/document"),
             _ => return Err("Unsupported generic message content".to_string()),
+        };
+        if let Some(pointer) = file_pointer {
+            let file = content
+                .pointer(pointer)
+                .ok_or("Missing Telegram media file")?;
+            let file_id = file.get("id").and_then(Value::as_i64).unwrap_or(0);
+            if file.get("@type").and_then(Value::as_str) != Some("inputFileId")
+                || !(1..=i64::from(i32::MAX)).contains(&file_id)
+            {
+                return Err("Media must reference a valid Telegram file identifier".to_string());
+            }
         }
     }
     Ok(())
@@ -2280,6 +2283,42 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&local_file).is_err());
+    }
+
+    #[test]
+    fn retained_media_copies_only_accept_telegram_file_ids() {
+        for (content_type, field, input_type) in [
+            ("inputMessagePhoto", "photo", "inputPhoto"),
+            ("inputMessageVideo", "video", "inputVideo"),
+            ("inputMessageVideoNote", "video_note", "inputVideoNote"),
+            ("inputMessageVoiceNote", "voice_note", "inputVoiceNote"),
+            ("inputMessageAudio", "audio", "inputAudio"),
+            ("inputMessageDocument", "document", "inputDocument"),
+        ] {
+            let mut content = json!({ "@type": content_type });
+            content[field] = json!({ "@type": input_type });
+            content[field][field] = json!({ "@type": "inputFileId", "id": 42 });
+            let valid = json!({ "@type": "sendMessage", "chat_id": 7,
+                "input_message_content": content, "@extra": EXTRA });
+            assert!(validate_webview_tdlib_request(&valid).is_ok());
+            for invalid in [
+                json!({ "@type": "inputFileLocal", "path": "C:\\private.txt" }),
+                json!({ "@type": "inputFileRemote", "id": "remote" }),
+                json!({ "@type": "inputFileGenerated", "original_path": "C:\\private.txt" }),
+                json!({ "@type": "inputFileId", "id": 0 }),
+                json!({ "@type": "inputFileId", "id": -1 }),
+                json!({ "@type": "inputFileId", "id": i64::from(i32::MAX) + 1 }),
+            ] {
+                let mut request = valid.clone();
+                request["input_message_content"][field][field] = invalid;
+                assert!(validate_webview_tdlib_request(&request).is_err());
+            }
+            let mut local_thumbnail = valid.clone();
+            local_thumbnail["input_message_content"][field]["thumbnail"] = json!({
+                "@type": "inputThumbnail", "thumbnail": { "@type": "inputFileLocal", "path": "C:\\private.txt" }
+            });
+            assert!(validate_webview_tdlib_request(&local_thumbnail).is_err());
+        }
     }
 
     #[test]

@@ -6,6 +6,7 @@ import {
 } from "./mockData";
 import { isCaptionContent, isEditableMessageContent, messageContentText, messagePreviewText } from "./messageContent";
 import { hasChatDraftContent } from "./chatDraft";
+import { inputMediaCopy } from "./mediaCopy";
 import { messageSearchMatches } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
@@ -47,6 +48,7 @@ import type {
   EmojiPickerCatalog,
   ForwardMessagesInput,
   ForwardMessagesResult,
+  SendMediaCopyInput,
   ForumTopic,
   ForumTopicPage,
   GetForumTopicsInput,
@@ -2315,6 +2317,14 @@ export class MockTelegramTransport implements TelegramTransport {
       });
     }
     return { forwardedCount: selected.length, failedMessageIds: [] };
+  }
+
+  async sendMediaCopy({ chatId, topicId, content }: SendMediaCopyInput) {
+    inputMediaCopy(content);
+    this.appendMessage({
+      id: crypto.randomUUID(), chatId, topicId, senderId: this.snapshot.currentUserId,
+      outgoing: true, sentAt: new Date().toISOString(), delivery: "sent", content: clone(content),
+    });
   }
 
   async setChatDraft({ chatId, topicId, text, entities, replyToMessageId, replyQuote }: SetChatDraftInput) {

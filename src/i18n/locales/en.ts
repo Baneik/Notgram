@@ -1703,5 +1703,7 @@ export const en = {
   "没有匹配的设置": "No matching settings",
   "背景样式": "Background style",
   "简洁": "Plain",
-  "柔和": "Soft"
+  "柔和": "Soft",
+  "无法转发此媒体：缺少 Telegram 文件标识": "Cannot forward this media: missing Telegram file identifier",
+  "账号已切换，发送已取消": "Account changed; sending was cancelled"
 } as const;

@@ -21,6 +21,7 @@ import type {
   SendEmojiAssetInput,
   StreamFileInput,
   SendMessageInput,
+  SendMediaCopyInput,
   ChatHistoryPage,
   ChatSponsoredMessages,
   ChatListPage,
@@ -203,13 +204,14 @@ export interface TelegramTransport {
   editMessage(input: EditMessageInput): Promise<void>;
   deleteMessage(input: DeleteMessageInput): Promise<void>;
   forwardMessages(input: ForwardMessagesInput): Promise<ForwardMessagesResult>;
+  sendMediaCopy(input: SendMediaCopyInput): Promise<void>;
   setChatDraft(input: SetChatDraftInput): Promise<void>;
   setChatTyping(chatId: string, typing: boolean, topicId?: string): Promise<void>;
   cacheFile(fileId: number, priority?: number): Promise<void>;
   recoverFile(fileId: number, priority?: number): Promise<void>;
   streamFile(input: StreamFileInput): Promise<string>;
   suspendFileStream(fileId: number): Promise<void>;
-  downloadFile(fileId: number, fileName: string): Promise<string | void>;
+  downloadFile(fileId: number, fileName: string, sourcePath?: string): Promise<string | void>;
   cancelFileDownload(fileId: number): Promise<void>;
   openFile(sourcePath: string): Promise<void>;
   saveFileToDownloads(sourcePath: string, fileName: string): Promise<void>;

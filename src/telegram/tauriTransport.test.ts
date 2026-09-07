@@ -103,6 +103,66 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("publishes file state after removing the server message's raw file references", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: TelegramEvent[] = [];
+    internal.listener = event => events.push(event);
+    internal.emitMessage({ ...rawMessage(13), content: { "@type": "messagePhoto",
+      caption: { "@type": "formattedText", text: "", entities: [] },
+      photo: { sizes: [{ width: 640, height: 480, photo: { "@type": "file", id: 91, size: 4000,
+        local: { can_be_downloaded: true }, remote: {} } }] },
+    } });
+    internal.handleUpdate({ "@type": "updateDeleteMessages", chat_id: 7, message_ids: [13], is_permanent: true, from_cache: false });
+    expect(events.at(-1)).toMatchObject({ type: "message.remove", preservedMessage: { content: { fileId: 91 } } });
+    events.length = 0;
+    internal.handleUpdate({ "@type": "updateFile", file: { "@type": "file", id: 91, size: 4000,
+      local: { is_downloading_completed: true, path: "C:/cache/retained.jpg", downloaded_size: 4000 }, remote: {} } });
+    expect(events).toEqual([expect.objectContaining({ type: "file.updated", file: expect.objectContaining({
+      fileId: 91, isDownloaded: true, localPath: "C:/cache/retained.jpg",
+    }) })]);
+  });
+
+  it("copies retained media using its file identifier and original caption", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const request = vi.fn(async () => ({ "@type": "ok" }));
+    internal.request = request;
+    await transport.sendMediaCopy({ chatId: "7", topicId: "18", content: { kind: "media", mediaType: "photo",
+      fileId: 91, fileName: "retained.jpg", sizeLabel: "4 KB", caption: "original", hasSpoiler: true } });
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ "@type": "sendMessage", chat_id: 7,
+      topic_id: { "@type": "messageTopicForum", forum_topic_id: 18 }, reply_to: null,
+      input_message_content: expect.objectContaining({ "@type": "inputMessagePhoto", has_spoiler: true,
+        photo: expect.objectContaining({ photo: { "@type": "inputFileId", id: 91 } }), caption: expect.objectContaining({ text: "original" }) }),
+    }));
+  });
+
+  it("cancels text sends if their session changes while Markdown is being parsed", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & { hydrationGeneration: number };
+    let finish!: (value: TdObject) => void;
+    const parsing = new Promise<TdObject>(resolve => { finish = resolve; });
+    const request = vi.fn(() => parsing);
+    internal.request = request;
+    const sending = transport.sendMessage({ chatId: "7", text: "**retained**" });
+    internal.hydrationGeneration += 1;
+    finish({ "@type": "formattedText", text: "retained", entities: [] });
+    await expect(sending).rejects.toThrow("发送已取消");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves a retained local file without asking TDLib to download it again", async () => {
+    const invoke = vi.fn(async () => "C:/Downloads/retained.jpg");
+    vi.stubGlobal("window", { __TAURI_INTERNALS__: { invoke } });
+    try {
+      const transport = new TauriTelegramTransport();
+      await expect(transport.downloadFile(91, "retained.jpg", "C:/cache/retained.jpg")).resolves.toBe("C:/Downloads/retained.jpg");
+      expect(invoke).toHaveBeenCalledWith("telegram_save_downloaded_file", { sourcePath: "C:/cache/retained.jpg", fileName: "retained.jpg" }, undefined);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("batches user replay while the initial TDLib sync is pending", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport & {
@@ -4228,8 +4288,10 @@ describe("TauriTelegramTransport media", () => {
     ]);
 
     expect(events.filter((event) => event.type === "message.upsert")).toHaveLength(0);
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
+    expect(events.filter((event) => event.type === "file.updated")).toHaveLength(2);
+    const messageEvents = events.filter((event) => event.type === "messages.upserted");
+    expect(messageEvents).toHaveLength(1);
+    expect(messageEvents[0]).toMatchObject({
       type: "messages.upserted",
       messages: [{
         id: "13",
@@ -4287,7 +4349,7 @@ describe("TauriTelegramTransport media", () => {
         remote: {},
       },
     });
-    expect(events.at(-1)).toMatchObject({
+    expect(events.filter(event => event.type === "message.upsert").at(-1)).toMatchObject({
       type: "message.upsert",
       cacheRelevant: false,
       message: { content: { isDownloading: true, downloadedSize: 2_000 } },
@@ -4309,11 +4371,11 @@ describe("TauriTelegramTransport media", () => {
         remote: {},
       },
     });
-    expect(events.at(-1)).toMatchObject({
+    expect(events.filter(event => event.type === "message.upsert").at(-1)).toMatchObject({
       type: "message.upsert",
       message: { content: { isDownloaded: true, localPath: "C:\\cache\\archive.zip" } },
     });
-    expect(events.at(-1)).not.toHaveProperty("cacheRelevant", false);
+    expect(events.filter(event => event.type === "message.upsert").at(-1)).not.toHaveProperty("cacheRelevant", false);
   });
 
   it("cancels an idle stream without interrupting an explicit file download", async () => {

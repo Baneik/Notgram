@@ -55,6 +55,7 @@ export const useMessageForwarding = ({
   const [pendingTargetId, setPendingTargetId] = useState<string>();
   const [targetSnapshot, setTargetSnapshot] = useState<Chat[]>(() => getTargetsSnapshot?.() ?? targets);
   const selectionPermissionRequestsRef = useRef(new Set<string>());
+  const operationGenerationRef = useRef(0);
 
   const captureTargets = useCallback(
     () => getTargetsSnapshot?.() ?? targets,
@@ -80,6 +81,7 @@ export const useMessageForwarding = ({
     setPendingTargetId(undefined);
     setTargetSnapshot(captureTargets());
     selectionPermissionRequestsRef.current.clear();
+    return () => { operationGenerationRef.current += 1; };
   }, [conversationIdentity ?? chatId]);
 
   useEffect(() => {
@@ -235,9 +237,11 @@ export const useMessageForwarding = ({
       openDialogForMessages(ordered, target.id);
       return;
     }
+    const generation = operationGenerationRef.current;
     setPending(true);
     setPendingTargetId(target.id);
     await onForwardMessages(chatId, ordered, target.id);
+    if (generation !== operationGenerationRef.current) return;
     setPending(false);
     setPendingTargetId(undefined);
   }, [chatId, onForwardMessages, openDialogForMessages, orderedMessageIds, pending]);
@@ -247,6 +251,7 @@ export const useMessageForwarding = ({
     description: string,
   ) => {
     if (!chatId || pending || forwardMessageIds.length === 0 || selectedTargets.length === 0) return;
+    const generation = operationGenerationRef.current;
     setPending(true);
     const failedMessageIds = new Set<string>();
     for (const target of selectedTargets) {
@@ -258,8 +263,11 @@ export const useMessageForwarding = ({
         target.topicId,
         description.trim() || undefined,
       );
+      if (generation !== operationGenerationRef.current) return;
       if (!result) {
         forwardMessageIds.forEach((messageId) => failedMessageIds.add(messageId));
+        // A cancelled account batch must not start another target on the new account.
+        break;
       } else {
         result.failedMessageIds.forEach((messageId) => failedMessageIds.add(messageId));
       }

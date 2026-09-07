@@ -1026,7 +1026,12 @@ export interface QueuedOutgoingAttachment {
   showCaptionAboveMedia?: boolean;
 }
 
+export type MessageFileState = Pick<TransferableMessageContent,
+  "localPath" | "isDownloaded" | "isDownloading" | "canDownload" | "downloadedSize" | "progress" | "size" | "sizeLabel"
+> & { fileId: number };
+
 export type TelegramEvent =
+  | { type: "file.updated"; file: MessageFileState }
   | { type: "authorization.changed"; state: AuthorizationState }
   | { type: "connection.changed"; status: ConnectionStatus }
   | { type: "currentUser.changed"; userId: string }
@@ -1204,6 +1209,12 @@ export interface ChatHistoryPage {
   messageIds: string[];
   /** Messages from this page, committed with the history cursor by the store. */
   messages?: Message[];
+}
+
+export interface SendMediaCopyInput {
+  chatId: string;
+  topicId?: string;
+  content: Extract<MessageContent, { kind: "media" | "file" }>;
 }
 
 export interface ForumTopic {
