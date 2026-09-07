@@ -3542,6 +3542,9 @@ describe("chat filtering", () => {
       ...source!,
       content: {
         ...source!.content,
+        fileId: 777,
+        remoteId: "hydrated-photo",
+        remoteUniqueId: "hydrated-photo-unique",
         localPath: "C:/cache/already-downloaded.jpg",
         isDownloaded: true,
         downloadedSize: 42,

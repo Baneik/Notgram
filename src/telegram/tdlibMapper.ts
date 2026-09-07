@@ -286,6 +286,8 @@ export const fileDetails = (value: unknown, includePendingUpload = false) => {
   const remoteId = typeof remote?.id === "string" ? remote.id : undefined;
   return {
     fileId: tdNumber(file?.id),
+    remoteId: remoteId || undefined,
+    remoteUniqueId: typeof remote?.unique_id === "string" ? remote.unique_id || undefined : undefined,
     dataCenterId: remoteId ? parseTdlibRemoteFileDataCenter(remoteId) : undefined,
     size,
     sizeLabel: readableSize(size),
@@ -310,9 +312,12 @@ const thumbnailPath = (value: unknown) => {
 const thumbnailFileDetails = (value: unknown) => {
   const file = asTdObject(value);
   const local = asTdObject(file?.local);
+  const remote = asTdObject(file?.remote);
   return {
     thumbnailPath: tdLocalFilePath(file),
     thumbnailFileId: tdNumber(file?.id),
+    thumbnailRemoteId: typeof remote?.id === "string" ? remote.id || undefined : undefined,
+    thumbnailRemoteUniqueId: typeof remote?.unique_id === "string" ? remote.unique_id || undefined : undefined,
     thumbnailCanDownload: local?.can_be_downloaded === true,
     thumbnailIsDownloading: local?.is_downloading_active === true,
   };
@@ -324,6 +329,8 @@ const thumbnailDetails = (value: unknown) =>
 const photoPreviewDetails = (value: unknown): {
   thumbnailPath?: string;
   thumbnailFileId?: number;
+  thumbnailRemoteId?: string;
+  thumbnailRemoteUniqueId?: string;
   thumbnailCanDownload?: boolean;
   thumbnailIsDownloading?: boolean;
   previewDataUrl?: string;
@@ -394,6 +401,8 @@ const fileContent = (
     mimeType?: string;
     thumbnailPath?: string;
     thumbnailFileId?: number;
+    thumbnailRemoteId?: string;
+    thumbnailRemoteUniqueId?: string;
     thumbnailCanDownload?: boolean;
     thumbnailIsDownloading?: boolean;
     width?: number;
@@ -420,6 +429,8 @@ const mediaContent = (
     mimeType?: string;
     thumbnailPath?: string;
     thumbnailFileId?: number;
+    thumbnailRemoteId?: string;
+    thumbnailRemoteUniqueId?: string;
     thumbnailCanDownload?: boolean;
     thumbnailIsDownloading?: boolean;
     previewDataUrl?: string;
@@ -1111,6 +1122,8 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
           mimeType,
           thumbnailPath: cover.thumbnailPath ?? thumbnail.thumbnailPath,
           thumbnailFileId: cover.thumbnailFileId ?? thumbnail.thumbnailFileId,
+          thumbnailRemoteId: cover.thumbnailFileId !== undefined ? cover.thumbnailRemoteId : thumbnail.thumbnailRemoteId,
+          thumbnailRemoteUniqueId: cover.thumbnailFileId !== undefined ? cover.thumbnailRemoteUniqueId : thumbnail.thumbnailRemoteUniqueId,
           thumbnailCanDownload: cover.thumbnailCanDownload ?? thumbnail.thumbnailCanDownload,
           thumbnailIsDownloading: cover.thumbnailIsDownloading ?? thumbnail.thumbnailIsDownloading,
           previewDataUrl: cover.previewDataUrl ?? minithumbnailDataUrl(video?.minithumbnail),

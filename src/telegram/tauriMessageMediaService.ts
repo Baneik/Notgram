@@ -11,6 +11,7 @@ import type {
 import {
   asTdObject,
   asTdObjects,
+  fileDetails,
   mapTdMessageProperties,
   mapTdMessageReactionSenders,
   serializeTdObject,
@@ -43,6 +44,7 @@ import type {
   ForwardMessagesResult,
   GetMessageReactionSendersInput,
   Message,
+  MessageFileState,
   MessagePermissions,
   MessageReplyQuote,
   MessageTextEntity,
@@ -790,6 +792,15 @@ export class TauriMessageMediaService {
 
   cacheFile(fileId: number, priority = 16) {
     return this.context.fileDownloads.cache(fileId, priority);
+  }
+
+  async resolveRemoteFile(remoteId: string): Promise<MessageFileState | undefined> {
+    const generation = this.context.sessionGeneration();
+    const raw = await this.context.request({ "@type": "getRemoteFile", remote_file_id: remoteId, file_type: null });
+    if (generation !== this.context.sessionGeneration() || raw["@type"] !== "file") return undefined;
+    const file = fileDetails(raw);
+    if (file.fileId === undefined || file.fileId <= 0) return undefined;
+    return { ...file, fileId: file.fileId };
   }
 
   async recoverFile(fileId: number, priority = 32) {

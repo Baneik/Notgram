@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { MockTelegramTransport } from "../telegram/mockTransport";
 import type { TelegramEventListener } from "../telegram/transport";
-import type { CachedTelegramSnapshot, Message, TelegramEvent, SendMessageInput, TelegramAccount } from "../telegram/types";
+import type { CachedTelegramSnapshot, Message, MessageFileState, TelegramEvent, SendMessageInput, TelegramAccount } from "../telegram/types";
 import { createTelegramStore, type MessageChangeEvent } from "./telegramStore";
 import { preferencesStore } from "./preferencesStore";
 import { cachedSnapshotFrom } from "./telegramStore.cache";
@@ -76,16 +76,179 @@ it("finishes a photo and thumbnail download after their server message has gone"
   });
 });
 
-it("restores file subscriptions from the retained snapshot", async () => {
+it.each([777, 778, 999])("ignores reused runtime ID %s when restoring a legacy archive", async fileId => {
   const { store: initial, photo, archive } = await fixture();
   archive(photo);
-  const snapshot: CachedTelegramSnapshot = cachedSnapshotFrom(initial.getState());
+  const saved = cachedSnapshotFrom(initial.getState());
+  expect(saved.locallyDeletedMessages?.[0].content).toMatchObject({ fileId: undefined, thumbnailFileId: undefined });
+  // Old application versions persisted both numeric handles and active transfer flags.
+  const snapshot: CachedTelegramSnapshot = JSON.parse(JSON.stringify({ ...saved, locallyDeletedMessages: [{
+    ...saved.locallyDeletedMessages![0], content: { ...photo.content, thumbnailPath: "C:/cache/thumb.jpg",
+      isDownloading: true, thumbnailIsDownloading: true, canDownload: true, thumbnailCanDownload: true },
+  }] }));
   const transport = new RetainedTransport({ cachedSnapshot: snapshot });
+  const resolve = vi.spyOn(transport, "resolveRemoteFile");
+  const cache = vi.spyOn(transport, "cacheFile");
   const store = createTelegramStore(transport);
   await store.getState().initialize();
-  transport.dispatch({ type: "file.updated", file: { fileId: 777, sizeLabel: "4 KB", localPath: "C:/cache/restored.jpg", isDownloaded: true } });
+  const read = () => store.getState().messages.get(photo.chatId)!.find(message => message.id === photo.id)!;
+  const restored = read();
+  expect(restored.content).toMatchObject({ fileId: undefined, thumbnailFileId: undefined,
+    localPath: "C:/cache/photo.jpg", thumbnailPath: "C:/cache/thumb.jpg", isDownloaded: true,
+    isDownloading: false, thumbnailIsDownloading: false, canDownload: false, thumbnailCanDownload: false });
+  transport.dispatch({ type: "file.updated", file: { fileId, remoteId: "unrelated", remoteUniqueId: "other",
+    sizeLabel: "4 KB", localPath: "C:/cache/unrelated.jpg", isDownloaded: true } });
+  expect(read()).toBe(restored);
+  expect(resolve).not.toHaveBeenCalled();
+  expect(cache).not.toHaveBeenCalled();
+  expect(cachedSnapshotFrom(store.getState()).locallyDeletedMessages?.[0].content)
+    .toMatchObject({ localPath: "C:/cache/photo.jpg", thumbnailPath: "C:/cache/thumb.jpg" });
+  const save = vi.spyOn(transport, "saveFileToDownloads");
+  await store.getState().saveFileToDownloads("C:/cache/photo.jpg", "photo.jpg");
+  expect(save).toHaveBeenCalledWith("C:/cache/photo.jpg", "photo.jpg");
+  const copy = vi.spyOn(transport, "sendMediaCopy");
+  expect(await store.getState().forwardMessages(photo.chatId, [photo.id], "chat-mia"))
+    .toEqual({ forwardedCount: 0, failedMessageIds: [photo.id] });
+  expect(copy).toHaveBeenCalledWith(expect.objectContaining({ content: expect.objectContaining({ fileId: undefined }) }));
+});
+
+const withRemoteIdentity = (photo: Message): Message => ({ ...photo, content: {
+  ...photo.content as Extract<Message["content"], { kind: "media" }>,
+  remoteId: "photo-remote", remoteUniqueId: "photo-unique",
+  thumbnailRemoteId: "thumb-remote", thumbnailRemoteUniqueId: "thumb-unique",
+} });
+
+it("rebinds persisted photo and thumbnail identities independently before accepting updates or downloading", async () => {
+  const { store: initial, photo, archive } = await fixture();
+  archive({ ...withRemoteIdentity(photo), content: {
+    ...withRemoteIdentity(photo).content as Extract<Message["content"], { kind: "media" }>,
+    localPath: undefined, isDownloaded: false,
+  } });
+  const snapshot = JSON.parse(JSON.stringify(cachedSnapshotFrom(initial.getState())));
+  const transport = new RetainedTransport({ cachedSnapshot: snapshot });
+  const pending = new Map<string, (file: MessageFileState) => void>();
+  vi.spyOn(transport, "resolveRemoteFile").mockImplementation(remoteId => new Promise(resolve => pending.set(remoteId, resolve)));
+  const cache = vi.spyOn(transport, "cacheFile");
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  const read = () => store.getState().messages.get(photo.chatId)!.find(message => message.id === photo.id)!.content;
+  expect(pending.size).toBe(2);
+  expect(cache).not.toHaveBeenCalled();
+  transport.dispatch({ type: "file.updated", file: { fileId: 777, remoteId: "other", remoteUniqueId: "other",
+    sizeLabel: "4 KB", localPath: "C:/cache/other.jpg", isDownloaded: true } });
+  expect(read()).toMatchObject({ fileId: undefined });
+  expect(read()).not.toHaveProperty("localPath");
+  pending.get("thumb-remote")!({ fileId: 1778, remoteId: "thumb-remote", remoteUniqueId: "thumb-unique",
+    sizeLabel: "1 KB", localPath: "C:/cache/new-thumb.jpg", isDownloaded: true });
+  await vi.waitFor(() => expect(read()).toMatchObject({ thumbnailFileId: 1778, thumbnailPath: "C:/cache/new-thumb.jpg" }));
+  expect(cache).not.toHaveBeenCalled();
+  // TDLib may return another valid remote ID for the same persistent unique ID.
+  pending.get("photo-remote")!({ fileId: 1777, remoteId: "photo-remote-refreshed", remoteUniqueId: "photo-unique",
+    sizeLabel: "4 KB", canDownload: true, isDownloaded: false });
+  await vi.waitFor(() => expect(read()).toMatchObject({ fileId: 1777, remoteId: "photo-remote-refreshed" }));
+  expect(cache).toHaveBeenCalledWith(1777, 48);
+  expect(cache).not.toHaveBeenCalledWith(777, expect.anything());
+  const before = read();
+  transport.dispatch({ type: "file.updated", file: { fileId: 1777, remoteUniqueId: "wrong",
+    sizeLabel: "4 KB", localPath: "C:/cache/wrong.jpg", isDownloaded: true } });
+  expect(read()).toBe(before);
+  transport.dispatch({ type: "file.updated", file: { fileId: 1777, remoteId: "photo-remote-refreshed", remoteUniqueId: "photo-unique",
+    sizeLabel: "4 KB", localPath: "C:/cache/completed.jpg", isDownloaded: true } });
+  expect(read()).toMatchObject({ localPath: "C:/cache/completed.jpg", thumbnailPath: "C:/cache/new-thumb.jpg" });
+  const persisted = JSON.parse(JSON.stringify(cachedSnapshotFrom(store.getState()))).locallyDeletedMessages[0].content;
+  expect(persisted).toMatchObject({ remoteId: "photo-remote-refreshed", remoteUniqueId: "photo-unique",
+    thumbnailRemoteId: "thumb-remote", thumbnailRemoteUniqueId: "thumb-unique", localPath: "C:/cache/completed.jpg" });
+  expect(persisted).not.toHaveProperty("fileId");
+  expect(persisted).not.toHaveProperty("thumbnailFileId");
+});
+
+it.each(["wrong identity", "missing identity", "lookup failure"])("keeps local previews and disables unverified handles after %s", async failure => {
+  const { store: initial, photo, archive } = await fixture();
+  archive(withRemoteIdentity(photo));
+  const transport = new RetainedTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
+  vi.spyOn(transport, "resolveRemoteFile").mockImplementation(async remoteId => {
+    if (failure === "lookup failure") throw new Error("inaccessible");
+    return { fileId: 777, remoteId, remoteUniqueId: failure === "wrong identity" ? "wrong" : undefined,
+      sizeLabel: "4 KB", localPath: "C:/cache/wrong.jpg", isDownloaded: true };
+  });
+  const cache = vi.spyOn(transport, "cacheFile");
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
   expect(store.getState().messages.get(photo.chatId)!.find(message => message.id === photo.id)?.content)
-    .toMatchObject({ localPath: "C:/cache/restored.jpg", isDownloaded: true });
+    .toMatchObject({ fileId: undefined, thumbnailFileId: undefined, localPath: "C:/cache/photo.jpg", isDownloaded: true, canDownload: false });
+  expect(cache).not.toHaveBeenCalled();
+});
+
+it("preserves completed local files when a verified lookup has lost its local state", async () => {
+  const { store: initial, photo, archive } = await fixture();
+  archive({ ...withRemoteIdentity(photo), content: { ...withRemoteIdentity(photo).content as Extract<Message["content"], { kind: "media" }>,
+    thumbnailPath: "C:/cache/thumb.jpg" } });
+  const transport = new RetainedTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
+  vi.spyOn(transport, "resolveRemoteFile").mockImplementation(async remoteId => ({
+    fileId: remoteId === "photo-remote" ? 1777 : 1778, remoteId,
+    remoteUniqueId: remoteId === "photo-remote" ? "photo-unique" : "thumb-unique",
+    sizeLabel: "4 KB", isDownloaded: false, isDownloading: false, localPath: undefined,
+  }));
+  const cache = vi.spyOn(transport, "cacheFile");
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  expect(store.getState().messages.get(photo.chatId)!.find(message => message.id === photo.id)?.content)
+    .toMatchObject({ fileId: 1777, thumbnailFileId: 1778, localPath: "C:/cache/photo.jpg",
+      thumbnailPath: "C:/cache/thumb.jpg", isDownloaded: true });
+  expect(cache).not.toHaveBeenCalled();
+  const download = vi.spyOn(transport, "downloadFile").mockResolvedValue();
+  await store.getState().downloadFile(1777, "photo.jpg");
+  expect(download).toHaveBeenCalledWith(1777, "photo.jpg", "C:/cache/photo.jpg");
+});
+
+it("does not recreate an archive deleted while its persistent file is being resolved", async () => {
+  const { store: initial, photo, archive } = await fixture();
+  archive(withRemoteIdentity(photo));
+  const transport = new RetainedTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
+  const finishes: Array<(file: MessageFileState | undefined) => void> = [];
+  vi.spyOn(transport, "resolveRemoteFile").mockImplementation(() => new Promise(resolve => finishes.push(resolve)));
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  await store.getState().deleteMessage(photo.id, false, photo.chatId);
+  for (const finish of finishes) finish({ fileId: 1777, remoteId: "photo-remote", remoteUniqueId: "photo-unique", sizeLabel: "4 KB" });
+  await Promise.resolve();
+  transport.dispatch({ type: "file.updated", file: { fileId: 1777, remoteUniqueId: "photo-unique", sizeLabel: "4 KB", localPath: "C:/cache/new.jpg" } });
+  expect(store.getState().messages.get(photo.chatId)!.some(message => message.id === photo.id)).toBe(false);
+  expect(cachedSnapshotFrom(store.getState()).locallyDeletedMessages).toEqual([]);
+});
+
+it("discards lookups from the old account and restores the new account independently", async () => {
+  const { store: initial, photo, archive } = await fixture();
+  archive(withRemoteIdentity(photo));
+  const snapshot = cachedSnapshotFrom(initial.getState());
+  const accounts: TelegramAccount[] = ["default", "secondary"].map(id => ({ id, userId: id, displayName: id, avatar: { label: id, color: "#3390ec" } }));
+  const pending = new Map<string, (file: MessageFileState | undefined) => void>();
+  class SwitchingTransport extends RetainedTransport {
+    active = "default";
+    override async getAccountState() { return { activeAccountId: this.active, accounts }; }
+    override async registerCurrentAccount() { return this.getAccountState(); }
+    override async selectAccount(id: string) { this.active = id; return this.getAccountState(); }
+    override async loadCachedSnapshot() { return structuredClone({ ...snapshot, accountId: this.active }); }
+    override resolveRemoteFile(remoteId: string) {
+      return new Promise<MessageFileState | undefined>(resolve => pending.set(`${this.active}:${remoteId}`, resolve));
+    }
+  }
+  const transport = new SwitchingTransport();
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  expect(pending.size).toBe(2);
+  expect(await store.getState().switchAccount("secondary")).toBe(true);
+  expect(pending.size).toBe(4);
+  const file: MessageFileState = { fileId: 1777, remoteId: "photo-remote", remoteUniqueId: "photo-unique", sizeLabel: "4 KB",
+    localPath: "C:/cache/old-account.jpg", isDownloaded: true };
+  pending.get("default:photo-remote")!(file);
+  pending.get("default:thumb-remote")!(undefined);
+  await Promise.resolve();
+  const read = () => store.getState().messages.get(photo.chatId)!.find(message => message.id === photo.id)!.content;
+  expect(read()).toMatchObject({ fileId: undefined, localPath: "C:/cache/photo.jpg" });
+  pending.get("secondary:photo-remote")!({ ...file, fileId: 2777, localPath: "C:/cache/new-account.jpg" });
+  pending.get("secondary:thumb-remote")!(undefined);
+  await vi.waitFor(() => expect(read()).toMatchObject({ fileId: 2777, localPath: "C:/cache/new-account.jpg" }));
 });
 
 it("removes retained files from incremental indexes and does not recreate them on later file updates", async () => {

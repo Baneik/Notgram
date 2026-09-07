@@ -67,6 +67,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getContacts",
     "getAuthorizationState",
     "getFile",
+    "getRemoteFile",
     "getInstalledStickerSets",
     "getMe",
     "getMessageProperties",
@@ -1871,6 +1872,17 @@ mod tests {
     use super::*;
 
     const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
+
+    #[test]
+    fn allows_retained_media_lookup_by_remote_identity() {
+        assert!(
+            validate_webview_tdlib_request(&json!({
+                "@type": "getRemoteFile", "remote_file_id": "remote-photo",
+                "file_type": null, "@extra": EXTRA
+            }))
+            .is_ok()
+        );
+    }
 
     #[test]
     fn webviews_cannot_race_the_native_proxy_owner() {

@@ -742,11 +742,16 @@ interface TransferableMessageContent {
   showCaptionAboveMedia?: boolean;
   mimeType?: string;
   fileId?: number;
+  /** TDLib identities that survive a runtime restart; fileId does not. */
+  remoteId?: string;
+  remoteUniqueId?: string;
   dataCenterId?: number;
   size?: number;
   localPath?: string;
   thumbnailPath?: string;
   thumbnailFileId?: number;
+  thumbnailRemoteId?: string;
+  thumbnailRemoteUniqueId?: string;
   thumbnailCanDownload?: boolean;
   thumbnailIsDownloading?: boolean;
   canDownload?: boolean;
@@ -1031,7 +1036,7 @@ export interface QueuedOutgoingAttachment {
 }
 
 export type MessageFileState = Pick<TransferableMessageContent,
-  "localPath" | "isDownloaded" | "isDownloading" | "canDownload" | "downloadedSize" | "progress" | "size" | "sizeLabel"
+  "remoteId" | "remoteUniqueId" | "localPath" | "isDownloaded" | "isDownloading" | "canDownload" | "downloadedSize" | "progress" | "size" | "sizeLabel"
 > & { fileId: number };
 
 export type TelegramEvent =

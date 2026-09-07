@@ -15,6 +15,24 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("preserves separate persistent identities for a photo and its thumbnail", () => {
+    const photo = (id: number, width: number, remoteId: string) => ({ width, height: width,
+      photo: { "@type": "file", id, remote: { id: remoteId, unique_id: `${remoteId}-unique` } } });
+    expect(mapTdMessageContent({ "@type": "messagePhoto", photo: { sizes: [
+      photo(778, 80, "thumb"), photo(777, 800, "full"),
+    ] } })).toMatchObject({ fileId: 777, remoteId: "full", remoteUniqueId: "full-unique",
+      thumbnailFileId: 778, thumbnailRemoteId: "thumb", thumbnailRemoteUniqueId: "thumb-unique" });
+  });
+
+  it.each([false, true])("keeps the video preview identity with its selected file (cover: %s)", cover => {
+    const file = (id: number, remoteId: string) => ({ "@type": "file", id, remote: { id: remoteId, unique_id: `${remoteId}-unique` } });
+    expect(mapTdMessageContent({ "@type": "messageVideo",
+      video: { video: file(777, "video"), thumbnail: { file: file(778, "thumb") } },
+      ...(cover ? { cover: { sizes: [{ width: 800, height: 600, photo: file(779, "cover") }] } } : {}),
+    })).toMatchObject({ remoteId: "video", remoteUniqueId: "video-unique", thumbnailFileId: cover ? 779 : 778,
+      thumbnailRemoteId: cover ? "cover" : "thumb", thumbnailRemoteUniqueId: cover ? "cover-unique" : "thumb-unique" });
+  });
+
   it.each(["messagePhoto", "messageVideo", "messageAnimation"])("preserves caption placement and formatting for %s", (type) => {
     for (const above of [false, true]) {
       expect(mapTdMessageContent({

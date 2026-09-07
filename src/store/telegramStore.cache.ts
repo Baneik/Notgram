@@ -1,5 +1,6 @@
 import { messageCanBeCached } from "../telegram/messageLifecycle";
 import { translate } from "../i18n";
+import { retainedMessageForCache } from "../telegram/retainedMessages";
 import type {
   CachedTelegramSnapshot,
   Chat,
@@ -329,7 +330,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
       messages: (value.version === 4 ? value.messages as unknown as Message[] : []).filter(messageCanBeCached).map(sanitizeCachedMessage),
       locallyDeletedMessages: (value.locallyDeletedMessages as unknown as Message[] | undefined ?? [])
         .filter((message) => message.isLocallyDeleted === true && typeof message.locallyDeletedAt === "string")
-        .map(sanitizeCachedMessage),
+        .map(message => retainedMessageForCache(sanitizeCachedMessage(message))),
       profiles: (value.profiles as ChatProfile[] | undefined)?.map(sanitizeCachedProfile),
       forumTopics: value.version === 4
         ? (value.forumTopics ?? []).map((entry) => ({
@@ -500,7 +501,7 @@ export const cachedSnapshotFrom = (
     messages: recentMessagesForCache(state),
     locallyDeletedMessages: [...state.messages.values()].flat()
       .filter((message) => message.isLocallyDeleted === true)
-      .map(sanitizeCachedMessage),
+      .map(message => retainedMessageForCache(sanitizeCachedMessage(message))),
     drafts: [...state.drafts.values()],
     localAttachmentDrafts: [...(state.localAttachmentDrafts ?? new Map()).values()],
     outbox: state.outbox ?? [],

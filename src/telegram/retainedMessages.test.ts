@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { retainedMessageQuote, retainHydratedContent } from "./retainedMessages";
+import { bindRetainedMessageFile, retainedMessageForCache, retainedMessageQuote, retainHydratedContent, updateRetainedMessageFile } from "./retainedMessages";
 import { inputMediaCopy } from "./mediaCopy";
-import type { MessageContent } from "./types";
+import type { Message, MessageContent } from "./types";
+import { mockSnapshot } from "./mockData";
 import { inputTextEntityType } from "./tdlibTextEntities";
 
 describe("retained message content", () => {
@@ -53,6 +54,27 @@ describe("retained message content", () => {
       fileId: 1, localPath: "C:/cache/old.jpg", isDownloaded: true };
     const snapshot = { ...existing, fileId: 2, localPath: undefined, isDownloaded: false };
     expect(retainHydratedContent(snapshot, existing)).toMatchObject({ fileId: 2, localPath: undefined, isDownloaded: false });
+  });
+
+  it("does not infer matching files from missing numeric IDs or conflicting persistent identities", () => {
+    const existing: MessageContent = { kind: "media", mediaType: "photo", fileName: "old.jpg", sizeLabel: "4 KB",
+      fileId: 1, remoteId: "old", remoteUniqueId: "old-unique", localPath: "C:/cache/old.jpg", isDownloaded: true };
+    const replacement = { ...existing, remoteId: "new", remoteUniqueId: "new-unique", localPath: undefined, isDownloaded: false };
+    expect(retainHydratedContent(replacement, existing)).toMatchObject({ localPath: undefined, isDownloaded: false });
+    expect(retainHydratedContent({ ...replacement, fileId: undefined }, { ...existing, fileId: undefined }))
+      .toMatchObject({ localPath: undefined, isDownloaded: false });
+  });
+
+  it("uses the exact remote ID when unique_id is unknown and strengthens identity on subsequent updates", () => {
+    const message: Message = retainedMessageForCache({ ...mockSnapshot.messages[0], isLocallyDeleted: true,
+      content: { kind: "media", mediaType: "photo", fileName: "photo.jpg", sizeLabel: "4 KB", fileId: 777, remoteId: "remote-photo" } });
+    const wrongFile = { fileId: 777, remoteId: "wrong", sizeLabel: "4 KB" };
+    expect(bindRetainedMessageFile(message, "remote-photo", wrongFile)).toBe(message);
+    const bound = bindRetainedMessageFile(message, "remote-photo", { ...wrongFile, fileId: 1777, remoteId: "remote-photo" });
+    expect(bound.content).toMatchObject({ fileId: 1777, remoteId: "remote-photo" });
+    const updated = updateRetainedMessageFile(bound, { fileId: 1777, remoteId: "remote-photo", remoteUniqueId: "unique-photo", sizeLabel: "4 KB" });
+    expect(updated.content).toMatchObject({ remoteUniqueId: "unique-photo" });
+    expect(updateRetainedMessageFile(updated, { fileId: 1777, remoteId: "remote-photo", remoteUniqueId: "wrong", sizeLabel: "4 KB" })).toBe(updated);
   });
 
   it.each([

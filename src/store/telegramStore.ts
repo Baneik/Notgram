@@ -5,9 +5,10 @@ import { removeAccountActivity } from "./conversationActivity";
 import { removeAccountDownloads } from "../utils/downloadManager";
 import { translate } from "../i18n";
 import { isCaptionContent } from "../telegram/messageContent";
-import { retainedMessageQuote, retainHydratedContent, updateRetainedMessageFile } from "../telegram/retainedMessages";
+import { bindRetainedMessageFile, retainedMessageQuote, retainHydratedContent, updateRetainedMessageFile } from "../telegram/retainedMessages";
 import { senderNameForMessage } from "../components/conversationMessages";
 import { RetainedMessageIndex } from "./retainedMessageIndex";
+import { RetainedMediaRestorer } from "./retainedMediaRestorer";
 import { SyncRetryQueue } from "../telegram/syncRetryQueue";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
@@ -888,6 +889,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      retainedMediaRestorer.reset();
       syncGeneration += 1;
       hasConnected = false;
       syncRetries.clear();
@@ -1768,6 +1770,27 @@ export const createTelegramStore = (
       }
     };
 
+    const retainedMediaRestorer = new RetainedMediaRestorer({
+      canRestore: () => !accountTransition && get().authorization.kind === "ready",
+      messages: () => retainedMessages.all(),
+      resolveFile: remoteId => transport.resolveRemoteFile(remoteId),
+      applyFile: (remoteId, file) => {
+        const updated = retainedMessages.forRemoteFile(remoteId).flatMap(message => {
+          const next = bindRetainedMessageFile(message, remoteId, file);
+          return next === message ? [] : [next];
+        });
+        if (updated.length === 0) return;
+        const messages = new Map(get().messages);
+        for (const message of updated) {
+          messages.set(message.chatId, upsertMessage(messages.get(message.chatId) ?? [], message));
+        }
+        set({ messages });
+        publishMessageChange({ type: "upsert", messages: updated, liveMessages: [] });
+        for (const message of updated) maybeAutoCacheArchivePhoto(message);
+        scheduleCacheWrite();
+      },
+    });
+
     const applyEvent = (event: TelegramEvent) => {
       if (event.type === "emoji.catalogChanged" || event.type === "stickerSet.updated") {
         emojiPickerController.handleUpdate(event);
@@ -1777,7 +1800,9 @@ export const createTelegramStore = (
         emojiPickerController.updateFile(event.file);
         const updated = retainedMessages.forFile(event.file.fileId).flatMap(message => {
           const current = get().messages.get(message.chatId)?.find(candidate => candidate.id === message.id);
-          return current?.isLocallyDeleted ? [updateRetainedMessageFile(current, event.file)] : [];
+          if (!current?.isLocallyDeleted) return [];
+          const next = updateRetainedMessageFile(current, event.file);
+          return next === current ? [] : [next];
         });
         if (updated.length === 0) return;
         const messages = new Map(get().messages);
@@ -1796,6 +1821,7 @@ export const createTelegramStore = (
           authorizationError: undefined,
         });
         if (event.state.kind === "ready") {
+          void retainedMediaRestorer.restore();
           scheduleCacheWrite();
           draftSync.resumePending();
           void flushOutbox();
@@ -1843,6 +1869,7 @@ export const createTelegramStore = (
         const recovered = event.status === "online" && get().connectionStatus !== "online" && hasConnected;
         set({ connectionStatus: event.status });
         if (event.status === "online") {
+          void retainedMediaRestorer.restore();
           hasConnected = true;
           if (recovered) {
             emojiPickerController.invalidate();
@@ -2251,6 +2278,7 @@ export const createTelegramStore = (
       let disconnected = false;
       accountTransition = true;
       accountGeneration += 1;
+      retainedMediaRestorer.reset();
       registeredAccountKey = undefined;
       set({
         accountPending: true,
@@ -2291,6 +2319,7 @@ export const createTelegramStore = (
           throw new Error(get().error ?? translate("无法切换账号"));
         }
         accountTransition = false;
+        void retainedMediaRestorer.restore();
         void registerCurrentAccount();
         return true;
       } catch (error) {
@@ -2625,6 +2654,7 @@ export const createTelegramStore = (
             }
           }
           publishMessageChange({ type: "reset", messages });
+          void retainedMediaRestorer.restore();
           void registerCurrentAccount();
           if (settingsOnly) return;
           const refreshChatId = get().activeChatId ?? firstChat?.id;

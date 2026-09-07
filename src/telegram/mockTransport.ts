@@ -10,6 +10,7 @@ import { inputMediaCopy } from "./mediaCopy";
 import { messageSearchMatches } from "./messageSearch";
 import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type {
+  MessageFileState,
   AuthorizationAction,
   CacheCleanupInput,
   CacheUsage,
@@ -2432,6 +2433,10 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async cacheFile(_fileId: number, _priority?: number) {
     return;
+  }
+
+  async resolveRemoteFile(_remoteId: string): Promise<MessageFileState | undefined> {
+    return undefined;
   }
 
   async recoverFile(fileId: number, _priority?: number) {

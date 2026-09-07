@@ -100,6 +100,40 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("resolves a persistent file identity through TDLib without using a saved numeric handle", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const request = vi.fn(async () => ({ "@type": "file", id: 1777, size: 4000,
+      remote: { id: "remote-photo", unique_id: "unique-photo" },
+      local: { is_downloading_completed: true, path: "C:/cache/photo.jpg" } }));
+    internal.request = request;
+    expect(await transport.resolveRemoteFile("remote-photo")).toMatchObject({ fileId: 1777,
+      remoteId: "remote-photo", remoteUniqueId: "unique-photo", localPath: "C:/cache/photo.jpg", isDownloaded: true });
+    expect(request).toHaveBeenCalledExactlyOnceWith({ "@type": "getRemoteFile", remote_file_id: "remote-photo", file_type: null });
+  });
+
+  it("discards remote file lookups completed in a different TDLib session", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & { hydrationGeneration: number };
+    let finish!: (file: TdObject) => void;
+    internal.request = () => new Promise(resolve => { finish = resolve; });
+    const resolving = transport.resolveRemoteFile("remote-photo");
+    internal.hydrationGeneration += 1;
+    finish({ "@type": "file", id: 1777, remote: { id: "remote-photo", unique_id: "unique-photo" } });
+    expect(await resolving).toBeUndefined();
+  });
+
+  it("rejects an unbound retained media copy before issuing a Telegram request", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const request = vi.fn(async () => ({ "@type": "ok" }));
+    internal.request = request;
+    await expect(transport.sendMediaCopy({ chatId: "7", content: { kind: "media", mediaType: "photo",
+      fileName: "photo.jpg", sizeLabel: "4 KB", remoteId: "remote-photo", localPath: "C:/cache/photo.jpg" } }))
+      .rejects.toThrow("文件标识");
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("publishes file state after removing the server message's raw file references", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
