@@ -1764,7 +1764,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
     listScrollable: true,
   });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await stickerSetPreview.getByRole("button", { name: "添加贴纸" }).click();
+  await stickerSetPreview.getByRole("button", { name: "移除贴纸" }).click();
   await expect(stickerSetPreview).toBeHidden();
   await expect(composer).toBeFocused();
 

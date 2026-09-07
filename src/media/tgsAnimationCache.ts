@@ -47,6 +47,13 @@ export const loadTgsAnimationData = async (src: string): Promise<AnimationData> 
   return structuredClone(await request.promise);
 };
 
+export const invalidateTgsAnimation = (src: string) => {
+  pending.get(src)?.controller.abort();
+  pending.delete(src);
+  const cached = animations.get(src);
+  if (cached) { cachedBytes -= cached.bytes; animations.delete(src); }
+};
+
 export const clearTgsAnimationCache = () => {
   for (const request of pending.values()) request.controller.abort();
   pending.clear();

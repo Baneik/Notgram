@@ -34,6 +34,8 @@ const createHarness = () => {
     getEmojiPickerCatalog: vi.fn(async () => catalog),
     getStickerSet: vi.fn(async () => stickerSet),
     addStickerSet: vi.fn(async () => undefined),
+    removeStickerSet: vi.fn(async () => undefined),
+    getStickerOutline: vi.fn(async () => "M0 0L512 512Z"),
     loadEmojiAsset: vi.fn(async () => "C:/cache/sticker.webp"),
   };
   const controller = createEmojiPickerController({
@@ -54,6 +56,70 @@ const deferred = <T>() => {
 afterEach(() => vi.useRealTimers());
 
 describe("emoji picker cache", () => {
+  it("publishes installed-list changes immediately and refreshes stale catalog data", async () => {
+    const { controller, transport, set } = createHarness();
+    transport.getEmojiPickerCatalog.mockResolvedValueOnce({ ...catalog, stickerSets: [{ ...stickerSet, isInstalled: true }] });
+    await controller.loadEmojiPicker();
+    await controller.loadStickerSet("set-1");
+    controller.handleUpdate({ type: "emoji.catalogChanged", installedStickerSetIds: [] });
+    expect(controller.getCachedEmojiPicker()?.stickerSets).toEqual([]);
+    expect(controller.getCachedStickerSet("set-1")?.isInstalled).toBe(false);
+    expect(set).toHaveBeenLastCalledWith({ emojiRevision: expect.any(Number) });
+    await controller.loadEmojiPicker();
+    expect(transport.getEmojiPickerCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let an older pack read overwrite a live update", async () => {
+    const { controller, transport } = createHarness();
+    const old = deferred<StickerSet>();
+    transport.getStickerSet.mockReturnValueOnce(old.promise);
+    const loading = controller.loadStickerSet("set-1");
+    const updated = { ...stickerSet, title: "Updated", isInstalled: true };
+    controller.handleUpdate({ type: "stickerSet.updated", stickerSet: updated });
+    old.resolve(stickerSet);
+    expect(await loading).toBe(updated);
+    expect(controller.getCachedStickerSet("set-1")).toBe(updated);
+  });
+
+  it("invalidates stale asset paths when TDLib removes a file", async () => {
+    const { controller, transport } = createHarness();
+    const cachedAsset = { ...asset, localPath: "C:/old.webp" };
+    expect(controller.getCachedEmojiAsset(cachedAsset)).toBe("C:/old.webp");
+    controller.updateFile({ fileId: asset.fileId, isDownloaded: false, canDownload: true, sizeLabel: "1 KB" });
+    expect(controller.getCachedEmojiAsset(cachedAsset)).toBeUndefined();
+    expect(await controller.loadEmojiAsset(cachedAsset)).toBe("C:/cache/sticker.webp");
+    expect(transport.loadEmojiAsset).toHaveBeenCalledWith({ ...asset, localPath: undefined });
+  });
+
+  it("deduplicates offline outline reads, caches absence, and discards previous-account replies", async () => {
+    const { controller, transport } = createHarness();
+    await Promise.all([controller.loadStickerOutline(1), controller.loadStickerOutline(1)]);
+    expect(controller.getCachedStickerOutline(1)).toBe("M0 0L512 512Z");
+    expect(transport.getStickerOutline).toHaveBeenCalledOnce();
+    transport.getStickerOutline.mockResolvedValueOnce("");
+    await controller.loadStickerOutline(2);
+    await controller.loadStickerOutline(2);
+    expect(transport.getStickerOutline).toHaveBeenCalledTimes(2);
+    const old = deferred<string>();
+    transport.getStickerOutline.mockReturnValueOnce(old.promise);
+    const loading = controller.loadStickerOutline(3);
+    controller.reset();
+    old.resolve("M1 1L2 2Z");
+    expect(await loading).toBeUndefined();
+    expect(controller.getCachedStickerOutline(3)).toBeUndefined();
+  });
+
+  it("changes installation state only after the write succeeds", async () => {
+    const { controller, transport } = createHarness();
+    await controller.loadStickerSet("set-1");
+    expect(await controller.addStickerSet("set-1")).toBe(true);
+    expect(controller.getCachedStickerSet("set-1")?.isInstalled).toBe(true);
+    transport.removeStickerSet.mockRejectedValueOnce(new Error("offline"));
+    expect(await controller.removeStickerSet("set-1")).toBe(false);
+    expect(controller.getCachedStickerSet("set-1")?.isInstalled).toBe(true);
+    expect(await controller.removeStickerSet("set-1")).toBe(true);
+    expect(controller.getCachedStickerSet("set-1")?.isInstalled).toBe(false);
+  });
   it("reuses the catalog and sticker set after the first load", async () => {
     const { controller, transport } = createHarness();
 
@@ -188,6 +254,19 @@ describe("emoji picker cache", () => {
 });
 
 describe("emoji cache store integration", () => {
+  it("models actual installation and removal, including same-account updates from another client", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const initial = (await store.getState().loadEmojiPicker())!;
+    const id = initial.stickerSets[0].id;
+    await store.getState().loadStickerSet(id);
+    await transport.removeStickerSet(id);
+    expect(store.getState().getCachedStickerSet(id)?.isInstalled).toBe(false);
+    expect((await store.getState().loadEmojiPicker())?.stickerSets.some((set) => set.id === id)).toBe(false);
+    await store.getState().addStickerSet(id);
+    expect((await store.getState().loadEmojiPicker())?.stickerSets.some((set) => set.id === id)).toBe(true);
+  });
   it("retains catalog, packs and assets across chats and updates recent stickers after sending", async () => {
     const transport = new MockTelegramTransport();
     const catalogRead = vi.spyOn(transport, "getEmojiPickerCatalog");

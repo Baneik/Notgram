@@ -25,11 +25,18 @@ export interface TdUpdateHandlers {
   updateReadOutbox: (update: TdObject) => void;
   deleteMessages: (update: TdObject) => void;
   updateFile: (file?: TdObject) => void;
+  updateEmoji: (update: TdObject) => void;
   forumTopicsChanged: (chatId: unknown) => void;
 }
 
 export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
   switch (update["@type"]) {
+    case "updateStickerSet":
+    case "updateInstalledStickerSets":
+    case "updateRecentStickers":
+    case "updateSavedAnimations":
+      handlers.updateEmoji(update);
+      return;
     case "updateAuthorizationState":
       handlers.authorization(update);
       return;

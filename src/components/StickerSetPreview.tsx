@@ -1,5 +1,5 @@
 import { translate } from "../i18n";
-import { LoaderCircle, Plus, Sticker, X } from "lucide-react";
+import { LoaderCircle, Plus, Sticker, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useTelegramStore } from "../store/telegramStore";
@@ -16,8 +16,10 @@ interface StickerSetPreviewProps {
 export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewProps) {
   const dialogRef = useModalFocus<HTMLElement>(onClose);
   const loadStickerSet = useTelegramStore((state) => state.loadStickerSet);
+  const emojiRevision = useTelegramStore((state) => state.emojiRevision);
   const getCachedStickerSet = useTelegramStore((state) => state.getCachedStickerSet);
   const addStickerSet = useTelegramStore((state) => state.addStickerSet);
+  const removeStickerSet = useTelegramStore((state) => state.removeStickerSet);
   const autoplayAnimations = usePreferencesStore((state) => autoplayAllowed(
     state.autoplayAnimations,
     state,
@@ -27,6 +29,10 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
   const [loading, setLoading] = useState(() => !getCachedStickerSet(stickerSetId));
   const [failed, setFailed] = useState(false);
   const [addPending, setAddPending] = useState(false);
+  const [actionFailed, setActionFailed] = useState(false);
+  const [retryRevision, setRetryRevision] = useState(0);
+
+  useEffect(() => { setSelectedStickerId(undefined); setActionFailed(false); }, [stickerSetId]);
 
   useEffect(() => {
     let active = true;
@@ -34,16 +40,14 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
     setLoading(!cached);
     setFailed(false);
     setStickerSet(cached);
-    setSelectedStickerId(undefined);
     void loadStickerSet(stickerSetId).then((nextStickerSet) => {
       if (!active) return;
       setStickerSet(nextStickerSet);
-      setSelectedStickerId(nextStickerSet?.stickers[0]?.id);
       setFailed(!nextStickerSet);
       setLoading(false);
     });
     return () => { active = false; };
-  }, [getCachedStickerSet, loadStickerSet, stickerSetId]);
+  }, [emojiRevision, getCachedStickerSet, loadStickerSet, retryRevision, stickerSetId]);
 
   const selectedSticker = useMemo(() => stickerSet?.stickers.find(
     (sticker) => sticker.id === selectedStickerId,
@@ -52,12 +56,16 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
   const addSet = async () => {
     if (addPending) return;
     setAddPending(true);
-    const succeeded = await addStickerSet(stickerSetId);
+    setActionFailed(false);
+    const succeeded = stickerSet?.isInstalled
+      ? await removeStickerSet(stickerSetId)
+      : await addStickerSet(stickerSetId);
     if (succeeded) {
       onClose();
       return;
     }
     setAddPending(false);
+    setActionFailed(true);
   };
 
   return (
@@ -90,7 +98,9 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
             <LoaderCircle className="spin" size={22} />{translate("正在加载贴纸包")}</div>
         ) : failed || !stickerSet ? (
           <div className="sticker-set-state is-error" role="alert">
-            <Sticker size={24} strokeWidth={1.7} />{translate("无法加载这个贴纸包")}</div>
+            <Sticker size={24} strokeWidth={1.7} />{translate("无法加载这个贴纸包")}
+            <button type="button" onClick={() => setRetryRevision((value) => value + 1)}>{translate("重试")}</button>
+          </div>
         ) : (
           <div className="sticker-set-body">
             <div className="sticker-set-stage" aria-label={translate("贴纸预览")}>
@@ -119,6 +129,7 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
                     <EmojiAssetVisual
                       asset={sticker}
                       autoplay={false}
+                      previewOnly
                       label={translate("贴纸 {{value0}}", { value0: sticker.emoji ?? "" }).trim()}
                     />
                   </button>
@@ -129,14 +140,15 @@ export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewPr
         )}
 
         <footer className="sticker-set-footer">
+          {actionFailed && <span role="alert">{stickerSet?.isInstalled ? translate("移除贴纸包失败") : translate("添加贴纸包失败")}</span>}
           <button
             className="dialog-primary"
             type="button"
             disabled={loading || failed || !stickerSet || addPending}
             onClick={() => void addSet()}
           >
-            {addPending ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
-            {addPending ? translate("正在添加") : translate("添加贴纸")}
+            {addPending ? <LoaderCircle className="spin" size={16} /> : stickerSet?.isInstalled ? <Trash2 size={16} /> : <Plus size={16} />}
+            {addPending ? translate("正在处理") : stickerSet?.isInstalled ? translate("移除贴纸") : translate("添加贴纸")}
           </button>
         </footer>
       </section>

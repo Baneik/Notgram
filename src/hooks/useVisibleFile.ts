@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { telegramStore } from "../store/telegramStore";
+import { createVisibleResourceRequest } from "../utils/visibleResourceRequest";
 
 export const useVisibleFile = <T extends Element>(
   fileId: number | undefined,
@@ -18,52 +19,28 @@ export const useVisibleFile = <T extends Element>(
       retryStateRef.current = { fileId, failures: 0, notBefore: 0 };
     }
 
-    let visible = false;
-    let disposed = false;
-    let requested = false;
-    let retryTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-    const request = () => {
-      if (disposed || !visible || requested) return;
-      const wait = Math.max(0, retryStateRef.current.notBefore - Date.now());
-      if (wait > 0) {
-        retryTimer = globalThis.setTimeout(request, wait);
-        return;
-      }
-      requested = true;
-      void telegramStore.getState().cacheFile(fileId, priority)
-        .then(() => {
-          retryStateRef.current = { fileId, failures: 0, notBefore: 0 };
-        })
-        .catch(() => {
-          const failures = retryStateRef.current.failures + 1;
-          const delay = Math.min(60_000, 1_000 * 2 ** Math.min(failures - 1, 6));
-          retryStateRef.current = { fileId, failures, notBefore: Date.now() + delay };
-          requested = false;
-          if (!disposed && visible) {
-            retryTimer = globalThis.setTimeout(request, delay);
-          }
-        });
+    const request = createVisibleResourceRequest({
+      load: () => telegramStore.getState().cacheFile(fileId, priority),
+      retryState: retryStateRef.current,
+    });
+    globalThis.addEventListener?.("online", request.retry);
+    const dispose = () => {
+      request.dispose();
+      globalThis.removeEventListener?.("online", request.retry);
     };
 
     if (typeof IntersectionObserver === "undefined") {
-      visible = true;
-      request();
-      return () => {
-        disposed = true;
-        if (retryTimer) globalThis.clearTimeout(retryTimer);
-      };
+      request.setVisible(true);
+      return dispose;
     }
 
     const observer = new IntersectionObserver((entries) => {
-      visible = entries.some((entry) => entry.isIntersecting);
-      if (visible) request();
-      else if (retryTimer) globalThis.clearTimeout(retryTimer);
+      request.setVisible(entries.some((entry) => entry.isIntersecting));
     }, { rootMargin });
     observer.observe(target);
     return () => {
-      disposed = true;
+      dispose();
       observer.disconnect();
-      if (retryTimer) globalThis.clearTimeout(retryTimer);
     };
   }, [enabled, fileId, priority, rootMargin]);
 

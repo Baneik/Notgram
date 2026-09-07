@@ -42,6 +42,7 @@ import { formatCompactCount, formatMessageTime } from "../utils/formatters";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { TgsSticker } from "./TgsSticker";
+import { StickerPlaceholder } from "./StickerPlaceholder";
 import { AutoplayVideo } from "./AutoplayVideo";
 import { StableImage } from "./StableImage";
 import { VideoPlayer } from "./VideoPlayer";
@@ -238,6 +239,7 @@ function MessageBubbleComponent({
     () => new Set(),
   );
   const attemptedMediaRecoveryRef = useRef(new Set<string>());
+  const [readyStickerSource, setReadyStickerSource] = useState<string>();
   const contextReplyQuoteRef = useRef<MessageReplyQuote | undefined>(undefined);
   const [measuredMedia, setMeasuredMedia] = useState<{
     source: string;
@@ -922,6 +924,9 @@ function MessageBubbleComponent({
                   ? { aspectRatio: mediaLayout.aspectRatio }
                   : undefined}
               >
+                {isSticker && (!activeMediaSource || readyStickerSource !== activeMediaSource) && (
+                  <StickerPlaceholder fileId={content.fileId} width={content.width} height={content.height} />
+                )}
                 <MediaSpoiler
                   active={content.hasSpoiler === true}
                   resetKey={`${message.chatId}:${message.id}`}
@@ -959,6 +964,7 @@ function MessageBubbleComponent({
                     muted
                     playsInline
                     aria-label={content.caption || content.fileName}
+                    onLoadedData={() => setReadyStickerSource(usableFullMediaSource)}
                     onLoadedMetadata={(event) => rememberMediaSize(
                       usableFullMediaSource,
                       event.currentTarget.videoWidth,
@@ -970,6 +976,7 @@ function MessageBubbleComponent({
                   <TgsSticker
                     src={usableFullMediaSource}
                     label={content.caption || content.fileName}
+                    onReady={() => setReadyStickerSource(usableFullMediaSource)}
                     autoplay={autoplayAnimations}
                     onError={() => markMediaSourceFailed(usableFullMediaSource)}
                   />
@@ -1032,6 +1039,7 @@ function MessageBubbleComponent({
                     alt={content.caption || content.fileName}
                     loading="lazy"
                     decoding="async"
+                    onReady={isSticker ? () => setReadyStickerSource(imageMediaSource) : undefined}
                     onLoad={(event) => rememberMediaSize(
                       imageMediaSource,
                       event.currentTarget.naturalWidth,
@@ -1055,7 +1063,7 @@ function MessageBubbleComponent({
                       <ImageIcon size={28} strokeWidth={1.6} />
                     </span>
                   </button>
-                ) : (
+                ) : isSticker ? null : (
                   <span className="photo-placeholder" aria-label={translate("媒体正在加载")}>
                     <ImageIcon size={28} strokeWidth={1.6} />
                   </span>

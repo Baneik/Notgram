@@ -1213,6 +1213,10 @@ export function App() {
   useEffect(() => {
     const openTelegramLink = (event: Event) => {
       const detail = (event as CustomEvent<TelegramLinkTarget>).detail;
+      if (detail && "kind" in detail && detail.kind === "stickerSet") {
+        setStickerSetPreviewId(detail.stickerSet.id);
+        return;
+      }
       if (detail && isTelegramBotStartLink(detail)) {
         const request = {
           ...detail,
@@ -1263,7 +1267,7 @@ export function App() {
     if (!target || ("kind" in target && target.kind === "unsupported")) return;
     if (isTelegramUserLink(target)) {
       void loadUserProfile(target.userId);
-    } else {
+    } else if ("chatId" in target) {
       void loadChatProfile(target.chatId);
     }
   }, [loadChatProfile, loadUserProfile]);

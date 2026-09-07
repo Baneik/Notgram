@@ -7,14 +7,16 @@ interface TgsStickerProps {
   label: string;
   autoplay: boolean;
   onError: () => void;
+  onReady?: () => void;
 }
 
-export function TgsSticker({ src, label, autoplay, onError }: TgsStickerProps) {
+export function TgsSticker({ src, label, autoplay, onError, onReady }: TgsStickerProps) {
   const containerElementRef = useRef<HTMLSpanElement | null>(null);
   const [visibilityRef, visible] = useElementVisibility<HTMLSpanElement>();
   const animationRef = useRef<import("lottie-web").AnimationItem | undefined>(undefined);
   const shouldPlayRef = useRef(false);
   const onErrorRef = useRef(onError);
+  const onReadyRef = useRef(onReady);
   const shouldPlay = autoplay && visible;
   const containerRef = useCallback((container: HTMLSpanElement | null) => {
     containerElementRef.current = container;
@@ -27,7 +29,8 @@ export function TgsSticker({ src, label, autoplay, onError }: TgsStickerProps) {
 
   useEffect(() => {
     onErrorRef.current = onError;
-  }, [onError]);
+    onReadyRef.current = onReady;
+  }, [onError, onReady]);
 
   useEffect(() => {
     shouldPlayRef.current = shouldPlay;
@@ -56,6 +59,10 @@ export function TgsSticker({ src, label, autoplay, onError }: TgsStickerProps) {
           rendererSettings: { preserveAspectRatio: "xMidYMid meet", progressiveLoad: true },
         });
         animationRef.current = animation;
+        animation.addEventListener("DOMLoaded", () => { if (active) onReadyRef.current?.(); });
+        animation.addEventListener("data_failed", () => { if (active) onErrorRef.current(); });
+        animation.addEventListener("error", () => { if (active) onErrorRef.current(); });
+        if (animation.isLoaded) onReadyRef.current?.();
         if (!shouldPlayRef.current) animation.pause();
       })
       .catch((error: unknown) => {

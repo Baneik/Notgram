@@ -1769,7 +1769,12 @@ export const createTelegramStore = (
     };
 
     const applyEvent = (event: TelegramEvent) => {
+      if (event.type === "emoji.catalogChanged" || event.type === "stickerSet.updated") {
+        emojiPickerController.handleUpdate(event);
+        return;
+      }
       if (event.type === "file.updated") {
+        emojiPickerController.updateFile(event.file);
         const updated = retainedMessages.forFile(event.file.fileId).flatMap(message => {
           const current = get().messages.get(message.chatId)?.find(candidate => candidate.id === message.id);
           return current?.isLocallyDeleted ? [updateRetainedMessageFile(current, event.file)] : [];
@@ -1822,6 +1827,7 @@ export const createTelegramStore = (
       }
 
       if (event.type === "sync.required") {
+        emojiPickerController.invalidate();
         if (get().authorization.kind === "ready") {
           invalidateSyncState();
           refreshVisibleData();
@@ -1839,6 +1845,7 @@ export const createTelegramStore = (
         if (event.status === "online") {
           hasConnected = true;
           if (recovered) {
+            emojiPickerController.invalidate();
             invalidateSyncState();
             refreshVisibleData();
           }
@@ -2927,8 +2934,11 @@ export const createTelegramStore = (
       setForumTopicPinned: forumController.setForumTopicPinned,
 
       resolveTelegramLink: async (url) => {
+        const accountId = get().activeAccountId;
         try {
           const target = await transport.resolveTelegramLink(url);
+          if (get().activeAccountId !== accountId) return undefined;
+          if (target && "kind" in target && target.kind === "stickerSet") emojiPickerController.rememberStickerSet(target.stickerSet);
           if (target && "kind" in target && target.kind === "unsupported") {
             set({ operationError: target.reason });
           } else if (!target) {
@@ -2938,6 +2948,7 @@ export const createTelegramStore = (
           }
           return target;
         } catch (error) {
+          if (get().activeAccountId !== accountId) return undefined;
           set({ operationError: error instanceof Error ? error.message : translate("Telegram 链接无法打开") });
           return undefined;
         }
@@ -4014,19 +4025,24 @@ export const createTelegramStore = (
       },
 
       getCachedEmojiPicker: emojiPickerController.getCachedEmojiPicker,
+      emojiRevision: 0,
       loadEmojiPicker: emojiPickerController.loadEmojiPicker,
       getCachedStickerSet: emojiPickerController.getCachedStickerSet,
       loadStickerSet: emojiPickerController.loadStickerSet,
       addStickerSet: emojiPickerController.addStickerSet,
+      removeStickerSet: emojiPickerController.removeStickerSet,
+      getCachedStickerOutline: emojiPickerController.getCachedStickerOutline,
+      loadStickerOutline: emojiPickerController.loadStickerOutline,
 
       searchStickers: async (query, chatId) => {
         const normalized = query.trim();
         if (!normalized) return [];
+        const accountId = get().activeAccountId;
         try {
-          return await transport.searchStickers(normalized, chatId);
-        } catch (error) {
-          set({ operationError: errorMessage(error, translate("无法搜索贴纸")) });
-          return [];
+          const results = await transport.searchStickers(normalized, chatId);
+          return get().activeAccountId === accountId ? results : undefined;
+        } catch {
+          return undefined;
         }
       },
 

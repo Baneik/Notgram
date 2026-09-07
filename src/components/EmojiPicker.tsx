@@ -118,6 +118,7 @@ export function EmojiPicker({
   onPointerLeave,
 }: EmojiPickerProps) {
   const loadEmojiPicker = useTelegramStore((state) => state.loadEmojiPicker);
+  const emojiRevision = useTelegramStore((state) => state.emojiRevision);
   const getCachedEmojiPicker = useTelegramStore((state) => state.getCachedEmojiPicker);
   const loadStickerSet = useTelegramStore((state) => state.loadStickerSet);
   const getCachedStickerSet = useTelegramStore((state) => state.getCachedStickerSet);
@@ -136,22 +137,26 @@ export function EmojiPicker({
   const [catalogLoading, setCatalogLoading] = useState(() => !getCachedEmojiPicker());
   const [recentEmojis, setRecentEmojis] = useState(readRecentEmojis);
   const [selectedStickerSetId, setSelectedStickerSetId] = useState(RECENT_STICKERS);
-  const [stickerSets, setStickerSets] = useState<Map<string, StickerSet>>(() => new Map());
+  const [loadedStickerSet, setLoadedStickerSet] = useState<StickerSet>();
   const [stickerSetLoading, setStickerSetLoading] = useState<string>();
   const [failedStickerSetIds, setFailedStickerSetIds] = useState<Set<string>>(() => new Set());
-  const [stickerSearchResults, setStickerSearchResults] = useState<EmojiPickerAsset[]>([]);
+  const [searchResult, setSearchResult] = useState<{ query: string; assets?: EmojiPickerAsset[] }>();
+  const [retryRevision, setRetryRevision] = useState(0);
   const [sendingAssetId, setSendingAssetId] = useState<string>();
-  const selectedStickerSet = stickerSets.get(selectedStickerSetId) ?? getCachedStickerSet(selectedStickerSetId);
+  const selectedStickerSet = getCachedStickerSet(selectedStickerSetId)
+    ?? (loadedStickerSet?.id === selectedStickerSetId ? loadedStickerSet : undefined);
 
   useEffect(() => {
     let active = true;
+    setCatalog(getCachedEmojiPicker());
+    setCatalogLoading(!getCachedEmojiPicker());
     void loadEmojiPicker().then((nextCatalog) => {
       if (!active) return;
       setCatalog(nextCatalog);
       setCatalogLoading(false);
     });
     return () => { active = false; };
-  }, [loadEmojiPicker]);
+  }, [emojiRevision, getCachedEmojiPicker, loadEmojiPicker, retryRevision]);
 
   useEffect(() => {
     const closeFromOutside = (event: PointerEvent) => {
@@ -172,35 +177,39 @@ export function EmojiPicker({
 
   useEffect(() => {
     if (tab !== "sticker" || selectedStickerSetId === RECENT_STICKERS) return;
-    if (stickerSets.has(selectedStickerSetId) || stickerSetLoading === selectedStickerSetId) return;
-    if (failedStickerSetIds.has(selectedStickerSetId)) return;
+    let active = true;
     if (!getCachedStickerSet(selectedStickerSetId)) setStickerSetLoading(selectedStickerSetId);
     void loadStickerSet(selectedStickerSetId).then((stickerSet) => {
+      if (!active) return;
       if (stickerSet) {
-        setStickerSets((current) => new Map(current).set(stickerSet.id, stickerSet));
+        setLoadedStickerSet(stickerSet);
+        setFailedStickerSetIds((current) => {
+          const next = new Set(current); next.delete(selectedStickerSetId); return next;
+        });
       } else {
         setFailedStickerSetIds((current) => new Set(current).add(selectedStickerSetId));
       }
       setStickerSetLoading((current) => current === selectedStickerSetId ? undefined : current);
     });
-  }, [failedStickerSetIds, getCachedStickerSet, loadStickerSet, selectedStickerSetId, stickerSetLoading, stickerSets, tab]);
+    return () => { active = false; };
+  }, [emojiRevision, getCachedStickerSet, loadStickerSet, retryRevision, selectedStickerSetId, tab]);
 
   useEffect(() => {
     if (tab !== "sticker" || !query.trim()) {
-      setStickerSearchResults([]);
+      setSearchResult(undefined);
       return;
     }
     let active = true;
     const timer = globalThis.setTimeout(() => {
-      void searchStickers(query, chatId).then((results) => {
-        if (active) setStickerSearchResults(results);
+      void searchStickers(query, chatId).then((assets) => {
+        if (active) setSearchResult({ query: query.trim(), assets });
       });
     }, 250);
     return () => {
       active = false;
       globalThis.clearTimeout(timer);
     };
-  }, [chatId, query, searchStickers, tab]);
+  }, [chatId, query, retryRevision, searchStickers, tab]);
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleEmojiGroups = useMemo(() => {
@@ -215,7 +224,7 @@ export function EmojiPicker({
   }, [normalizedQuery, recentEmojis]);
 
   const stickerAssets = normalizedQuery
-    ? stickerSearchResults
+    ? searchResult?.query === query.trim() ? searchResult.assets ?? [] : []
     : selectedStickerSetId === RECENT_STICKERS
       ? catalog?.recentStickers ?? []
       : selectedStickerSet?.stickers ?? [];
@@ -289,23 +298,31 @@ export function EmojiPicker({
               </div>
             </section>
           )) : <div className="emoji-picker-empty">{translate("没有匹配的 Emoji")}</div>
-        ) : catalogLoading ? (
+        ) : catalogLoading && !normalizedQuery ? (
           <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />{translate("正在读取你的内容")}</div>
         ) : tab === "sticker" ? (
           <section className="emoji-section">
             <h3>{normalizedQuery ? translate("搜索结果") : selectedStickerSetId === RECENT_STICKERS ? translate("最近使用") : selectedStickerSet?.title ?? translate("贴纸包")}</h3>
-            {stickerSetLoading === selectedStickerSetId ? (
+            {normalizedQuery && searchResult?.query !== query.trim() ? (
+              <div className="emoji-picker-empty" role="status"><LoaderCircle className="spin" size={20} />{translate("正在搜索贴纸")}</div>
+            ) : normalizedQuery && !searchResult?.assets ? (
+              <div className="emoji-picker-empty emoji-picker-error" role="alert">
+                <span>{translate("无法搜索贴纸")}</span>
+                <button type="button" onClick={() => { setSearchResult(undefined); setRetryRevision((value) => value + 1); }}>{translate("重试")}</button>
+              </div>
+            ) : !normalizedQuery && !catalog ? (
+              <div className="emoji-picker-empty emoji-picker-error" role="alert">
+                <span>{translate("无法读取表情与贴纸")}</span>
+                <button type="button" onClick={() => setRetryRevision((value) => value + 1)}>{translate("重试")}</button>
+              </div>
+            ) : !normalizedQuery && stickerSetLoading === selectedStickerSetId ? (
               <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />{translate("正在加载贴纸包")}</div>
-            ) : failedStickerSetIds.has(selectedStickerSetId) ? (
+            ) : !normalizedQuery && failedStickerSetIds.has(selectedStickerSetId) ? (
               <div className="emoji-picker-empty emoji-picker-error">
                 <span>{translate("贴纸包加载失败")}</span>
                 <button
                   type="button"
-                  onClick={() => setFailedStickerSetIds((current) => {
-                    const next = new Set(current);
-                    next.delete(selectedStickerSetId);
-                    return next;
-                  })}
+                  onClick={() => setRetryRevision((value) => value + 1)}
                 >{translate("重试")}</button>
               </div>
             ) : stickerAssets.length > 0 ? (
@@ -344,7 +361,7 @@ export function EmojiPicker({
             {(catalog?.stickerSets ?? []).map((stickerSet) => (
               <button className={selectedStickerSetId === stickerSet.id ? "is-active" : ""} type="button" key={stickerSet.id} title={stickerSet.title} onClick={() => { setQuery(""); setSelectedStickerSetId(stickerSet.id); }}>
                 {stickerSet.covers[0]
-                  ? <EmojiAssetVisual asset={stickerSet.covers[0]} autoplay={false} label={stickerSet.title} className="sticker-pack-cover" />
+                  ? <EmojiAssetVisual asset={stickerSet.covers[0]} autoplay={false} previewOnly label={stickerSet.title} className="sticker-pack-cover" />
                   : <Sticker size={18} />}
               </button>
             ))}

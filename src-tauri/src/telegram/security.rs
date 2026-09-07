@@ -74,7 +74,9 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getRecentStickers",
     "getSavedAnimations",
     "getStickerSet",
+    "getStickerOutlineSvgPath",
     "getStickers",
+    "searchStickerSet",
     "getFullRichMessage",
     "getGroupsInCommon",
     "getProxies",
@@ -222,10 +224,40 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         }
         "changeStickerSet" => {
             validate_positive_decimal_identifier(request, "set_id")?;
-            if request.get("is_installed").and_then(Value::as_bool) != Some(true)
+            if request
+                .get("is_installed")
+                .and_then(Value::as_bool)
+                .is_none()
                 || request.get("is_archived").and_then(Value::as_bool) != Some(false)
             {
-                return Err("Sticker sets can only be installed unarchived".to_string());
+                return Err("Sticker installation state must be boolean and unarchived".to_string());
+            }
+        }
+        "getStickerOutlineSvgPath" => {
+            let file_id = request
+                .get("sticker_file_id")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            if !(1..=i64::from(i32::MAX)).contains(&file_id)
+                || request.get("for_animated_emoji").and_then(Value::as_bool) != Some(false)
+                || request
+                    .get("for_clicked_animated_emoji_message")
+                    .and_then(Value::as_bool)
+                    != Some(false)
+            {
+                return Err("Invalid sticker outline request".to_string());
+            }
+        }
+        "searchStickerSet" => {
+            let name = request.get("name").and_then(Value::as_str).unwrap_or("");
+            if name.is_empty()
+                || name.len() > 64
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                || request.get("ignore_cache").and_then(Value::as_bool) != Some(false)
+            {
+                return Err("Invalid sticker set search".to_string());
             }
         }
         "getOption" => {
@@ -1928,6 +1960,9 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&install).is_ok());
+        let mut uninstall = install.clone();
+        uninstall["is_installed"] = json!(false);
+        assert!(validate_webview_tdlib_request(&uninstall).is_ok());
 
         for invalid in [
             json!({
@@ -1940,7 +1975,7 @@ mod tests {
             json!({
                 "@type": "changeStickerSet",
                 "set_id": "5368324170671202286",
-                "is_installed": false,
+                "is_installed": "false",
                 "is_archived": false,
                 "@extra": EXTRA
             }),
@@ -1952,6 +1987,27 @@ mod tests {
                 "@extra": EXTRA
             }),
         ] {
+            assert!(validate_webview_tdlib_request(&invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn sticker_outline_and_name_lookup_accept_only_bounded_identifiers() {
+        let outline = json!({
+            "@type": "getStickerOutlineSvgPath", "sticker_file_id": 71,
+            "for_animated_emoji": false, "for_clicked_animated_emoji_message": false, "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&outline).is_ok());
+        for id in [0, -1, i64::from(i32::MAX) + 1] {
+            let mut invalid = outline.clone();
+            invalid["sticker_file_id"] = json!(id);
+            assert!(validate_webview_tdlib_request(&invalid).is_err());
+        }
+        let search = json!({ "@type": "searchStickerSet", "name": "test_pack", "ignore_cache": false, "@extra": EXTRA });
+        assert!(validate_webview_tdlib_request(&search).is_ok());
+        for name in ["", "../private", "https://example.com", &"x".repeat(65)] {
+            let mut invalid = search.clone();
+            invalid["name"] = json!(name);
             assert!(validate_webview_tdlib_request(&invalid).is_err());
         }
     }

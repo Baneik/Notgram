@@ -198,6 +198,8 @@ export interface TelegramTransport {
   getEmojiPickerCatalog(): Promise<EmojiPickerCatalog>;
   getStickerSet(stickerSetId: string): Promise<StickerSet>;
   addStickerSet(stickerSetId: string): Promise<void>;
+  removeStickerSet(stickerSetId: string): Promise<void>;
+  getStickerOutline(fileId: number): Promise<string>;
   searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]>;
   loadEmojiAsset(asset: EmojiPickerAsset): Promise<string | undefined>;
   sendSticker(input: SendEmojiAssetInput): Promise<void>;

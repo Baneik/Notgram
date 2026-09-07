@@ -89,6 +89,7 @@ import type {
 import {
   knownUnsupportedTelegramLink,
   parseTelegramUrl,
+  telegramStickerSetName,
   unsupportedTelegramLink,
 } from "./telegramLinks";
 import {
@@ -369,6 +370,18 @@ export class MockTelegramTransport implements TelegramTransport {
   readonly label = "演示数据";
 
   private listener?: TelegramEventListener;
+  private installedStickerSets = new Map<string, Set<string>>();
+  private recentStickerAssets = new Map<string, EmojiPickerAsset[]>();
+
+  private installedStickerIds() {
+    const accountId = this.accountState.activeAccountId;
+    let ids = this.installedStickerSets.get(accountId);
+    if (!ids) {
+      ids = new Set(mockStickerSets.slice(0, 2).map((set) => set.id));
+      this.installedStickerSets.set(accountId, ids);
+    }
+    return ids;
+  }
   private snapshot = clone(mockSnapshot);
   private mockCurrentUserBio = "Notgram 演示账号";
   private cachedSnapshot?: CachedTelegramSnapshot;
@@ -1505,6 +1518,12 @@ export class MockTelegramTransport implements TelegramTransport {
   async resolveTelegramLink(url: string) {
     const parsed = parseTelegramUrl(url);
     if (!parsed) return undefined;
+    const stickerName = telegramStickerSetName(url);
+    if (stickerName) {
+      const stickerSet = mockStickerSets.find((set) => set.name.toLowerCase() === stickerName.toLowerCase());
+      if (!stickerSet) throw new Error("找不到贴纸包");
+      return { kind: "stickerSet" as const, stickerSet: await this.getStickerSet(stickerSet.id) };
+    }
     const knownUnsupported = knownUnsupportedTelegramLink(parsed.href);
     if (knownUnsupported) return knownUnsupported;
     const parts = parsed.pathname.split("/").filter(Boolean);
@@ -2109,8 +2128,9 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async getEmojiPickerCatalog(): Promise<EmojiPickerCatalog> {
     return clone({
-      recentStickers: mockStickerSets[0].stickers.slice(0, 4),
-      stickerSets: mockStickerSets.map(({ stickers: _stickers, ...summary }) => summary),
+      recentStickers: this.recentStickerAssets.get(this.accountState.activeAccountId) ?? mockStickerSets[0].stickers.slice(0, 4),
+      stickerSets: mockStickerSets.filter((set) => this.installedStickerIds().has(set.id))
+        .map(({ stickers: _stickers, ...summary }) => ({ ...summary, isInstalled: true, isArchived: false })),
       savedAnimations: mockSavedAnimations,
     });
   }
@@ -2118,13 +2138,31 @@ export class MockTelegramTransport implements TelegramTransport {
   async getStickerSet(stickerSetId: string) {
     const stickerSet = mockStickerSets.find((candidate) => candidate.id === stickerSetId);
     if (!stickerSet) throw new Error("找不到贴纸包");
-    return clone(stickerSet);
+    return clone({ ...stickerSet, isInstalled: this.installedStickerIds().has(stickerSetId), isArchived: false });
   }
 
   async addStickerSet(stickerSetId: string) {
-    if (!mockStickerSets.some((candidate) => candidate.id === stickerSetId)) {
-      throw new Error("找不到贴纸包");
-    }
+    await this.setStickerInstalled(stickerSetId, true);
+  }
+
+  async removeStickerSet(stickerSetId: string) {
+    await this.setStickerInstalled(stickerSetId, false);
+  }
+
+  private async setStickerInstalled(stickerSetId: string, installed: boolean) {
+    await this.getStickerSet(stickerSetId);
+    const ids = this.installedStickerIds();
+    if (installed) ids.add(stickerSetId);
+    else ids.delete(stickerSetId);
+    this.listener?.({ type: "stickerSet.updated", stickerSet: await this.getStickerSet(stickerSetId) });
+    this.listener?.({ type: "emoji.catalogChanged", installedStickerSetIds: [...ids] });
+  }
+
+  async getStickerOutline(fileId: number) {
+    const asset = mockStickerSets.flatMap((set) => set.stickers).find((asset) => asset.fileId === fileId);
+    const width = asset?.width ?? 512;
+    const height = asset?.height ?? 512;
+    return `M${width * 0.1} ${height * 0.5}C${width * 0.1} 0 ${width * 0.9} 0 ${width * 0.9} ${height * 0.5}C${width * 0.9} ${height} ${width * 0.1} ${height} ${width * 0.1} ${height * 0.5}Z`;
   }
 
   async searchStickers(query: string, _chatId: string) {
@@ -2143,6 +2181,10 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async sendSticker(input: SendEmojiAssetInput) {
     this.appendEmojiAsset(input, "sticker");
+    const accountId = this.accountState.activeAccountId;
+    const recent = this.recentStickerAssets.get(accountId) ?? mockStickerSets[0].stickers.slice(0, 4);
+    this.recentStickerAssets.set(accountId, [input.asset, ...recent.filter((asset) => asset.fileId !== input.asset.fileId)].slice(0, 100));
+    this.listener?.({ type: "emoji.catalogChanged" });
   }
 
   async sendAnimation(input: SendEmojiAssetInput) {

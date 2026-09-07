@@ -61,6 +61,7 @@ import {
 } from "./tauriProfileService";
 import {
   TauriMessageMediaService,
+  mapEmojiStickerSet,
   type PendingDownload,
 } from "./tauriMessageMediaService";
 import {
@@ -153,6 +154,7 @@ import {
 import {
   knownUnsupportedTelegramLink,
   parseTelegramUrl,
+  telegramStickerSetName,
   unsupportedTelegramLink,
 } from "./telegramLinks";
 
@@ -462,6 +464,23 @@ export class TauriTelegramTransport implements TelegramTransport {
     deleteMessages: (update) => this.deleteMessages(update),
     updateFile: (file) => this.updateFile(file),
     forumTopicsChanged: (chatId) => this.emitForumTopicsChanged(chatId),
+    updateEmoji: (update) => {
+      const type = update["@type"];
+      if (type === "updateStickerSet") {
+        const raw = asTdObject(update.sticker_set);
+        if (asTdObject(raw?.sticker_type)?.["@type"] !== "stickerTypeRegular") return;
+        const stickerSet = mapEmojiStickerSet(raw);
+        if (stickerSet) this.listener?.({ type: "stickerSet.updated", stickerSet });
+      } else if (type === "updateInstalledStickerSets") {
+        if (asTdObject(update.sticker_type)?.["@type"] !== "stickerTypeRegular") return;
+        this.listener?.({
+          type: "emoji.catalogChanged",
+          installedStickerSetIds: Array.isArray(update.sticker_set_ids) ? update.sticker_set_ids.map(tdId) : [],
+        });
+      } else if (type !== "updateRecentStickers" || update.is_attached !== true) {
+        this.listener?.({ type: "emoji.catalogChanged" });
+      }
+    },
   };
   private rawFolderInfos: TdObject[] = [];
   private mainChatListPosition = 0;
@@ -1442,6 +1461,17 @@ export class TauriTelegramTransport implements TelegramTransport {
     const parsed = parseTelegramUrl(url);
     if (!parsed) return undefined;
 
+    const stickerName = telegramStickerSetName(url);
+    if (stickerName) {
+      const raw = await this.request({ "@type": "searchStickerSet", name: stickerName, ignore_cache: false });
+      if (asTdObject(raw.sticker_type)?.["@type"] !== "stickerTypeRegular") {
+        return unsupportedTelegramLink("internalLinkTypeStickerSet");
+      }
+      const stickerSet = mapEmojiStickerSet(raw);
+      if (!stickerSet) throw new Error(translate("找不到贴纸包"));
+      return { kind: "stickerSet", stickerSet };
+    }
+
     const knownUnsupported = knownUnsupportedTelegramLink(parsed.href);
     if (knownUnsupported) return knownUnsupported;
 
@@ -1920,6 +1950,14 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async addStickerSet(stickerSetId: string) {
     return this.messageMediaService.addStickerSet(stickerSetId);
+  }
+
+  async removeStickerSet(stickerSetId: string) {
+    return this.messageMediaService.removeStickerSet(stickerSetId);
+  }
+
+  async getStickerOutline(fileId: number) {
+    return this.messageMediaService.getStickerOutline(fileId);
   }
 
   async searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]> {

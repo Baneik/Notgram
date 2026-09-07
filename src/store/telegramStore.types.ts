@@ -300,11 +300,15 @@ export interface TelegramState {
   loadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
   deleteMessagesFromChat: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
   getCachedEmojiPicker: () => EmojiPickerCatalog | undefined;
+  emojiRevision: number;
   loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
   getCachedStickerSet: (stickerSetId: string) => StickerSet | undefined;
   loadStickerSet: (stickerSetId: string) => Promise<StickerSet | undefined>;
   addStickerSet: (stickerSetId: string) => Promise<boolean>;
-  searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[]>;
+  removeStickerSet: (stickerSetId: string) => Promise<boolean>;
+  searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[] | undefined>;
+  getCachedStickerOutline: (fileId: number) => string | undefined;
+  loadStickerOutline: (fileId: number) => Promise<string | undefined>;
   getCachedEmojiAsset: (asset: EmojiPickerAsset) => string | undefined;
   loadEmojiAsset: (asset: EmojiPickerAsset) => Promise<string | undefined>;
   sendSticker: (

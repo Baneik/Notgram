@@ -7,7 +7,7 @@ import {
   type ImgHTMLAttributes,
 } from "react";
 
-type StableImageProps = ImgHTMLAttributes<HTMLImageElement>;
+type StableImageProps = ImgHTMLAttributes<HTMLImageElement> & { onReady?: () => void };
 
 /** Keeps the fallback visible until the current image has finished decoding. */
 export const StableImage = forwardRef<HTMLImageElement, StableImageProps>(function StableImage({
@@ -15,6 +15,7 @@ export const StableImage = forwardRef<HTMLImageElement, StableImageProps>(functi
   decoding = "async",
   onError,
   onLoad,
+  onReady,
   src,
   ...props
 }, forwardedRef) {
@@ -30,11 +31,14 @@ export const StableImage = forwardRef<HTMLImageElement, StableImageProps>(functi
     const image = event.currentTarget;
     const loadedSource = source;
     const reveal = () => {
-      if (loadedSource && imageRef.current === image) setReadySource(loadedSource);
+      if (loadedSource && imageRef.current === image) {
+        setReadySource(loadedSource);
+        onReady?.();
+      }
     };
     if (typeof image.decode === "function") void image.decode().catch(() => undefined).then(reveal);
     else reveal();
-  }, [onLoad, source]);
+  }, [onLoad, onReady, source]);
 
   return (
     <img

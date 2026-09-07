@@ -361,6 +361,7 @@ export type PrivacyRuleKind = "allowAll" | "allowContacts" | "allowUsers" | "res
 export interface PrivacyRule { kind: PrivacyRuleKind; userIds?: string[]; }
 
 export type TelegramLinkTarget =
+  | { kind: "stickerSet"; stickerSet: StickerSet }
   | { chatId: string; messageId?: string }
   | { kind: "user"; userId: string }
   | {
@@ -457,6 +458,8 @@ export interface StickerSetSummary {
   name: string;
   size: number;
   covers: EmojiPickerAsset[];
+  isInstalled?: boolean;
+  isArchived?: boolean;
 }
 
 export interface StickerSet extends StickerSetSummary {
@@ -1032,6 +1035,8 @@ export type MessageFileState = Pick<TransferableMessageContent,
 > & { fileId: number };
 
 export type TelegramEvent =
+  | { type: "emoji.catalogChanged"; installedStickerSetIds?: string[] }
+  | { type: "stickerSet.updated"; stickerSet: StickerSet }
   | { type: "file.updated"; file: MessageFileState }
   | { type: "authorization.changed"; state: AuthorizationState }
   | { type: "connection.changed"; status: ConnectionStatus }

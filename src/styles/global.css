@@ -2491,6 +2491,19 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .sticker-set-footer .dialog-primary:disabled { opacity: 0.52; cursor: default; }
 .sticker-set-open { position: absolute; z-index: 2; inset: 0; padding: 0; background: transparent; border: 0; cursor: pointer; }
 .sticker-set-open:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -3px; border-radius: inherit; }
+.media-sticker .media-download, .media-sticker .media-progress { z-index: 3; }
+.sticker-placeholder {
+  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+  color: color-mix(in srgb, var(--color-text-secondary) 22%, transparent);
+}
+.sticker-outline { display: block; width: 100%; height: 100%; fill: currentColor; }
+.sticker-placeholder-fallback { display: grid; place-items: center; font-size: 26px; opacity: 0.65; }
+.emoji-asset-visual { position: relative; }
+.emoji-asset-visual > img, .emoji-asset-visual > video, .emoji-asset-visual > .tgs-sticker { grid-area: 1 / 1; }
+.emoji-asset-error { position: absolute; right: 2px; bottom: 2px; display: grid; color: var(--color-text-secondary); }
+.sticker-set-state > button { padding: 6px 16px; color: var(--color-text-on-accent); background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+.sticker-set-footer { align-items: center; gap: 12px; }
+.sticker-set-footer > [role="alert"] { color: var(--color-text-secondary); font-size: 12px; }
 .message-delete-backdrop {
   position: fixed; inset: 0; z-index: 100; padding: 20px; display: grid; place-items: center; background: var(--color-overlay);
 }

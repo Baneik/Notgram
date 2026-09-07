@@ -90,6 +90,17 @@ export const telegramUrlDisplayText = (value: string) => {
   return username ? `@${username}` : undefined;
 };
 
+/** Keep reserved routes separate from usernames, including malformed pack links. */
+export const telegramStickerSetName = (value: string): string | undefined => {
+  const parsed = parseTelegramUrl(value);
+  if (!parsed) return undefined;
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  const name = parsed.protocol === "tg:"
+    ? parsed.hostname.toLowerCase() === "addstickers" ? parsed.searchParams.get("set") : undefined
+    : parts.length === 2 && parts[0].toLowerCase() === "addstickers" ? parts[1] : undefined;
+  return name && /^[A-Za-z0-9_]{1,64}$/.test(name) ? name : undefined;
+};
+
 const incompatibleLabelFor = (linkType?: string) => {
   const normalized = linkType?.toLowerCase() ?? "";
   if (normalized.includes("theme") || normalized.includes("textcompositionstyle")) return translate("Telegram 主题链接");
@@ -114,6 +125,7 @@ export const unsupportedTelegramLink = (
 export const knownUnsupportedTelegramLink = (value: string): TelegramLinkTarget | undefined => {
   const parsed = parseTelegramUrl(value);
   if (!parsed) return undefined;
+  if (telegramStickerSetName(value)) return undefined;
   if (parsed.protocol === "tg:") {
     const action = parsed.hostname.toLowerCase() || parsed.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
     if (!action || action === "resolve" || action === "privatepost" || action === "user") return undefined;

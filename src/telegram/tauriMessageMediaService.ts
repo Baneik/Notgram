@@ -130,7 +130,7 @@ const mapEmojiSticker = (
     emoji: typeof sticker.emoji === "string" ? sticker.emoji : undefined,
     fileName: stickerFileName(mimeType),
     mimeType,
-    previewMimeType: "image/webp",
+    previewMimeType: asTdObject(thumbnail?.format)?.["@type"] === "thumbnailFormatJpeg" ? "image/jpeg" : "image/webp",
     localPath: tdLocalFilePath(file),
     previewPath: tdLocalFilePath(thumbnailFile),
     previewDataUrl: emojiPreviewDataUrl(sticker.minithumbnail),
@@ -174,8 +174,22 @@ const mapStickerSetSummary = (value: unknown): StickerSetSummary | undefined => 
     title: typeof stickerSet.title === "string" ? stickerSet.title : translate("贴纸包"),
     name: typeof stickerSet.name === "string" ? stickerSet.name : "",
     size: tdNumber(stickerSet.size) ?? asTdObjects(stickerSet.stickers).length,
+    isInstalled: stickerSet.is_installed === true,
+    isArchived: stickerSet.is_archived === true,
     covers: asTdObjects(stickerSet.covers ?? stickerSet.stickers)
       .map((sticker) => mapEmojiSticker(sticker, id))
+      .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
+  };
+};
+
+export const mapEmojiStickerSet = (value: unknown): StickerSet | undefined => {
+  const raw = asTdObject(value);
+  const summary = mapStickerSetSummary(raw);
+  if (!summary || !raw) return undefined;
+  return {
+    ...summary,
+    stickers: asTdObjects(raw.stickers)
+      .map((sticker) => mapEmojiSticker(sticker, summary.id))
       .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
   };
 };
@@ -488,22 +502,25 @@ export class TauriMessageMediaService {
   async getStickerSet(stickerSetId: string): Promise<StickerSet> {
     if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error(translate("无效的贴纸包标识符"));
     const response = await this.context.request({ "@type": "getStickerSet", set_id: stickerSetId });
-    const summary = mapStickerSetSummary(response);
-    if (!summary) throw new Error(translate("找不到贴纸包"));
-    return {
-      ...summary,
-      stickers: asTdObjects(response.stickers)
-        .map((sticker) => mapEmojiSticker(sticker, summary.id))
-        .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
-    };
+    const stickerSet = mapEmojiStickerSet(response);
+    if (!stickerSet) throw new Error(translate("找不到贴纸包"));
+    return stickerSet;
   }
 
   async addStickerSet(stickerSetId: string) {
+    return this.setStickerSetInstalled(stickerSetId, true);
+  }
+
+  async removeStickerSet(stickerSetId: string) {
+    return this.setStickerSetInstalled(stickerSetId, false);
+  }
+
+  private async setStickerSetInstalled(stickerSetId: string, installed: boolean) {
     if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error(translate("无效的贴纸包标识符"));
     await this.context.request({
       "@type": "changeStickerSet",
       set_id: stickerSetId,
-      is_installed: true,
+      is_installed: installed,
       is_archived: false,
     });
   }
@@ -592,6 +609,16 @@ export class TauriMessageMediaService {
       input_message_content: inputMessageText(text, input.clearDraft !== false),
     });
     if (generation === this.context.sessionGeneration() && response["@type"] === "message") this.context.emitMessage(response, true);
+  }
+
+  async getStickerOutline(fileId: number): Promise<string> {
+    const response = await this.context.request({
+      "@type": "getStickerOutlineSvgPath",
+      sticker_file_id: fileId,
+      for_animated_emoji: false,
+      for_clicked_animated_emoji_message: false,
+    });
+    return typeof response.text === "string" ? response.text : "";
   }
 
   async editMessage(input: EditMessageInput) {

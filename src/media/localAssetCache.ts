@@ -30,6 +30,15 @@ export const isNativeAssetSource = (source: string) =>
 /** Synchronous reads avoid restarting the placeholder on a composer remount. */
 export const getCachedLocalAsset = (source: string) => entries.get(source)?.objectUrl;
 
+export const invalidateLocalAsset = (source: string) => {
+  const entry = entries.get(source);
+  if (!entry) return;
+  entries.delete(source);
+  entry.controller.abort();
+  cachedBytes -= entry.bytes;
+  if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+};
+
 /** Native assets use no-store; retain sticker bytes only for the current account. */
 export const retainLocalAsset = (source: string) => {
   let entry = entries.get(source);
