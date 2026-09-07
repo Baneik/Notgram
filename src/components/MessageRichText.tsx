@@ -78,8 +78,9 @@ function MentionLink({
     ? resolved.split("\u0000")
     : [];
   const targetUsername = (username ?? resolvedUsername) || undefined;
-  const href = resolvedUserId && /^-?\d+$/.test(resolvedUserId)
-    ? `tg://user?id=${encodeURIComponent(resolvedUserId)}`
+  const targetUserId = resolvedUserId || entity.userId;
+  const href = targetUserId && /^\d+$/.test(targetUserId)
+    ? `tg://user?id=${encodeURIComponent(targetUserId)}`
     : targetUsername
       ? `https://t.me/${encodeURIComponent(targetUsername)}`
       : "#";
@@ -90,11 +91,13 @@ function MentionLink({
     }
     event.preventDefault();
     event.stopPropagation();
-    onOpenMention(targetUsername, resolvedUserId || entity.userId);
+    onOpenMention(targetUsername, targetUserId);
   };
   return (
     <a href={href} onClick={openMention}>
-      {displayName ? `@${displayName}` : children}
+      {displayName ? `@${displayName}` : <>
+        {entity.kind === "mentionName" && !value.startsWith("@") ? "@" : null}{children}
+      </>}
     </a>
   );
 }
@@ -399,12 +402,18 @@ const renderEntities = (
     const quoteStart = Math.max(cursor, quote.offset);
     const quoteEnd = quote.offset + quote.length;
     if (quoteEnd <= cursor) continue;
+    // A block already starts/ends a line. Consume its structural separator,
+    // keeping extra blank lines and all entity offsets in the original text.
+    const before = text.slice(cursor, quoteStart);
+    const beforeEnd = quoteStart - (/[^\r\n]/.test(before) ? before.match(/\r?\n$/)?.[0].length ?? 0 : 0);
+    const trailingBreak = text.slice(quoteStart, quoteEnd).match(/\r?\n$/)?.[0].length ?? 0;
+    const contentEnd = quoteEnd - trailingBreak;
     if (quoteStart > cursor) {
       nodes.push(...renderInlineRange(
         text,
         inlineEntities,
         cursor,
-        quoteStart,
+        beforeEnd,
         `plain:${cursor}`,
         highlightRanges,
         onOpenMention,
@@ -414,7 +423,7 @@ const renderEntities = (
     nodes.push(
       <CollapsibleBlockQuote
         key={`quote:${quote.offset}:${quote.length}`}
-        quoteText={text.slice(quoteStart, quoteEnd)}
+        quoteText={text.slice(quoteStart, contentEnd)}
         resetKey={`${quote.offset}:${quote.length}:${text.slice(quoteStart, quoteEnd)}`}
         onCollapse={onCollapseQuote}
       >
@@ -422,7 +431,7 @@ const renderEntities = (
           text,
           inlineEntities,
           quoteStart,
-          quoteEnd,
+          contentEnd,
           `quote:${quote.offset}`,
           highlightRanges,
           onOpenMention,
@@ -430,7 +439,7 @@ const renderEntities = (
         )}
       </CollapsibleBlockQuote>,
     );
-    cursor = quoteEnd;
+    cursor = quoteEnd + (trailingBreak ? 0 : text.slice(quoteEnd).match(/^\r?\n/)?.[0].length ?? 0);
   }
   if (cursor < text.length) {
     nodes.push(...renderInlineRange(

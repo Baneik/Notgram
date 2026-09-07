@@ -1,6 +1,6 @@
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { translate } from "../i18n";
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
+import { localMediaSource } from "../media/localMediaSource";
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,9 +29,28 @@ interface MediaViewerProps {
   onSave: (sourcePath: string, fileName: string) => Promise<void>;
 }
 
-const sourceFromPath = (path?: string) => {
-  if (!path) return undefined;
-  return isTauri() ? convertFileSrc(path, "notgram-asset") : path;
+// A retained photo can still have a readable preview after its original is gone.
+// Use the same fallback order for the stage and its thumbnail strip.
+const usePhotoSource = (message?: PhotoMessage) => {
+  const content = message?.content;
+  const sources = useMemo(() => [...new Set([
+    localMediaSource(content?.localPath),
+    localMediaSource(content?.thumbnailPath),
+    content?.previewDataUrl,
+  ].filter((value): value is string => Boolean(value)))], [
+    content?.localPath, content?.thumbnailPath, content?.previewDataUrl,
+  ]);
+  const [failedSources, setFailedSources] = useState<Set<string>>(() => new Set());
+  useEffect(() => setFailedSources(new Set()), [message?.id, sources]);
+  const source = sources.find((candidate) => !failedSources.has(candidate));
+  return {
+    source,
+    failed: sources.length > 0 && !source,
+    onError: () => {
+      if (source) setFailedSources((current) => new Set(current).add(source));
+    },
+    retry: () => setFailedSources(new Set()),
+  };
 };
 
 const MIN_ZOOM = 1;
@@ -49,19 +68,7 @@ function MediaViewerThumbnail({
   selected,
   onSelect,
 }: MediaViewerThumbnailProps) {
-  const sources = useMemo(() => [
-    sourceFromPath(message.content.localPath),
-    sourceFromPath(message.content.thumbnailPath),
-    message.content.previewDataUrl,
-  ].filter((value): value is string => Boolean(value)), [
-    message.content.localPath,
-    message.content.thumbnailPath,
-    message.content.previewDataUrl,
-  ]);
-  const [sourceIndex, setSourceIndex] = useState(0);
-  const source = sources[sourceIndex];
-
-  useEffect(() => setSourceIndex(0), [sources]);
+  const { source, onError } = usePhotoSource(message);
 
   return (
     <button
@@ -77,7 +84,7 @@ function MediaViewerThumbnail({
             alt=""
             loading="eager"
             decoding="async"
-            onError={() => setSourceIndex((current) => current + 1)}
+            onError={onError}
           />
         : <ImageOff size={18} strokeWidth={1.6} />}
       {message.content.isDownloading && (
@@ -120,8 +127,6 @@ export function MediaViewer({
     startY: number;
     origin: PanPosition;
   } | undefined>(undefined);
-  const [failedSource, setFailedSource] = useState<string>();
-  const [retryKey, setRetryKey] = useState(0);
   const showDownloading = useStableVisibility(Boolean(active?.content.isDownloading), {
     minimumVisible: 320,
   });
@@ -134,18 +139,12 @@ export function MediaViewer({
     () => photoThumbnailWindow(messages, activeMessageId),
     [activeMessageId, messages],
   );
-  const source = useMemo(() => active
-    ? sourceFromPath(active.content.localPath) ??
-      sourceFromPath(active.content.thumbnailPath) ??
-      active.content.previewDataUrl
-    : undefined, [active]);
+  const { source, failed, onError, retry } = usePhotoSource(active);
   useEffect(() => {
     setZoom(MIN_ZOOM);
     setPan({ x: 0, y: 0 });
     setDragging(false);
     dragRef.current = undefined;
-    setFailedSource(undefined);
-    setRetryKey(0);
   }, [activeMessageId, source]);
 
   useEffect(() => {
@@ -174,7 +173,6 @@ export function MediaViewer({
 
   if (!active) return null;
   const content = active.content;
-  const failed = Boolean(source && failedSource === source);
   const canDownload = messageCanBeSaved(active) && content.fileId !== undefined &&
     content.canDownload !== false &&
     !content.isDownloading &&
@@ -292,14 +290,14 @@ export function MediaViewer({
           </aside>
           {source && !failed ? (
             <StableImage
-              key={`${source}:${retryKey}`}
+              key={source}
               ref={imageRef}
               className="media-viewer-image"
               src={source}
               alt={content.caption || content.fileName}
               draggable={false}
               style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
-              onError={() => setFailedSource(source)}
+              onError={onError}
             />
           ) : (
             <div className="media-viewer-empty" role="status">
@@ -308,10 +306,7 @@ export function MediaViewer({
                 : <ImageOff size={38} strokeWidth={1.5} />}
               <span>{failed ? translate("图片加载失败") : showDownloading ? translate("图片正在下载") : translate("原图尚未下载")}</span>
               {failed && (
-                <button type="button" onClick={() => {
-                  setFailedSource(undefined);
-                  setRetryKey((current) => current + 1);
-                }}>{translate("重试加载")}</button>
+                <button type="button" onClick={retry}>{translate("重试加载")}</button>
               )}
               {canDownload && (
                 <button type="button" onClick={() => void onDownload(content.fileId!, content.fileName)}>

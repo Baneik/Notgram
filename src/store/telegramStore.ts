@@ -4325,7 +4325,7 @@ export const createTelegramStore = (
                 result.forwardedCount += 1;
               } else {
                 const author = senderNameForMessage(message, get().users, get().chats.get(fromChatId)!, get().chats);
-                const quote = retainedMessageQuote(message.content, author);
+                const quote = retainedMessageQuote(message.content, author, undefined, message.senderId);
                 if (!quote.text) throw new Error(translate("消息转发失败"));
                 await transport.sendMessage({ chatId: toChatId, topicId: toTopicId, ...quote, clearDraft: false });
                 result.forwardedCount += 1;

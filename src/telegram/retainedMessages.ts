@@ -2,18 +2,26 @@ import { messageContentText } from "./messageContent";
 import type { Message, MessageContent, MessageFileState, MessageReplyQuote, MessageTextEntity } from "./types";
 import { trimComposerFormattedText } from "../utils/composerMentions";
 
-export const retainedMessageQuote = (content: MessageContent, author: string, quote?: MessageReplyQuote) => {
+export const retainedMessageQuote = (
+  content: MessageContent,
+  author: string,
+  quote?: MessageReplyQuote,
+  senderId?: string,
+) => {
   const sourceEntities = content.kind === "text" ? content.entities
     : content.kind === "media" || content.kind === "file" ? content.captionEntities : undefined;
   const body = trimComposerFormattedText(quote?.text ?? messageContentText(content),
     quote ? quote.entities ?? [] : sourceEntities ?? []);
   if (!body.text) return { text: "", entities: [] as MessageTextEntity[] };
-  const prefix = `${author}:\n`;
+  const userId = senderId && !senderId.startsWith("chat:") ? senderId : undefined;
+  const authorText = userId && !author.startsWith("@") ? `@${author}` : author;
+  const prefix = `${authorText}:\n`;
   const text = `${prefix}${body.text}`;
   return {
     text,
     entities: [
       { offset: 0, length: text.length, kind: "blockquote" as const },
+      ...(userId ? [{ offset: 0, length: authorText.length, kind: "mentionName" as const, userId }] : []),
       ...body.entities.filter(entity => entity.kind !== "blockquote")
         .map(entity => ({ ...entity, offset: entity.offset + prefix.length })),
     ],

@@ -2,8 +2,27 @@ import { describe, expect, it } from "vitest";
 import { retainedMessageQuote, retainHydratedContent } from "./retainedMessages";
 import { inputMediaCopy } from "./mediaCopy";
 import type { MessageContent } from "./types";
+import { inputTextEntityType } from "./tdlibTextEntities";
 
 describe("retained message content", () => {
+  it("quotes the sender as a real Telegram mention and keeps UTF-16 body offsets", () => {
+    const quote = retainedMessageQuote({ kind: "text", text: "什么🤔",
+      entities: [{ kind: "bold", offset: 2, length: 2 }] }, "Lucy 😀", undefined, "12345");
+    expect(quote.text).toBe("@Lucy 😀:\n什么🤔");
+    expect(quote.entities).toEqual([
+      { kind: "blockquote", offset: 0, length: quote.text.length },
+      { kind: "mentionName", offset: 0, length: "@Lucy 😀".length, userId: "12345" },
+      { kind: "bold", offset: "@Lucy 😀:\n什么".length, length: 2 },
+    ]);
+    expect(inputTextEntityType(quote.entities[1])).toEqual({ "@type": "textEntityTypeMentionName", user_id: 12345 });
+  });
+
+  it("does not turn a channel sender into a user mention", () => {
+    const quote = retainedMessageQuote({ kind: "text", text: "news" }, "Channel", undefined, "chat:-10012345");
+    expect(quote.text).toBe("Channel:\nnews");
+    expect(quote.entities).toHaveLength(1);
+  });
+
   it("quotes only selected text and shifts its UTF-16 entities after the author", () => {
     const quote = retainedMessageQuote({ kind: "text", text: "before selected after",
       entities: [{ offset: 0, length: 6, kind: "bold" }] }, "Alice 😀", {

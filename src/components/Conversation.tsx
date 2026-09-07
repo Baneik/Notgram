@@ -1450,9 +1450,9 @@ export function Conversation({
       ? senderNameForMessage(localReply, users, chat, forwardTargetsById)
       : "";
     const localQuote = localOnlyReply
-      ? retainedMessageQuote(localReply.content, localReplyAuthor, selectedReplyQuote)
+      ? retainedMessageQuote(localReply.content, localReplyAuthor, selectedReplyQuote, localReply.senderId)
       : undefined;
-    const localReplyPrefix = localQuote?.text ? `${localQuote.text}\n\n` : "";
+    const localReplyPrefix = localQuote?.text ? `${localQuote.text}\n` : "";
     return onSendMessage(
       `${localReplyPrefix}${text}`,
       localOnlyReply ? undefined : replyToMessageId,
