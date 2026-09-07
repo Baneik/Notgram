@@ -45,6 +45,7 @@ describe("native proxy recovery boundary", () => {
   });
 
   it("coalesces wake signals and waits for native verification after acknowledgement", async () => {
+    vi.useFakeTimers();
     const { internal, invoke } = setup();
     internal.handleUpdate(native("idle"));
     internal.handleUpdate(native("recovering"));
@@ -53,6 +54,9 @@ describe("native proxy recovery boundary", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(invoke).toHaveBeenCalledExactlyOnceWith("telegram_recover_connection", { force: true }, undefined);
+    // A recovery phase is only user-visible after the disconnect grace period.
+    expect(internal.listener).toHaveBeenLastCalledWith({ type: "connection.changed", status: "online" });
+    await vi.advanceTimersByTimeAsync(2_000);
     expect(internal.listener).toHaveBeenLastCalledWith({ type: "connection.changed", status: "recovering" });
     // A delayed raw READY must not overwrite a recovery in progress.
     internal.handleUpdate({ "@type": "updateConnectionState", state: { "@type": "connectionStateReady" } });
@@ -75,6 +79,21 @@ describe("native proxy recovery boundary", () => {
     internal.handleUpdate({ "@type": "updateConnectionState", state: { "@type": "connectionStateConnectingToProxy" } });
     await vi.advanceTimersByTimeAsync(300_000);
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("hides a disconnect that recovers within the grace period", async () => {
+    vi.useFakeTimers();
+    const { internal } = setup();
+    internal.handleUpdate(native("idle"));
+    expect(internal.listener).toHaveBeenLastCalledWith({ type: "connection.changed", status: "online" });
+
+    internal.handleUpdate({ "@type": "updateConnectionState", state: { "@type": "connectionStateConnecting" } });
+    expect(internal.listener).toHaveBeenLastCalledWith({ type: "connection.changed", status: "online" });
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(internal.listener).toHaveBeenLastCalledWith({ type: "connection.changed", status: "online" });
+
+    internal.handleUpdate({ "@type": "updateConnectionState", state: { "@type": "connectionStateReady" } });
+    expect(internal.listener).toHaveBeenLastCalledWith({ type: "connection.changed", status: "online" });
   });
 
   it("surfaces failure to dispatch a recovery signal without leaking native details", async () => {

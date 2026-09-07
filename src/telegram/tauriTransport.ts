@@ -172,6 +172,8 @@ interface RuntimeStatus {
 
 const BOOTSTRAP_RETRY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
 const GROUP_BOT_DISCOVERY_TIMEOUT_MS = 1_500;
+// Keep short TDLib disconnect/reconnect blips out of the user-facing status.
+const CONNECTION_LOSS_GRACE_MS = 2_000;
 
 const chatPermissionsForTemplate = (template: CreateChatInput["permissionTemplate"]): TdObject => {
   const open = template !== "restricted";
@@ -499,6 +501,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   private initialUserSyncPending = false;
   private initialUsers = new Map<string, User>();
   private connectionStatus?: ConnectionStatus;
+  private hasEstablishedConnection = false;
+  private connectionStatusTimer?: ReturnType<typeof globalThis.setTimeout>;
+  private pendingConnectionStatus?: ConnectionStatus;
   private settingsOnly = false;
   private recoverySignal?: Promise<void>;
   private nativeRecoveryPhase = "idle";
@@ -536,7 +541,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       (event) => {
         const error = new Error(event.payload.message);
         this.requestBroker.rejectAll(error);
-        this.emitConnectionStatus("offline");
+        this.emitConnectionStatus("offline", { immediate: true });
         this.listener?.({ type: "sync.error", message: error.message, fatal: true });
       },
     );
@@ -563,7 +568,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     try {
       if (!this.settingsOnly) await invoke("telegram_shutdown");
     } finally {
-      this.emitConnectionStatus("offline");
+      this.emitConnectionStatus("offline", { immediate: true });
       this.unlistenUpdate?.();
       this.unlistenUpdates?.();
       this.unlistenError?.();
@@ -2228,7 +2233,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "authorization.changed", state: mapped });
     if (mapped.kind === "ready") this.startBootstrap();
     if (mapped.kind === "closing" || mapped.kind === "closed") {
-      this.emitConnectionStatus("offline");
+      this.emitConnectionStatus("offline", { immediate: true });
     }
   }
 
@@ -2245,9 +2250,29 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (status === "online" && this.authorizationReady && !this.bootstrapComplete) this.startBootstrap();
   }
 
-  private emitConnectionStatus(status: ConnectionStatus) {
+  private emitConnectionStatus(status: ConnectionStatus, options?: { immediate?: boolean }) {
+    const immediate = options?.immediate === true ||
+      !this.hasEstablishedConnection ||
+      status === "online" ||
+      status === "syncing";
+    if (!immediate) {
+      this.pendingConnectionStatus = status;
+      if (!this.connectionStatusTimer) {
+        this.connectionStatusTimer = globalThis.setTimeout(() => {
+          this.connectionStatusTimer = undefined;
+          const pending = this.pendingConnectionStatus;
+          this.pendingConnectionStatus = undefined;
+          if (pending) this.emitConnectionStatus(pending, { immediate: true });
+        }, CONNECTION_LOSS_GRACE_MS);
+      }
+      return;
+    }
+    if (this.connectionStatusTimer) globalThis.clearTimeout(this.connectionStatusTimer);
+    this.connectionStatusTimer = undefined;
+    this.pendingConnectionStatus = undefined;
     if (this.connectionStatus === status) return;
     this.connectionStatus = status;
+    if (status === "online") this.hasEstablishedConnection = true;
     this.listener?.({ type: "connection.changed", status });
   }
 
@@ -3587,7 +3612,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.nativeRecoveryPhase = "idle";
     this.disposeConnectionMonitor?.();
     this.disposeConnectionMonitor = undefined;
+    if (this.connectionStatusTimer) globalThis.clearTimeout(this.connectionStatusTimer);
+    this.connectionStatusTimer = undefined;
+    this.pendingConnectionStatus = undefined;
     this.connectionStatus = undefined;
+    this.hasEstablishedConnection = false;
     this.rawChats.clear();
     this.rawBasicGroups.clear();
     this.rawSupergroups.clear();
