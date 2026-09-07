@@ -2024,9 +2024,9 @@ test("nickname mentions keep their stable profile click after sending", async ({
   await page.getByRole("button", { name: "发送消息" }).click();
 
   const sentMention = page.locator(".message-row.is-outgoing .message-rich-text a")
-    .filter({ hasText: mentionLabel })
+    .filter({ hasText: mentionLabel.slice(1) })
     .last();
-  await expect(sentMention).toHaveText(mentionLabel);
+  await expect(sentMention).toHaveText(mentionLabel.slice(1));
   await sentMention.click();
   await expect(page.getByRole("dialog", { name: "资料" })).toBeVisible();
 });
@@ -5724,7 +5724,7 @@ test("TDLib mentions open user and bot profiles without leaving the conversation
   const initialPageCount = context.pages().length;
   const row = await revealVirtualMessage(page, "p-rich-entities");
 
-  const userMention = row.getByRole("link", { name: "@Mia Chen" });
+  const userMention = row.getByRole("link", { name: "Mia Chen", exact: true });
   await expect(userMention).toHaveAttribute("href", "https://t.me/mia_design");
   await userMention.click();
   const profile = page.getByRole("dialog", { name: "资料" });
@@ -5736,7 +5736,7 @@ test("TDLib mentions open user and bot profiles without leaving the conversation
   await profile.getByRole("button", { name: "关闭资料" }).click();
 
   const botRow = await revealVirtualMessage(page, "p-rich-entities");
-  await botRow.getByRole("link", { name: "@Notgram Bot" }).click();
+  await botRow.getByRole("link", { name: "Notgram Bot", exact: true }).click();
   await expect(profile.getByRole("heading", { name: "Notgram Bot" })).toBeVisible();
   await expect(profile.locator(".profile-status")).toHaveText("机器人");
   await expect(profile.locator(".profile-status")).toHaveClass(/is-bot/);
@@ -5804,7 +5804,7 @@ test("administrator names use the role color in reply contexts", async ({ page }
 test("visible mentions follow nickname changes without changing their user target", async ({ page }) => {
   await page.goto("/");
   const row = await revealVirtualMessage(page, "p-rich-entities");
-  await expect(row.getByRole("link", { name: "@Mia Chen" })).toBeVisible();
+  await expect(row.getByRole("link", { name: "Mia Chen", exact: true })).toBeVisible();
 
   await page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
@@ -5820,7 +5820,7 @@ test("visible mentions follow nickname changes without changing their user targe
     storeModule.telegramStore.setState({ users });
   }, "/src/store/telegramStore.ts");
 
-  const renamedMention = row.getByRole("link", { name: "@Mia Zhou" });
+  const renamedMention = row.getByRole("link", { name: "Mia Zhou", exact: true });
   await expect(renamedMention).toHaveAttribute("href", "https://t.me/mia_design");
   await renamedMention.click();
   await expect(page.getByRole("dialog", { name: "资料" })).toBeVisible();

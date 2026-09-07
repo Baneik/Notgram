@@ -95,9 +95,7 @@ function MentionLink({
   };
   return (
     <a href={href} onClick={openMention}>
-      {displayName ? `@${displayName}` : <>
-        {entity.kind === "mentionName" && !value.startsWith("@") ? "@" : null}{children}
-      </>}
+      {displayName || children}
     </a>
   );
 }
@@ -233,6 +231,10 @@ const renderInlineRange = (
     const active = overlapping
       .filter((entity) => entity.offset <= start && entity.offset + entity.length >= end)
       .sort((left, right) => left.offset - right.offset || right.length - left.length);
+    // Hide the mention prefix before wrapping styles; keep protocol text and offsets intact.
+    const displayValue = value.startsWith("@") && active.some((entity) =>
+      (entity.kind === "mention" || entity.kind === "mentionName") && entity.offset === start
+    ) ? value.slice(1) : value;
     let node = active.reduceRight<ReactNode>(
       (children, entity, entityIndex) => wrapEntity(
         entity,
@@ -242,7 +244,7 @@ const renderInlineRange = (
         onOpenMention,
         onSearchHashtag,
       ),
-      value,
+      displayValue,
     );
     if (highlightRanges.some((range) => range.start <= start && range.end >= end)) {
       node = <mark className="message-search-highlight">{node}</mark>;

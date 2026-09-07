@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 import { MessageRichText } from "./MessageRichText";
 
 describe("MessageRichText Telegram links", () => {
-  it("keeps an uncached quoted sender clickable and displays it as a mention", () => {
-    const html = renderToStaticMarkup(<MessageRichText text={"lucy\n什么🤔\n。"} entities={[
-      { kind: "blockquote", offset: 0, length: "lucy\n什么🤔".length },
-      { kind: "mentionName", offset: 0, length: 4, userId: "12345" },
+  it.each(["lucy", "@lucy"])("keeps an uncached quoted sender %s clickable without an @ prefix", (author) => {
+    const html = renderToStaticMarkup(<MessageRichText text={`${author}\n什么🤔\n。`} entities={[
+      { kind: "blockquote", offset: 0, length: `${author}\n什么🤔`.length },
+      { kind: "mentionName", offset: 0, length: author.length, userId: "12345" },
     ]} />);
-    expect(html).toContain('href="tg://user?id=12345">@lucy</a>');
+    expect(html).toContain('href="tg://user?id=12345">lucy</a>');
     expect(html).toContain("什么🤔</span></span>。");
   });
 
