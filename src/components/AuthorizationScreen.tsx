@@ -266,6 +266,7 @@ function AuthLayout({
 }) {
   const showConnectionWarning = (
     connectionStatus === "waitingForNetwork" ||
+    connectionStatus === "recovering" ||
     connectionStatus === "proxyError" ||
     connectionStatus === "offline"
   );

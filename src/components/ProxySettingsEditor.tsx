@@ -124,7 +124,14 @@ export function ProxySettingsEditor({
       {settings.mode === "system" ? (
         <div className="proxy-system-status">
           <Network size={18} strokeWidth={1.8} />
-          {settings.system ? (
+          {settings.systemStatus?.kind === "unavailable" || settings.systemStatus?.kind === "unsupported" ? (
+            <div>
+              <strong>{settings.systemStatus.kind === "unsupported"
+                ? translate("暂不支持此系统代理配置") : translate("暂时无法读取系统代理")}</strong>
+              <span>{settings.system ? translate("保留最近有效的代理，正在自动重试")
+                : translate("请设置静态系统代理或选择自定义代理")}</span>
+            </div>
+          ) : settings.system ? (
             <div>
               <strong>{proxyTypeLabels[settings.system.type]}</strong>
               <span>{settings.system.server}:{settings.system.port}</span>

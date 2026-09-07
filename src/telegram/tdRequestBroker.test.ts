@@ -14,11 +14,11 @@ describe("TdRequestBroker prepared files", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("supports a bounded timeout for connection recovery requests", async () => {
+  it("supports a bounded timeout for TDLib requests", async () => {
     vi.useFakeTimers();
     const broker = new TdRequestBroker(() => new Promise(() => undefined));
-    const pending = broker.request({ "@type": "setNetworkType" }, 2_000);
-    const rejection = expect(pending).rejects.toThrow("setNetworkType 请求超时");
+    const pending = broker.request({ "@type": "getFile", file_id: 1 }, 2_000);
+    const rejection = expect(pending).rejects.toThrow("getFile 请求超时");
 
     await vi.advanceTimersByTimeAsync(2_000);
 

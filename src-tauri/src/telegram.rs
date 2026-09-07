@@ -409,7 +409,9 @@ impl TelegramRuntime {
         self.prepare(app);
         let credentials = api_credentials()?;
         let configuration = TdlibConfiguration::new(app, credentials)?;
-        let proxy_request = crate::proxy::startup_proxy_request(app)?;
+        let proxy_runtime = app.state::<crate::proxy::recovery::ProxyRuntime>();
+        // Load and validate persisted intent before allocating a TDLib client.
+        proxy_runtime.settings(app)?;
 
         let (engine, logger, client_id, stop) = {
             let mut inner = self.inner.lock().expect("telegram runtime mutex poisoned");
@@ -433,7 +435,11 @@ impl TelegramRuntime {
         for request in configuration.logging_requests() {
             engine.send_value(client_id, &request)?;
         }
-        engine.send_value(client_id, &proxy_request)?;
+        proxy_runtime.attach(app, client_id)?;
+        engine.send_value(
+            client_id,
+            &crate::proxy::recovery::initial_network_request(),
+        )?;
         engine.send_value(client_id, &json!({ "@type": "getAuthorizationState" }))?;
         if let Some(logger) = &logger {
             logger.write("info", "runtime_started", json!({}));
@@ -808,7 +814,10 @@ fn receive_loop(
                         &mut allowed_assets,
                         logger.as_ref(),
                     );
-                    let mut emit_update = true;
+                    let owned_proxy_update = app
+                        .state::<crate::proxy::recovery::ProxyRuntime>()
+                        .observe(client_id, &update);
+                    let mut emit_update = !owned_proxy_update;
                     let request = update.get("@extra").and_then(Value::as_str);
                     let request_type = request.and_then(|correlation| {
                         request_type_from_extra(correlation)
@@ -888,18 +897,12 @@ fn receive_loop(
                             let _ =
                                 app.emit("telegram://bridge-error", json!({ "message": message }));
                         }
-                        if request == Some("native:applyProxy") {
-                            let message = update
-                                .get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("TDLib 代理初始化失败");
-                            let _ =
-                                app.emit("telegram://bridge-error", json!({ "message": message }));
-                        }
                     }
 
-                    if update.get("@extra").and_then(Value::as_str) == Some("native:applyProxy")
-                        && update.get("@type").and_then(Value::as_str) != Some("error")
+                    if !proxy_ready
+                        && app
+                            .state::<crate::proxy::recovery::ProxyRuntime>()
+                            .initialized(client_id)
                     {
                         proxy_ready = true;
                         if let Some(logger) = &logger {
@@ -1012,6 +1015,19 @@ fn receive_loop(
             }
         }
 
+        if !authorization_closing {
+            app.state::<crate::proxy::recovery::ProxyRuntime>().tick(
+                &app,
+                client_id,
+                |request| engine.send_value(client_id, request),
+                |level, event, details| {
+                    if let Some(logger) = &logger {
+                        logger.write(level, event, details);
+                    }
+                },
+            );
+        }
+
         if stats_started.elapsed() >= Duration::from_secs(60) {
             let window_seconds = stats_started.elapsed().as_secs_f64().max(1.0);
             if let Some(logger) = &logger {
@@ -1037,6 +1053,8 @@ fn receive_loop(
     if let Some(logger) = &logger {
         logger.write("info", "receive_loop_stopped", json!({}));
     }
+    app.state::<crate::proxy::recovery::ProxyRuntime>()
+        .detach(client_id);
     app.state::<TelegramRuntime>().mark_closed(client_id);
 }
 

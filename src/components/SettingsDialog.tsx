@@ -74,6 +74,7 @@ import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
 import { SafetySettings } from "./SafetySettings";
 import { ProxySettingsEditor } from "./ProxySettingsEditor";
+import { mergeProxySettingsDraft } from "../telegram/proxySettings";
 import type { LanguagePreference } from "../i18n";
 import {
   AD_BLOCK_KEYWORD_LENGTH_LIMIT,
@@ -276,6 +277,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const [storageDetailsOpen, setStorageDetailsOpen] = useState(false);
   const [compactViewport, setCompactViewport] = useState(false);
   const [draft, setDraft] = useState<ProxySettings>(emptySettings);
+  const loadedProxySettings = useRef<ProxySettings | undefined>(undefined);
   const [storageDraft, setStorageDraft] = useState<StorageSettings>(emptyStorageSettings);
   const [preferenceError, setPreferenceError] = useState<string>();
   const [pendingZalgoTextPreference, setPendingZalgoTextPreference] = useState<boolean>();
@@ -295,7 +297,10 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   }, []);
 
   useEffect(() => {
-    if (settings) setDraft(structuredClone(settings));
+    if (!settings) return;
+    const previous = loadedProxySettings.current;
+    loadedProxySettings.current = settings;
+    setDraft((draft) => mergeProxySettingsDraft(draft, previous, settings));
   }, [settings]);
 
   useEffect(() => {

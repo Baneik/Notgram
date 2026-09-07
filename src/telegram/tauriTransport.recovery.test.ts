@@ -22,22 +22,6 @@ const connection = (state: string) => ({ "@type": "updateConnectionState", state
 describe("TDLib synchronization recovery", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("also retries stalled direct connections and stops when TDLib becomes ready", async () => {
-    vi.useFakeTimers();
-    const internal = new TauriTelegramTransport() as unknown as Internal;
-    internal.finishInitialChatSync();
-    internal.listener = vi.fn();
-    internal.request = vi.fn(async () => ({ "@type": "ok" }));
-    internal.handleUpdate(connection("connectionStateConnecting"));
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(internal.request).toHaveBeenCalledTimes(3);
-    internal.handleUpdate(connection("connectionStateReady"));
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(internal.request).toHaveBeenCalledTimes(3);
-    expect(internal.listener).not.toHaveBeenCalledWith({ type: "connection.changed", status: "proxyError" });
-    internal.resetSessionState();
-  });
-
   it("retries bootstrap after timeouts without needing another authorization event", async () => {
     vi.useFakeTimers();
     const internal = new TauriTelegramTransport() as unknown as Internal;
@@ -64,18 +48,6 @@ describe("TDLib synchronization recovery", () => {
     expect(internal.listener).not.toHaveBeenCalledWith({ type: "connection.changed", status: "online" });
     internal.handleUpdate(connection("connectionStateReady"));
     expect(internal.listener).toHaveBeenCalledWith({ type: "connection.changed", status: "online" });
-  });
-
-  it("requests data revalidation on direct wake without a TDLib state change", async () => {
-    const internal = new TauriTelegramTransport() as unknown as Internal;
-    internal.finishInitialChatSync();
-    internal.listener = vi.fn();
-    internal.request = vi.fn(async () => ({ "@type": "ok" }));
-    internal.handleUpdate(connection("connectionStateReady"));
-    internal.requestImmediateConnectionRecovery(true);
-    internal.requestImmediateConnectionRecovery(true);
-    await vi.waitFor(() => expect(internal.listener).toHaveBeenCalledWith({ type: "sync.required" }));
-    expect(internal.request).toHaveBeenCalledTimes(1);
   });
 
   it("retires an old in-flight page and restarts exhausted histories from latest", async () => {

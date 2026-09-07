@@ -8,6 +8,7 @@ const mockConnectionStatus = () => {
   const value = new URLSearchParams(window.location.search).get("connection");
   return ([
     "connecting",
+    "recovering",
     "syncing",
     "online",
     "waitingForNetwork",

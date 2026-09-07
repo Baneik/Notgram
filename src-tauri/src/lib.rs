@@ -61,6 +61,7 @@ pub fn run() {
         })
         .on_window_event(desktop_lifecycle::handle_window_event)
         .manage(telegram::TelegramRuntime::new())
+        .manage(proxy::recovery::ProxyRuntime::default())
         .manage(telegram::media_stream::MediaStreamRegistry::default())
         .manage(storage::SnapshotCacheWriteState::default())
         .manage(storage::paths::SessionStorage::default())
@@ -110,6 +111,8 @@ pub fn run() {
             telegram::telegram_runtime_status,
             proxy::telegram_proxy_settings,
             proxy::telegram_save_proxy_settings,
+            proxy::recovery::telegram_recover_connection,
+            proxy::recovery::telegram_connection_state,
             storage::telegram_storage_settings,
             storage::telegram_save_storage_settings,
             storage::paths::telegram_remove_migration_backup,

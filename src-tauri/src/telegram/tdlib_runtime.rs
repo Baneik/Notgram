@@ -97,3 +97,100 @@ unsafe fn load_library(path: &Path) -> Result<Library, libloading::Error> {
 unsafe fn load_library(path: &Path) -> Result<Library, libloading::Error> {
     unsafe { Library::new(path) }
 }
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::time::{Duration, Instant};
+
+    /// Explicit opt-in smoke test: actual pinned DLL, independent client, no
+    /// existing account database. Verifies the native recovery primitive
+    /// reaches TDLib instead of being rejected by the Webview allowlist.
+    #[test]
+    #[ignore = "requires the pinned Windows TDLib runtime and local API configuration"]
+    fn native_recovery_requests_reach_tdlib() {
+        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("tdlib/tdjson.dll");
+        let engine = TdJson::load(&dll).expect("pinned TDLib must be available");
+        crate::development::load_environment();
+        let credentials =
+            super::super::api_credentials().expect("local API configuration is required");
+        let audit_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.native-smoke");
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = audit_root.join(format!("recovery-{stamp}"));
+        std::fs::create_dir_all(&directory).unwrap();
+        let client = engine.create_client();
+        engine
+            .send_value(
+                client,
+                &json!({ "@type": "setLogStream", "log_stream": { "@type": "logStreamEmpty" } }),
+            )
+            .unwrap();
+        // TDLib defers network/proxy requests until parameters are initialized.
+        // Queue a network hold and an unused loopback proxy before parameters:
+        // the smoke test cannot contact an account or a Telegram endpoint.
+        engine
+            .send_value(client, &crate::proxy::recovery::initial_network_request())
+            .unwrap();
+        engine
+            .send_value(
+                client,
+                &json!({ "@type": "addProxy", "enable": true, "comment": "isolated smoke",
+            "proxy": { "@type": "proxy", "server": "127.0.0.1", "port": 1,
+                "type": { "@type": "proxyTypeSocks5", "username": "", "password": "" } } }),
+            )
+            .unwrap();
+        engine
+            .send_value(
+                client,
+                &json!({ "@type": "setTdlibParameters",
+            "database_directory": directory, "files_directory": directory.join("files"),
+            "api_id": credentials.api_id, "api_hash": credentials.api_hash,
+            "system_language_code": "en", "device_model": "Native recovery smoke",
+            "application_version": "test", "@extra": "native:smoke:parameters" }),
+            )
+            .unwrap();
+        let requests = [
+            crate::proxy::recovery::initial_network_request(),
+            crate::proxy::recovery::reopen_request(),
+            json!({ "@type": "getCurrentState" }),
+        ];
+        for (index, mut request) in requests.into_iter().enumerate() {
+            let extra = format!("native:smoke:{index}");
+            request["@extra"] = json!(extra);
+            engine.send_value(client, &request).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                assert!(Instant::now() < deadline, "native TDLib request timed out");
+                if let Some(response) = engine.receive_value(0.1).unwrap()
+                    && response["@client_id"] == client
+                    && response["@extra"] == extra
+                {
+                    let expected = if index == 2 { "updates" } else { "ok" };
+                    assert_eq!(response["@type"], expected, "native request was rejected");
+                    break;
+                }
+            }
+        }
+        engine
+            .send_value(client, &json!({ "@type": "close" }))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if let Some(update) = engine.receive_value(0.1).unwrap()
+                && update["@client_id"] == client
+                && update["authorization_state"]["@type"] == "authorizationStateClosed"
+            {
+                let root = audit_root.canonicalize().unwrap();
+                let target = directory.canonicalize().unwrap();
+                assert!(target.starts_with(&root) && target != root);
+                std::fs::remove_dir_all(target).unwrap();
+                return;
+            }
+        }
+        panic!("isolated TDLib client did not close");
+    }
+}

@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-#[cfg(not(target_os = "windows"))]
-use std::env;
 use std::{fs, path::PathBuf};
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
+
+pub mod recovery;
+mod system;
+use system::{SystemProxy, detect_system_proxy};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -98,7 +100,7 @@ impl ProxyEndpoint {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyProfile {
     pub id: String,
@@ -125,7 +127,7 @@ impl ProxyProfile {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyPreferences {
     #[serde(default)]
@@ -201,14 +203,6 @@ impl ProxyPreferences {
         }
         Ok(())
     }
-
-    fn active_endpoint(&self) -> Option<&ProxyEndpoint> {
-        self.profiles
-            .iter()
-            .find(|profile| profile.id == self.active_profile_id)
-            .or_else(|| self.profiles.first())
-            .map(|profile| &profile.endpoint)
-    }
 }
 
 #[derive(Serialize)]
@@ -219,50 +213,42 @@ pub struct ProxySettings {
     active_profile_id: String,
     auto_switch: bool,
     system: Option<ProxyEndpoint>,
+    system_status: SystemProxy,
+    revision: u64,
+    runtime_profile_id: Option<String>,
 }
 
 #[tauri::command]
-pub fn telegram_proxy_settings(app: AppHandle) -> Result<ProxySettings, String> {
-    let preferences = load_preferences(&app)?;
-    Ok(ProxySettings {
-        mode: preferences.mode,
-        profiles: preferences.profiles,
-        active_profile_id: preferences.active_profile_id,
-        auto_switch: preferences.auto_switch,
-        system: detect_system_proxy(),
-    })
+pub fn telegram_proxy_settings(
+    app: AppHandle,
+    runtime: State<'_, recovery::ProxyRuntime>,
+) -> Result<ProxySettings, String> {
+    runtime.settings(&app)
 }
 
 #[tauri::command]
 pub fn telegram_save_proxy_settings(
     app: AppHandle,
     preferences: ProxyPreferences,
+    revision: Option<u64>,
+    runtime: State<'_, recovery::ProxyRuntime>,
 ) -> Result<(), String> {
     let preferences = preferences.normalize()?;
-    save_preferences(&app, &preferences)
+    runtime.save(&app, preferences, revision)
 }
 
-pub fn startup_proxy_request(app: &AppHandle) -> Result<Value, String> {
-    let preferences = load_preferences(app)?;
-    let endpoint = match preferences.mode {
-        ProxyMode::System => detect_system_proxy(),
-        ProxyMode::Direct => None,
-        ProxyMode::Custom => preferences.active_endpoint().cloned(),
-    };
-
-    Ok(match endpoint {
+fn proxy_request(endpoint: Option<&ProxyEndpoint>) -> Value {
+    match endpoint {
         Some(endpoint) => json!({
             "@type": "addProxy",
             "proxy": endpoint.tdlib_value(),
             "enable": true,
             "comment": "Notgram",
-            "@extra": "native:applyProxy",
         }),
         None => json!({
             "@type": "disableProxy",
-            "@extra": "native:applyProxy",
         }),
-    })
+    }
 }
 
 fn preferences_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -283,32 +269,6 @@ fn load_preferences(app: &AppHandle) -> Result<ProxyPreferences, String> {
 fn save_preferences(app: &AppHandle, preferences: &ProxyPreferences) -> Result<(), String> {
     let path = preferences_path(app)?;
     crate::storage::persistence::write_json(&path, preferences, true)
-}
-
-#[cfg(target_os = "windows")]
-fn detect_system_proxy() -> Option<ProxyEndpoint> {
-    use winreg::{RegKey, enums::HKEY_CURRENT_USER};
-
-    let key = RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
-        .ok()?;
-    let enabled = key.get_value::<u32, _>("ProxyEnable").unwrap_or(0) != 0;
-    if !enabled {
-        return None;
-    }
-    let value = key.get_value::<String, _>("ProxyServer").ok()?;
-    parse_proxy_server(&value)
-}
-
-#[cfg(not(target_os = "windows"))]
-fn detect_system_proxy() -> Option<ProxyEndpoint> {
-    ["ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY"]
-        .into_iter()
-        .find_map(|name| {
-            env::var(name)
-                .ok()
-                .and_then(|value| parse_proxy_server(&value))
-        })
 }
 
 fn parse_proxy_server(value: &str) -> Option<ProxyEndpoint> {
@@ -349,9 +309,14 @@ fn parse_proxy_server(value: &str) -> Option<ProxyEndpoint> {
         address = remainder;
         if scheme.eq_ignore_ascii_case("socks") || scheme.eq_ignore_ascii_case("socks5") {
             selected_kind = ProxyKind::Socks5;
+        } else if !scheme.eq_ignore_ascii_case("http") {
+            return None;
         }
     }
-    let address = address.rsplit('@').next().unwrap_or(address);
+    // Do not silently discard credentials or misinterpret an unsupported URI.
+    if address.contains('@') || address.contains('/') || address.chars().any(char::is_whitespace) {
+        return None;
+    }
     let (server, port) = address.rsplit_once(':')?;
     let server = server.trim().trim_matches(['[', ']']);
     let port = port.trim().parse::<u16>().ok()?;

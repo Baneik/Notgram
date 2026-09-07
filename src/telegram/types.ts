@@ -2,6 +2,7 @@ export type ChatKind = "direct" | "group" | "channel" | "saved";
 export type DeliveryState = "sending" | "sent" | "read" | "failed";
 export type ConnectionStatus =
   | "connecting"
+  | "recovering"
   | "syncing"
   | "online"
   | "waitingForNetwork"
@@ -1035,6 +1036,7 @@ export type TelegramEvent =
   | { type: "authorization.changed"; state: AuthorizationState }
   | { type: "connection.changed"; status: ConnectionStatus }
   | { type: "sync.required" }
+  | { type: "proxy.settingsChanged" }
   | { type: "currentUser.changed"; userId: string }
   | { type: "message.upsert"; message: Message; animateEntrance?: boolean; cacheRelevant?: boolean }
   | { type: "message.replace"; oldMessageId: string; message: Message }
@@ -1371,6 +1373,9 @@ export interface ProxySettings {
   activeProfileId: string;
   autoSwitch: boolean;
   system?: ProxyEndpoint;
+  systemStatus?: { kind: "disabled" | "resolved" | "unavailable" | "unsupported" };
+  revision?: number;
+  runtimeProfileId?: string;
 }
 
 export interface StorageSettings {

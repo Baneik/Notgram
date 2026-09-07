@@ -18,6 +18,13 @@ const presentations: Record<ConnectionStatus, ConnectionPresentation> = {
     busy: true,
     operational: false,
   },
+  recovering: {
+    get label() { return translate("连接中断，正在自动重试"); },
+    get compactLabel() { return translate("正在重连"); },
+    tone: "warning",
+    busy: true,
+    operational: false,
+  },
   syncing: {
     get label() { return translate("正在同步消息"); },
     get compactLabel() { return translate("同步中"); },
@@ -40,7 +47,7 @@ const presentations: Record<ConnectionStatus, ConnectionPresentation> = {
     operational: false,
   },
   proxyError: {
-    get label() { return translate("代理连接失败，请检查连接设置"); },
+    get label() { return translate("代理设置暂不可用，请检查连接设置"); },
     get compactLabel() { return translate("代理错误"); },
     tone: "negative",
     busy: false,

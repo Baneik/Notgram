@@ -5,6 +5,7 @@ import { useModalFocus } from "../hooks/useModalFocus";
 import { useTelegramStore } from "../store/telegramStore";
 import type { ProxySettings } from "../telegram/types";
 import { ProxySettingsEditor } from "./ProxySettingsEditor";
+import { mergeProxySettingsDraft } from "../telegram/proxySettings";
 
 const defaultProxySettings: ProxySettings = {
   mode: "system",
@@ -38,6 +39,7 @@ export function UnauthenticatedSettingsDialog({ onClose }: UnauthenticatedSettin
   const save = useTelegramStore((state) => state.saveProxySettings);
   const test = useTelegramStore((state) => state.testProxy);
   const [draft, setDraft] = useState<ProxySettings>(defaultProxySettings);
+  const loadedProxySettings = useRef<ProxySettings | undefined>(undefined);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const dialogRef = useModalFocus<HTMLFormElement>(onClose, pending, titleRef);
 
@@ -46,7 +48,10 @@ export function UnauthenticatedSettingsDialog({ onClose }: UnauthenticatedSettin
   }, [load]);
 
   useEffect(() => {
-    if (settings) setDraft(structuredClone(settings));
+    if (!settings) return;
+    const previous = loadedProxySettings.current;
+    loadedProxySettings.current = settings;
+    setDraft((draft) => mergeProxySettingsDraft(draft, previous, settings));
   }, [settings]);
 
   const submit = async (event: FormEvent) => {

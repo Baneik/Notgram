@@ -26,6 +26,7 @@ describe("connection state", () => {
 
   it.each([
     "connecting",
+    "recovering",
     "syncing",
     "online",
     "waitingForNetwork",

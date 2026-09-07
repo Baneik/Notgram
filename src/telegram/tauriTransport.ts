@@ -22,6 +22,7 @@ import { FileDownloadQueue } from "./fileDownloadQueue";
 import { resolveTdlibDataCenter } from "./fileDataCenter";
 import { loadHistoryWindow } from "./historyPager";
 import { installConnectionRecoveryMonitor } from "./connectionRecoveryMonitor";
+import { proxyPreferences } from "./proxySettings";
 import { isRetryableSyncError } from "./syncRetryQueue";
 import {
   mapTdConnectionStatus,
@@ -33,7 +34,6 @@ import {
 } from "./tdRequestBroker";
 import { TauriAccountStorage } from "./tauriAccountStorage";
 import {
-  activeProxyProfile,
   chatListKey,
   chatListObject,
   chatFolderNumericId,
@@ -43,9 +43,7 @@ import {
   mapAuthorizationState,
   forumTopicObject,
   numericId,
-  nextProxyProfile,
   proxyValue,
-  sameProxy,
 } from "./tdlibRequests";
 import { routeTdUpdate, type TdUpdateHandlers } from "./tdUpdateRouter";
 import { TauriSearchService } from "./tauriSearchService";
@@ -119,7 +117,6 @@ import type {
   PinMessageInput,
   ConnectionStatus,
   CreateChatInput,
-  ProxyEndpoint,
   ProxySettings,
   SendEmojiAssetInput,
   SendFileInput,
@@ -171,18 +168,8 @@ interface RuntimeStatus {
   performanceLogPath?: string;
 }
 
-const PROXY_RECOVERY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
-const PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS = 3;
-const PROXY_SWITCH_AFTER_RECOVERY_ATTEMPTS = 2;
-const PROXY_RECOVERY_REQUEST_TIMEOUT_MS = 5_000;
+const BOOTSTRAP_RETRY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
 const GROUP_BOT_DISCOVERY_TIMEOUT_MS = 1_500;
-
-const proxyPreferences = (settings: ProxySettings) => ({
-  mode: settings.mode,
-  profiles: settings.profiles,
-  activeProfileId: settings.activeProfileId,
-  autoSwitch: settings.autoSwitch,
-});
 
 const chatPermissionsForTemplate = (template: CreateChatInput["permissionTemplate"]): TdObject => {
   const open = template !== "restricted";
@@ -328,6 +315,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private unlistenUpdate?: UnlistenFn;
   private unlistenUpdates?: UnlistenFn;
   private unlistenError?: UnlistenFn;
+  private unlistenProxySettings?: UnlistenFn;
   private requestBroker = new TdRequestBroker();
   private rawChats = new Map<string, TdObject>();
   private rawUsers = new Map<string, TdObject>();
@@ -493,13 +481,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   private initialUsers = new Map<string, User>();
   private connectionStatus?: ConnectionStatus;
   private settingsOnly = false;
-  private proxyConnectionTimer?: ReturnType<typeof setTimeout>;
-  private connectingThroughProxy = false;
-  private proxyRecoveryAttempt = 0;
-  private networkReopenPromise?: Promise<void>;
-  private proxyRecoveryPromise?: Promise<void>;
-  private proxySettings?: ProxySettings;
-  private runtimeProxyProfileId?: string;
+  private recoverySignal?: Promise<void>;
+  private nativeRecoveryPhase = "idle";
   private disposeConnectionMonitor?: () => void;
 
   async connect(
@@ -522,8 +505,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!status.credentialsConfigured) {
       throw new Error(translate("TDLib 已加载，但缺少 NOTGRAM_API_ID / NOTGRAM_API_HASH。"));
     }
-    this.proxySettings = await this.getProxySettings();
-    this.runtimeProxyProfileId = activeProxyProfile(this.proxySettings)?.id;
 
     this.unlistenUpdate = await listen<TdObject>("telegram://update", (event) => {
       this.handleUpdateBatch([event.payload]);
@@ -540,8 +521,12 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.listener?.({ type: "sync.error", message: error.message, fatal: true });
       },
     );
+    this.unlistenProxySettings = await listen("telegram://proxy-settings-changed", () => {
+      this.listener?.({ type: "proxy.settingsChanged" });
+    });
     await invoke("telegram_start");
-    this.installConnectionRecoveryListeners();
+    this.handleNativeConnectionState(await invoke<TdObject>("telegram_connection_state"));
+    if (!this.settingsOnly) this.installConnectionRecoveryListeners();
     const authorizationState = await this.request({ "@type": "getAuthorizationState" });
     this.handleAuthorizationUpdate({ authorization_state: authorizationState });
 
@@ -557,15 +542,17 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async disconnect() {
     try {
-      await invoke("telegram_shutdown");
+      if (!this.settingsOnly) await invoke("telegram_shutdown");
     } finally {
       this.emitConnectionStatus("offline");
       this.unlistenUpdate?.();
       this.unlistenUpdates?.();
       this.unlistenError?.();
+      this.unlistenProxySettings?.();
       this.unlistenUpdate = undefined;
       this.unlistenUpdates = undefined;
       this.unlistenError = undefined;
+      this.unlistenProxySettings = undefined;
       this.requestBroker.rejectAll(new Error(translate("TDLib runtime 已关闭。")));
       this.listener = undefined;
       this.resetSessionState();
@@ -718,21 +705,18 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async saveProxySettings(settings: ProxySettings) {
-    try {
-      await this.applyProxy(settings);
-      await invoke("telegram_save_proxy_settings", {
-        preferences: proxyPreferences(settings),
-      });
-      this.proxySettings = structuredClone(settings);
-      this.runtimeProxyProfileId = activeProxyProfile(settings)?.id;
-    } catch (error) {
-      if (effectiveProxy(settings)) this.emitConnectionStatus("proxyError");
-      throw error;
-    }
+    await invoke("telegram_save_proxy_settings", {
+      preferences: proxyPreferences(settings), revision: settings.revision,
+    });
   }
 
   async testProxy(settings: ProxySettings) {
-    const endpoint = effectiveProxy(settings);
+    const current = settings.mode === "system" ? await this.getProxySettings() : settings;
+    if (current.mode === "system" && current.systemStatus &&
+        ["unavailable", "unsupported"].includes(current.systemStatus.kind) && !current.system) {
+      throw new Error(translate("系统代理暂不可用，请检查系统代理设置"));
+    }
+    const endpoint = effectiveProxy(current);
     const response = await this.request({
       "@type": "pingProxy",
       proxy: endpoint ? proxyValue(endpoint) : null,
@@ -2189,36 +2173,11 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.requestBroker.requestPreparedChatPhoto(chatId);
   }
 
-  private async applyProxy(settings: ProxySettings) {
-    const endpoint = effectiveProxy(settings);
-    if (!endpoint) {
-      await this.request({ "@type": "disableProxy" });
-      return;
-    }
-
-    await this.applyProxyEndpoint(endpoint);
-  }
-
-  private async applyProxyEndpoint(endpoint: ProxyEndpoint, timeoutMs?: number) {
-    const current = await this.request({ "@type": "getProxies" }, timeoutMs);
-    const existing = asTdObjects(current.proxies).find((added) => {
-      const proxy = asTdObject(added.proxy);
-      return proxy ? sameProxy(proxy, endpoint) : false;
-    });
-    const proxyId = tdNumber(existing?.id);
-    if (proxyId !== undefined) {
-      await this.request({ "@type": "enableProxy", proxy_id: proxyId }, timeoutMs);
-      return;
-    }
-    await this.request({
-      "@type": "addProxy",
-      proxy: proxyValue(endpoint),
-      enable: true,
-      comment: "Notgram",
-    }, timeoutMs);
-  }
-
   private handleUpdate(update: TdObject) {
+    if (update["@type"] === "updateNotgramConnectionState") {
+      this.handleNativeConnectionState(update);
+      return;
+    }
     if (this.requestBroker.settle(update)) return;
     routeTdUpdate(update, this.updateHandlers);
   }
@@ -2238,30 +2197,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   private handleConnectionUpdate(update: TdObject) {
     const state = tdConnectionState(update);
     const status = mapTdConnectionStatus(state);
-    if (!status) return;
+    if (!status || this.nativeRecoveryPhase !== "idle") return;
     this.tdConnectionStatus = status;
 
-    this.connectingThroughProxy = state?.["@type"] === "connectionStateConnectingToProxy";
-    if (!this.needsConnectionRecovery() && this.proxyConnectionTimer) {
-      globalThis.clearTimeout(this.proxyConnectionTimer);
-      this.proxyConnectionTimer = undefined;
-    }
-    if (
-      state?.["@type"] === "connectionStateReady" ||
-      state?.["@type"] === "connectionStateWaitingForNetwork"
-    ) {
-      this.proxyRecoveryAttempt = 0;
-    }
-    if (state?.["@type"] === "connectionStateReady") {
-      void this.rememberWorkingProxy();
-    }
     this.emitConnectionStatus(
       status === "online" && (this.initialChatSyncPending || this.bootstrapFailed) ? "syncing" : status,
     );
 
     if (status === "online" && this.authorizationReady && !this.bootstrapComplete) this.startBootstrap();
-
-    if (this.needsConnectionRecovery()) this.scheduleProxyRecovery();
   }
 
   private emitConnectionStatus(status: ConnectionStatus) {
@@ -2270,109 +2213,31 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "connection.changed", status });
   }
 
-  private needsConnectionRecovery() {
-    return this.connectingThroughProxy || this.tdConnectionStatus === "connecting";
-  }
-
-  private scheduleProxyRecovery() {
-    if (
-      !this.needsConnectionRecovery() ||
-      this.proxyConnectionTimer ||
-      this.proxyRecoveryPromise
-    ) return;
-    const delay = PROXY_RECOVERY_DELAYS_MS[
-      Math.min(this.proxyRecoveryAttempt, PROXY_RECOVERY_DELAYS_MS.length - 1)
-    ];
-    this.proxyConnectionTimer = globalThis.setTimeout(() => {
-      this.proxyConnectionTimer = undefined;
-      void this.recoverStalledProxy();
-    }, delay);
-  }
-
-  private async recoverStalledProxy() {
-    if (!this.needsConnectionRecovery()) return;
-    const generation = this.sessionGeneration;
-    this.proxyRecoveryAttempt += 1;
-    const pending = this.recoverProxyConnection();
-    this.proxyRecoveryPromise = pending;
-    try {
-      await pending;
-      if (generation === this.sessionGeneration && this.tdConnectionStatus === "online") {
-        this.connectingThroughProxy = false;
-        this.emitConnectionStatus(this.initialChatSyncPending || this.bootstrapFailed ? "syncing" : "online");
-      }
-    } catch {
-      // The capped watchdog continues forever; a failed or timed-out recovery
-      // must never hold the next attempt hostage.
-    } finally {
-      if (this.proxyRecoveryPromise === pending) this.proxyRecoveryPromise = undefined;
-      if (generation !== this.sessionGeneration || !this.needsConnectionRecovery()) return;
-      if (this.connectingThroughProxy && this.proxyRecoveryAttempt >= PROXY_ERROR_AFTER_RECOVERY_ATTEMPTS) {
-        this.emitConnectionStatus("proxyError");
-      }
-      this.scheduleProxyRecovery();
-    }
-  }
-
-  private async recoverProxyConnection() {
-    const settings = this.proxySettings;
-    if (settings?.mode === "custom") {
-      const shouldSwitch = settings.autoSwitch &&
-        settings.profiles.length > 1 &&
-        this.proxyRecoveryAttempt % PROXY_SWITCH_AFTER_RECOVERY_ATTEMPTS === 0;
-      const profile = shouldSwitch
-        ? nextProxyProfile(settings, this.runtimeProxyProfileId)
-        : settings.profiles.find((item) => item.id === this.runtimeProxyProfileId) ??
-          activeProxyProfile(settings);
-      if (profile) {
-        await this.applyProxyEndpoint(profile.endpoint, PROXY_RECOVERY_REQUEST_TIMEOUT_MS);
-        this.runtimeProxyProfileId = profile.id;
-      }
-    } else if (settings?.mode === "system" && settings.system) {
-      await this.applyProxyEndpoint(settings.system, PROXY_RECOVERY_REQUEST_TIMEOUT_MS);
-    }
-    await this.reopenNetworkConnections(PROXY_RECOVERY_REQUEST_TIMEOUT_MS);
-  }
-
-  private reopenNetworkConnections(timeoutMs?: number) {
-    if (this.networkReopenPromise) return this.networkReopenPromise;
-    const pending = this.request({
-      "@type": "setNetworkType",
-      type: { "@type": "networkTypeOther" },
-    }, timeoutMs).then(() => undefined);
-    this.networkReopenPromise = pending;
-    const clear = () => {
-      if (this.networkReopenPromise === pending) this.networkReopenPromise = undefined;
-    };
-    void pending.then(clear, clear);
-    return pending;
-  }
-
-  private requestImmediateConnectionRecovery(forceProxyRefresh = false) {
-    if (!this.listener || this.proxyRecoveryPromise || this.networkReopenPromise) return;
-    const hasProxy = effectiveProxy(this.proxySettings ?? {
-      mode: "direct",
-      profiles: [],
-      activeProfileId: "",
-      autoSwitch: false,
-    }) !== undefined;
-    if (!forceProxyRefresh && this.connectionStatus === "online") return;
-    if (this.proxyConnectionTimer) globalThis.clearTimeout(this.proxyConnectionTimer);
-    this.proxyConnectionTimer = undefined;
-    if (hasProxy) {
-      this.connectingThroughProxy = true;
-      this.emitConnectionStatus("connecting");
-      void this.recoverStalledProxy();
+  private handleNativeConnectionState(update: TdObject) {
+    this.nativeRecoveryPhase = String(update.phase ?? "idle");
+    if (this.nativeRecoveryPhase !== "idle") {
+      // A recovery command acknowledgement never upgrades cached READY to online.
+      this.tdConnectionStatus = "connecting";
+      this.emitConnectionStatus(this.nativeRecoveryPhase === "configurationError" ? "proxyError"
+        : this.nativeRecoveryPhase === "initializing" ? "connecting" : "recovering");
       return;
     }
+    this.handleConnectionUpdate({ state: { "@type": update.state } });
+  }
+
+  private requestImmediateConnectionRecovery(force = false) {
+    if (!this.listener || this.settingsOnly || this.recoverySignal) return;
+    if (!force && this.connectionStatus === "online") return;
     const generation = this.sessionGeneration;
-    void this.reopenNetworkConnections(PROXY_RECOVERY_REQUEST_TIMEOUT_MS).then(() => {
-      if (generation !== this.sessionGeneration) return;
-      if (forceProxyRefresh && this.connectionStatus === "online") {
-        this.listener?.({ type: "sync.required" });
+    const pending = invoke<void>("telegram_recover_connection", { force });
+    this.recoverySignal = pending;
+    void pending.catch(() => {
+      if (generation === this.sessionGeneration) {
+        this.listener?.({ type: "sync.error", message: translate("无法请求连接恢复，后台将继续重试") });
       }
-      if (this.authorizationReady && !this.bootstrapComplete) this.startBootstrap();
-    }).catch(() => undefined);
+    }).finally(() => {
+      if (this.recoverySignal === pending) this.recoverySignal = undefined;
+    });
   }
 
   private installConnectionRecoveryListeners() {
@@ -2380,26 +2245,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.disposeConnectionMonitor = installConnectionRecoveryMonitor((force) => {
       this.requestImmediateConnectionRecovery(force);
     });
-  }
-
-  private async rememberWorkingProxy() {
-    const settings = this.proxySettings;
-    const profileId = this.runtimeProxyProfileId;
-    if (
-      settings?.mode !== "custom" ||
-      !profileId ||
-      settings.activeProfileId === profileId ||
-      !settings.profiles.some((profile) => profile.id === profileId)
-    ) return;
-    const nextSettings = { ...settings, activeProfileId: profileId };
-    this.proxySettings = nextSettings;
-    try {
-      await invoke("telegram_save_proxy_settings", {
-        preferences: proxyPreferences(nextSettings),
-      });
-    } catch {
-      // Runtime recovery remains valid even if remembering the winner fails.
-    }
   }
 
   private startBootstrap() {
@@ -2432,7 +2277,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         if (this.bootstrapPromise !== pending) return;
         this.bootstrapPromise = undefined;
         if (!this.bootstrapComplete && this.authorizationReady && retryable) {
-          const delay = PROXY_RECOVERY_DELAYS_MS[Math.min(this.bootstrapRetryAttempt++, PROXY_RECOVERY_DELAYS_MS.length - 1)];
+          const delay = BOOTSTRAP_RETRY_DELAYS_MS[Math.min(this.bootstrapRetryAttempt++, BOOTSTRAP_RETRY_DELAYS_MS.length - 1)];
           this.bootstrapRetryTimer = globalThis.setTimeout(() => {
             this.bootstrapRetryTimer = undefined;
             if (this.authorizationReady) this.startBootstrap();
@@ -3700,14 +3545,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.authorizationReady = false;
     this.tdConnectionStatus = undefined;
     this.localDeleteIntents.clear();
-    if (this.proxyConnectionTimer) globalThis.clearTimeout(this.proxyConnectionTimer);
-    this.proxyConnectionTimer = undefined;
-    this.connectingThroughProxy = false;
-    this.proxyRecoveryAttempt = 0;
-    this.networkReopenPromise = undefined;
-    this.proxyRecoveryPromise = undefined;
-    this.proxySettings = undefined;
-    this.runtimeProxyProfileId = undefined;
+    this.recoverySignal = undefined;
+    this.nativeRecoveryPhase = "idle";
     this.disposeConnectionMonitor?.();
     this.disposeConnectionMonitor = undefined;
     this.connectionStatus = undefined;

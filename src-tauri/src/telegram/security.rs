@@ -19,7 +19,6 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setChatMemberStatus",
     "setChatMemberTag",
     "addMessageReaction",
-    "addProxy",
     "checkAuthenticationCode",
     "checkAuthenticationEmailCode",
     "checkAuthenticationPassword",
@@ -32,7 +31,6 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "createPrivateChat",
     "deleteChatFolder",
     "deleteMessages",
-    "disableProxy",
     "downloadFile",
     "editChatFolder",
     "editForumTopic",
@@ -40,7 +38,6 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "editMessageCaption",
     "editChatInviteLink",
     "editChatSubscriptionInviteLink",
-    "enableProxy",
     "forwardMessages",
     "getChat",
     "getChatFolder",
@@ -1842,6 +1839,21 @@ mod tests {
     use super::*;
 
     const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
+
+    #[test]
+    fn webviews_cannot_race_the_native_proxy_owner() {
+        for kind in ["addProxy", "enableProxy", "disableProxy", "setNetworkType"] {
+            assert!(
+                validate_webview_tdlib_request(&json!({ "@type": kind, "@extra": EXTRA })).is_err()
+            );
+        }
+        assert!(
+            validate_webview_tdlib_request(
+                &json!({ "@type": "pingProxy", "proxy": null, "@extra": EXTRA })
+            )
+            .is_ok()
+        );
+    }
 
     #[test]
     fn validates_caption_edits_and_allows_clearing_text() {

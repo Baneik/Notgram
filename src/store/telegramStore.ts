@@ -1829,6 +1829,10 @@ export const createTelegramStore = (
         return;
       }
 
+      if (event.type === "proxy.settingsChanged") {
+        void get().loadProxySettings();
+        return;
+      }
       if (event.type === "connection.changed") {
         const recovered = event.status === "online" && get().connectionStatus !== "online" && hasConnected;
         set({ connectionStatus: event.status });
@@ -2680,7 +2684,7 @@ export const createTelegramStore = (
         set({ proxyPending: true, proxyError: undefined, proxyLatencyMs: undefined });
         try {
           await transport.saveProxySettings(proxySettings);
-          set({ proxySettings, proxyPending: false });
+          set({ proxySettings: await transport.getProxySettings(), proxyPending: false });
           return true;
         } catch (error) {
           set({
