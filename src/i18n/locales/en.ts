@@ -438,6 +438,7 @@ export const en = {
   "加载更多结果": "Load more results",
   "加载更多链接": "Load more links",
   "加载更早记录": "Load earlier records",
+  "加载更早留言": "Load earlier comments",
   "加载消息": "Load messages",
   "动图": "GIFs",
   "动态": "Dynamics",

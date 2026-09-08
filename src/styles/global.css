@@ -1339,6 +1339,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   padding: 20px var(--message-list-inline-padding, 10px) 16px;
 }
 .channel-discussion-empty { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.channel-discussion-load-more { display: flex; align-items: center; gap: 6px; margin: 10px auto; }
+.channel-discussion-page-status { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; color: var(--muted); font-size: 12px; }
 .channel-discussion-error .text-button { min-height: 28px; display: inline-flex; align-items: center; gap: 5px; color: var(--accent); background: transparent; border: 0; cursor: pointer; font-size: 11px; }
 .channel-discussion-message-group { margin-block: var(--message-group-spacing); }
 .channel-discussion-message-group .message-bubble-shell { max-width: min(74%, 720px); }

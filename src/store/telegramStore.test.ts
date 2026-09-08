@@ -3639,7 +3639,7 @@ describe("chat filtering", () => {
       "chat-release",
       "release-post-1",
     );
-    expect(thread?.map((message) => message.id)).toEqual([
+    expect(thread?.messages.map((message) => message.id)).toEqual([
       "release-post-1",
       "release-comment-1",
       "release-comment-2",
@@ -3675,13 +3675,13 @@ describe("chat filtering", () => {
       }
 
       override async getMessageThreadHistory(chatId: string, messageId: string) {
-        return [{
+        return { hasMore: false, messages: [{
           ...mockSnapshot.messages[0],
           id: "discussion-comment",
           chatId,
           isChannelPost: false,
           replyTo: { kind: "message" as const, chatId, messageId },
-        }];
+        }] };
       }
     }
 

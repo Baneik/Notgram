@@ -178,7 +178,7 @@ export interface TelegramTransport {
   getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined>;
   loadForumTopicHistory(chatId: string, topicId: string, limit?: number): Promise<ChatHistoryPage>;
   getMessageThread(chatId: string, messageId: string): Promise<import("./types").MessageThread | undefined>;
-  getMessageThreadHistory(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
+  getMessageThreadHistory(chatId: string, messageId: string, limit?: number, fromMessageId?: string): Promise<import("./types").MessageThreadHistoryPage>;
   createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic>;
   editForumTopic(chatId: string, topicId: string, name: string): Promise<void>;
   setForumTopicClosed(chatId: string, topicId: string, closed: boolean): Promise<void>;
@@ -228,6 +228,7 @@ export interface TelegramTransport {
   sendFiles(input: SendFilesInput): Promise<boolean>;
   cancelFileUpload(chatId: string, messageId: string): Promise<void>;
   markChatRead(chatId: string): Promise<void>;
+  markMessageThreadRead(chatId: string, messageIds: string[]): Promise<void>;
   markForumTopicRead(chatId: string, topicId: string, messageId: string): Promise<void>;
   markMessageAttentionRead(chatId: string, messageIds: string[]): Promise<void>;
   markAllChatReactionsRead(chatId: string): Promise<void>;

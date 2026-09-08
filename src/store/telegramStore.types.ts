@@ -204,7 +204,7 @@ export interface TelegramState {
     messageId: string,
     options?: { forceContext?: boolean; onlyIfActive?: boolean; isCurrent?: () => boolean },
   ) => Promise<boolean>;
-  loadMessageThreadHistory: (chatId: string, messageId: string, limit?: number) => Promise<Message[] | undefined>;
+  loadMessageThreadHistory: (chatId: string, messageId: string, limit?: number, fromMessageId?: string) => Promise<import("../telegram/types").LoadedMessageThread | undefined>;
   sendMessageToThread: (
     chatId: string,
     replyToMessageId: string,
@@ -221,6 +221,7 @@ export interface TelegramState {
     replyQuote?: MessageReplyQuote,
   ) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
+  markMessageThreadRead: (chatId: string, messageIds: string[]) => Promise<boolean>;
   markLocalBlockedUserReactionsRead: (userId?: string) => Promise<void>;
   dismissMessageAttention: (chatId: string, messageIds: string[]) => void;
   loadMessageProperties: (

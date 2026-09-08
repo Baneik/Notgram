@@ -3621,7 +3621,8 @@ describe("TauriTelegramTransport message operations", () => {
 
     const comments = await transport.getMessageThreadHistory("7", "42", 100);
 
-    expect(comments.map((message) => message.id)).toEqual(["45", "44"]);
+    expect(comments.messages.map((message) => message.id)).toEqual(["45", "44"]);
+    expect(comments).toMatchObject({ nextFromMessageId: "44", hasMore: true });
     expect(requests).toEqual([{
       "@type": "getMessageThreadHistory",
       chat_id: 7,
@@ -3630,6 +3631,21 @@ describe("TauriTelegramTransport message operations", () => {
       offset: 0,
       limit: 100,
     }]);
+  });
+
+  it("uses inclusive thread cursors and stops on a cursor-only page", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async request => {
+      requests.push(request);
+      return { "@type": "messages", messages: request.from_message_id === 44 ? [rawMessage(44), rawMessage(43)] : [rawMessage(43)] };
+    };
+    expect(await transport.getMessageThreadHistory("7", "42", 100, "44"))
+      .toMatchObject({ nextFromMessageId: "43", hasMore: true });
+    expect(await transport.getMessageThreadHistory("7", "42", 100, "43"))
+      .toMatchObject({ nextFromMessageId: "43", hasMore: false });
+    expect(requests[0]).toMatchObject({ from_message_id: 44, offset: 0 });
   });
 
   it("resolves the discussion chat and root message before loading comments", async () => {
@@ -3657,6 +3673,18 @@ describe("TauriTelegramTransport message operations", () => {
       "@type": "getMessageThread",
       chat_id: 7,
       message_id: 42,
+    }]);
+  });
+
+  it("acknowledges discussion views using thread history without reading the whole chat", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    internal.request = async request => { requests.push(request); return { "@type": "ok" }; };
+    await transport.markMessageThreadRead("7", ["45", "46", "45"]);
+    expect(requests).toEqual([{
+      "@type": "viewMessages", chat_id: 7, message_ids: [45, 46],
+      source: { "@type": "messageSourceMessageThreadHistory" }, force_read: true,
     }]);
   });
 

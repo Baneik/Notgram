@@ -1824,24 +1824,27 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
-  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100) {
+  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100, fromMessageId?: string): Promise<import("./types").MessageThreadHistoryPage> {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const root = this.snapshot.messages.find((message) =>
       message.chatId === chatId && message.id === messageId
     );
     const comments = this.snapshot.messages
       .filter((message) => {
-        if (message.isChannelPost || message.replyTo?.kind !== "message") return false;
+        if (message.isChannelPost) return false;
+        if (message.chatId === chatId && message.topicId === messageId) return true;
+        if (message.replyTo?.kind !== "message") return false;
         if (message.replyTo.messageId !== messageId) return false;
         const origin = message.replyTo.origin;
         return message.replyTo.chatId === chatId ||
           (origin?.kind === "channel" && origin.chatId === chatId);
       })
-      .sort((left, right) => Date.parse(left.sentAt) - Date.parse(right.sentAt))
-      .slice(0, Math.max(0, boundedLimit - (root ? 1 : 0)));
-    const thread = [...(root ? [root] : []), ...comments];
-    this.listener?.({ type: "messages.upserted", messages: clone(thread) });
-    return clone(thread);
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
+    const all = [...comments, ...(root ? [root] : [])];
+    const start = fromMessageId ? all.findIndex(message => message.id === fromMessageId) : 0;
+    const messages = start < 0 ? [] : all.slice(start, start + boundedLimit);
+    const nextFromMessageId = messages.at(-1)?.id;
+    return { messages: clone(messages), nextFromMessageId, hasMore: Boolean(nextFromMessageId && nextFromMessageId !== fromMessageId) };
   }
 
   async getMessageThread(chatId: string, messageId: string) {
@@ -2566,6 +2569,10 @@ export class MockTelegramTransport implements TelegramTransport {
     topic.unreadCount = 0;
     topic.lastReadInboxMessageId = messageId;
     this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
+  async markMessageThreadRead(_chatId: string, _messageIds: string[]) {
+    // Thread views never clear the linked group's unrelated unread state.
   }
 
   async markMessageAttentionRead(chatId: string, messageIds: string[]) {

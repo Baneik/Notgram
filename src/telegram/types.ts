@@ -883,6 +883,16 @@ export interface MessageThread {
 
 export type MessageThreadReference = Pick<MessageThread, "chatId" | "messageId">;
 
+export interface MessageThreadHistoryPage {
+  messages: Message[];
+  nextFromMessageId?: string;
+  hasMore: boolean;
+}
+
+export interface LoadedMessageThread extends MessageThreadHistoryPage, MessageThreadReference {
+  error?: boolean;
+}
+
 export interface MessagePermissions {
   canSave?: boolean;
   canReply: boolean;

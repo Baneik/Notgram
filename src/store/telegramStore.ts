@@ -3283,32 +3283,35 @@ export const createTelegramStore = (
           return false;
         }
       },
-      loadMessageThreadHistory: async (chatId, messageId, limit = 100) => {
+      loadMessageThreadHistory: async (chatId, messageId, limit = 100, fromMessageId) => {
         if (get().authorization.kind !== "ready") return undefined;
+        const generation = accountGeneration;
         try {
           // A channel post's comments live in its linked discussion chat. Resolve
           // that chat and root message before asking TDLib for the history; using
           // the channel id for both requests can produce an unexpected-chat error.
-          const thread = await transport.getMessageThread(chatId, messageId);
-          if (!thread) return [];
-          let threadMessages = thread.messages;
+          const reference = fromMessageId
+            ? get().messages.get(chatId)?.find(message => message.id === messageId)?.discussionThread
+            : undefined;
+          const thread = reference ? { ...reference, messages: [] } : await transport.getMessageThread(chatId, messageId);
+          if (generation !== accountGeneration) return undefined;
+          if (!thread) return { chatId, messageId, messages: [], hasMore: false };
+          let page: import("../telegram/types").MessageThreadHistoryPage;
+          let historyError = false;
           try {
-            const history = await transport.getMessageThreadHistory(
-              thread.chatId,
-              thread.messageId,
-              limit,
-            );
-            threadMessages = [...threadMessages, ...history];
+            page = await transport.getMessageThreadHistory(thread.chatId, thread.messageId, limit, fromMessageId);
           } catch {
-            // getMessageThread already includes the root message and a small
-            // initial window. Keep it usable when history pagination is stale.
+            historyError = true;
+            page = { messages: [], nextFromMessageId: fromMessageId, hasMore: true };
           }
+          if (generation !== accountGeneration) return undefined;
+          const threadMessages = [...thread.messages, ...page.messages];
           const uniqueThreadMessages = [...new Map(
             threadMessages.map((message) => [`${message.chatId}:${message.id}`, message]),
           ).values()];
-          if (uniqueThreadMessages.length === 0) return [];
           const messages = new Map(get().messages);
-          const channelPost = messages.get(chatId)?.find((message) => message.id === messageId);
+          const channelPost = messages.get(chatId)?.find((message) => message.id === messageId)
+            ?? uniqueThreadMessages.find((message) => message.chatId === chatId && message.id === messageId);
           const resolvedChannelPost = channelPost
             ? {
                 ...channelPost,
@@ -3329,12 +3332,13 @@ export const createTelegramStore = (
           set({ messages, operationError: undefined });
           publishMessageChange({ type: "upsert", messages: cacheMessages, liveMessages: [] });
           scheduleCacheWrite();
-          return uniqueThreadMessages;
+          return { ...page, chatId: thread.chatId, messageId: thread.messageId, messages: uniqueThreadMessages, error: historyError };
         } catch (error) {
+          if (generation !== accountGeneration) return undefined;
           const message = error instanceof Error ? error.message : String(error);
           if (/message has no (thread|comments)|can't get message thread/i.test(message)) {
             set({ operationError: undefined });
-            return [];
+            return { chatId, messageId, messages: [], hasMore: false };
           }
           set({ operationError: errorMessage(error, translate("无法加载帖子留言")) });
           return undefined;
@@ -3387,6 +3391,20 @@ export const createTelegramStore = (
       markActiveChatRead: async () => {
         const chatId = get().activeChatId;
         if (chatId) await markActiveConversationRead(chatId);
+      },
+      markMessageThreadRead: async (chatId, messageIds) => {
+        if (get().authorization.kind !== "ready" || get().connectionStatus !== "online" || !documentIsVisible()) return false;
+        const requested = new Set(messageIds);
+        const visibleIds = (get().messages.get(chatId) ?? [])
+          .filter(message => requested.has(message.id) && !message.outgoing && !outboxItemId(message.id))
+          .map(message => message.id);
+        if (!visibleIds.length) return true;
+        try {
+          await transport.markMessageThreadRead(chatId, visibleIds);
+          return true;
+        } catch {
+          return false;
+        }
       },
       markLocalBlockedUserReactionsRead: async (userId) => {
         const blockedSenderIds = localBlockedReactionUserIds();

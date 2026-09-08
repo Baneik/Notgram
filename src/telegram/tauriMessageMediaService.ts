@@ -263,21 +263,25 @@ export class TauriMessageMediaService {
       .filter((message): message is Message => Boolean(message));
   }
 
-  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100) {
+  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100, fromMessageId?: string) {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const result = await this.context.request({
       "@type": "getMessageThreadHistory",
       chat_id: numericId(chatId),
       message_id: numericId(messageId),
-      from_message_id: 0,
+      from_message_id: fromMessageId ? numericId(fromMessageId) : 0,
       offset: 0,
       limit: boundedLimit,
     });
     const rawMessages = asTdObjects(result.messages);
-    this.context.emitMessages(rawMessages);
-    return rawMessages
+    const nextFromMessageId = tdId(rawMessages.at(-1)?.id);
+    // A short page is valid; offset=0 includes the cursor itself on later pages.
+    // The store owns publication after checking the current account.
+    this.context.emitMessages(rawMessages, false);
+    const messages = rawMessages
       .map((raw) => this.context.mapMessage(raw))
       .filter((message): message is Message => Boolean(message));
+    return { messages, nextFromMessageId, hasMore: Boolean(nextFromMessageId && nextFromMessageId !== fromMessageId) };
   }
 
   async getMessageThread(chatId: string, messageId: string) {
@@ -287,8 +291,8 @@ export class TauriMessageMediaService {
       message_id: numericId(messageId),
     });
     const rawMessages = asTdObjects(result.messages);
-    this.context.emitMessages(rawMessages);
     const threadChatId = tdId(result.chat_id) ?? chatId;
+    this.context.emitMessages(rawMessages, false);
     const threadMessageId = tdId(result.message_thread_id) ?? messageId;
     return {
       chatId: threadChatId,

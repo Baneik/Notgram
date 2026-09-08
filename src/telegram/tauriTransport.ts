@@ -1870,8 +1870,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.forumTopicService.loadForumTopicHistory(chatId, topicId, limit);
   }
 
-  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100) {
-    return this.messageMediaService.getMessageThreadHistory(chatId, messageId, limit);
+  async getMessageThreadHistory(chatId: string, messageId: string, limit = 100, fromMessageId?: string) {
+    return this.messageMediaService.getMessageThreadHistory(chatId, messageId, limit, fromMessageId);
   }
 
   async getMessageThread(chatId: string, messageId: string) {
@@ -2122,6 +2122,17 @@ export class TauriTelegramTransport implements TelegramTransport {
       chat_id: numericId(chatId),
       message_ids: [numericId(messageId)],
       source: { "@type": "messageSourceChatHistory" },
+      force_read: true,
+    });
+  }
+
+  async markMessageThreadRead(chatId: string, messageIds: string[]) {
+    if (messageIds.length === 0) return;
+    await this.request({
+      "@type": "viewMessages",
+      chat_id: numericId(this.canonicalChatId(chatId)),
+      message_ids: [...new Set(messageIds.map(numericId))],
+      source: { "@type": "messageSourceMessageThreadHistory" },
       force_read: true,
     });
   }

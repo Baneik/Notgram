@@ -1,3 +1,5 @@
+import { useChannelDiscussionHistory } from "../hooks/useChannelDiscussionHistory";
+import { DiscussionErrorBoundary } from "./DiscussionErrorBoundary";
 import { MessageMetadata } from "./MessageMetadata";
 import { translate } from "../i18n";
 import { retainedMessageQuote } from "../telegram/retainedMessages";
@@ -151,12 +153,6 @@ const MESSAGE_TARGET_HIGHLIGHT_INSET_PX = 4;
 // Keep the first frame responsive on cold conversations while retaining enough
 // nearby rows for smooth short scrolls and anchor correction.
 const MESSAGE_VIEWPORT_PREFETCH = { top: 640, bottom: 192 } as const;
-type DiscussionThreadState = {
-  loading: boolean;
-  error?: boolean;
-  replyChatId?: string;
-  replyMessageId?: string;
-};
 
 type MessageNavigationOptions = Pick<
   MessageConversationScrollRequest,
@@ -555,7 +551,7 @@ export function Conversation({
   const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
   const [editingMessage, setEditingMessage] = useState<Message>();
   const [discussionPost, setDiscussionPost] = useState<Message>();
-  const [discussionThreads, setDiscussionThreads] = useState<Record<string, DiscussionThreadState>>({});
+  const { states: discussionThreads, load: loadDiscussion } = useChannelDiscussionHistory(loadMessageThreadHistory, activeAccountId);
   const chatMessagesRef = useRef(chatMessages);
   chatMessagesRef.current = chatMessages;
   const storedMessagesRef = useRef(storedMessages);
@@ -1854,59 +1850,11 @@ export function Conversation({
     };
   }, [actionMenu, closeActionMenu]);
 
-  const openChannelDiscussion = useCallback((post: Message) => {
+  const openChannelDiscussion = useCallback((post: Message, more = false) => {
     if (!channelDiscussionAvailable(post)) return;
     setDiscussionPost(post);
-    const threadKey = `${post.chatId}:${post.id}`;
-    const cachedDiscussion = channelDiscussionProjection(post, storedMessagesRef.current);
-    setDiscussionThreads((current) => {
-      const previous = current[threadKey];
-      return {
-        ...current,
-        [threadKey]: {
-          loading: true,
-          error: undefined,
-          replyChatId: cachedDiscussion.replyChatId ?? previous?.replyChatId,
-          replyMessageId: cachedDiscussion.replyMessageId ?? previous?.replyMessageId,
-        },
-      };
-    });
-    void loadMessageThreadHistory(
-      post.chatId,
-      post.id,
-      Math.max(100, post.interaction?.replyCount ?? 0),
-    ).then((thread) => {
-      setDiscussionThreads((current) => {
-        const previous = current[threadKey];
-        if (!previous) return current;
-        const root = thread?.find((message) =>
-          message.id === post.id || (
-            message.forwardInfo?.origin?.kind === "channel" &&
-            message.forwardInfo.origin.chatId === post.chatId &&
-            message.forwardInfo.origin.messageId === post.id
-          )
-        );
-        const directReply = thread?.find((message) =>
-          message.replyTo?.kind === "message" && message.replyTo.messageId
-        );
-        const directReplyTarget = directReply?.replyTo?.kind === "message"
-          ? directReply.replyTo
-          : undefined;
-        const replyChatId = root?.chatId ?? directReplyTarget?.chatId ??
-          directReply?.chatId ?? previous.replyChatId;
-        const replyMessageId = root?.id ?? directReplyTarget?.messageId ?? previous.replyMessageId;
-        return {
-          ...current,
-          [threadKey]: {
-            loading: false,
-            error: !thread,
-            replyChatId,
-            replyMessageId,
-          },
-        };
-      });
-    });
-  }, [loadMessageThreadHistory]);
+    void loadDiscussion(post, more);
+  }, [loadDiscussion]);
 
   useLayoutEffect(() => {
     if (!discussionPostId) {
@@ -2968,6 +2916,7 @@ export function Conversation({
       </div>
 
       {discussionPost && renderedDiscussionPost && isChannelConversation && (
+        <DiscussionErrorBoundary key={`${activeAccountId}:${discussionThreadKey}`} onClose={onCloseDiscussion}>
         <ChannelDiscussionPanel
           post={renderedDiscussionPost}
           channel={chat}
@@ -2979,9 +2928,11 @@ export function Conversation({
           forumTopics={forumTopics}
           currentUserId={currentUserId ?? "self"}
           connectionStatus={connectionStatus}
-          loading={(discussionState?.loading ?? false) && !renderedDiscussion?.cached}
-          loadError={!renderedDiscussion?.cached && discussionState?.error}
-          onRetry={() => openChannelDiscussion(discussionPost)}
+          loading={discussionState?.loading ?? false}
+          loadError={discussionState?.error}
+          onRetry={() => openChannelDiscussion(discussionPost, discussionState?.retryMore)}
+          hasMore={discussionState?.hasMore ?? false}
+          onLoadMore={() => openChannelDiscussion(discussionPost, true)}
           onClose={onCloseDiscussion}
           onSend={sendDiscussionComment}
           onSendFiles={sendDiscussionFiles}
@@ -3025,6 +2976,7 @@ export function Conversation({
             blockedReactionSenderIds: localBlockedReactionUserIds,
           }}
         />
+        </DiscussionErrorBoundary>
       )}
 
       {actionMenu && actionMessageForMenu && (

@@ -1,3 +1,5 @@
+import { ConversationViewportBoundary } from "./ConversationViewportBoundary";
+import { useDiscussionRead } from "../hooks/useDiscussionRead";
 import { translate } from "../i18n";
 import {
   Check,
@@ -78,6 +80,8 @@ interface ChannelDiscussionPanelProps {
   loading: boolean;
   loadError?: boolean;
   onRetry: () => void;
+  hasMore: boolean;
+  onLoadMore: () => void;
   onClose: () => void;
   onSend: (
     text: string,
@@ -184,6 +188,8 @@ export function ChannelDiscussionPanel({
   loading,
   loadError = false,
   onRetry,
+  hasMore,
+  onLoadMore,
   onClose,
   onSend,
   onSendFiles,
@@ -206,6 +212,13 @@ export function ChannelDiscussionPanel({
   onUnpinMessage,
   messagePreviewOptions,
 }: ChannelDiscussionPanelProps) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const captureScroll = useCallback((structuralChange: boolean) => {
+    const element = scrollerRef.current;
+    if (!structuralChange || !element) return;
+    const top = element.scrollTop, height = element.scrollHeight;
+    return () => { element.scrollTop = top + element.scrollHeight - height; };
+  }, []);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const focusTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const insertionIdRef = useRef(0);
@@ -215,6 +228,9 @@ export function ChannelDiscussionPanel({
   const administratorLabels = useTelegramStore((state) => state.chatAdministratorLabels.get(discussionChatId));
   const loadChatAdministratorLabels = useTelegramStore((state) => state.loadChatAdministratorLabels);
   const updateThreadDraft = useTelegramStore((state) => state.updateThreadDraft);
+  const markMessageThreadRead = useTelegramStore((state) => state.markMessageThreadRead);
+  useDiscussionRead(scrollerRef, draftKey, discussionChatId, comments,
+    connectionStatus === "online" && discussionChatId !== post.chatId, markMessageThreadRead);
   const getBotCommandSuggestions = useTelegramStore((state) => state.getBotCommandSuggestions);
   const getInlineQueryResults = useTelegramStore((state) => state.getInlineQueryResults);
   const sendInlineQueryResultMessage = useTelegramStore((state) => state.sendInlineQueryResultMessage);
@@ -533,11 +549,13 @@ export function ChannelDiscussionPanel({
       </header>
 
       <div
+        ref={scrollerRef}
         className="channel-discussion-messages"
         role="log"
         aria-label={translate("留言列表")}
         onPointerUp={preserveComposerFocus}
       >
+        <ConversationViewportBoundary identity={draftKey} items={comments} capture={captureScroll}>
         <div className="channel-discussion-stream">
           <div className="channel-discussion-post">
             <MessageBubblePreview
@@ -553,16 +571,19 @@ export function ChannelDiscussionPanel({
             />
           </div>
 
+          {loadError && <div className="channel-discussion-page-status channel-discussion-error" role="alert">
+            <span>{translate("留言加载失败")}</span>
+            <button className="text-button" type="button" disabled={loading} onClick={onRetry}>
+              <RotateCcw size={14} />{translate("重试")}
+            </button>
+          </div>}
+          {hasMore && !loadError && comments.length > 0 && <button className="dialog-secondary channel-discussion-load-more"
+            type="button" disabled={loading} onClick={onLoadMore}>
+            {loading ? <LoaderCircle className="spin" size={14} /> : null}{translate("加载更早留言")}
+          </button>}
           {loading && comments.length === 0 ? (
-            <div className="channel-discussion-empty" role="status">
-              <LoaderCircle className="spin" size={18} />{translate("正在加载留言")}</div>
-          ) : loadError && comments.length === 0 ? (
-            <div className="channel-discussion-empty channel-discussion-error" role="alert">
-              <span>{translate("留言加载失败")}</span>
-              <button className="text-button" type="button" onClick={onRetry}>
-                <RotateCcw size={14} strokeWidth={2} />{translate("重试")}</button>
-            </div>
-          ) : comments.length === 0 ? (
+            <div className="channel-discussion-empty" role="status"><LoaderCircle className="spin" size={18} />{translate("正在加载留言")}</div>
+          ) : comments.length === 0 && !loadError ? (
             <div className="channel-discussion-empty">{translate("还没有留言")}</div>
           ) : comments.map((comment, index) => {
             const senderName = senderFor(comment, users, targetChatsById, currentUserId);
@@ -651,6 +672,7 @@ export function ChannelDiscussionPanel({
             );
           })}
         </div>
+        </ConversationViewportBoundary>
       </div>
 
       {forwarding.selectionMode ? (

@@ -4997,7 +4997,7 @@ test("channel post metadata and discussion messages keep shared conversation geo
     ]);
     telegramStore.setState({
       messages: nextMessages,
-      loadMessageThreadHistory: async () => [root, ...comments],
+      loadMessageThreadHistory: async () => ({ chatId: root.chatId, messageId: root.id, messages: [root, ...comments], hasMore: false }),
     });
   }, ["/src/store/telegramStore.ts", "/src/store/preferencesStore.ts"]);
 
@@ -5332,7 +5332,7 @@ test("channel discussion actions use the linked group and preserve composer focu
     telegramStore.setState({
       messages,
       chats,
-      loadMessageThreadHistory: async () => [discussionRoot, incoming, outgoing],
+      loadMessageThreadHistory: async () => ({ chatId: discussionRoot.chatId, messageId: discussionRoot.id, messages: [discussionRoot, incoming, outgoing], hasMore: false }),
       loadMessageProperties: async (...args: unknown[]) => {
         calls.push({ kind: "properties", args });
         return permissions;
@@ -5543,7 +5543,7 @@ test("channel discussions auto-load media and stickers with live file updates", 
     (window as unknown as { __discussionCachedFiles: number[] }).__discussionCachedFiles = [];
     telegramStore.setState({
       messages,
-      loadMessageThreadHistory: async () => [root, mediaComment, stickerComment],
+      loadMessageThreadHistory: async () => ({ chatId: root.chatId, messageId: root.id, messages: [root, mediaComment, stickerComment], hasMore: false }),
       cacheFile: async (fileId: number) => {
         (window as unknown as { __discussionCachedFiles: number[] }).__discussionCachedFiles.push(fileId);
         const latest = telegramStore.getState().messages;
