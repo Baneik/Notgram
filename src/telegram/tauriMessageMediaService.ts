@@ -31,7 +31,7 @@ import {
 } from "./tdlibRequests";
 import { hasChatDraftContent } from "./chatDraft";
 import {
-  attachmentAlbumFamily,
+  groupOutgoingAttachments,
   inspectOutgoingAttachment,
   prepareHighQualityPhoto,
 } from "../media/outgoingAttachments";
@@ -854,19 +854,7 @@ export class TauriMessageMediaService {
     if (input.attachments.reduce((sum, attachment) => sum + attachment.file.size + (attachment.thumbnail?.size ?? 0), 0) > MAX_ATTACHMENT_BATCH_BYTES) {
       throw new Error(translate("附件总大小超过离线发件箱单批次上限 512 MB"));
     }
-    const groups = input.attachments.reduce<typeof input.attachments[]>((result, attachment) => {
-      const family = attachmentAlbumFamily(attachment.kind);
-      const existing = family === "animation"
-        ? undefined
-        : result.find((candidate) =>
-          candidate.length < 10 && attachmentAlbumFamily(candidate[0].kind) === family);
-      if (existing) {
-        existing.push(attachment);
-      } else {
-        result.push([attachment]);
-      }
-      return result;
-    }, []);
+    const groups = groupOutgoingAttachments(input.attachments);
     let captionPending = input.caption;
     let captionEntitiesPending = input.captionEntities;
     for (const group of groups) {

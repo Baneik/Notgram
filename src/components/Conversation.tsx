@@ -1,3 +1,4 @@
+import { MessageMetadata } from "./MessageMetadata";
 import { translate } from "../i18n";
 import { retainedMessageQuote } from "../telegram/retainedMessages";
 import {
@@ -2658,6 +2659,25 @@ export function Conversation({
                     ? messageGroup.map((message) => ({ kind: "message" as const, message }))
                     : groupModel.segments
                   ).map((segment) => {
+                    const renderDiscussionAction = (message: Message) => !selectionMode && !pinnedViewOpen && channelDiscussionAvailable(message) ? (
+                          <button
+                            className="channel-post-discussion"
+                            type="button"
+                            aria-label={message.interaction?.replyCount
+                              ? translate("{{value0}} 条评论", { value0: message.interaction.replyCount })
+                              : translate("查看留言")}
+                            onClick={() => {
+                              openChannelDiscussion(message);
+                              onOpenDiscussion(message.id);
+                            }}
+                          >
+                            <MessageCircle size={16} strokeWidth={2} aria-hidden="true" />
+                            <span>{message.interaction?.replyCount
+                              ? translate("{{value0}}条评论", { value0: message.interaction.replyCount })
+                              : translate("留言")}</span>
+                            <ChevronRight size={15} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                        ) : undefined;
                     const renderBubble = (message: Message, albumItem = false) => {
                       const entrance = messageEntranceFor(message);
                       const gateEntranceAtBottom = message.id === appendMountMessageId || Boolean(
@@ -2711,25 +2731,7 @@ export function Conversation({
                         channelAuthor={channelAuthorFor(message)}
                         showChannelMetadata={displaysChannelMetadata(message)}
                         channelPost={isChannelPost}
-                        channelDiscussionAction={!selectionMode && !pinnedViewOpen && channelDiscussionAvailable(message) ? (
-                          <button
-                            className="channel-post-discussion"
-                            type="button"
-                            aria-label={message.interaction?.replyCount
-                              ? translate("{{value0}} 条评论", { value0: message.interaction.replyCount })
-                              : translate("查看留言")}
-                            onClick={() => {
-                              openChannelDiscussion(message);
-                              onOpenDiscussion(message.id);
-                            }}
-                          >
-                            <MessageCircle size={16} strokeWidth={2} aria-hidden="true" />
-                            <span>{message.interaction?.replyCount
-                              ? translate("{{value0}}条评论", { value0: message.interaction.replyCount })
-                              : translate("留言")}</span>
-                            <ChevronRight size={15} strokeWidth={2} aria-hidden="true" />
-                          </button>
-                        ) : undefined}
+                        channelDiscussionAction={albumItem ? undefined : renderDiscussionAction(message)}
                         serviceMembers={message.content.kind === "service"
                           ? message.content.memberUserIds?.map((userId) => {
                               const blockedMember = localBlockedUsersById.get(userId);
@@ -2813,6 +2815,10 @@ export function Conversation({
                     const albumReply = segment.messages.map(replyPreviewForMessage).find(Boolean);
                     const albumRows = layoutMediaAlbum(segment.messages);
                     const captionMessage = mediaAlbumCaptionMessage(segment.messages);
+                    const albumDiscussionPost = segment.messages.find(channelDiscussionAvailable);
+                    const albumMetadataMessage = albumDiscussionPost
+                      ?? segment.messages.find((message) => message.isChannelPost && message.interaction)
+                      ?? captionMessage ?? segment.messages[0];
                     const captionBlock = captionMessage && localBlockGroupByMessageId.get(captionMessage.id);
                     const captionConcealed = captionMessage && localBlockedUsersById.has(captionMessage.senderId) &&
                       !(captionBlock && revealedLocalBlockGroups.has(captionBlock.id)) &&
@@ -2845,7 +2851,7 @@ export function Conversation({
                     ) : null;
                     return (
                       <div
-                        className={`media-album ${!isChannelConversation && firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
+                        className={`media-album ${isChannelConversation ? "is-channel-album" : ""} ${!isChannelConversation && firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
                         data-media-album-id={segment.albumId}
                         key={`album:${segment.albumId}:${segment.messages[0]?.renderKey ?? segment.messages[0]?.id}`}
                         role="group"
@@ -2896,6 +2902,13 @@ export function Conversation({
                           ))}
                         </div>
                         {!captionMessage?.content.showCaptionAboveMedia ? albumCaption : null}
+                        {isChannelConversation && <>
+                          <div className="media-album-footer" data-message-meta-id={albumMetadataMessage.id}>
+                            <MessageMetadata message={albumMetadataMessage} channelPost showChannelMetadata
+                              channelAuthor={channelAuthorFor(albumMetadataMessage)} onRetry={onRetryMessage} />
+                          </div>
+                          {albumDiscussionPost ? renderDiscussionAction(albumDiscussionPost) : null}
+                        </>}
                       </div>
                     );
                   })}

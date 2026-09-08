@@ -1,19 +1,14 @@
 import { translate } from "../i18n";
 import { useTranslation } from "react-i18next";
 import {
-  AlertCircle,
   Check,
-  CheckCheck,
   Download,
-  Eye,
   ExternalLink,
   FileText,
   FolderOpen,
   Forward,
   Image as ImageIcon,
   LoaderCircle,
-  Pin,
-  RotateCcw,
   Save,
   X,
 } from "lucide-react";
@@ -38,7 +33,7 @@ import type {
   MessageReplyQuote,
   User,
 } from "../telegram/types";
-import { formatCompactCount, formatMessageTime } from "../utils/formatters";
+import { MessageMetadata } from "./MessageMetadata";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { TgsSticker } from "./TgsSticker";
@@ -234,7 +229,6 @@ function MessageBubbleComponent({
   const entranceKindRef = useRef<MessageEntrance | undefined>(undefined);
   const entranceCleanupRef = useRef<(() => void) | undefined>(undefined);
   const rowRef = useRef<HTMLElement | null>(null);
-  const showDeliveryPending = useStableVisibility(message.delivery === "sending", { minimumVisible: 220 });
   const [failedMediaSources, setFailedMediaSources] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -671,56 +665,9 @@ function MessageBubbleComponent({
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
 
-  const sendFailureTitle = message.sendFailure?.needAnotherReplyQuote
-    ? translate("引用内容已失效，请重新选择引用后发送")
-    : message.sendFailure?.needDropReply
-      ? translate("原回复目标已失效，请取消回复后重新发送")
-      : message.sendFailure?.message || translate("发送失败");
-  const messageMeta = !isService ? (
-    <span className={`message-meta ${channelPost ? "is-channel-meta" : ""}`}>
-      <span className="message-meta-stats">
-      {showChannelMetadata && message.interaction && (
-        <>
-          <span className="message-meta-stat" aria-label={translate("转发 {{value0}} 次", { value0: message.interaction.forwardCount })}>
-            <Forward size={12} strokeWidth={2} />
-            {formatCompactCount(message.interaction.forwardCount)}
-          </span>
-          <span className="message-meta-stat" aria-label={translate("{{value0}} 次观看", { value0: message.interaction.viewCount })}>
-            <Eye size={13} strokeWidth={2} />
-            {formatCompactCount(message.interaction.viewCount)}
-          </span>
-        </>
-      )}
-      {showChannelMetadata && channelAuthor && (
-        onOpenForwardSource && !forwardLabel ? (
-          <button
-            className="message-channel-author"
-            type="button"
-            aria-label={translate("打开频道原消息：{{value0}}", { value0: channelAuthor })}
-            onClick={onOpenForwardSource}
-          >
-            {channelAuthor}
-          </button>
-        ) : <span className="message-channel-author">{channelAuthor}</span>
-      )}
-      </span>
-      <span className="message-meta-status">
-      {message.editedAt && <span>{translate("已编辑")}</span>}
-      {message.isPinned && <Pin size={13} strokeWidth={2} aria-label={translate("已置顶")} />}
-      <time dateTime={message.sentAt}>{formatMessageTime(message.sentAt)}</time>
-      {message.outgoing && (
-        message.delivery === "read" ? <CheckCheck size={14} strokeWidth={2.2} />
-          : message.delivery === "sending" ? showDeliveryPending
-            ? <LoaderCircle className="spin" size={13} strokeWidth={2} />
-            : <Check size={14} strokeWidth={2.2} />
-            : message.delivery === "failed" ? (
-              <button className="message-retry" type="button" disabled={!message.canRetry} aria-label={translate("重试发送")} title={message.canRetry ? translate("重试发送：{{value0}}", { value0: sendFailureTitle }) : sendFailureTitle} onClick={() => void onRetry(message.id, message.chatId)}>
-                {message.canRetry ? <RotateCcw size={13} strokeWidth={2.2} /> : <AlertCircle size={13} strokeWidth={2.2} />}
-              </button>
-            ) : <Check size={14} strokeWidth={2.2} />
-      )}
-      </span>
-    </span>
+  const messageMeta = !isService && !(albumItem && channelPost && message.delivery !== "failed" && message.delivery !== "sending") ? (
+    <MessageMetadata message={message} channelPost={channelPost} showChannelMetadata={showChannelMetadata}
+      channelAuthor={channelAuthor} onOpenAuthor={!forwardLabel ? onOpenForwardSource : undefined} onRetry={onRetry} />
   ) : null;
 
   const visualCaption = content.kind === "media" && hasCaption && content.caption ? (

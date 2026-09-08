@@ -1798,6 +1798,13 @@ pub(super) fn prepared_upload_album_request_with_caption_and_topic_and_reply(
     {
         return Err("Telegram album caption placement must be consistent".to_string());
     }
+    // Telegram Desktop puts a shared visual caption on the first item, but
+    // document/audio groups are stacked and need their description at the end.
+    let caption_index = if first_family == "visual" {
+        0
+    } else {
+        uploads.len() - 1
+    };
     Ok(json!({
         "@type": "sendMessageAlbum",
         "chat_id": chat_id,
@@ -1807,8 +1814,8 @@ pub(super) fn prepared_upload_album_request_with_caption_and_topic_and_reply(
         "input_message_contents": uploads.iter().enumerate().map(|(index, upload)| {
             input_message_upload(
                 upload,
-                if index == 0 { caption } else { "" },
-                if index == 0 { caption_mentions } else { &[] },
+                if index == caption_index { caption } else { "" },
+                if index == caption_index { caption_mentions } else { &[] },
             )
         }).collect::<Result<Vec<_>, _>>()?,
         "@extra": extra
@@ -2605,6 +2612,53 @@ mod tests {
         let mut invalid_target = request.clone();
         invalid_target["message_id"] = json!(0);
         assert!(validate_webview_tdlib_request(&invalid_target).is_err());
+    }
+
+    #[test]
+    fn album_captions_follow_visual_and_stacked_file_placement() {
+        for (kind, extension, caption_index) in [
+            ("photo", "jpg", 0),
+            ("video", "mp4", 0),
+            ("document", "png", 2),
+            ("audio", "mp3", 2),
+        ] {
+            let uploads: Vec<_> = (0..3)
+                .map(|index| {
+                    let mut upload = PreparedUpload::automatic(&crate::storage::UploadFileInfo {
+                        path: format!("C:\\selected\\media-{index}.{extension}"),
+                        size: 1000,
+                    });
+                    upload.kind = kind.to_string();
+                    upload
+                })
+                .collect();
+            let result = prepared_upload_album_request_with_caption_and_topic_and_reply(
+                7,
+                EXTRA,
+                &uploads,
+                "Alice",
+                &[PreparedTextMention {
+                    offset: 0,
+                    length: 5,
+                    user_id: 11,
+                }],
+                None,
+                Value::Null,
+            )
+            .unwrap();
+            let contents = result["input_message_contents"].as_array().unwrap();
+            for (index, content) in contents.iter().enumerate() {
+                assert_eq!(
+                    content["caption"]["text"],
+                    if index == caption_index { "Alice" } else { "" },
+                    "{kind} caption at {index}"
+                );
+                assert_eq!(
+                    content["caption"]["entities"].as_array().unwrap().len(),
+                    usize::from(index == caption_index)
+                );
+            }
+        }
     }
 
     #[test]

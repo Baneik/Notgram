@@ -22,6 +22,13 @@ const message = (
 const ids = (messages: Message[]) => messages.map(({ id }) => id);
 
 describe("media album segmentation", () => {
+  it("preserves each individual caption instead of concealing them in cropped tiles", () => {
+    const messages = [message("1", "album"), message("2", "album")];
+    for (const item of messages) {
+      if (item.content.kind === "media") item.content.caption = `caption ${item.id}`;
+    }
+    expect(segmentMediaAlbums(messages)).toEqual(messages.map(message => ({ kind: "message", message })));
+  });
   it("finds the sole caption owner at any position without copying its text to other items", () => {
     for (const outgoing of [false, true]) {
       for (const ownerIndex of [0, 1, 2]) {

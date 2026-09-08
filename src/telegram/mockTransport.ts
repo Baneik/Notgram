@@ -1,3 +1,4 @@
+import { groupOutgoingAttachments, outgoingAlbumCaptionIndex } from "../media/outgoingAttachments";
 import {
   mockProfilePhotoUrl,
   mockSnapshot,
@@ -2486,58 +2487,60 @@ export class MockTelegramTransport implements TelegramTransport {
     captionEntities,
     replyToMessageId,
     replyQuote,
+    onGroupAccepted,
   }: SendFilesInput) {
     if (attachments.length === 0) return false;
-    const allVisual = attachments.length > 1 && attachments.every(
-      (attachment) => attachment.kind === "photo" || attachment.kind === "video",
-    );
-    const albumId = allVisual ? `mock-album-${crypto.randomUUID()}` : undefined;
-    for (const [index, attachment] of attachments.entries()) {
-      const { file, kind } = attachment;
-      const isMedia = kind !== "document";
-      const preview = kind === "photo" ? await previewDataUrl(file) : undefined;
-      this.appendMessage({
-        id: crypto.randomUUID(),
-        chatId,
-        topicId,
-        mediaAlbumId: isMedia ? albumId : undefined,
-        senderId: this.snapshot.currentUserId,
-        outgoing: true,
-        sentAt: new Date().toISOString(),
-        delivery: "sent",
-        replyTo: replyToMessageId
-          ? {
-              kind: "message",
-              chatId,
-              messageId: replyToMessageId,
-              quote: replyQuote?.text,
-              content: clone(this.snapshot.messages.find(
-                (message) => message.chatId === chatId && message.id === replyToMessageId,
-              )?.content),
-            }
-          : undefined,
-        content: isMedia
-          ? {
-              kind: "media",
-              mediaType: kind,
-              fileName: file.name,
-              sizeLabel: readableFileSize(file.size),
-              previewDataUrl: preview,
-              width: attachment.width,
-              height: attachment.height,
-              duration: attachment.duration,
-              caption: index === 0 ? caption : undefined,
-              captionEntities: index === 0 ? captionEntities : undefined,
-              showCaptionAboveMedia: attachment.showCaptionAboveMedia,
-            }
-          : {
-              kind: "file",
-              fileName: file.name,
-              sizeLabel: readableFileSize(file.size),
-              caption: index === 0 ? caption : undefined,
-              captionEntities: index === 0 ? captionEntities : undefined,
-            },
-      });
+    for (const [groupIndex, group] of groupOutgoingAttachments(attachments).entries()) {
+      const albumId = group.length > 1 ? `mock-album-${crypto.randomUUID()}` : undefined;
+      const captionIndex = outgoingAlbumCaptionIndex(group);
+      for (const [index, attachment] of group.entries()) {
+        const { file, kind } = attachment;
+        const isMedia = kind !== "document";
+        const preview = kind === "photo" ? await previewDataUrl(file) : undefined;
+        this.appendMessage({
+          id: crypto.randomUUID(),
+          chatId,
+          topicId,
+          mediaAlbumId: albumId,
+          senderId: this.snapshot.currentUserId,
+          outgoing: true,
+          sentAt: new Date().toISOString(),
+          delivery: "sent",
+          replyTo: replyToMessageId
+            ? {
+                kind: "message",
+                chatId,
+                messageId: replyToMessageId,
+                quote: replyQuote?.text,
+                content: clone(this.snapshot.messages.find(
+                  (message) => message.chatId === chatId && message.id === replyToMessageId,
+                )?.content),
+              }
+            : undefined,
+          content: isMedia
+            ? {
+                kind: "media",
+                mediaType: kind,
+                fileName: file.name,
+                sizeLabel: readableFileSize(file.size),
+                previewDataUrl: preview,
+                width: attachment.width,
+                height: attachment.height,
+                duration: attachment.duration,
+                caption: groupIndex === 0 && index === captionIndex ? caption : undefined,
+                captionEntities: groupIndex === 0 && index === captionIndex ? captionEntities : undefined,
+                showCaptionAboveMedia: attachment.showCaptionAboveMedia,
+              }
+            : {
+                kind: "file",
+                fileName: file.name,
+                sizeLabel: readableFileSize(file.size),
+                caption: groupIndex === 0 && index === captionIndex ? caption : undefined,
+                captionEntities: groupIndex === 0 && index === captionIndex ? captionEntities : undefined,
+              },
+        });
+      }
+      await onGroupAccepted?.(group);
     }
     return true;
   }

@@ -274,3 +274,19 @@ export const attachmentAlbumFamily = (kind: OutgoingAttachmentKind) => {
   if (kind === "document") return "document";
   return "animation";
 };
+
+/** Keep native and mock batching identical, including Telegram's ten-item limit. */
+export const groupOutgoingAttachments = (attachments: readonly OutgoingAttachment[]) =>
+  attachments.reduce<OutgoingAttachment[][]>((groups, attachment) => {
+    const family = attachmentAlbumFamily(attachment.kind);
+    const group = family === "animation" ? undefined : groups.find((candidate) =>
+      candidate.length < 10 && attachmentAlbumFamily(candidate[0].kind) === family);
+    if (group) group.push(attachment);
+    else groups.push([attachment]);
+    return groups;
+  }, []);
+
+/** Visual albums share their first caption; stacked files/audio caption the last item. */
+export const outgoingAlbumCaptionIndex = (attachments: readonly OutgoingAttachment[]) =>
+  attachments[0] && attachmentAlbumFamily(attachments[0].kind) === "visual"
+    ? 0 : attachments.length - 1;
