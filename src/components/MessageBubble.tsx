@@ -1220,6 +1220,10 @@ const EMPTY_PREVIEW_POLICY: AutoDownloadPolicy = {
 };
 
 export interface MessageBubblePreviewProps {
+  locallyConcealed?: boolean;
+  onRevealLocallyBlocked?: () => void;
+  previousAudioPlaybackId?: string;
+  nextAudioPlaybackId?: string;
   message: Message;
   senderName: string;
   users: ReadonlyMap<string, User>;
@@ -1269,6 +1273,10 @@ export interface MessageBubblePreviewProps {
 }
 
 export function MessageBubblePreview({
+  locallyConcealed,
+  onRevealLocallyBlocked,
+  previousAudioPlaybackId,
+  nextAudioPlaybackId,
   message,
   senderName,
   users,
@@ -1318,6 +1326,10 @@ export function MessageBubblePreview({
 }: MessageBubblePreviewProps) {
   return (
     <MessageBubbleComponent
+      locallyConcealed={locallyConcealed}
+      onRevealLocallyBlocked={onRevealLocallyBlocked}
+      previousAudioPlaybackId={previousAudioPlaybackId}
+      nextAudioPlaybackId={nextAudioPlaybackId}
       message={message}
       senderName={senderName}
       senderLabel={senderLabel}

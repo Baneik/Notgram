@@ -1,6 +1,41 @@
 import { expect, test } from "@playwright/test";
 import type { Message } from "../../src/telegram/types";
 
+test("discussion rendering failures keep the client and return action available", async ({ page }) => {
+  await page.route("**/src/components/ChannelDiscussionPanel.tsx*", route => route.fulfill({
+    contentType: "application/javascript", body: 'export function ChannelDiscussionPanel() { throw new Error("synthetic discussion render failure"); }',
+  }));
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
+  await expect(page.locator(".channel-discussion-panel").getByRole("alert")).toContainText("留言加载失败");
+  await page.getByRole("button", { name: "返回频道", exact: true }).click();
+  await expect(page.locator(".channel-discussion-panel")).toHaveCount(0);
+  await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
+});
+
+test("discussion messages honor local blocking and only reveal for the current visit", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+  await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const { localUserBlocksStore } = await (0, eval)('import("/src/store/localUserBlocks.ts")') as typeof import("../../src/store/localUserBlocks");
+    const state = telegramStore.getState();
+    localUserBlocksStore.getState().blockUser(state.activeAccountId!, state.users.get("u-mia")!);
+  });
+  const open = page.locator('[data-message-id="release-post-1"] .channel-post-discussion');
+  await open.click();
+  const panel = page.locator(".channel-discussion-panel");
+  const comment = panel.locator('[data-message-id="release-comment-1"] .message-bubble-shell');
+  await expect(comment).toHaveClass(/is-local-block-concealed/);
+  await comment.getByRole("button", { name: /显示一条来自/ }).click();
+  await expect(comment).not.toHaveClass(/is-local-block-concealed/);
+  await panel.getByRole("button", { name: "返回频道" }).click();
+  await open.click();
+  await expect(comment).toHaveClass(/is-local-block-concealed/);
+});
+
 test("channel posting follows owner and administrator rights, including revoked access", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-chat-id="chat-release"]').click();

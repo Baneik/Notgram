@@ -1,3 +1,6 @@
+import { useLocalUserBlocks } from "../store/localUserBlocks";
+import { replySenderId } from "../utils/localBlockedMessages";
+import { audioMessageNeighbors } from "../media/audioMessageQueue";
 import { ConversationViewportBoundary } from "./ConversationViewportBoundary";
 import { useDiscussionRead } from "../hooks/useDiscussionRead";
 import { outboxCounts } from "../store/telegramStore.outbox";
@@ -240,6 +243,14 @@ export function ChannelDiscussionPanel({
   const getInlineQueryResults = useTelegramStore((state) => state.getInlineQueryResults);
   const sendInlineQueryResultMessage = useTelegramStore((state) => state.sendInlineQueryResultMessage);
   const sendBotStartMessage = useTelegramStore((state) => state.sendBotStartMessage);
+  const activeAccountId = useTelegramStore(state => state.activeAccountId);
+  const blockedUsers = useLocalUserBlocks(state => state.users);
+  const blockedById = useMemo(() => new Map(blockedUsers.filter(user => user.accountId === activeAccountId)
+    .map(user => [user.userId, user])), [activeAccountId, blockedUsers]);
+  const [revealedMessages, setRevealedMessages] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => { setRevealedMessages(new Set()); }, [activeAccountId, draftKey]);
+  const audioNeighbors = useMemo(() => audioMessageNeighbors(comments.filter(message =>
+    !blockedById.has(message.senderId) || revealedMessages.has(message.id))), [comments, blockedById, revealedMessages]);
   const usersById = useMemo(() => new Map(users), [users]);
   const messagesById = useMemo(
     () => new Map(comments.map((comment) => [comment.id, comment])),
@@ -369,6 +380,7 @@ export function ChannelDiscussionPanel({
     selectedReplyQuote,
     keyboardNavigation,
   ) => {
+    if (blockedById.has(message.senderId) && !revealedMessages.has(message.id)) return;
     setActionMenu({
       messageId: message.id,
       left,
@@ -388,7 +400,7 @@ export function ChannelDiscussionPanel({
       load: onLoadMessageProperties,
     });
     setActionLoadingId((current) => current === message.id ? undefined : current);
-  }, [actionLoadingId, onLoadMessageProperties]);
+  }, [actionLoadingId, blockedById, onLoadMessageProperties, revealedMessages]);
 
   const startReply = useCallback((message: Message, selectedQuote?: MessageReplyQuote) => {
     setEditingMessage(undefined);
@@ -591,8 +603,12 @@ export function ChannelDiscussionPanel({
           ) : comments.length === 0 && !loadError ? (
             <div className="channel-discussion-empty">{translate("还没有留言")}</div>
           ) : comments.map((comment, index) => {
-            const senderName = senderFor(comment, users, targetChatsById, currentUserId);
-            const profileAvailable = !comment.outgoing &&
+            const blocked = !comment.outgoing ? blockedById.get(comment.senderId) : undefined;
+            const concealed = Boolean(blocked && !revealedMessages.has(comment.id));
+            const senderName = blocked?.alias ?? senderFor(comment, users, targetChatsById, currentUserId);
+            const preview = replyPreviewFor(comment, messagesById, usersById, discussionChat, targetChatsById, currentUserId);
+            const blockedReply = blockedById.get(replySenderId(comment, messagesById) ?? "");
+            const profileAvailable = !blocked && !comment.outgoing &&
               comment.senderId !== "unknown" &&
               (comment.senderId.startsWith("chat:") || users.has(comment.senderId));
             const previous = comments[index - 1];
@@ -616,7 +632,7 @@ export function ChannelDiscussionPanel({
                       onClick={() => profileAvailable && onOpenSenderProfile(comment.senderId)}
                       onContextMenu={(event) => profileAvailable && openSenderMenu(event, comment, senderName)}
                     >
-                      <Avatar avatar={avatarFor(comment, users, targetChatsById, currentUserId)} size="small" />
+                      <Avatar avatar={blocked?.aliasAvatar ?? avatarFor(comment, users, targetChatsById, currentUserId)} size="small" />
                     </button>
                   </span>
                 )}
@@ -626,8 +642,8 @@ export function ChannelDiscussionPanel({
                     senderName={senderName}
                     users={users}
                     senderChats={targetChatsById}
-                    senderLabel={comment.senderTag || memberLabels.get(comment.senderId)}
-                    senderIsAdministrator={memberLabels.has(comment.senderId)}
+                    senderLabel={blocked ? undefined : comment.senderTag || memberLabels.get(comment.senderId)}
+                    senderIsAdministrator={!blocked && memberLabels.has(comment.senderId)}
                     senderProfileAvailable={profileAvailable}
                     channelAuthor={channelAuthorFor(comment)}
                     showChannelMetadata={displaysChannelMetadata(comment)}
@@ -638,14 +654,7 @@ export function ChannelDiscussionPanel({
                           profileAvailable: users.has(userId),
                         }))
                       : undefined}
-                    replyPreview={replyPreviewFor(
-                      comment,
-                      messagesById,
-                      usersById,
-                      discussionChat,
-                      targetChatsById,
-                      currentUserId,
-                    )}
+                    replyPreview={preview && blockedReply ? { ...preview, author: blockedReply.alias, concealed: true } : preview}
                     forwardLabel={forwardSource?.label}
                     onOpenForwardSource={forwardNavigation ? () => {
                       if (forwardNavigation.kind === "message") {
@@ -665,6 +674,10 @@ export function ChannelDiscussionPanel({
                     ))}
                     selectionLimitReached={forwarding.selectedIds.size >= 100}
                     {...messagePreviewOptions}
+                    locallyConcealed={concealed}
+                    onRevealLocallyBlocked={() => setRevealedMessages(current => new Set([...current, comment.id]))}
+                    previousAudioPlaybackId={audioNeighbors.get(comment.id)?.previousId}
+                    nextAudioPlaybackId={audioNeighbors.get(comment.id)?.nextId}
                     onToggleSelection={forwarding.toggleSelection}
                     onOpenActions={openMessageActions}
                     onOpenReply={openReply}

@@ -1,3 +1,4 @@
+import { audioMessageNeighbors } from "../media/audioMessageQueue";
 import { useChannelDiscussionHistory } from "../hooks/useChannelDiscussionHistory";
 import { DiscussionErrorBoundary } from "./DiscussionErrorBoundary";
 import { canPostToChannel } from "../telegram/chatManagement";
@@ -940,19 +941,7 @@ export function Conversation({
           isAdministrator: Boolean(repliedSenderId && memberLabels.has(repliedSenderId)),
         };
   }, [chat, currentUserId, forwardTargetsById, localBlockedUsersById, memberLabels, messagesById, users]);
-  const audioPlaybackNeighborsByMessage = useMemo(() => {
-    const audioMessages = renderedMessages.filter((message) =>
-      message.content.kind === "media" && ["audio", "voice"].includes(message.content.mediaType)
-    );
-    return new Map(audioMessages.map((message, index) => [message.id, {
-      previousId: index > 0
-        ? `${audioMessages[index - 1].chatId}:${audioMessages[index - 1].id}`
-        : undefined,
-      nextId: index < audioMessages.length - 1
-        ? `${audioMessages[index + 1].chatId}:${audioMessages[index + 1].id}`
-        : undefined,
-    }]));
-  }, [renderedMessages]);
+  const audioPlaybackNeighborsByMessage = useMemo(() => audioMessageNeighbors(renderedMessages), [renderedMessages]);
   const audioTrackQueue = useMemo<AudioTrackDescriptor[]>(() => renderedMessages.flatMap((message) => {
     const content = message.content;
     if (content.kind !== "media" || !["audio", "voice"].includes(content.mediaType)) return [];

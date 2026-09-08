@@ -1276,8 +1276,6 @@ export const en = {
   "留言": "Leave a message",
   "留言列表": "Message list",
   "留言加载失败": "Failed to load messages",
-  "留言发送失败": "Failed to send message",
-  "留言附件发送失败": "Failed to send message attachment",
   "登录": "Log in",
   "登录 Windows 时启动 Notgram": "Start Notgram when logging into Windows",
   "登录前仅可调整 Telegram 网络连接": "Only the Telegram network connection can be adjusted before logging in",
