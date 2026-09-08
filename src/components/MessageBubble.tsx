@@ -1,3 +1,4 @@
+import { MessageDeliveryStatus } from "./MessageDeliveryStatus";
 import { translate } from "../i18n";
 import { useTranslation } from "react-i18next";
 import {
@@ -664,10 +665,16 @@ function MessageBubbleComponent({
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
 
-  const messageMeta = !isService && !(albumItem && channelPost && message.delivery !== "failed" && message.delivery !== "sending") ? (
+  const messageMeta = isService ? null : albumItem && channelPost ? (
+    (message.delivery === "failed" || message.delivery === "sending") ? (
+      <span className="media-album-item-delivery">
+        <MessageDeliveryStatus messages={[message]} channelPost onRetry={onRetry} />
+      </span>
+    ) : null
+  ) : (
     <MessageMetadata message={message} channelPost={channelPost} showChannelMetadata={showChannelMetadata}
       channelAuthor={channelAuthor} onOpenAuthor={!forwardLabel ? onOpenForwardSource : undefined} onRetry={onRetry} />
-  ) : null;
+  );
 
   const visualCaption = content.kind === "media" && hasCaption && content.caption ? (
     <div

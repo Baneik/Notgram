@@ -1,4 +1,5 @@
 import { audioMessageNeighbors } from "../media/audioMessageQueue";
+import { channelDiscussionAvailable, mediaAlbumMetadataMessage } from "../utils/messageMetadata";
 import { useChannelDiscussionHistory } from "../hooks/useChannelDiscussionHistory";
 import { DiscussionErrorBoundary } from "./DiscussionErrorBoundary";
 import { canPostToChannel } from "../telegram/chatManagement";
@@ -77,7 +78,6 @@ import { ForwardMessagesDialog } from "./ForwardMessagesDialog";
 import {
   forwardSourceFor,
   channelAuthorFor,
-  channelDiscussionAvailable,
   displaysChannelMetadata,
   messageSummary,
   replyPreviewFor,
@@ -2757,10 +2757,8 @@ export function Conversation({
                     const albumReply = segment.messages.map(replyPreviewForMessage).find(Boolean);
                     const albumRows = layoutMediaAlbum(segment.messages);
                     const captionMessage = mediaAlbumCaptionMessage(segment.messages);
-                    const albumDiscussionPost = segment.messages.find(channelDiscussionAvailable);
-                    const albumMetadataMessage = albumDiscussionPost
-                      ?? segment.messages.find((message) => message.isChannelPost && message.interaction)
-                      ?? captionMessage ?? segment.messages[0];
+                    const albumMetadataMessage = mediaAlbumMetadataMessage(segment.messages)!;
+                    const albumDiscussionPost = channelDiscussionAvailable(albumMetadataMessage) ? albumMetadataMessage : undefined;
                     const captionBlock = captionMessage && localBlockGroupByMessageId.get(captionMessage.id);
                     const captionConcealed = captionMessage && localBlockedUsersById.has(captionMessage.senderId) &&
                       !(captionBlock && revealedLocalBlockGroups.has(captionBlock.id)) &&
@@ -2847,6 +2845,7 @@ export function Conversation({
                         {isChannelConversation && <>
                           <div className="media-album-footer" data-message-meta-id={albumMetadataMessage.id}>
                             <MessageMetadata message={albumMetadataMessage} channelPost showChannelMetadata
+                              deliveryMessages={segment.messages}
                               channelAuthor={channelAuthorFor(albumMetadataMessage)} onRetry={onRetryMessage} />
                           </div>
                           {albumDiscussionPost ? renderDiscussionAction(albumDiscussionPost) : null}

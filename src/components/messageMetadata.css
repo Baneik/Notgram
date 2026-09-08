@@ -1,0 +1,22 @@
+/* Metadata owns meaning and color. Parent message layouts own its geometry. */
+.message-meta {
+  min-height: 15px; margin: 1px 0 0 10px; display: flex; align-items: center; justify-content: flex-end; gap: 2px;
+  color: var(--subtle); font-size: 10px; line-height: 1; user-select: none; -webkit-user-select: none;
+}
+.message-meta[data-context="outgoing"] { color: var(--color-status-success); }
+.message-meta[data-context="channel"] { min-height: 18px; gap: 8px; flex-wrap: wrap; color: var(--muted); }
+.message-meta-stats, .message-meta-status { min-width: 0; display: inline-flex; align-items: center; gap: 3px; }
+.message-meta-stats { flex: 1 1 auto; flex-wrap: wrap; }
+.message-meta-status { flex: 0 0 auto; white-space: nowrap; }
+.message-meta[data-context="channel"] .message-meta-stats { flex: 0 1 auto; justify-content: flex-end; overflow: hidden; }
+.message-meta-stat { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.message-meta-stat + .message-meta-stat { margin-left: 2px; }
+.message-channel-author { max-width: 120px; margin: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+button.message-channel-author { appearance: none; border: 0; padding: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+button.message-channel-author:hover, button.message-channel-author:focus-visible { text-decoration: underline; }
+.message-delivery-status { display: inline-flex; align-items: center; flex: none; }
+.message-meta[data-context="channel"] .message-delivery-status[data-delivery="sent"] { color: var(--color-status-success); }
+.message-delivery-status[data-delivery="failed"] { color: var(--color-status-danger); }
+.message-retry { width: 17px; height: 17px; padding: 0; display: inline-grid; place-items: center; color: var(--color-status-danger); background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
+.message-retry:disabled { cursor: default; }
+.media-album-item-delivery { position: absolute; z-index: 4; right: 5px; bottom: 5px; display: inline-flex; padding: 2px 5px; color: var(--color-on-media); background: var(--color-overlay); border-radius: 8px; }

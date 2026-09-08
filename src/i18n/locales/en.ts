@@ -1,4 +1,8 @@
 export const en = {
+  "{{value0}} 条消息发送失败": "{{value0}} messages failed to send",
+  "对方已读": "Read by recipient",
+  "帖子已发布": "Post published",
+  "消息已发送": "Message sent",
   "当前账号没有在此频道发布消息的权限": "This account cannot post messages in this channel",
   "贴纸暂不可用": "Sticker temporarily unavailable",
   "正在搜索贴纸": "Searching stickers",
