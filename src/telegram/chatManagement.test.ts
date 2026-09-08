@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CHAT_ADMIN_RIGHTS,
   DEFAULT_CHAT_PERMISSIONS,
+  canPostToChannel,
   chatMemberTagError,
   deriveChatManagementCapabilities,
   mapChatAdminRightsFromTd,
@@ -10,6 +11,16 @@ import {
 import { MockTelegramTransport } from "./mockTransport";
 
 describe("chat management", () => {
+  it("grants channel posting only to owners and administrators with posting rights", () => {
+    for (const status of ["owner", "administrator", "member", "left", "banned"] as const) {
+      for (const canPostMessages of [true, false]) {
+        const management = deriveChatManagementCapabilities("channel", status, { ...DEFAULT_CHAT_ADMIN_RIGHTS, canPostMessages });
+        expect(canPostToChannel({ kind: "channel", management }))
+          .toBe(status === "owner" || (status === "administrator" && canPostMessages));
+      }
+    }
+    expect(canPostToChannel({ kind: "channel" })).toBe(false);
+  });
   it("rejects combining marks and decorative characters in member tags", () => {
     expect(chatMemberTagError("值\u0334\u035f班")).toContain("非表情字符");
     expect(chatMemberTagError("值班🔥")).toContain("非表情字符");

@@ -1,5 +1,6 @@
 import { ConversationViewportBoundary } from "./ConversationViewportBoundary";
 import { useDiscussionRead } from "../hooks/useDiscussionRead";
+import { outboxCounts } from "../store/telegramStore.outbox";
 import { translate } from "../i18n";
 import {
   Check,
@@ -225,6 +226,10 @@ export function ChannelDiscussionPanel({
   const discussionChatId = post.discussionThread?.chatId ?? comments[0]?.chatId ?? post.chatId;
   const draftKey = `${post.chatId}:discussion:${post.id}`;
   const storedDiscussionChat = useTelegramStore((state) => state.chats.get(discussionChatId));
+  const outbox = useTelegramStore((state) => state.outbox);
+  const threadId = post.discussionThread?.messageId ?? post.id;
+  const queueCounts = useMemo(() => outboxCounts(outbox.filter(item =>
+    item.chatId === discussionChatId && item.discussionThreadId === threadId)), [outbox, discussionChatId, threadId]);
   const administratorLabels = useTelegramStore((state) => state.chatAdministratorLabels.get(discussionChatId));
   const loadChatAdministratorLabels = useTelegramStore((state) => state.loadChatAdministratorLabels);
   const updateThreadDraft = useTelegramStore((state) => state.updateThreadDraft);
@@ -732,10 +737,7 @@ export function ChannelDiscussionPanel({
             onTextInsertionApplied={(id) => setTextInsertion((current) => current?.id === id ? undefined : current)}
             inputRef={inputRef}
             connectionStatus={connectionStatus}
-            queuedMessageCount={0}
-            failedQueuedMessageCount={0}
-            queuedAttachmentCount={0}
-            failedAttachmentCount={0}
+            {...queueCounts}
             onSendMessage={async (...args) => {
               const sent = await onSend(...args);
               if (sent) {

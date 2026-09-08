@@ -1,6 +1,21 @@
 import { translate } from "../i18n";
 import type { Message, QueuedOutgoingMessage } from "../telegram/types";
 
+export const outboxCounts = (items: readonly QueuedOutgoingMessage[]) => {
+  const counts = { queuedMessageCount: 0, failedQueuedMessageCount: 0, queuedAttachmentCount: 0, failedAttachmentCount: 0 };
+  for (const item of items) {
+    const attachments = item.attachments?.length ?? 0;
+    if (item.status === "queued") {
+      if (attachments) counts.queuedAttachmentCount += attachments;
+      else counts.queuedMessageCount += 1;
+    } else if (item.status === "failed") {
+      if (attachments) counts.failedAttachmentCount += attachments;
+      else counts.failedQueuedMessageCount += 1;
+    }
+  }
+  return counts;
+};
+
 const OUTBOX_MESSAGE_PREFIX = "outbox:";
 
 export const outboxMessageId = (itemId: string) => `${OUTBOX_MESSAGE_PREFIX}${itemId}`;
@@ -21,6 +36,7 @@ export const messageFromOutbox = (
   return {
     id: outboxMessageId(item.id),
     chatId: item.chatId,
+    topicId: item.discussionThreadId ?? item.topicId,
     senderId: currentUserId,
     outgoing: true,
     sentAt: item.createdAt,

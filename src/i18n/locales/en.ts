@@ -1,4 +1,5 @@
 export const en = {
+  "当前账号没有在此频道发布消息的权限": "This account cannot post messages in this channel",
   "贴纸暂不可用": "Sticker temporarily unavailable",
   "正在搜索贴纸": "Searching stickers",
   "正在加载贴纸": "Loading sticker",

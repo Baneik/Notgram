@@ -1,5 +1,6 @@
 import { translate } from "../i18n";
 import type {
+  Chat,
   ChatAdminRightKey,
   ChatAdminRights,
   ChatManagementCapabilities,
@@ -10,6 +11,11 @@ import type {
   ManagedMemberStatus,
 } from "./types";
 import { identityTextField } from "./identityText";
+
+export const canPostToChannel = (chat?: Pick<Chat, "kind" | "management">) =>
+  chat?.kind === "channel" && (chat.management?.status === "owner" || (
+    chat.management?.status === "administrator" && chat.management.adminRights?.canPostMessages === true
+  ));
 
 export const CHAT_PERMISSION_LABELS: Record<ChatPermissionKey, string> = {
   get canSendBasicMessages() { return translate("发送文字"); },

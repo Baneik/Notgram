@@ -24,7 +24,6 @@ import {
   type ReactNode,
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
-import { useStableVisibility } from "../hooks/useStableVisibility";
 import type {
   Chat,
   Message,

@@ -1,4 +1,5 @@
 import { messageCanBeSaved, messageExpired } from "../telegram/messageLifecycle";
+import { canPostToChannel } from "../telegram/chatManagement";
 import { initializeAccountMetadata, flushAccountMetadata } from "./accountMetadata";
 import { removeAccountLocalBlocks } from "./localUserBlocks";
 import { removeAccountActivity } from "./conversationActivity";
@@ -1043,7 +1044,7 @@ export const createTelegramStore = (
         ...snapshot.messages,
         ...(snapshot.locallyDeletedMessages ?? []),
       ]);
-      const drafts = new Map((snapshot.drafts ?? []).map((draft) => [topicKey(draft.chatId, draft.topicId), draft]));
+      const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.localKey ?? topicKey(draft.chatId, draft.topicId), draft]));
       const localAttachmentDrafts = new Map(
         (snapshot.localAttachmentDrafts ?? []).map((draft) => [draft.draftKey, draft]),
       );
@@ -2581,7 +2582,7 @@ export const createTelegramStore = (
           const users = new Map(snapshot.users.map((user) => [user.id, user]));
           const folders = snapshot.folders;
           const messages = messageMapFrom(snapshot.messages);
-          const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.chatId, draft]));
+          const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.localKey ?? topicKey(draft.chatId, draft.topicId), draft]));
           const current = get();
           for (const [id, chat] of current.chats) chats.set(id, chat);
           for (const [id, user] of current.users) users.set(id, user);
@@ -3344,50 +3345,18 @@ export const createTelegramStore = (
           return undefined;
         }
       },
-      sendMessageToThread: async (chatId, replyToMessageId, text, entities, replyQuote) => {
-        const formatted = trimComposerFormattedText(text, entities ?? []);
-        if (!formatted.text || !connectionPresentation(get().connectionStatus).operational) return false;
-        try {
-          await transport.sendMessage({
-            chatId,
-            text: formatted.text,
-            entities: formatted.entities,
-            replyToMessageId,
-            replyQuote,
-            clearDraft: false,
-          });
-          set({ operationError: undefined });
-          return true;
-        } catch (error) {
-          set({ operationError: errorMessage(error, translate("留言发送失败")) });
-          return false;
-        }
-      },
-      sendFilesToThread: async (
-        chatId,
-        replyToMessageId,
-        attachments,
-        caption,
-        captionEntities,
-        replyQuote,
-      ) => {
-        if (attachments.length === 0 || !connectionPresentation(get().connectionStatus).operational) return false;
-        try {
-          await transport.sendFiles({
-            chatId,
-            attachments,
-            caption,
-            captionEntities,
-            replyToMessageId,
-            replyQuote,
-          });
-          set({ operationError: undefined });
-          return true;
-        } catch (error) {
-          set({ operationError: errorMessage(error, translate("留言附件发送失败")) });
-          return false;
-        }
-      },
+      sendMessageToThread: (chatId, replyToMessageId, text, entities, replyQuote, options) =>
+        get().sendMessage(text, replyToMessageId, replyQuote, entities, options?.disableNotification, {
+          chatId,
+          discussionThreadId: options?.threadId ?? get().messages.get(chatId)?.find(message => message.id === replyToMessageId)?.topicId ?? replyToMessageId,
+          clearDraft: false,
+        }),
+      sendFilesToThread: (chatId, replyToMessageId, attachments, caption, captionEntities, replyQuote, options) =>
+        get().sendFiles(attachments, caption, captionEntities, replyToMessageId, replyQuote, options?.disableNotification, {
+          chatId,
+          discussionThreadId: options?.threadId ?? get().messages.get(chatId)?.find(message => message.id === replyToMessageId)?.topicId ?? replyToMessageId,
+          clearDraft: false,
+        }),
       markActiveChatRead: async () => {
         const chatId = get().activeChatId;
         if (chatId) await markActiveConversationRead(chatId);
@@ -3473,6 +3442,7 @@ export const createTelegramStore = (
         const requestedMessage = (get().messages.get(chatId) ?? [])
           .find((message) => message.id === messageId);
         if (!requestedMessage) return undefined;
+        if (!connectionPresentation(get().connectionStatus).operational) return requestedMessage.permissions;
         if (requestedMessage.permissions && !force) return requestedMessage.permissions;
         try {
           const permissions = await transport.getMessageProperties(chatId, messageId);
@@ -4195,6 +4165,7 @@ export const createTelegramStore = (
         const current = get().drafts.get(draftKey);
         const next: ChatDraft = {
           chatId,
+          localKey: draftKey,
           text,
           ...(entities?.length ? { entities } : {}),
           replyToMessageId,
@@ -4310,14 +4281,19 @@ export const createTelegramStore = (
         }
       },
 
-      sendMessage: async (text, replyToMessageId, replyQuote, entities, disableNotification) => {
-        const chatId = get().activeChatId;
-        const topicId = get().activeTopicId;
+      sendMessage: async (text, replyToMessageId, replyQuote, entities, disableNotification, context) => {
+        const chatId = context?.chatId ?? get().activeChatId;
+        const topicId = context ? context.topicId : get().activeTopicId;
+        const clearDraft = context?.clearDraft !== false;
         const formatted = trimComposerFormattedText(text, entities ?? []);
         const normalizedText = formatted.text;
         if (!chatId || !normalizedText) return false;
+        if (!context?.discussionThreadId && get().chats.get(chatId)?.kind === "channel" && !canPostToChannel(get().chats.get(chatId))) {
+          set({ operationError: translate("当前账号没有在此频道发布消息的权限") });
+          return false;
+        }
         const draftKey = topicKey(chatId, topicId);
-        const previousDraft = get().drafts.get(draftKey);
+        const previousDraft = clearDraft ? get().drafts.get(draftKey) : undefined;
         if (!connectionPresentation(get().connectionStatus).operational) {
           const previousOutbox = get().outbox;
           const previousMessages = get().messages;
@@ -4326,6 +4302,8 @@ export const createTelegramStore = (
             id: globalThis.crypto.randomUUID(),
             chatId,
             topicId,
+            discussionThreadId: context?.discussionThreadId,
+            ...(clearDraft ? {} : { clearDraft: false }),
             text: normalizedText,
             ...(formatted.entities.length ? { entities: formatted.entities } : {}),
             replyToMessageId,
@@ -4336,8 +4314,8 @@ export const createTelegramStore = (
           };
           const outbox = [...previousOutbox, item];
           const drafts = new Map(previousDrafts);
-          drafts.delete(draftKey);
-          const clearGeneration = draftSync.expect(draftKey, undefined);
+          if (clearDraft) drafts.delete(draftKey);
+          const clearGeneration = clearDraft ? draftSync.expect(draftKey, undefined) : undefined;
           set({
             drafts,
             outbox,
@@ -4353,7 +4331,7 @@ export const createTelegramStore = (
             recordConversationSentMessages(get().activeAccountId, chatId);
             return true;
           } catch (error) {
-            draftSync.cancelExpectation(draftKey, clearGeneration);
+            if (clearGeneration !== undefined) draftSync.cancelExpectation(draftKey, clearGeneration);
             if (previousDraft?.pending) {
               draftSync.expect(draftKey, draftForSync(previousDraft));
             }
@@ -4367,8 +4345,8 @@ export const createTelegramStore = (
             return false;
           }
         }
-        await draftSync.flush(draftKey);
-        const clearGeneration = draftSync.expect(draftKey, undefined);
+        if (clearDraft) await draftSync.flush(draftKey);
+        const clearGeneration = clearDraft ? draftSync.expect(draftKey, undefined) : undefined;
         try {
           await transport.sendMessage({
             chatId,
@@ -4378,10 +4356,11 @@ export const createTelegramStore = (
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
             disableNotification,
+            clearDraft,
           });
-          draftSync.markAwaitingAck(draftKey, clearGeneration);
+          if (clearGeneration !== undefined) draftSync.markAwaitingAck(draftKey, clearGeneration);
           const currentDraft = get().drafts.get(draftKey);
-          if (draftSignature(currentDraft) === draftSignature(previousDraft)) {
+          if (clearDraft && draftSignature(currentDraft) === draftSignature(previousDraft)) {
             const drafts = new Map(get().drafts);
             drafts.delete(draftKey);
             set({ drafts, operationError: undefined });
@@ -4392,7 +4371,7 @@ export const createTelegramStore = (
           recordConversationSentMessages(get().activeAccountId, chatId);
           return true;
         } catch (error) {
-          draftSync.cancelExpectation(draftKey, clearGeneration);
+          if (clearGeneration !== undefined) draftSync.cancelExpectation(draftKey, clearGeneration);
           const currentDraft = get().drafts.get(draftKey);
           if (previousDraft && draftSignature(currentDraft) === draftSignature(previousDraft)) {
             const restored = { ...previousDraft, pending: true };
@@ -4721,23 +4700,29 @@ export const createTelegramStore = (
         replyToMessageId,
         replyQuote,
         disableNotification,
+        context,
       ) => {
-        const chatId = get().activeChatId;
-        const topicId = get().activeTopicId;
+        const chatId = context?.chatId ?? get().activeChatId;
+        const topicId = context ? context.topicId : get().activeTopicId;
         if (!chatId || attachments.length === 0) return false;
+        if (!context?.discussionThreadId && get().chats.get(chatId)?.kind === "channel" && !canPostToChannel(get().chats.get(chatId))) {
+          set({ operationError: translate("当前账号没有在此频道发布消息的权限") });
+          return false;
+        }
         const formattedCaption = trimComposerFormattedText(caption ?? "", captionEntities ?? []);
         if (!connectionPresentation(get().connectionStatus).operational) {
           const id = globalThis.crypto.randomUUID();
           const createdAt = new Date().toISOString();
           try {
             const metadata = await describeOutgoingAttachments(id, attachments);
-            await attachmentOutbox.put({ id, accountId: get().activeAccountId, createdAt, attachments, metadata, recovery: { chatId, topicId, caption: formattedCaption.text } });
+            await attachmentOutbox.put({ id, accountId: get().activeAccountId, createdAt, attachments, metadata, recovery: { chatId, topicId, discussionThreadId: context?.discussionThreadId, replyToMessageId, replyQuote, caption: formattedCaption.text } });
             const previousOutbox = get().outbox;
             const previousMessages = get().messages;
             const item: QueuedOutgoingMessage = {
               id,
               chatId,
               topicId,
+              discussionThreadId: context?.discussionThreadId,
               text: formattedCaption.text || metadata.map(({ name }) => name).join("、"),
               caption: formattedCaption.text || undefined,
               ...(formattedCaption.entities.length ? { entities: formattedCaption.entities } : {}),

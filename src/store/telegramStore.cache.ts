@@ -202,6 +202,8 @@ const isQueuedMessage = (item: unknown): item is QueuedOutgoingMessage =>
   hasStringKey(item, "text") && hasStringKey(item, "createdAt") &&
   (item.status === "queued" || item.status === "failed" || item.status === "sending") &&
   (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string") &&
+  (item.discussionThreadId === undefined || typeof item.discussionThreadId === "string") &&
+  (item.clearDraft === undefined || typeof item.clearDraft === "boolean") &&
   (item.replyQuote === undefined || (
     isRecord(item.replyQuote) && typeof item.replyQuote.text === "string" &&
     typeof item.replyQuote.position === "number" && Number.isInteger(item.replyQuote.position) && item.replyQuote.position >= 0

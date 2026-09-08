@@ -2612,10 +2612,14 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   private appendMessage(message: Message) {
+    const chat = this.snapshot.chats.find((item) => item.id === message.chatId);
+    if (chat?.kind === "channel" && message.outgoing && !message.replyTo) {
+      message = { ...message, isChannelPost: true,
+        interaction: message.interaction ?? { viewCount: 0, forwardCount: 0, replyCount: 0, reactions: [] } };
+    }
     this.snapshot.messages.push(message);
     this.listener?.({ type: "message.upsert", message: clone(message), animateEntrance: true });
 
-    const chat = this.snapshot.chats.find((item) => item.id === message.chatId);
     if (!chat) return;
 
     const updatedChat: Chat = {

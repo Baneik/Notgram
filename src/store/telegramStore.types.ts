@@ -1,4 +1,16 @@
 import type { TelegramTransport } from "../telegram/transport";
+
+export interface ConversationSendContext {
+  chatId: string;
+  topicId?: string;
+  discussionThreadId?: string;
+  clearDraft?: boolean;
+}
+
+export interface DiscussionSendOptions {
+  threadId?: string;
+  disableNotification?: boolean;
+}
 import type { CacheHealth } from "./telegramStore.cache";
 import type { GlobalSearchState } from "./globalSearchState";
 import type { ChatMessageSearchState } from "./chatMessageSearchState";
@@ -211,6 +223,7 @@ export interface TelegramState {
     text: string,
     entities?: MessageTextEntity[],
     replyQuote?: MessageReplyQuote,
+    options?: DiscussionSendOptions,
   ) => Promise<boolean>;
   sendFilesToThread: (
     chatId: string,
@@ -219,6 +232,7 @@ export interface TelegramState {
     caption?: string,
     captionEntities?: MessageTextEntity[],
     replyQuote?: MessageReplyQuote,
+    options?: DiscussionSendOptions,
   ) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
   markMessageThreadRead: (chatId: string, messageIds: string[]) => Promise<boolean>;
@@ -328,7 +342,7 @@ export interface TelegramState {
   ) => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: ChatFilter) => void;
-  sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[], disableNotification?: boolean) => Promise<boolean>;
+  sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[], disableNotification?: boolean, context?: ConversationSendContext) => Promise<boolean>;
   editMessage: (messageId: string, text: string, entities?: MessageTextEntity[], chatId?: string) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean, chatId?: string) => Promise<boolean>;
   updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
@@ -379,6 +393,7 @@ export interface TelegramState {
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
     disableNotification?: boolean,
+    context?: ConversationSendContext,
   ) => Promise<boolean>;
   cancelFileUpload: (messageId: string, chatId?: string) => Promise<void>;
   clearError: () => void;

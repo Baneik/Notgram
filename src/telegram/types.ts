@@ -530,6 +530,8 @@ export interface MessageReplyQuote {
 export interface ChatDraft {
   chatId: string;
   topicId?: string;
+  /** Local composer identity, e.g. a channel post's discussion draft. */
+  localKey?: string;
   text: string;
   entities?: MessageTextEntity[];
   replyToMessageId?: string;
@@ -1013,6 +1015,9 @@ export interface QueuedOutgoingMessage {
   id: string;
   chatId: string;
   topicId?: string;
+  /** Local thread membership; TDLib derives the send topic from reply_to. */
+  discussionThreadId?: string;
+  clearDraft?: boolean;
   text: string;
   entities?: MessageTextEntity[];
   replyToMessageId?: string;

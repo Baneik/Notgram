@@ -1,5 +1,6 @@
 import { useChannelDiscussionHistory } from "../hooks/useChannelDiscussionHistory";
 import { DiscussionErrorBoundary } from "./DiscussionErrorBoundary";
+import { canPostToChannel } from "../telegram/chatManagement";
 import { MessageMetadata } from "./MessageMetadata";
 import { translate } from "../i18n";
 import { retainedMessageQuote } from "../telegram/retainedMessages";
@@ -1908,7 +1909,7 @@ export function Conversation({
   }
 
   const isChannelConversation = chat.kind === "channel";
-  const canPostChannel = isChannelConversation && chat.management?.status === "owner";
+  const canPostChannel = canPostToChannel(chat);
   const reloadChannelDiscussion = async (post: Message) => {
     openChannelDiscussion(post);
   };
@@ -1917,6 +1918,7 @@ export function Conversation({
     replyToMessageId?: string,
     selectedReplyQuote?: MessageReplyQuote,
     entities?: MessageTextEntity[],
+    disableNotification?: boolean,
   ) => {
     const replyChatId = renderedDiscussion?.replyChatId ?? discussionState?.replyChatId;
     const replyMessageId = renderedDiscussion?.replyMessageId ?? discussionState?.replyMessageId;
@@ -1927,6 +1929,7 @@ export function Conversation({
       text,
       entities,
       selectedReplyQuote,
+      { threadId: replyMessageId, disableNotification },
     );
     if (sent) await reloadChannelDiscussion(discussionPost);
     return sent;
@@ -1937,6 +1940,7 @@ export function Conversation({
     captionEntities?: MessageTextEntity[],
     replyToMessageId?: string,
     selectedReplyQuote?: MessageReplyQuote,
+    disableNotification?: boolean,
   ) => {
     const replyChatId = renderedDiscussion?.replyChatId ?? discussionState?.replyChatId;
     const replyMessageId = renderedDiscussion?.replyMessageId ?? discussionState?.replyMessageId;
@@ -1948,6 +1952,7 @@ export function Conversation({
       caption,
       captionEntities,
       selectedReplyQuote,
+      { threadId: replyMessageId, disableNotification },
     );
     if (sent) await reloadChannelDiscussion(discussionPost);
     return sent;

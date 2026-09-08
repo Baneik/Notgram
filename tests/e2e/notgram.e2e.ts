@@ -5083,7 +5083,8 @@ test("channel posts integrate their comment action and load the linked discussio
   await page.locator('[data-chat-id="chat-release"]').click();
   const post = page.locator('[data-message-id="release-post-1"]');
   await expect(post).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "消息内容" })).toHaveCount(0);
+  // The mock account owns this channel; regular subscribers are covered separately.
+  await expect(page.getByRole("textbox", { name: "消息内容" })).toHaveCount(1);
   await expect(page.locator('[data-message-id="release-comment-1"]')).toHaveCount(0);
 
   const commentButton = post.getByRole("button", { name: "2 条评论" });
@@ -5431,7 +5432,7 @@ test("channel discussion actions use the linked group and preserve composer focu
   await expect(composer).toBeFocused();
   await composer.fill("");
 
-  await expect(incoming.getByRole("link", { name: "@Mia Chen" })).toBeVisible();
+  await expect(incoming.getByRole("link", { name: "Mia Chen", exact: true })).toBeVisible();
   const hashtag = incoming.getByRole("link", { name: "#release" });
   await expect(hashtag).toBeVisible();
 

@@ -115,7 +115,7 @@ export const createOutboxController = ({
               replyToMessageId: item.replyToMessageId,
               replyQuote: item.replyQuote,
               disableNotification: item.disableNotification,
-              clearDraft: !get().drafts.has(topicKey(item.chatId, item.topicId)),
+              clearDraft: item.clearDraft !== false && !get().drafts.has(topicKey(item.chatId, item.topicId)),
             });
           }
         } catch (error) {

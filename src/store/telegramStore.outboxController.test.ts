@@ -58,6 +58,12 @@ const createHarness = () => {
 };
 
 describe("telegram store outbox controller", () => {
+  it("preserves the no-clear-draft contract when a discussion reply is replayed", async () => {
+    const harness = createHarness();
+    harness.controller.setOutbox([{ ...item("thread-reply"), discussionThreadId: "root", replyToMessageId: "comment", clearDraft: false }]);
+    await harness.controller.flushOutbox();
+    expect(harness.transport.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ clearDraft: false, replyToMessageId: "comment" }));
+  });
   it("retains the last durable version when a new write fails", async () => {
     const harness = createHarness();
     harness.controller.setOutbox([item("unsent")]);
