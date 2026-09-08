@@ -50,11 +50,11 @@ export const segmentMediaAlbums = (messages: Message[]): MediaAlbumSegment[] => 
       nextIndex += 1;
     }
 
-    // Multiple captions belong to individual messages, not a shared album footer.
-    // Keep them readable instead of hiding all captions inside cropped tiles.
+    // Channel post descriptions must remain readable when multiple items own
+    // captions. Ordinary chats retain their existing compact album presentation.
     const captionCount = albumMessages.filter((message) =>
       message.content.kind === "media" && message.content.caption).length;
-    if (albumMessages.length > 1 && captionCount > 1) {
+    if (albumMessages.length > 1 && captionCount > 1 && albumMessages.some(message => message.isChannelPost)) {
       segments.push(...albumMessages.map((message) => ({ kind: "message" as const, message })));
     } else if (albumMessages.length > 1) {
       segments.push({

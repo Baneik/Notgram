@@ -847,14 +847,19 @@ test("channel sponsored messages stay in an independent timeline block and can b
   await page.goto("/");
   await page.locator('[data-chat-id="chat-release"]').click();
   const sponsored = page.locator('[data-sponsored-message-id="sponsored-release-1"]');
-  await expect(sponsored).toBeVisible();
-  await expect(sponsored).toContainText("Notgram Studio");
-  await expect(page.locator('[data-message-id="sponsored-release-1"]')).toHaveCount(0);
+  await expect(sponsored).toHaveCount(0);
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "设置" });
   await settings.getByRole("button", { name: /Notgram/ }).click();
   await settings.getByRole("switch", { name: "屏蔽频道广告" }).uncheck();
+  await settings.getByRole("button", { name: "关闭" }).click();
+  await expect(sponsored).toBeVisible();
+  await expect(sponsored).toContainText("Notgram Studio");
+  await expect(page.locator('[data-message-id="sponsored-release-1"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await settings.getByRole("button", { name: /Notgram/ }).click();
+  await settings.getByRole("switch", { name: "屏蔽频道广告" }).check();
   await settings.getByRole("button", { name: "关闭" }).click();
   await expect(sponsored).toHaveCount(0);
 });
@@ -872,7 +877,7 @@ test("channel owners can publish posts and toggle silent sending", async ({ page
   await expect(silentToggle).toHaveAttribute("aria-pressed", "true");
   await composer.fill("频道所有者发布的新帖子");
   await page.getByRole("button", { name: "发送消息" }).click();
-  await expect(page.getByText("频道所有者发布的新帖子", { exact: true })).toBeVisible();
+  await expect(page.locator(".message-list").getByText("频道所有者发布的新帖子", { exact: true })).toBeVisible();
 });
 
 test("custom ad blocking hides matching messages and keeps rule editing local", async ({ page }) => {

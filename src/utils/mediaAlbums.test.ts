@@ -22,12 +22,14 @@ const message = (
 const ids = (messages: Message[]) => messages.map(({ id }) => id);
 
 describe("media album segmentation", () => {
-  it("preserves each individual caption instead of concealing them in cropped tiles", () => {
-    const messages = [message("1", "album"), message("2", "album")];
+  it("preserves individual channel captions without changing compact albums in ordinary chats", () => {
+    const messages = [message("1", "album", "photo", { isChannelPost: true }), message("2", "album", "photo", { isChannelPost: true })];
     for (const item of messages) {
       if (item.content.kind === "media") item.content.caption = `caption ${item.id}`;
     }
     expect(segmentMediaAlbums(messages)).toEqual(messages.map(message => ({ kind: "message", message })));
+    expect(segmentMediaAlbums(messages.map(message => ({ ...message, isChannelPost: false }))))
+      .toMatchObject([{ kind: "album", albumId: "album" }]);
   });
   it("finds the sole caption owner at any position without copying its text to other items", () => {
     for (const outgoing of [false, true]) {
