@@ -57,6 +57,72 @@ const deferReplyContext = (page: Page) => page.evaluate(async () => {
   };
 });
 
+test("media download updates do not interrupt wheel scrolling in either direction", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const messages = new Map(telegramStore.getState().messages);
+    const source = messages.get("chat-product")![0];
+    messages.set("chat-product", Array.from({ length: 60 }, (_, index) => ({
+      ...source, id: `scroll-media-${index}`, mediaAlbumId: undefined,
+      sentAt: new Date(Date.UTC(2026, 8, 9, 0, index)).toISOString(),
+      content: {
+        kind: "media" as const, mediaType: index % 2 ? "photo" as const : "video" as const,
+        fileName: `scroll-media-${index}.png`, fileId: 99000 + index,
+        sizeLabel: "10 MB", size: 10_000_000, width: 480, height: 240,
+        canDownload: true, isDownloaded: false, isDownloading: true,
+        thumbnailIsDownloading: true, progress: 0.1,
+      },
+    })));
+    telegramStore.setState({ messages });
+  });
+  const list = page.locator(".message-list");
+  await expect(page.locator('[data-message-id="scroll-media-59"]')).toBeVisible();
+  await expect.poll(() => list.evaluate(element =>
+    element.scrollHeight - element.clientHeight - element.scrollTop,
+  )).toBeLessThanOrEqual(13);
+  await list.hover();
+  await page.mouse.wheel(0, -1200);
+  await page.waitForTimeout(450);
+
+  const timer = await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    return window.setInterval(() => {
+      const messages = new Map(telegramStore.getState().messages);
+      messages.set("chat-product", messages.get("chat-product")!.map(message => (
+        message.content.kind === "media" ? {
+          ...message, content: { ...message.content, progress: ((message.content.progress ?? 0) + 0.01) % 0.9 },
+        } : message
+      )));
+      telegramStore.setState({ messages });
+    }, 30);
+  });
+  try {
+    // Let an idle update acquire an anchor first, then exercise actual browser
+    // wheel input while new updates arrive throughout each scroll interval.
+    await page.waitForTimeout(120);
+    for (const delta of [-160, 160]) {
+      for (let step = 0; step < 5; step += 1) {
+        const before = await list.evaluate(element => element.scrollTop);
+        await page.mouse.wheel(0, delta);
+        await page.waitForTimeout(220);
+        const movement = await list.evaluate(element => element.scrollTop) - before;
+        expect(Math.abs(movement - delta), `wheel ${delta}, step ${step}: moved ${movement}`)
+          .toBeLessThanOrEqual(2);
+      }
+    }
+    // Continued progress updates after input settles must not restore an old
+    // reading position either.
+    const beforeIdle = await anchor(page);
+    await page.waitForTimeout(450);
+    const afterIdle = await anchor(page);
+    expect(afterIdle.id).toBe(beforeIdle.id);
+    expect(Math.abs(afterIdle.offset - beforeIdle.offset)).toBeLessThanOrEqual(2);
+  } finally {
+    await page.evaluate(timer => window.clearInterval(timer), timer);
+  }
+});
+
 test("a cold unread cursor outside the first page exposes only its settled viewport", async ({ page }) => {
   await ready(page);
   await page.evaluate(async () => {

@@ -1174,6 +1174,12 @@ export const useConversationScroll = ({
       (matchingEntryRequest?.serverMessageId && positionedIdentityRef.current !== initialLocationIdentity) ||
       (memory?.followLatest !== false && !matchingMessageRequest?.loading)) return;
 
+    // Wheel/key input cancels the previous anchor settlement. Progress updates
+    // must not reclaim it while the browser is still applying that input.
+    // Prepends/removals still need a commit-time anchor for relocated rows.
+    if (!structuralChange && (pointerActiveRef.current || middleAutoScrollRef.current ||
+      performance.now() <= userIntentUntilRef.current)) return;
+
     const bounds = element.getBoundingClientRect();
     const row = [...element.querySelectorAll<HTMLElement>("[data-message-id]")].find((candidate) => {
       const rect = candidate.getBoundingClientRect();
