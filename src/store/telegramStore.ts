@@ -19,6 +19,7 @@ import { createTelegramTransport } from "../telegram/createTransport";
 import type { TelegramTransport } from "../telegram/transport";
 import type {
   CachedTelegramSnapshot,
+  ChatFolder,
   ChatManagement,
   ChatManagementCapabilities,
   ChatDraft,
@@ -245,6 +246,11 @@ export const createTelegramStore = (
     };
     let accountTransition = false;
     let accountGeneration = 0;
+    let pendingFolderReorder: {
+      generation: number;
+      order: string[];
+      serverFolders?: ChatFolder[];
+    } | undefined;
     let syncGeneration = 0;
     let hasConnected = false;
     const syncRetries = new SyncRetryQueue(() =>
@@ -1949,7 +1955,16 @@ export const createTelegramStore = (
       }
 
       if (event.type === "folders.replaced") {
-        const folders = event.folders;
+        let folders = event.folders;
+        const reorder = pendingFolderReorder;
+        if (reorder?.generation === accountGeneration && !accountTransition) {
+          reorder.serverFolders = folders;
+          const byId = new Map(folders.filter((folder) => folder.id !== "archive").map((folder) => [folder.id, folder]));
+          if (byId.size === reorder.order.length && reorder.order.every((id) => byId.has(id))) {
+            // Keep the pending order visible while still accepting current titles and icons.
+            folders = [...reorder.order.map((id) => byId.get(id)!), ...folders.filter((folder) => folder.id === "archive")];
+          }
+        }
         const activeFolderExists = folders.some(
           (folder) => folder.id === get().chatFilter,
         );
@@ -3176,18 +3191,24 @@ export const createTelegramStore = (
       )),
       reorderChatFolders: async (orderedFolderIds) => {
         const state = get();
+        const generation = accountGeneration;
+        const isCurrent = () => generation === accountGeneration && !accountTransition;
         const reorderableFolders = state.folders.filter((folder) => folder.id !== "archive");
         const currentIds = reorderableFolders.map((folder) => folder.id);
         const uniqueIds = [...new Set(orderedFolderIds)];
         if (
           state.authorization.kind !== "ready" ||
+          !isCurrent() ||
           state.folderManagementPending ||
+          uniqueIds.length !== orderedFolderIds.length ||
           uniqueIds.length !== currentIds.length ||
           uniqueIds.some((folderId) => !currentIds.includes(folderId))
         ) return false;
         if (uniqueIds.every((folderId, index) => folderId === currentIds[index])) return true;
 
-        const originalFolders = state.folders;
+        const originalIds = state.folders.map((folder) => folder.id);
+        const reorder = { generation, order: uniqueIds, serverFolders: undefined as ChatFolder[] | undefined };
+        pendingFolderReorder = reorder;
         const byId = new Map(reorderableFolders.map((folder) => [folder.id, folder]));
         const optimisticFolders = [
           ...uniqueIds.map((folderId) => byId.get(folderId)!),
@@ -3200,25 +3221,36 @@ export const createTelegramStore = (
         });
         try {
           await transport.reorderChatFolders(uniqueIds);
-          const confirmedIds = get().folders
+          if (!isCurrent()) return false;
+          const confirmedIds = (reorder.serverFolders ?? get().folders)
             .filter((folder) => folder.id !== "archive")
             .map((folder) => folder.id);
-          if (!uniqueIds.every((folderId, index) => folderId === confirmedIds[index])) {
+          if (confirmedIds.length !== uniqueIds.length || !uniqueIds.every((folderId, index) => folderId === confirmedIds[index])) {
             throw new Error(translate("Telegram 未确认文件夹顺序"));
           }
-          await flushCachedSnapshot();
-          return true;
+          pendingFolderReorder = undefined;
+          await flushCachedSnapshot().catch(() => {
+            if (isCurrent()) set({ cacheHealth: "invalid" });
+          });
+          return isCurrent();
         } catch (error) {
-          const latestIds = get().folders
+          if (!isCurrent()) return false;
+          const latestFolders = get().folders;
+          const latestIds = latestFolders
             .filter((folder) => folder.id !== "archive")
             .map((folder) => folder.id);
-          if (uniqueIds.every((folderId, index) => folderId === latestIds[index])) {
-            set({ folders: originalFolders });
+          if (reorder.serverFolders) {
+            set({ folders: reorder.serverFolders });
+          } else if (latestIds.length === uniqueIds.length && uniqueIds.every((folderId, index) => folderId === latestIds[index])) {
+            const latestById = new Map(latestFolders.map((folder) => [folder.id, folder]));
+            set({ folders: originalIds.flatMap((id) => latestById.has(id) ? [latestById.get(id)!] : []) });
           }
           set({ operationError: errorMessage(error, translate("无法调整文件夹顺序")) });
+          scheduleCacheWrite();
           return false;
         } finally {
-          set({ folderManagementPending: false });
+          if (pendingFolderReorder === reorder) pendingFolderReorder = undefined;
+          if (isCurrent()) set({ folderManagementPending: false });
         }
       },
       setChatFolderMembership: async (folderId, chatId, included) => Boolean(

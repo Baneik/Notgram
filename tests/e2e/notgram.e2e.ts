@@ -10762,7 +10762,9 @@ test("conversation list keeps an independent scroll position for each folder", a
 
 test("folder manager creates, edits, and deletes confirmed server folders", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "管理文件夹" }).click();
+  await page.getByRole("button", { name: "工作", exact: true }).click({ button: "right" });
+  await page.getByRole("menu", { name: "分组操作：工作" })
+    .getByRole("menuitem", { name: "编辑文件夹" }).click();
   const dialog = page.getByRole("dialog", { name: "聊天文件夹" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "关闭" })).toBeFocused();

@@ -4201,6 +4201,125 @@ describe("chat filtering", () => {
     expect(failingStore.getState().operationError).toBe("文件夹排序同步失败");
   });
 
+  it.each([false, true])("keeps the optimistic folder order through metadata updates (failure: %s)", async (failure) => {
+    let release: () => void = () => undefined;
+    class DeferredReorderTransport extends MockTelegramTransport {
+      override async reorderChatFolders(ids: string[]) {
+        await new Promise<void>((resolve) => { release = resolve; });
+        if (failure) throw new Error("reorder failed");
+        await super.reorderChatFolders(ids);
+      }
+    }
+    const transport = new DeferredReorderTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const reordering = store.getState().reorderChatFolders(["folder:work", "main"]);
+    await transport.renameChatFolder("folder:work", "Updated");
+    expect(store.getState().folders.map((folder) => folder.id)).toEqual(["folder:work", "main", "archive"]);
+    expect(store.getState().folders.find((folder) => folder.id === "folder:work")?.title).toBe("Updated");
+    await expect(store.getState().reorderChatFolders(["main", "folder:work"])).resolves.toBe(false);
+    release();
+    await expect(reordering).resolves.toBe(!failure);
+    expect(store.getState().folders.map((folder) => folder.id)).toEqual(failure
+      ? ["main", "folder:work", "archive"] : ["folder:work", "main", "archive"]);
+    expect(store.getState().folders.find((folder) => folder.id === "folder:work")?.title).toBe("Updated");
+    expect(store.getState().folderManagementPending).toBe(false);
+  });
+
+  it("does not restore deleted folders when a pending reorder fails", async () => {
+    let release: () => void = () => undefined;
+    class DeferredReorderTransport extends MockTelegramTransport {
+      override async reorderChatFolders() {
+        await new Promise<void>((resolve) => { release = resolve; });
+        throw new Error("reorder failed");
+      }
+    }
+    const transport = new DeferredReorderTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const reordering = store.getState().reorderChatFolders(["folder:work", "main"]);
+    await transport.deleteChatFolder("folder:work");
+    release();
+    await expect(reordering).resolves.toBe(false);
+    expect(store.getState().folders.map((folder) => folder.id)).toEqual(["main", "archive"]);
+  });
+
+  it.each([false, true])("ignores a previous account's reorder completion (failure: %s)", async (failure) => {
+    let release: () => void = () => undefined;
+    class DeferredReorderTransport extends MockTelegramTransport {
+      override async reorderChatFolders() {
+        await new Promise<void>((resolve) => { release = resolve; });
+        if (failure) throw new Error("old account failure");
+      }
+    }
+    const store = createTelegramStore(new DeferredReorderTransport());
+    await store.getState().initialize();
+    const reordering = store.getState().reorderChatFolders(["folder:work", "main"]);
+    await expect(store.getState().switchAccount("account-secondary")).resolves.toBe(true);
+    const folders = store.getState().folders.map((folder) => ({ ...folder, title: `New ${folder.title}` }));
+    store.setState({ folders, folderManagementPending: true, operationError: "new operation" });
+    release();
+    await expect(reordering).resolves.toBe(false);
+    expect(store.getState().folders).toEqual(folders);
+    expect(store.getState().folderManagementPending).toBe(true);
+    expect(store.getState().operationError).toBe("new operation");
+  });
+
+  it("keeps a server-confirmed folder order if writing the local snapshot fails", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    vi.spyOn(transport, "saveCachedSnapshot").mockRejectedValue(new Error("disk unavailable"));
+    await expect(store.getState().reorderChatFolders(["folder:work", "main"])).resolves.toBe(true);
+    expect(store.getState().folders.map((folder) => folder.id)).toEqual(["folder:work", "main", "archive"]);
+    expect(store.getState().cacheHealth).toBe("invalid");
+    expect(store.getState().operationError).toBeUndefined();
+    expect(store.getState().folderManagementPending).toBe(false);
+  });
+
+  it("rejects incomplete or duplicate folder orders without starting synchronization", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const reorder = vi.spyOn(transport, "reorderChatFolders");
+    for (const ids of [["main"], ["folder:work", "main", "main"], ["main", "archive"], ["main", "missing"]]) {
+      await expect(store.getState().reorderChatFolders(ids)).resolves.toBe(false);
+    }
+    expect(reorder).not.toHaveBeenCalled();
+    expect(store.getState().folderManagementPending).toBe(false);
+  });
+
+  it("replaces a cached optimistic folder order after rollback", async () => {
+    vi.useFakeTimers();
+    try {
+      let release: () => void = () => undefined;
+      class DeferredReorderTransport extends MockTelegramTransport {
+        savedSnapshot?: CachedTelegramSnapshot;
+        override async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
+          this.savedSnapshot = structuredClone(snapshot);
+        }
+        override async reorderChatFolders() {
+          await new Promise<void>((resolve) => { release = resolve; });
+          throw new Error("reorder failed");
+        }
+      }
+      const transport = new DeferredReorderTransport();
+      const store = createTelegramStore(transport);
+      await store.getState().initialize();
+      const reordering = store.getState().reorderChatFolders(["folder:work", "main"]);
+      await transport.renameChatFolder("folder:work", "Updated");
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(transport.savedSnapshot?.folders.map((folder) => folder.id)).toEqual(["folder:work", "main", "archive"]);
+      release();
+      await expect(reordering).resolves.toBe(false);
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(transport.savedSnapshot?.folders.map((folder) => folder.id)).toEqual(["main", "folder:work", "archive"]);
+      expect(transport.savedSnapshot?.folders.find((folder) => folder.id === "folder:work")?.title).toBe("Updated");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("marks every unread chat in a folder as read", async () => {
     const store = createTelegramStore(new MockTelegramTransport());
     await store.getState().initialize();

@@ -1929,6 +1929,31 @@ describe("TauriTelegramTransport startup", () => {
     expect(folderOrders.at(-1)).toEqual(["folder:13", "main", "folder:12", "archive"]);
   });
 
+  it.each(["created", "deleted"])("preserves folders %s during an in-flight reorder", async (change) => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const orders: string[][] = [];
+    internal.listener = (event) => {
+      if (event.type === "folders.replaced") orders.push(event.folders.map((folder) => folder.id));
+    };
+    internal.handleUpdate({
+      "@type": "updateChatFolders",
+      chat_folders: [rawFolderInfo(12, "Work"), rawFolderInfo(13, "Personal")],
+      main_chat_list_position: 0,
+    });
+    let release: (value: TdObject) => void = () => undefined;
+    internal.request = () => new Promise((resolve) => { release = resolve; });
+    const reordering = transport.reorderChatFolders(["folder:13", "main", "folder:12"]);
+    const next = change === "created"
+      ? [rawFolderInfo(12, "Work"), rawFolderInfo(13, "Personal"), rawFolderInfo(14, "New")]
+      : [rawFolderInfo(12, "Work")];
+    internal.handleUpdate({ "@type": "updateChatFolders", chat_folders: next, main_chat_list_position: 0 });
+    const expected = ["main", ...next.map((folder) => `folder:${folder.id}`), "archive"];
+    release({ "@type": "ok" });
+    await expect(reordering).resolves.toBeUndefined();
+    expect(orders.at(-1)).toEqual(expected);
+  });
+
   it("preserves folder rules while removing a chat and safely refreshes folder deletion", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

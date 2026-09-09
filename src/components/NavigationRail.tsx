@@ -7,7 +7,6 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
-  type PointerEvent,
 } from "react";
 import type { ChatFilter } from "../store/telegramStore";
 import type { Chat, ChatFolder, TelegramAccount, User } from "../telegram/types";
@@ -17,6 +16,7 @@ import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { FolderContextMenu } from "./SidebarContextMenus";
 import { MotionPresence } from "./MotionPresence";
 import { useFlipListMotion } from "../hooks/useFlipListMotion";
+import { useFolderReorder } from "../hooks/useFolderReorder";
 
 interface NavigationRailProps {
   filter: ChatFilter;
@@ -36,18 +36,6 @@ interface NavigationRailProps {
   onAddAccount: () => Promise<boolean>;
   onSwitchAccount: (accountId: string) => Promise<boolean>;
 }
-
-const reorderFolderIds = (
-  folders: Array<{ id: string }>,
-  draggedId: string,
-  target: { folderId: string; edge: "before" | "after" },
-) => {
-  const reordered = folders.map((folder) => folder.id).filter((id) => id !== draggedId);
-  const targetIndex = reordered.indexOf(target.folderId);
-  if (targetIndex < 0) return reordered;
-  reordered.splice(targetIndex + (target.edge === "after" ? 1 : 0), 0, draggedId);
-  return reordered;
-};
 
 export function NavigationRail({
   folders,
@@ -80,37 +68,24 @@ export function NavigationRail({
   const closeAccountMenu = useCallback(() => setAccountMenu(undefined), []);
   const accountSwitcherRef = useRef<HTMLDivElement>(null);
   const railActionsRef = useRef<HTMLDivElement>(null);
-  const [draggedFolderId, setDraggedFolderId] = useState<string>();
-  const [dragPreviewOrder, setDragPreviewOrder] = useState<string[]>();
-  const dragPreviewOrderRef = useRef<string[] | undefined>(undefined);
-  const [folderDropTarget, setFolderDropTarget] = useState<{
-    folderId: string;
-    edge: "before" | "after";
-  }>();
-  const folderDragRef = useRef<{
-    pointerId: number;
-    folderId: string;
-    startX: number;
-    startY: number;
-    moved: boolean;
-    element: HTMLButtonElement;
-  } | undefined>(undefined);
-  const folderDropTargetRef = useRef<typeof folderDropTarget>(undefined);
-  const suppressNextFolderClickRef = useRef(false);
   const reorderableFolders = folders.filter((folder) => folder.id !== "archive");
-  const displayFolders = dragPreviewOrder
-    ? dragPreviewOrder.map((id) => reorderableFolders.find((folder) => folder.id === id)).filter((folder): folder is typeof reorderableFolders[number] => Boolean(folder))
+  const folderDrag = useFolderReorder({
+    containerRef: railActionsRef,
+    folderIds: reorderableFolders.map((folder) => folder.id),
+    disabled: folderManagementPending || accountPending,
+    accountId: activeAccountId,
+    onReorder: onReorderFolders,
+  });
+  const byId = new Map(reorderableFolders.map((folder) => [folder.id, folder]));
+  const displayFolders = folderDrag.preview
+    ? folderDrag.preview.order.map((id) => byId.get(id)).filter((folder): folder is ChatFolder => Boolean(folder))
     : reorderableFolders;
   useFlipListMotion({
     containerRef: railActionsRef,
     itemSelector: ".rail-button[data-motion-key]",
     dependencies: [displayFolders.map((folder) => folder.id).join(",")],
+    resetKey: activeAccountId,
   });
-  const reorderableFoldersRef = useRef(reorderableFolders);
-  const onReorderFoldersRef = useRef(onReorderFolders);
-  reorderableFoldersRef.current = reorderableFolders;
-  dragPreviewOrderRef.current = dragPreviewOrder;
-  onReorderFoldersRef.current = onReorderFolders;
   const contextFolder = contextMenu
     ? folders.find((folder) => folder.id === contextMenu.folderId)
     : undefined;
@@ -122,12 +97,14 @@ export function NavigationRail({
     point: ContextMenuPoint,
     anchor: HTMLButtonElement,
     keyboardNavigation = false,
-  ) => setContextMenu({ folderId, point, anchor, keyboardNavigation });
+  ) => {
+    folderDrag.cancel();
+    setContextMenu({ folderId, point, anchor, keyboardNavigation });
+  };
 
   const openAccountMenu = (anchor: HTMLButtonElement) => {
     setContextMenu(undefined);
-    dragPreviewOrderRef.current = undefined;
-    setDragPreviewOrder(undefined);
+    folderDrag.cancel();
     setAccountMenu((current) => current ? undefined : { anchor });
   };
 
@@ -157,11 +134,6 @@ export function NavigationRail({
     if (!accountPending) return;
     closeContextMenu();
     closeAccountMenu();
-    setDraggedFolderId(undefined);
-    dragPreviewOrderRef.current = undefined;
-    setDragPreviewOrder(undefined);
-    folderDropTargetRef.current = undefined;
-    setFolderDropTarget(undefined);
   }, [accountPending, closeAccountMenu, closeContextMenu]);
 
   const openFromKeyboard = (
@@ -178,102 +150,6 @@ export function NavigationRail({
       true,
     );
   };
-
-  const setDropTarget = useCallback((target: typeof folderDropTarget) => {
-    const current = folderDropTargetRef.current;
-    if (current?.folderId === target?.folderId && current?.edge === target?.edge) return;
-    folderDropTargetRef.current = target;
-    setFolderDropTarget(target);
-  }, []);
-
-  const beginFolderDrag = useCallback((
-    event: PointerEvent<HTMLButtonElement>,
-    folderId: string,
-  ) => {
-    if (event.button !== 0 || folderManagementPending || reorderableFoldersRef.current.length < 2) {
-      return;
-    }
-    setContextMenu(undefined);
-    folderDragRef.current = {
-      pointerId: event.pointerId,
-      folderId,
-      startX: event.clientX,
-      startY: event.clientY,
-      moved: false,
-      element: event.currentTarget,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }, [folderManagementPending]);
-
-  const moveFolderDrag = useCallback((event: PointerEvent<HTMLButtonElement>) => {
-    const drag = folderDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    if (!drag.moved) {
-      const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
-      if (distance < 6) return;
-      drag.moved = true;
-      setDraggedFolderId(drag.folderId);
-    }
-    event.preventDefault();
-
-    const button = document.elementFromPoint(event.clientX, event.clientY)
-      ?.closest<HTMLButtonElement>(".rail-button[data-folder-id]");
-    const folderId = button?.dataset.folderId;
-    if (!button || !folderId || folderId === drag.folderId) {
-      setDropTarget(undefined);
-      return;
-    }
-    const bounds = button.getBoundingClientRect();
-    const horizontal = window.matchMedia("(max-width: 720px)").matches;
-    const pointerPosition = horizontal ? event.clientX : event.clientY;
-    const midpoint = horizontal
-      ? bounds.left + bounds.width / 2
-      : bounds.top + bounds.height / 2;
-    setDropTarget({ folderId, edge: pointerPosition < midpoint ? "before" : "after" });
-    const nextPreview = reorderFolderIds(reorderableFoldersRef.current, drag.folderId, { folderId, edge: pointerPosition < midpoint ? "before" : "after" });
-    if (nextPreview.join(",") !== (dragPreviewOrderRef.current ?? reorderableFoldersRef.current.map((folder) => folder.id)).join(",")) {
-      dragPreviewOrderRef.current = nextPreview;
-      setDragPreviewOrder(nextPreview);
-    }
-  }, [setDropTarget]);
-
-  const finishFolderDrag = useCallback((
-    event: PointerEvent<HTMLButtonElement>,
-    cancelled = false,
-  ) => {
-    const drag = folderDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const target = folderDropTargetRef.current;
-    folderDragRef.current = undefined;
-
-    if (drag.moved) {
-      event.preventDefault();
-      suppressNextFolderClickRef.current = true;
-      globalThis.setTimeout(() => { suppressNextFolderClickRef.current = false; }, 0);
-      if (!cancelled && target) {
-        const reordered = dragPreviewOrderRef.current ?? reorderFolderIds(reorderableFoldersRef.current, drag.folderId, target);
-        onReorderFoldersRef.current(reordered);
-      }
-    }
-
-    if (drag.element.hasPointerCapture(event.pointerId)) {
-      drag.element.releasePointerCapture(event.pointerId);
-    }
-    setDraggedFolderId(undefined);
-    dragPreviewOrderRef.current = undefined;
-    setDragPreviewOrder(undefined);
-    setDropTarget(undefined);
-  }, [setDropTarget]);
-
-  const cancelFolderDrag = useCallback(
-    (event: PointerEvent<HTMLButtonElement>) => finishFolderDrag(event, true),
-    [finishFolderDrag],
-  );
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("is-reordering-folders", Boolean(draggedFolderId));
-    return () => document.documentElement.classList.remove("is-reordering-folders");
-  }, [draggedFolderId]);
 
   return (
     <>
@@ -311,26 +187,26 @@ export function NavigationRail({
           />
         </MotionPresence>
       </div>
-      <div ref={railActionsRef} className="rail-actions">
+      <div ref={railActionsRef} className="rail-actions" onClickCapture={folderDrag.suppressClick}>
         {displayFolders.map((folder) => (
           <button
-            className={`rail-button ${!folderManagementPending && reorderableFolders.length > 1 ? "is-folder-draggable" : ""} ${filter === folder.id ? "is-active" : ""} ${draggedFolderId === folder.id ? "is-dragging" : ""} ${folderDropTarget?.folderId === folder.id ? `drop-${folderDropTarget.edge}` : ""}`}
+            className={`rail-button ${!folderManagementPending && !accountPending && reorderableFolders.length > 1 ? "is-folder-draggable" : ""} ${filter === folder.id ? "is-active" : ""} ${folderDrag.preview?.folderId === folder.id ? "is-dragging" : ""}`}
             data-folder-id={folder.id}
             data-motion-key={folder.id}
             key={folder.id}
             type="button" aria-label={folder.title} aria-pressed={filter === folder.id} title={folder.title}
             onClick={() => {
-              if (!suppressNextFolderClickRef.current) onFilterChange(folder.id);
+              onFilterChange(folder.id);
             }}
             onContextMenu={(event: MouseEvent<HTMLButtonElement>) => {
               event.preventDefault();
               openContextMenu(folder.id, { x: event.clientX, y: event.clientY }, event.currentTarget);
             }}
             onKeyDown={(event) => openFromKeyboard(event, folder.id)}
-            onPointerDown={(event) => beginFolderDrag(event, folder.id)}
-            onPointerMove={moveFolderDrag}
-            onPointerUp={finishFolderDrag}
-            onPointerCancel={cancelFolderDrag}>
+            onPointerDown={(event) => {
+              setContextMenu(undefined);
+              folderDrag.begin(event, folder.id);
+            }}>
             <span className="rail-icon"><FolderIcon name={folder.iconName} /></span><span>{folder.title}</span>
           </button>
         ))}

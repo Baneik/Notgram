@@ -1769,6 +1769,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
 
     const infoById = new Map(this.rawFolderInfos.map((info) => [tdNumber(info.id), info]));
+    // A concurrent folder creation/deletion supersedes the submitted membership set.
+    // Do not drop new folders or reinsert deleted folders when the request completes.
+    if (infoById.size !== customFolderIds.length || customFolderIds.some((id) => !infoById.has(id))) return;
     this.rawFolderInfos = customFolderIds.map((folderId) => infoById.get(folderId)!);
     this.mainChatListPosition = mainChatListPosition;
     this.emitFolders();
