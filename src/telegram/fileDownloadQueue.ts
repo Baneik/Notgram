@@ -156,7 +156,12 @@ export class FileDownloadQueue {
         limit: 0,
         synchronous: false,
       });
+      // A completion update or cancellation may have retired this request while
+      // TDLib was processing it. Do not let its late response resurrect stale
+      // media state or affect a newer retry for the same file.
+      if (this.active.get(download.fileId) !== download) return;
       this.onFile(file);
+      if (this.active.get(download.fileId) !== download) return;
       const local = asTdObject(file.local);
       if (local?.is_downloading_completed === true) {
         this.finish(download.fileId);
@@ -167,6 +172,7 @@ export class FileDownloadQueue {
         );
       }
     } catch (error) {
+      if (this.active.get(download.fileId) !== download) return;
       this.finish(
         download.fileId,
         error instanceof Error ? error : new Error(String(error)),

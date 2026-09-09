@@ -3,6 +3,44 @@ import { FileDownloadQueue } from "./fileDownloadQueue";
 import type { TdObject } from "./tdlibMapper";
 
 describe("FileDownloadQueue cancellation", () => {
+  it("does not publish a late download response after a completion update", async () => {
+    let respond!: (file: TdObject) => void;
+    const onFile = vi.fn();
+    const queue = new FileDownloadQueue(
+      () => new Promise<TdObject>((resolve) => { respond = resolve; }),
+      onFile,
+    );
+    const download = queue.cache(8);
+    queue.handleFile(8, true, false, 1_024);
+    await download;
+
+    respond({ "@type": "file", id: 8, local: { is_downloading_active: true, is_downloading_completed: false } });
+    await Promise.resolve();
+
+    expect(onFile).not.toHaveBeenCalled();
+    expect(queue.get(8)).toBeUndefined();
+  });
+
+  it("does not let a cancelled request's late failure reject its retry", async () => {
+    let fail!: (error: Error) => void;
+    const request = vi.fn()
+      .mockImplementationOnce(() => new Promise<TdObject>((_resolve, reject) => { fail = reject; }))
+      .mockResolvedValue({ "@type": "file", id: 8, local: { is_downloading_active: true } });
+    const queue = new FileDownloadQueue(request, () => undefined);
+    const cancelled = queue.cache(8).catch(() => undefined);
+    queue.cancel(8);
+    await cancelled;
+    const retry = queue.cache(8);
+    const result = retry.catch((error: unknown) => error);
+    await Promise.resolve();
+
+    fail(new Error("old request failed"));
+    await Promise.resolve();
+    expect(queue.get(8)).toBe(retry);
+    queue.handleFile(8, true, false, 1_024);
+    await expect(result).resolves.toBeUndefined();
+  });
+
   it("removes a queued download before TDLib receives it", async () => {
     const request = vi.fn((_request: TdObject) => new Promise<TdObject>(() => undefined));
     const queue = new FileDownloadQueue(request, () => undefined);

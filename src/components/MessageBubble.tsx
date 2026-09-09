@@ -480,6 +480,16 @@ function MessageBubbleComponent({
   const transferProgress = content.kind === "file" || content.kind === "media"
     ? content.progress ?? 0
     : 0;
+  // Sticker outlines are the intentional loading surface. Keep download UI
+  // out of that surface, and treat a decoded full sticker as downloaded even
+  // when TDLib's final file update arrives a render later.
+  const stickerVisualPending = isSticker && (
+    !activeMediaSource || readyStickerSource !== activeMediaSource
+  );
+  const stickerFullReady = isSticker && Boolean(
+    usableFullMediaSource && readyStickerSource === usableFullMediaSource,
+  );
+  const hideStickerDownloadControls = stickerVisualPending || stickerFullReady;
   const downloadFileId = content.kind === "file" || content.kind === "media"
     ? content.fileId
     : undefined;
@@ -490,13 +500,15 @@ function MessageBubbleComponent({
     downloadFileId !== undefined &&
     content.canDownload !== false &&
     !content.isDownloaded &&
-    !content.isDownloading;
+    !content.isDownloading &&
+    !hideStickerDownloadControls;
   const canCancelUpload = (content.kind === "file" || content.kind === "media") &&
     content.isUploading === true;
   const canCancelDownload = (content.kind === "file" || content.kind === "media") &&
     downloadFileId !== undefined && content.isDownloading === true;
   const renderMediaTransferProgress = () => content.kind === "media" &&
-    (content.isDownloading || content.isUploading) ? (
+    (content.isDownloading || content.isUploading) &&
+    (!hideStickerDownloadControls || content.isUploading === true) ? (
       <span
         className="media-progress"
         role="progressbar"

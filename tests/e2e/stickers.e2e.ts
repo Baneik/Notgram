@@ -3,7 +3,7 @@ import { gzipSync } from "node:zlib";
 import type { EmojiPickerAsset, EmojiPickerCatalog, Message, StickerSet } from "../../src/telegram/types";
 
 type StoreModule = typeof import("../../src/store/telegramStore");
-type Audit = { loads: number[]; recovered: boolean; downloads: number; searches: string[]; finishSearch?: (assets: EmojiPickerAsset[] | undefined) => void };
+type Audit = { loads: number[]; recovered: boolean; searches: string[]; finishSearch?: (assets: EmojiPickerAsset[] | undefined) => void };
 const storePath = "/src/store/telegramStore.ts";
 const outline = "M40 180C40 70 120 20 256 20C392 20 472 70 472 180L472 332C472 442 392 492 256 492C120 492 40 442 40 332Z";
 const ready = async (page: Page) => {
@@ -12,7 +12,7 @@ const ready = async (page: Page) => {
 };
 const picker = (page: Page) => page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
 
-test("unloaded stickers show their outline and download controls remain clickable", async ({ page }, testInfo) => {
+test("unloaded stickers show their outline without download controls", async ({ page }, testInfo) => {
   await ready(page);
   await page.evaluate(async ({ storePath, outline }) => {
     const { telegramStore } = await import(storePath) as StoreModule;
@@ -23,7 +23,7 @@ test("unloaded stickers show their outline and download controls remain clickabl
     const catalog = (await current.loadEmojiPicker())!;
     const chatId = current.activeChatId!;
     const messages = current.messages.get(chatId)!;
-    const audit: Audit = { loads: [], recovered: false, downloads: 0, searches: [] };
+    const audit: Audit = { loads: [], recovered: false, searches: [] };
     Object.assign(globalThis, { stickerAudit: audit });
     const sticker: Message = { ...messages.at(-1)!, id: "outline-download", sentAt: new Date().toISOString(), content: {
       kind: "media", mediaType: "sticker", fileId: 99001, stickerSetId: catalog.stickerSets[0].id,
@@ -32,7 +32,6 @@ test("unloaded stickers show their outline and download controls remain clickabl
     } };
     telegramStore.setState({ messages: new Map(current.messages).set(chatId, [...messages, sticker]),
       getCachedStickerOutline: () => outline, loadStickerOutline: async () => outline,
-      downloadFile: async () => { audit.downloads++; },
     });
   }, { storePath, outline });
   const row = page.locator('[data-message-id="outline-download"]');
@@ -41,18 +40,40 @@ test("unloaded stickers show their outline and download controls remain clickabl
   await expect(row.locator(".sticker-outline")).toHaveAttribute("viewBox", "0 0 512 512");
   await expect(row.locator(".photo-placeholder")).toHaveCount(0);
   await row.screenshot({ path: testInfo.outputPath("sticker-outline.png") });
-  await row.getByRole("button", { name: "下载 test.webp" }).click();
-  await expect.poll(() => page.evaluate(() => (globalThis as typeof globalThis & { stickerAudit: Audit }).stickerAudit.downloads)).toBe(1);
+  await expect(row.getByRole("button", { name: "下载 test.webp" })).toHaveCount(0);
+  await expect(row.locator(".media-progress")).toHaveCount(0);
   await expect(page.locator(".sticker-set-dialog")).toHaveCount(0);
   await row.getByRole("button", { name: "查看贴纸包" }).click({ position: { x: 8, y: 8 } });
   await expect(page.locator(".sticker-set-dialog")).toBeVisible();
+});
+
+test("a decoded sticker does not retain a stale download button", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath) as StoreModule;
+    const current = telegramStore.getState();
+    const chatId = current.activeChatId!;
+    const messages = current.messages.get(chatId)!;
+    const sticker: Message = { ...messages.at(-1)!, id: "decoded-stale-download", sentAt: new Date().toISOString(), content: {
+      kind: "media", mediaType: "sticker", fileId: 99006,
+      fileName: "decoded.webp", mimeType: "image/webp", size: 1024, sizeLabel: "1 KB", width: 512, height: 512,
+      localPath: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      canDownload: true, isDownloaded: false, isDownloading: false,
+    } };
+    telegramStore.setState({ messages: new Map(current.messages).set(chatId, [...messages, sticker]) });
+  }, storePath);
+  const row = page.locator('[data-message-id="decoded-stale-download"]');
+  await row.scrollIntoViewIfNeeded();
+  await expect(row.locator('img[data-image-state="ready"]')).toBeVisible();
+  await expect(row.getByRole("button", { name: "下载 decoded.webp" })).toHaveCount(0);
+  await expect(row.locator(".media-progress")).toHaveCount(0);
 });
 
 test("a transient asset failure recovers in the same open picker", async ({ page }) => {
   await ready(page);
   await page.evaluate(async ({ storePath, outline }) => {
     const { telegramStore } = await import(storePath) as StoreModule;
-    const audit: Audit = { loads: [], recovered: false, downloads: 0, searches: [] };
+    const audit: Audit = { loads: [], recovered: false, searches: [] };
     Object.assign(globalThis, { stickerAudit: audit });
     const asset: EmojiPickerAsset = { id: "retry-asset", kind: "sticker", fileId: 99002, fileName: "test.webp", mimeType: "image/webp", width: 512, height: 512 };
     const catalog: EmojiPickerCatalog = { recentStickers: [asset], stickerSets: [], savedAnimations: [] };
@@ -79,7 +100,7 @@ test("new searches hide old sendable results and distinguish failure from empty 
     const { telegramStore } = await import(storePath) as StoreModule;
     const catalog = (await telegramStore.getState().loadEmojiPicker())!;
     const asset = { ...catalog.recentStickers[0], emoji: "OLD" };
-    const audit: Audit = { loads: [], recovered: false, downloads: 0, searches: [] };
+    const audit: Audit = { loads: [], recovered: false, searches: [] };
     Object.assign(globalThis, { stickerAudit: audit });
     telegramStore.setState({ searchStickers: async (query) => {
       audit.searches.push(query);
@@ -149,7 +170,7 @@ test("static pack tiles use thumbnails, and the selected TGS preview replaces it
     const asset: EmojiPickerAsset = { id: "tgs-test", kind: "sticker", fileId: 99003, previewFileId: 99004, fileName: "test.tgs", mimeType: "application/x-tgsticker", previewMimeType: "image/jpeg", width: 512, height: 512 };
     const pack: StickerSet = { id: "tgs-pack", name: "tgs_pack", title: "TGS preview", size: 1, covers: [asset], stickers: [asset], isInstalled: false };
     const catalog: EmojiPickerCatalog = { recentStickers: [asset], stickerSets: [pack], savedAnimations: [] };
-    const audit: Audit = { loads: [], recovered: false, downloads: 0, searches: [] };
+    const audit: Audit = { loads: [], recovered: false, searches: [] };
     Object.assign(globalThis, { stickerAudit: audit });
     telegramStore.setState({ getCachedEmojiPicker: () => catalog, loadEmojiPicker: async () => catalog,
       getCachedStickerSet: () => pack, loadStickerSet: async () => pack, getCachedEmojiAsset: () => undefined,
