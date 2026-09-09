@@ -161,10 +161,10 @@ const canArchiveDeletedMessage = (message: Message | undefined) => Boolean(
   message && !message.outgoing && !message.isLocallyDeleted && messageCanBeSaved(message),
 );
 
-const photoFileIdForArchive = (message: Message) =>
+const archiveMediaFileId = (message: Message) =>
   !message.outgoing &&
   message.content.kind === "media" &&
-  message.content.mediaType === "photo" &&
+  (message.content.mediaType === "photo" || message.content.mediaType === "sticker") &&
   message.content.fileId !== undefined &&
   message.content.canDownload !== false
     ? message.content.fileId
@@ -1760,10 +1760,11 @@ export const createTelegramStore = (
       }, delayMs));
     };
 
-    const maybeAutoCacheArchivePhoto = (message: Message) => {
+    const maybeAutoCacheArchiveMedia = (message: Message) => {
       if (!preferencesStore.getState().deletedMessageArchiveEnabled) return;
-      const fileId = photoFileIdForArchive(message);
-      const content = message.content.kind === "media" && message.content.mediaType === "photo"
+      const fileId = archiveMediaFileId(message);
+      const content = message.content.kind === "media" &&
+        (message.content.mediaType === "photo" || message.content.mediaType === "sticker")
         ? message.content
         : undefined;
       if (fileId !== undefined && content && !content.isDownloaded) {
@@ -1787,7 +1788,7 @@ export const createTelegramStore = (
         }
         set({ messages });
         publishMessageChange({ type: "upsert", messages: updated, liveMessages: [] });
-        for (const message of updated) maybeAutoCacheArchivePhoto(message);
+        for (const message of updated) maybeAutoCacheArchiveMedia(message);
         scheduleCacheWrite();
       },
     });
@@ -2093,7 +2094,7 @@ export const createTelegramStore = (
           messages.set(event.chatId, upsertMessage(messages.get(event.chatId) ?? [], archived));
           set({ messages, unreadAttentionMessageIds });
           publishMessageChange({ type: "upsert", messages: [archived], liveMessages: [] });
-          maybeAutoCacheArchivePhoto(archived);
+          maybeAutoCacheArchiveMedia(archived);
           void flushCachedSnapshot().catch(() => set({ cacheHealth: "invalid" }));
           return;
         }
@@ -2148,7 +2149,7 @@ export const createTelegramStore = (
         const incomingByChat = new Map<string, typeof event.messages>();
         let beforeCount = 0;
         for (const message of event.messages) {
-          maybeAutoCacheArchivePhoto(message);
+          maybeAutoCacheArchiveMedia(message);
           const chatMessages = incomingByChat.get(message.chatId) ?? [];
           chatMessages.push(message);
           incomingByChat.set(message.chatId, chatMessages);
@@ -2215,7 +2216,7 @@ export const createTelegramStore = (
 
       const messages = new Map(get().messages);
       const existingMessages = messages.get(event.message.chatId) ?? [];
-      maybeAutoCacheArchivePhoto(event.message);
+      maybeAutoCacheArchiveMedia(event.message);
       queueBlockedReactionReads([event.message]);
       const isNewLiveMessage = event.animateEntrance === true &&
         !existingMessages.some((message) => message.id === event.message.id);

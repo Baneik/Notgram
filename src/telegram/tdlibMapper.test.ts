@@ -24,6 +24,35 @@ describe("TDLib mapper", () => {
       thumbnailFileId: 778, thumbnailRemoteId: "thumb", thumbnailRemoteUniqueId: "thumb-unique" });
   });
 
+  it("preserves sticker and thumbnail file identities for retained-message recovery", () => {
+    const content = mapTdMessageContent({
+      "@type": "messageSticker",
+      sticker: {
+        "@type": "sticker",
+        id: "sticker-1",
+        emoji: "🙂",
+        width: 512,
+        height: 512,
+        format: { "@type": "stickerFormatTgs" },
+        sticker: { "@type": "file", id: 71, remote: { id: "sticker-remote", unique_id: "sticker-unique" } },
+        thumbnail: {
+          "@type": "thumbnail",
+          file: { "@type": "file", id: 72, remote: { id: "sticker-thumb-remote", unique_id: "sticker-thumb-unique" } },
+        },
+      },
+    });
+    expect(content).toMatchObject({
+      kind: "media",
+      mediaType: "sticker",
+      fileId: 71,
+      remoteId: "sticker-remote",
+      remoteUniqueId: "sticker-unique",
+      thumbnailFileId: 72,
+      thumbnailRemoteId: "sticker-thumb-remote",
+      thumbnailRemoteUniqueId: "sticker-thumb-unique",
+    });
+  });
+
   it.each([false, true])("keeps the video preview identity with its selected file (cover: %s)", cover => {
     const file = (id: number, remoteId: string) => ({ "@type": "file", id, remote: { id: remoteId, unique_id: `${remoteId}-unique` } });
     expect(mapTdMessageContent({ "@type": "messageVideo",

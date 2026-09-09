@@ -1199,7 +1199,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const sticker = asTdObject(content.sticker);
       const emoji = typeof sticker?.emoji === "string" ? sticker.emoji : "";
       return mediaContent("sticker", emoji || translate("贴纸"), sticker?.sticker, {
-        thumbnailPath: thumbnailPath(sticker?.thumbnail),
+        ...thumbnailDetails(sticker?.thumbnail),
         previewDataUrl: minithumbnailDataUrl(sticker?.minithumbnail),
         mimeType: tdStickerMimeType(sticker?.format),
         stickerSetId: tdStickerSetId(sticker?.set_id),

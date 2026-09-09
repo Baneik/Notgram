@@ -61,6 +61,32 @@ it("keeps a loaded photo preview and saves its local file after deletion and lat
   expect(cachedSnapshotFrom(store.getState()).locallyDeletedMessages?.[0].content).toMatchObject({ localPath: "C:/cache/photo.jpg" });
 });
 
+it("starts caching an undownloaded sticker before a remote permanent deletion", async () => {
+  const { store, transport, source, archive } = await fixture();
+  const cache = vi.spyOn(transport, "cacheFile");
+  const sticker: Message = {
+    ...source,
+    id: "retained-sticker",
+    content: {
+      kind: "media",
+      mediaType: "sticker",
+      fileName: "sticker.tgs",
+      sizeLabel: "12 KB",
+      fileId: 880,
+      canDownload: true,
+      isDownloaded: false,
+      isDownloading: false,
+      width: 512,
+      height: 512,
+      mimeType: "application/x-tgsticker",
+    },
+  };
+  archive(sticker);
+  expect(cache).toHaveBeenCalledWith(880, 48);
+  expect(store.getState().messages.get(sticker.chatId)?.find(message => message.id === sticker.id))
+    .toMatchObject({ isLocallyDeleted: true, content: { mediaType: "sticker", fileId: 880 } });
+});
+
 it("finishes a photo and thumbnail download after their server message has gone", async () => {
   const { store, transport, photo, archive } = await fixture();
   archive({ ...photo, content: { ...photo.content as Extract<Message["content"], { kind: "media" }>,
