@@ -4,6 +4,7 @@ import { useChannelDiscussionHistory } from "../hooks/useChannelDiscussionHistor
 import { DiscussionErrorBoundary } from "./DiscussionErrorBoundary";
 import { canPostToChannel } from "../telegram/chatManagement";
 import { MessageMetadata } from "./MessageMetadata";
+import { MessageTextFlow } from "./MessageTextFlow";
 import { translate } from "../i18n";
 import { retainedMessageQuote } from "../telegram/retainedMessages";
 import {
@@ -2633,7 +2634,7 @@ export function Conversation({
                             <ChevronRight size={15} strokeWidth={2} aria-hidden="true" />
                           </button>
                         ) : undefined;
-                    const renderBubble = (message: Message, albumItem = false) => {
+                    const renderBubble = (message: Message, albumItem = false, sharedAlbumMetadata = false) => {
                       const entrance = messageEntranceFor(message);
                       const gateEntranceAtBottom = message.id === appendMountMessageId || Boolean(
                         entrance && message.id === renderedMessages.at(-1)?.id,
@@ -2754,6 +2755,7 @@ export function Conversation({
                           />
                         ) : undefined}
                         albumItem={albumItem}
+                        sharedAlbumMetadata={sharedAlbumMetadata}
                         autoplayAnimations={autoplayAnimations}
                         autoDownloadPolicy={autoDownloadPolicy}
                         locallyConcealed={locallyConcealed}
@@ -2777,7 +2779,7 @@ export function Conversation({
                       !(captionBlock && revealedLocalBlockGroups.has(captionBlock.id)) &&
                       !revealedLocalBlockMessages.has(captionMessage.id);
                     const albumCaption = captionMessage && !captionConcealed ? (
-                      <div
+                      <MessageTextFlow
                         className="media-album-caption"
                         data-caption-message-id={captionMessage.id}
                         tabIndex={0}
@@ -2800,7 +2802,11 @@ export function Conversation({
                           onCollapseQuote={(collapse, pointerY, anchor) =>
                             collapseExpandedQuote(captionMessage.id, collapse, pointerY, anchor)}
                         />
-                      </div>
+                        {!isChannelConversation && (
+                          <MessageMetadata message={albumMetadataMessage}
+                            deliveryMessages={segment.messages} onRetry={onRetryMessage} />
+                        )}
+                      </MessageTextFlow>
                     ) : null;
                     return (
                       <div
@@ -2848,7 +2854,7 @@ export function Conversation({
                                     "--media-album-tile-weight": item.weight,
                                   } as CSSProperties}
                                 >
-                                  {renderBubble(item.message, true)}
+                                  {renderBubble(item.message, true, Boolean(albumCaption))}
                                 </div>
                               ))}
                             </div>

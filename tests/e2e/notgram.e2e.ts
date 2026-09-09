@@ -6122,7 +6122,7 @@ test("text message time releases reserved inline space when it wraps", async ({ 
     if (group) group.style.width = "648px";
   });
   await expect(longMessage.locator(".message-bubble")).toHaveClass(/has-wrapped-meta/);
-  await expect(longMessage.locator(".message-bubble")).toHaveCSS("padding-bottom", "2px");
+  await expect(longMessage.locator(".message-bubble")).toHaveCSS("padding-bottom", "0px");
   await expect(longMessage.locator(".message-meta")).toHaveCSS("float", "none");
   const releasedGeometry = await longMessage.locator(".message-bubble-shell").evaluate((shell) => {
     const text = shell.querySelector<HTMLElement>(".message-rich-text");
@@ -6322,7 +6322,7 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await expect.poll(() => sentAlbum.locator(".media-album-grid img").evaluateAll((images) =>
     new Set(images.map((image) => (image as HTMLImageElement).currentSrc)).size,
   )).toBe(2);
-  await expect(sentAlbum.locator(".media-album-caption")).toHaveText("粘贴图片说明");
+  await expect(sentAlbum.locator(".media-album-caption > .message-rich-text")).toHaveText("粘贴图片说明");
   await expect(sentAlbum.locator(".photo-caption")).toHaveCount(0);
   await expect(composer).toBeFocused();
 
@@ -8517,7 +8517,9 @@ test("album captions follow the sole owner, placement, and live content updates"
         telegramStore.setState({ messages });
       }, { ownerId, above });
       await expect(caption).toHaveAttribute("data-caption-message-id", ownerId);
-      await expect(caption).toHaveText("相册描述\n第二行完整显示");
+      await expect(caption.locator(".message-rich-text")).toHaveText("相册描述\n第二行完整显示");
+      await expect(caption.locator("time")).toBeVisible();
+      await expect(album.locator(".media-album-grid time")).toHaveCount(0);
       await expect(caption.locator("strong")).toHaveText("相册描述");
       await expect(album.locator(".photo-caption")).toHaveCount(0);
       const placement = await album.evaluate((element) => {
@@ -8580,7 +8582,9 @@ test("sent album captions can be edited, removed, and owned by a later item", as
   await composer.press("Enter");
   const album = page.locator(".media-album.is-outgoing").last();
   const caption = album.locator(".media-album-caption");
-  await expect(caption).toHaveText("整组说明");
+  await expect(caption.locator(".message-rich-text")).toHaveText("整组说明");
+  await expect(caption.locator("time")).toBeVisible();
+  await expect(caption.locator(".message-delivery-status")).toBeVisible();
   await caption.click({ button: "right" });
   await chooseMessageMenuItem(page, "编辑");
   await expect(composer).toHaveValue("整组说明");
@@ -8595,14 +8599,16 @@ test("sent album captions can be edited, removed, and owned by a later item", as
   await composer.fill("第二项承载的说明");
   await composer.press("Enter");
   await expect(caption).toHaveAttribute("data-caption-message-id", secondId!);
-  await expect(caption).toHaveText("第二项承载的说明");
+  await expect(caption.locator(".message-rich-text")).toHaveText("第二项承载的说明");
+  await expect(caption.locator("time")).toBeVisible();
+  await expect(album.locator(".media-album-grid time")).toHaveCount(0);
   await caption.focus();
   await caption.press("Shift+F10");
   await chooseMessageMenuItem(page, "编辑");
   await expect(composer).toHaveValue("第二项承载的说明");
   await composer.fill("修改后的整组说明");
   await composer.press("Enter");
-  await expect(caption).toHaveText("修改后的整组说明");
+  await expect(caption.locator(".message-rich-text")).toHaveText("修改后的整组说明");
   await expect(caption).toHaveAttribute("data-caption-message-id", secondId!);
   await expect(album.locator(".photo-caption")).toHaveCount(0);
 });

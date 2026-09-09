@@ -17,7 +17,6 @@ import {
   Fragment,
   memo,
   useCallback,
-  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -34,6 +33,7 @@ import type {
   User,
 } from "../telegram/types";
 import { MessageMetadata } from "./MessageMetadata";
+import { MessageTextFlow } from "./MessageTextFlow";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { TgsSticker } from "./TgsSticker";
@@ -63,7 +63,6 @@ import { InlineKeyboard } from "./InlineKeyboard";
 import type { CallbackQueryAnswer } from "../telegram/types";
 import { formatFileSize, isExecutableFile } from "../utils/fileTransfer";
 import { localMediaSource } from "../media/localMediaSource";
-import { observeLayout } from "../utils/layoutObservation";
 import { MediaSpoiler } from "./Spoiler";
 import { MessageReactions } from "./MessageReactions";
 import { writeClipboardText } from "../utils/clipboard";
@@ -71,7 +70,6 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { visibleMessageReactions } from "../utils/localBlockedReactions";
 
 const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
-const INLINE_META_LOWERING_PX = 2.5;
 
 export interface ReplyPreview {
   author: string;
@@ -155,6 +153,7 @@ export interface MessageBubbleProps {
   onOpenStickerSet?: (stickerSetId: string) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
+  sharedAlbumMetadata?: boolean;
   autoplayAnimations: boolean;
   autoDownloadPolicy: AutoDownloadPolicy;
   locallyConcealed?: boolean;
@@ -218,6 +217,7 @@ function MessageBubbleComponent({
   onOpenStickerSet,
   cornerAction,
   albumItem = false,
+  sharedAlbumMetadata = false,
   autoplayAnimations,
   autoDownloadPolicy,
   locallyConcealed = false,
@@ -241,9 +241,7 @@ function MessageBubbleComponent({
     height: number;
   }>();
 
-  const textFlowRef = useRef<HTMLDivElement>(null);
   const [metaWrapped, setMetaWrapped] = useState(false);
-  const [metaInlineOffset, setMetaInlineOffset] = useState(0);
   const content = message.content;
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const collapseQuote = useCallback(
@@ -348,96 +346,6 @@ function MessageBubbleComponent({
   const reactions = visibleMessageReactions(message, blockedReactionSenderIds);
   const showReactionFooter = !selectionMode && !isService && reactions.length > 0;
 
-  useLayoutEffect(() => {
-    const flow = textFlowRef.current;
-    const hasInlineCaption = isVisual && hasCaption;
-    if (channelPost || (content.kind !== "text" && !hasInlineCaption) || !flow) {
-      if (channelPost) {
-        setMetaWrapped(true);
-        setMetaInlineOffset(0);
-      }
-      return;
-    }
-
-    const measure = () => {
-      const text = flow.querySelector<HTMLElement>(".message-rich-text");
-      const meta = flow.querySelector<HTMLElement>(".message-meta");
-      if (!text) return;
-      const isWrappedLayout = Boolean(meta) && flow.classList.contains("is-meta-wrapped");
-      if (isWrappedLayout) flow.classList.remove("is-meta-wrapped");
-      try {
-        const range = document.createRange();
-        range.selectNodeContents(text);
-        const rects = [...range.getClientRects()]
-          .filter((rect) => rect.width > 0 && rect.height > 0)
-          .sort((left, right) => left.top - right.top || left.left - right.left);
-        const computed = getComputedStyle(text);
-        const parsedLineHeight = Number.parseFloat(computed.lineHeight);
-        const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
-          ? parsedLineHeight
-          : Number.parseFloat(computed.fontSize) * 1.48;
-
-        if (!meta) {
-          setMetaWrapped(false);
-          setMetaInlineOffset(0);
-          return;
-        }
-        if (text.querySelector(".rich-blockquote.is-collapsed")) {
-          setMetaWrapped(true);
-          setMetaInlineOffset(0);
-          return;
-        }
-        const lastLine = rects.at(-1);
-        if (!lastLine) return;
-        const metaBounds = meta.getBoundingClientRect();
-        const transform = getComputedStyle(meta).transform;
-        const translatedY = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
-        const wrapped = metaBounds.top - translatedY > lastLine.top + 4;
-        setMetaWrapped((current) => current === wrapped ? current : wrapped);
-        const inlineOffset = wrapped
-          ? 0
-          : lastLine.bottom - (metaBounds.bottom - translatedY) + INLINE_META_LOWERING_PX;
-        setMetaInlineOffset((current) => Math.abs(current - inlineOffset) < 0.25
-          ? current
-          : inlineOffset);
-      } finally {
-        if (isWrappedLayout) flow.classList.add("is-meta-wrapped");
-      }
-    };
-
-    measure();
-    const stopObservingFlow = observeLayout(flow, measure);
-    const bubbleShell = flow.closest<HTMLElement>(".message-bubble-shell");
-    const stopObservingBubbleShell = bubbleShell
-      ? observeLayout(bubbleShell, measure)
-      : undefined;
-    const layoutContainer = flow.closest<HTMLElement>(".message-group");
-    let containerWidth = layoutContainer?.getBoundingClientRect().width;
-    const measureWhenContainerWidthChanges = () => {
-      if (!layoutContainer) return;
-      const nextWidth = layoutContainer.getBoundingClientRect().width;
-      if (containerWidth !== undefined && Math.abs(nextWidth - containerWidth) <= 0.5) return;
-      containerWidth = nextWidth;
-      measure();
-    };
-    const stopObservingContainer = layoutContainer
-      ? observeLayout(layoutContainer, measureWhenContainerWidthChanges)
-      : undefined;
-    return () => {
-      stopObservingFlow();
-      stopObservingBubbleShell?.();
-      stopObservingContainer?.();
-    };
-  }, [
-    content,
-    channelPost,
-    hasCaption,
-    isVisual,
-    message.delivery,
-    message.editedAt,
-    message.sentAt,
-    showReactionFooter,
-  ]);
   const visualShellStyle = mediaLayout
     ? {
         "--visual-card-width": `${mediaLayout.width}px`,
@@ -676,10 +584,10 @@ function MessageBubbleComponent({
     message.permissions?.canForward === false ||
     (selectionLimitReached && !selected);
 
-  const messageMeta = isService ? null : albumItem && channelPost ? (
+  const messageMeta = isService ? null : albumItem && (channelPost || sharedAlbumMetadata) ? (
     (message.delivery === "failed" || message.delivery === "sending") ? (
       <span className="media-album-item-delivery">
-        <MessageDeliveryStatus messages={[message]} channelPost onRetry={onRetry} />
+        <MessageDeliveryStatus messages={[message]} channelPost={channelPost} onRetry={onRetry} />
       </span>
     ) : null
   ) : (
@@ -688,11 +596,7 @@ function MessageBubbleComponent({
   );
 
   const visualCaption = content.kind === "media" && hasCaption && content.caption ? (
-    <div
-      ref={textFlowRef}
-      className={`message-text-flow photo-caption-flow ${metaWrapped ? "is-meta-wrapped" : ""}`}
-      style={{ "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}
-    >
+    <MessageTextFlow className="photo-caption-flow" forceWrapped={channelPost}>
       <MessageRichText
         chatId={message.chatId}
         className="photo-caption"
@@ -704,7 +608,7 @@ function MessageBubbleComponent({
         onCollapseQuote={collapseQuote}
       />
       {!showReactionFooter && messageMeta}
-    </div>
+    </MessageTextFlow>
   ) : null;
 
   return (
@@ -815,12 +719,10 @@ function MessageBubbleComponent({
             </button>
           )}
           {content.kind === "text" ? (
-            <div
-              ref={textFlowRef}
-              className={`message-text-flow ${isLargeEmojiText(content.text) ? "is-large-emoji" : ""} ${metaWrapped ? "is-meta-wrapped" : ""}`}
-              style={{
-                "--message-meta-inline-offset": `${metaInlineOffset}px`,
-              } as CSSProperties}
+            <MessageTextFlow
+              className={isLargeEmojiText(content.text) ? "is-large-emoji" : ""}
+              forceWrapped={channelPost}
+              onWrapChange={setMetaWrapped}
             >
               <MessageRichText
                 chatId={message.chatId}
@@ -840,7 +742,7 @@ function MessageBubbleComponent({
                 )
               )}
               {!showReactionFooter && messageMeta}
-            </div>
+            </MessageTextFlow>
           ) : content.kind === "rich" ? (
             <RichMessageContent
               blocks={content.blocks}
