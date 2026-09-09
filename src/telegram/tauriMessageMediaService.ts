@@ -202,7 +202,7 @@ export interface TauriMessageMediaServiceContext {
   request: (request: TdObject) => Promise<TdObject>;
   rawMessages: Map<string, Map<string, TdObject>>;
   emitMessage: (raw?: TdObject, animateEntrance?: boolean) => void;
-  emitMessages: (rawMessages: TdObject[], notify?: boolean) => void;
+  emitMessages: (rawMessages: TdObject[], notify?: boolean) => Message[];
   mapMessage: (raw: TdObject) => Message | undefined;
   ensureReplyContent: (raw: TdObject) => void;
   patchMessage: (chatId: string, messageId: string, patch: TdObject) => void;
@@ -257,10 +257,7 @@ export class TauriMessageMediaService {
     const rawMessages = asTdObjects(result.messages);
     // The caller commits this navigation window after validating its request.
     // Publishing here would mutate the visible list before navigation owns it.
-    this.context.emitMessages(rawMessages, false);
-    return rawMessages
-      .map((raw) => this.context.mapMessage(raw))
-      .filter((message): message is Message => Boolean(message));
+    return this.context.emitMessages(rawMessages, false);
   }
 
   async getMessageThreadHistory(chatId: string, messageId: string, limit = 100, fromMessageId?: string) {
@@ -277,10 +274,7 @@ export class TauriMessageMediaService {
     const nextFromMessageId = tdId(rawMessages.at(-1)?.id);
     // A short page is valid; offset=0 includes the cursor itself on later pages.
     // The store owns publication after checking the current account.
-    this.context.emitMessages(rawMessages, false);
-    const messages = rawMessages
-      .map((raw) => this.context.mapMessage(raw))
-      .filter((message): message is Message => Boolean(message));
+    const messages = this.context.emitMessages(rawMessages, false);
     return { messages, nextFromMessageId, hasMore: Boolean(nextFromMessageId && nextFromMessageId !== fromMessageId) };
   }
 
@@ -292,14 +286,12 @@ export class TauriMessageMediaService {
     });
     const rawMessages = asTdObjects(result.messages);
     const threadChatId = tdId(result.chat_id) ?? chatId;
-    this.context.emitMessages(rawMessages, false);
+    const messages = this.context.emitMessages(rawMessages, false);
     const threadMessageId = tdId(result.message_thread_id) ?? messageId;
     return {
       chatId: threadChatId,
       messageId: threadMessageId,
-      messages: rawMessages
-        .map((raw) => this.context.mapMessage(raw))
-        .filter((message): message is Message => Boolean(message)),
+      messages,
     };
   }
 
@@ -311,11 +303,7 @@ export class TauriMessageMediaService {
     });
     const message = this.context.mapMessage(raw);
     if (!message || message.chatId !== chatId || message.id !== messageId) return undefined;
-    const chatMessages = this.context.rawMessages.get(chatId) ?? new Map<string, TdObject>();
-    chatMessages.set(message.id, raw);
-    this.context.rawMessages.set(chatId, chatMessages);
-    this.context.ensureReplyContent(raw);
-    return message;
+    return this.context.emitMessages([raw], false)[0];
   }
 
   async getRawMessage(chatId: string, messageId: string) {
@@ -329,11 +317,10 @@ export class TauriMessageMediaService {
       if (tdId(requested.chat_id) !== chatId || tdId(requested.id) !== messageId) {
         return undefined;
       }
-      const chatMessages = this.context.rawMessages.get(chatId) ?? new Map<string, TdObject>();
-      chatMessages.set(messageId, requested);
-      this.context.rawMessages.set(chatId, chatMessages);
-      raw = requested;
+      if (!this.context.emitMessages([requested], false).length) return undefined;
+      raw = this.context.rawMessages.get(chatId)?.get(messageId) ?? requested;
     }
+    if (!this.context.mapMessage(raw)) return undefined;
     return serializeTdObject(raw);
   }
 

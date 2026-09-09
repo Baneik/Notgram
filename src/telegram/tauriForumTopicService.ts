@@ -167,6 +167,7 @@ export class TauriForumTopicService {
         hasMore: !this.exhaustedHistories.has(key),
         messageIds: result.messageIds,
         messages,
+        stalled: result.stalled,
       };
     })().finally(() => {
       if (this.historyLoads.get(key) === load) this.historyLoads.delete(key);

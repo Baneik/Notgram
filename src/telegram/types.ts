@@ -1237,6 +1237,8 @@ export interface ChatHistoryPage {
   messageIds: string[];
   /** Messages from this page, committed with the history cursor by the store. */
   messages?: Message[];
+  /** TDLib has not advanced yet; retry without declaring history exhausted. */
+  stalled?: boolean;
 }
 
 export interface SendMediaCopyInput {

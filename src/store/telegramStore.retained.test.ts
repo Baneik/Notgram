@@ -38,6 +38,23 @@ async function fixture(transport = new RetainedTransport()) {
   return { store, transport, photo, source, archive };
 }
 
+it("retains a visible message after the transport has evicted its raw copy", async () => {
+  const { store, transport, photo } = await fixture();
+  transport.dispatch({ type: "message.upsert", message: photo });
+  transport.dispatch({ type: "message.remove", chatId: photo.chatId, messageId: photo.id,
+    permanent: true, source: "remote" });
+  expect(store.getState().messages.get(photo.chatId)?.find(message => message.id === photo.id))
+    .toMatchObject({ isLocallyDeleted: true, content: photo.content });
+});
+
+it("does not resurrect a deliberately removed archive from a delayed history response", async () => {
+  const { store, transport, photo, archive } = await fixture();
+  archive(photo);
+  await store.getState().deleteMessage(photo.id, false, photo.chatId);
+  transport.dispatch({ type: "messages.upserted", messages: [photo] });
+  expect(store.getState().messages.get(photo.chatId)?.some(message => message.id === photo.id)).toBe(false);
+});
+
 it("keeps a loaded photo preview and saves its local file after deletion and late history replay", async () => {
   const { store, transport, photo, archive } = await fixture();
   const stale: Message = { ...photo, content: { ...photo.content as Extract<Message["content"], { kind: "media" }>,

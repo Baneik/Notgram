@@ -152,33 +152,44 @@ test("a cold unread cursor outside the first page exposes only its settled viewp
   expect(Math.max(...measured) - Math.min(...measured), JSON.stringify(offsets)).toBeLessThanOrEqual(2);
 });
 
-test("a delayed history page preserves the position reached while it was loading", async ({ page }) => {
-  await ready(page);
-  await page.evaluate(async () => {
-    const { MockTelegramTransport } = await import("/src/telegram/mockTransport.ts" as string) as typeof import("../../src/telegram/mockTransport");
-    const original = MockTelegramTransport.prototype.loadChatHistory;
-    MockTelegramTransport.prototype.loadChatHistory = async function (...args) {
-      await new Promise<void>((resolve) => Object.assign(window, { releaseHistory: resolve }));
-      return original.apply(this, args);
-    };
+for (const retainedPrefix of [false, true]) {
+  test(`a delayed history page preserves the position reached while it was loading (retained prefix: ${retainedPrefix})`, async ({ page }) => {
+    await ready(page);
+    if (retainedPrefix) {
+      await page.evaluate(async () => {
+        const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+        const current = telegramStore.getState().messages.get("chat-product")!;
+        const archive = { ...current[0], id: "old-retained-prefix", isLocallyDeleted: true,
+          locallyDeletedAt: new Date().toISOString(), sentAt: "2020-01-01T00:00:00Z" };
+        telegramStore.setState({ messages: new Map(telegramStore.getState().messages).set("chat-product", [archive, ...current]) });
+      });
+    }
+    await page.evaluate(async () => {
+      const { MockTelegramTransport } = await import("/src/telegram/mockTransport.ts" as string) as typeof import("../../src/telegram/mockTransport");
+      const original = MockTelegramTransport.prototype.loadChatHistory;
+      MockTelegramTransport.prototype.loadChatHistory = async function (...args) {
+        await new Promise<void>((resolve) => Object.assign(window, { releaseHistory: resolve }));
+        return original.apply(this, args);
+      };
+    });
+    const list = page.locator(".message-list");
+    await list.hover();
+    await page.mouse.wheel(0, -10000);
+    await page.waitForFunction(() => Boolean((window as unknown as { releaseHistory?: () => void }).releaseHistory));
+    await page.mouse.wheel(0, 220);
+    await page.waitForTimeout(450);
+    const before = await anchor(page);
+    await traceViewport(page, "chat-product", before.id);
+    await page.evaluate(() => (window as unknown as { releaseHistory: () => void }).releaseHistory());
+    await expect(list).toHaveAttribute("aria-busy", "false");
+    await page.waitForTimeout(600);
+    const offsets = await exposedOffsets(page);
+    expect(offsets.length).toBeGreaterThan(0);
+    expect(offsets).not.toContain(null);
+    expect(Math.max(...offsets.map((offset) => Math.abs(offset! - before.offset))), JSON.stringify(offsets))
+      .toBeLessThanOrEqual(2);
   });
-  const list = page.locator(".message-list");
-  await list.hover();
-  await page.mouse.wheel(0, -10000);
-  await page.waitForFunction(() => Boolean((window as unknown as { releaseHistory?: () => void }).releaseHistory));
-  await page.mouse.wheel(0, 220);
-  await page.waitForTimeout(450);
-  const before = await anchor(page);
-  await traceViewport(page, "chat-product", before.id);
-  await page.evaluate(() => (window as unknown as { releaseHistory: () => void }).releaseHistory());
-  await expect(list).toHaveAttribute("aria-busy", "false");
-  await page.waitForTimeout(600);
-  const offsets = await exposedOffsets(page);
-  expect(offsets.length).toBeGreaterThan(0);
-  expect(offsets).not.toContain(null);
-  expect(Math.max(...offsets.map((offset) => Math.abs(offset! - before.offset))), JSON.stringify(offsets))
-    .toBeLessThanOrEqual(2);
-});
+}
 
 test("background messages on both sides preserve a detached reading viewport", async ({ page }) => {
   await ready(page);

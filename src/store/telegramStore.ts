@@ -49,8 +49,7 @@ import {
   pendingCachedIdsAfterConfirmation,
   reachedCachedHistoryBoundary,
   replaceMessage,
-  upsertMessage,
-  upsertMessages,
+  upsertMessages as mergeMessages,
   withEmojiReaction,
 } from "./telegramStore.messages";
 import { messagesWithOutbox, outboxItemId } from "./telegramStore.outbox";
@@ -282,6 +281,13 @@ export const createTelegramStore = (
     let attentionReadGeneration = 0;
     const messageChangeListeners = new Set<MessageChangeListener>();
     const retainedMessages = new RetainedMessageIndex();
+    // A late history/context/cache response must not undo a committed removal.
+    // Keep IDs until the account is cleared; raw TDLib caches are evictable.
+    const removedMessageIds = new Set<string>();
+    const acceptsMessage = (message: Message) => !removedMessageIds.has(`${message.chatId}:${message.id}`);
+    const upsertMessages = (current: Message[], incoming: Message[]) =>
+      mergeMessages(current, incoming.filter(acceptsMessage));
+    const upsertMessage = (current: Message[], incoming: Message) => upsertMessages(current, [incoming]);
     const publishMessageChange = (event: MessageChangeEvent) => {
       if (event.type === "reset") retainedMessages.reset(event.messages);
       else if (event.type === "remove") retainedMessages.remove(event.chatId, event.messageIds);
@@ -289,13 +295,20 @@ export const createTelegramStore = (
         retainedMessages.remove(event.message.chatId, [event.oldMessageId]);
         retainedMessages.upsert([event.message]);
       } else {
-        // Match upsertMessages: late live snapshots cannot overwrite retained copies,
-        // including in downstream incremental indexes.
+        // Publish the committed values to downstream indexes as well. History
+        // may have lost a race to a deletion or a newer content revision.
+        const committed = new Map<string, Map<string, Message>>();
+        for (const message of event.messages) {
+          if (!committed.has(message.chatId)) {
+            committed.set(message.chatId, new Map((get().messages.get(message.chatId) ?? [])
+              .map(current => [current.id, current])));
+          }
+        }
         event = {
           ...event,
-          messages: event.messages.map(message => message.isLocallyDeleted ? message
-            : retainedMessages.get(message.chatId, message.id) ?? message),
-          liveMessages: event.liveMessages.filter(message => !message.isLocallyDeleted &&
+          messages: event.messages.filter(acceptsMessage).map(message =>
+            committed.get(message.chatId)?.get(message.id) ?? message),
+          liveMessages: event.liveMessages.filter(message => acceptsMessage(message) && !message.isLocallyDeleted &&
             !retainedMessages.get(message.chatId, message.id)),
         };
         retainedMessages.upsert(event.messages);
@@ -698,6 +711,7 @@ export const createTelegramStore = (
     };
     const removeMessageImmediately = (chatId: string, messageId: string) => {
       const key = `${chatId}:${messageId}`;
+      removedMessageIds.add(key);
       const previous = removalTimers.get(key);
       if (previous) globalThis.clearTimeout(previous);
       removalTimers.delete(key);
@@ -890,6 +904,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      removedMessageIds.clear();
       retainedMediaRestorer.reset();
       syncGeneration += 1;
       hasConnected = false;
@@ -1043,7 +1058,7 @@ export const createTelegramStore = (
       let messages = messageMapFrom([
         ...snapshot.messages,
         ...(snapshot.locallyDeletedMessages ?? []),
-      ]);
+      ].filter(acceptsMessage));
       const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.localKey ?? topicKey(draft.chatId, draft.topicId), draft]));
       const localAttachmentDrafts = new Map(
         (snapshot.localAttachmentDrafts ?? []).map((draft) => [draft.draftKey, draft]),
@@ -1207,7 +1222,10 @@ export const createTelegramStore = (
           const page = await transport.loadChatHistory(chatId, 30);
           if (generation !== accountGeneration || sync !== syncGeneration) return;
 
-          syncRetries.complete(`history:${chatId}`);
+          if (page.stalled) {
+            syncRetries.schedule(`history:${chatId}`, () => get().activeChatId === chatId
+              ? loadHistory(chatId, "older", { background: true }) : Promise.resolve());
+          } else syncRetries.complete(`history:${chatId}`);
 
           // The first page is enough to render the conversation. Cache-boundary
           // verification is deliberately detached from the visible loading state
@@ -1404,7 +1422,10 @@ export const createTelegramStore = (
       try {
         const page = await transport.loadForumTopicHistory(chatId, topicId, 30);
         if (generation !== accountGeneration || sync !== syncGeneration) return;
-        syncRetries.complete(`topic:${key}`);
+        if (page.stalled) {
+          syncRetries.schedule(`topic:${key}`, () => get().activeChatId === chatId && get().activeTopicId === topicId
+            ? loadForumTopicHistory(chatId, topicId, "older", { background: true }) : Promise.resolve());
+        } else syncRetries.complete(`topic:${key}`);
         const merged = mergeHistoryPage(page.messages ?? []);
         const next = new Map(get().topicHistories);
         next.set(key, { loading: false, hasMore: page.hasMore, initialized: true });
@@ -1573,6 +1594,9 @@ export const createTelegramStore = (
 
     const migrateChatState = (fromChatId: string, toChatId: string) => {
       if (!fromChatId || !toChatId || fromChatId === toChatId) return;
+      for (const key of removedMessageIds) {
+        if (key.startsWith(`${fromChatId}:`)) removedMessageIds.add(`${toChatId}:${key.slice(fromChatId.length + 1)}`);
+      }
       const current = get();
       const chats = new Map(current.chats);
       const oldChat = chats.get(fromChatId);
@@ -2079,16 +2103,18 @@ export const createTelegramStore = (
           set({ unreadAttentionMessageIds });
           return;
         }
+        const preservedMessage = event.preservedMessage ?? existing;
         if (
           preferencesStore.getState().deletedMessageArchiveEnabled &&
           event.source === "remote" &&
           event.permanent === true &&
-          canArchiveDeletedMessage(event.preservedMessage) &&
-          get().users.get(event.preservedMessage!.senderId)?.isBot !== true
+          !removedMessageIds.has(`${event.chatId}:${event.messageId}`) &&
+          canArchiveDeletedMessage(preservedMessage) &&
+          get().users.get(preservedMessage!.senderId)?.isBot !== true
         ) {
           const archived = {
-            ...event.preservedMessage!,
-            content: retainHydratedContent(event.preservedMessage!.content, existing?.content),
+            ...preservedMessage!,
+            content: retainHydratedContent(preservedMessage!.content, existing?.content),
             isLocallyDeleted: true,
             locallyDeletedAt: new Date().toISOString(),
             permissions: undefined,
@@ -2108,6 +2134,9 @@ export const createTelegramStore = (
           removeMessageImmediately(event.chatId, event.messageId);
           return;
         }
+        if (event.permanent === true || event.source === "local") {
+          removedMessageIds.add(`${event.chatId}:${event.messageId}`);
+        }
         set({ unreadAttentionMessageIds });
         markMessageRemoving(event.chatId, event.messageId);
         scheduleCacheWrite();
@@ -2116,6 +2145,11 @@ export const createTelegramStore = (
 
       if (event.type === "message.replace") {
         const chatId = event.message.chatId;
+        if (event.oldMessageId !== event.message.id) removedMessageIds.add(`${chatId}:${event.oldMessageId}`);
+        if (!acceptsMessage(event.message)) {
+          removeMessageImmediately(chatId, event.oldMessageId);
+          return;
+        }
         queueBlockedReactionReads([event.message]);
         const previousMessage = get().messages.get(chatId)
           ?.find((message) => message.id === event.oldMessageId || message.id === event.message.id);
@@ -4036,7 +4070,10 @@ export const createTelegramStore = (
           }
         }
         if (deletedIds.length > 0) {
-          for (const messageId of deletedIds) markMessageRemoving(chatId, messageId);
+          for (const messageId of deletedIds) {
+            removedMessageIds.add(`${chatId}:${messageId}`);
+            markMessageRemoving(chatId, messageId);
+          }
           sharedMediaIndex.remove(chatId, deletedIds);
           scheduleCacheWrite();
         }
@@ -4440,6 +4477,7 @@ export const createTelegramStore = (
         try {
           if (!await verifyDeleteScope(chatId, [messageId], revoke)) return false;
           await transport.deleteMessage({ chatId, messageId, revoke });
+          removedMessageIds.add(`${chatId}:${messageId}`);
           markMessageRemoving(chatId, messageId);
           set({ operationError: undefined });
           sharedMediaIndex.remove(chatId, [messageId]);

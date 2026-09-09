@@ -357,6 +357,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   });
   private rawMessages = new Map<string, Map<string, TdObject>>();
   private localDeleteIntents = new Set<string>();
+  // Session facts, independent of the evictable raw message cache and sync resets.
+  private invalidatedMessageIds = new Set<string>();
   private pendingMessagePatches = new Map<string, TdObject>();
   private pendingDownloads = new Map<number, PendingDownload>();
   private rawMessageFileIds = new Map<string, Set<number>>();
@@ -1995,7 +1997,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     const key = `${this.canonicalChatId(input.chatId)}:${input.messageId}`;
     this.localDeleteIntents.add(key);
     try {
-      return await this.messageMediaService.deleteMessage(input);
+      const result = await this.messageMediaService.deleteMessage(input);
+      this.invalidatedMessageIds.add(key);
+      return result;
     } catch (error) {
       this.localDeleteIntents.delete(key);
       throw error;
@@ -2189,6 +2193,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       hasMore: !this.exhaustedHistories.has(chatId),
       messageIds: result.messageIds,
       messages,
+      stalled: result.stalled,
     };
   }
 
@@ -2605,6 +2610,13 @@ export class TauriTelegramTransport implements TelegramTransport {
       : raw;
   }
 
+  private preserveNewerMessageContent(raw: TdObject) {
+    const existing = this.rawMessages.get(tdId(raw.chat_id))?.get(tdId(raw.id));
+    return existing && (tdNumber(existing.edit_date) ?? 0) > (tdNumber(raw.edit_date) ?? 0)
+      ? { ...raw, content: existing.content, edit_date: existing.edit_date, reply_markup: existing.reply_markup }
+      : raw;
+  }
+
   private rawChatIdForBasicGroup(groupId: string) {
     for (const raw of this.rawChats.values()) {
       const type = asTdObject(raw.type);
@@ -2626,6 +2638,11 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private migrateRawMessages(fromChatId: string, toChatId: string) {
+    for (const key of this.invalidatedMessageIds) {
+      if (key.startsWith(`${fromChatId}:`)) {
+        this.invalidatedMessageIds.add(`${toChatId}:${key.slice(fromChatId.length + 1)}`);
+      }
+    }
     const previous = this.rawMessages.get(fromChatId);
     if (previous && previous.size > 0) {
       const next = this.rawMessages.get(toChatId) ?? new Map<string, TdObject>();
@@ -3035,7 +3052,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private emitMessage(raw?: TdObject, animateEntrance = false, cacheRelevant = true) {
     if (!raw) return;
-    raw = this.canonicalizeRawMessage(raw);
+    raw = this.preserveNewerMessageContent(this.canonicalizeRawMessage(raw));
     const messagePatchKey = `${tdId(raw.chat_id)}:${tdId(raw.id)}`;
     const pendingPatch = this.pendingMessagePatches.get(messagePatchKey);
     if (pendingPatch) {
@@ -3157,7 +3174,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const messages = new Map<string, Message>();
     const uniqueRawMessages = new Map<string, TdObject>();
     for (const inputRaw of rawMessages) {
-      let raw = this.canonicalizeRawMessage(inputRaw);
+      let raw = this.preserveNewerMessageContent(this.canonicalizeRawMessage(inputRaw));
       const messagePatchKey = `${tdId(raw.chat_id)}:${tdId(raw.id)}`;
       const pendingPatch = this.pendingMessagePatches.get(messagePatchKey);
       if (pendingPatch) {
@@ -3355,7 +3372,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private mapMessage(raw: TdObject) {
-    raw = this.canonicalizeRawMessage(raw);
+    raw = this.preserveNewerMessageContent(this.canonicalizeRawMessage(raw));
+    if (this.invalidatedMessageIds.has(`${tdId(raw.chat_id)}:${tdId(raw.id)}`)) return undefined;
     const rawChat = this.rawChats.get(tdId(raw.chat_id) ?? "");
     const chatType = asTdObject(rawChat?.type);
     const mapped = mapTdMessage(raw, {
@@ -3477,7 +3495,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private replaceSentMessage(update: TdObject) {
     const rawValue = asTdObject(update.message);
     if (!rawValue) return;
-    let raw = this.canonicalizeRawMessage(rawValue);
+    let raw = this.preserveNewerMessageContent(this.canonicalizeRawMessage(rawValue));
     const pendingPatchKey = `${tdId(raw.chat_id)}:${tdId(raw.id)}`;
     const pendingPatch = this.pendingMessagePatches.get(pendingPatchKey);
     if (pendingPatch) {
@@ -3485,10 +3503,20 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.pendingMessagePatches.delete(pendingPatchKey);
     }
     const message = this.mapMessage(raw);
-    if (!message) return;
     const chatId = tdId(raw.chat_id);
     const oldId = tdId(update.old_message_id);
+    if (!message) {
+      if (chatId && oldId && this.invalidatedMessageIds.has(`${chatId}:${tdId(raw.id)}`)) {
+        this.invalidatedMessageIds.add(`${chatId}:${oldId}`);
+        this.rawMessages.get(chatId)?.delete(oldId);
+        this.pendingMessagePatches.delete(`${chatId}:${oldId}`);
+        this.unindexMessageFiles(chatId, oldId);
+        this.listener?.({ type: "message.remove", chatId, messageId: oldId, immediate: true });
+      }
+      return;
+    }
     if (chatId && oldId) {
+      if (oldId !== message.id) this.invalidatedMessageIds.add(`${chatId}:${oldId}`);
       this.rawMessages.get(chatId)?.delete(oldId);
       this.pendingMessagePatches.delete(`${chatId}:${oldId}`);
       this.unindexMessageFiles(chatId, oldId);
@@ -3574,6 +3602,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private patchMessage(chatIdValue: unknown, messageIdValue: unknown, patch: TdObject) {
     const chatId = this.canonicalChatId(tdId(chatIdValue));
     const messageId = tdId(messageIdValue);
+    if (this.invalidatedMessageIds.has(`${chatId}:${messageId}`)) return;
     const raw = this.rawMessages.get(chatId)?.get(messageId);
     if (raw) {
       this.emitMessage({ ...raw, ...patch });
@@ -3619,6 +3648,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       const preservedMessage = source === "remote"
         ? this.mapMessage(this.rawMessages.get(chatId)?.get(messageId) ?? {})
         : undefined;
+      if (update.is_permanent === true) this.invalidatedMessageIds.add(key);
       this.clearRichMessageHydration(`${chatId}:${messageId}`);
       this.rawMessages.get(chatId)?.delete(messageId);
       this.pendingMessagePatches.delete(`${chatId}:${messageId}`);
@@ -3646,6 +3676,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.authorizationReady = false;
     this.tdConnectionStatus = undefined;
     this.localDeleteIntents.clear();
+    this.invalidatedMessageIds.clear();
     this.recoverySignal = undefined;
     this.nativeRecoveryPhase = "idle";
     this.disposeConnectionMonitor?.();

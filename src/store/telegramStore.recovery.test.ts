@@ -160,6 +160,48 @@ describe("Store recovery synchronization", () => {
     expect(transport.historyCalls).toBe(2);
   });
 
+  it.each([false, true])("retries a stalled history page without needing another scroll (topic: %s)", async topic => {
+    vi.useFakeTimers();
+    const transport = new RecoveryTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const chatId = topic ? "chat-forum" : "chat-product";
+    const topicId = topic ? "1" : undefined;
+    const older = { ...message("older-after-stall"), chatId, topicId };
+    const history = vi.spyOn(transport, topic ? "loadForumTopicHistory" : "loadChatHistory")
+      .mockResolvedValueOnce({ loadedCount: 0, hasMore: true, messageIds: [], messages: [], stalled: true })
+      .mockResolvedValue({ loadedCount: 1, hasMore: false, messageIds: [older.id], messages: [older] });
+    store.setState({ activeChatId: chatId, activeTopicId: topicId, histories: new Map(), topicHistories: new Map() });
+    await store.getState().loadMoreHistory(chatId);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(history).toHaveBeenCalledTimes(2);
+    expect(store.getState().messages.get(chatId)).toContainEqual(expect.objectContaining(older));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(history).toHaveBeenCalledTimes(2);
+  });
+
+  it("commits surviving messages but not a deletion or superseded outgoing ID from a late page", async () => {
+    const transport = new RecoveryTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const own = { ...message("temporary-own"), outgoing: true, delivery: "sending" as const };
+    transport.events?.({ type: "message.upsert", message: own });
+    store.setState({ histories: new Map() });
+    let finish!: (page: ChatHistoryPage) => void;
+    vi.spyOn(transport, "loadChatHistory").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const loading = store.getState().loadMoreHistory("chat-product");
+    transport.events?.({ type: "message.remove", chatId: "chat-product", messageId: "before-sleep", permanent: true });
+    transport.events?.({ type: "message.replace", oldMessageId: own.id, message: { ...own, id: "final-own", delivery: "sent" } });
+    const survivor = message("survivor");
+    finish({ messages: [transport.source[0], own, survivor], messageIds: ["before-sleep", own.id, survivor.id], loadedCount: 3, hasMore: false });
+    await loading;
+    const ids = store.getState().messages.get("chat-product")!.map(message => message.id);
+    expect(ids).toContain("final-own");
+    expect(ids).toContain("survivor");
+    expect(ids).not.toContain("temporary-own");
+    expect(ids).not.toContain("before-sleep");
+  });
+
   it("refreshes the selected forum topic even after its history reached the end", async () => {
     const transport = new MockTelegramTransport();
     const history = vi.spyOn(transport, "loadForumTopicHistory");

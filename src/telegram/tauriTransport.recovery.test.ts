@@ -56,7 +56,7 @@ describe("TDLib synchronization recovery", () => {
     let resolveOld!: (value: TdObject) => void;
     const request = vi.fn().mockImplementationOnce(() => new Promise<TdObject>((resolve) => { resolveOld = resolve; }))
       .mockResolvedValueOnce({ messages: [message(20)] })
-      .mockResolvedValueOnce({ messages: [] });
+      .mockResolvedValue({ messages: [] });
     internal.request = request;
     const old = transport.loadChatHistory("7", 1);
     const retired = expect(old).rejects.toThrow("superseded");

@@ -28,6 +28,11 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Confirm empty history boundaries and retry stalled pages without moving the older
+  cursor forward. Keep permanent deletions, sent message ID replacements, and newer
+  edits authoritative when delayed history or context responses arrive.
+- Preserve visible incoming messages after remote deletion even if TDLib's raw cache
+  has been evicted, and keep retained copies outside the ordinary startup cache quota.
 - Serialize native Range downloads per media file so concurrent header and metadata-tail
   probes cannot replace each other's TDLib download window and leave sparse, unplayable media.
 - Close layered fullscreen video from the blank surface in both preview and playback modes.

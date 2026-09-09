@@ -285,6 +285,22 @@ describe("telegram store cache and accounts", () => {
     ]);
   });
 
+  it("does not roll back edited content when an earlier history snapshot is committed", () => {
+    const original = message("12");
+    const edited = { ...original, editedAt: "2026-08-02T09:00:00Z", content: { kind: "text" as const, text: "latest edit" } };
+    expect(upsertMessages([edited], [original])[0]).toMatchObject(edited);
+  });
+
+  it("keeps sixty ordinary cached messages independently of retained deletion copies", () => {
+    const chat = mockSnapshot.chats[0];
+    const live = Array.from({ length: 60 }, (_, index) => ({ ...message(String(index + 1)), chatId: chat.id }));
+    const retained = Array.from({ length: 60 }, (_, index) => ({ ...message(String(index + 100)), chatId: chat.id,
+      isLocallyDeleted: true, locallyDeletedAt: new Date().toISOString() }));
+    const cached = recentMessagesForCache({ chats: new Map([[chat.id, chat]]),
+      messages: new Map([[chat.id, [...live, ...retained]]]), activeChatId: chat.id } as TelegramState);
+    expect(cached.map(message => message.id)).toEqual(live.map(message => message.id));
+  });
+
   it("derives stable account registration and transition decisions", () => {
     const user = mockSnapshot.users[0];
     const registration = currentAccountRegistration({

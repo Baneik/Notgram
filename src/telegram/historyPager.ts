@@ -18,6 +18,7 @@ export interface LoadedHistoryWindow {
   messageIds: string[];
   cursor: number;
   exhausted: boolean;
+  stalled: boolean;
 }
 
 export const loadHistoryWindow = async ({
@@ -36,6 +37,7 @@ export const loadHistoryWindow = async ({
   let cursor = initialCursor;
   let requestCount = 0;
   let consecutiveStalls = 0;
+  let consecutiveEmptyPages = 0;
   let exhausted = false;
   const maxRequestCount = targetCount + MAX_CONSECUTIVE_STALLS + 2;
 
@@ -51,9 +53,17 @@ export const loadHistoryWindow = async ({
     });
     const rawPage = asTdObjects(response.messages);
     if (rawPage.length === 0) {
-      exhausted = true;
-      break;
+      // TDLib documents a getHistory/deleteMessages race that can yield a
+      // temporary empty response. Confirm the same boundary on a later turn.
+      consecutiveEmptyPages += 1;
+      if (consecutiveEmptyPages >= 2) {
+        exhausted = true;
+        break;
+      }
+      await new Promise(resolve => globalThis.setTimeout(resolve, 100));
+      continue;
     }
+    consecutiveEmptyPages = 0;
 
     let addedThisRequest = 0;
     for (const raw of rawPage) {
@@ -63,7 +73,8 @@ export const loadHistoryWindow = async ({
         messageIds.push(id);
         // Revalidating a known message still fills the requested window.
         // Otherwise reconnecting a warm cache can scan hundreds of old pages.
-        if (id !== String(initialCursor)) windowCount += 1;
+        const numericMessageId = tdNumber(raw.id);
+        if (numericMessageId && (!initialCursor || numericMessageId < initialCursor)) windowCount += 1;
       }
       if (id && !knownMessages.has(id)) addedThisRequest += 1;
       emitMessage(raw);
@@ -72,18 +83,17 @@ export const loadHistoryWindow = async ({
     loadedCount += addedThisRequest;
 
     const nextCursor = tdNumber(rawPage.at(-1)?.id);
-    if (!nextCursor) {
-      exhausted = true;
-      break;
-    }
-    if (nextCursor === cursor) {
+    if (!nextCursor || (cursor !== 0 && nextCursor >= cursor)) {
       consecutiveStalls += 1;
       if (consecutiveStalls >= MAX_CONSECUTIVE_STALLS) break;
+      // Boundary-only responses start TDLib's asynchronous prefetch. Tight
+      // immediate retries otherwise read the same cache before it can finish.
+      await new Promise(resolve => globalThis.setTimeout(resolve, consecutiveStalls * 100));
       continue;
     }
     cursor = nextCursor;
     consecutiveStalls = 0;
   }
 
-  return { loadedCount, messageIds, cursor, exhausted };
+  return { loadedCount, messageIds, cursor, exhausted, stalled: !exhausted && windowCount < targetCount };
 };

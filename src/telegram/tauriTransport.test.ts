@@ -4119,7 +4119,7 @@ describe("TauriTelegramTransport history", () => {
     });
   });
 
-  it("marks history complete only after TDLib returns an empty page", async () => {
+  it("marks history complete only after TDLib confirms an empty page", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     let requestCount = 0;
@@ -4144,7 +4144,7 @@ describe("TauriTelegramTransport history", () => {
       hasMore: false,
       messageIds: [],
     });
-    expect(requestCount).toBe(2);
+    expect(requestCount).toBe(3);
   });
 
   it("starts from the latest history window even when live messages are already known", async () => {
