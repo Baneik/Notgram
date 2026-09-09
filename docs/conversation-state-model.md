@@ -102,6 +102,41 @@ frames after the target first appears.
 - A detached conversation never moves because of a bottom-following notification.
 - Async history results cannot restore an older selection or viewport command.
 
+## Stable timeline partitions and visual readiness
+
+Semantic sender/day grouping and virtual partition identity have different lifetimes.
+The timeline projector reconciles against the last **committed** partitions for the same
+account, conversation and view. New history is packed independently of existing partitions;
+live messages can fill the final partition. Deleting a partition's first message does not
+rename its surviving siblings. A sender/day change or an album topology change may split
+the affected partition, but must not repack unrelated partitions. Albums remain atomic and
+the four-message target continues to bound ordinary partitions and sender-avatar geometry.
+
+Commit the projection reference in a layout effect. Do not mutate a global partition cache
+during render: an interrupted render must not redefine the next committed view. Nested React
+keys must use the same stable partition identity, and album identity must not depend on its
+first loaded member.
+
+Virtuoso measurements are reusable only when the ordered message-to-partition mapping,
+viewport width and geometry-affecting preferences still match. Equal first/last message IDs
+and row counts are insufficient. On a mismatch, retain the semantic reading anchor and let
+the destination measure its actual layout.
+
+Positioning feedback belongs to the viewport transaction. It may appear after a delay, but
+must unmount in the same commit that publishes a positioned view. It has no independent
+minimum lifetime or exit animation over destination messages. The source snapshot continues
+to use its bounded, presentation-only release protocol.
+
+Image resource readiness survives virtual row remounts through bounded URL metadata. A
+previously decoded image that is already loaded in the new element is revealed before paint
+without replaying an entrance. A cache hit alone must never expose an unloaded or failed
+element; stale source decodes must not publish readiness for a replacement.
+
+Regression checks must include partial same-sender history pages at the production partition
+size, deletion of a partition head, restored image opacity and node identity, source-decode
+races, and loading/positioned handoff at both short and long response times. An unchanged
+reading offset alone does not establish visual continuity.
+
 The focused unit and browser tests cover command consistency, source-row isolation, unread-marker
 settlement, repeated warm switching, bounded geometry reads, idle bottom stability, long-message edit
 entry/cancel/save, and detached edit anchoring.

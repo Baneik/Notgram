@@ -67,7 +67,15 @@ acknowledgement but no retained React exit. Validate those boundaries in the nat
 delay produces no spinner; feedback that became visible remains for at least `320ms`, preventing a
 single-frame loading/empty/result swap. Existing results stay mounted while search and shared-media
 pagination update. `StableImage` keeps the reserved media geometry but does not reveal a new source
-until `HTMLImageElement.decode()` completes.
+until `HTMLImageElement.decode()` completes. Decoded-resource knowledge is bounded and
+independent of the lifetime of a virtual row: an already-loaded cached resource restores
+before paint without another fade. Source replacement validates the current element and
+resolved URL before accepting a decode result; loading failures invalidate resource knowledge.
+
+The minimum-visible and exit-animation rules apply to presentation feedback, not to a
+viewport concealment layer. Conversation positioning feedback uses a delayed entrance and
+ends synchronously when its viewport transaction is ready. Retaining an opaque loading
+background after the old conversation snapshot releases would hide an already-ready view.
 
 The document visibility policy pauses continuous work when the application is backgrounded. CSS
 loops are paused through `motion-background-paused`; audio spectrum, autoplay media, stickers, and

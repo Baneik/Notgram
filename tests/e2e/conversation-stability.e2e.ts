@@ -57,6 +57,93 @@ const deferReplyContext = (page: Page) => page.evaluate(async () => {
   };
 });
 
+for (const count of [1, 2, 4]) {
+  test(`partial sender history preserves mounted media and every revealed frame (${count} messages)`, async ({ page }) => {
+    await ready(page);
+    await page.evaluate(async () => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+      const source = telegramStore.getState().messages.get("chat-product")![0];
+      const messages = Array.from({ length: 40 }, (_, index) => ({
+        ...source, id: `stable-partition-${index + 20}`, mediaAlbumId: undefined,
+        sentAt: new Date(Date.UTC(2026, 8, 9, 0, index + 20)).toISOString(),
+        content: { kind: "media" as const, mediaType: "photo" as const,
+          fileName: "cached.jpg", sizeLabel: "18 KB", localPath: "/mock-video-poster.jpg", width: 480, height: 240,
+          isDownloaded: true, canDownload: false },
+      }));
+      telegramStore.setState({ messages: new Map(telegramStore.getState().messages).set("chat-product", messages) });
+    });
+    const list = page.locator(".message-list");
+    await expect(page.locator('[data-message-id="stable-partition-59"] img')).toHaveCSS("opacity", "1");
+    await list.hover();
+    await page.mouse.wheel(0, -350);
+    await page.waitForTimeout(400);
+    const result = await page.evaluate(async (count) => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+      const list = document.querySelector<HTMLElement>(".message-list")!;
+      const bounds = list.getBoundingClientRect();
+      const rows = [...list.querySelectorAll<HTMLElement>("[data-message-id]")].filter((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom > bounds.top + 1 && rect.top < bounds.bottom - 1;
+      });
+      const anchor = rows[0];
+      const y = anchor.getBoundingClientRect().y;
+      const current = telegramStore.getState().messages.get("chat-product")!;
+      telegramStore.setState({ messages: new Map(telegramStore.getState().messages).set("chat-product", [
+        ...Array.from({ length: count }, (_, index) => ({ ...current[0], id: `stable-partition-${20 - count + index}`,
+          sentAt: new Date(Date.UTC(2026, 8, 9, 0, 20 - count + index)).toISOString() })), ...current,
+      ]) });
+      const frames = [];
+      for (let frame = 0; frame < 40; frame++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        const covered = Boolean(document.querySelector("[data-conversation-history-snapshot]"));
+        frames.push({ covered,
+          sameNodes: rows.every((row) => list.querySelector(`[data-message-id="${row.dataset.messageId}"]`) === row),
+          shift: Math.abs(anchor.getBoundingClientRect().y - y),
+          opacities: rows.map((row) => Number(getComputedStyle(row.querySelector("img")!).opacity)),
+        });
+      }
+      return frames;
+    }, count);
+    expect(result.every((frame) => frame.sameNodes), JSON.stringify(result)).toBe(true);
+    const exposed = result.filter((frame) => !frame.covered);
+    expect(exposed.length).toBeGreaterThan(0);
+    expect(exposed.every((frame) => frame.shift <= 2 && frame.opacities.every((opacity) => opacity === 1)), JSON.stringify(result)).toBe(true);
+  });
+}
+
+for (const delay of [180, 250, 600]) {
+  test(`entry feedback ends with viewport readiness (${delay}ms context)`, async ({ page }) => {
+    await ready(page);
+    await page.evaluate(async (delay) => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+      const { MockTelegramTransport } = await import("/src/telegram/mockTransport.ts" as string) as typeof import("../../src/telegram/mockTransport");
+      const original = MockTelegramTransport.prototype.getMessageContext;
+      MockTelegramTransport.prototype.getMessageContext = async function (...args) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        return original.apply(this, args);
+      };
+      const chats = new Map(telegramStore.getState().chats);
+      chats.set("chat-chen", { ...chats.get("chat-chen")!, unreadCount: 120, lastReadInboxMessageId: "c-old-8" });
+      telegramStore.setState({ chats });
+    }, delay);
+    const frames = await page.evaluate(async () => {
+      document.querySelector<HTMLElement>('[data-chat-id="chat-chen"]')!.click();
+      const frames = [];
+      for (let frame = 0; frame < 100; frame++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        const list = document.querySelector<HTMLElement>(".message-list")!;
+        frames.push({ ready: list.getAttribute("aria-busy") === "false",
+          placeholder: Boolean(document.querySelector(".message-positioning-placeholder")),
+          target: Boolean(list.querySelector('[data-message-id="c-old-8"]')) });
+      }
+      return frames;
+    });
+    const readyFrames = frames.filter((frame) => frame.ready);
+    expect(readyFrames.length).toBeGreaterThan(0);
+    expect(readyFrames.every((frame) => frame.target && !frame.placeholder), JSON.stringify(frames)).toBe(true);
+  });
+}
+
 test("media download updates do not interrupt wheel scrolling in either direction", async ({ page }) => {
   await ready(page);
   await page.evaluate(async () => {

@@ -30,22 +30,51 @@ export interface SponsoredTimelineOptions {
 const segmentMessages = (segment: MediaAlbumSegment) =>
   segment.kind === "message" ? [segment.message] : segment.messages;
 
-const splitSegments = (segments: MediaAlbumSegment[], maximumMessages: number) => {
-  const chunks: MediaAlbumSegment[][] = [];
+const messageRenderKey = (message: Message) => message.renderKey ?? message.id;
+
+/** Reconcile against committed partitions. Pagination must not repack existing
+ * rows just because the beginning of a sender group moved. Only new segments
+ * are packed; albums remain indivisible and semantic group changes stay local. */
+const splitSegments = (
+  segments: MediaAlbumSegment[],
+  maximumMessages: number,
+  previousOwners: ReadonlyMap<string, string>,
+  usedIds: Set<string>,
+) => {
+  const chunks: Array<{ id: string; segments: MediaAlbumSegment[] }> = [];
   let current: MediaAlbumSegment[] = [];
   let currentMessageCount = 0;
+  let currentOwner: string | undefined;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    const firstKey = messageRenderKey(segmentMessages(current[0]!)[0]!);
+    let id = currentOwner ?? firstKey;
+    // A sender/date edit can split an old partition. Only one part can retain
+    // its identity; do not give unrelated virtual rows the same React key.
+    if (usedIds.has(id)) id = firstKey;
+    while (usedIds.has(id)) id = `partition:${id}`;
+    usedIds.add(id);
+    chunks.push({ id, segments: current });
+    current = [];
+    currentMessageCount = 0;
+    currentOwner = undefined;
+  };
 
   for (const segment of segments) {
-    const messageCount = segmentMessages(segment).length;
-    if (current.length > 0 && currentMessageCount + messageCount > maximumMessages) {
-      chunks.push(current);
-      current = [];
-      currentMessageCount = 0;
-    }
+    const messages = segmentMessages(segment);
+    const messageCount = messages.length;
+    const owner = messages.map(messageRenderKey).map((key) => previousOwners.get(key))
+      .find((key) => key !== undefined);
+    if (current.length > 0 && (
+      currentMessageCount + messageCount > maximumMessages ||
+      (owner !== undefined && owner !== currentOwner)
+    )) flush();
+    if (current.length === 0) currentOwner = owner;
     current.push(segment);
     currentMessageCount += messageCount;
   }
-  if (current.length > 0) chunks.push(current);
+  flush();
   return chunks;
 };
 
@@ -61,11 +90,16 @@ export const virtualizeMessageGroups = (
   messages: Message[],
   maximumMessages = MAX_MESSAGES_PER_VIRTUAL_BLOCK,
   groupAdjacentMessages = true,
+  previousBlocks: readonly VirtualMessageBlock[] = [],
 ): VirtualMessageBlock[] => {
   if (!Number.isInteger(maximumMessages) || maximumMessages < 1) {
     throw new Error("maximumMessages must be a positive integer");
   }
 
+  const previousOwners = new Map(previousBlocks.flatMap((block) =>
+    block.messages.map((message) => [messageRenderKey(message), block.id] as const),
+  ));
+  const usedIds = new Set<string>();
   const groups = groupAdjacentMessages
     ? groupConsecutiveMessages(messages)
     : groupMediaAlbumsOnly(messages);
@@ -74,8 +108,8 @@ export const virtualizeMessageGroups = (
       message.id,
       messageGroupPosition(group, messageIndex),
     ]));
-    const chunks = splitSegments(segmentMediaAlbums(group), maximumMessages);
-    for (const segment of chunks.flat()) {
+    const chunks = splitSegments(segmentMediaAlbums(group), maximumMessages, previousOwners, usedIds);
+    for (const segment of chunks.flatMap((chunk) => chunk.segments)) {
       if (segment.kind !== "album") continue;
       segment.messages.forEach((message, messageIndex) => {
         positions.set(
@@ -85,11 +119,11 @@ export const virtualizeMessageGroups = (
       });
     }
 
-    return chunks.map((segments, chunkIndex) => {
+    return chunks.map(({ id, segments }, chunkIndex) => {
       const chunkMessages = segments.flatMap(segmentMessages);
       const firstMessage = chunkMessages[0]!;
       return {
-        id: firstMessage.renderKey ?? firstMessage.id,
+        id,
         firstMessage,
         messages: chunkMessages,
         segments,
@@ -120,8 +154,9 @@ export const virtualizeMessageTimeline = (
   options: SponsoredTimelineOptions,
   maximumMessages = MAX_MESSAGES_PER_VIRTUAL_BLOCK,
   groupAdjacentMessages = true,
+  previousBlocks: readonly VirtualMessageBlock[] = [],
 ): VirtualMessageBlock[] => {
-  const blocks = virtualizeMessageGroups(messages, maximumMessages, groupAdjacentMessages);
+  const blocks = virtualizeMessageGroups(messages, maximumMessages, groupAdjacentMessages, previousBlocks);
   if (sponsoredMessages.length === 0) return blocks;
   const interval = Math.max(0, Math.floor(options.messagesBetween));
   if (interval === 0) {

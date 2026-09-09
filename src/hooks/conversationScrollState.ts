@@ -1,5 +1,6 @@
 import type { StateSnapshot } from "react-virtuoso";
 import type { Message } from "../telegram/types";
+import type { AppPreferences } from "../store/preferencesStore";
 
 export interface ConversationScrollMemory {
   scrollTop: number;
@@ -40,12 +41,35 @@ export const conversationVirtuosoSnapshots = new Map<string, {
   firstMessageId?: string;
   lastMessageId?: string;
   virtualItemCount: number;
+  messageItemIndexes?: ReadonlyMap<string, number>;
+  viewportWidth?: number;
+  geometryKey?: string;
 }>();
 export const conversationLayouts = new Map<string, {
   firstMessageId?: string;
   lastMessageId?: string;
   virtualItemCount: number;
+  messageItemIndexes?: ReadonlyMap<string, number>;
 }>();
+
+/** Equal row counts do not imply equal partitions or message order. */
+export const matchesVirtualMessageLayout = (
+  previous: ReadonlyMap<string, number> | undefined,
+  current: ReadonlyMap<string, number>,
+) => {
+  if (!previous || previous.size !== current.size) return false;
+  const entries = previous.entries();
+  for (const [id, index] of current) {
+    const old = entries.next().value;
+    if (!old || old[0] !== id || old[1] !== index) return false;
+  }
+  return true;
+};
+
+export const conversationGeometryKey = (preferences: Pick<AppPreferences,
+  "chatFontSize" | "interfaceScale" | "messageGroupSpacing" | "messageRowSpacing" | "messageBubblePadding"
+>) => [preferences.chatFontSize, preferences.interfaceScale, preferences.messageGroupSpacing,
+  preferences.messageRowSpacing, preferences.messageBubblePadding].join(":");
 
 const VIRTUAL_ITEM_INDEX_BASE = 1_000_000;
 

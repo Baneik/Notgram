@@ -181,7 +181,8 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .motion-presence[data-motion-state="exiting"][data-motion-variant="status"] > * {
   animation: motion-status-out var(--motion-duration-fast) var(--motion-ease-exit) both;
 }
-.stable-image { opacity: 0; transition: opacity var(--motion-duration-standard) var(--motion-ease-enter); }
+.stable-image { opacity: 0; }
+.stable-image[data-image-transition="enter"] { transition: opacity var(--motion-duration-standard) var(--motion-ease-enter); }
 .stable-image[data-image-state="ready"] { opacity: 1; }
 .icon-button, .dialog-primary, .dialog-secondary, .global-chat-result, .global-message-result,
 .message-reactions > button, .poll-option, .shared-media-open, .shared-media-selection button {

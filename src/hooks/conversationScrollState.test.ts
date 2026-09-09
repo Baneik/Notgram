@@ -2,9 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import {
   captureActiveConversationScrollState,
   isMessageFullyVisible,
+  matchesVirtualMessageLayout,
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
 } from "./conversationScrollState";
+
+describe("virtual measurement cache validity", () => {
+  it("rejects equal-size timelines with different partitions or ordering", () => {
+    const before = new Map([["a", 0], ["b", 0], ["c", 1], ["d", 1]]);
+    expect(matchesVirtualMessageLayout(before, new Map(before))).toBe(true);
+    expect(matchesVirtualMessageLayout(before, new Map([["a", 0], ["b", 1], ["c", 1], ["d", 1]]))).toBe(false);
+    expect(matchesVirtualMessageLayout(before, new Map([["b", 0], ["a", 0], ["c", 1], ["d", 1]]))).toBe(false);
+    expect(matchesVirtualMessageLayout(undefined, before)).toBe(false);
+  });
+});
 
 describe("conversation scroll state capture", () => {
   it("captures the active viewport and ignores stale cleanup", () => {

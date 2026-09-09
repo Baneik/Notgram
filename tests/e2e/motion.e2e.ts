@@ -220,6 +220,75 @@ test("images remain hidden until their current source finishes decoding", async 
   await expect(image).toHaveCSS("opacity", "1");
 });
 
+test("decoded message images restore without a second fade after remount", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const current = telegramStore.getState().messages.get("chat-product")!;
+    telegramStore.setState({ messages: new Map(telegramStore.getState().messages).set("chat-product", [...current, {
+      ...current.at(-1)!, id: "decoded-remount", mediaAlbumId: undefined, sentAt: "2027-01-01T00:00:00Z",
+      content: { kind: "media", mediaType: "photo", fileName: "cached.jpg", sizeLabel: "18 KB",
+        localPath: "/mock-video-poster.jpg?decoded-remount", width: 480, height: 240,
+        isDownloaded: true, canDownload: false },
+    }]) });
+  });
+  const image = page.locator('[data-message-id="decoded-remount"] img');
+  await expect(image).toHaveCSS("opacity", "1");
+  const frames = await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const original = document.querySelector('[data-message-id="decoded-remount"] img');
+    const current = telegramStore.getState().messages.get("chat-product")!;
+    telegramStore.setState({ messages: new Map(telegramStore.getState().messages).set("chat-product", current.map((message) =>
+      message.id === "decoded-remount" ? { ...message, renderKey: "remounted-image" } : message)) });
+    const frames = [];
+    for (let frame = 0; frame < 20; frame++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      const img = document.querySelector<HTMLImageElement>('[data-message-id="decoded-remount"] img');
+      frames.push({ remounted: img !== original, opacity: img ? getComputedStyle(img).opacity : null,
+        state: img?.dataset.imageState });
+    }
+    return frames;
+  });
+  expect(frames.every((frame) => frame.remounted && frame.opacity === "1" && frame.state === "ready"), JSON.stringify(frames)).toBe(true);
+});
+
+test("a stale media decode cannot hide or acknowledge a newer source", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async () => {
+    const original = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = function () {
+      if (this.currentSrc.includes("decode-obsolete")) {
+        return new Promise<void>((resolve) => Object.assign(window, { releaseObsoleteDecode: resolve }));
+      }
+      return original.call(this);
+    };
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const current = telegramStore.getState().messages.get("chat-product")!;
+    telegramStore.setState({ messages: new Map(telegramStore.getState().messages).set("chat-product", [...current, {
+      ...current.at(-1)!, id: "decode-generation", mediaAlbumId: undefined, sentAt: "2027-01-01T00:00:00Z",
+      content: { kind: "media", mediaType: "photo", fileName: "decode.jpg", sizeLabel: "18 KB",
+        localPath: "/mock-video-poster.jpg?decode-obsolete", width: 480, height: 240,
+        isDownloaded: true, canDownload: false },
+    }]) });
+  });
+  await page.waitForFunction(() => Boolean((window as unknown as { releaseObsoleteDecode?: () => void }).releaseObsoleteDecode));
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const current = telegramStore.getState().messages.get("chat-product")!;
+    telegramStore.setState({ messages: new Map(telegramStore.getState().messages).set("chat-product", current.map((message) =>
+      message.id === "decode-generation" ? { ...message, content: { ...message.content, localPath: "/mock-video-poster.jpg?decode-current" } } : message)) });
+  });
+  const image = page.locator('[data-message-id="decode-generation"] img');
+  await expect(image).toHaveAttribute("data-image-state", "ready");
+  await expect(image).toHaveCSS("opacity", "1");
+  await page.evaluate(() => (window as unknown as { releaseObsoleteDecode: () => void }).releaseObsoleteDecode());
+  await page.waitForTimeout(80);
+  await expect(image).toHaveAttribute("data-image-state", "ready");
+  await expect(image).toHaveCSS("opacity", "1");
+});
+
 test("captioned message media stays paint-contained across virtual remounts", async ({ page }) => {
   await page.setViewportSize({ width: 525, height: 812 });
   await page.goto("/");

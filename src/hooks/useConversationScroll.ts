@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
-import { usePreferencesStore } from "../store/preferencesStore";
+import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
 import { observeConversationRowSizes } from "../utils/conversationRowSizes";
 import {
@@ -28,10 +28,12 @@ import {
 import {
   appendedMessageCount,
   conversationLayouts,
+  conversationGeometryKey,
   conversationScrollMemory,
   conversationVirtuosoSnapshots,
   distanceFromBottom,
   isMessageFullyVisible,
+  matchesVirtualMessageLayout,
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
   scrollMemoryKey,
@@ -209,6 +211,7 @@ export const useConversationScroll = ({
   onUserScroll,
 }: ConversationScrollOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
+  const geometryKey = usePreferencesStore(conversationGeometryKey);
   const messageListRef = useRef<HTMLDivElement>(null);
   const virtuosoKeyRef = useRef("");
   const [messageListElement, setMessageListElement] = useState<HTMLDivElement | null>(null);
@@ -387,6 +390,7 @@ export const useConversationScroll = ({
       firstMessageId: firstVisibleMessageId,
       lastMessageId: lastVisibleMessageId,
       virtualItemCount,
+      messageItemIndexes,
     });
   }
 
@@ -470,7 +474,10 @@ export const useConversationScroll = ({
       storedMemory && storedSnapshot &&
       storedSnapshot.firstMessageId === firstVisibleMessageId &&
       storedSnapshot.lastMessageId === lastVisibleMessageId &&
-      storedSnapshot.virtualItemCount === virtualItemCount
+      storedSnapshot.virtualItemCount === virtualItemCount &&
+      storedSnapshot.viewportWidth === messageListRef.current?.clientWidth &&
+      storedSnapshot.geometryKey === geometryKey &&
+      matchesVirtualMessageLayout(storedSnapshot.messageItemIndexes, messageItemIndexes)
     ? storedSnapshot.state
     : undefined;
 
@@ -2282,6 +2289,9 @@ export const useConversationScroll = ({
           firstMessageId: layout?.firstMessageId,
           lastMessageId: layout?.lastMessageId,
           virtualItemCount: layout?.virtualItemCount ?? 0,
+          messageItemIndexes: layout?.messageItemIndexes,
+          viewportWidth: element.clientWidth,
+          geometryKey: conversationGeometryKey(preferencesStore.getState()),
         });
       });
     };

@@ -765,6 +765,8 @@ export function Conversation({
     globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
   }, []);
 
+  const projectionIdentity = `${activeAccountId}:${conversationIdentity}:${pinnedViewOpen}`;
+  const committedProjection = useRef<{ identity: string; blocks: VirtualMessageBlock[] } | undefined>(undefined);
   const messageProjection = useMemo(() => {
     const startedAt = performance.now();
     const blocks = virtualizeMessageTimeline(
@@ -773,9 +775,15 @@ export function Conversation({
       { messagesBetween: sponsoredMessagesBetween },
       undefined,
       chat?.kind !== "channel",
+      committedProjection.current?.identity === projectionIdentity
+        ? committedProjection.current.blocks
+        : undefined,
     );
     return { blocks, durationMs: performance.now() - startedAt };
-  }, [chat?.kind, pinnedViewOpen, renderedMessages, sponsoredMessages, sponsoredMessagesBetween]);
+  }, [chat?.kind, pinnedViewOpen, projectionIdentity, renderedMessages, sponsoredMessages, sponsoredMessagesBetween]);
+  useLayoutEffect(() => {
+    committedProjection.current = { identity: projectionIdentity, blocks: messageProjection.blocks };
+  }, [messageProjection, projectionIdentity]);
   const visibleMessageBlocks = messageProjection.blocks;
   const messageItemIndexes = useMemo(
     () => indexMessagesByVirtualBlock(visibleMessageBlocks),
@@ -1414,10 +1422,14 @@ export function Conversation({
       scrollRequest?.chatId === chat?.id
     )
   );
-  const showPositioning = useStableVisibility(
+  const positioningFeedbackVisible = useStableVisibility(
     !pinnedViewOpen && (waitingForEntryTarget ||
       (positioning && renderedMessages.length === 0 && !preservePositioningFrame)),
+    { minimumVisible: 0 },
   );
+  // Feedback may be delayed, but it cannot outlive the viewport transaction.
+  // A generic presence exit would cover already-positioned destination rows.
+  const showPositioning = positioning && positioningFeedbackVisible;
 
   useLayoutEffect(() => {
     if (!conversationIdentity || pinnedViewOpen || positioning) return;
@@ -2427,15 +2439,13 @@ export function Conversation({
             <span>{translate("正在读取置顶消息")}</span>
           </div> : null}
         </MotionPresence>
-        <MotionPresence present={showPositioning} variant="status">
-          {showPositioning ? <div
+        {showPositioning ? <div
             className={`message-positioning-placeholder ${renderedMessages.length > 0 ? "is-warm" : ""}`}
             role="status"
           >
             <LoaderCircle className="spin" size={18} />
             <span>{translate("正在加载消息")}</span>
           </div> : null}
-        </MotionPresence>
         <MotionPresence present={showHistoryLoading} variant="status">
           {showHistoryLoading ? <div className="history-loading" aria-label={translate("正在加载更早消息")}>
             <LoaderCircle className="spin" size={16} />
@@ -2536,7 +2546,7 @@ export function Conversation({
               ? localBlockedUser.aliasAvatar
               : realSenderAvatar;
             return (
-              <Fragment key={firstMessage.id}>
+              <Fragment key={groupModel.id}>
               {startsNewDay && (
                 <div className="message-day">{formatMessageDay(firstMessage.sentAt)}</div>
               )}
@@ -2796,7 +2806,7 @@ export function Conversation({
                       <div
                         className={`media-album ${isChannelConversation ? "is-channel-album" : ""} ${!isChannelConversation && firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
                         data-media-album-id={segment.albumId}
-                        key={`album:${segment.albumId}:${segment.messages[0]?.renderKey ?? segment.messages[0]?.id}`}
+                        key={`album:${segment.albumId}`}
                         role="group"
                         aria-label={translate("{{value0}} 项媒体相册", { value0: segment.messages.length })}
                       >

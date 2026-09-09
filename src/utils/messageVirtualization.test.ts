@@ -187,4 +187,43 @@ describe("message virtualization", () => {
     expect(withHistory.slice(1).map(({ id }) => id)).toEqual(["2", "3"]);
     expect(withLiveMessage.slice(0, 2).map(({ id }) => id)).toEqual(["2", "3"]);
   });
+
+  it("retains default-size partitions across partial history pages and live appends", () => {
+    const original = Array.from({ length: 11 }, (_, i) => message(String(i + 10)));
+    const before = virtualizeMessageGroups(original);
+    for (const count of [1, 2, 3, 5, 30]) {
+      const older = Array.from({ length: count }, (_, i) => message(`old-${i}`));
+      const after = virtualizeMessageGroups([...older, ...original, message("new")], undefined, true, before);
+      for (const block of before) {
+        const retained = after.find((item) => item.id === block.id)!;
+        expect(retained.messages.slice(0, block.messages.length)).toEqual(block.messages);
+      }
+      expect(after.every((block) => block.messages.length <= 4)).toBe(true);
+      expect(after.flatMap((block) => block.messages)).toEqual([...older, ...original, message("new")]);
+    }
+  });
+
+  it("retains a partition when its first message is deleted and keeps semantic splits unique", () => {
+    const messages = Array.from({ length: 12 }, (_, i) => message(String(i)));
+    const before = virtualizeMessageGroups(messages);
+    const after = virtualizeMessageGroups(messages.slice(1), undefined, true, before);
+    expect(after.map((block) => block.id)).toEqual(before.map((block) => block.id));
+    const edited = messages.map((item) => item.id === "2" ? { ...item, senderId: "bob" } : item);
+    const split = virtualizeMessageGroups(edited, undefined, true, before);
+    expect(new Set(split.map((block) => block.id)).size).toBe(split.length);
+    expect(split.flatMap((block) => block.messages)).toEqual(edited);
+    expect(split.slice(-2).map((block) => block.id)).toEqual(before.slice(-2).map((block) => block.id));
+  });
+
+  it("keeps growing albums atomic without reparenting the following messages", () => {
+    const photo = (id: string): Message => message(id, { mediaAlbumId: "photos",
+      content: { kind: "media", mediaType: "photo", fileName: `${id}.jpg`, sizeLabel: "1 MB" } });
+    const original = [photo("a"), photo("b"), ...Array.from({ length: 8 }, (_, i) => message(String(i)))];
+    const before = virtualizeMessageGroups(original);
+    const after = virtualizeMessageGroups([photo("older"), ...original], undefined, true, before);
+    expect(after[0]?.id).toBe(before[0]?.id);
+    expect(after[0]?.segments[0]?.kind).toBe("album");
+    expect(after.slice(-1)[0]?.id).toBe(before.slice(-1)[0]?.id);
+    expect(after.flatMap((block) => block.messages)).toEqual([photo("older"), ...original]);
+  });
 });
