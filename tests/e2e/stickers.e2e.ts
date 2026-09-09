@@ -57,7 +57,7 @@ test("a decoded sticker does not retain a stale download button", async ({ page 
     const sticker: Message = { ...messages.at(-1)!, id: "decoded-stale-download", sentAt: new Date().toISOString(), content: {
       kind: "media", mediaType: "sticker", fileId: 99006,
       fileName: "decoded.webp", mimeType: "image/webp", size: 1024, sizeLabel: "1 KB", width: 512, height: 512,
-      localPath: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      thumbnailPath: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
       canDownload: true, isDownloaded: false, isDownloading: false,
     } };
     telegramStore.setState({ messages: new Map(current.messages).set(chatId, [...messages, sticker]) });
