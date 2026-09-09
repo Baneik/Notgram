@@ -1988,7 +1988,7 @@ describe("TauriTelegramTransport startup", () => {
     });
 
     requests.length = 0;
-    internal.upsertChat(inFolder);
+    internal.upsertChat(structuredClone(inFolder));
     await transport.deleteChatFolder("folder:12");
     expect(requests[0]).toEqual({
       "@type": "deleteChatFolder",
@@ -2022,7 +2022,7 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.filter((request) => request["@type"] === "getChat")).toEqual([]);
   });
 
-  it("keeps a pinned position across transient empty position updates", () => {
+  it("clears pinned positions from an empty draft position snapshot", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const events: Parameters<TelegramEventListener>[0][] = [];
@@ -2044,7 +2044,7 @@ describe("TauriTelegramTransport startup", () => {
     });
     expect(events.at(-2)).toMatchObject({
       type: "chat.upsert",
-      chat: { id: "7", pinned: true },
+      chat: { id: "7", pinned: false, folderIds: [] },
     });
 
     internal.handleUpdate({
@@ -2062,7 +2062,7 @@ describe("TauriTelegramTransport startup", () => {
     });
   });
 
-  it("keeps pinned positions omitted by a partial chat update", () => {
+  it("replaces pinned positions with the complete last-message snapshot", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const events: Parameters<TelegramEventListener>[0][] = [];
@@ -2097,8 +2097,8 @@ describe("TauriTelegramTransport startup", () => {
     expect(events.at(-1)).toMatchObject({
       type: "chat.upsert",
       chat: {
-        pinnedFolderIds: ["folder:12", "main"],
-        listOrderByFolder: { main: "200", "folder:12": "100" },
+        pinnedFolderIds: ["folder:12"],
+        listOrderByFolder: { "folder:12": "100" },
       },
     });
   });

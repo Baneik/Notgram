@@ -19,6 +19,7 @@ import { createTelegramTransport } from "../telegram/createTransport";
 import type { TelegramTransport } from "../telegram/transport";
 import type {
   CachedTelegramSnapshot,
+  Chat,
   ChatFolder,
   ChatManagement,
   ChatManagementCapabilities,
@@ -246,6 +247,27 @@ export const createTelegramStore = (
     };
     let accountTransition = false;
     let accountGeneration = 0;
+    const pendingPinnedReorders = new Map<string, {
+      serverOrders: Map<string, string | undefined>;
+      optimisticOrders: Map<string, string>;
+    }>();
+    const withListOrder = (chat: Chat, listId: string, order: string | undefined): Chat => {
+      const listOrderByFolder = { ...chat.listOrderByFolder };
+      if (order === undefined) delete listOrderByFolder[listId];
+      else listOrderByFolder[listId] = order;
+      return { ...chat, listOrderByFolder };
+    };
+    const chatsWithServerOrders = (chats: Map<string, Chat>) => {
+      if (pendingPinnedReorders.size === 0) return chats;
+      const result = new Map(chats);
+      for (const [listId, reorder] of pendingPinnedReorders) {
+        for (const [chatId, order] of reorder.serverOrders) {
+          const chat = result.get(chatId);
+          if (chat) result.set(chatId, withListOrder(chat, listId, order));
+        }
+      }
+      return result;
+    };
     let pendingFolderReorder: {
       generation: number;
       order: string[];
@@ -857,7 +879,7 @@ export const createTelegramStore = (
           const current = get();
           if (current.authorization.kind !== "ready" || !current.currentUserId) return;
           const snapshot = cachedSnapshotFrom(
-            current,
+            { ...current, chats: chatsWithServerOrders(current.chats) },
             profileController.getCachedProfiles(),
           );
           cacheWrite = cacheWrite
@@ -910,6 +932,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      pendingPinnedReorders.clear();
       removedMessageIds.clear();
       retainedMediaRestorer.reset();
       syncGeneration += 1;
@@ -1033,7 +1056,9 @@ export const createTelegramStore = (
       localSaveTimer = undefined;
       const state = get();
       if (state.authorization.kind === "ready" && state.currentUserId) {
-        const snapshot = cachedSnapshotFrom(state, profileController.getCachedProfiles());
+        const snapshot = cachedSnapshotFrom(
+          { ...state, chats: chatsWithServerOrders(state.chats) }, profileController.getCachedProfiles(),
+        );
         const operation = cacheWrite.catch(() => undefined).then(() => transport.saveCachedSnapshot(snapshot));
         cacheWrite = operation;
         await operation;
@@ -1511,6 +1536,14 @@ export const createTelegramStore = (
       }
     };
 
+    const loadInitialVisibleFolder = () => {
+      const { chatFilter, chatLists } = get();
+      // Transport bootstrap loads main only. A cached/early-selected folder
+      // must load when authorization and connection become ready, even when
+      // cached rows fill the viewport and sidebar auto-pagination never runs.
+      if (chatFilter !== "main" && !chatLists.has(chatFilter)) void loadChats(chatFilter);
+    };
+
     const searchController = createSearchController({
       transport,
       get,
@@ -1858,6 +1891,7 @@ export const createTelegramStore = (
           authorizationError: undefined,
         });
         if (event.state.kind === "ready") {
+          loadInitialVisibleFolder();
           void retainedMediaRestorer.restore();
           scheduleCacheWrite();
           draftSync.resumePending();
@@ -1912,6 +1946,8 @@ export const createTelegramStore = (
             emojiPickerController.invalidate();
             invalidateSyncState();
             refreshVisibleData();
+          } else {
+            loadInitialVisibleFolder();
           }
           draftSync.resumePending();
           void flushOutbox();
@@ -1994,7 +2030,14 @@ export const createTelegramStore = (
         const activeChatId = get().activeChatId;
         const previousActiveChat = activeChatId ? previousChats.get(activeChatId) : undefined;
         const chats = new Map(previousChats);
-        for (const chat of incomingChats) {
+        for (let chat of incomingChats) {
+          for (const [listId, reorder] of pendingPinnedReorders) {
+            if (!reorder.serverOrders.has(chat.id)) continue;
+            reorder.serverOrders.set(chat.id, chat.listOrderByFolder?.[listId]);
+            if (isChatPinnedInFolder(chat, listId) && chat.folderIds.includes(listId)) {
+              chat = withListOrder(chat, listId, reorder.optimisticOrders.get(chat.id));
+            }
+          }
           chats.set(chat.id, chat);
         }
         const firstChat = get().activeChatId
@@ -2397,11 +2440,15 @@ export const createTelegramStore = (
       operation: () => Promise<void>,
       confirmed: () => boolean,
     ) => {
+      const generation = accountGeneration;
+      const isCurrent = () => generation === accountGeneration && !accountTransition;
       const state = get();
       if (
+        !isCurrent() ||
         state.authorization.kind !== "ready" ||
         !state.chats.has(chatId) ||
-        state.chatManagementPending.has(chatId)
+        state.chatManagementPending.has(chatId) ||
+        [...pendingPinnedReorders.values()].some((reorder) => reorder.serverOrders.has(chatId))
       ) return false;
 
       const pending = new Set(state.chatManagementPending);
@@ -2409,16 +2456,22 @@ export const createTelegramStore = (
       set({ chatManagementPending: pending, operationError: undefined });
       try {
         await operation();
+        if (!isCurrent()) return false;
         if (!confirmed()) throw new Error(confirmationError);
-        await flushCachedSnapshot();
-        return true;
+        await flushCachedSnapshot().catch(() => {
+          if (isCurrent()) set({ cacheHealth: "invalid" });
+        });
+        return isCurrent();
       } catch (error) {
+        if (!isCurrent()) return false;
         set({ operationError: errorMessage(error, fallbackError) });
         return false;
       } finally {
-        const latestPending = new Set(get().chatManagementPending);
-        latestPending.delete(chatId);
-        set({ chatManagementPending: latestPending });
+        if (isCurrent()) {
+          const latestPending = new Set(get().chatManagementPending);
+          latestPending.delete(chatId);
+          set({ chatManagementPending: latestPending });
+        }
       }
     };
 
@@ -2713,6 +2766,7 @@ export const createTelegramStore = (
           void retainedMediaRestorer.restore();
           void registerCurrentAccount();
           if (settingsOnly) return;
+          loadInitialVisibleFolder();
           const refreshChatId = get().activeChatId ?? firstChat?.id;
           if (
             authorization.kind === "ready" &&
@@ -2892,8 +2946,9 @@ export const createTelegramStore = (
         try {
           await cacheWrite.catch(() => undefined);
           await transport.clearCachedSnapshot();
+          const current = get();
           await transport.saveCachedSnapshot(cachedSnapshotFrom(
-            get(),
+            { ...current, chats: chatsWithServerOrders(current.chats) },
             profileController.getCachedProfiles(),
           ));
           set({ cacheHealth: "rebuilt", storagePending: false });
@@ -3052,6 +3107,9 @@ export const createTelegramStore = (
         },
       ),
       reorderPinnedChats: async (chatListId, orderedChatIds) => {
+        const generation = accountGeneration;
+        const isCurrent = () => generation === accountGeneration && !accountTransition;
+        if (!isCurrent() || get().authorization.kind !== "ready" || pendingPinnedReorders.has(chatListId)) return false;
         const pinnedChats = filterAndSortChats(get().chats.values(), chatListId, "")
           .filter((chat) => isChatPinnedInFolder(chat, chatListId));
         const currentIds = pinnedChats.map((chat) => chat.id);
@@ -3062,7 +3120,8 @@ export const createTelegramStore = (
         ) return false;
         if (uniqueIds.every((chatId, index) => chatId === currentIds[index])) return true;
 
-        const originalChats = new Map(pinnedChats.map((chat) => [chat.id, chat]));
+        if (currentIds.some((id) => get().chatManagementPending.has(id))) return false;
+        const serverOrders = new Map(pinnedChats.map((chat) => [chat.id, chat.listOrderByFolder?.[chatListId]]));
         const optimisticOrders = new Map<string, string>();
         const chats = new Map(get().chats);
         const rankBase = BigInt(uniqueIds.length);
@@ -3076,23 +3135,39 @@ export const createTelegramStore = (
             listOrderByFolder: { ...chat.listOrderByFolder, [chatListId]: order },
           });
         }
+        pendingPinnedReorders.set(chatListId, { serverOrders, optimisticOrders });
         set({ chats, operationError: undefined });
+
+        const settleOrder = () => {
+          const latest = new Map(get().chats);
+          for (const [id, order] of serverOrders) {
+            const chat = latest.get(id);
+            if (chat) latest.set(id, withListOrder(chat, chatListId, order));
+          }
+          pendingPinnedReorders.delete(chatListId);
+          set({ chats: latest });
+        };
 
         try {
           await transport.setPinnedChats(chatListId, uniqueIds);
-          await flushCachedSnapshot();
-          return true;
-        } catch (error) {
-          const latestChats = get().chats;
-          const stillOptimistic = uniqueIds.every((chatId) =>
-            latestChats.get(chatId)?.listOrderByFolder?.[chatListId] ===
-              optimisticOrders.get(chatId),
-          );
-          if (stillOptimistic) {
-            const rollback = new Map(latestChats);
-            for (const [chatId, chat] of originalChats) rollback.set(chatId, chat);
-            set({ chats: rollback });
+          if (!isCurrent()) return false;
+          const confirmedIds = filterAndSortChats(chatsWithServerOrders(get().chats).values(), chatListId, "")
+            .filter((chat) => isChatPinnedInFolder(chat, chatListId)).map((chat) => chat.id);
+          if (confirmedIds.length !== uniqueIds.length || uniqueIds.some((id, index) => confirmedIds[index] !== id)) {
+            throw new Error(translate("Telegram 未确认置顶顺序"));
           }
+          settleOrder();
+          await flushCachedSnapshot().catch(() => {
+            if (isCurrent()) set({ cacheHealth: "invalid" });
+          });
+          return isCurrent();
+        } catch (error) {
+          if (!isCurrent()) return false;
+          settleOrder();
+          await flushCachedSnapshot().catch(() => {
+            if (isCurrent()) set({ cacheHealth: "invalid" });
+          });
+          if (!isCurrent()) return false;
           set({
             operationError: error instanceof Error ? error.message : translate("无法调整置顶顺序"),
           });

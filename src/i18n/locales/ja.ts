@@ -134,6 +134,7 @@ export const ja: Record<keyof typeof en, string> = {
   "Telegram 未确认文件夹顺序": "テレグラム フォルダーの順序が未確認",
   "Telegram 未确认新文件夹": "テレグラム 未確認の新規フォルダー",
   "Telegram 未确认置顶状态": "テレグラム 未確認 トップ ステータス",
+  "Telegram 未确认置顶顺序": "Telegram がピン留めしたチャットの順序を確認できませんでした",
   "Telegram 未确认退出群组": "テレグラム 未確認 終了グループ",
   "Telegram 未确认静音状态": "テレグラム 未確認 ミュート ステータス",
   "Telegram 机器人操作链接": "Telegram ロボット操作リンク",

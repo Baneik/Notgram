@@ -1988,7 +1988,6 @@ export const mapTdChat = (
     128,
   );
   const positions = asTdObjects(raw.positions);
-  const chatLists = asTdObjects(raw.chat_lists);
   const folderIds = new Set<string>();
   for (const position of positions) {
     if ((tdNumber(position.order) ?? 0) !== 0) {
@@ -1996,10 +1995,8 @@ export const mapTdChat = (
       if (folderId) folderIds.add(folderId);
     }
   }
-  for (const list of chatLists) {
-    const folderId = tdChatListId(list);
-    if (folderId) folderIds.add(folderId);
-  }
+  // chat_lists describes membership, even before a list has loaded a visible
+  // position. Only nonzero positions can place a chat in the sidebar.
   const lastMessage = asTdObject(raw.last_message);
   const lastLifecycle = lastMessage ? mapTdMessage(lastMessage) : undefined;
   const notifications = asTdObject(raw.notification_settings);

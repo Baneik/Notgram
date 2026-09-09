@@ -322,6 +322,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   private unlistenProxySettings?: UnlistenFn;
   private requestBroker = new TdRequestBroker();
   private rawChats = new Map<string, TdObject>();
+  // Recognize snapshots already consumed in TDLib receive order. Async callers
+  // may still hold one after a later update has replaced it.
+  private consumedChatSnapshots = new WeakSet<TdObject>();
   private rawUsers = new Map<string, TdObject>();
   private searchService = new TauriSearchService({
     request: (request) => this.request(request),
@@ -1732,7 +1735,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   async deleteChatFolder(folderId: string) {
     const numericFolderId = chatFolderNumericId(folderId);
     const affectedChatIds = [...this.rawChats.entries()].flatMap(([chatId, raw]) =>
-      this.mapChat(raw)?.folderIds.includes(folderId) ? [chatId] : []
+      this.mapChat(raw)?.folderIds.includes(folderId) ||
+        asTdObjects(raw.chat_lists).some((list) => chatListKey(list) === folderId) ? [chatId] : []
     );
     await this.request({
       "@type": "deleteChatFolder",
@@ -2246,7 +2250,12 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.handleNativeConnectionState(update);
       return;
     }
-    if (this.requestBroker.settle(update)) return;
+    if (this.requestBroker.settle(update)) {
+      // Consume replies before the next update in this native batch, rather
+      // than when the awaiting request resumes after the whole batch.
+      if (update["@type"] === "chat") this.cacheChat(update);
+      return;
+    }
     routeTdUpdate(update, this.updateHandlers);
   }
 
@@ -2477,17 +2486,19 @@ export class TauriTelegramTransport implements TelegramTransport {
           chat_id: numericId(id),
         });
         this.assertSyncGeneration(generation);
-        this.rawChats.set(id, raw);
-        await this.ensureBasicGroupMetadata(raw);
+        const current = this.cacheChat(raw);
+        await this.ensureBasicGroupMetadata(current);
         this.assertSyncGeneration(generation);
-        return this.mapChat(raw);
+        return id;
       }));
       this.assertSyncGeneration(generation);
       const fetchedChats: Chat[] = [];
       for (const [offset, result] of batch.entries()) {
-        if (result.status === "fulfilled" && result.value) {
+        const raw = result.status === "fulfilled" ? this.rawChats.get(result.value) : undefined;
+        const chat = raw ? this.mapChat(raw) : undefined;
+        if (chat) {
           loadedIds.add(batchIds[offset]);
-          fetchedChats.push(result.value);
+          fetchedChats.push(chat);
         }
       }
       if (fetchedChats.length > 0 && !this.initialChatSyncPending) {
@@ -2725,11 +2736,20 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (current) this.upsertUser({ ...current, status: update.status });
   }
 
+  private cacheChat(raw: TdObject): TdObject {
+    const id = tdId(raw.id);
+    const current = this.rawChats.get(id);
+    if (this.consumedChatSnapshots.has(raw)) return current ?? raw;
+    this.consumedChatSnapshots.add(raw);
+    if (id) this.rawChats.set(id, raw);
+    return raw;
+  }
+
   private upsertChat(raw?: TdObject, cacheRelevant = true) {
     if (!raw) return;
     const id = tdId(raw.id);
     if (!id) return;
-    this.rawChats.set(id, raw);
+    raw = this.cacheChat(raw);
     const type = asTdObject(raw.type);
     if (type?.["@type"] === "chatTypeBasicGroup") void this.ensureBasicGroupMetadata(raw);
     if (type?.["@type"] === "chatTypeSupergroup") {
@@ -2810,6 +2830,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private mapChat(raw: TdObject) {
+    if (this.consumedChatSnapshots.has(raw)) raw = this.rawChats.get(tdId(raw.id)) ?? raw;
     const rawId = tdId(raw.id);
     const canonicalId = rawId ? this.canonicalChatId(rawId) : rawId;
     const mappedRaw = rawId && canonicalId && rawId !== canonicalId
@@ -2914,19 +2935,12 @@ export class TauriTelegramTransport implements TelegramTransport {
     const id = tdId(idValue);
     const current = this.rawChats.get(id);
     if (!current) return;
-    const positions = asTdObjects(positionsValue);
-    const incomingLists = new Set(positions.map((position) => chatListKey(position.list)));
-    const stablePinnedPositions = asTdObjects(current.positions).filter((position) =>
-      position.is_pinned === true && !incomingLists.has(chatListKey(position.list)),
-    );
     this.upsertChat({
       ...current,
       ...patch,
-      // Last-message and draft updates can briefly omit a pinned list position.
-      // Keep it until updateChatPosition explicitly replaces or removes that list.
-      positions: positions.length > 0
-        ? [...positions, ...stablePinnedPositions]
-        : current.positions,
+      // TDLib sends a complete snapshot here, including an empty snapshot when
+      // the chat has no visible positions. Only updateChatPosition is a delta.
+      positions: asTdObjects(positionsValue),
     });
   }
 
@@ -3627,7 +3641,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const lastReadId = tdId(update.last_read_outbox_message_id);
     const chat = this.rawChats.get(chatId);
     if (chat && lastReadId) {
-      this.rawChats.set(chatId, {
+      this.cacheChat({
         ...chat,
         last_read_outbox_message_id: lastReadId,
       });
@@ -3693,6 +3707,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.connectionSyncPending = false;
     this.hasEstablishedConnection = false;
     this.rawChats.clear();
+    this.consumedChatSnapshots = new WeakSet();
     this.rawBasicGroups.clear();
     this.rawSupergroups.clear();
     this.basicGroupUpgrades.clear();

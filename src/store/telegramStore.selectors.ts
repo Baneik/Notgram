@@ -24,7 +24,15 @@ const listOrder = (chat: Chat, folderId: string) => {
 const compareListOrder = (left: Chat, right: Chat, folderId: string) => {
   const leftOrder = listOrder(left, folderId);
   const rightOrder = listOrder(right, folderId);
-  return leftOrder === rightOrder ? 0 : leftOrder > rightOrder ? -1 : 1;
+  if (leftOrder !== rightOrder) return leftOrder > rightOrder ? -1 : 1;
+  // TDLib breaks equal order values by numeric chat ID, descending. Message
+  // dates and lexicographic IDs can reverse that order after a refresh.
+  if (leftOrder !== 0n && /^-?\d+$/.test(left.id) && /^-?\d+$/.test(right.id)) {
+    const leftId = BigInt(left.id);
+    const rightId = BigInt(right.id);
+    return leftId === rightId ? 0 : leftId > rightId ? -1 : 1;
+  }
+  return 0;
 };
 
 export const compareChatsInFolder = (folderId: string) => (left: Chat, right: Chat) =>

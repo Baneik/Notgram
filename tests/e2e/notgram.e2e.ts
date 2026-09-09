@@ -7962,7 +7962,7 @@ test("video downloads share real progress and a usable file name across both vie
     .toHaveAttribute("aria-valuenow", "0");
 });
 
-test("pinned chats can be dragged into a fixed order", async ({ page }) => {
+test("pinned chats keep their per-folder order through dragging, folder switches, and restart", async ({ page }) => {
   await page.goto("/");
   const product = page.locator('[data-chat-id="chat-product"]');
   const mia = page.locator('[data-chat-id="chat-mia"]');
@@ -7981,6 +7981,23 @@ test("pinned chats can be dragged into a fixed order", async ({ page }) => {
 
   await expect(page.locator(".chat-row").first()).toContainText("Mia Chen");
   await expect(page.locator(".chat-row").nth(1)).toContainText("产品讨论");
+  for (let index = 0; index < 5; index += 1) {
+    await page.locator('.rail-actions [data-folder-id="folder:work"]').click();
+    await expect(page.locator(".chat-row").first()).toHaveAttribute("data-chat-id", "chat-product");
+    await expect(product).toHaveAttribute("data-pinned", "true");
+    await page.locator('.rail-actions [data-folder-id="main"]').click();
+    await expect(page.locator(".chat-row").first()).toHaveAttribute("data-chat-id", "chat-mia");
+    await expect(product).toHaveAttribute("data-pinned", "true");
+    await expect(mia).toHaveAttribute("data-pinned", "true");
+  }
+  await page.reload();
+  await expect(page.locator(".chat-row").first()).toHaveAttribute("data-chat-id", "chat-mia");
+  await expect(page.locator(".chat-row").nth(1)).toHaveAttribute("data-chat-id", "chat-product");
+  await expect(product).toHaveAttribute("data-pinned", "true");
+  await expect(mia).toHaveAttribute("data-pinned", "true");
+  await page.locator('.rail-actions [data-folder-id="folder:work"]').click();
+  await expect(page.locator(".chat-row").first()).toHaveAttribute("data-chat-id", "chat-product");
+  await expect(product).toHaveAttribute("data-pinned", "true");
 });
 
 test("Markdown and TDLib rich text render as structured message content", async ({ page }) => {

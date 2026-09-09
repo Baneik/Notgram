@@ -132,6 +132,7 @@ export const en = {
   "Telegram 未确认文件夹顺序": "Telegram Folder order not confirmed",
   "Telegram 未确认新文件夹": "Telegram Not confirmed new folder",
   "Telegram 未确认置顶状态": "Telegram Not confirmed top status",
+  "Telegram 未确认置顶顺序": "Telegram did not confirm the pinned chat order",
   "Telegram 未确认退出群组": "Telegram Not confirmed exiting group",
   "Telegram 未确认静音状态": "Telegram Not confirmed mute status",
   "Telegram 机器人操作链接": "Telegram robot operation link",
