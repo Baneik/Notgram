@@ -117,6 +117,34 @@ describe("Store recovery synchronization", () => {
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
   });
 
+  it.each(["chat-product", "chat-forum"])("keeps cached %s usable while deduplicating background refreshes", async (chatId) => {
+    const transport = new RecoveryTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().selectChat(chatId);
+    if (chatId === "chat-forum") {
+      await vi.waitFor(() => expect(store.getState().activeTopicId).toBeDefined());
+    }
+    const topicId = store.getState().activeTopicId;
+    const key = topicId ? `${chatId}:topic:${topicId}` : chatId;
+    const history = () => (topicId ? store.getState().topicHistories : store.getState().histories).get(key);
+    await vi.waitFor(() => expect(history()?.loading).toBe(false));
+    let finish!: (page: ChatHistoryPage) => void;
+    const request = vi.spyOn(transport, topicId ? "loadForumTopicHistory" : "loadChatHistory")
+      .mockImplementationOnce(() => new Promise<ChatHistoryPage>((resolve) => { finish = resolve; }));
+    const previous = store.getState().messages;
+    transport.events?.({ type: "sync.required" });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    expect(history()).toMatchObject({ loading: true, background: true });
+    expect(store.getState().messages).toBe(previous);
+    const duplicate = store.getState().loadMoreHistory(chatId);
+    expect(request).toHaveBeenCalledTimes(1);
+    finish({ messages: [], messageIds: [], loadedCount: 0, hasMore: false });
+    await duplicate;
+    await vi.waitFor(() => expect(history()?.loading).toBe(false));
+    expect(history()?.background).toBeFalsy();
+  });
+
   it("retries a transient history error while the connection stays online", async () => {
     vi.useFakeTimers();
     const transport = new RecoveryTransport();

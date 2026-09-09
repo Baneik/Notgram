@@ -1187,6 +1187,7 @@ export const createTelegramStore = (
       const histories = new Map(get().histories);
       histories.set(chatId, {
         loading: true,
+        background: options.background === true,
         hasMore: current?.hasMore ?? true,
         initialized: current?.initialized ?? false,
       });
@@ -1305,7 +1306,7 @@ export const createTelegramStore = (
     ) => {
       const key = topicKey(chatId, topicId);
       const retry = () => topicId
-        ? loadForumTopicHistory(chatId, topicId, "older")
+        ? loadForumTopicHistory(chatId, topicId, "older", { background: true })
         : loadHistory(chatId, "older", { background: true });
       const retryKey = topicId ? `topic:${key}` : `history:${chatId}`;
       const existing = cacheBoundaryPromises.get(key);
@@ -1336,6 +1337,7 @@ export const createTelegramStore = (
           const histories = new Map(topicId ? get().topicHistories : get().histories);
           histories.set(key, {
             loading: histories.get(key)?.loading ?? false,
+            background: histories.get(key)?.background,
             initialized: true,
             hasMore: continuation.hasMore,
           });
@@ -1382,6 +1384,7 @@ export const createTelegramStore = (
       chatId: string,
       topicId: string,
       mode: "ensure" | "older",
+      options: { background?: boolean } = {},
     ) => {
       if (
         get().authorization.kind !== "ready" ||
@@ -1394,7 +1397,9 @@ export const createTelegramStore = (
       const current = get().topicHistories.get(key);
       if (current?.loading || current?.hasMore === false || (mode === "ensure" && current?.initialized)) return;
       const topicHistories = new Map(get().topicHistories);
-      topicHistories.set(key, { loading: true, hasMore: current?.hasMore ?? true, initialized: current?.initialized ?? false });
+      const background = options.background === true || (mode === "ensure" &&
+        (get().messages.get(chatId) ?? []).some((message) => message.topicId === topicId));
+      topicHistories.set(key, { loading: true, background, hasMore: current?.hasMore ?? true, initialized: current?.initialized ?? false });
       set({ topicHistories });
       try {
         const page = await transport.loadForumTopicHistory(chatId, topicId, 30);
@@ -1416,7 +1421,7 @@ export const createTelegramStore = (
         if (generation !== accountGeneration || sync !== syncGeneration) return;
         const next = new Map(get().topicHistories);
         next.set(key, { loading: false, hasMore: true, initialized: current?.initialized ?? false });
-        syncRetries.schedule(`topic:${key}`, () => loadForumTopicHistory(chatId, topicId, "older"), error);
+        syncRetries.schedule(`topic:${key}`, () => loadForumTopicHistory(chatId, topicId, "older", { background }), error);
         set({ topicHistories: next, operationError: errorMessage(error, translate("无法加载话题消息")) });
       }
     };

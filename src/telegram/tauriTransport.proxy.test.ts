@@ -63,6 +63,8 @@ describe("native proxy recovery boundary", () => {
     expect(internal.listener).toHaveBeenLastCalledWith({ type: "connection.changed", status: "recovering" });
     internal.handleUpdate(native("idle"));
     expect(internal.listener).toHaveBeenLastCalledWith({ type: "connection.changed", status: "online" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(internal.listener).not.toHaveBeenCalledWith({ type: "sync.required" });
   });
 
   it("keeps settings windows from recovering or shutting down the shared client", async () => {
@@ -100,6 +102,41 @@ describe("native proxy recovery boundary", () => {
     const { internal } = setup(vi.fn().mockRejectedValue(new Error("private native details")));
     internal.requestImmediateConnectionRecovery(true);
     await vi.waitFor(() => expect(internal.listener).toHaveBeenCalledWith({ type: "sync.error", message: "无法请求连接恢复，后台将继续重试" }));
+  });
+
+  it("refreshes data once after hidden recovery settles without changing the visible status", async () => {
+    vi.useFakeTimers();
+    const { internal } = setup();
+    internal.listener = vi.fn();
+    internal.handleUpdate(native("idle"));
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      internal.handleUpdate(native("recovering"));
+      await vi.advanceTimersByTimeAsync(400);
+      internal.handleUpdate(native("idle"));
+      await vi.advanceTimersByTimeAsync(400);
+    }
+    expect(internal.listener).toHaveBeenCalledExactlyOnceWith({ type: "connection.changed", status: "online" });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(internal.listener).toHaveBeenCalledTimes(2);
+    expect(internal.listener).toHaveBeenLastCalledWith({ type: "sync.required" });
+    internal.handleUpdate(native("idle"));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(internal.listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("debounces established syncing blips and cancels deferred refresh on session reset", async () => {
+    vi.useFakeTimers();
+    const { internal, transport } = setup();
+    const listener = vi.fn();
+    internal.listener = listener;
+    internal.handleUpdate(native("idle"));
+    internal.handleUpdate({ "@type": "updateConnectionState", state: { "@type": "connectionStateUpdating" } });
+    await vi.advanceTimersByTimeAsync(400);
+    internal.handleUpdate(native("idle"));
+    expect(internal.listener).toHaveBeenCalledExactlyOnceWith({ type: "connection.changed", status: "online" });
+    await transport.disconnect();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(listener).not.toHaveBeenCalledWith({ type: "sync.required" });
   });
 
   it("tests freshly detected system settings rather than the settings dialog snapshot", async () => {

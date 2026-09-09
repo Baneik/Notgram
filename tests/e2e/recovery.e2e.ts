@@ -1,6 +1,19 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import type { TelegramState } from "../../src/store/telegramStore.types";
 import type { ChatHistoryPage, Message, TelegramEvent } from "../../src/telegram/types";
+
+const exposeRecoveryTransport = (page: Page) => page.route("**/src/telegram/mockTransport.ts", async (route) => {
+  const response = await route.fetch();
+  const body = await response.text();
+  await route.fulfill({ response, body: `${body}\n{
+    globalThis.__notgramRecoveryTransport = MockTelegramTransport;
+    const originalConnect = MockTelegramTransport.prototype.connect;
+    MockTelegramTransport.prototype.connect = function(listener, ...options) {
+      globalThis.__notgramRecoveryDispatch = listener;
+      return originalConnect.call(this, listener, ...options);
+    };
+  }` });
+});
 
 test("proxy recovery shows retry progress instead of blaming proxy settings", async ({ page }) => {
   await page.goto("/?connection=recovering");
@@ -36,18 +49,7 @@ test("system discovery errors explain the limitation and preserve unsaved proxy 
 
 for (const reason of ["reconnect", "wake"] as const) {
   test(`${reason} refreshes exhausted history and displays missed messages`, async ({ page }) => {
-    await page.route("**/src/telegram/mockTransport.ts", async (route) => {
-      const response = await route.fetch();
-      const body = await response.text();
-      await route.fulfill({ response, body: `${body}\n{
-        globalThis.__notgramRecoveryTransport = MockTelegramTransport;
-        const originalConnect = MockTelegramTransport.prototype.connect;
-        MockTelegramTransport.prototype.connect = function(listener, ...options) {
-          globalThis.__notgramRecoveryDispatch = listener;
-          return originalConnect.call(this, listener, ...options);
-        };
-      }` });
-    });
+    await exposeRecoveryTransport(page);
     await page.goto("/");
     await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
     await page.evaluate(async (storePath) => {
@@ -99,4 +101,100 @@ for (const reason of ["reconnect", "wake"] as const) {
     }, "/src/store/telegramStore.ts");
     expect(actualIds).toEqual(expect.arrayContaining([...previousIds, "missed-after-sleep"]));
   });
+}
+
+for (const chatId of ["chat-product", "chat-forum"]) {
+  for (const detached of [false, true]) {
+    test(`repeated recovery preserves ${chatId} viewport while ${detached ? "reading history" : "following latest"}`, async ({ page }) => {
+      await exposeRecoveryTransport(page);
+      await page.goto("/");
+      await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+      await page.evaluate(async ({ path, chatId }) => {
+        const { telegramStore } = await import(path) as { telegramStore: { getState: () => TelegramState } };
+        if (chatId === "chat-forum") {
+          const runtime = window as typeof window & {
+            __notgramRecoveryTransport: { prototype: {
+              loadForumTopicHistory: (chatId: string, topicId: string) => Promise<ChatHistoryPage>;
+            } };
+          };
+          const template = telegramStore.getState().messages.get("chat-product")![0];
+          runtime.__notgramRecoveryTransport.prototype.loadForumTopicHistory = async (chatId, topicId) => {
+            const messages: Message[] = Array.from({ length: 40 }, (_, index) => ({
+              ...template, chatId, topicId, id: `recovery-forum-${index}`, outgoing: false,
+              sentAt: new Date(Date.UTC(2026, 8, 9, 12, index)).toISOString(),
+              content: { kind: "text", text: `论坛恢复回归消息 ${index}` },
+            }));
+            return { messages, messageIds: messages.map((m) => m.id), loadedCount: messages.length, hasMore: false };
+          };
+        }
+        await telegramStore.getState().selectChat(chatId);
+      }, { path: "/src/store/telegramStore.ts", chatId });
+      await expect(page.locator(".message-list")).toHaveAttribute("data-conversation-virtuoso-key", new RegExp(chatId));
+      if (chatId === "chat-forum") {
+        await expect(page.locator('[data-message-id="recovery-forum-39"]')).toBeVisible();
+      }
+      await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+      const latest = page.getByRole("button", { name: /^跳到最新消息/ });
+      if (await latest.isVisible()) await latest.click();
+      if (detached) {
+        await page.locator(".message-list").hover();
+        await page.mouse.wheel(0, -180);
+        await expect(page.locator(".message-list")).toHaveClass(/is-detached/);
+      }
+      const sample = await page.evaluate(async ({ path, chatId }) => {
+        const { telegramStore } = await import(path) as { telegramStore: { getState: () => TelegramState } };
+        const runtime = window as typeof window & {
+          __notgramRecoveryTransport: { prototype: {
+            loadChatHistory: (chatId: string) => Promise<ChatHistoryPage>;
+            loadForumTopicHistory: (chatId: string, topicId: string) => Promise<ChatHistoryPage>;
+          } };
+          __notgramRecoveryDispatch: (event: TelegramEvent) => void;
+        };
+        // Let startup media measurements and the user wheel intent settle before
+        // measuring only the connection/recovery work below.
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        const topicId = telegramStore.getState().activeTopicId;
+        const messages = (telegramStore.getState().messages.get(chatId) ?? [])
+          .filter((message) => !topicId || message.topicId === topicId);
+        const prototype = runtime.__notgramRecoveryTransport.prototype;
+        const method = topicId ? "loadForumTopicHistory" : "loadChatHistory";
+        const originalChatHistory = prototype.loadChatHistory;
+        const originalTopicHistory = prototype.loadForumTopicHistory;
+        prototype[method] = async () => {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          return { messages: structuredClone(messages), messageIds: messages.map((m) => m.id), loadedCount: messages.length, hasMore: false };
+        };
+        const list = document.querySelector<HTMLElement>(".message-list")!;
+        const heights = [list.clientHeight];
+        const tops = [list.scrollTop];
+        let replaced = false;
+        let hidden = false;
+        let loading = false;
+        const timer = setInterval(() => {
+          replaced ||= document.querySelector(".message-list") !== list;
+          const content = list.querySelector<HTMLElement>(".message-list-content") ?? list;
+          hidden ||= list.querySelectorAll("[data-message-id]").length === 0 ||
+            getComputedStyle(content).visibility === "hidden" || getComputedStyle(content).opacity === "0";
+          loading ||= list.classList.contains("is-history-adjusting") || Boolean(document.querySelector(".history-loading"));
+          heights.push(list.clientHeight);
+          tops.push(list.scrollTop);
+        }, 16);
+        try {
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            runtime.__notgramRecoveryDispatch({ type: "connection.changed", status: "recovering" });
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            runtime.__notgramRecoveryDispatch({ type: "connection.changed", status: "online" });
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          }
+          return { replaced, hidden, loading, heightRange: Math.max(...heights) - Math.min(...heights), topRange: Math.max(...tops) - Math.min(...tops) };
+        } finally {
+          clearInterval(timer);
+          prototype.loadChatHistory = originalChatHistory;
+          prototype.loadForumTopicHistory = originalTopicHistory;
+        }
+      }, { path: "/src/store/telegramStore.ts", chatId });
+      expect(sample).toMatchObject({ replaced: false, hidden: false, loading: false, heightRange: 0 });
+      expect(sample.topRange).toBeLessThanOrEqual(1);
+    });
+  }
 }

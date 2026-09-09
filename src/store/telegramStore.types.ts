@@ -78,6 +78,8 @@ export type RuntimePhase = "idle" | "loading" | "ready" | "error";
 
 export interface HistoryState {
   loading: boolean;
+  /** A request is in flight, but cached content stays interactive and positioned. */
+  background?: boolean;
   hasMore: boolean;
   initialized: boolean;
 }

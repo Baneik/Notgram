@@ -254,6 +254,7 @@ interface ConversationProps {
   forumTopics: Map<string, ForumTopic[]>;
   users: Map<string, User>;
   historyLoading: boolean;
+  historyRefreshing: boolean;
   hasOlderMessages: boolean;
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
@@ -387,6 +388,7 @@ export function Conversation({
   forumTopics,
   users,
   historyLoading,
+  historyRefreshing,
   hasOlderMessages,
   connectionStatus,
   queuedMessageCount,
@@ -863,8 +865,9 @@ export function Conversation({
     setSenderMenu(undefined);
   }, [chat?.id]);
 
+  const visibleHistoryLoading = historyLoading && !historyRefreshing;
   useLayoutEffect(() => {
-    if (historyLoading) {
+    if (visibleHistoryLoading) {
       setHistoryScrollbarSettling(true);
       return;
     }
@@ -874,7 +877,7 @@ export function Conversation({
       motionLifecycleTiming.historyScrollbarSettle,
     );
     return () => globalThis.clearTimeout(timer);
-  }, [historyLoading, historyScrollbarSettling]);
+  }, [visibleHistoryLoading, historyScrollbarSettling]);
 
   const closeChatMenu = useCallback((restoreFocus = true) => {
     setChatMenuOpen(false);
@@ -1169,7 +1172,7 @@ export function Conversation({
   const showPinnedLoading = useStableVisibility(
     pinnedViewOpen && pinnedMessagesLoading && allPinnedMessages.length === 0,
   );
-  const showHistoryLoading = useStableVisibility(!pinnedViewOpen && historyLoading, {
+  const showHistoryLoading = useStableVisibility(!pinnedViewOpen && visibleHistoryLoading, {
     minimumVisible: 220,
   });
   useEffect(() => {
@@ -2467,7 +2470,7 @@ export function Conversation({
         >
         <Virtuoso
           key={virtuosoKey}
-          className={`message-list ${awayFromLatest ? "is-detached" : ""} ${hideUnpositionedEntry ? "is-entry-positioning" : ""} ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (historyLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
+          className={`message-list ${awayFromLatest ? "is-detached" : ""} ${hideUnpositionedEntry ? "is-entry-positioning" : ""} ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (visibleHistoryLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
           ref={virtuosoRef}
           scrollerRef={setMessageListRef}
           isScrolling={setMessageListScrolling}

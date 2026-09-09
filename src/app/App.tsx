@@ -1920,6 +1920,7 @@ export function App() {
           forumTopics={forumTopics}
           users={users}
           historyLoading={activeHistory.loading}
+          historyRefreshing={activeHistory.background === true}
           hasOlderMessages={activeHistory.hasMore}
           connectionStatus={connectionStatus}
           queuedMessageCount={activeOutbox.filter((item) => item.status === "queued" && !item.attachments?.length).length}

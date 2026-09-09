@@ -504,6 +504,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   private hasEstablishedConnection = false;
   private connectionStatusTimer?: ReturnType<typeof globalThis.setTimeout>;
   private pendingConnectionStatus?: ConnectionStatus;
+  private connectionSyncPending = false;
+  private connectionSyncTimer?: ReturnType<typeof globalThis.setTimeout>;
   private settingsOnly = false;
   private recoverySignal?: Promise<void>;
   private nativeRecoveryPhase = "idle";
@@ -2266,10 +2268,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private emitConnectionStatus(status: ConnectionStatus, options?: { immediate?: boolean }) {
+    if (status !== "online") {
+      if (this.connectionSyncTimer) globalThis.clearTimeout(this.connectionSyncTimer);
+      this.connectionSyncTimer = undefined;
+      if (this.hasEstablishedConnection) this.connectionSyncPending = true;
+    }
     const immediate = options?.immediate === true ||
       !this.hasEstablishedConnection ||
-      status === "online" ||
-      status === "syncing";
+      status === "online";
     if (!immediate) {
       this.pendingConnectionStatus = status;
       if (!this.connectionStatusTimer) {
@@ -2285,7 +2291,24 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (this.connectionStatusTimer) globalThis.clearTimeout(this.connectionStatusTimer);
     this.connectionStatusTimer = undefined;
     this.pendingConnectionStatus = undefined;
-    if (this.connectionStatus === status) return;
+    if (this.connectionStatus === status) {
+      // Presentation debounce must not swallow a real recovery. Wait for a
+      // quiet READY window so a burst of native/TDLib transitions refreshes once.
+      if (status === "online" && this.connectionSyncPending && !this.connectionSyncTimer) {
+        this.connectionSyncTimer = globalThis.setTimeout(() => {
+          this.connectionSyncTimer = undefined;
+          this.connectionSyncPending = false;
+          this.listener?.({ type: "sync.required" });
+        }, CONNECTION_LOSS_GRACE_MS);
+      }
+      return;
+    }
+    if (status === "online") {
+      // A visible transition already asks the Store to refresh its data.
+      if (this.connectionSyncTimer) globalThis.clearTimeout(this.connectionSyncTimer);
+      this.connectionSyncTimer = undefined;
+      this.connectionSyncPending = false;
+    }
     this.connectionStatus = status;
     if (status === "online") this.hasEstablishedConnection = true;
     this.listener?.({ type: "connection.changed", status });
@@ -3631,6 +3654,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.connectionStatusTimer = undefined;
     this.pendingConnectionStatus = undefined;
     this.connectionStatus = undefined;
+    if (this.connectionSyncTimer) globalThis.clearTimeout(this.connectionSyncTimer);
+    this.connectionSyncTimer = undefined;
+    this.connectionSyncPending = false;
     this.hasEstablishedConnection = false;
     this.rawChats.clear();
     this.rawBasicGroups.clear();
