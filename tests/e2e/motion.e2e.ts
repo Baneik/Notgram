@@ -410,10 +410,7 @@ test("captioned message media stays paint-contained across virtual remounts", as
 
   const mediaRow = page.locator('[data-message-id="paint-contained-media"]');
   const textRow = page.locator('[data-message-id="paint-contained-text"]');
-  const scrollToLatest = () => messageList.evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
-    element.dispatchEvent(new Event("scroll", { bubbles: true }));
-  });
+  const scrollToLatest = () => messageList.press("End");
   const expectContainedGeometry = async () => {
     const report = await page.evaluate(() => {
       const media = document.querySelector<HTMLElement>('[data-message-id="paint-contained-media"]');
@@ -453,6 +450,8 @@ test("captioned message media stays paint-contained across virtual remounts", as
   await expectContainedGeometry();
 
   await messageList.evaluate((element) => {
+    // Leaving latest is user intent, not a virtualizer correction to preserve.
+    element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
     element.scrollTop = 0;
     element.dispatchEvent(new Event("scroll", { bubbles: true }));
   });

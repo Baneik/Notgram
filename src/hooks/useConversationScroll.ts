@@ -67,9 +67,10 @@ import {
 } from "./conversationBottomState";
 
 const BOTTOM_PROXIMITY_PX = 32;
-// Includes the 12px end sentinel so downward input cannot bounce between the
-// browser's raw scroll maximum and Virtuoso's visual end alignment.
-const BOTTOM_WHEEL_GUARD_PX = 13;
+// Bottom following targets the raw scroll maximum, including the end sentinel.
+// Only absorb rounding at that maximum; guarding the whole sentinel traps the
+// last message against (or underneath) the composer before its gap is visible.
+const BOTTOM_WHEEL_GUARD_PX = 1;
 const HISTORY_TRIGGER_PX = 64;
 const BOTTOM_RECONCILE_MAX_FRAMES = 8;
 const BOTTOM_RECONCILE_STABLE_FRAMES = 2;
@@ -552,9 +553,12 @@ export const useConversationScroll = ({
     if (!element || !currentScrollKey || searchActive) return false;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return false;
     const target = bottomScrollTop(element);
-    if (Math.abs(element.scrollTop - target) <= 0.5) return false;
+    const previousTop = element.scrollTop;
+    // scrollHeight/clientHeight are rounded; the browser can clamp scrollTop
+    // one pixel short of their difference even at the reachable maximum.
+    if (Math.abs(previousTop - target) <= BOTTOM_WHEEL_GUARD_PX) return false;
     element.scrollTop = target;
-    return true;
+    return Math.abs(element.scrollTop - previousTop) > 0.5;
   }, [currentScrollKey, searchActive]);
 
   const scheduleBottomPin = useCallback((
@@ -591,7 +595,7 @@ export const useConversationScroll = ({
       pendingRequest.generation === control.generation
     ) {
       const element = messageListRef.current;
-      let shouldPinImmediately = false;
+      let shouldPinImmediately = pendingRequest.mountCommitted && mode !== "settle";
       if (
         !pendingRequest.mountCommitted &&
         element?.querySelector("[data-message-id]")
@@ -691,6 +695,16 @@ export const useConversationScroll = ({
     bottomFrameRef.current = requestAnimationFrame(reconcile);
     return true;
   }, [currentScrollKey, pinToBottom, searchActive]);
+
+  const onListLayoutCommitted = useCallback(() => {
+    const request = bottomPinRequestRef.current;
+    const control = scrollControlRef.current;
+    if (!request || request.mode === "settle" ||
+      request.identity !== control.identity || request.generation !== control.generation) return;
+    // Virtuoso can commit newly measured rows after this frame's pin. Finish
+    // that active tracking pass before paint, preserving its existing deadline.
+    scheduleBottomPin(undefined, request.mode);
+  }, [scheduleBottomPin]);
 
   const settleBottomPosition = useCallback((
     identity: string,
@@ -904,10 +918,8 @@ export const useConversationScroll = ({
       systemReduceMotion: false,
     });
     const distance = distanceFromBottom(element);
-    // The footer sentinel is part of the scrollable area, so Virtuoso may
-    // leave the raw scroll position up to 12px before its browser maximum
-    // while the latest message is already visually at the viewport bottom.
-    // Treat that bounded interval as settled instead of rewriting scrollTop.
+    // An already settled latest request may preserve the raw bottom, including
+    // the footer. Merely showing the last row is not the same as reaching it.
     const alreadyAtVisualBottom = options?.preserveVisualBottom === true &&
       distance <= BOTTOM_WHEEL_GUARD_PX;
     const needsConvergence = !alreadyAtVisualBottom && (
@@ -945,12 +957,14 @@ export const useConversationScroll = ({
         onFinished: () => void,
       ) => {
         const startedAt = performance.now();
-        const startTop = element.scrollTop;
+        const initialDistance = target() - element.scrollTop;
         const animate = (now: number) => {
           smoothScrollFrameRef.current = undefined;
           if (!valid()) return;
           const progress = latestScrollProgress((now - startedAt) / duration);
-          element.scrollTop = startTop + (target() - startTop) * progress;
+          // Animate the remaining distance, so remeasurement changes the
+          // extent without changing the visible endpoint of the movement.
+          element.scrollTop = target() - initialDistance * (1 - progress);
           if (progress < 1) smoothScrollFrameRef.current = requestAnimationFrame(animate);
           else onFinished();
         };
@@ -966,13 +980,12 @@ export const useConversationScroll = ({
         );
         animateSegment(motionDuration.fast, () => approachTop, () => {
           if (!valid()) return;
-          virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
-          smoothScrollFrameRef.current = requestAnimationFrame(() => {
-            if (!valid()) return;
-            const settleDistance = Math.min(48, Math.max(24, element.clientHeight * 0.05));
-            element.scrollTop = Math.max(0, bottomTarget() - settleDistance);
-            animateSegment(motionDuration.slow, bottomTarget, finishSmoothScroll);
-          });
+          // Mount the final range short of the destination. Asking Virtuoso
+          // to reach LAST first exposes the endpoint, then moves backwards,
+          // and leaves its scrollToIndex retries competing with this motion.
+          const settleDistance = Math.min(48, Math.max(24, element.clientHeight * 0.05));
+          element.scrollTop = Math.max(0, bottomTarget() - settleDistance);
+          animateSegment(motionDuration.slow, bottomTarget, finishSmoothScroll);
         });
       }
     } else {
@@ -1252,9 +1265,14 @@ export const useConversationScroll = ({
     return observeConversationRowSizes(element, (changes) => {
       const control = scrollControlRef.current;
       const memory = conversationScrollMemory.get(currentScrollKey);
-      if (element.dataset.conversationVirtuosoKey !== virtuosoKey || control.mode !== "detached" ||
+      if (element.dataset.conversationVirtuosoKey !== virtuosoKey) return;
+      // Media/caption layout can change after the previous bottom transaction
+      // settled. Real row resizes must reconcile before paint as well.
+      if (reconcileBottomViewport()) return;
+      if (control.mode !== "detached" ||
         memory?.followLatest !== false || !memory.anchorMessageId || memory.anchorOffset === undefined) return;
-      if (pointerActiveRef.current || performance.now() <= userIntentUntilRef.current) {
+      if (pointerActiveRef.current || middleAutoScrollRef.current ||
+        performance.now() <= userIntentUntilRef.current) {
         writeMemory(currentScrollKey, element, false, memory.pendingNewCount, true);
         return;
       }
@@ -1282,7 +1300,7 @@ export const useConversationScroll = ({
           conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true);
       });
     });
-  }, [currentScrollKey, messageListElement, restoreAnchor, searchActive,
+  }, [currentScrollKey, messageListElement, reconcileBottomViewport, restoreAnchor, searchActive,
     settleContentAnchorPosition, virtuosoKey, writeMemory]);
 
   const loadOlder = useCallback(() => {
@@ -2384,6 +2402,7 @@ export const useConversationScroll = ({
       memory.anchorOffset === undefined ||
       revealTargetTokenRef.current !== undefined ||
       pointerActiveRef.current ||
+      middleAutoScrollRef.current ||
       performance.now() <= userIntentUntilRef.current ||
       anchorFrameRef.current !== undefined
     ) return;
@@ -2805,6 +2824,7 @@ export const useConversationScroll = ({
     revealAttentionMessage,
     collapseExpandedQuote,
     reconcileBottomViewport,
+    onListLayoutCommitted,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,

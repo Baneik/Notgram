@@ -85,8 +85,24 @@ Bottom following has one writer: the coordinator in `useConversationScroll`.
 - The viewport observer, composer resize callback, message-mount callback, and Virtuoso's
   `totalListHeightChanged` signal may report committed geometry, but only the coordinator may write
   `scrollTop`. Observer notifications coalesce into the active request.
+- A real row resize and a virtual-list layout commit must reconcile active tracking before paint,
+  including repeated notifications within the same frame. They do not extend its deadline. Observe
+  actual rows for late child-content changes after a transaction has settled. Do not discard per-row
+  subpixel changes: their sum may be visible. A clamped scroll assignment that makes no progress is
+  not a successful write and must not start another verification pass.
 - Do not observe the virtualized content node to request bottom pins. Its size can change in response
   to a pin, creating a resize-pin-measurement feedback loop even when no application content changed.
+
+Virtual rows contain their sender/day margins, and top spacing belongs to a measured Header at every
+responsive breakpoint. Preserve fractional item dimensions instead of rounding each row: independent
+rounding accumulates into a different endpoint than the DOM. The 12px Footer is scrollable content;
+only the final 1px rounding tolerance at the raw scroll maximum may absorb downward wheel input.
+Distant latest navigation approaches that endpoint under one animation owner, without first issuing
+a competing index jump to the endpoint and then backing away to play a finishing animation.
+
+Middle-button autoscroll outlives pointerup and the short wheel/key input timeout. Both row observers
+and total-height callbacks must yield detached anchoring for its entire lifetime, until explicit input
+or window blur ends it.
 
 Anchor and explicit message navigation use longer quiet windows because virtual rows can mount several
 frames after the target first appears.

@@ -6,6 +6,73 @@ const ready = async (page: Page) => {
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 };
 
+for (const width of [390, 1280]) {
+  test(`late row resizes preserve every bottom frame across viewport changes (${width}px)`, async ({ page }) => {
+    await ready(page);
+    await page.locator('.chat-row[data-chat-id="chat-product"]').click();
+    await page.setViewportSize({ width, height: 844 });
+    const list = page.locator(".message-list");
+    await expect(list).toBeVisible();
+    await list.press("End");
+    await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
+    // Begin after the entry and bottom-follow transactions have settled.
+    await page.waitForTimeout(700);
+
+    const result = await list.evaluate(async (element) => {
+      const latest = element.querySelector<HTMLElement>('[data-message-id="p-video"]')!;
+      const deferredContent = document.createElement("div");
+      latest.querySelector(".message-bubble")!.append(deferredContent);
+      const samples: Array<{ distance: number; gap: number; height: number }> = [];
+      const read = () => samples.push({
+        distance: element.scrollHeight - element.clientHeight - element.scrollTop,
+        gap: element.getBoundingClientRect().bottom - latest.getBoundingClientRect().bottom,
+        height: latest.getBoundingClientRect().height,
+      });
+      read();
+      // Model late child content growth/shrinkage without a parent React commit.
+      // Consecutive frames also deliver resizes to an already active request.
+      for (const padding of [32, 64, 16, 48, 0]) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => {
+          deferredContent.style.height = `${padding}px`;
+          setTimeout(resolve, 0);
+        }));
+        read();
+      }
+      deferredContent.remove();
+      for (let frame = 0; frame < 12; frame += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        read();
+      }
+      const rowMeasurementErrors = [...element.querySelectorAll<HTMLElement>(".message-list-content > [data-index]")]
+        .map((row) => Math.abs(Number(row.dataset.knownSize) - row.getBoundingClientRect().height));
+      const rows = [...element.querySelectorAll<HTMLElement>(".message-list-content > [data-index]")];
+      const subpixelDistances: number[] = [];
+      // Each row changes by less than half a pixel, but their sum is visible.
+      for (const padding of [0.375, 0.75, 0.375, 0]) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => {
+          rows.forEach((row) => { row.style.paddingBottom = `${padding}px`; });
+          setTimeout(resolve, 0);
+        }));
+        subpixelDistances.push(element.scrollHeight - element.clientHeight - element.scrollTop);
+      }
+      rows.forEach((row) => row.style.removeProperty("padding-bottom"));
+      return { samples, paddingTop: getComputedStyle(element).paddingTop, rowMeasurementErrors, subpixelDistances };
+    });
+    expect(result.paddingTop).toBe("0px");
+    expect(Math.max(...result.rowMeasurementErrors), JSON.stringify(result)).toBeLessThanOrEqual(0.05);
+    expect(Math.max(...result.samples.map(({ height }) => height)) -
+      Math.min(...result.samples.map(({ height }) => height))).toBeGreaterThan(30);
+    expect(Math.max(...result.samples.map(({ distance }) => Math.abs(distance))), JSON.stringify(result))
+      .toBeLessThanOrEqual(1);
+    expect(Math.max(...result.subpixelDistances.map(Math.abs)), JSON.stringify(result)).toBeLessThanOrEqual(1);
+    // Integer scroll metrics can differ from the reachable fractional edge.
+    expect(Math.min(...result.samples.map(({ gap }) => gap)), JSON.stringify(result)).toBeGreaterThanOrEqual(10);
+    expect(Math.max(...result.samples.map(({ gap }) => gap)), JSON.stringify(result)).toBeLessThanOrEqual(13);
+    expect(Math.max(...result.samples.map(({ gap }) => gap)) - Math.min(...result.samples.map(({ gap }) => gap)), JSON.stringify(result))
+      .toBeLessThanOrEqual(1);
+  });
+}
+
 const anchor = (page: Page) => page.locator(".message-list").evaluate((list) => {
   const bounds = list.getBoundingClientRect();
   const row = [...list.querySelectorAll<HTMLElement>("[data-message-id]")].find((item) => {
@@ -46,6 +113,49 @@ const exposedOffsets = (page: Page) => page.evaluate(() => {
   };
   state.stopStabilityTrace = true;
   return state.stabilityFrames.filter((frame) => !frame.covered).map((frame) => frame.offset);
+});
+
+test("late row measurements yield to middle autoscroll after the input timeout", async ({ page }) => {
+  await ready(page);
+  const list = page.locator(".message-list");
+  const bounds = await list.boundingBox();
+  if (!bounds) throw new Error("Missing message viewport");
+  await page.mouse.click(bounds.x + 3, bounds.y + bounds.height * 0.45, { button: "middle" });
+  await list.evaluate((element) => {
+    element.scrollTop = Math.max(100, element.scrollHeight - element.clientHeight - 500);
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(list).toHaveClass(/is-detached/);
+  // Middle autoscroll continues after pointerup and the wheel/key quiet window.
+  await page.waitForTimeout(700);
+  const result = await list.evaluate(async (element) => {
+    const top = element.getBoundingClientRect().top;
+    const preceding = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .find((row) => row.getBoundingClientRect().bottom < top && row.querySelector(".message-bubble"));
+    if (!preceding) throw new Error("Missing overscanned row above the reading viewport");
+    const before = preceding.getBoundingClientRect().height;
+    const writes: number[] = [];
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+    Object.defineProperty(element, "scrollTop", {
+      configurable: true,
+      get() { return descriptor.get!.call(this) as number; },
+      set(value: number) { writes.push(value); descriptor.set!.call(this, value); },
+    });
+    const deferredContent = document.createElement("div");
+    deferredContent.style.height = "37px";
+    try {
+      preceding.querySelector(".message-bubble")!.append(deferredContent);
+      for (let frame = 0; frame < 18; frame += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      }
+      return { writes, growth: preceding.getBoundingClientRect().height - before };
+    } finally {
+      Reflect.deleteProperty(element, "scrollTop");
+      deferredContent.remove();
+    }
+  });
+  expect(result.growth).toBeGreaterThan(30);
+  expect(result.writes, JSON.stringify(result)).toHaveLength(0);
 });
 
 const deferReplyContext = (page: Page) => page.evaluate(async () => {

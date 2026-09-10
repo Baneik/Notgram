@@ -35,7 +35,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { Virtuoso, type Components, type ListProps } from "react-virtuoso";
+import { Virtuoso, type Components, type ListProps, type SizeFunction } from "react-virtuoso";
 import type {
   Chat,
   ChatMessageSearchInput,
@@ -183,13 +183,26 @@ const MessageSourceLocateButton = ({
   </button>
 );
 
-const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps>((props, ref) => (
-  <div {...props} className="message-list-content" ref={ref} />
-));
+interface MessageListContext {
+  onLayoutCommitted: () => void;
+}
+
+// Virtuoso's default rounds every row independently. Fractional text/media
+// heights then accumulate into a different endpoint than the rendered list.
+const measureMessageItem: SizeFunction = (element, field) =>
+  element.getBoundingClientRect()[field === "offsetHeight" ? "height" : "width"];
+
+const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps & { context?: MessageListContext }>(
+  ({ context, ...props }, ref) => {
+    useLayoutEffect(() => { context?.onLayoutCommitted(); });
+    return <div {...props} className="message-list-content" ref={ref} />;
+  },
+);
 VirtualMessageListContent.displayName = "VirtualMessageListContent";
 
 const EmptyMessageList = () => <div className="messages-empty">{translate("没有匹配的消息")}</div>;
 const EmptyPinnedMessageList = () => <div className="messages-empty">{translate("当前没有置顶消息")}</div>;
+const MessageListHeader = () => <div className="message-list-start-spacer" aria-hidden="true" />;
 const MessageListFooter = () => <div className="message-list-end-sentinel" aria-hidden="true" />;
 
 const SponsoredMessageCard = ({
@@ -228,14 +241,16 @@ const SponsoredMessageCard = ({
   );
 };
 
-const messageListComponents: Components<VirtualMessageBlock> = {
+const messageListComponents: Components<VirtualMessageBlock, MessageListContext> = {
   EmptyPlaceholder: EmptyMessageList,
+  Header: MessageListHeader,
   Footer: MessageListFooter,
   List: VirtualMessageListContent,
 };
 
-const pinnedMessageListComponents: Components<VirtualMessageBlock> = {
+const pinnedMessageListComponents: Components<VirtualMessageBlock, MessageListContext> = {
   EmptyPlaceholder: EmptyPinnedMessageList,
+  Header: MessageListHeader,
   Footer: MessageListFooter,
   List: VirtualMessageListContent,
 };
@@ -1114,6 +1129,7 @@ export function Conversation({
     appendMountMessageId,
     collapseExpandedQuote,
     reconcileBottomViewport,
+    onListLayoutCommitted,
     onTotalListHeightChanged,
     onInitialRangeChanged,
     onInitialAtBottomStateChange,
@@ -1133,6 +1149,7 @@ export function Conversation({
     onUserScroll: handleConversationUserScroll,
   });
   const messageTargetHighlightRef = useRef<HTMLDivElement>(null);
+  const messageListContext = useMemo(() => ({ onLayoutCommitted: onListLayoutCommitted }), [onListLayoutCommitted]);
   useLayoutEffect(() => {
     const highlight = messageTargetHighlightRef.current;
     const list = messageListElement;
@@ -2496,9 +2513,11 @@ export function Conversation({
           alignToBottom={initialAlignToBottom}
           firstItemIndex={virtuosoFirstItemIndex}
           components={pinnedViewOpen ? pinnedMessageListComponents : messageListComponents}
+          context={messageListContext}
           computeItemKey={(_, block) => block.id}
           data={visibleMessageBlocks}
           defaultItemHeight={52}
+          itemSize={measureMessageItem}
           rangeChanged={onInitialRangeChanged}
           atBottomThreshold={0}
           atBottomStateChange={onInitialAtBottomStateChange}

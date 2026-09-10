@@ -1476,6 +1476,55 @@ test("downward wheel input at the exact bottom never rebounds", async ({ page })
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 });
 
+test("downward wheel input consumes the remaining end gap above the composer", async ({ page }) => {
+  await page.goto("/");
+  const messageList = page.locator(".message-list");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const messages = new Map(telegramStore.getState().messages);
+    const text = "最后一条消息的正文保持完整，时间和引用来源应当位于输入栏上方。\n\nSource";
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "p-video"
+      ? { ...message, content: { kind: "text", text, entities: [
+        { kind: "bold", offset: 0, length: text.length },
+        { kind: "blockquote", offset: text.indexOf("Source"), length: 6 },
+      ] } }
+      : message));
+    telegramStore.setState({ messages });
+  });
+  const latest = page.locator('[data-message-id="p-video"]');
+  await expect(latest.locator(".rich-blockquote")).toBeVisible();
+  await messageList.press("End");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
+  await page.waitForTimeout(500);
+
+  for (const remaining of [13, 8, 2]) {
+    // A small upward wheel leaves following mode before setting a deterministic
+    // final downward step; only real wheel input may finish the scroll.
+    await messageList.hover();
+    await messageList.dispatchEvent("wheel", { deltaY: -1 });
+    await messageList.evaluate((element, gap) => {
+      element.scrollTop = element.scrollHeight - element.clientHeight - gap;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    }, remaining);
+    await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+      .toBeCloseTo(remaining, 0);
+    await page.mouse.wheel(0, 100);
+    await expect.poll(async () => (await messageListMetrics(page)).distanceBottom)
+      .toBeLessThanOrEqual(1);
+    const geometry = await latest.evaluate(element => {
+      const composerTop = document.querySelector(".composer")!.getBoundingClientRect().top;
+      return {
+        gap: composerTop - element.getBoundingClientRect().bottom,
+        metadataGap: composerTop - element.querySelector(".message-meta")!.getBoundingClientRect().bottom,
+      };
+    });
+    expect(geometry.gap).toBeGreaterThanOrEqual(10);
+    expect(geometry.gap).toBeLessThanOrEqual(13);
+    expect(geometry.metadataGap).toBeGreaterThanOrEqual(10);
+  }
+});
+
 test("blank message viewport clicks never force a bottom correction", async ({ page }) => {
   await page.goto("/");
   const messageList = page.getByRole("log", { name: "消息列表" });
@@ -9762,7 +9811,8 @@ test("clicking the selected conversation repeatedly converges to its latest mess
   }>((resolve) => {
     const element = document.querySelector<HTMLElement>(".message-list")!;
     const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
-    element.scrollTop = Math.max(0, maximum - 12);
+    // Only the raw maximum is settled; the footer must remain fully visible.
+    element.scrollTop = maximum;
     const initialDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
     const samples: number[] = [element.scrollTop];
     let frames = 0;
@@ -9775,8 +9825,8 @@ test("clicking the selected conversation repeatedly converges to its latest mess
     (button as HTMLButtonElement).click();
     requestAnimationFrame(sample);
   }));
-  expect(settledBottomTrace.initialDistance).toBeGreaterThanOrEqual(11);
-  expect(settledBottomTrace.initialDistance).toBeLessThanOrEqual(13);
+  expect(settledBottomTrace.initialDistance).toBeGreaterThanOrEqual(0);
+  expect(settledBottomTrace.initialDistance).toBeLessThanOrEqual(1);
   expect(
     Math.max(...settledBottomTrace.samples) - Math.min(...settledBottomTrace.samples),
     JSON.stringify(settledBottomTrace.samples),
@@ -9866,6 +9916,85 @@ test("near and distant latest jumps finish smoothly without a bottom rebound", a
       samples.slice(index, index + 3).every((next) => next.distanceBottom <= 1),
   )?.elapsed ?? Number.POSITIVE_INFINITY;
   expect(Math.abs(settleTime(near.samples) - settleTime(far.samples))).toBeLessThan(160);
+});
+
+for (const refreshRate of [60, 240]) test(`media bottom geometry uses measured row spacing at ${refreshRate} Hz`, async ({ page }) => {
+  if (refreshRate === 240) await page.addInitScript(() => {
+    // Exercise the native display's short frame budget without shortening
+    // timers used by the virtualizer's independent scroll retries.
+    window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 1000 / 240);
+    window.cancelAnimationFrame = handle => window.clearTimeout(handle);
+  });
+  await page.setViewportSize({ width: 1080, height: 960 });
+  await page.goto("/");
+  const list = page.locator(".message-list");
+  await expect(list).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const messages = new Map(telegramStore.getState().messages);
+    const caption = "视频说明包含多行正文，最后的引用来源和时间应当保持完整，不能被输入栏遮挡。\n\nSource";
+    messages.set("chat-product", messages.get("chat-product")!.map(message =>
+      message.id === "p-video" && message.content.kind === "media" ? {
+        ...message, outgoing: false,
+        content: { ...message.content, width: 640, height: 480, caption, captionEntities: [
+          { kind: "bold", offset: 0, length: caption.length },
+          { kind: "blockquote", offset: caption.indexOf("Source"), length: 6 },
+        ] },
+      } : message));
+    telegramStore.setState({ messages });
+  });
+  const latest = page.locator('[data-message-id="p-video"]');
+  await expect(latest.locator(".photo-caption-flow .rich-blockquote")).toBeVisible();
+  await list.press("End");
+  await page.waitForTimeout(500);
+
+  const rowGaps = await list.evaluate(element => {
+    const rows = [...element.querySelectorAll(".message-list-content > [data-index]")]
+      .map(row => row.getBoundingClientRect());
+    return rows.slice(1).map((row, index) => row.top - rows[index].bottom);
+  });
+  expect(rowGaps.length).toBeGreaterThan(2);
+  expect(Math.max(...rowGaps.map(Math.abs)), JSON.stringify(rowGaps)).toBeLessThanOrEqual(0.5);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await list.evaluate(element => {
+      element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
+      element.scrollTop = 100;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await expect(page.locator(".jump-to-latest")).toBeVisible();
+    const samples = await page.evaluate(async () => {
+      const element = document.querySelector<HTMLElement>(".message-list")!;
+      const read = () => {
+        const latest = element.querySelector('[data-message-id="p-video"]');
+        const rowBounds = latest?.getBoundingClientRect();
+        const listBounds = element.getBoundingClientRect();
+        return {
+          distance: element.scrollHeight - element.clientHeight - element.scrollTop,
+          gap: rowBounds ? listBounds.bottom - rowBounds.bottom : null,
+          visible: Boolean(rowBounds && rowBounds.top < listBounds.bottom && rowBounds.bottom > listBounds.top),
+        };
+      };
+      const samples: Array<ReturnType<typeof read>> = [];
+      const started = performance.now();
+      document.querySelector<HTMLButtonElement>(".jump-to-latest")!.click();
+      while (performance.now() - started < 1200) {
+        await new Promise<void>(resolve => requestAnimationFrame(() => { setTimeout(resolve, 0); }));
+        samples.push(read());
+      }
+      return samples;
+    });
+    const visible = samples.filter(sample => sample.visible && sample.gap !== null);
+    const rebounds = visible.slice(1).map((sample, index) => visible[index].gap! - sample.gap!)
+      .filter(delta => delta > 2);
+    expect(rebounds, JSON.stringify(samples)).toHaveLength(0);
+    expect(samples.at(-1)!.distance).toBeLessThanOrEqual(1);
+    expect(samples.at(-1)!.gap).toBeGreaterThanOrEqual(10);
+    expect(samples.at(-1)!.gap).toBeLessThanOrEqual(13);
+    expect(await latest.locator(".message-meta").evaluate(meta =>
+      document.querySelector(".composer")!.getBoundingClientRect().top - meta.getBoundingClientRect().bottom,
+    )).toBeGreaterThanOrEqual(10);
+  }
 });
 
 test("one upward input loads exactly one history page", async ({ page }) => {

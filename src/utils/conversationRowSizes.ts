@@ -12,7 +12,9 @@ export const observeConversationRowSizes = (
       const height = entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height;
       const previous = rows.get(entry.target);
       rows.set(entry.target, height);
-      if (previous !== undefined && Math.abs(previous - height) > 0.5) {
+      // Several subpixel row changes can add up to a visible baseline shift.
+      // Leave scroll-write tolerances to the coordinator, not individual rows.
+      if (previous !== undefined && previous !== height) {
         changes.push({ element: entry.target, delta: height - previous });
       }
     }
@@ -27,7 +29,7 @@ export const observeConversationRowSizes = (
     for (const row of list.querySelectorAll("[data-index], [data-message-id]")) {
       if (rows.has(row)) continue;
       rows.set(row, row.getBoundingClientRect().height);
-      observer.observe(row);
+      observer.observe(row, { box: "border-box" });
     }
   };
   const mutations = new MutationObserver((records) => {
