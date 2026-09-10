@@ -1740,6 +1740,7 @@ export const mapTdMessageProperties = (raw: TdObject): MessagePermissions => {
   const includesPinPermissions = "can_be_pinned" in raw;
   return {
     ...(typeof raw.can_be_saved === "boolean" ? { canSave: raw.can_be_saved } : {}),
+    ...(typeof raw.can_report_chat === "boolean" ? { canReport: raw.can_report_chat } : {}),
     canReply: raw.can_be_replied === true,
     canEdit: raw.can_be_edited === true,
     canDeleteOnlyForSelf: raw.can_be_deleted_only_for_self === true,

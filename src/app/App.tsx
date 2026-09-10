@@ -2165,7 +2165,7 @@ export function App() {
           onGetReportOptions={getChatReportOptions}
           onReportChat={reportChat}
           reportChatId={activeChatId}
-          onDeleteChat={profile.target?.kind === "chat" && activeChatId === profile.target.chatId && profile.value?.kind === "group" ? () => leaveGroup(activeChatId) : undefined}
+          onLeaveChat={profile.target?.kind === "chat" && activeChatId === profile.target.chatId && profile.value?.kind === "group" ? () => leaveGroup(activeChatId) : undefined}
           onOpenUserProfile={(userId) => { void loadUserProfile(userId); }}
           onOpenMention={openMentionProfile}
           onSearchHashtag={searchActiveChatHashtag}

@@ -2132,9 +2132,14 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   backdrop-filter: blur(12px); font-size: 12px; line-height: 1.45; text-align: center; overflow-wrap: anywhere; transform: translateX(-50%); touch-action: pan-y;
 }
 .media-viewer-stage.has-thumbnails .media-viewer-caption { bottom: 104px; }
-.report-reason-options { margin-top: 7px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.report-reason-options button { min-height: 38px; padding: 0 11px; color: inherit; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
-.report-reason-options button:hover, .report-reason-options button.is-selected { border-color: var(--accent); background: var(--surface-hover); }
+.report-reason-options { min-width: 0; margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.report-reason-options label { min-height: 48px; min-width: 0; padding: 10px; display: flex; align-items: center; gap: 8px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.report-reason-options label > span { flex: 1; overflow-wrap: anywhere; line-height: 1.5; }
+.report-reason-options label > svg { flex-shrink: 0; color: var(--muted); }
+.report-reason-options input { flex-shrink: 0; margin: 0; accent-color: var(--accent); }
+.report-reason-options label:hover, .report-reason-options label.is-selected { border-color: var(--accent); background: var(--surface-hover); }
+.report-reason-options label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.report-reason-options:disabled label { opacity: 0.6; cursor: default; }
 .photo-message.media-sticker .photo-preview, .photo-message.media-sticker .photo-preview > img, .photo-message.media-sticker .photo-preview > video { background: transparent; }
 .message-bubble.is-photo .photo-caption-flow { padding: 7px 9px 4px; background: var(--color-message-incoming); }
 .message-bubble.is-photo .photo-caption { padding: 0; background: transparent; }
@@ -3233,7 +3238,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .management-event-row strong { font-size: 12px; font-weight: 600; }
 .management-event-row small { color: var(--muted); font-size: 10px; }
 .management-empty { margin: 0; padding: 18px 10px; color: var(--muted); text-align: center; font-size: 12px; }
-.report-dialog { width: min(520px, calc(100vw - 28px)); max-height: calc(100vh - 32px); overflow-y: auto; display: grid; grid-template-rows: 62px auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 18px 60px var(--color-shadow); }
+.report-dialog { width: min(540px, calc(100vw - 28px)); max-height: calc(100dvh - 32px); overflow-y: auto; display: grid; grid-template-rows: 66px auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 18px 60px var(--color-shadow); }
 .report-dialog > header { min-width: 0; padding: 0 14px 0 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .report-dialog > header > div { min-width: 0; display: grid; gap: 3px; }
 .report-dialog h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
@@ -3242,6 +3247,38 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .report-dialog-body > label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; }
 .report-dialog-body select, .report-dialog-body textarea { min-width: 0; padding: 8px 9px; border: 1px solid var(--color-border-strong); border-radius: 6px; color: var(--ink); background: var(--color-bg-control); font: inherit; font-size: 12px; }
 .report-dialog-body textarea { resize: vertical; }
+.report-step-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.report-step-heading h3 { margin: 0; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.report-step-heading h3:focus { outline: none; }
+.report-path { margin: -6px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; font-size: 11px; color: var(--muted); }
+.report-path li { display: inline-flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.report-help { margin: 0; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.report-comment small { text-align: right; font-variant-numeric: tabular-nums; }
+.report-dialog-body > .report-delete-option { display: flex; flex-direction: row; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.report-delete-option input { accent-color: var(--accent); }
+.report-error { margin: 0; color: var(--color-status-danger); line-height: 1.6; font-size: 12px; }
+.report-success { padding: 12px 0; display: grid; justify-items: center; gap: 10px; text-align: center; }
+.report-success > svg { color: var(--accent); }
+.report-success p { margin: 0; line-height: 1.6; }
+.report-message-picker { display: grid; gap: 10px; min-width: 0; }
+.report-message-search { display: flex; gap: 8px; }
+.report-message-search > input { min-width: 0; width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--color-bg-control); color: var(--ink); font: inherit; }
+.report-message-picker button { padding: 7px 10px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-radius: 5px; font: inherit; white-space: nowrap; cursor: pointer; }
+.report-message-selection { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 11px; }
+.report-text-button { padding: 0; border: 0; color: var(--accent); background: transparent; }
+.report-message-list { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; overscroll-behavior: contain; }
+.report-message-row { display: flex; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.report-message-row:has(input:checked) { border-color: var(--accent); background: var(--surface-hover); }
+.report-message-row > input { flex-shrink: 0; accent-color: var(--accent); }
+.report-message-row > span { display: grid; min-width: 0; gap: 5px; }
+.report-message-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 11px; }
+.report-message-meta time { color: var(--muted); }
+.report-message-preview { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.5; font-size: 12px; }
+.report-dialog .dialog-primary { color: var(--color-text-on-accent); background: var(--accent); border: 1px solid var(--accent); }
+.report-dialog button:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 480px) {
+  .report-reason-options { grid-template-columns: minmax(0, 1fr); }
+}
 .report-dialog-body footer { display: flex; justify-content: flex-end; gap: 8px; }
 .report-dialog-body footer button { min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; }
 .blocked-sender-list {

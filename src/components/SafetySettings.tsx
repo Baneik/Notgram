@@ -4,62 +4,8 @@ import { useEffect, useState } from "react";
 import { useLocalUserBlocks } from "../store/localUserBlocks";
 import { useTelegramStore } from "../store/telegramStore";
 import { useStableVisibility } from "../hooks/useStableVisibility";
-import type { ChatReportOptions, DeviceSession, PrivacyRule, PrivacySettingKey, ReportChatInput } from "../telegram/types";
+import type { DeviceSession, PrivacyRule, PrivacySettingKey } from "../telegram/types";
 import { Avatar } from "./Avatar";
-
-interface ReportDialogProps {
-  chatId: string;
-  messageIds: string[];
-  title: string;
-  onGetOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportOptions | undefined>;
-  onSubmit: (input: ReportChatInput) => Promise<boolean>;
-  onDeleteChat?: () => Promise<boolean>;
-  onClose: () => void;
-}
-
-export const reportReasonLabel = (title: string) => {
-  const normalized = title.trim().toLowerCase();
-  if (/spam|scam|垃圾|诈骗/.test(normalized)) return translate("垃圾信息或诈骗");
-  if (/violence|danger|physical harm|暴力|危险/.test(normalized)) return translate("暴力或危险内容");
-  if (/porn|sexual|adult content|色情|成人内容/.test(normalized)) return translate("色情或成人内容");
-  if (/child|minor|儿童|未成年/.test(normalized)) return translate("儿童伤害");
-  if (/copyright|intellectual property|trademark|counterfeit|版权|商标|假冒商品/.test(normalized)) return translate("侵犯知识产权");
-  if (/unrelated location|location-based|wrong location|位置无关|地点无关/.test(normalized)) return translate("与标注地点无关");
-  if (/\bfake\b|impersonat|pretending to be|虚假账号|冒充/.test(normalized)) return translate("虚假账号或冒充他人");
-  if (/illegal drugs|narcotic|drug sale|毒品|违禁药物/.test(normalized)) return translate("毒品或违禁药物");
-  if (/personal details|private (?:data|information)|dox|个人信息|隐私信息/.test(normalized)) return translate("泄露个人信息");
-  if (/hate speech|仇恨言论/.test(normalized)) return translate("仇恨言论");
-  if (/terror|极端主义|恐怖主义/.test(normalized)) return translate("恐怖主义或极端主义");
-  if (/harass|bully|骚扰|霸凌/.test(normalized)) return translate("骚扰或霸凌");
-  if (/self[- ]?harm|suicide|自残|自杀/.test(normalized)) return translate("自残或自杀内容");
-  if (/^other$|^custom$|^something else$|^don't like$|其他|不喜欢/.test(normalized)) return translate("其他原因");
-  if (/[\u3400-\u9fff]/u.test(title)) return title;
-  return title.trim() || translate("其他原因");
-};
-
-export function ReportDialog({ chatId, messageIds, title, onGetOptions, onSubmit, onDeleteChat, onClose }: ReportDialogProps) {
-  const [options, setOptions] = useState<ChatReportOptions>();
-  const [optionId, setOptionId] = useState("");
-  const [text, setText] = useState("");
-  const [deleteChat, setDeleteChat] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
-  useEffect(() => { let active = true; void onGetOptions(chatId, messageIds).then((value) => { if (active) { setOptions(value); setOptionId(value?.options[0]?.id ?? ""); } }); return () => { active = false; }; }, [chatId, messageIds, onGetOptions]);
-  const displayOptions = options?.options.filter((option, index, all) => {
-    const label = reportReasonLabel(option.title);
-    return all.findIndex((candidate) => reportReasonLabel(candidate.title) === label) === index;
-  });
-  const selected = options?.options.find((option) => option.id === optionId);
-  const submit = async () => {
-    if (!optionId) return;
-    setPending(true); setError(undefined);
-    const reported = await onSubmit({ chatId, messageIds, optionId, text: text.trim() || undefined });
-    if (reported) { if (deleteChat && onDeleteChat) await onDeleteChat(); onClose(); }
-    else setError(translate("举报未提交，请检查说明后重试"));
-    setPending(false);
-  };
-  return <div className="profile-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title"><header><div><h2 id="report-dialog-title">{translate("举报“")}{title}”</h2><small>{messageIds.length > 1 ? translate("已选择 {{value0}} 条消息", { value0: messageIds.length }) : translate("举报会发送给 Telegram 审核")}</small></div><button className="icon-button" type="button" aria-label={translate("关闭举报")} onClick={onClose}>×</button></header>{!options ? <div className="profile-state"><LoaderCircle className="spin" size={22} /></div> : <div className="report-dialog-body"><div><span>{translate("举报原因")}</span><div className="report-reason-options" role="radiogroup" aria-label={translate("举报原因")}>{displayOptions?.map((option) => <button className={option.id === optionId ? "is-selected" : ""} key={option.id} type="button" role="radio" aria-checked={option.id === optionId} onClick={() => setOptionId(option.id)}>{reportReasonLabel(option.title)}</button>)}</div></div>{selected?.requiresText && <label><span>{translate("补充说明")}</span><textarea aria-label={translate("举报说明")} value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} rows={4} placeholder={translate("请描述具体问题")} /> </label>}{onDeleteChat && <label className="management-check"><input type="checkbox" checked={deleteChat} onChange={(event) => setDeleteChat(event.target.checked)} /><span>{translate("同时删除这个会话")}</span></label>}{error && <div className="profile-state is-error" role="alert">{error}</div>}<footer><button className="dialog-secondary" type="button" onClick={onClose}>{translate("取消")}</button><button className="dialog-danger" type="button" disabled={pending || !optionId || Boolean(selected?.requiresText && !text.trim())} onClick={() => void submit()}>{pending ? <LoaderCircle className="spin" size={15} /> : <ShieldAlert size={15} />}{translate("提交举报")}</button></footer></div>}</section></div>;
-}
 
 export function SafetySettings() {
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
@@ -255,11 +201,11 @@ export function SafetySettings() {
         <div className="settings-section-heading">
           <Check size={18} />
           <div>
-            <h4>{translate("举报与恢复")}</h4>
-            <span>{translate("举报后仍可在聊天资料中恢复屏蔽或重新加入会话")}</span>
+            <h4>{translate("举报与群组退出")}</h4>
+            <span>{translate("举报时可以选择在成功后退出群组")}</span>
           </div>
         </div>
-        <p className="settings-help">{translate("举报会包含你选择的消息范围和原因；提交前可选择同时删除会话。")}</p>
+        <p className="settings-help">{translate("举报会包含你选择的消息、原因和补充说明；退出群组只会在举报成功后执行。")}</p>
       </section>
     </div>
   );

@@ -1,3 +1,4 @@
+import { mockChatReport } from "./mockChatReport";
 import { groupOutgoingAttachments, outgoingAlbumCaptionIndex } from "../media/outgoingAttachments";
 import {
   mockProfilePhotoUrl,
@@ -33,7 +34,7 @@ import type {
   CallbackQueryAnswer,
   InlineQueryResultPage,
   BlockedSender,
-  ChatReportOptions,
+  ChatReportResult,
   ReportChatInput,
   DeviceSession,
   PrivacyRule,
@@ -1484,28 +1485,12 @@ export class MockTelegramTransport implements TelegramTransport {
     });
   }
 
-  async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportOptions> {
-    void chatId; void messageIds;
-    return { title: "选择举报原因", options: [
-      { id: "spam", title: "Spam and Scams" },
-      { id: "violence", title: "Violence" },
-      { id: "pornography", title: "Pornography" },
-      { id: "child_abuse", title: "Child Abuse" },
-      { id: "copyright", title: "Copyright" },
-      { id: "unrelated_location", title: "Unrelated Location" },
-      { id: "fake", title: "Fake Account" },
-      { id: "illegal_drugs", title: "Illegal Drugs" },
-      { id: "personal_details", title: "Personal Details" },
-      { id: "other", title: "Other", requiresText: true },
-    ] };
+  async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportResult> {
+    return this.reportChat({ chatId, messageIds, optionId: "" });
   }
 
-  async reportChat(input: ReportChatInput): Promise<void> {
-    const options = await this.getChatReportOptions(input.chatId, input.messageIds);
-    const option = options.options.find((item) => item.id === input.optionId);
-    if (!option) throw new Error("举报原因无效");
-    if (option.requiresText && !input.text?.trim()) throw new Error("请补充举报说明");
-    if (input.messageIds.length > 100) throw new Error("单次最多举报 100 条消息");
+  async reportChat(input: ReportChatInput): Promise<ChatReportResult> {
+    return mockChatReport(input);
   }
 
   async getActiveSessions(): Promise<DeviceSession[]> { return clone(this.sessions); }
@@ -1954,7 +1939,7 @@ export class MockTelegramTransport implements TelegramTransport {
       (item) => item.chatId === chatId && item.id === messageId,
     );
     if (!message) throw new Error("找不到消息");
-    if (message.permissions) return clone(message.permissions);
+    if (message.permissions) return clone({ canReport: !message.outgoing && !message.isLocallyDeleted, ...message.permissions });
     const chat = this.snapshot.chats.find((item) => item.id === chatId);
     const management = this.chatManagement.get(chatId);
     const canPin = chat?.kind === "direct" || chat?.kind === "saved"
@@ -1966,6 +1951,7 @@ export class MockTelegramTransport implements TelegramTransport {
             : management.permissions.canPinMessages === true)
         : chat?.canPinMessages === true;
     return clone({
+      canReport: !message.outgoing && !message.isLocallyDeleted,
       canReply: true,
       canEdit: message.outgoing && isEditableMessageContent(message.content),
       canDeleteOnlyForSelf: !message.outgoing,

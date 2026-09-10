@@ -28,7 +28,7 @@ import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import type {
   Chat,
-  ChatReportOptions,
+  ChatReportResult,
   ConnectionStatus,
   ForumTopic,
   ForumTopicPage,
@@ -67,7 +67,7 @@ import {
 import { ForwardMessagesDialog } from "./ForwardMessagesDialog";
 import { MessageBubblePreview, type MessageBubblePreviewProps } from "./MessageBubble";
 import { MotionPresence } from "./MotionPresence";
-import { ReportDialog } from "./SafetySettings";
+import { ReportDialog } from "./ReportDialog";
 import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 
 interface ChannelDiscussionPanelProps {
@@ -130,8 +130,8 @@ interface ChannelDiscussionPanelProps {
   onSearchHashtag: (hashtag: string, chatId?: string) => void;
   onOpenMessageSearch: (senderId?: string, chatId?: string) => void;
   onStartPrivateChat: (senderId: string) => void;
-  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportOptions | undefined>;
-  onReportChat: (input: ReportChatInput) => Promise<boolean>;
+  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportResult>;
+  onReportChat: (input: ReportChatInput) => Promise<ChatReportResult>;
   onPinMessage: (
     messageId: string,
     disableNotification: boolean,

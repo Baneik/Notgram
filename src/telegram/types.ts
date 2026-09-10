@@ -323,13 +323,14 @@ export interface BlockedSender {
 export interface ReportOption {
   id: string;
   title: string;
-  requiresText?: boolean;
 }
 
-export interface ChatReportOptions {
-  title: string;
-  options: ReportOption[];
-}
+/** Every reportChat response is a step, and only `ok` confirms submission. */
+export type ChatReportResult =
+  | { kind: "options"; title: string; options: ReportOption[] }
+  | { kind: "text"; optionId: string; isOptional: boolean }
+  | { kind: "messages" }
+  | { kind: "ok" };
 
 export interface ReportChatInput {
   chatId: string;
@@ -897,6 +898,7 @@ export interface LoadedMessageThread extends MessageThreadHistoryPage, MessageTh
 
 export interface MessagePermissions {
   canSave?: boolean;
+  canReport?: boolean;
   canReply: boolean;
   canEdit: boolean;
   canDeleteOnlyForSelf: boolean;

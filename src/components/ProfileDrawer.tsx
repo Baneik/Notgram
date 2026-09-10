@@ -29,14 +29,14 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { useLocalUserBlocks } from "../store/localUserBlocks";
 import { useTelegramStore } from "../store/telegramStore";
 import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
-import type { ChatReportOptions, ReportChatInput } from "../telegram/types";
+import type { ChatReportResult, ReportChatInput } from "../telegram/types";
 import { colorThemeForThemeId } from "../theme/theme";
 import { photoThumbnailWindow, type PhotoMessage } from "../utils/mediaViewerModel";
 import { Avatar } from "./Avatar";
 import { MessageRichText } from "./MessageRichText";
 import { MotionPresence } from "./MotionPresence";
 import { ProfilePlaylist } from "./ProfilePlaylist";
-import { ReportDialog } from "./SafetySettings";
+import { ReportDialog } from "./ReportDialog";
 import { SharedMediaBrowser } from "./SharedMediaBrowser";
 
 type ProfilePage = "main" | "commonGroups" | "members" | "sharedMedia" | "playlist";
@@ -54,10 +54,10 @@ interface ProfileDrawerProps {
   isAdministrator?: boolean;
   isBlocked?: boolean;
   onToggleBlock: (senderId: string, kind: "user" | "chat", blocked: boolean) => Promise<boolean>;
-  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportOptions | undefined>;
-  onReportChat: (input: ReportChatInput) => Promise<boolean>;
+  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<ChatReportResult>;
+  onReportChat: (input: ReportChatInput) => Promise<ChatReportResult>;
   reportChatId?: string;
-  onDeleteChat?: () => Promise<boolean>;
+  onLeaveChat?: () => Promise<boolean>;
   onOpenUserProfile: (userId: string) => void;
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string) => void;
@@ -103,7 +103,7 @@ export function ProfileDrawer({
   onGetReportOptions,
   onReportChat,
   reportChatId,
-  onDeleteChat,
+  onLeaveChat,
   onOpenUserProfile,
   onOpenMention,
   onSearchHashtag,
@@ -120,9 +120,9 @@ export function ProfileDrawer({
   onForwardMessages,
 }: ProfileDrawerProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useModalFocus<HTMLElement>(onClose, false, closeRef);
-  const [page, setPage] = useState<ProfilePage>("main");
   const [reportOpen, setReportOpen] = useState(false);
+  const dialogRef = useModalFocus<HTMLElement>(onClose, false, closeRef, reportOpen);
+  const [page, setPage] = useState<ProfilePage>("main");
   const cacheFile = useTelegramStore((store) => store.cacheFile);
   const activeAccountId = useTelegramStore((store) => store.activeAccountId);
   const localBlockedUsers = useLocalUserBlocks((store) => store.users);
@@ -490,7 +490,7 @@ export function ProfileDrawer({
         )}
       </section>
       <MotionPresence present={Boolean(reportOpen && (profile?.chatId || reportChatId))}>
-        {reportOpen && (profile?.chatId || reportChatId) ? <ReportDialog chatId={profile?.chatId ?? reportChatId!} messageIds={[]} title={profile?.title ?? translate("聊天")} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onDeleteChat={onDeleteChat} onClose={() => setReportOpen(false)} /> : null}
+        {reportOpen && (profile?.chatId || reportChatId) ? <ReportDialog chatId={profile?.chatId ?? reportChatId!} messageIds={[]} title={profile?.title ?? translate("聊天")} onGetOptions={onGetReportOptions} onSubmit={onReportChat} onLeaveChat={onLeaveChat} onClose={() => setReportOpen(false)} /> : null}
       </MotionPresence>
     </div>
   );

@@ -91,7 +91,7 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { autoplayAllowed } from "../utils/motionPreference";
 import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
-import { ReportDialog } from "./SafetySettings";
+import { ReportDialog } from "./ReportDialog";
 import { photoMessages, photoThumbnailWindow } from "../utils/mediaViewerModel";
 import {
   openMediaViewerWindow,
@@ -386,8 +386,8 @@ interface ConversationProps {
   botStartPending: boolean;
   botStartSending: boolean;
   onConfirmBotStart: () => Promise<boolean>;
-  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<import("../telegram/types").ChatReportOptions | undefined>;
-  onReportChat: (input: import("../telegram/types").ReportChatInput) => Promise<boolean>;
+  onGetReportOptions: (chatId: string, messageIds: string[]) => Promise<import("../telegram/types").ChatReportResult>;
+  onReportChat: (input: import("../telegram/types").ReportChatInput) => Promise<import("../telegram/types").ChatReportResult>;
   mobileViewport?: boolean;
   mobileChatOpen?: boolean;
 }

@@ -17,12 +17,15 @@ export const useModalFocus = <T extends HTMLElement>(
   onClose: () => void,
   closeDisabled = false,
   initialFocusRef?: RefObject<HTMLElement | null>,
+  suspended = false,
 ) => {
   const containerRef = useRef<T>(null);
   const closeRef = useRef(onClose);
   const closeDisabledRef = useRef(closeDisabled);
+  const suspendedRef = useRef(suspended);
   closeRef.current = onClose;
   closeDisabledRef.current = closeDisabled;
+  suspendedRef.current = suspended;
 
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement
@@ -36,6 +39,7 @@ export const useModalFocus = <T extends HTMLElement>(
     };
     const timer = globalThis.setTimeout(focusInitial, 0);
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (suspendedRef.current) return;
       const container = containerRef.current;
       if (!container) return;
       if (event.key === "Escape" && !closeDisabledRef.current) {

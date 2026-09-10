@@ -1,3 +1,4 @@
+import { chatReportRequest, mapChatReportResult } from "./chatReport";
 import { translate } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -87,7 +88,7 @@ import type {
   InlineQueryResultPage,
   InlineQueryResult,
   BlockedSender,
-  ChatReportOptions,
+  ChatReportResult,
   ReportChatInput,
   DeviceSession,
   PrivacyRule,
@@ -1431,19 +1432,12 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.request({ "@type": "setMessageSenderBlockList", sender_id: kind === "user" ? { "@type": "messageSenderUser", user_id: numericId(senderId) } : { "@type": "messageSenderChat", chat_id: numericId(senderId) }, block_list: blocked ? { "@type": "blockListMain" } : null });
   }
 
-  async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportOptions> {
-    const result = await this.request({ "@type": "reportChat", chat_id: numericId(chatId), option_id: "", message_ids: messageIds.map(numericId), text: "" });
-    if (result["@type"] === "reportChatResultOptionRequired") {
-      return { title: typeof result.title === "string" ? result.title : translate("选择举报原因"), options: asTdObjects(result.options).flatMap((raw) => { const id = typeof raw.id === "string" ? raw.id : ""; const title = typeof raw.text === "string" ? raw.text : translate("其他"); return id ? [{ id, title }] : []; }) };
-    }
-    if (result["@type"] === "reportChatResultTextRequired") return { title: translate("补充举报说明"), options: [{ id: typeof result.option_id === "string" ? result.option_id : "", title: translate("其他"), requiresText: result.is_optional !== true }] };
-    return { title: translate("举报原因"), options: [] };
+  async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportResult> {
+    return this.reportChat({ chatId, messageIds, optionId: "", text: "" });
   }
 
-  async reportChat({ chatId, messageIds, optionId, text = "" }: ReportChatInput): Promise<void> {
-    const result = await this.request({ "@type": "reportChat", chat_id: numericId(chatId), option_id: optionId, message_ids: messageIds.map(numericId), text: text.slice(0, 1000) });
-    if (["reportChatResultOk", "reportChatResultMessagesRequired"].includes(String(result["@type"]))) return;
-    if (result["@type"] === "reportChatResultTextRequired" && !text.trim() && result.is_optional !== true) throw new Error(translate("请补充举报说明"));
+  async reportChat(input: ReportChatInput): Promise<ChatReportResult> {
+    return mapChatReportResult(await this.request(chatReportRequest(input)));
   }
 
   async getActiveSessions(): Promise<DeviceSession[]> {

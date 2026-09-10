@@ -3630,21 +3630,18 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
   const profile = page.getByRole("dialog", { name: "资料" });
   await profile.getByRole("button", { name: "举报", exact: true }).click();
   const report = page.getByRole("dialog", { name: /举报“产品讨论”/ });
-  await expect(report.getByRole("radiogroup", { name: "举报原因" })).toBeVisible();
-  await expect(report.getByRole("radio")).toHaveText([
-    "垃圾信息或诈骗",
-    "暴力或危险内容",
-    "色情或成人内容",
-    "儿童伤害",
-    "侵犯知识产权",
-    "与标注地点无关",
-    "虚假账号或冒充他人",
-    "毒品或违禁药物",
-    "泄露个人信息",
-    "其他原因",
-  ]);
-  await report.getByRole("radio", { name: "垃圾信息" }).click();
+  await expect(report.getByRole("group", { name: "举报原因" })).toBeVisible();
+  await expect(report.getByRole("radio")).toHaveCount(10);
+  await report.getByRole("radio", { name: "垃圾信息或诈骗", exact: true }).check();
+  await report.getByRole("button", { name: "继续举报" }).click();
+  await report.getByRole("radio", { name: "垃圾信息", exact: true }).check();
+  await report.getByRole("button", { name: "继续举报" }).click();
+  await expect(report.getByRole("heading", { name: "选择举报消息" })).toBeVisible();
+  await report.locator(".report-message-row input").first().check();
+  await report.getByRole("button", { name: "继续举报" }).click();
   await report.getByRole("button", { name: "提交举报" }).click();
+  await expect(report.getByRole("heading", { name: "举报已提交" })).toBeVisible();
+  await report.getByRole("button", { name: "完成" }).click();
   await expect(report).toBeHidden();
   await profile.locator(".profile-navigation > button").filter({ hasText: "成员" }).click();
   await profile.locator(".profile-member-identity").filter({ hasText: "Mia Chen" }).click();
@@ -3684,7 +3681,11 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
     };
   });
   expect(reportLayout).toEqual({ dialogFits: true, bodyFits: true, bodyOverflow: "visible" });
+  await messageReport.getByRole("radio", { name: "我不喜欢此内容", exact: true }).check();
+  await messageReport.getByRole("button", { name: "继续举报" }).click();
   await messageReport.getByRole("button", { name: "提交举报" }).click();
+  await expect(messageReport.getByRole("heading", { name: "举报已提交" })).toBeVisible();
+  await messageReport.getByRole("button", { name: "完成" }).click();
   await expect(messageReport).toBeHidden();
 });
 

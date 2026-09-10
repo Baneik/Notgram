@@ -668,7 +668,7 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 || request
                     .get("text")
                     .and_then(Value::as_str)
-                    .is_none_or(|text| text.len() > 1_000)
+                    .is_none_or(|text| text.chars().count() > 1_024)
             {
                 return Err("Invalid report fields".to_string());
             }
@@ -1879,6 +1879,19 @@ mod tests {
     use super::*;
 
     const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
+
+    #[test]
+    fn report_details_use_the_tdlib_character_limit_instead_of_utf8_bytes() {
+        for character in ["a", "中", "あ", "😀"] {
+            let mut request = json!({
+                "@type": "reportChat", "chat_id": -1007, "message_ids": [1048576],
+                "option_id": "AAE+/w==", "text": character.repeat(1_024), "@extra": EXTRA
+            });
+            assert!(validate_webview_tdlib_request(&request).is_ok());
+            request["text"] = json!(character.repeat(1_025));
+            assert!(validate_webview_tdlib_request(&request).is_err());
+        }
+    }
 
     #[test]
     fn allows_retained_media_lookup_by_remote_identity() {

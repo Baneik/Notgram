@@ -45,7 +45,7 @@ import type {
   CallbackQueryAnswer,
   InlineQueryResultPage,
   BlockedSender,
-  ChatReportOptions,
+  ChatReportResult,
   ReportChatInput,
   DeviceSession,
   PrivacyRule,
@@ -142,8 +142,8 @@ export interface TelegramTransport {
   sendBotStartMessage(chatId: string, botUserId: string, parameter?: string): Promise<void>;
   getBlockedSenders(): Promise<BlockedSender[]>;
   setMessageSenderBlocked(senderId: string, kind: "user" | "chat", blocked: boolean): Promise<void>;
-  getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportOptions>;
-  reportChat(input: ReportChatInput): Promise<void>;
+  getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportResult>;
+  reportChat(input: ReportChatInput): Promise<ChatReportResult>;
   getActiveSessions(): Promise<DeviceSession[]>;
   terminateSession(sessionId: string): Promise<void>;
   terminateAllOtherSessions(): Promise<void>;

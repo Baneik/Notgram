@@ -3726,13 +3726,42 @@ export const createTelegramStore = (
       },
 
       getChatReportOptions: async (chatId, messageIds) => {
-        try { return await transport.getChatReportOptions(chatId, messageIds); }
-        catch (error) { set({ operationError: errorMessage(error, translate("无法读取举报选项")) }); return undefined; }
+        return get().reportChat({ chatId, messageIds, optionId: "", text: "" });
       },
 
       reportChat: async (input) => {
-        try { await transport.reportChat(input); set({ operationError: undefined }); return true; }
-        catch (error) { set({ operationError: errorMessage(error, translate("无法提交举报")) }); return false; }
+        const generation = accountGeneration;
+        if (accountTransition) throw new Error(translate("账号已切换，请重新打开举报"));
+        const result = await transport.reportChat(input);
+        if (generation !== accountGeneration || accountTransition) {
+          throw new Error(translate("账号已切换，请重新打开举报"));
+        }
+        return result;
+      },
+
+      loadReportMessages: async (input) => {
+        const generation = accountGeneration;
+        const ensureCurrent = () => {
+          if (generation !== accountGeneration || accountTransition) {
+            throw new Error(translate("账号已切换，请重新打开举报"));
+          }
+        };
+        ensureCurrent();
+        // Reuse server search without replacing the conversation's search/history state.
+        const page = await transport.searchChatMessages({ ...input, limit: 30 });
+        ensureCurrent();
+        const messages: Message[] = [];
+        for (let offset = 0; offset < page.messages.length; offset += 6) {
+          ensureCurrent();
+          const batch = await Promise.all(page.messages.slice(offset, offset + 6).map(async (message) => {
+            if (message.chatId !== input.chatId || message.isLocallyDeleted) return undefined;
+            const permissions = await transport.getMessageProperties(input.chatId, message.id);
+            return permissions.canReport === true ? { ...message, permissions } : undefined;
+          }));
+          ensureCurrent();
+          messages.push(...batch.filter((message): message is Message & { permissions: import("../telegram/types").MessagePermissions } => Boolean(message)));
+        }
+        return { ...page, messages };
       },
 
       getActiveSessions: sessionController.getActiveSessions,
