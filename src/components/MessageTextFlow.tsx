@@ -4,23 +4,24 @@ import { observeLayout } from "../utils/layoutObservation";
 const INLINE_META_LOWERING_PX = 2.5;
 
 interface Props extends HTMLAttributes<HTMLDivElement> {
+  largeEmoji?: boolean;
   forceWrapped?: boolean;
   onWrapChange?: (wrapped: boolean) => void;
 }
 
 /** Shares last-line metadata placement between text messages and media captions. */
-export function MessageTextFlow({ children, className = "", style, forceWrapped = false, onWrapChange, ...props }: Props) {
+export function MessageTextFlow({ children, className = "", style, largeEmoji = false, forceWrapped = false, onWrapChange, ...props }: Props) {
   const textFlowRef = useRef<HTMLDivElement>(null);
   const [metaWrapped, setMetaWrapped] = useState(false);
   const [metaInlineOffset, setMetaInlineOffset] = useState(0);
 
   useLayoutEffect(() => {
     const flow = textFlowRef.current;
-    if (forceWrapped || !flow) {
-      if (forceWrapped) {
-        setMetaWrapped(true);
-        setMetaInlineOffset(0);
-      }
+    // Emoji uses CSS grid alignment, not last-line text flow. Measuring its
+    // bottom-aligned metadata as a float incorrectly reports a wrapped line.
+    if (forceWrapped || largeEmoji || !flow) {
+      setMetaWrapped(forceWrapped);
+      setMetaInlineOffset(0);
       return;
     }
 
@@ -87,13 +88,13 @@ export function MessageTextFlow({ children, className = "", style, forceWrapped 
       stopObservingBubbleShell?.();
       stopObservingContainer?.();
     };
-  }, [children, forceWrapped]);
+  }, [children, forceWrapped, largeEmoji]);
 
   useLayoutEffect(() => { onWrapChange?.(metaWrapped); }, [metaWrapped, onWrapChange]);
 
   return (
     <div {...props} ref={textFlowRef}
-      className={`message-text-flow ${className} ${metaWrapped ? "is-meta-wrapped" : ""}`}
+      className={`message-text-flow ${className} ${largeEmoji ? "is-large-emoji" : ""} ${metaWrapped ? "is-meta-wrapped" : ""}`}
       style={{ ...style, "--message-meta-inline-offset": `${metaInlineOffset}px` } as CSSProperties}>
       {children}
     </div>

@@ -1419,23 +1419,23 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .conversation.is-message-text-selecting .message-rich-text.is-loading.is-selection-origin { user-select: none; -webkit-user-select: none; }
 .message-bubble button, .message-bubble input, .message-bubble textarea, .message-bubble .message-meta { user-select: none; -webkit-user-select: none; }
 .message-text-flow.is-large-emoji { line-height: 1; }
-.message-text-flow.is-large-emoji > .message-rich-text { font-size: 2.35em; line-height: 1.08; }
+.message-text-flow.is-large-emoji > .message-rich-text { font-size: calc(var(--chat-font-size) * 2.35); line-height: 1.08; }
 .message-text-flow { min-width: 0; display: flow-root; }
 .pending-message-caret { width: 7px; height: 16px; margin-left: 2px; display: inline-flex; align-items: flex-end; vertical-align: text-bottom; }
 .pending-message-caret > span { width: 2px; height: 14px; background: var(--accent); border-radius: 2px; animation: rich-streaming-caret var(--motion-duration-attention) ease-in-out infinite; }
 .pending-message-thinking { min-height: 22px; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
-.message-text-flow > .message-rich-text[data-rich-text="entities"],
-.message-text-flow > .message-rich-text[data-rich-text="loading"],
-.message-text-flow > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child),
-.message-text-flow > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) > p {
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="entities"],
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="loading"],
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child),
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) > p {
   display: inline;
 }
-.message-text-flow > .message-rich-text[data-rich-text="entities"] + .message-meta,
-.message-text-flow > .message-rich-text[data-rich-text="loading"] + .message-meta,
-.message-text-flow > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) + .message-meta {
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="entities"] + .message-meta,
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="loading"] + .message-meta,
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) + .message-meta {
   margin: 1px 0 0 8px; display: flex; float: right;
 }
-.message-text-flow:not(.is-meta-wrapped) > .message-rich-text + .message-meta {
+.message-text-flow:not(.is-large-emoji):not(.is-meta-wrapped) > .message-rich-text + .message-meta {
   transform: translateY(var(--message-meta-inline-offset, 0px));
 }
 .message-text-flow.is-meta-wrapped > .message-rich-text + .message-meta,
@@ -1443,10 +1443,10 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   width: max-content; max-width: 100%; margin: 2px 0 0 auto !important; float: none !important;
   align-items: flex-start; transform: none;
 }
-.message-text-flow.is-large-emoji {
-  display: grid; grid-template-columns: max-content max-content; align-items: end; gap: 8px;
+.message-text-flow.is-large-emoji:not(.is-meta-wrapped) {
+  display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: end; gap: 8px;
 }
-.message-text-flow.is-large-emoji > .message-rich-text + .message-meta {
+.message-text-flow.is-large-emoji:not(.is-meta-wrapped) > .message-rich-text + .message-meta {
   margin: 0 0 2px; float: none; align-items: flex-end; transform: none;
 }
 .message-bubble.is-textual.has-wrapped-meta {
@@ -1472,6 +1472,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-rich-text p, .message-rich-text ul, .message-rich-text ol,
 .message-rich-text blockquote, .message-rich-text pre, .message-rich-text table,
 .message-rich-text hr { margin: 0 0 7px; }
+.message-rich-text p { font-size: inherit; line-height: inherit; }
 .message-rich-text ul, .message-rich-text ol { padding-left: 21px; white-space: normal; }
 .message-rich-text li { margin: 2px 0; }
 .message-rich-text li > p { display: inline; }

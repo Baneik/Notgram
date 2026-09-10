@@ -720,7 +720,7 @@ function MessageBubbleComponent({
           )}
           {content.kind === "text" ? (
             <MessageTextFlow
-              className={isLargeEmojiText(content.text) ? "is-large-emoji" : ""}
+              largeEmoji={isLargeEmojiText(content.text)}
               forceWrapped={channelPost}
               onWrapChange={setMetaWrapped}
             >
