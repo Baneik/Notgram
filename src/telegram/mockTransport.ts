@@ -16,6 +16,7 @@ import type {
   CacheCleanupInput,
   CacheUsage,
   CachedTelegramSnapshot,
+  HistoryPageRequest,
   Chat,
   ChatEvent,
   ChatEventLogInput,
@@ -1700,19 +1701,26 @@ export class MockTelegramTransport implements TelegramTransport {
     this.historyOffsets.clear();
   }
 
-  async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
+  private readHistoryPage(chatId: string, topicId: string | undefined, limit: number, request?: HistoryPageRequest): ChatHistoryPage {
+    const key = topicId ? `forum:${chatId}:${topicId}` : chatId;
     const history = this.snapshot.messages
-      .filter((message) => message.chatId === chatId)
+      .filter((message) => message.chatId === chatId && (!topicId || message.topicId === topicId))
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
-    const offset = this.historyOffsets.get(chatId) ?? 0;
+    const anchorIndex = request?.fromMessageId ? history.findIndex(message => message.id === request.fromMessageId) : -1;
+    const offset = request ? anchorIndex + 1 : this.historyOffsets.get(key) ?? 0;
     const page = history.slice(offset, offset + limit);
-    this.historyOffsets.set(chatId, offset + page.length);
+    if (!request) this.historyOffsets.set(key, offset + page.length);
     return {
       loadedCount: page.length,
       hasMore: offset + page.length < history.length,
       messageIds: page.map((message) => message.id),
       messages: clone(page),
+      nextFromMessageId: page.at(-1)?.id ?? request?.fromMessageId,
     };
+  }
+
+  async loadChatHistory(chatId: string, limit = 30, request?: HistoryPageRequest): Promise<ChatHistoryPage> {
+    return this.readHistoryPage(chatId, undefined, limit, request);
   }
 
   async getChatSponsoredMessages(chatId: string): Promise<ChatSponsoredMessages> {
@@ -1808,20 +1816,8 @@ export class MockTelegramTransport implements TelegramTransport {
     return topic ? clone(topic) : undefined;
   }
 
-  async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
-    const historyKey = `forum:${chatId}:${topicId}`;
-    const history = this.snapshot.messages
-      .filter((message) => message.chatId === chatId && message.topicId === topicId)
-      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
-    const offset = this.historyOffsets.get(historyKey) ?? 0;
-    const page = history.slice(offset, offset + limit);
-    this.historyOffsets.set(historyKey, offset + page.length);
-    return {
-      loadedCount: page.length,
-      hasMore: offset + page.length < history.length,
-      messageIds: page.map((message) => message.id),
-      messages: clone(page),
-    };
+  async loadForumTopicHistory(chatId: string, topicId: string, limit = 30, request?: HistoryPageRequest): Promise<ChatHistoryPage> {
+    return this.readHistoryPage(chatId, topicId, limit, request);
   }
 
   async getMessageThreadHistory(chatId: string, messageId: string, limit = 100, fromMessageId?: string): Promise<import("./types").MessageThreadHistoryPage> {

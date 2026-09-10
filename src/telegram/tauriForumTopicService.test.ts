@@ -46,8 +46,8 @@ describe("tauri forum topic service", () => {
     const first = harness.service.loadForumTopicHistory("1001", "2", 500);
     const second = harness.service.loadForumTopicHistory("1001", "2", 500);
     await expect(Promise.all([first, second])).resolves.toEqual([
-      { loadedCount: 2, hasMore: true, messageIds: ["9", "8"], stalled: true },
-      { loadedCount: 2, hasMore: true, messageIds: ["9", "8"], stalled: true },
+      { loadedCount: 2, hasMore: true, messageIds: ["9", "8"], stalled: true, nextFromMessageId: "8" },
+      { loadedCount: 2, hasMore: true, messageIds: ["9", "8"], stalled: true, nextFromMessageId: "8" },
     ]);
     expect(harness.context.request).toHaveBeenCalledTimes(4);
     expect(harness.context.request).toHaveBeenNthCalledWith(1, expect.objectContaining({ from_message_id: 0, limit: 100 }));

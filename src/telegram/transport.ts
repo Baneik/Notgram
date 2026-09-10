@@ -24,6 +24,7 @@ import type {
   SendMessageInput,
   SendMediaCopyInput,
   ChatHistoryPage,
+  HistoryPageRequest,
   ChatSponsoredMessages,
   ChatListPage,
   CacheCleanupInput,
@@ -167,7 +168,7 @@ export interface TelegramTransport {
   discardChatHistoryCache?(chatId: string): void;
   /** Retire in-flight pagination and restart from TDLib's latest windows. */
   resetSyncState(): void;
-  loadChatHistory(chatId: string, limit?: number): Promise<ChatHistoryPage>;
+  loadChatHistory(chatId: string, limit?: number, request?: HistoryPageRequest): Promise<ChatHistoryPage>;
   getChatSponsoredMessages(chatId: string): Promise<ChatSponsoredMessages>;
   clickChatSponsoredMessage(
     chatId: string,
@@ -176,7 +177,7 @@ export interface TelegramTransport {
   ): Promise<void>;
   getForumTopics(input: GetForumTopicsInput): Promise<ForumTopicPage>;
   getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined>;
-  loadForumTopicHistory(chatId: string, topicId: string, limit?: number): Promise<ChatHistoryPage>;
+  loadForumTopicHistory(chatId: string, topicId: string, limit?: number, request?: HistoryPageRequest): Promise<ChatHistoryPage>;
   getMessageThread(chatId: string, messageId: string): Promise<import("./types").MessageThread | undefined>;
   getMessageThreadHistory(chatId: string, messageId: string, limit?: number, fromMessageId?: string): Promise<import("./types").MessageThreadHistoryPage>;
   createForumTopic(input: CreateForumTopicInput): Promise<ForumTopic>;

@@ -5,6 +5,7 @@ import { identityTextField } from "./identityText";
 import { loadHistoryWindow } from "./historyPager";
 import type {
   ChatHistoryPage,
+  HistoryPageRequest,
   CreateForumTopicInput,
   ForumTopic,
   ForumTopicPage,
@@ -134,16 +135,17 @@ export class TauriForumTopicService {
     return { chatId, topic: topicUpdate };
   }
 
-  async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
+  async loadForumTopicHistory(chatId: string, topicId: string, limit = 30, request?: HistoryPageRequest): Promise<ChatHistoryPage> {
     const generation = this.generation;
-    const key = `${chatId}:${topicId}`;
-    if (this.exhaustedHistories.has(key)) {
+    const scope = `${chatId}:${topicId}`;
+    const key = request ? `${scope}:${request.purpose}:${request.fromMessageId ?? "latest"}` : scope;
+    if (!request && this.exhaustedHistories.has(key)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
     }
     const existing = this.historyLoads.get(key);
     if (existing) return existing;
     const load = (async () => {
-      const cursor = this.historyCursors.get(key) ?? 0;
+      const cursor = request ? (request.fromMessageId ? numericId(request.fromMessageId) : 0) : this.historyCursors.get(key) ?? 0;
       const rawMessages = new Map<string, TdObject>();
       const result = await loadHistoryWindow({
         chatId,
@@ -160,14 +162,17 @@ export class TauriForumTopicService {
       });
       this.assertGeneration(generation);
       const messages = this.context.emitMessages([...rawMessages.values()], false);
-      this.historyCursors.set(key, result.cursor);
-      if (result.exhausted) this.exhaustedHistories.add(key);
+      if (!request) {
+        this.historyCursors.set(key, result.cursor);
+        if (result.exhausted) this.exhaustedHistories.add(key);
+      }
       return {
         loadedCount: result.loadedCount,
-        hasMore: !this.exhaustedHistories.has(key),
+        hasMore: !result.exhausted,
         messageIds: result.messageIds,
         messages,
         stalled: result.stalled,
+        nextFromMessageId: result.cursor ? String(result.cursor) : undefined,
       };
     })().finally(() => {
       if (this.historyLoads.get(key) === load) this.historyLoads.delete(key);

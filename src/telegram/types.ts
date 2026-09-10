@@ -1231,6 +1231,12 @@ export interface StreamFileInput {
   mimeType?: string;
 }
 
+/** An explicit cursor belongs to the caller's window, never to another reader. */
+export interface HistoryPageRequest {
+  purpose: "refresh" | "older";
+  fromMessageId?: string;
+}
+
 export interface ChatHistoryPage {
   loadedCount: number;
   hasMore: boolean;
@@ -1239,6 +1245,7 @@ export interface ChatHistoryPage {
   messages?: Message[];
   /** TDLib has not advanced yet; retry without declaring history exhausted. */
   stalled?: boolean;
+  nextFromMessageId?: string;
 }
 
 export interface SendMediaCopyInput {

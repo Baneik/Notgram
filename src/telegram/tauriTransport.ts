@@ -100,6 +100,7 @@ import type {
   ChatProfile,
   ChatProfileMembersPage,
   ChatHistoryPage,
+  HistoryPageRequest,
   ChatSponsoredMessages,
   ChatListPage,
   DeleteMessageInput,
@@ -1830,19 +1831,20 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.delete(chatId);
   }
 
-  async loadChatHistory(chatId: string, limit = 30): Promise<ChatHistoryPage> {
+  async loadChatHistory(chatId: string, limit = 30, request?: HistoryPageRequest): Promise<ChatHistoryPage> {
     chatId = this.canonicalChatId(chatId);
-    if (this.exhaustedHistories.has(chatId)) {
+    if (!request && this.exhaustedHistories.has(chatId)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
     }
-    const existing = this.historyLoads.get(chatId);
+    const key = request ? `${chatId}:${request.purpose}:${request.fromMessageId ?? "latest"}` : chatId;
+    const existing = this.historyLoads.get(key);
     if (existing) return existing;
 
-    const load = this.loadNextHistoryPage(chatId, Math.max(1, Math.min(limit, 100)))
+    const load = this.loadNextHistoryPage(chatId, Math.max(1, Math.min(limit, 100)), request)
       .finally(() => {
-        if (this.historyLoads.get(chatId) === load) this.historyLoads.delete(chatId);
+        if (this.historyLoads.get(key) === load) this.historyLoads.delete(key);
       });
-    this.historyLoads.set(chatId, load);
+    this.historyLoads.set(key, load);
     return load;
   }
 
@@ -1877,8 +1879,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.forumTopicService.getForumTopic(chatId, topicId);
   }
 
-  async loadForumTopicHistory(chatId: string, topicId: string, limit = 30): Promise<ChatHistoryPage> {
-    return this.forumTopicService.loadForumTopicHistory(chatId, topicId, limit);
+  async loadForumTopicHistory(chatId: string, topicId: string, limit = 30, request?: HistoryPageRequest): Promise<ChatHistoryPage> {
+    return this.forumTopicService.loadForumTopicHistory(chatId, topicId, limit, request);
   }
 
   async getMessageThreadHistory(chatId: string, messageId: string, limit = 100, fromMessageId?: string) {
@@ -2173,13 +2175,14 @@ export class TauriTelegramTransport implements TelegramTransport {
   private async loadNextHistoryPage(
     chatId: string,
     targetCount: number,
+    request?: HistoryPageRequest,
   ): Promise<ChatHistoryPage> {
     const generation = this.syncGeneration;
     const rawMessages: TdObject[] = [];
     const result = await loadHistoryWindow({
       chatId,
       targetCount,
-      cursor: this.historyCursors.get(chatId) ?? 0,
+      cursor: request ? (request.fromMessageId ? numericId(request.fromMessageId) : 0) : this.historyCursors.get(chatId) ?? 0,
       // Stage the entire window: a timeout on a later TDLib page must not
       // consume messages or advance the committed cursor before the UI gets them.
       knownMessages: new Map(this.rawMessages.get(chatId)),
@@ -2192,15 +2195,18 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
     this.assertSyncGeneration(generation);
     const messages = this.emitMessages(rawMessages, true, false);
-    this.historyCursors.set(chatId, result.cursor);
-    if (result.exhausted) this.exhaustedHistories.add(chatId);
+    if (!request) {
+      this.historyCursors.set(chatId, result.cursor);
+      if (result.exhausted) this.exhaustedHistories.add(chatId);
+    }
 
     return {
       loadedCount: result.loadedCount,
-      hasMore: !this.exhaustedHistories.has(chatId),
+      hasMore: !result.exhausted,
       messageIds: result.messageIds,
       messages,
       stalled: result.stalled,
+      nextFromMessageId: result.cursor ? String(result.cursor) : undefined,
     };
   }
 
