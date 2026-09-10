@@ -1749,6 +1749,9 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 }
 .file-actions button:hover, .file-actions button:focus-visible { background: var(--accent-soft); outline: none; }
 .message-bubble.is-photo { padding: 0; overflow: hidden; background: transparent; box-shadow: none; }
+/* Caption metadata is lowered to the last text baseline. Keep its clipping
+   boundary from becoming a tiny nested scroller during message/list motion. */
+.message-bubble.is-photo.has-caption { display: flow-root; overflow: clip; }
 .message-bubble.is-photo.media-bubble-photo,
 .message-bubble.is-photo.media-bubble-video,
 .message-bubble.is-photo.media-bubble-animation {
@@ -2133,7 +2136,7 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .report-reason-options button { min-height: 38px; padding: 0 11px; color: inherit; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
 .report-reason-options button:hover, .report-reason-options button.is-selected { border-color: var(--accent); background: var(--surface-hover); }
 .photo-message.media-sticker .photo-preview, .photo-message.media-sticker .photo-preview > img, .photo-message.media-sticker .photo-preview > video { background: transparent; }
-.message-bubble.is-photo .photo-caption-flow { padding: 7px 9px 0; background: var(--color-message-incoming); }
+.message-bubble.is-photo .photo-caption-flow { padding: 7px 9px 4px; background: var(--color-message-incoming); }
 .message-bubble.is-photo .photo-caption { padding: 0; background: transparent; }
 .is-outgoing .message-bubble.is-photo .photo-caption-flow { background: var(--outgoing); }
 .message-bubble.is-photo:not(.has-caption):not(.is-channel-post-bubble) .message-meta {
