@@ -220,6 +220,73 @@ test("images remain hidden until their current source finishes decoding", async 
   await expect(image).toHaveCSS("opacity", "1");
 });
 
+for (const evictReadiness of [false, true]) {
+  test(`folder switches preserve shared rows and avatars with ${evictReadiness ? "evicted" : "cached"} image readiness`, async ({ page }) => {
+    await page.setViewportSize({ width: 1080, height: 900 });
+    await page.goto("/");
+    await expect(page.locator(".chat-list .chat-row")).toHaveCount(6);
+    const sharedIds = await page.evaluate(async () => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+      const chats = new Map(telegramStore.getState().chats);
+      const shared = [...chats.values()].filter((chat) =>
+        chat.folderIds.includes("main") && chat.folderIds.includes("folder:work"));
+      for (const chat of shared) chats.set(chat.id, {
+        ...chat, avatar: { ...chat.avatar, imagePath: `/mock-video-poster.jpg?folder-avatar=${chat.id}` },
+      });
+      // Folder switching must preserve the visible images even without a data refresh.
+      telegramStore.setState({ chats, connectionStatus: "offline" });
+      return shared.map((chat) => chat.id);
+    });
+    expect(sharedIds).toHaveLength(3);
+    await expect.poll(() => page.locator(".chat-list img").evaluateAll((images) =>
+      images.length === 3 && images.every((image) =>
+        (image as HTMLImageElement).complete && image.getAttribute("data-image-state") === "ready" &&
+        getComputedStyle(image).opacity === "1"),
+    )).toBe(true);
+
+    const result = await page.evaluate(async ({ sharedIds, evictReadiness }) => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+      const { forgetDecodedImage } = await import("/src/media/decodedImages.ts" as string) as typeof import("../../src/media/decodedImages");
+      const originalList = document.querySelector(".chat-list");
+      const originalChats = telegramStore.getState().chats;
+      const originals = sharedIds.map((id) => {
+        const row = originalList?.querySelector<HTMLElement>(`[data-chat-id="${id}"]`);
+        const image = row?.querySelector("img");
+        if (!row || !image) throw new Error(`Missing initial avatar for ${id}`);
+        return { id, row, image };
+      });
+      const failures = [];
+      for (const folderId of ["folder:work", "main", "folder:work", "main", "folder:work", "main"]) {
+        // Simulate evicted URL metadata without unloading the already displayed images.
+        if (evictReadiness) originals.forEach(({ image }) => forgetDecodedImage(image.currentSrc));
+        const folderButton = document.querySelector<HTMLButtonElement>(`.rail-actions [data-folder-id="${folderId}"]`);
+        if (!folderButton) throw new Error(`Missing folder ${folderId}`);
+        folderButton.click();
+        for (let frame = 0; frame < 4; frame++) {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          const list = document.querySelector(".chat-list");
+          const visibleIds = [...list?.querySelectorAll<HTMLElement>(".chat-row") ?? []].map((row) => row.dataset.chatId);
+          const expectedIds = [...originalChats.values()].filter((chat) => chat.folderIds.includes(folderId)).map((chat) => chat.id);
+          const rows = originals.map((original) => {
+            const row = list?.querySelector(`[data-chat-id="${original.id}"]`);
+            const image = row?.querySelector("img");
+            return { id: original.id, sameRow: row === original.row, sameImage: image === original.image,
+              state: image?.dataset.imageState, opacity: image ? getComputedStyle(image).opacity : null };
+          });
+          if (list !== originalList || telegramStore.getState().chatFilter !== folderId ||
+            visibleIds.length !== expectedIds.length || expectedIds.some((id) => !visibleIds.includes(id)) ||
+            rows.some((row) => !row.sameRow || !row.sameImage || row.state !== "ready" || row.opacity !== "1")) {
+            failures.push({ folderId, frame, sameList: list === originalList, visibleIds, rows });
+          }
+        }
+      }
+      return { failures, sameChatData: telegramStore.getState().chats === originalChats };
+    }, { sharedIds, evictReadiness });
+    expect(result.sameChatData).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
+}
+
 test("decoded message images restore without a second fade after remount", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");

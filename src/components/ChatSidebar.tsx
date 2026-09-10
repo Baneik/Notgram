@@ -370,8 +370,8 @@ export function ChatSidebar({
     setDropTarget(undefined);
   }, [accountId, setDropTarget]);
 
-  // The list element is shared between folders, so preserve its viewport per folder
-  // before React swaps the rows and restore the target after the new rows are mounted.
+  // Folder changes keep the list and shared avatars mounted. Restore only the
+  // target folder's scroll position before paint instead of resetting the subtree.
   useLayoutEffect(() => {
     const list = chatListRef.current;
     if (!list) return;
@@ -491,7 +491,6 @@ export function ChatSidebar({
         />
       ) : (
         <div
-          key={folderId}
           className="chat-list"
           ref={chatListRef}
           onScroll={(event) => {
