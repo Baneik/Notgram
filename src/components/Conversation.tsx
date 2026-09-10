@@ -263,6 +263,9 @@ interface ConversationProps {
   scrollScope: string;
   scrollRequest?: ConversationScrollRequest;
   messages: Message[];
+  onLatestWindow?: () => boolean;
+  onHistoryWindow?: (messageId: string, offset: number) => boolean;
+  historyWindowIsContext?: boolean;
   sponsoredMessages?: SponsoredMessage[];
   sponsoredMessagesBetween?: number;
   chatMessages: Message[];
@@ -397,6 +400,9 @@ export function Conversation({
   scrollScope,
   scrollRequest,
   messages,
+  onLatestWindow,
+  onHistoryWindow,
+  historyWindowIsContext = false,
   sponsoredMessages = [],
   sponsoredMessagesBetween = 0,
   chatMessages,
@@ -707,6 +713,8 @@ export function Conversation({
       : messages,
     [chat?.kind, messages],
   );
+  const cachedMessageIds = useMemo(() => new Set(chatMessages
+    .filter(message => !topic || message.topicId === topic.id).map(message => message.id)), [chatMessages, topic]);
   const renderedMessages = useMemo(
     () => {
       const source = pinnedViewOpen
@@ -1146,6 +1154,9 @@ export function Conversation({
     hasOlderMessages: pinnedViewOpen ? false : hasOlderMessages,
     messageCount: pinnedViewOpen ? renderedMessages.length : messages.length,
     onLoadOlder: pinnedViewOpen ? async () => undefined : onLoadOlder,
+    onLatestWindow: pinnedViewOpen ? undefined : onLatestWindow,
+    onHistoryWindow: pinnedViewOpen ? undefined : onHistoryWindow,
+    cachedMessageIds: pinnedViewOpen ? undefined : cachedMessageIds,
     onUserScroll: handleConversationUserScroll,
   });
   const messageTargetHighlightRef = useRef<HTMLDivElement>(null);
@@ -2922,7 +2933,7 @@ export function Conversation({
             <span>{formatUnreadCount(attentionMessageIds.length)}</span>
           </button>
         )}
-        {!pinnedViewOpen && currentScrollKey && (jumpHistoryCount > 0 || awayFromLatest) && (
+        {!pinnedViewOpen && currentScrollKey && (jumpHistoryCount > 0 || awayFromLatest || historyWindowIsContext) && (
             <button
               className="conversation-jump-button jump-to-latest"
               type="button"

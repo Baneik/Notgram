@@ -216,7 +216,7 @@ describe("Store recovery synchronization", () => {
     topics.mockClear();
     transport.setConnectionStatus("waitingForNetwork");
     transport.setConnectionStatus("online");
-    await vi.waitFor(() => expect(history).toHaveBeenCalledWith("chat-forum", topicId, 30));
+    await vi.waitFor(() => expect(history).toHaveBeenCalledWith("chat-forum", topicId, 30, { purpose: "refresh", fromMessageId: undefined }));
     expect(topics).toHaveBeenCalled();
     expect(store.getState().activeTopicId).toBe(topicId);
   });

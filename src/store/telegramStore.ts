@@ -11,6 +11,7 @@ import { senderNameForMessage } from "../components/conversationMessages";
 import { RetainedMessageIndex } from "./retainedMessageIndex";
 import { RetainedMediaRestorer } from "./retainedMediaRestorer";
 import { SyncRetryQueue } from "../telegram/syncRetryQueue";
+import { ConversationHistory } from "./conversationHistory";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isTauri } from "@tauri-apps/api/core";
@@ -48,8 +49,6 @@ import {
 } from "./telegramStore.drafts";
 import {
   messageMapFrom,
-  pendingCachedIdsAfterConfirmation,
-  reachedCachedHistoryBoundary,
   replaceMessage,
   upsertMessages as mergeMessages,
   withEmojiReaction,
@@ -237,14 +236,6 @@ export const createTelegramStore = (
     let cacheIdleCallback: number | undefined;
     let cacheDirtySince: number | undefined;
     let cacheWrite = Promise.resolve();
-    const cachedMessageIds = new Map<string, Set<string>>();
-    const rememberCachedMessage = (message: Message, isForum = get().chats.get(message.chatId)?.isForum) => {
-      if (message.isLocallyDeleted || message.isPending || message.delivery === "sending" || message.delivery === "failed") return;
-      const key = topicKey(message.chatId, isForum ? message.topicId : undefined);
-      const ids = cachedMessageIds.get(key) ?? new Set<string>();
-      ids.add(message.id);
-      cachedMessageIds.set(key, ids);
-    };
     let accountTransition = false;
     let accountGeneration = 0;
     const pendingPinnedReorders = new Map<string, {
@@ -281,8 +272,6 @@ export const createTelegramStore = (
     // Keep it separate so a fast chat switch can retire pending navigation work
     // without tearing down the whole TDLib session.
     let conversationGeneration = 0;
-    const historyLoadPromises = new Map<string, Promise<void>>();
-    const cacheBoundaryPromises = new Map<string, Promise<void>>();
     const advanceConversationGeneration = () => {
       conversationGeneration += 1;
       return conversationGeneration;
@@ -844,7 +833,7 @@ export const createTelegramStore = (
         ) continue;
         if (items.some((message) => message.delivery === "sending")) continue;
         total -= items.filter((message) => !message.isLocallyDeleted).length;
-        messages.delete(chatId); histories.delete(chatId); cachedMessageIds.delete(chatId);
+        messages.delete(chatId); histories.delete(chatId); history.discard(chatId);
         transport.discardChatHistoryCache?.(chatId);
       }
       if (messages.size !== current.messages.size) set({ messages, histories });
@@ -878,7 +867,7 @@ export const createTelegramStore = (
           cacheDirtySince = undefined;
           const current = get();
           if (current.authorization.kind !== "ready" || !current.currentUserId) return;
-          const snapshot = cachedSnapshotFrom(
+          const snapshot = snapshotWithHistory(
             { ...current, chats: chatsWithServerOrders(current.chats) },
             profileController.getCachedProfiles(),
           );
@@ -932,6 +921,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      history.clear();
       pendingPinnedReorders.clear();
       removedMessageIds.clear();
       retainedMediaRestorer.reset();
@@ -946,9 +936,6 @@ export const createTelegramStore = (
       if (expiryTimer) globalThis.clearTimeout(expiryTimer);
       expiryTimer = undefined;
       sharedMediaIndex.clear();
-      cachedMessageIds.clear();
-      historyLoadPromises.clear();
-      cacheBoundaryPromises.clear();
       advanceConversationGeneration();
       transport.setConversationFocus?.();
       draftSync.clear();
@@ -1056,7 +1043,7 @@ export const createTelegramStore = (
       localSaveTimer = undefined;
       const state = get();
       if (state.authorization.kind === "ready" && state.currentUserId) {
-        const snapshot = cachedSnapshotFrom(
+        const snapshot = snapshotWithHistory(
           { ...state, chats: chatsWithServerOrders(state.chats) }, profileController.getCachedProfiles(),
         );
         const operation = cacheWrite.catch(() => undefined).then(() => transport.saveCachedSnapshot(snapshot));
@@ -1095,10 +1082,6 @@ export const createTelegramStore = (
         (snapshot.localAttachmentDrafts ?? []).map((draft) => [draft.draftKey, draft]),
       );
       const outbox = snapshot.outbox ?? [];
-      cachedMessageIds.clear();
-      for (const message of snapshot.messages) {
-        rememberCachedMessage(message, chats.get(message.chatId)?.isForum);
-      }
       for (const [id, chat] of current.chats) chats.set(id, chat);
       for (const [id, user] of current.users) users.set(id, user);
       for (const [chatId, topics] of current.forumTopics) forumTopics.set(chatId, topics);
@@ -1164,6 +1147,7 @@ export const createTelegramStore = (
         chatFilter: current.chatFilter !== "main" ? current.chatFilter : chatFilter,
         cacheHealth: migration.health,
       });
+      history.restoreContexts(snapshot.historyContexts ?? []);
       publishMessageChange({ type: "reset", messages });
     };
 
@@ -1183,7 +1167,7 @@ export const createTelegramStore = (
           queueBlockedReactionReads([message]);
           reconcileMessageAttention(message, existing.find((candidate) => candidate.id === message.id), false);
         }
-        messages.set(chatId, upsertMessages(existing, incoming).map((message) => ({ ...message, isRemoving: false })));
+        messages.set(chatId, upsertMessages(existing, incoming.map(message => message.isRemoving ? { ...message, isRemoving: false } : message)));
         const incomingIds = new Set(incoming.map((message) => message.id));
         const ghosts = (removingMessages.get(chatId) ?? []).filter((message) => !incomingIds.has(message.id));
         if (ghosts.length > 0) removingMessages.set(chatId, ghosts);
@@ -1192,305 +1176,63 @@ export const createTelegramStore = (
       return { messages, removingMessages };
     };
 
-    const loadHistory = (
-      chatId: string,
-      mode: "ensure" | "older",
-      options: { background?: boolean } = {},
-    ) => {
-      if (
-        get().authorization.kind !== "ready" ||
-        get().connectionStatus !== "online"
-      ) return Promise.resolve();
-      const current = get().histories.get(chatId);
-      const generation = accountGeneration;
-      const sync = syncGeneration;
-      const navigationGeneration = conversationGeneration;
-      if (
-        current?.loading ||
-        current?.hasMore === false ||
-        (mode === "ensure" && current?.initialized)
-      ) return Promise.resolve();
-      const existing = historyLoadPromises.get(chatId);
-      if (existing) return existing;
-
-      const cachedCount = get().messages.get(chatId)?.length ?? 0;
-      if (mode === "ensure" && cachedCount > 0) {
-        const histories = new Map(get().histories);
-        histories.set(chatId, {
-          loading: false,
-          hasMore: current?.hasMore ?? true,
-          initialized: true,
+    const history = new ConversationHistory({
+      online: () => get().authorization.kind === "ready" && get().connectionStatus === "online",
+      active: (chatId, topicId) => get().activeChatId === chatId && get().activeTopicId === topicId,
+      messages: (chatId, topicId) => (get().messages.get(chatId) ?? []).filter(message => !topicId || message.topicId === topicId),
+      state: (chatId, topicId) => topicId ? get().topicHistories.get(topicKey(chatId, topicId)) : get().histories.get(chatId),
+      request: (chatId, topicId, request) => {
+        const traceId = request.purpose === "refresh" && !(get().messages.get(chatId)?.length)
+          ? getActiveConversationTraceId() : undefined;
+        markConversationSwitch(traceId, "asyncWaitStarted");
+        const pending = topicId
+          ? transport.loadForumTopicHistory(chatId, topicId, 30, request)
+          : transport.loadChatHistory(chatId, 30, request);
+        if (traceId === undefined) return pending;
+        return pending.then(page => {
+          markConversationSwitch(traceId, "asyncWaitFinished", { failed: false });
+          return page;
+        }, error => {
+          markConversationSwitch(traceId, "asyncWaitFinished", { failed: true });
+          throw error;
         });
-        set({ histories });
-        // The snapshot is immediately usable. Refresh the server window in
-        // the background without keeping the conversation switch trace open.
-        queueMicrotask(() => {
-          if (generation === accountGeneration && sync === syncGeneration) void loadHistory(chatId, "older", { background: true });
+      },
+      publish: (chatId, topicId, state, page) => {
+        const histories = new Map(topicId ? get().topicHistories : get().histories);
+        histories.set(topicKey(chatId, topicId), state);
+        const merged = mergeHistoryPage(page?.messages ?? []);
+        set({ ...(topicId ? { topicHistories: histories } : { histories }),
+          messages: merged.messages, removingMessages: merged.removingMessages,
+          ...(page ? { operationError: undefined } : {}),
         });
-        return Promise.resolve();
-      }
-
-      const histories = new Map(get().histories);
-      histories.set(chatId, {
-        loading: true,
-        background: options.background === true,
-        hasMore: current?.hasMore ?? true,
-        initialized: current?.initialized ?? false,
-      });
-      set({ histories });
-      const startedAt = performance.now();
-      const beforeCount = get().messages.get(chatId)?.length ?? 0;
-      const chat = get().chats.get(chatId);
-      const unreadCount = chat?.unreadCount ?? 0;
-      const anchorMessageId = chat?.lastReadInboxMessageId;
-      const anchorMessagePresent = Boolean(
-        anchorMessageId && (get().messages.get(chatId) ?? []).some((message) => message.id === anchorMessageId),
-      );
-      const performanceTraceId = options.background ? undefined : getActiveConversationTraceId();
-      markConversationSwitch(performanceTraceId, "asyncWaitStarted");
-      const load = (async () => {
-        try {
-          const page = await transport.loadChatHistory(chatId, 30);
-          if (generation !== accountGeneration || sync !== syncGeneration) return;
-
-          if (page.stalled) {
-            syncRetries.schedule(`history:${chatId}`, () => get().activeChatId === chatId
-              ? loadHistory(chatId, "older", { background: true }) : Promise.resolve());
-          } else syncRetries.complete(`history:${chatId}`);
-
-          // The first page is enough to render the conversation. Cache-boundary
-          // verification is deliberately detached from the visible loading state
-          // so a sparse snapshot cannot hold the first frame hostage.
-          const pendingCachedIds = cachedMessageIds.get(chatId);
-          const confirmedIds = pendingCachedIds
-            ? new Set(page.messageIds)
-            : undefined;
-          const hasUnconfirmedCache = Boolean(
-            pendingCachedIds && [...pendingCachedIds].some((messageId) => !confirmedIds!.has(messageId)),
-          );
-          const merged = mergeHistoryPage(page.messages ?? []);
-          const nextHistories = new Map(get().histories);
-          nextHistories.set(chatId, {
-            loading: false,
-            hasMore: page.hasMore,
-            initialized: true,
-          });
-          set({ histories: nextHistories, messages: merged.messages, removingMessages: merged.removingMessages, operationError: undefined });
-          if (page.messages?.length) {
-            publishMessageChange({ type: "upsert", messages: page.messages, liveMessages: [] });
-          }
-          if (hasUnconfirmedCache && pendingCachedIds && confirmedIds) {
-            void confirmCachedHistory(
-              chatId,
-              pendingCachedIds,
-              confirmedIds,
-              page.hasMore,
-              generation,
-              navigationGeneration,
-              sync,
-            );
-          }
-          markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: false });
-          logPerformance("ui_history_data", {
-            durationMs: performance.now() - startedAt,
-            beforeCount,
-            afterCount: get().messages.get(chatId)?.length ?? 0,
-            loadedCount: page.loadedCount,
-            hasMore: page.hasMore,
-            failed: false,
-            traceId: performanceTraceId,
-            duringConversationSwitch: performanceTraceId !== undefined,
-            chatHash: diagnosticChatHash(chatId),
-            unreadCountBucket: unreadCountBucket(unreadCount),
-            anchorMessagePresent,
-            localCacheHit: beforeCount > 0,
-            pageCount: 1,
-          });
-          scheduleCacheWrite();
-        } catch (error) {
-          if (generation !== accountGeneration || sync !== syncGeneration) return;
-          const nextHistories = new Map(get().histories);
-          nextHistories.set(chatId, {
-            loading: false,
-            hasMore: true,
-            initialized: current?.initialized ?? false,
-          });
-          set({
-            histories: nextHistories,
-            operationError: error instanceof Error ? error.message : translate("无法加载历史消息"),
-          });
-          syncRetries.schedule(`history:${chatId}`, () => loadHistory(chatId, "older", options), error);
-          markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: true });
-          logPerformance("ui_history_data", {
-            durationMs: performance.now() - startedAt,
-            beforeCount,
-            afterCount: get().messages.get(chatId)?.length ?? 0,
-            failed: true,
-            traceId: performanceTraceId,
-            duringConversationSwitch: performanceTraceId !== undefined,
-            chatHash: diagnosticChatHash(chatId),
-            unreadCountBucket: unreadCountBucket(unreadCount),
-            anchorMessagePresent,
-            localCacheHit: beforeCount > 0,
-            pageCount: 0,
-          });
-        }
-      })();
-      historyLoadPromises.set(chatId, load);
-      void load.finally(() => {
-        if (historyLoadPromises.get(chatId) === load) historyLoadPromises.delete(chatId);
-      });
-      return load;
-    };
-
-    const confirmCachedHistory = async (
-      chatId: string,
-      pendingCachedIds: Set<string>,
-      initialConfirmedIds: Set<string>,
-      initialHasMore: boolean,
-      generation: number,
-      navigationGeneration: number,
-      sync: number,
-      topicId?: string,
-    ) => {
-      const key = topicKey(chatId, topicId);
-      const retry = () => topicId
-        ? loadForumTopicHistory(chatId, topicId, "older", { background: true })
-        : loadHistory(chatId, "older", { background: true });
-      const retryKey = topicId ? `topic:${key}` : `history:${chatId}`;
-      const existing = cacheBoundaryPromises.get(key);
-      if (existing) return existing;
-      const confirmation = (async () => {
-        const confirmationStartedAt = performance.now();
-        const confirmedIds = new Set(initialConfirmedIds);
-        let hasMore = initialHasMore;
-        let continuationPages = 0;
-        // A bounded cache can span more than two server pages. Keep this repair
-        // bounded and out of the visible history loading state.
-        while (
-          [...pendingCachedIds].some((messageId) => !confirmedIds.has(messageId)) &&
-          !reachedCachedHistoryBoundary(pendingCachedIds, confirmedIds) &&
-          hasMore &&
-          continuationPages < 8
-        ) {
-          if (navigationGeneration !== conversationGeneration || generation !== accountGeneration || sync !== syncGeneration) return;
-          continuationPages += 1;
-          const confirmedBefore = confirmedIds.size;
-          const continuation = await (topicId
-            ? transport.loadForumTopicHistory(chatId, topicId, 30)
-            : transport.loadChatHistory(chatId, 30));
-          if (generation !== accountGeneration || sync !== syncGeneration) return;
-          // The transport has committed this cursor. Commit its data even when
-          // the user switched conversations while the request was in flight.
-          const merged = mergeHistoryPage(continuation.messages ?? []);
-          const histories = new Map(topicId ? get().topicHistories : get().histories);
-          histories.set(key, {
-            loading: histories.get(key)?.loading ?? false,
-            background: histories.get(key)?.background,
-            initialized: true,
-            hasMore: continuation.hasMore,
-          });
-          set({ ...(topicId ? { topicHistories: histories } : { histories }), messages: merged.messages, removingMessages: merged.removingMessages });
-          if (continuation.messages?.length) {
-            publishMessageChange({ type: "upsert", messages: continuation.messages, liveMessages: [] });
-          }
-          scheduleCacheWrite();
-          for (const messageId of continuation.messageIds) confirmedIds.add(messageId);
-          hasMore = continuation.hasMore;
-          if (confirmedIds.size === confirmedBefore) break;
-        }
-        const remainingCachedIds = pendingCachedIdsAfterConfirmation(pendingCachedIds, confirmedIds);
-        if (remainingCachedIds.size === 0) cachedMessageIds.delete(key);
-        else cachedMessageIds.set(key, remainingCachedIds);
-        if (remainingCachedIds.size > 0 && hasMore && !reachedCachedHistoryBoundary(pendingCachedIds, confirmedIds) && navigationGeneration === conversationGeneration) {
-          syncRetries.schedule(retryKey, retry);
-        }
-        logPerformance("ui_history_cache_confirmation", {
-          durationMs: performance.now() - confirmationStartedAt,
-          chatHash: diagnosticChatHash(chatId),
-          continuationPages,
-          pageCount: continuationPages + 1,
-          loadedCount: confirmedIds.size - initialConfirmedIds.size,
-          remainingCachedCount: remainingCachedIds.size,
-          cancelled: (generation !== accountGeneration || sync !== syncGeneration) || navigationGeneration !== conversationGeneration,
-        });
-        scheduleCacheWrite();
-      })().catch((error) => {
-        if (generation !== accountGeneration || sync !== syncGeneration) return;
-        set({ operationError: errorMessage(error, translate("无法加载历史消息")) });
-        if (navigationGeneration === conversationGeneration) {
-          syncRetries.schedule(retryKey, retry, error);
-        }
-      });
-      cacheBoundaryPromises.set(key, confirmation);
-      void confirmation.finally(() => {
-        if (cacheBoundaryPromises.get(key) === confirmation) cacheBoundaryPromises.delete(key);
-      });
-      return confirmation;
-    };
-
-    const loadForumTopicHistory = async (
-      chatId: string,
-      topicId: string,
-      mode: "ensure" | "older",
-      options: { background?: boolean } = {},
-    ) => {
-      if (
-        get().authorization.kind !== "ready" ||
-        get().connectionStatus !== "online"
-      ) return;
-      const key = topicKey(chatId, topicId);
-      const generation = accountGeneration;
-      const sync = syncGeneration;
-      const navigationGeneration = conversationGeneration;
-      const current = get().topicHistories.get(key);
-      if (current?.loading || current?.hasMore === false || (mode === "ensure" && current?.initialized)) return;
-      const topicHistories = new Map(get().topicHistories);
-      const background = options.background === true || (mode === "ensure" &&
-        (get().messages.get(chatId) ?? []).some((message) => message.topicId === topicId));
-      topicHistories.set(key, { loading: true, background, hasMore: current?.hasMore ?? true, initialized: current?.initialized ?? false });
-      set({ topicHistories });
-      try {
-        const page = await transport.loadForumTopicHistory(chatId, topicId, 30);
-        if (generation !== accountGeneration || sync !== syncGeneration) return;
-        if (page.stalled) {
-          syncRetries.schedule(`topic:${key}`, () => get().activeChatId === chatId && get().activeTopicId === topicId
-            ? loadForumTopicHistory(chatId, topicId, "older", { background: true }) : Promise.resolve());
-        } else syncRetries.complete(`topic:${key}`);
-        const merged = mergeHistoryPage(page.messages ?? []);
-        const next = new Map(get().topicHistories);
-        next.set(key, { loading: false, hasMore: page.hasMore, initialized: true });
-        set({ topicHistories: next, messages: merged.messages, removingMessages: merged.removingMessages, operationError: undefined });
-        if (page.messages?.length) {
+        if (page?.messages?.length) {
           publishMessageChange({ type: "upsert", messages: page.messages, liveMessages: [] });
+          scheduleCacheWrite();
         }
-        const pendingCachedIds = cachedMessageIds.get(key);
-        if (pendingCachedIds) {
-          void confirmCachedHistory(chatId, pendingCachedIds, new Set(page.messageIds), page.hasMore, generation, navigationGeneration, sync, topicId);
-        }
-        scheduleCacheWrite();
-      } catch (error) {
-        if (generation !== accountGeneration || sync !== syncGeneration) return;
-        const next = new Map(get().topicHistories);
-        next.set(key, { loading: false, hasMore: true, initialized: current?.initialized ?? false });
-        syncRetries.schedule(`topic:${key}`, () => loadForumTopicHistory(chatId, topicId, "older", { background }), error);
-        set({ topicHistories: next, operationError: errorMessage(error, translate("无法加载话题消息")) });
-      }
+      },
+      error: (error, topicId) => set({ operationError: errorMessage(error,
+        topicId ? translate("无法加载话题消息") : translate("无法加载历史消息")) }),
+      diagnostic: (chatId, details) => logPerformance("ui_history_data", { ...details, chatHash: diagnosticChatHash(chatId) }),
+    });
+    const snapshotWithHistory = (...parameters: Parameters<typeof cachedSnapshotFrom>) => {
+      const snapshot = cachedSnapshotFrom(...parameters);
+      const contexts = history.cachedContexts(snapshot.messages);
+      if (contexts.length) snapshot.historyContexts = contexts;
+      return snapshot;
     };
+    const loadHistory = (chatId: string, mode: "ensure" | "older") => mode === "ensure"
+      ? history.ensure(chatId) : history.older(chatId);
+    const loadForumTopicHistory = (chatId: string, topicId: string, mode: "ensure" | "older") => mode === "ensure"
+      ? history.ensure(chatId, topicId) : history.older(chatId, topicId);
 
     const invalidateSyncState = () => {
       syncGeneration += 1;
       syncRetries.clear();
       transport.resetSyncState();
       forumController.reset();
-      historyLoadPromises.clear();
-      cacheBoundaryPromises.clear();
-      cachedMessageIds.clear();
-      for (const messages of get().messages.values()) {
-        for (const message of messages) rememberCachedMessage(message);
-      }
+      history.invalidate();
       forumTopicsRefreshedAt.clear();
-      set({ histories: new Map(), topicHistories: new Map(), chatLists: new Map() });
+      set({ chatLists: new Map() });
     };
 
     const refreshVisibleData = () => {
@@ -1652,12 +1394,8 @@ export const createTelegramStore = (
       if (migratedMessages.length > 0 || messages.has(toChatId)) {
         messages.set(toChatId, upsertMessages(messages.get(toChatId) ?? [], migratedMessages));
       }
-      const cachedIds = cachedMessageIds.get(fromChatId);
-      if (cachedIds) {
-        const mergedCachedIds = new Set([...(cachedMessageIds.get(toChatId) ?? []), ...cachedIds]);
-        cachedMessageIds.delete(fromChatId);
-        cachedMessageIds.set(toChatId, mergedCachedIds);
-      }
+      history.discard(fromChatId);
+      history.discard(toChatId);
 
       const removingMessages = new Map(current.removingMessages);
       const migratedRemoving = (removingMessages.get(fromChatId) ?? [])
@@ -2070,6 +1808,7 @@ export const createTelegramStore = (
           scheduleCacheWrite();
         }
         if (activeChatModeChanged && activeChatId && activeChat) {
+          history.discard(activeChatId);
           if (activeChat.isForum) void refreshForumConversation(activeChatId);
           else void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
         }
@@ -2202,6 +1941,7 @@ export const createTelegramStore = (
       }
 
       if (event.type === "message.replace") {
+        history.replace(event.message.chatId, event.oldMessageId, event.message.id);
         const chatId = event.message.chatId;
         if (event.oldMessageId !== event.message.id) removedMessageIds.add(`${chatId}:${event.oldMessageId}`);
         if (!acceptsMessage(event.message)) {
@@ -2262,7 +2002,7 @@ export const createTelegramStore = (
             );
           }
           beforeCount += existing.length;
-          messages.set(chatId, upsertMessages(existing, incoming).map((message) => ({ ...message, isRemoving: false })));
+          messages.set(chatId, upsertMessages(existing, incoming.map(message => message.isRemoving ? { ...message, isRemoving: false } : message)));
           const removingMessages = new Map(get().removingMessages);
           const incomingIds = new Set(incoming.map((message) => message.id));
           const ghosts = (removingMessages.get(chatId) ?? []).filter((message) => !incomingIds.has(message.id));
@@ -2947,7 +2687,7 @@ export const createTelegramStore = (
           await cacheWrite.catch(() => undefined);
           await transport.clearCachedSnapshot();
           const current = get();
-          await transport.saveCachedSnapshot(cachedSnapshotFrom(
+          await transport.saveCachedSnapshot(snapshotWithHistory(
             { ...current, chats: chatsWithServerOrders(current.chats) },
             profileController.getCachedProfiles(),
           ));
@@ -3363,6 +3103,14 @@ export const createTelegramStore = (
           set({ folderManagementPending: false });
         }
       },
+      focusHistoryWindow: (chatId, messageId, topicId) => {
+        const state = get();
+        const resolvedTopic = state.chats.get(chatId)?.isForum
+          ? topicId ?? (messageId ? state.messages.get(chatId)?.find(message => message.id === messageId)?.topicId : undefined) ??
+            (state.activeChatId === chatId ? state.activeTopicId : state.lastForumTopicIds.get(chatId))
+          : undefined;
+        return history.focus(chatId, resolvedTopic, messageId);
+      },
       loadMoreHistory: (chatId) => {
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         return topicId ? loadForumTopicHistory(chatId, topicId, "older") : loadHistory(chatId, "older");
@@ -3411,6 +3159,7 @@ export const createTelegramStore = (
           if (!message) message = await transport.getMessage(chatId, messageId);
           if (!isCurrent()) return false;
           if (!message || message.chatId !== chatId || message.id !== messageId) return false;
+          history.context(chatId, get().chats.get(chatId)?.isForum ? message.topicId : undefined, messageId, [...context, message]);
           const messages = new Map(get().messages);
           messages.set(
             chatId,

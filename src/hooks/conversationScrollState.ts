@@ -86,6 +86,7 @@ export const resolveConversationVirtualIndex = (
   key: string,
   messageItemIndexes: ReadonlyMap<string, number>,
   preferredAnchorId?: string,
+  options: { edge?: "start" | "end"; commit?: boolean } = {},
 ) => {
   const previous = conversationVirtualIndexes.get(key);
   if (previous?.messageItemIndexes === messageItemIndexes) return previous.firstItemIndex;
@@ -98,7 +99,9 @@ export const resolveConversationVirtualIndex = (
       ? preferredAnchorId
       : undefined;
     if (!sharedMessageId) {
-      for (const messageId of previous.messageItemIndexes.keys()) {
+      const candidates = [...previous.messageItemIndexes.keys()];
+      if (options.edge === "end") candidates.reverse();
+      for (const messageId of candidates) {
         if (!messageItemIndexes.has(messageId)) continue;
         sharedMessageId = messageId;
         break;
@@ -112,9 +115,15 @@ export const resolveConversationVirtualIndex = (
     }
   }
   firstItemIndex = Math.max(0, firstItemIndex);
-  conversationVirtualIndexes.set(key, { firstItemIndex, messageItemIndexes });
+  if (options.commit !== false) commitConversationVirtualIndex(key, firstItemIndex, messageItemIndexes);
   return firstItemIndex;
 };
+
+export const commitConversationVirtualIndex = (
+  key: string,
+  firstItemIndex: number,
+  messageItemIndexes: ReadonlyMap<string, number>,
+) => conversationVirtualIndexes.set(key, { firstItemIndex, messageItemIndexes });
 
 let activeConversationScrollStateCapture: (() => void) | undefined;
 

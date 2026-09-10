@@ -6166,6 +6166,9 @@ test("text message time releases reserved inline space when it wraps", async ({ 
   }, "/src/store/telegramStore.ts");
 
   const longMessage = shortMessage;
+  // Changing sender/outgoing state can move the message into another group.
+  // Wait for that commit before resizing the group used by the wrap assertion.
+  await expect(longMessage.locator(".message-rich-text")).toHaveText("而且现在服务端已有自动重试的能力了，加一个异常匹配的事情");
   await longMessage.evaluate((element) => {
     const group = element.closest<HTMLElement>(".message-group");
     if (group) group.style.width = "648px";

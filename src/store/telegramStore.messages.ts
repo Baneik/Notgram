@@ -9,7 +9,7 @@ const numericMessageId = (messageId: string) => {
   }
 };
 
-const compareMessages = (left: Message, right: Message) => {
+export const compareMessages = (left: Message, right: Message) => {
   const leftTimestamp = Date.parse(left.sentAt);
   const rightTimestamp = Date.parse(right.sentAt);
   if (
@@ -26,9 +26,21 @@ const compareMessages = (left: Message, right: Message) => {
   return leftId < rightId ? -1 : 1;
 };
 
+const equalMessageValue = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) return true;
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length && leftKeys.every(key =>
+    Object.prototype.hasOwnProperty.call(right, key) &&
+    equalMessageValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
+};
+
 export const upsertMessages = (messages: Message[], incoming: Message[]) => {
   if (incoming.length === 0) return messages;
   const byId = new Map(messages.map((message) => [message.id, message]));
+  let changed = false;
   for (let message of incoming) {
     const existing = byId.get(message.id);
     // History/context responses started before deletion cannot replace a retained copy.
@@ -41,11 +53,14 @@ export const upsertMessages = (messages: Message[], incoming: Message[]) => {
     const discussionThread = message.discussionThread ?? existing?.discussionThread;
     const isLocallyDeleted = message.isLocallyDeleted ?? existing?.isLocallyDeleted;
     const locallyDeletedAt = message.locallyDeletedAt ?? existing?.locallyDeletedAt;
-    byId.set(message.id, renderKey || discussionThread || isLocallyDeleted
+    const candidate = renderKey || discussionThread || isLocallyDeleted
       ? { ...message, renderKey, discussionThread, isLocallyDeleted, locallyDeletedAt }
-      : message);
+      : message;
+    const next = existing && equalMessageValue(existing, candidate) ? existing : candidate;
+    changed ||= next !== existing;
+    byId.set(message.id, next);
   }
-  return [...byId.values()].sort(compareMessages);
+  return changed ? [...byId.values()].sort(compareMessages) : messages;
 };
 
 export const upsertMessage = (messages: Message[], next: Message) =>

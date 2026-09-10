@@ -138,7 +138,7 @@ export class TauriForumTopicService {
   async loadForumTopicHistory(chatId: string, topicId: string, limit = 30, request?: HistoryPageRequest): Promise<ChatHistoryPage> {
     const generation = this.generation;
     const scope = `${chatId}:${topicId}`;
-    const key = request ? `${scope}:${request.purpose}:${request.fromMessageId ?? "latest"}` : scope;
+    const key = request ? `${scope}:${request.purpose}:${request.fromMessageId ?? "latest"}:${Math.max(1, Math.min(limit, 100))}` : scope;
     if (!request && this.exhaustedHistories.has(key)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
     }

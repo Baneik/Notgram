@@ -5,6 +5,7 @@ import {
   matchesVirtualMessageLayout,
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
+  commitConversationVirtualIndex,
 } from "./conversationScrollState";
 
 describe("virtual measurement cache validity", () => {
@@ -36,6 +37,23 @@ describe("conversation scroll state capture", () => {
 });
 
 describe("conversation virtual indexes", () => {
+  it("protects the bottom range when history fills a hole after an older cached island", () => {
+    const key = "account:chat:hole";
+    const first = resolveConversationVirtualIndex(key, new Map([["island", 0], ["recent", 1], ["last", 2]]));
+    const next = resolveConversationVirtualIndex(key, new Map([["island", 0], ["fill", 1], ["recent", 2], ["last", 3]]), undefined, { edge: "end" });
+    expect(next + 3).toBe(first + 2);
+  });
+
+  it("does not let an abandoned render change the committed origin", () => {
+    const key = "account:chat:abandoned";
+    const initial = new Map([["a", 0], ["b", 1]]);
+    const first = resolveConversationVirtualIndex(key, initial);
+    const speculative = resolveConversationVirtualIndex(key, new Map([["x", 0], ["a", 1], ["b", 2]]), undefined, { commit: false });
+    expect(speculative).toBe(first - 1);
+    expect(resolveConversationVirtualIndex(key, initial)).toBe(first);
+    commitConversationVirtualIndex(key, speculative, new Map([["x", 0], ["a", 1], ["b", 2]]));
+    expect(resolveConversationVirtualIndex(key, initial)).toBe(first);
+  });
   it("keeps shared messages on the same logical index when history is prepended", () => {
     const key = "account:chat:prepend";
     const initial = resolveConversationVirtualIndex(key, new Map([

@@ -1009,6 +1009,15 @@ export interface CachedTelegramSnapshot {
   profiles?: ChatProfile[];
   forumTopics?: Array<{ chatId: string; topics: ForumTopic[] }>;
   lastForumTopicIds?: Array<{ chatId: string; topicId: string }>;
+  /** Optional membership only; old snapshots do not claim contiguous coverage. */
+  historyContexts?: CachedHistoryContext[];
+}
+
+export interface CachedHistoryContext {
+  chatId: string;
+  topicId?: string;
+  targetId: string;
+  messageIds: string[];
 }
 
 export interface QueuedOutgoingMessage {

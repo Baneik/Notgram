@@ -156,3 +156,51 @@ reading offset alone does not establish visual continuity.
 The focused unit and browser tests cover command consistency, source-row isolation, unread-marker
 settlement, repeated warm switching, bounded geometry reads, idle bottom stability, long-message edit
 entry/cancel/save, and detached edit anchoring.
+
+## History windows and recovery ownership
+
+`ConversationHistory` owns separate refresh and reader cursors for each chat/topic. Transport calls
+with an explicit `HistoryPageRequest` return the next cursor without consuming another window's
+cursor. The existing history pager, message merge rules, deletion facts and sync generations remain
+shared. A stale response cannot publish into a discarded scope or a new account/recovery generation.
+
+The message cache is broader than the displayed timeline. A disjoint context loaded by search/reply
+navigation has its own membership and older cursor. It remains cached while the latest timeline
+excludes those context-only records. Normal pagination can admit returned records into the latest
+timeline. Overlapping real server pages can join windows; numerical gaps between IDs cannot establish
+or disprove continuity. Explicit navigation selects a window in the same transaction as its existing
+viewport request. End/latest selects the latest window; jump return can select a cached context and
+restore its original pixel offset. A context's local bottom is not the latest conversation window.
+
+Recovery captures the recent server-message boundary before accepting new live updates. It refreshes
+from the head until that boundary is returned/passed or the server confirms exhaustion. Distant
+context membership is never a recovery target. Each recovery has a total nine-page budget (including
+the first page), rather than an eight-page limit that silently restarts every five seconds. A budget
+stop preserves the cursor and publishes `recovery: paused`; it neither deletes unconfirmed messages
+nor claims completion. Explicit older loading can continue that repair with a new budget. Request
+failures/stalls have a bounded three-attempt retry path using the existing retry queue. Switching
+accounts clears all window and retry ownership. Reconnect retires requests but preserves reader
+windows and their cursors.
+
+Optional `historyContexts` in cache schema 4 preserves only membership present in the bounded saved
+message cache. It contains no claim that an entire old cache is contiguous. Legacy caches remain
+usable without this metadata; malformed optional metadata is ignored. Cache membership never takes
+precedence over permanent deletion or a newer live edit.
+
+The virtual index adapter derives from the last committed mapping. Following views preserve a
+surviving bottom row; detached views preserve their reading anchor. Index/layout caches are written
+only on commit. Structural changes establish a bounded bottom-follow transaction before mutation,
+so list layout notifications reconcile that same owner before paint. Equivalent message refreshes
+preserve existing message objects and arrays.
+
+History diagnostics use `ui_history_data`: `purpose` 1 is recovery and 2 is reader pagination.
+`stopReason` 1 means complete/page accepted, 2 stalled/no cursor progress, 3 inactive scope,
+4 total budget reached and 5 request failure. `remainingBoundaryCount` is zero only when recovery
+completed. These numeric fields are accepted by the native logging boundary; no message identifiers
+or bodies are included.
+
+Regression coverage must include disjoint cached context plus repeated reconnects while idle at the
+bottom, original visible DOM-node identity, every sampled frame's bottom distance, context/latest and
+jump-return navigation, interrupted renders, bounded recovery continuation, independent reader
+cursors, restart membership and deleted recovery boundaries. Final scroll position alone is not an
+adequate assertion for this failure mode.

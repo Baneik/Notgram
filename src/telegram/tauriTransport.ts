@@ -1836,7 +1836,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (!request && this.exhaustedHistories.has(chatId)) {
       return { loadedCount: 0, hasMore: false, messageIds: [] };
     }
-    const key = request ? `${chatId}:${request.purpose}:${request.fromMessageId ?? "latest"}` : chatId;
+    const key = request ? `${chatId}:${request.purpose}:${request.fromMessageId ?? "latest"}:${Math.max(1, Math.min(limit, 100))}` : chatId;
     const existing = this.historyLoads.get(key);
     if (existing) return existing;
 

@@ -955,12 +955,16 @@ describe("telegram store", () => {
     await store.getState().initialize();
 
     const messages = store.getState().messages.get("chat-product") ?? [];
-    expect(transport.historyRequests).toBe(3);
-    expect(messages).toHaveLength(61);
+    // Recovery only bridges the recent boundary. A distant cached record does
+    // not demand a background scan; it remains available to explicit paging.
+    expect(transport.historyRequests).toBe(1);
+    expect(messages).toHaveLength(31);
     expect(messages.some((message) => message.id === missingMessage.id)).toBe(true);
     expect(messages.some((message) => message.id === olderMessage.id)).toBe(true);
     expect(messages.map((message) => message.id)).toContain("100");
-    expect(messages.map((message) => message.id)).toContain("41");
+    await store.getState().loadMoreHistory("chat-product");
+    await store.getState().loadMoreHistory("chat-product");
+    expect(store.getState().messages.get("chat-product")?.map(message => message.id)).toContain("41");
   });
 
   it("keeps older cached history until the server window reaches it", async () => {
@@ -1223,7 +1227,7 @@ describe("telegram store", () => {
     store.setState({ messages, histories });
 
     store.getState().selectChat("chat-mia");
-    expect(store.getState().histories.get("chat-mia")).toEqual({
+    expect(store.getState().histories.get("chat-mia")).toMatchObject({
       loading: false,
       hasMore: true,
       initialized: true,
@@ -1245,7 +1249,7 @@ describe("telegram store", () => {
     expect(state.activeChatId).toBe("chat-product");
     expect(state.chats.size).toBeGreaterThan(0);
     expect(state.messages.get("chat-product")).toHaveLength(30);
-    expect(state.histories.get("chat-product")).toEqual({
+    expect(state.histories.get("chat-product")).toMatchObject({
       loading: false,
       hasMore: true,
       initialized: true,

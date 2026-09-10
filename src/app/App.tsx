@@ -1,4 +1,5 @@
 import { isTauri } from "@tauri-apps/api/core";
+import { projectHistoryWindow } from "../store/conversationHistory";
 import { listenForAttachmentRecovery } from "../store/attachmentRecovery";
 import { subscribeDownloadMetadata } from "../utils/downloadManager";
 import { translate } from "../i18n";
@@ -157,6 +158,9 @@ export function App() {
     activeChatId ? state.removingMessages.get(activeChatId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES
   );
   const activeTopicId = useTelegramStore((state) => state.activeTopicId);
+  const activeHistoryView = useTelegramStore(state => activeChatId
+    ? (activeTopicId ? state.topicHistories.get(`${activeChatId}:topic:${activeTopicId}`) : state.histories.get(activeChatId))?.view
+    : undefined);
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const accounts = useTelegramStore((state) => state.accounts);
   const accountPending = useTelegramStore((state) => state.accountPending);
@@ -684,9 +688,26 @@ export function App() {
       ...request,
       requestId: ++conversationScrollRequestIdRef.current,
     } as ConversationScrollRequest;
+    if (request.kind === "latest" || request.kind === "message" || (request.kind === "entry" && request.serverMessageId)) {
+      telegramStore.getState().focusHistoryWindow(request.chatId,
+        request.kind === "message" ? request.messageId : request.kind === "entry" ? request.serverMessageId : undefined);
+    }
     setConversationScrollRequest(next);
     return next;
   }, []);
+  const showLatestHistoryWindow = useCallback(() => {
+    const state = telegramStore.getState();
+    if (!state.activeChatId || !state.focusHistoryWindow(state.activeChatId)) return false;
+    issueConversationScrollRequest({ kind: "latest", chatId: state.activeChatId });
+    return true;
+  }, [issueConversationScrollRequest]);
+  const restoreHistoryWindow = useCallback((messageId: string, offset: number) => {
+    const state = telegramStore.getState();
+    if (!state.activeChatId || !state.focusHistoryWindow(state.activeChatId, messageId)) return false;
+    issueConversationScrollRequest({ kind: "message", chatId: state.activeChatId, messageId,
+      restoreOffset: offset, behavior: "auto", highlight: false });
+    return true;
+  }, [issueConversationScrollRequest]);
   const conversationSnapshotRef = useRef<ConversationSwitchSnapshot | undefined>(undefined);
   const conversationSnapshotTargetRef = useRef<string | undefined>(undefined);
   const conversationSnapshotTimerRef =
@@ -1591,9 +1612,10 @@ export function App() {
 
   const activeMessages = useMemo(
     () => {
+      const windowMessages = projectHistoryWindow(activeChatMessages, activeHistoryView);
       const scoped = activeTopicId
-        ? activeChatMessages.filter((message) => message.topicId === activeTopicId)
-        : activeChatMessages;
+        ? windowMessages.filter((message) => message.topicId === activeTopicId)
+        : windowMessages;
       // Channel discussion replies can share the channel chat in TDLib. Keep
       // them available to the discussion panel, but never mix them into the
       // channel's post timeline.
@@ -1606,7 +1628,7 @@ export function App() {
         keywords: adBlockKeywords,
         regexRules: adBlockRegexRules,
       }));
-    }, [activeChatId, activeChatMessages, activeTopicId, chats, adBlockingEnabled, customAdBlockingEnabled, adBlockKeywords, adBlockRegexRules],
+    }, [activeChatId, activeChatMessages, activeHistoryView, activeTopicId, chats, adBlockingEnabled, customAdBlockingEnabled, adBlockKeywords, adBlockRegexRules],
   );
   const activeRemovingMessages = useMemo(
     () => activeTopicId
@@ -1913,6 +1935,9 @@ export function App() {
           scrollScope={activeTopicId ? `${activeAccountId}:topic:${activeTopicId}` : activeAccountId}
           scrollRequest={conversationScrollRequest}
           messages={activeDisplayMessages}
+          onLatestWindow={showLatestHistoryWindow}
+          onHistoryWindow={restoreHistoryWindow}
+          historyWindowIsContext={Boolean(activeHistoryView?.messageIds)}
           sponsoredMessages={visibleSponsoredMessages}
           sponsoredMessagesBetween={activeSponsoredMessages?.messagesBetween}
           chatMessages={activeChatMessages}

@@ -36,6 +36,7 @@ import {
   matchesVirtualMessageLayout,
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
+  commitConversationVirtualIndex,
   scrollMemoryKey,
   visibleAnchor,
   type ConversationLayoutSnapshot,
@@ -157,6 +158,7 @@ export interface MessageConversationScrollRequest {
   highlight?: boolean;
   revealLocallyBlocked?: boolean;
   loading?: boolean;
+  restoreOffset?: number;
 }
 
 export type ConversationScrollRequest =
@@ -194,6 +196,9 @@ interface ConversationScrollOptions {
   hasOlderMessages: boolean;
   messageCount: number;
   onLoadOlder: () => Promise<void>;
+  onLatestWindow?: () => boolean;
+  onHistoryWindow?: (messageId: string, offset: number) => boolean;
+  cachedMessageIds?: ReadonlySet<string>;
   onUserScroll?: (scroll: ConversationUserScroll) => void;
 }
 
@@ -209,6 +214,9 @@ export const useConversationScroll = ({
   hasOlderMessages,
   messageCount,
   onLoadOlder,
+  onLatestWindow,
+  onHistoryWindow,
+  cachedMessageIds,
   onUserScroll,
 }: ConversationScrollOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
@@ -384,16 +392,21 @@ export const useConversationScroll = ({
   const virtuosoFirstItemIndex = resolveConversationVirtualIndex(
     virtuosoKey,
     messageItemIndexes,
-    pendingHistoryAnchorId,
+    pendingHistoryAnchorId ?? (currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest === false
+      ? conversationScrollMemory.get(currentScrollKey)?.anchorMessageId : undefined),
+    { edge: currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest === false ? "start" : "end", commit: false },
   );
-  if (currentScrollKey) {
-    conversationLayouts.set(currentScrollKey, {
-      firstMessageId: firstVisibleMessageId,
-      lastMessageId: lastVisibleMessageId,
-      virtualItemCount,
-      messageItemIndexes,
-    });
-  }
+  useLayoutEffect(() => {
+    commitConversationVirtualIndex(virtuosoKey, virtuosoFirstItemIndex, messageItemIndexes);
+    if (currentScrollKey) {
+      conversationLayouts.set(currentScrollKey, {
+        firstMessageId: firstVisibleMessageId,
+        lastMessageId: lastVisibleMessageId,
+        virtualItemCount,
+        messageItemIndexes,
+      });
+    }
+  }, [currentScrollKey, firstVisibleMessageId, lastVisibleMessageId, messageItemIndexes, virtualItemCount, virtuosoFirstItemIndex, virtuosoKey]);
 
   if (initialLocationRef.current?.identity !== initialLocationIdentity ||
     (initialLocationRef.current.mode === "pending" && targetReady)) {
@@ -911,6 +924,7 @@ export const useConversationScroll = ({
     converge = false,
     options?: JumpToLatestOptions,
   ) => {
+    if (onLatestWindow?.()) return;
     const element = messageListRef.current;
     if (!element || !currentScrollKey) return;
     const resolvedBehavior = motionScrollBehavior(behavior, {
@@ -1016,6 +1030,7 @@ export const useConversationScroll = ({
     initialLocationIdentity,
     interruptControlledPositioning,
     pinToBottom,
+    onLatestWindow,
     publishJumpHistory,
     reduceMotion,
     scheduleBottomPin,
@@ -1191,8 +1206,14 @@ export const useConversationScroll = ({
     if (!element || !currentScrollKey || searchActive ||
       element.dataset.conversationVirtuosoKey !== virtuosoKey ||
       control.mode === "navigating" || revealTargetTokenRef.current ||
-      (matchingEntryRequest?.serverMessageId && positionedIdentityRef.current !== initialLocationIdentity) ||
-      (memory?.followLatest !== false && !matchingMessageRequest?.loading)) return;
+      (matchingEntryRequest?.serverMessageId && positionedIdentityRef.current !== initialLocationIdentity)) return;
+    if (memory?.followLatest !== false && !matchingMessageRequest?.loading) {
+      if (!structuralChange) return;
+      // Establish ownership before the list commits a new range. Its layout
+      // callbacks can then reconcile the same bounded transaction before paint.
+      if (!scheduleBottomPin(undefined, "track")) return;
+      return () => { reconcileBottomViewport(); };
+    }
 
     // Wheel/key input cancels the previous anchor settlement. Progress updates
     // must not reclaim it while the browser is still applying that input.
@@ -1257,7 +1278,7 @@ export const useConversationScroll = ({
       });
     };
   }, [clearHistorySnapshot, currentScrollKey, initialLocationIdentity, matchingEntryRequest?.serverMessageId,
-    matchingMessageRequest?.loading, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
+    matchingMessageRequest?.loading, reconcileBottomViewport, scheduleBottomPin, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
 
   useLayoutEffect(() => {
     if (!messageListElement || !currentScrollKey || searchActive) return;
@@ -2040,7 +2061,7 @@ export const useConversationScroll = ({
     if (!currentScrollKey || !element) return false;
     const result = popAvailableConversationJumpAnchor(
       jumpHistoryRef.current.get(currentScrollKey) ?? [],
-      new Set(messageItemIndexesRef.current.keys()),
+      cachedMessageIds ?? new Set(messageItemIndexesRef.current.keys()),
     );
     publishJumpHistory(currentScrollKey, result.history);
     if (!result.anchor) return false;
@@ -2051,6 +2072,7 @@ export const useConversationScroll = ({
       jumpToLatest("auto", true);
       return true;
     }
+    if (onHistoryWindow?.(result.anchor.messageId, result.anchor.offset)) return true;
     stopFollowingLatest();
     const current = conversationScrollMemory.get(currentScrollKey);
     conversationScrollMemory.set(currentScrollKey, {
@@ -2081,6 +2103,8 @@ export const useConversationScroll = ({
   }, [
     currentScrollKey,
     jumpToLatest,
+    cachedMessageIds,
+    onHistoryWindow,
     publishJumpHistory,
     settleContentAnchorPosition,
     stopFollowingLatest,
@@ -2229,13 +2253,17 @@ export const useConversationScroll = ({
       prepared.messageId === matchingMessageRequest.messageId
     ) {
       preparedJumpRef.current = undefined;
-    } else {
+    } else if (matchingMessageRequest.restoreOffset === undefined) {
       captureJumpAnchor(matchingMessageRequest.messageId);
     }
     revealTarget(
       matchingMessageRequest.messageId,
       matchingMessageRequest.behavior ?? "smooth",
       matchingMessageRequest.highlight !== false,
+      matchingMessageRequest.restoreOffset === undefined ? undefined : {
+        resolveTargetOffset: (target, list) => target.getBoundingClientRect().top -
+          list.getBoundingClientRect().top - matchingMessageRequest.restoreOffset!,
+      },
     );
   }, [
     captureJumpAnchor,
@@ -2625,6 +2653,11 @@ export const useConversationScroll = ({
     if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
     if (event.key === "End") {
       userScrollDirectionRef.current = "down";
+      if (onLatestWindow?.()) {
+        event.preventDefault();
+        if (currentScrollKey) publishJumpHistory(currentScrollKey, []);
+        return;
+      }
       if (currentScrollKey) {
         adoptUserScrollMode("following");
         writeMemory(currentScrollKey, event.currentTarget, true, 0, false);

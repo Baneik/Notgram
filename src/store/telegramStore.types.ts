@@ -82,6 +82,8 @@ export interface HistoryState {
   background?: boolean;
   hasMore: boolean;
   initialized: boolean;
+  view?: import("./conversationHistory").HistoryWindowView;
+  recovery?: "refreshing" | "complete" | "paused" | "failed";
 }
 
 export interface ChatListState {
@@ -211,6 +213,7 @@ export interface TelegramState {
   ) => Promise<boolean>;
   markChatFolderRead: (folderId: string) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
+  focusHistoryWindow: (chatId: string, messageId?: string, topicId?: string) => boolean;
   loadChatSponsoredMessages: (chatId: string) => Promise<void>;
   clickChatSponsoredMessage: (chatId: string, messageId: string, isMediaClick?: boolean) => Promise<void>;
   loadMessage: (

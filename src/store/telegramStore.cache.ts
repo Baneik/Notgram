@@ -308,6 +308,11 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     snapshot: {
       ...(value as unknown as CachedTelegramSnapshot),
       version: TELEGRAM_CACHE_VERSION,
+      historyContexts: Array.isArray(value.historyContexts) ? value.historyContexts.filter(entry =>
+        isRecord(entry) && typeof entry.chatId === "string" && typeof entry.targetId === "string" &&
+        (entry.topicId === undefined || typeof entry.topicId === "string") &&
+        Array.isArray(entry.messageIds) && entry.messageIds.every(id => typeof id === "string"),
+      ).slice(0, MAX_CACHED_MESSAGES) as CachedTelegramSnapshot["historyContexts"] : undefined,
       outbox: value.version === 1 ? [] : restoreOutbox((value.outbox ?? []) as QueuedOutgoingMessage[]),
       users: (value.users as unknown as User[]).map(sanitizeCachedUser),
       folders: (value.folders as CachedTelegramSnapshot["folders"]).map((folder) => ({
