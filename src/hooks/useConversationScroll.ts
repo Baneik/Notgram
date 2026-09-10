@@ -13,6 +13,7 @@ import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
+import { captureMessageRemoval } from "../utils/messageRemovalMotion";
 import { observeConversationRowSizes } from "../utils/conversationRowSizes";
 import { observeConversationViewportDiagnostics } from "../utils/conversationViewportDiagnostics";
 import {
@@ -20,7 +21,11 @@ import {
   conversationJumpAcceleration,
   type ConversationJumpDirection,
 } from "../utils/conversationJumpMotion";
-import { conversationJumpTiming, motionDuration } from "../utils/motionTokens";
+import {
+  conversationJumpTiming,
+  motionDuration,
+  motionLifecycleTiming,
+} from "../utils/motionTokens";
 import {
   captureConversationJumpSnapshot,
   removeConversationJumpSnapshot,
@@ -261,6 +266,7 @@ export const useConversationScroll = ({
   const userScrollTopRef = useRef<number | undefined>(undefined);
   const userScrollMemoryFrameRef = useRef<number | undefined>(undefined);
   const userScrollMemoryStableRef = useRef<{ top: number; frames: number } | undefined>(undefined);
+  const removalRef = useRef<{ removedIds: ReadonlySet<string>; refresh: () => void; cancel: () => void } | undefined>(undefined);
   const pointerActiveRef = useRef(false);
   const interactivePointerRef = useRef(false);
   const pointerScrolledRef = useRef(false);
@@ -346,6 +352,17 @@ export const useConversationScroll = ({
   const requestIdentityTargetId = matchingMessageRequest?.messageId ??
     matchingEntryRequest?.serverMessageId;
   const searchActive = Boolean(search);
+
+  const cancelRemovalMotion = useCallback(() => {
+    removalRef.current?.cancel();
+    removalRef.current = undefined;
+  }, []);
+  useLayoutEffect(() => cancelRemovalMotion, [cancelRemovalMotion, currentScrollKey, reduceMotion, geometryKey]);
+  useEffect(() => {
+    const stopWhenHidden = () => { if (document.hidden) cancelRemovalMotion(); };
+    document.addEventListener("visibilitychange", stopWhenHidden);
+    return () => document.removeEventListener("visibilitychange", stopWhenHidden);
+  }, [cancelRemovalMotion]);
 
   useEffect(() => {
     jumpHistoryRef.current.clear();
@@ -725,6 +742,7 @@ export const useConversationScroll = ({
   }, [currentScrollKey, pinToBottom, searchActive]);
 
   const onListLayoutCommitted = useCallback(() => {
+    if (removalRef.current) { removalRef.current.refresh(); return; }
     const request = bottomPinRequestRef.current;
     const control = scrollControlRef.current;
     if (!request || request.mode === "settle" ||
@@ -859,6 +877,7 @@ export const useConversationScroll = ({
     mode: "following" | "detached",
     publishPositioned = true,
   ) => {
+    cancelRemovalMotion();
     if (bottomFrameRef.current !== undefined) {
       cancelAnimationFrame(bottomFrameRef.current);
       bottomFrameRef.current = undefined;
@@ -905,6 +924,7 @@ export const useConversationScroll = ({
       publishPositionedIdentity(initialLocationIdentity);
     }
   }, [
+    cancelRemovalMotion,
     cancelPendingHistoryRestore,
     clearHistorySnapshot,
     clearJumpTransition,
@@ -1222,6 +1242,68 @@ export const useConversationScroll = ({
       element.dataset.conversationVirtuosoKey !== virtuosoKey ||
       control.mode === "navigating" || revealTargetTokenRef.current ||
       (matchingEntryRequest?.serverMessageId && positionedIdentityRef.current !== initialLocationIdentity)) return;
+    const removal = captureMessageRemoval(element, messageItemIndexesRef.current, removalRef.current?.removedIds);
+    if (removal && !document.hidden && !pointerActiveRef.current && !middleAutoScrollRef.current &&
+      performance.now() > userIntentUntilRef.current) {
+      const removedIds = new Set([...removalRef.current?.removedIds ?? [], ...removal.removedIds]);
+      cancelRemovalMotion();
+      clearHistorySnapshot();
+      if (contentAnchorFrameRef.current !== undefined) cancelAnimationFrame(contentAnchorFrameRef.current);
+      contentAnchorOwnerRef.current = undefined;
+      if (anchorFrameRef.current !== undefined) cancelAnimationFrame(anchorFrameRef.current);
+      anchorFrameRef.current = undefined;
+      const followsLatest = memory?.followLatest !== false;
+      const generation = control.generation;
+      if (followsLatest) scheduleBottomPin(undefined, "track");
+      let motion: ReturnType<typeof removal.start> | undefined;
+      let frame: number | undefined;
+      let disposed = false;
+      element.dataset.messageRemovalActive = "true";
+      const cancel = () => {
+        disposed = true;
+        if (frame !== undefined) cancelAnimationFrame(frame);
+        motion?.cancel();
+        delete element.dataset.messageRemovalActive;
+      };
+      const refresh = () => {
+        if (disposed) return;
+        if (followsLatest) reconcileBottomViewport();
+        else if (removal.anchor) {
+          restoreAnchor(element, removal.anchor.messageId, removal.anchor.offset);
+          // At the start of history a negative scrollTop is impossible. Keep
+          // the lower row fixed by reserving the missing distance in Virtuoso's
+          // measured Header; never animate that layout dimension.
+          const anchor = element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(removal.anchor.messageId)}"]`);
+          if (anchor && element.scrollTop < 1) {
+            const remaining = removal.anchor.offset - (anchor.getBoundingClientRect().top - element.getBoundingClientRect().top);
+            if (remaining > 0.5) {
+              const space = Number.parseFloat(element.style.getPropertyValue("--message-removal-start-space")) || 0;
+              element.style.setProperty("--message-removal-start-space", `${space + remaining}px`);
+            }
+          }
+        }
+        motion?.refresh();
+      };
+      const transaction = { removedIds, refresh, cancel };
+      removalRef.current = transaction;
+      return () => {
+        if (disposed || scrollControlRef.current.generation !== generation) return;
+        refresh();
+        motion = removal.start(reduceMotion);
+        const deadline = performance.now() + (reduceMotion ? 100 : motionLifecycleTiming.messageRemovalSettle);
+        const settle = () => {
+          if (disposed || removalRef.current !== transaction) return;
+          refresh();
+          if (performance.now() < deadline) frame = requestAnimationFrame(settle);
+          else {
+            cancelRemovalMotion();
+            writeMemory(currentScrollKey, element, followsLatest, memory?.pendingNewCount ?? 0, !followsLatest);
+          }
+        };
+        settle();
+      };
+    }
+    if (removalRef.current) return () => removalRef.current?.refresh();
     if (memory?.followLatest !== false && !matchingMessageRequest?.loading) {
       if (!structuralChange) return;
       // Establish ownership before the list commits a new range. Its layout
@@ -1292,13 +1374,14 @@ export const useConversationScroll = ({
         }
       });
     };
-  }, [clearHistorySnapshot, currentScrollKey, initialLocationIdentity, matchingEntryRequest?.serverMessageId,
+  }, [cancelRemovalMotion, reduceMotion, restoreAnchor, clearHistorySnapshot, currentScrollKey, initialLocationIdentity, matchingEntryRequest?.serverMessageId,
     matchingMessageRequest?.loading, reconcileBottomViewport, scheduleBottomPin, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
 
   useLayoutEffect(() => {
     if (!messageListElement || !currentScrollKey || searchActive) return;
     const element = messageListElement;
     return observeConversationRowSizes(element, (changes) => {
+      if (removalRef.current) { removalRef.current.refresh(); return; }
       const control = scrollControlRef.current;
       const memory = conversationScrollMemory.get(currentScrollKey);
       if (element.dataset.conversationVirtuosoKey !== virtuosoKey) return;
@@ -2416,6 +2499,7 @@ export const useConversationScroll = ({
   }, [clearHistorySnapshot]);
 
   const onTotalListHeightChanged = useCallback(() => {
+    if (removalRef.current) { removalRef.current.refresh(); return; }
     if (!currentScrollKey || searchActive) return;
     if (performance.now() < smoothScrollUntilRef.current) return;
     // The prepend transaction owns anchor correction until its settlement
@@ -2495,6 +2579,7 @@ export const useConversationScroll = ({
   }, [messageListElement]);
 
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (event.deltaY !== 0) cancelRemovalMotion();
     const element = event.currentTarget;
     const rawDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
     if (event.deltaY !== 0) {
@@ -2542,6 +2627,7 @@ export const useConversationScroll = ({
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    cancelRemovalMotion();
     anchorCorrectionUntilRef.current = 0;
     const wasMiddleAutoScrolling = middleAutoScrollRef.current;
     middleAutoScrollRef.current = false;
@@ -2661,6 +2747,7 @@ export const useConversationScroll = ({
   }, [releasePointerControl]);
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (["End", "Home", "ArrowUp", "ArrowDown", "PageUp", "PageDown", " "].includes(event.key)) cancelRemovalMotion();
     anchorCorrectionUntilRef.current = 0;
     setHighlightedMessage(undefined);
     middleAutoScrollRef.current = false;

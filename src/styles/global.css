@@ -26,6 +26,7 @@
   --motion-duration-fast: 120ms;
   --motion-duration-standard: 180ms;
   --motion-duration-slow: 220ms;
+  --motion-duration-message-removal: 220ms;
   --motion-duration-link: 300ms;
   --motion-duration-attention: 800ms;
   --motion-duration-continuous: 900ms;
@@ -978,6 +979,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list.is-history-adjusting { scrollbar-color: transparent transparent; }
 .message-list.is-entry-positioning { visibility: hidden; }
 .message-list.is-detached { overflow-anchor: auto; }
+.message-list[data-message-removal-active] { overflow-anchor: none; }
 .message-list.is-history-adjusting::-webkit-scrollbar-thumb { background-color: transparent; }
 .message-list.is-jump-transitioning { pointer-events: none; }
 .message-list.is-jump-transitioning .message-list-content { visibility: hidden; }
@@ -1005,7 +1007,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 /* Keep group/date margins inside the boxes measured by the virtualizer. */
 .message-list-content > [data-index] { display: flow-root; }
-.message-list-start-spacer { height: 20px; }
+.message-list-start-spacer { height: calc(20px + var(--message-removal-start-space, 0px)); }
 .message-list-end-sentinel { height: 12px; }
 .conversation-jump-button {
   position: absolute; right: 18px; bottom: 16px; z-index: 20; width: 46px; height: 46px; padding: 0;
@@ -1064,7 +1066,9 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-row.is-preparing-entrance-outgoing { visibility: hidden; opacity: 0; transform: translate3d(10px, 0, 0) scale(0.985); }
 .message-row.is-entering-incoming { animation: message-enter-incoming var(--motion-duration-standard) var(--motion-ease-standard) both; }
 .message-row.is-entering-outgoing { animation: message-enter-outgoing var(--motion-duration-fast) var(--motion-ease-standard) both; }
-.message-row.is-removing { animation: message-delete-out var(--motion-duration-standard) var(--motion-ease-exit) both; pointer-events: none; }
+.message-row.is-removing,
+.message-sender-avatar[data-removing] { animation: message-delete-out var(--motion-duration-message-removal) var(--motion-ease-exit) both; pointer-events: none; transform-origin: left center; }
+.message-row.is-removing.is-outgoing { transform-origin: right center; }
 .message-row.is-locally-deleted { opacity: 0.58; }
 @keyframes message-enter-incoming {
   from { opacity: 1; transform: translate3d(-10px, 0, 0) scale(0.985); }
@@ -1075,14 +1079,16 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 @keyframes message-delete-out {
-  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-  to { opacity: 0; transform: translate3d(0, 3px, 0) scale(.98); }
+  0% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  62% { opacity: .34; transform: translate3d(0, -1px, 0) scale(.985); }
+  100% { opacity: 0; transform: translate3d(0, 2px, 0) scale(.965); }
 }
 .reduce-motion .message-row.is-entering-incoming,
 .reduce-motion .message-row.is-entering-outgoing,
 .reduce-motion .message-row.is-preparing-entrance-incoming,
 .reduce-motion .message-row.is-preparing-entrance-outgoing,
-.reduce-motion .message-row.is-removing { animation: none; }
+.reduce-motion .message-row.is-removing,
+.reduce-motion .message-sender-avatar[data-removing] { animation: none; }
 .reduce-motion .message-row.is-preparing-entrance-incoming,
 .reduce-motion .message-row.is-preparing-entrance-outgoing { opacity: 0; transform: none; }
 .reduce-motion .conversation-jump-button { transition: none; }
@@ -1092,7 +1098,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   .message-row.is-entering-outgoing,
   .message-row.is-preparing-entrance-incoming,
   .message-row.is-preparing-entrance-outgoing,
-  .message-row.is-removing { animation: none; }
+  .message-row.is-removing,
+  .message-sender-avatar[data-removing] { animation: none; }
   .message-row.is-preparing-entrance-incoming,
   .message-row.is-preparing-entrance-outgoing { opacity: 0; transform: none; }
   .conversation-jump-button { transition: none; }
@@ -3567,7 +3574,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
     pointer-events: auto;
   }
   .mobile-back { display: inline-grid; }
-  .message-list-start-spacer { height: 14px; }
+  .message-list-start-spacer { height: calc(14px + var(--message-removal-start-space, 0px)); }
   .conversation-jump-button { right: 12px; bottom: 12px; }
   .jump-to-attention.is-stacked { transform: translateY(-54px); }
   .message-group { gap: 6px; }

@@ -616,6 +616,8 @@ function MessageBubbleComponent({
       ref={setMessageRowRef}
       className={`message-row group-${groupPosition} ${message.outgoing ? "is-outgoing" : "is-incoming"} ${message.isRemoving ? "is-removing" : ""} ${message.isLocallyDeleted ? "is-locally-deleted" : ""} ${isService ? "is-service" : ""} ${channelPost ? "is-channel-post" : ""} ${content.kind === "unsupported" ? "is-unsupported" : ""} ${selected ? "is-selected" : ""} ${selectionPending ? "is-selection-pending" : ""} ${joinsSelectionBefore ? "joins-selection-before" : ""} ${highlighted ? "is-notification-target" : ""} ${albumItem ? "is-album-item" : ""}`}
       data-message-id={message.id}
+      inert={message.isRemoving || undefined}
+      aria-hidden={message.isRemoving || undefined}
       data-local-block-group={localBlockGroupId}
       onClick={(event) => {
         if (!selectionMode || isService || selectionDisabled) return;

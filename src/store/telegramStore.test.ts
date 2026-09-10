@@ -1734,6 +1734,32 @@ describe("telegram store", () => {
     }
   });
 
+  it("clears completed album exits together without releasing a newer exit early", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createTelegramStore(new MockTelegramTransport());
+      await store.getState().initialize();
+      await store.getState().deleteMessage("p-tall", false, "chat-product");
+      await vi.advanceTimersByTimeAsync(5);
+      await store.getState().deleteMessage("p-5", false, "chat-product");
+      await vi.advanceTimersByTimeAsync(95);
+      await store.getState().deleteMessage("p-4", false, "chat-product");
+      const remaining: string[][] = [];
+      const unsubscribe = store.subscribe(state => {
+        remaining.push((state.removingMessages.get("chat-product") ?? []).map(message => message.id));
+      });
+      await vi.advanceTimersByTimeAsync(165);
+      expect(remaining.length).toBeGreaterThan(0);
+      expect(remaining.every(ids => !ids.includes("p-tall") && !ids.includes("p-5"))).toBe(true);
+      expect(store.getState().removingMessages.get("chat-product")?.map(message => message.id)).toEqual(["p-4"]);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(store.getState().removingMessages.get("chat-product")).toBeUndefined();
+      unsubscribe();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("preserves message state when edit or delete is rejected", async () => {
     class FailingOperationsTransport extends MockTelegramTransport {
       override async editMessage() {

@@ -2554,8 +2554,7 @@ export function Conversation({
             const reserveSenderAvatar = !isChannelConversation && firstMessage.content.kind !== "service" &&
               firstMessage.content.kind !== "unsupported" &&
               !firstMessage.outgoing && chat.kind !== "direct";
-            const showSenderAvatar = reserveSenderAvatar && !groupModel.continuesAfter &&
-              messageGroup.some((message) => !message.isRemoving);
+            const showSenderAvatar = reserveSenderAvatar && !groupModel.continuesAfter;
             const sender = users.get(firstMessage.senderId);
             const senderChat = senderChatId(firstMessage.senderId);
             const senderChatDetails = senderChat ? forwardTargetsById.get(senderChat) : undefined;
@@ -2579,7 +2578,7 @@ export function Conversation({
             return (
               <Fragment key={groupModel.id}>
               {startsNewDay && (
-                <div className="message-day">{formatMessageDay(firstMessage.sentAt)}</div>
+                <div className="message-day" data-removal-surface={`day:${localDateKey(firstMessage.sentAt)}`}>{formatMessageDay(firstMessage.sentAt)}</div>
               )}
               <div
                 className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${groupModel.continuesBefore ? "continues-before" : ""} ${groupModel.continuesAfter ? "continues-after" : ""} ${groupModel.id === visibleMessageBlocks.at(-1)?.id ? "is-last-visible" : ""}`}
@@ -2588,6 +2587,9 @@ export function Conversation({
                   <span className="message-group-avatar">
                     {showSenderAvatar && (
                       <button
+                        data-removal-surface={`avatar:${groupModel.id}`}
+                        data-removing={messageGroup.every(message => message.isRemoving) || undefined}
+                        inert={messageGroup.every(message => message.isRemoving) || undefined}
                         className={`message-sender-avatar ${localBlockedUser && !localBlockGroupRevealed
                           ? "is-local-block-alias"
                           : ""}`}

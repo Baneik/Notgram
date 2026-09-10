@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { projectHistoryWindow } from "../store/conversationHistory";
+import { compareMessages } from "../store/telegramStore.messages";
 import { listenForAttachmentRecovery } from "../store/attachmentRecovery";
 import { subscribeDownloadMetadata } from "../utils/downloadManager";
 import { translate } from "../i18n";
@@ -1638,9 +1639,7 @@ export function App() {
   );
   const activeDisplayMessages = useMemo(
     () => activeRemovingMessages.length > 0
-      ? [...activeMessages, ...activeRemovingMessages].sort((left, right) =>
-          Date.parse(left.sentAt) - Date.parse(right.sentAt),
-        )
+      ? [...activeMessages, ...activeRemovingMessages].sort(compareMessages)
       : activeMessages,
     [activeMessages, activeRemovingMessages],
   );

@@ -7,6 +7,8 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Fade deleted messages and smoothly lower the messages above them while keeping
+  the lower messages anchored, including virtualized histories and reduced motion.
 - Add an opt-in local copy of incoming messages that are permanently deleted by
   another party, render retained copies as semi-transparent read-only messages,
   and automatically cache original photos while the feature is enabled. Self-

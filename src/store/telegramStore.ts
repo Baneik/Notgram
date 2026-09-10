@@ -91,6 +91,7 @@ import { recordConversationSentMessages } from "./conversationActivity";
 import { localUserBlocksStore } from "./localUserBlocks";
 import { messageHasUnreadLocalBlockedReaction } from "../utils/localBlockedReactions";
 import { preferencesStore } from "./preferencesStore";
+import { motionLifecycleTiming } from "../utils/motionTokens";
 
 export type {
   ChatFilter,
@@ -286,6 +287,7 @@ export const createTelegramStore = (
     let chatAdministratorLabelsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const removalDeadlines = new WeakMap<Message, number>();
     const localAttachmentDraftGenerations = new Map<string, number>();
     const liveAttentionCandidates = new Set<string>();
     // Visibility observers can fire repeatedly before TDLib publishes the mention-read update.
@@ -714,17 +716,32 @@ export const createTelegramStore = (
       messages.set(chatId, current.filter((message) => message.id !== messageId));
       const removingMessages = new Map(get().removingMessages);
       const ghosts = removingMessages.get(chatId) ?? [];
-      removingMessages.set(chatId, [...ghosts.filter((message) => message.id !== messageId), { ...removed, isRemoving: true }]);
+      const ghost = { ...removed, isRemoving: true };
+      removalDeadlines.set(ghost, performance.now() + motionLifecycleTiming.messageRemoval);
+      removingMessages.set(chatId, [...ghosts.filter((message) => message.id !== messageId), ghost]);
       set({ messages, removingMessages });
       publishMessageChange({ type: "remove", chatId, messageIds: [messageId] });
       removalTimers.set(key, globalThis.setTimeout(() => {
         removalTimers.delete(key);
         const nextRemoving = new Map(get().removingMessages);
-        nextRemoving.set(chatId, (nextRemoving.get(chatId) ?? []).filter((message) => message.id !== messageId));
-        sharedMediaIndex.remove(chatId, [messageId]);
+        // Drain exits that have already finished together. Separate timers for
+        // the same batch must not briefly expand a two-photo album to one photo.
+        const now = performance.now();
+        const finishedIds: string[] = [];
+        const remaining = (nextRemoving.get(chatId) ?? []).filter(message => {
+          if (message.id !== messageId && (removalDeadlines.get(message) ?? Infinity) > now) return true;
+          finishedIds.push(message.id);
+          const timerKey = `${chatId}:${message.id}`;
+          globalThis.clearTimeout(removalTimers.get(timerKey));
+          removalTimers.delete(timerKey);
+          return false;
+        });
+        if (remaining.length > 0) nextRemoving.set(chatId, remaining);
+        else nextRemoving.delete(chatId);
+        sharedMediaIndex.remove(chatId, finishedIds);
         set({ removingMessages: nextRemoving });
         scheduleCacheWrite();
-      }, 180));
+      }, motionLifecycleTiming.messageRemoval + motionLifecycleTiming.exitFallbackBuffer));
     };
     const removeMessageImmediately = (chatId: string, messageId: string) => {
       const key = `${chatId}:${messageId}`;

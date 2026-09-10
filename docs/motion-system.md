@@ -102,6 +102,27 @@ performance sampling stop scheduling frames and resume from current state when v
 8. Every CSS transition and keyframe uses a shared duration token and only changes `opacity` or
    `transform`. Run `npm run motion:check` to enforce this contract.
 
+## Message deletion
+
+Deletion removes the server message immediately from live data and retains only its existing
+presentation record for the 220ms exit plus the shared 40ms fallback buffer. The message and
+departing sender avatar fade and shrink together; exiting message controls are inert.
+
+`ConversationViewportBoundary` captures surviving surfaces before the removing rows disappear.
+`useConversationScroll` keeps the lower surviving message anchored while reading history, or
+uses its existing bottom coordinator when following latest. A bounded 300ms FLIP transition
+then moves the upper bubbles, albums, date labels, and avatars into place. Only the contents
+are transformed: measured message rows and virtual partitions retain their final geometry.
+Virtual-list commits and row measurements reconcile that same transaction before paint.
+Consecutive deletions capture the current visual position instead of replaying an old start.
+At the beginning of history, the measured Header reserves any distance that cannot be
+compensated with a negative scroll offset. That space changes once and is not animated.
+
+Scrolling, navigation, resizing preferences, reduced motion, backgrounding, and unmounting
+cancel retained transforms. Reduced motion keeps the anchor correction without a visual fall.
+The deletion browser suite checks actual per-frame positions, including stationary lower
+messages and the absence of a bounce when the transform is released.
+
 ## Coverage and verification
 
 The browser motion suite interrupts popover exits, rapidly changes conversations, performs repeated
