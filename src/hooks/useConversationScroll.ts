@@ -14,6 +14,7 @@ import type { Message } from "../telegram/types";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
 import { observeConversationRowSizes } from "../utils/conversationRowSizes";
+import { observeConversationViewportDiagnostics } from "../utils/conversationViewportDiagnostics";
 import {
   conversationJumpMotion,
   conversationJumpAcceleration,
@@ -519,6 +520,20 @@ export const useConversationScroll = ({
     messageListRef.current = element;
     setMessageListElement((current) => current === element ? current : element);
   }, []);
+
+  useEffect(() => {
+    if (!messageListElement || !currentScrollKey || searchActive) return;
+    return observeConversationViewportDiagnostics(messageListElement, () => ({
+      followLatest: conversationScrollMemory.get(currentScrollKey)?.followLatest !== false,
+      scrollMode: ["following", "detached", "restoring", "navigating"].indexOf(scrollControlRef.current.mode),
+      bottomReconcileActive: bottomPinRequestRef.current !== undefined,
+      pointerActive: pointerActiveRef.current,
+      middleAutoScroll: middleAutoScrollRef.current,
+      latestRowPresent: Boolean(lastVisibleMessageIdRef.current && messageListElement.querySelector(
+        `[data-message-id="${CSS.escape(lastVisibleMessageIdRef.current)}"]`,
+      )),
+    }));
+  }, [currentScrollKey, messageListElement, searchActive]);
 
   useLayoutEffect(() => {
     if (!messageListElement) {

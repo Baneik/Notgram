@@ -104,6 +104,14 @@ Middle-button autoscroll outlives pointerup and the short wheel/key input timeou
 and total-height callbacks must yield detached anchoring for its entire lifetime, until explicit input
 or window blur ends it.
 
+`ui_conversation_viewport` provides numeric-only native evidence once per second while the current
+viewport is visible, and emits only when endpoint geometry or control state changes. It records the
+raw scroll maximum separately from the visible Footer/message gap, clipping by ancestors, row
+measurement error, scale and following/input state. Negative gaps mean content extends below the
+visible viewport; `latestRowPresent` distinguishes the mounted tail from the actual latest message.
+Sampling owns no scroll writes, resize reconciliation or animation frames. These records diagnose
+persistent endpoint failures; ordinary frame-drop events alone cannot establish pixel movement.
+
 Anchor and explicit message navigation use longer quiet windows because virtual rows can mount several
 frames after the target first appears.
 

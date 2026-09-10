@@ -178,6 +178,7 @@ const eventMetadata: Record<string, EventMetadata> = {
   ui_history_merge: { get label() { return translate("历史消息合并"); }, category: "data", warningMs: 16, criticalMs: 50 },
   ui_history_render: { get label() { return translate("历史消息渲染"); }, category: "render", warningMs: 50, criticalMs: 100 },
   ui_conversation_switch: { get label() { return translate("会话切换"); }, category: "interaction", warningMs: 100, criticalMs: 250 },
+  ui_conversation_viewport: { get label() { return translate("滚动定位"); }, category: "render", warningMs: 50, criticalMs: 100 },
   ui_react_commit: { get label() { return translate("React 提交"); }, category: "render", warningMs: 16, criticalMs: 50 },
   ui_message_projection: { get label() { return translate("消息投影"); }, category: "render", warningMs: 8, criticalMs: 16 },
   ui_tdlib_update_batch: { get label() { return translate("TDLib 更新处理"); }, category: "data", warningMs: 16, criticalMs: 50 },

@@ -6,6 +6,37 @@ const ready = async (page: Page) => {
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 };
 
+test("viewport diagnostics distinguish a reached scroll maximum from ancestor clipping", async ({ page }) => {
+  await ready(page);
+  const list = page.locator(".message-list");
+  await list.press("End");
+  const latestDiagnostic = () => page.evaluate(async () => {
+    const { getPerformanceRecords } = await import("/src/utils/performanceMonitor.ts" as string) as typeof import("../../src/utils/performanceMonitor");
+    return getPerformanceRecords().filter(record => record.event === "ui_conversation_viewport").at(-1)?.details;
+  });
+  await expect.poll(async () => (await latestDiagnostic())?.latestRowPresent).toBe(true);
+  const healthy = (await latestDiagnostic())!;
+  expect(healthy.viewportClipPx).toBe(0);
+  expect(Number(healthy.latestGapPx)).toBeGreaterThanOrEqual(10);
+
+  // Deliberately extend the scroller behind its clipping shell. Raw scroll
+  // metrics alone still report "at bottom", although the message is obscured.
+  await list.evaluate(element => { element.style.height = "calc(100% + 18px)"; });
+  await list.press("End");
+  await expect.poll(async () => Number((await latestDiagnostic())?.viewportClipPx)).toBeGreaterThanOrEqual(17);
+  const clipped = (await latestDiagnostic())!;
+  expect(Math.abs(Number(clipped.bottomDistancePx))).toBeLessThanOrEqual(1);
+  expect(Number(clipped.footerGapPx)).toBeLessThan(-16);
+  expect(Number(clipped.latestGapPx)).toBeLessThan(0);
+  expect(clipped.followLatest).toBe(true);
+  expect(Object.values(clipped).every(value => typeof value === "number" || typeof value === "boolean")).toBe(true);
+
+  // The diagnostic reader neither repairs the fixture nor writes a new offset.
+  const top = await list.evaluate(element => element.scrollTop);
+  await page.waitForTimeout(2200);
+  expect(await list.evaluate(element => element.scrollTop)).toBe(top);
+});
+
 for (const width of [390, 1280]) {
   test(`late row resizes preserve every bottom frame across viewport changes (${width}px)`, async ({ page }) => {
     await ready(page);

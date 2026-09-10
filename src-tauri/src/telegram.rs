@@ -100,6 +100,7 @@ const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_history_merge",
     "ui_history_render",
     "ui_conversation_switch",
+    "ui_conversation_viewport",
     "ui_frame_drop",
     "ui_layout_shift",
     "ui_long_frame",
@@ -225,6 +226,25 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "scriptSourceKind",
     "scrollHeight",
     "scrollTop",
+    "clientHeight",
+    "viewportHeight",
+    "bottomDistancePx",
+    "viewportClipPx",
+    "footerPresent",
+    "footerGapPx",
+    "footerHeight",
+    "latestGapPx",
+    "measuredRowErrorPx",
+    "mountedRowCount",
+    "ancestorScrollTop",
+    "cssZoom",
+    "deviceScale",
+    "followLatest",
+    "scrollMode",
+    "bottomReconcileActive",
+    "pointerActive",
+    "middleAutoScroll",
+    "latestRowPresent",
     "shiftScore",
     "shiftCount",
     "sourceCount",
@@ -1314,6 +1334,31 @@ mod tests {
                 }),
             ),
             Ok("info")
+        );
+    }
+
+    #[test]
+    fn viewport_diagnostics_preserve_signed_geometry_without_message_data() {
+        let geometry = json!({
+            "scrollTop": 1200.5, "scrollHeight": 1901, "clientHeight": 700,
+            "viewportHeight": 700.25, "bottomDistancePx": 0.5, "viewportClipPx": 18,
+            "footerPresent": true, "footerGapPx": -18.5, "footerHeight": 12,
+            "latestGapPx": -6.5, "measuredRowErrorPx": 0.25, "mountedRowCount": 20,
+            "ancestorScrollTop": 0, "cssZoom": 1, "deviceScale": 1.25,
+            "followLatest": true, "scrollMode": 0, "bottomReconcileActive": false,
+            "pointerActive": false, "middleAutoScroll": false, "latestRowPresent": true
+        });
+        assert!(super::validate_performance_record("ui_conversation_viewport", &geometry).is_ok());
+        assert!(
+            super::validate_performance_record("ui_conversation_viewport", &json!({ "chatId": 1 }))
+                .is_err()
+        );
+        assert!(
+            super::validate_performance_record(
+                "ui_conversation_viewport",
+                &json!({ "latestGapPx": "message" })
+            )
+            .is_err()
         );
     }
 
