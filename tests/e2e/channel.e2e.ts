@@ -196,3 +196,92 @@ test("channel albums keep a shared caption, metadata, and one working discussion
   await expect(page.locator(".channel-discussion-panel")).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("channel album reactions stay in the shared footer through caption and reaction updates", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  await page.locator('[data-chat-id="chat-release"]').click();
+  await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
+  const album = page.locator('[data-media-album-id="reaction-album"]');
+  const footer = album.locator(".media-album-footer");
+
+  for (const placement of ["none", "below", "above"] as const) {
+    await page.evaluate(async placement => {
+      const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+      const state = telegramStore.getState();
+      const post = state.messages.get("chat-release")!.find(message => message.id === "release-post-1")!;
+      const photo = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#647d90"/></svg>');
+      const messages = new Map(state.messages);
+      messages.set(post.chatId, [0, 1].map(index => ({ ...post,
+        id: index === 0 ? post.id : "reaction-album-last", mediaAlbumId: "reaction-album", outgoing: false,
+        sentAt: new Date(Date.parse(post.sentAt) + index * 1000).toISOString(),
+        interaction: {
+          viewCount: 12345, forwardCount: 67, replyCount: 0, hasDiscussion: index === 0,
+          canGetAddedReactions: true,
+          reactions: (placement === "none" ? index === 0 : index === 1)
+            ? ["👍", "❤", "🔥", "🥰", "👏"].map((emoji, reactionIndex) => ({
+                type: { kind: "emoji" as const, emoji }, totalCount: 50 - reactionIndex,
+                chosen: false, recentSenderIds: [],
+              })) : [],
+        },
+        content: { kind: "media", mediaType: "photo", fileName: `photo-${index}.jpg`, sizeLabel: "1 KB",
+          width: 640, height: 240, previewDataUrl: photo,
+          caption: index === 1 && placement !== "none" ? "媒体组共享说明" : undefined,
+          showCaptionAboveMedia: placement === "above" },
+      })));
+      const calls: string[][] = [];
+      (window as unknown as { albumReactionCalls: string[][] }).albumReactionCalls = calls;
+      telegramStore.setState({ messages,
+        setMessageReaction: async (id, emoji, chosen, chatId) => { calls.push(["toggle", id, emoji, String(chosen), chatId!]); },
+        getMessageReactionSenders: async (id, type, _offset, chatId) => {
+          calls.push(["details", id, type.kind, chatId!]);
+          return { senders: [], totalCount: 50 };
+        },
+      });
+    }, placement);
+
+    await expect(footer.locator(".message-reactions > button")).toHaveCount(5);
+    await expect(album.locator(".media-album-grid .message-reactions")).toHaveCount(0);
+    await expect(footer.locator("time")).toHaveCount(1);
+    for (const width of [1100, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => album.evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        const grid = element.querySelector(".media-album-grid")!.getBoundingClientRect();
+        const footer = element.querySelector(".media-album-footer")!.getBoundingClientRect();
+        const meta = element.querySelector(".media-album-footer .message-meta")!.getBoundingClientRect();
+        return [...element.querySelectorAll(".message-reactions > button")].every(button => {
+          const chip = button.getBoundingClientRect();
+          const overlapsMeta = chip.left < meta.right && chip.right > meta.left && chip.top < meta.bottom && chip.bottom > meta.top;
+          return chip.top >= grid.bottom && chip.top >= footer.top && chip.bottom <= footer.bottom &&
+            chip.left >= bounds.left && chip.right <= bounds.right && !overlapsMeta;
+        });
+      })).toBe(true);
+      await album.screenshot({ path: testInfo.outputPath(`album-reactions-${placement}-${width}.png`) });
+    }
+    const reaction = footer.getByRole("button", { name: /👍，50 个回应/ });
+    await reaction.click();
+    await reaction.click({ button: "right" });
+    await expect(page.getByRole("menu", { name: "👍 的回应者" })).toBeVisible();
+    const owner = placement === "none" ? "release-post-1" : "reaction-album-last";
+    expect(await page.evaluate(() => (window as unknown as { albumReactionCalls: string[][] }).albumReactionCalls))
+      .toEqual([["toggle", owner, "👍", "true", "chat-release"], ["details", owner, "emoji", "chat-release"]]);
+    await page.keyboard.press("Escape");
+  }
+
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const { localUserBlocksStore } = await (0, eval)('import("/src/store/localUserBlocks.ts")') as typeof import("../../src/store/localUserBlocks");
+    const state = telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-release", messages.get("chat-release")!.map(message => ({ ...message,
+      interaction: { ...message.interaction!, reactions: [{ type: { kind: "emoji", emoji: message.id === "release-post-1" ? "❤" : "👍" },
+        totalCount: 3, chosen: false, recentSenderIds: ["u-mia"] }] },
+    })));
+    telegramStore.setState({ messages });
+    localUserBlocksStore.getState().blockUser(state.activeAccountId!, state.users.get("u-mia")!);
+  });
+  await expect(footer.getByRole("button", { name: /❤，2 个回应/ })).toBeVisible();
+  await expect(footer.getByRole("button", { name: /👍，2 个回应/ })).toBeVisible();
+  await expect(album.locator(".media-album-grid .message-reactions")).toHaveCount(0);
+});

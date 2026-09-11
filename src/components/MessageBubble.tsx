@@ -344,7 +344,7 @@ function MessageBubbleComponent({
       )
     : undefined;
   const reactions = visibleMessageReactions(message, blockedReactionSenderIds);
-  const showReactionFooter = !selectionMode && !isService && reactions.length > 0;
+  const showReactionFooter = !selectionMode && !isService && !(albumItem && channelPost) && reactions.length > 0;
 
   const visualShellStyle = mediaLayout
     ? {

@@ -4,6 +4,7 @@ import { useChannelDiscussionHistory } from "../hooks/useChannelDiscussionHistor
 import { DiscussionErrorBoundary } from "./DiscussionErrorBoundary";
 import { canPostToChannel } from "../telegram/chatManagement";
 import { MessageMetadata } from "./MessageMetadata";
+import { MessageReactions } from "./MessageReactions";
 import { MessageTextFlow } from "./MessageTextFlow";
 import { translate } from "../i18n";
 import { retainedMessageQuote } from "../telegram/retainedMessages";
@@ -143,6 +144,7 @@ import {
 import { loadMessageActionPermissions } from "../utils/messageActionPermissions";
 import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
 import { mediaAlbumCaptionMessage, mediaAlbumMessagesFor } from "../utils/mediaAlbums";
+import { visibleMessageReactions } from "../utils/localBlockedReactions";
 import { isEditableMessageContent, messageContentText } from "../telegram/messageContent";
 import { MessageRichText } from "./MessageRichText";
 import { openExternalLink } from "../utils/externalLinks";
@@ -2805,6 +2807,11 @@ export function Conversation({
                     const albumRows = layoutMediaAlbum(segment.messages);
                     const captionMessage = mediaAlbumCaptionMessage(segment.messages);
                     const albumMetadataMessage = mediaAlbumMetadataMessage(segment.messages)!;
+                    // Keep each reaction tied to its source message, independently of the metadata owner.
+                    const albumReactions = isChannelConversation ? segment.messages.flatMap(message => {
+                      const reactions = visibleMessageReactions(message, localBlockedReactionUserIds);
+                      return reactions.length > 0 ? [{ message, reactions }] : [];
+                    }) : [];
                     const albumDiscussionPost = channelDiscussionAvailable(albumMetadataMessage) ? albumMetadataMessage : undefined;
                     const captionBlock = captionMessage && localBlockGroupByMessageId.get(captionMessage.id);
                     const captionConcealed = captionMessage && localBlockedUsersById.has(captionMessage.senderId) &&
@@ -2894,7 +2901,26 @@ export function Conversation({
                         </div>
                         {!captionMessage?.content.showCaptionAboveMedia ? albumCaption : null}
                         {isChannelConversation && <>
-                          <div className="media-album-footer" data-message-meta-id={albumMetadataMessage.id}>
+                          <div className={`media-album-footer ${albumReactions.length > 0 ? "message-reaction-footer" : ""}`} data-message-meta-id={albumMetadataMessage.id}>
+                            {albumReactions.length > 0 && (
+                              <div className="media-album-reactions">
+                                {albumReactions.map(({ message, reactions }) => (
+                                  <MessageReactions
+                                    key={message.renderKey ?? message.id}
+                                    messageId={message.id}
+                                    chatId={message.chatId}
+                                    reactions={reactions}
+                                    canGetAddedReactions={message.interaction?.canGetAddedReactions}
+                                    users={users}
+                                    chats={forwardTargetsById}
+                                    onReaction={onSetMessageReaction}
+                                    onLoadSenders={onGetMessageReactionSenders}
+                                    onOpenSenderProfile={onOpenSenderProfile}
+                                    hiddenSenderIds={localBlockedReactionUserIds}
+                                  />
+                                ))}
+                              </div>
+                            )}
                             <MessageMetadata message={albumMetadataMessage} channelPost showChannelMetadata
                               deliveryMessages={segment.messages}
                               channelAuthor={channelAuthorFor(albumMetadataMessage)} onRetry={onRetryMessage} />
