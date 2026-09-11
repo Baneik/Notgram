@@ -101,6 +101,9 @@ const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_history_render",
     "ui_conversation_switch",
     "ui_conversation_viewport",
+    "ui_conversation_trace",
+    "ui_conversation_row",
+    "ui_conversation_member",
     "ui_frame_drop",
     "ui_layout_shift",
     "ui_long_frame",
@@ -268,6 +271,92 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "windowKind",
     "impactedAreaPx",
     "selectionDurationMs",
+    "traceSession",
+    "traceSeq",
+    "traceTimeMs",
+    "traceOriginMs",
+    "traceRun",
+    "traceKind",
+    "triggerKind",
+    "finishKind",
+    "recordCount",
+    "traceElapsedMs",
+    "writerKind",
+    "beforeTop",
+    "requestedTop",
+    "actualTop",
+    "targetIndex",
+    "alignKind",
+    "smooth",
+    "messageToken",
+    "replyToken",
+    "revisionToken",
+    "contentKind",
+    "mediaKind",
+    "hasReply",
+    "hasKeyboard",
+    "hasAlbum",
+    "isRemoving",
+    "isLocallyDeleted",
+    "textLength",
+    "mediaWidth",
+    "mediaHeight",
+    "live",
+    "isBot",
+    "remote",
+    "permanent",
+    "fromCache",
+    "immediate",
+    "archiveEnabled",
+    "deadlineLagMs",
+    "snapshotId",
+    "rowToken",
+    "blockIndex",
+    "itemIndex",
+    "partitionToken",
+    "firstMessageToken",
+    "lastMessageToken",
+    "knownHeight",
+    "rowHeight",
+    "rowTop",
+    "rowWidth",
+    "rowOffsetTop",
+    "rowLayoutHeight",
+    "transformY",
+    "scaleY",
+    "removingCount",
+    "mappingMismatch",
+    "firstItemIndex",
+    "selectedRowCount",
+    "expectedIndex",
+    "memberCount",
+    "minimumTop",
+    "maximumTop",
+    "minimumHeight",
+    "maximumHeight",
+    "minimumDistance",
+    "maximumDistance",
+    "reversalCount",
+    "trusted",
+    "inputKind",
+    "direction",
+    "button",
+    "keyKind",
+    "generation",
+    "removalActive",
+    "removedCount",
+    "anchorActive",
+    "anchorToken",
+    "anchorOffset",
+    "reconcileMode",
+    "verificationPassCount",
+    "userIntentActive",
+    "smoothActive",
+    "structuralChange",
+    "reducedMotion",
+    "resizeDelta",
+    "measuredSize",
+    "heightMeasurement",
 ];
 
 #[derive(Deserialize)]
@@ -299,7 +388,10 @@ fn performance_thresholds(event: &str) -> (f64, f64) {
     }
 }
 
-fn validate_performance_record(event: &str, details: &Value) -> Result<&'static str, String> {
+pub(crate) fn validate_performance_record(
+    event: &str,
+    details: &Value,
+) -> Result<&'static str, String> {
     if !ALLOWED_PERFORMANCE_EVENTS.contains(&event) {
         return Err("不支持的性能日志事件".to_string());
     }
@@ -1360,6 +1452,50 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn conversation_trace_accepts_correlated_numeric_evidence_only() {
+        for (event, details) in [
+            (
+                "ui_conversation_trace",
+                json!({
+                    "traceSession": 3, "traceRun": 1, "traceSeq": 9,
+                    "traceTimeMs": 123.5, "traceOriginMs": 1789095840000_u64,
+                    "traceKind": 4, "writerKind": 1, "beforeTop": 20,
+                    "requestedTop": 200, "actualTop": 100, "generation": 2
+                }),
+            ),
+            (
+                "ui_conversation_row",
+                json!({
+                    "traceSession": 3, "rowToken": 8, "partitionToken": 5,
+                    "knownHeight": 10, "rowHeight": 526.1, "rowTop": -123.5,
+                    "blockIndex": 5, "itemIndex": 1000005, "firstItemIndex": 1000000,
+                    "mappingMismatch": true, "transformY": -20, "scaleY": 1
+                }),
+            ),
+            (
+                "ui_conversation_member",
+                json!({
+                    "traceSession": 3, "messageToken": 4, "rowToken": 8,
+                    "contentKind": 1, "hasReply": true, "hasKeyboard": false,
+                    "isRemoving": true, "expectedIndex": 5
+                }),
+            ),
+        ] {
+            assert!(super::validate_performance_record(event, &details).is_ok());
+            assert!(
+                super::validate_performance_record(event, &json!({ "messageId": 123 })).is_err()
+            );
+            assert!(
+                super::validate_performance_record(event, &json!({ "messageToken": "raw-id" }))
+                    .is_err()
+            );
+            assert!(
+                super::validate_performance_record(event, &json!({ "rowToken": [1, 2] })).is_err()
+            );
+        }
     }
 
     #[test]

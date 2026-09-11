@@ -174,6 +174,23 @@ fn sanitize_diagnostic_details(value: Value, depth: usize) -> Value {
     }
 }
 
+fn sanitize_log_details(event: &str, value: Value) -> Value {
+    // These events contain only allowlisted numeric/boolean telemetry. Generic
+    // token/name redaction would destroy anonymous row identities and truncate
+    // the 48-field geometry contract. Never exempt arbitrary keys or strings.
+    if matches!(
+        event,
+        "ui_conversation_viewport"
+            | "ui_conversation_trace"
+            | "ui_conversation_row"
+            | "ui_conversation_member"
+    ) && crate::telegram::validate_performance_record(event, &value).is_ok()
+    {
+        return value;
+    }
+    sanitize_diagnostic_details(value, 0)
+}
+
 fn read_bounded_tail(path: &Path) -> io::Result<String> {
     let mut file = fs::File::open(path)?;
     let length = file.metadata()?.len();
@@ -219,9 +236,9 @@ fn sanitize_log_files(log_directory: &Path, file_names: &[&str]) -> (Vec<u8>, us
                 "timestampMs": object.get("timestampMs").and_then(Value::as_u64).unwrap_or(0),
                 "level": level,
                 "event": event,
-                "details": sanitize_diagnostic_details(
+                "details": sanitize_log_details(
+                    event,
                     object.get("details").cloned().unwrap_or_else(|| json!({})),
-                    0,
                 ),
             }));
             if records.len() >= MAX_EXPORTED_LOG_RECORDS {
@@ -533,6 +550,47 @@ mod tests {
         assert!(!payload.contains("secret"));
         assert!(!payload.contains("7931534087"));
         assert!(!payload.contains("13800000000"));
+        fs::remove_dir_all(directory).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn exported_conversation_traces_preserve_only_validated_numeric_correlations() {
+        let directory = test_directory();
+        fs::create_dir_all(&directory).expect("test directory should be created");
+        let details = json!({
+            "traceSession": 1, "traceRun": 2, "traceSeq": 3, "traceTimeMs": 123.5,
+            "traceOriginMs": 1789095840000_u64, "snapshotId": 4, "rowToken": 5,
+            "partitionToken": 6, "firstMessageToken": 7, "lastMessageToken": 8,
+            "messageToken": 7, "revisionToken": 9, "replyToken": 8,
+            "blockIndex": 10, "itemIndex": 1000010, "firstItemIndex": 1000000,
+            "knownHeight": 10, "rowHeight": 526.1, "rowTop": -123.5, "rowWidth": 200,
+            "rowOffsetTop": 600, "rowLayoutHeight": 526, "transformY": -20, "scaleY": 1,
+            "messageCount": 2, "removingCount": 1, "mappingMismatch": true,
+            "selectedRowCount": 8, "mountedRowCount": 16, "textLength": 30,
+            "windowId": 42, "windowKind": 1, "observedAtMs": 1789095841000_u64,
+            "pageVisible": true, "windowFocused": true
+        });
+        let valid = json!({ "event": "ui_conversation_row", "details": details });
+        let invalid = json!({ "event": "ui_conversation_row", "details": {
+            "messageToken": "private-token", "chatId": 7931534087_u64, "text": "private-text"
+        }});
+        fs::write(
+            directory.join("notgram-performance.log"),
+            format!("{valid}\n{invalid}\n"),
+        )
+        .expect("performance log should be written");
+        let (payload, count) = sanitize_performance_logs(&directory);
+        let text = String::from_utf8(payload).expect("UTF-8 export");
+        let records: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("JSON record"))
+            .collect();
+        assert_eq!(count, 2);
+        assert_eq!(records[0]["details"], details);
+        assert!(!text.contains("private-token"));
+        assert!(!text.contains("private-text"));
+        assert!(!text.contains("7931534087"));
+        assert!(text.contains("[REDACTED]"));
         fs::remove_dir_all(directory).expect("test directory should be removed");
     }
 

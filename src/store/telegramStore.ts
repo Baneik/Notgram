@@ -92,6 +92,7 @@ import { localUserBlocksStore } from "./localUserBlocks";
 import { messageHasUnreadLocalBlockedReaction } from "../utils/localBlockedReactions";
 import { preferencesStore } from "./preferencesStore";
 import { motionLifecycleTiming } from "../utils/motionTokens";
+import { recordConversationMessage, conversationTraceKind } from "../utils/conversationTrace";
 
 export type {
   ChatFilter,
@@ -331,6 +332,16 @@ export const createTelegramStore = (
             !retainedMessages.get(message.chatId, message.id)),
         };
         retainedMessages.upsert(event.messages);
+      }
+      if (event.type === "upsert") {
+        const liveIds = new Set(event.liveMessages.map(message => `${message.chatId}:${message.id}`));
+        for (const message of event.messages) recordConversationMessage(message.chatId, message.id,
+          conversationTraceKind.messageUpsert, message, {
+            live: liveIds.has(`${message.chatId}:${message.id}`),
+            isBot: get().users.get(message.senderId)?.isBot === true, batchCount: event.messages.length,
+          });
+      } else if (event.type === "replace") {
+        recordConversationMessage(event.message.chatId, event.message.id, conversationTraceKind.messageUpsert, event.message);
       }
       for (const listener of messageChangeListeners) listener(event);
     };
@@ -717,6 +728,7 @@ export const createTelegramStore = (
       const removingMessages = new Map(get().removingMessages);
       const ghosts = removingMessages.get(chatId) ?? [];
       const ghost = { ...removed, isRemoving: true };
+      recordConversationMessage(chatId, messageId, conversationTraceKind.ghostStart, ghost);
       removalDeadlines.set(ghost, performance.now() + motionLifecycleTiming.messageRemoval);
       removingMessages.set(chatId, [...ghosts.filter((message) => message.id !== messageId), ghost]);
       set({ messages, removingMessages });
@@ -731,6 +743,9 @@ export const createTelegramStore = (
         const remaining = (nextRemoving.get(chatId) ?? []).filter(message => {
           if (message.id !== messageId && (removalDeadlines.get(message) ?? Infinity) > now) return true;
           finishedIds.push(message.id);
+          recordConversationMessage(chatId, message.id, conversationTraceKind.ghostEnd, message, {
+            deadlineLagMs: now - (removalDeadlines.get(message) ?? now),
+          });
           const timerKey = `${chatId}:${message.id}`;
           globalThis.clearTimeout(removalTimers.get(timerKey));
           removalTimers.delete(timerKey);
@@ -744,6 +759,7 @@ export const createTelegramStore = (
       }, motionLifecycleTiming.messageRemoval + motionLifecycleTiming.exitFallbackBuffer));
     };
     const removeMessageImmediately = (chatId: string, messageId: string) => {
+      recordConversationMessage(chatId, messageId, conversationTraceKind.immediateRemove);
       const key = `${chatId}:${messageId}`;
       removedMessageIds.add(key);
       const previous = removalTimers.get(key);
@@ -1913,6 +1929,12 @@ export const createTelegramStore = (
         else unreadAttentionMessageIds.delete(event.chatId);
         liveAttentionCandidates.delete(`${event.chatId}:${event.messageId}`);
         const existing = get().messages.get(event.chatId)?.find(message => message.id === event.messageId);
+        recordConversationMessage(event.chatId, event.messageId, conversationTraceKind.messageRemove,
+          event.preservedMessage ?? existing, {
+            remote: event.source === "remote", permanent: event.permanent, fromCache: event.fromCache,
+            immediate: event.immediate, archiveEnabled: preferencesStore.getState().deletedMessageArchiveEnabled,
+            isBot: get().users.get((event.preservedMessage ?? existing)?.senderId ?? "")?.isBot === true,
+          });
         if (existing?.isLocallyDeleted && event.source === "remote") {
           set({ unreadAttentionMessageIds });
           return;
@@ -1937,6 +1959,7 @@ export const createTelegramStore = (
           };
           const messages = new Map(get().messages);
           messages.set(event.chatId, upsertMessage(messages.get(event.chatId) ?? [], archived));
+          recordConversationMessage(event.chatId, event.messageId, conversationTraceKind.archived, archived);
           set({ messages, unreadAttentionMessageIds });
           publishMessageChange({ type: "upsert", messages: [archived], liveMessages: [] });
           maybeAutoCacheArchiveMedia(archived);

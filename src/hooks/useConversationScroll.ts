@@ -17,6 +17,10 @@ import { captureMessageRemoval } from "../utils/messageRemovalMotion";
 import { observeConversationRowSizes } from "../utils/conversationRowSizes";
 import { observeConversationViewportDiagnostics } from "../utils/conversationViewportDiagnostics";
 import {
+  conversationTraceFor, conversationTraceKind as traceKind, conversationScrollWriter as scrollWriter,
+  writeConversationScrollTop, traceConversationIndexScroll,
+} from "../utils/conversationTrace";
+import {
   conversationJumpMotion,
   conversationJumpAcceleration,
   type ConversationJumpDirection,
@@ -241,6 +245,7 @@ export const useConversationScroll = ({
   firstVisibleMessageIdRef.current = visibleMessages[0]?.id;
   lastVisibleMessageIdRef.current = visibleMessages.at(-1)?.id;
   virtualItemCountRef.current = virtualItemCount;
+  const diagnosticModelRef = useRef({ messages: visibleMessages, indexes: messageItemIndexes, firstItemIndex: 0 });
 
   const previousLayoutRef = useRef<ConversationLayoutSnapshot | undefined>(undefined);
   const pendingHistoryRestoreRef = useRef<PendingHistoryRestore | undefined>(undefined);
@@ -354,6 +359,7 @@ export const useConversationScroll = ({
   const searchActive = Boolean(search);
 
   const cancelRemovalMotion = useCallback(() => {
+    if (removalRef.current) conversationTraceFor(messageListRef.current)?.record(traceKind.removalEnd);
     removalRef.current?.cancel();
     removalRef.current = undefined;
   }, []);
@@ -416,6 +422,10 @@ export const useConversationScroll = ({
   );
   useLayoutEffect(() => {
     commitConversationVirtualIndex(virtuosoKey, virtuosoFirstItemIndex, messageItemIndexes);
+    diagnosticModelRef.current = { messages: visibleMessagesRef.current, indexes: messageItemIndexes, firstItemIndex: virtuosoFirstItemIndex };
+    conversationTraceFor(messageListRef.current)?.record(traceKind.commitAfter, {
+      firstItemIndex: virtuosoFirstItemIndex, blockCount: virtualItemCount, messageCount: messageItemIndexes.size,
+    });
     if (currentScrollKey) {
       conversationLayouts.set(currentScrollKey, {
         firstMessageId: firstVisibleMessageId,
@@ -539,7 +549,7 @@ export const useConversationScroll = ({
   }, []);
 
   useEffect(() => {
-    if (!messageListElement || !currentScrollKey || searchActive) return;
+    if (!messageListElement || !currentScrollKey || !chatId || searchActive) return;
     return observeConversationViewportDiagnostics(messageListElement, () => ({
       followLatest: conversationScrollMemory.get(currentScrollKey)?.followLatest !== false,
       scrollMode: ["following", "detached", "restoring", "navigating"].indexOf(scrollControlRef.current.mode),
@@ -549,8 +559,26 @@ export const useConversationScroll = ({
       latestRowPresent: Boolean(lastVisibleMessageIdRef.current && messageListElement.querySelector(
         `[data-message-id="${CSS.escape(lastVisibleMessageIdRef.current)}"]`,
       )),
-    }));
-  }, [currentScrollKey, messageListElement, searchActive]);
+    }), {
+      chatId,
+      readModel: () => diagnosticModelRef.current,
+      readState: () => ({
+        generation: scrollControlRef.current.generation,
+        firstItemIndex: diagnosticModelRef.current.firstItemIndex,
+        blockCount: virtualItemCountRef.current,
+        removalActive: removalRef.current !== undefined,
+        removedCount: removalRef.current?.removedIds.size ?? 0,
+        anchorActive: contentAnchorOwnerRef.current !== undefined,
+        anchorToken: conversationTraceFor(messageListElement)?.token(contentAnchorOwnerRef.current
+          ? `message:${contentAnchorOwnerRef.current.messageId}` : undefined),
+        anchorOffset: contentAnchorOwnerRef.current?.offset,
+        reconcileMode: bottomPinRequestRef.current ? ["settle", "track", "motion"].indexOf(bottomPinRequestRef.current.mode) : -1,
+        verificationPassCount: bottomPinRequestRef.current?.verificationPassCount,
+        userIntentActive: performance.now() <= userIntentUntilRef.current,
+        smoothActive: performance.now() < smoothScrollUntilRef.current,
+      }),
+    });
+  }, [chatId, currentScrollKey, messageListElement, searchActive]);
 
   useLayoutEffect(() => {
     if (!messageListElement) {
@@ -602,7 +630,7 @@ export const useConversationScroll = ({
     // scrollHeight/clientHeight are rounded; the browser can clamp scrollTop
     // one pixel short of their difference even at the reachable maximum.
     if (Math.abs(previousTop - target) <= BOTTOM_WHEEL_GUARD_PX) return false;
-    element.scrollTop = target;
+    writeConversationScrollTop(element, target, scrollWriter.bottom);
     return Math.abs(element.scrollTop - previousTop) > 0.5;
   }, [currentScrollKey, searchActive]);
 
@@ -742,6 +770,7 @@ export const useConversationScroll = ({
   }, [currentScrollKey, pinToBottom, searchActive]);
 
   const onListLayoutCommitted = useCallback(() => {
+    conversationTraceFor(messageListRef.current)?.record(traceKind.commitAfter);
     if (removalRef.current) { removalRef.current.refresh(); return; }
     const request = bottomPinRequestRef.current;
     const control = scrollControlRef.current;
@@ -1013,7 +1042,7 @@ export const useConversationScroll = ({
           const progress = latestScrollProgress((now - startedAt) / duration);
           // Animate the remaining distance, so remeasurement changes the
           // extent without changing the visible endpoint of the movement.
-          element.scrollTop = target() - initialDistance * (1 - progress);
+          writeConversationScrollTop(element, target() - initialDistance * (1 - progress), scrollWriter.latestMotion);
           if (progress < 1) smoothScrollFrameRef.current = requestAnimationFrame(animate);
           else onFinished();
         };
@@ -1033,14 +1062,14 @@ export const useConversationScroll = ({
           // to reach LAST first exposes the endpoint, then moves backwards,
           // and leaves its scrollToIndex retries competing with this motion.
           const settleDistance = Math.min(48, Math.max(24, element.clientHeight * 0.05));
-          element.scrollTop = Math.max(0, bottomTarget() - settleDistance);
+          writeConversationScrollTop(element, Math.max(0, bottomTarget() - settleDistance), scrollWriter.latestApproach);
           animateSegment(motionDuration.slow, bottomTarget, finishSmoothScroll);
         });
       }
     } else {
       smoothScrollUntilRef.current = 0;
       if (needsConvergence) {
-        virtuosoRef.current?.scrollToIndex({
+        traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
           index: "LAST",
           align: "end",
           behavior: "auto",
@@ -1102,7 +1131,7 @@ export const useConversationScroll = ({
       const correction = actualOffset - expectedOffset;
       if (Math.abs(correction) > 0.5) {
         markControlledCorrection();
-        element.scrollTop += correction;
+        writeConversationScrollTop(element, element.scrollTop + correction, scrollWriter.anchor);
       }
       return true;
     };
@@ -1110,7 +1139,7 @@ export const useConversationScroll = ({
     const itemIndex = messageItemIndexesRef.current.get(messageId);
     if (itemIndex === undefined) return;
     markControlledCorrection();
-    virtuosoRef.current?.scrollToIndex({
+    traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
       index: itemIndex,
       align: "start",
       offset: -expectedOffset,
@@ -1236,6 +1265,10 @@ export const useConversationScroll = ({
 
   const captureViewportBeforeUpdate = useCallback((structuralChange: boolean) => {
     const element = messageListRef.current;
+    conversationTraceFor(element)?.record(traceKind.commitBefore, {
+      structuralChange, firstItemIndex: diagnosticModelRef.current.firstItemIndex,
+      beforeCount: diagnosticModelRef.current.indexes.size, afterCount: messageItemIndexesRef.current.size,
+    });
     const control = scrollControlRef.current;
     const memory = currentScrollKey ? conversationScrollMemory.get(currentScrollKey) : undefined;
     if (!element || !currentScrollKey || searchActive ||
@@ -1253,6 +1286,12 @@ export const useConversationScroll = ({
       if (anchorFrameRef.current !== undefined) cancelAnimationFrame(anchorFrameRef.current);
       anchorFrameRef.current = undefined;
       const followsLatest = memory?.followLatest !== false;
+      const trace = conversationTraceFor(element);
+      trace?.record(traceKind.removalStart, {
+        removedCount: removedIds.size, followLatest: followsLatest, reducedMotion: reduceMotion,
+        anchorToken: trace.token(removal.anchor ? `message:${removal.anchor.messageId}` : undefined),
+        anchorOffset: removal.anchor?.offset,
+      });
       const generation = control.generation;
       if (followsLatest) scheduleBottomPin(undefined, "track");
       let motion: ReturnType<typeof removal.start> | undefined;
@@ -1381,6 +1420,15 @@ export const useConversationScroll = ({
     if (!messageListElement || !currentScrollKey || searchActive) return;
     const element = messageListElement;
     return observeConversationRowSizes(element, (changes) => {
+      const trace = conversationTraceFor(element);
+      for (const change of changes.slice(0, 16)) trace?.record(traceKind.resize, {
+        resizeDelta: change.delta,
+        rowToken: trace.objectToken(change.element),
+        blockIndex: Number((change.element as HTMLElement).dataset.index ?? -1),
+        messageToken: trace.token((change.element as HTMLElement).dataset.messageId
+          ? `message:${(change.element as HTMLElement).dataset.messageId}` : undefined),
+        batchCount: changes.length,
+      });
       if (removalRef.current) { removalRef.current.refresh(); return; }
       const control = scrollControlRef.current;
       const memory = conversationScrollMemory.get(currentScrollKey);
@@ -1407,7 +1455,7 @@ export const useConversationScroll = ({
           const row = change.element.getBoundingClientRect();
           return row.bottom <= targetTop + 0.5 ? total + change.delta : total;
           }, 0);
-        if (Math.abs(correction) > 0.5) element.scrollTop += correction;
+        if (Math.abs(correction) > 0.5) writeConversationScrollTop(element, element.scrollTop + correction, scrollWriter.rowResize);
       }
       const owner = contentAnchorOwnerRef.current;
       if (owner?.key === virtuosoKey && owner.generation === control.generation) {
@@ -1716,7 +1764,7 @@ export const useConversationScroll = ({
       ? Math.abs(itemIndex - visibleAnchorIndex) > 8
       : !mounted;
     const setControlledScrollTop = (nextTop: number) => {
-      element.scrollTop = nextTop;
+      writeConversationScrollTop(element, nextTop, scrollWriter.jumpMotion);
     };
     const animateScrollSegments = (
       fromTop: number,
@@ -1884,7 +1932,7 @@ export const useConversationScroll = ({
         if (!target && !requestedMissingTarget) {
           const latestItemIndex = messageItemIndexesRef.current.get(messageId);
           requestedMissingTarget = true;
-          virtuosoRef.current?.scrollToIndex({
+          traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
             index: latestItemIndex ?? itemIndex,
             align: "center",
             behavior: "auto",
@@ -1897,7 +1945,7 @@ export const useConversationScroll = ({
           if (targetOffset === undefined) {
             stableFrames = 0;
           } else if (Math.abs(targetOffset) > 0.5) {
-            element.scrollTop += targetOffset;
+            writeConversationScrollTop(element, element.scrollTop + targetOffset, scrollWriter.reveal);
             stableFrames = 0;
           } else stableFrames += 1;
         } else {
@@ -1977,7 +2025,7 @@ export const useConversationScroll = ({
       });
       if (!snapshot) {
         prepareTarget();
-        virtuosoRef.current?.scrollToIndex({
+        traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
           index: itemIndex,
           align: "center",
           behavior: "auto",
@@ -1988,7 +2036,7 @@ export const useConversationScroll = ({
         jumpSnapshotRef.current = { token: revealToken, snapshot };
         element.classList.add("is-jump-transitioning");
         const relocateTarget = () => {
-          virtuosoRef.current?.scrollToIndex({
+          traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
             index: itemIndex,
             align: "center",
             behavior: "auto",
@@ -2100,7 +2148,7 @@ export const useConversationScroll = ({
     } else {
       removeConversationJumpSnapshot(preservedSnapshot?.snapshot);
       prepareTarget();
-      virtuosoRef.current?.scrollToIndex({
+      traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
         index: itemIndex,
         align: "center",
         behavior: "auto",
@@ -2499,6 +2547,7 @@ export const useConversationScroll = ({
   }, [clearHistorySnapshot]);
 
   const onTotalListHeightChanged = useCallback(() => {
+    conversationTraceFor(messageListRef.current)?.record(traceKind.totalHeight);
     if (removalRef.current) { removalRef.current.refresh(); return; }
     if (!currentScrollKey || searchActive) return;
     if (performance.now() < smoothScrollUntilRef.current) return;

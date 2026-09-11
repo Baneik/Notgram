@@ -68,6 +68,7 @@ import {
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import { formatMessageDay, formatUnreadCount, localDateKey } from "../utils/formatters";
 import { observeLayout } from "../utils/layoutObservation";
+import { writeConversationScrollTop, traceConversationIndexScroll, conversationScrollWriter, recordConversationMeasurement } from "../utils/conversationTrace";
 import { Avatar } from "./Avatar";
 import {
   DeleteMessagesDialog,
@@ -191,8 +192,11 @@ interface MessageListContext {
 
 // Virtuoso's default rounds every row independently. Fractional text/media
 // heights then accumulate into a different endpoint than the rendered list.
-const measureMessageItem: SizeFunction = (element, field) =>
-  element.getBoundingClientRect()[field === "offsetHeight" ? "height" : "width"];
+const measureMessageItem: SizeFunction = (element, field) => {
+  const size = element.getBoundingClientRect()[field === "offsetHeight" ? "height" : "width"];
+  recordConversationMeasurement(element, size, field === "offsetHeight");
+  return size;
+};
 
 const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps & { context?: MessageListContext }>(
   ({ context, ...props }, ref) => {
@@ -1667,7 +1671,7 @@ export function Conversation({
         if (distance <= 0) return;
         const direction = outsideTop > 0 ? -1 : 1;
         const speed = Math.min(28, Math.max(2, distance * 0.28));
-        list.scrollTop += direction * speed;
+        writeConversationScrollTop(list, list.scrollTop + direction * speed, conversationScrollWriter.selection);
         updateFromPoint(active.lastX, Math.min(bounds.bottom - 2, Math.max(bounds.top + 2, active.lastY)));
         selectionAutoScrollFrameRef.current = requestAnimationFrame(tick);
       };
@@ -1782,7 +1786,7 @@ export function Conversation({
           `[data-message-id="${CSS.escape(anchor.messageId)}"]`,
         );
         if (!target) {
-          virtuosoRef.current?.scrollToIndex({
+          traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
             index: itemIndex,
             align: "start",
             offset: -anchor.offset,
@@ -1794,7 +1798,7 @@ export function Conversation({
             element.getBoundingClientRect().top;
           const difference = offset - anchor.offset;
           if (Math.abs(difference) > 0.5) {
-            element.scrollTop += difference;
+            writeConversationScrollTop(element, element.scrollTop + difference, conversationScrollWriter.selectionRestore);
             stableFrames = 0;
           } else {
             stableFrames += 1;
@@ -2584,6 +2588,7 @@ export function Conversation({
               )}
               <div
                 className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${groupModel.continuesBefore ? "continues-before" : ""} ${groupModel.continuesAfter ? "continues-after" : ""} ${groupModel.id === visibleMessageBlocks.at(-1)?.id ? "is-last-visible" : ""}`}
+                data-virtual-block-id={groupModel.id}
               >
                 {reserveSenderAvatar && (
                   <span className="message-group-avatar">

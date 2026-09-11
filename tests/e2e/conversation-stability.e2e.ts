@@ -1,10 +1,132 @@
 /// <reference types="vite/client" />
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 const ready = async (page: Page) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 };
+
+const validateDiagnosticRecords = (records: Array<{ event: string; details: Readonly<Record<string, number | boolean>> }>) => {
+  const native = readFileSync(new URL("../../src-tauri/src/telegram.rs", import.meta.url), "utf8");
+  const allowed = new Set([...native.split("const ALLOWED_PERFORMANCE_DETAIL_FIELDS")[1]!.split("];", 1)[0]!.matchAll(/"([A-Za-z0-9]+)"/g)].map(match => match[1]));
+  for (const record of records) {
+    expect(Object.keys(record.details).length).toBeLessThanOrEqual(48);
+    expect(record.details.windowId, record.event).toBeDefined();
+    expect(record.details.observedAtMs, record.event).toBeDefined();
+    for (const [key, value] of Object.entries(record.details)) {
+      expect(allowed.has(key), key).toBe(true);
+      expect(typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value)), key).toBe(true);
+    }
+  }
+};
+
+test("diagnostic bursts correlate wrong row measurements and clamped writes without changing layout", async ({ page }) => {
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const { observeConversationViewportDiagnostics } = await import("/src/utils/conversationViewportDiagnostics.ts" as string) as typeof import("../../src/utils/conversationViewportDiagnostics");
+    const { recordConversationMessage, conversationTraceFor, writeConversationScrollTop } = await import("/src/utils/conversationTrace.ts" as string) as typeof import("../../src/utils/conversationTrace");
+    const { getPerformanceRecords, subscribePerformanceRecords } = await import("/src/utils/performanceMonitor.ts" as string) as typeof import("../../src/utils/performanceMonitor");
+    const list = document.createElement("div");
+    list.className = "message-list";
+    list.style.cssText = "position:fixed;top:10px;left:10px;width:200px;height:120px;overflow:auto;";
+    list.innerHTML = '<div class="message-list-content"><div data-index="5" data-item-index="1005" data-known-size="10" style="height:160px"><div data-virtual-block-id="PRIVATE-PARTITION"><div data-message-id="PRIVATE-ID">PRIVATE CONTENT</div></div></div></div>';
+    document.body.append(list);
+    const message = { id: "PRIVATE-ID", chatId: "PRIVATE-CHAT", senderId: "PRIVATE-USER", outgoing: false,
+      sentAt: "2026-09-11T00:00:00Z", delivery: "read" as const, content: { kind: "text" as const, text: "PRIVATE CONTENT" } };
+    const collected: ReturnType<typeof getPerformanceRecords>[number][] = [];
+    let expectedIndex = 5;
+    const stop = observeConversationViewportDiagnostics(list, () => ({ followLatest: false }), {
+      chatId: message.chatId, readState: () => ({ generation: 4 }),
+      readModel: () => ({ messages: [message], indexes: new Map([[message.id, expectedIndex]]), firstItemIndex: 1000 }),
+    });
+    const session = conversationTraceFor(list)!.session;
+    const unsubscribe = subscribePerformanceRecords(() => {
+      const last = getPerformanceRecords().at(-1)!;
+      if (last.details.traceSession === session) collected.push(last);
+    });
+    const before = { top: list.scrollTop, height: list.scrollHeight, html: list.innerHTML };
+    // Let the actual geometry detector trigger, without manually starting a trace.
+    await new Promise(resolve => setTimeout(resolve, 1300));
+    const after = { top: list.scrollTop, height: list.scrollHeight, html: list.innerHTML };
+    expectedIndex = 6;
+    await new Promise(resolve => setTimeout(resolve, 300));
+    recordConversationMessage(message.chatId, message.id, 16, message, { remote: true });
+    writeConversationScrollTop(list, 200, 1);
+    const clamped = list.scrollTop;
+    await new Promise(resolve => setTimeout(resolve, 200));
+    stop(); unsubscribe(); list.remove();
+    return { before, after, clamped, records: collected };
+  });
+  expect(result.after).toEqual(result.before);
+  expect(result.records.some(record => record.details.triggerKind === 2)).toBe(true);
+  const row = result.records.find(record => record.event === "ui_conversation_row")!.details;
+  expect(row).toMatchObject({ knownHeight: 10, rowHeight: 160, blockIndex: 5, itemIndex: 1005, mappingMismatch: false });
+  const removed = result.records.find(record => record.details.traceKind === 16)!.details;
+  expect(row.firstMessageToken).toBe(removed.messageToken);
+  expect(result.records.some(record => record.event === "ui_conversation_member" && record.details.expectedIndex === 6)).toBe(true);
+  expect(result.records.some(record => record.details.mappingMismatch === true)).toBe(true);
+  expect(result.records.find(record => record.details.traceKind === 4)?.details).toMatchObject({ requestedTop: 200, actualTop: result.clamped });
+  expect(JSON.stringify(result.records)).not.toContain("PRIVATE");
+  validateDiagnosticRecords(result.records);
+});
+
+test("remote deletion and temporary bot expiry share diagnostic identities through ghost cleanup", async ({ page }) => {
+  await page.route("**/src/telegram/createTransport.ts", async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: (await response.text()).replace(
+      "return new MockTelegramTransport(", "return window.__diagnosticTransport = new MockTelegramTransport(",
+    ) });
+  });
+  await ready(page);
+  await page.locator(".message-list").press("End");
+  await page.waitForTimeout(700);
+  const result = await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const { preferencesStore } = await import("/src/store/preferencesStore.ts" as string) as typeof import("../../src/store/preferencesStore");
+    const { getPerformanceRecords, subscribePerformanceRecords } = await import("/src/utils/performanceMonitor.ts" as string) as typeof import("../../src/utils/performanceMonitor");
+    const { conversationTraceFor } = await import("/src/utils/conversationTrace.ts" as string) as typeof import("../../src/utils/conversationTrace");
+    const transport = (window as unknown as { __diagnosticTransport: { listener: (event: import("../../src/telegram/types").TelegramEvent) => void } }).__diagnosticTransport;
+    const list = document.querySelector<HTMLElement>(".message-list")!;
+    const trace = conversationTraceFor(list)!;
+    const session = trace.session;
+    const collected: ReturnType<typeof getPerformanceRecords>[number][] = [];
+    const unsubscribe = subscribePerformanceRecords(() => {
+      const last = getPerformanceRecords().at(-1)!;
+      if (last.details.traceSession === session) collected.push(last);
+    });
+    preferencesStore.setState({ deletedMessageArchiveEnabled: false });
+    const state = telegramStore.getState();
+    const source = state.messages.get("chat-product")!.find(message => message.id === "p-4")!;
+    const bot = { ...source, id: "PRIVATE-BOT-MESSAGE", senderId: "PRIVATE-BOT", isPinned: false,
+      sentAt: new Date(Date.parse(state.messages.get("chat-product")!.at(-1)!.sentAt) + 1000).toISOString(),
+      replyTo: { kind: "message" as const, messageId: source.id, content: source.content },
+      content: { kind: "text" as const, text: "PRIVATE MODERATION NOTICE" } };
+    const users = new Map(state.users);
+    users.set(bot.senderId, { ...users.values().next().value!, id: bot.senderId, isBot: true });
+    telegramStore.setState({ users });
+    transport.listener({ type: "message.remove", chatId: source.chatId, messageId: source.id, source: "remote", permanent: true });
+    transport.listener({ type: "message.upsert", message: bot, animateEntrance: true });
+    await new Promise(resolve => setTimeout(resolve, 700));
+    transport.listener({ type: "message.remove", chatId: bot.chatId, messageId: bot.id, source: "remote", permanent: true });
+    await new Promise(resolve => setTimeout(resolve, 900));
+    trace.flush(); unsubscribe();
+    return { records: collected, remainingGhosts: telegramStore.getState().removingMessages.get(source.chatId)?.length ?? 0 };
+  });
+  const deletions = result.records.filter(record => record.details.traceKind === 16);
+  expect(deletions).toHaveLength(2);
+  expect(deletions.some(record => record.details.isBot === true)).toBe(true);
+  for (const deletion of deletions) {
+    expect(deletion.details.remote).toBe(true);
+    for (const phase of [17, 18]) expect(result.records.some(record => record.details.traceKind === phase &&
+      record.details.messageToken === deletion.details.messageToken)).toBe(true);
+  }
+  expect(result.remainingGhosts).toBe(0);
+  expect(result.records.some(record => record.details.traceKind === 22)).toBe(true);
+  expect(result.records.some(record => record.event === "ui_conversation_row")).toBe(true);
+  expect(JSON.stringify(result.records)).not.toContain("PRIVATE");
+  validateDiagnosticRecords(result.records);
+});
 
 test("viewport diagnostics distinguish a reached scroll maximum from ancestor clipping", async ({ page }) => {
   await ready(page);

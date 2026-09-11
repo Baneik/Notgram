@@ -109,8 +109,95 @@ viewport is visible, and emits only when endpoint geometry or control state chan
 raw scroll maximum separately from the visible Footer/message gap, clipping by ancestors, row
 measurement error, scale and following/input state. Negative gaps mean content extends below the
 visible viewport; `latestRowPresent` distinguishes the mounted tail from the actual latest message.
-Sampling owns no scroll writes, resize reconciliation or animation frames. These records diagnose
-persistent endpoint failures; ordinary frame-drop events alone cannot establish pixel movement.
+Sampling owns no scroll writes or resize reconciliation. These records diagnose persistent endpoint
+failures; ordinary frame-drop events alone cannot establish pixel movement.
+
+### Temporary conversation diagnostic branch
+
+The diagnostic build also records `ui_conversation_trace`, `ui_conversation_row`, and
+`ui_conversation_member` through the existing numeric-only performance log and export pipeline.
+This is instrumentation, not a scroll behavior fix. It starts automatically for the current conversation.
+No server message/chat/user IDs, text, URLs, button data, paths, or keyboard text are written.
+
+`traceSession` identifies one mounted conversation observer; `traceRun` identifies one burst within it.
+`messageToken`, `replyToken`, and `partitionToken` are opaque session-local counters, not hashes of IDs.
+`rowToken` identifies the actual DOM node; `revisionToken` identifies an in-memory message object.
+Thus the same logical message can be distinguished from a replaced DOM node or new object revision.
+Tokens are not comparable across sessions/windows. The ID table is bounded to 4096 entries; zero means
+unknown/over budget. Object identities use weak references. A conversation/account switch disposes
+the observer and its ID table. Use the existing `windowId` with these keys across native windows.
+
+Every trace record includes `traceSeq` and `traceTimeMs`. Reconstruct event time as
+`traceOriginMs + traceTimeMs`; `observedAtMs`/native `timestampMs` are emission times and may be later
+because pre-trigger evidence is buffered. A start marker precedes replayed history, so file order is
+not necessarily event order. History can appear in successive runs; deduplicate by session/sequence
+when combining runs.
+
+Collection policy:
+
+- Idle geometry stays at 1 Hz and is deduplicated. The most recent 96 callback/input/write events
+  stay in memory. The 100 ms housekeeping timer performs no geometry reads while idle.
+- A remote deletion or ghost creation triggers a burst (`triggerKind=1`). Geometry sampling can also
+  trigger it for row error >8 px (`2`), or following the latest message with >32 px bottom distance,
+  <-8 px latest gap, or >8 px ancestor clipping without active pointer/autoscroll (`3`). These are
+  capture thresholds, not declarations that ordinary navigation is broken.
+- A burst lasts at most 8 seconds or 640 records, including its terminal record. Starts are separated
+  by at least 30 seconds; repeated callbacks cannot extend the deadline. `finishKind` is `1` for time,
+  `2` for output budget, `3` for disposal. `droppedCount` reports overwritten/unemitted callback entries.
+- During a burst, each animation frame reads raw scroll metrics. Every 100 ms the trace reports
+  extrema, sample count, and direction reversals, preserving evidence of movement between snapshots.
+  Row snapshots run at most every 250 ms: the mounted tail plus the largest measurement errors,
+  at most eight rows. `selectedRowCount`/`mountedRowCount` make this sampling explicit.
+- Rows record cached/actual height, layout height, relative top, width, offsetTop, transform/scale,
+  logical/absolute indexes, partition/node identity, and removing-member counts. Member records map
+  individual anonymous messages to expected/actual indexes whenever a selected row's membership
+  changes (up to 16 members per row; `memberCount` exposes truncation). New runs resend membership.
+- Live-message and deletion lifecycle evidence is also flushed outside bursts, including cooldown,
+  so a bot's later self-deletion is not lost just because the geometry burst ended. This queue keeps
+  at most 32 pending lifecycle records and flushes at most once per second while idle.
+- Hiding the document pauses frame/row reads. Visibility/focus events and terminal elapsed time
+  identify gaps; absence of a sample is not evidence of stable geometry. Disposal cancels all
+  observer timers/listeners/frames. Existing file rotation and performance-log drop reporting apply.
+
+`traceKind` decoding:
+
+| Code | Meaning |
+| --- | --- |
+| 1 / 2 | Burst start / end |
+| 3 | Per-frame scroll extrema and reversal summary |
+| 4 | Application scrollTop assignment: requested, previous, and actual clamped value |
+| 5 | Passive scroll event; `trusted` does not imply human input |
+| 6 | Requested Virtuoso index scroll, alignment, offset, and smooth flag |
+| 7 / 8 | Before-mutation / committed-list notification, including index/count changes |
+| 9 / 10 | Real row resize / virtualizer total-height notification |
+| 11 / 12 | Removal settling transaction started / released |
+| 13 / 14 | Input category / document visibility or window focus change |
+| 15 / 16 | Committed message upsert / received deletion event |
+| 17 / 18 | Removal ghost created / expired, including timer deadline lag |
+| 19 / 20 | Immediate removal / local deletion archive retained |
+| 21 | Scroll-control snapshot: generation, follow mode, ownership, anchor, input window |
+| 22 | Size returned to Virtuoso's itemSize callback, before it updates its size cache |
+| 23 | Idle lifecycle queue truncation/drop count |
+
+`writerKind`: `1` bottom pin, `2` latest animation, `3` latest approach,
+`4` anchor correction, `5` resized-row correction, `6` jump animation, `7` target reveal,
+`8` selection autoscroll, `9` selection return. Index commands are separately recorded as kind 6.
+Browser anchoring, focus scrolling, and Virtuoso's internal corrections do not pass through the
+application's scrollTop helper. They remain observable as kind 5 / frame changes without a matching
+kind 4. Do not label an unattributed movement as a definite browser or library write.
+
+`inputKind`: wheel, keydown, pointerdown, pointerup, pointercancel = 1..5.
+`keyKind`: ArrowUp, ArrowDown, PageUp, PageDown, Home, End, Space = 1..7; all other keys = 0.
+`contentKind`: text, rich, media, file, sticker, service, unsupported = 1..7; other kinds = 0.
+`mediaKind`: photo, video, animation, audio, voice = 1..5; other kinds = 0.
+`scrollMode`: following, detached, restoring, navigating = 0..3.
+`reconcileMode`: settle, track, motion = 0..2; no transaction = -1.
+
+For deletion investigations, follow a `messageToken` from remote deletion through ghost expiry and
+the commit/index records. Compare the same `rowToken` and `partitionToken` before/after mapping
+changes, then compare kind 22 measurements to the next cached heights. Finally align application
+writes, passive scroll changes, control ownership, and frame extrema. This distinguishes a wrong
+cache mapping, genuine content resizing, repeated scroll correction, and a DOM-node replacement.
 
 Anchor and explicit message navigation use longer quiet windows because virtual rows can mount several
 frames after the target first appears.
