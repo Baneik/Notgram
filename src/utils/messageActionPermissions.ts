@@ -11,7 +11,9 @@ interface LoadMessageActionPermissionsOptions {
     chatId: string,
     messageId: string,
     force?: boolean,
+    signal?: AbortSignal,
   ) => Promise<MessagePermissions | undefined>;
+  signal?: AbortSignal;
 }
 
 /**
@@ -25,10 +27,13 @@ export const loadMessageActionPermissions = async ({
   initialMessage,
   getCurrentMessage,
   load,
+  signal,
 }: LoadMessageActionPermissionsOptions): Promise<MessagePermissions | undefined> => {
   let requestedMessage = initialMessage;
   for (let attempt = 0; attempt < MAX_MESSAGE_PERMISSION_SNAPSHOTS; attempt += 1) {
-    const permissions = await load(chatId, messageId, true);
+    if (signal?.aborted || requestedMessage.isLocallyDeleted) return undefined;
+    const permissions = await load(chatId, messageId, true, signal);
+    if (signal?.aborted) return undefined;
     if (permissions) return permissions;
 
     const currentMessage = getCurrentMessage();

@@ -223,6 +223,7 @@
 - Tauri 原生菜单改为一个预创建、隐藏复用的 `context-menu-shared` WebView；每次打开只更新物理坐标、逻辑尺寸和 descriptor。
 - Rust 保存 active session ID；旧会话不能 finish/resize 当前菜单。前端 BroadcastChannel 也用 session ID 去重 init/close。
 - 菜单先 prepare/open 隐藏窗口，React 完成测量后再 show/focus；关闭时 hide 而不是销毁。
+- 消息权限读取由当前菜单持有，普通会话和频道留言复用同一生命周期。未知权限显示加载、等待连接或失败状态；联网恢复自动重试，失败可在原菜单内手动重试。关闭、超时和账号切换取消结果写入，消息快照竞争仍最多尝试三次。
 - 设置、视频、媒体查看器、上下文菜单分别使用独立 HTML/Vite entry，只加载各自组件与依赖。
 - 视频窗口先以 hidden、非 fullscreen 创建；PageLoad Finished 后再设置 fullscreen、show、focus，并移除不必要的 parent 关系；ready 广播重复发送直到收到 descriptor。
 
@@ -233,6 +234,7 @@
 3. 高频临时窗口优先复用并隐藏，长生命周期媒体窗口按独立协议关闭；两者不要混用。
 4. 子窗口必须有独立 bundle entry；禁止从查询参数分支加载完整主应用。
 5. Mock 只能验证协议与 DOM；透明、置顶、物理像素坐标、多显示器和焦点必须在原生 WebView2 验收。
+6. 同一菜单的 descriptor 更新不能解除失焦关闭或抢走仍可用项目的焦点。重试动作必须保持会话和通信通道存活；权限未知不能等同于服务端明确拒绝，也不能留下没有状态和恢复入口的灰色菜单。
 
 ## 9. 顽疾七：性能指标把等待误报为卡顿
 

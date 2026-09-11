@@ -892,6 +892,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .native-context-menu { left: 12px; top: 12px; width: var(--native-context-primary-width); }
 .native-context-menu-group { display: contents; }
+.native-context-menu-status { height: 42px; padding: 4px 10px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; line-height: 16px; }
+.native-context-menu-status > svg, .message-action-status > svg { flex-shrink: 0; }
 .native-context-menu-children {
   left: var(--native-context-submenu-x); top: calc(12px + var(--native-context-submenu-y)); max-height: 212px;
   width: var(--native-context-submenu-width);

@@ -2,6 +2,8 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
+  AlertCircle,
+  LoaderCircle,
   AtSign,
   Check,
   ChevronRight,
@@ -32,6 +34,7 @@ import {
   NATIVE_CONTEXT_MENU_CHANNEL,
   type NativeContextMenuDescriptor,
   type NativeContextMenuIcon,
+  type NativeContextMenuItem,
   type NativeContextMenuMessage,
 } from "../contextMenu/nativeContextMenuBridge";
 import {
@@ -47,6 +50,8 @@ import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
 import { StableImage } from "./StableImage";
 
 const icons: Record<NativeContextMenuIcon, typeof Pin> = {
+  alert: AlertCircle,
+  loading: LoaderCircle,
   archive: Archive,
   at: AtSign,
   check: Check,
@@ -143,12 +148,13 @@ export function ContextMenuWindow() {
       initSignatureRef.current = signature;
       if (activeIdRef.current !== message.id) {
         cancelExpandedClose();
+        if (blurTimerRef.current !== undefined) globalThis.clearTimeout(blurTimerRef.current);
+        blurArmedRef.current = false;
         shownIdRef.current = undefined;
         setExpandedId(undefined);
       }
       activeIdRef.current = message.id;
       closingRef.current = false;
-      blurArmedRef.current = false;
       setSession({ id: message.id, descriptor: message.descriptor });
       applyThemeToDocument(themeIdForColorTheme(message.descriptor.colorTheme));
       if (isTauri()) {
@@ -200,7 +206,11 @@ export function ContextMenuWindow() {
           if (activeIdRef.current === session.id) blurArmedRef.current = true;
         }, 50);
       }
-      focusFirstMenuButton(menuRef.current);
+      // Updating permissions must not steal keyboard focus from a usable action.
+      const focused = document.activeElement;
+      if (firstShow || !(focused instanceof HTMLButtonElement) || focused.disabled || !menuRef.current?.contains(focused)) {
+        focusFirstMenuButton(menuRef.current);
+      }
     }).catch(() => {
       if (activeIdRef.current === session.id) void close();
     });
@@ -214,9 +224,10 @@ export function ContextMenuWindow() {
     measureNativeContextMenuLabel,
   );
   const expandedItem = descriptor.items.find((item) => item.id === expandedId);
-  const select = (actionId: string) => {
-    channelRef.current?.postMessage({ type: "action", id, actionId } satisfies NativeContextMenuMessage);
-    void close();
+  const select = (item: NativeContextMenuItem) => {
+    if (item.disabled || item.status || closingRef.current) return;
+    channelRef.current?.postMessage({ type: "action", id, actionId: item.id } satisfies NativeContextMenuMessage);
+    if (!item.keepOpen) void close();
   };
 
   return (
@@ -242,6 +253,12 @@ export function ContextMenuWindow() {
       >
         {descriptor.items.map((item) => {
           const Icon = icons[item.icon];
+          if (item.status) return (
+            <div key={item.id} className="native-context-menu-status" role="status">
+              <Icon size={15} className={item.icon === "loading" ? "spin" : undefined} />
+              <span>{item.label}</span>
+            </div>
+          );
           const expanded = item.id === expandedId;
           const avatarSource = item.avatar?.imagePath
             ? isTauri() ? convertFileSrc(item.avatar.imagePath, "notgram-asset") : item.avatar.imagePath
@@ -265,7 +282,7 @@ export function ContextMenuWindow() {
                   setExpandedId(item.children ? item.id : undefined);
                 }}
                 onClick={() => {
-                  if (item.actionable || !item.children) select(item.id);
+                  if (item.actionable || !item.children) select(item);
                   else setExpandedId(expanded ? undefined : item.id);
                 }}
               >
@@ -318,7 +335,7 @@ export function ContextMenuWindow() {
                 aria-checked={child.checked}
                 disabled={child.disabled}
                 key={child.id}
-                onClick={() => select(child.id)}
+                onClick={() => select(child)}
               >
                 {child.avatar ? (
                   <span

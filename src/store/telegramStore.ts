@@ -3379,7 +3379,11 @@ export const createTelegramStore = (
           });
       },
 
-      loadMessageProperties: async (chatId, messageId, force = false) => {
+      loadMessageProperties: async (chatId, messageId, force = false, signal) => {
+        if (signal?.aborted) return undefined;
+        const generation = accountGeneration;
+        const accountId = get().activeAccountId;
+        const isCurrent = () => !signal?.aborted && generation === accountGeneration && accountId === get().activeAccountId;
         const requestedMessage = (get().messages.get(chatId) ?? [])
           .find((message) => message.id === messageId);
         if (!requestedMessage) return undefined;
@@ -3387,6 +3391,7 @@ export const createTelegramStore = (
         if (requestedMessage.permissions && !force) return requestedMessage.permissions;
         try {
           const permissions = await transport.getMessageProperties(chatId, messageId);
+          if (!isCurrent()) return undefined;
           const currentMessages = get().messages.get(chatId) ?? [];
           const message = currentMessages.find((item) => item.id === messageId);
           if (!message || message !== requestedMessage) return undefined;
@@ -3395,6 +3400,7 @@ export const createTelegramStore = (
           set({ messages, operationError: undefined });
           return permissions;
         } catch (error) {
+          if (!isCurrent()) return undefined;
           set({
             operationError: error instanceof Error ? error.message : translate("无法读取消息操作权限"),
           });

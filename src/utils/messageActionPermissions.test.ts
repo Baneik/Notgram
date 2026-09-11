@@ -22,6 +22,24 @@ const permissions: MessagePermissions = {
 };
 
 describe("loadMessageActionPermissions", () => {
+  it("does not retry or return a result after its menu closes", async () => {
+    const initial = message("p-4");
+    const controller = new AbortController();
+    const load = vi.fn(async () => {
+      controller.abort();
+      return permissions;
+    });
+    await expect(loadMessageActionPermissions({
+      chatId: initial.chatId, messageId: initial.id, initialMessage: initial,
+      getCurrentMessage: () => ({ ...initial }), load, signal: controller.signal,
+    })).resolves.toBeUndefined();
+    expect(load).toHaveBeenCalledTimes(1);
+    await loadMessageActionPermissions({
+      chatId: initial.chatId, messageId: initial.id, initialMessage: initial,
+      getCurrentMessage: () => initial, load, signal: controller.signal,
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+  });
   it("retries when a live update replaces the requested message snapshot", async () => {
     const first = message("p-4");
     const refreshed = message("p-4", "2026-08-25T12:00:00+08:00");
@@ -52,6 +70,16 @@ describe("loadMessageActionPermissions", () => {
       initialMessage: initial,
       getCurrentMessage: () => initial,
       load,
+    })).resolves.toBeUndefined();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops querying when a live deletion replaces the target with a local copy", async () => {
+    const initial = message("p-4");
+    const load = vi.fn().mockResolvedValue(undefined);
+    await expect(loadMessageActionPermissions({
+      chatId: initial.chatId, messageId: initial.id, initialMessage: initial,
+      getCurrentMessage: () => ({ ...initial, isLocallyDeleted: true }), load,
     })).resolves.toBeUndefined();
     expect(load).toHaveBeenCalledTimes(1);
   });

@@ -25,7 +25,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
-import { telegramStore, useTelegramStore } from "../store/telegramStore";
+import { useTelegramStore } from "../store/telegramStore";
 import type {
   Chat,
   ChatReportResult,
@@ -46,7 +46,6 @@ import {
   mentionTextForUser,
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
-import { loadMessageActionPermissions } from "../utils/messageActionPermissions";
 import { formatSelectedMessages } from "../utils/messageClipboard";
 import { recentMentionUserIdsFor } from "../utils/mentionSuggestions";
 import { Avatar } from "./Avatar";
@@ -120,6 +119,7 @@ interface ChannelDiscussionPanelProps {
     chatId: string,
     messageId: string,
     force?: boolean,
+    signal?: AbortSignal,
   ) => Promise<MessagePermissions | undefined>;
   onLoadForumTopics: (chatId: string) => Promise<ForumTopicPage | undefined>;
   onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
@@ -275,7 +275,6 @@ export function ChannelDiscussionPanel({
     [administratorLabels],
   );
   const [actionMenu, setActionMenu] = useState<MessageMenuState>();
-  const [actionLoadingId, setActionLoadingId] = useState<string>();
   const [replyingTo, setReplyingTo] = useState<Message>();
   const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
   const [editingMessage, setEditingMessage] = useState<Message>();
@@ -388,19 +387,7 @@ export function ChannelDiscussionPanel({
       replyQuote: selectedReplyQuote,
       keyboardNavigation,
     });
-    if (actionLoadingId === message.id) return;
-    setActionLoadingId(message.id);
-    await loadMessageActionPermissions({
-      chatId: message.chatId,
-      messageId: message.id,
-      initialMessage: message,
-      getCurrentMessage: () => telegramStore.getState().messages
-        .get(message.chatId)
-        ?.find((candidate) => candidate.id === message.id),
-      load: onLoadMessageProperties,
-    });
-    setActionLoadingId((current) => current === message.id ? undefined : current);
-  }, [actionLoadingId, blockedById, onLoadMessageProperties, revealedMessages]);
+  }, [blockedById, revealedMessages]);
 
   const startReply = useCallback((message: Message, selectedQuote?: MessageReplyQuote) => {
     setEditingMessage(undefined);
@@ -815,9 +802,10 @@ export function ChannelDiscussionPanel({
 
       {actionMenu && actionMessage && (
         <MessageActionMenu
+          key={`${activeAccountId}:${draftKey}:${actionMessage.chatId}:${actionMessage.id}`}
           position={actionMenu}
           message={actionMessage}
-          loading={actionLoadingId === actionMessage.id}
+          onLoadPermissions={onLoadMessageProperties}
           keyboardNavigation={actionMenu.keyboardNavigation}
           onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessage)}

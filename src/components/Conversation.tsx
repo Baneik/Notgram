@@ -143,7 +143,6 @@ import {
   mentionTextForUser,
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
-import { loadMessageActionPermissions } from "../utils/messageActionPermissions";
 import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
 import { mediaAlbumCaptionMessage, mediaAlbumMessagesFor } from "../utils/mediaAlbums";
 import { visibleMessageReactions } from "../utils/localBlockedReactions";
@@ -324,6 +323,7 @@ interface ConversationProps {
     chatId: string,
     messageId: string,
     force?: boolean,
+    signal?: AbortSignal,
   ) => Promise<MessagePermissions | undefined>;
   onLoadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   onSetMessageReaction: (messageId: string, emoji: string, chosen: boolean, chatId?: string) => Promise<void>;
@@ -579,7 +579,6 @@ export function Conversation({
   const consumeComposerTextInsertion = useCallback((id: string) => {
     setComposerTextInsertion((current) => current?.id === id ? undefined : current);
   }, []);
-  const [actionLoadingId, setActionLoadingId] = useState<string>();
   const [replyingTo, setReplyingTo] = useState<Message>();
   const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
   const [editingMessage, setEditingMessage] = useState<Message>();
@@ -1839,7 +1838,6 @@ export function Conversation({
   useEffect(() => {
     setActionMenu(undefined);
     setActionForwardTargets([]);
-    setActionLoadingId(undefined);
     setComposerTextInsertion(undefined);
     setReplyingTo(undefined);
     setReplyQuote(undefined);
@@ -2084,25 +2082,7 @@ export function Conversation({
       replyQuote: selectedReplyQuote,
       keyboardNavigation,
     });
-    if (message.isLocallyDeleted) {
-      setActionLoadingId(undefined);
-      return;
-    }
-    if (actionLoadingId === message.id) return;
-    setActionLoadingId(message.id);
-    await loadMessageActionPermissions({
-      chatId: message.chatId,
-      messageId: message.id,
-      initialMessage: message,
-      // Read Zustand directly here: a live TDLib update may have replaced the
-      // message before React commits the render that updates messagesByIdRef.
-      getCurrentMessage: () => telegramStore.getState().messages
-        .get(message.chatId)
-        ?.find((candidate) => candidate.id === message.id),
-      load: onLoadMessageProperties,
-    });
-    setActionLoadingId((current) => current === message.id ? undefined : current);
-  }, [actionLoadingId, activeAccountId, forwardTargets, onLoadMessageProperties]);
+  }, [activeAccountId, forwardTargets]);
 
   const copyMessage = async (message: Message) => {
     try {
@@ -3060,9 +3040,10 @@ export function Conversation({
 
       {actionMenu && actionMessageForMenu && (
         <MessageActionMenu
+          key={`${activeAccountId}:${conversationIdentity}:${actionMessageForMenu.id}`}
           position={actionMenu}
           message={actionMessageForMenu}
-          loading={actionLoadingId === actionMessageForMenu.id}
+          onLoadPermissions={onLoadMessageProperties}
           keyboardNavigation={actionMenu.keyboardNavigation}
           onReply={() => startReply(actionMessageForMenu, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessageForMenu)}

@@ -247,6 +247,7 @@ export interface TelegramState {
     chatId: string,
     messageId: string,
     force?: boolean,
+    signal?: AbortSignal,
   ) => Promise<MessagePermissions | undefined>;
   loadRawMessage: (chatId: string, messageId: string) => Promise<string | undefined>;
   searchChatMessages: (input: ChatMessageSearchInput) => Promise<void>;

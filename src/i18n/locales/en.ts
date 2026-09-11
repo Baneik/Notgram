@@ -1044,6 +1044,7 @@ export const en = {
   "无法读取媒体元数据": "Unable to read media metadata",
   "无法读取存储路径设置": "Unable to read storage path settings",
   "无法读取操作权限": "Unable to read operation permissions",
+  "连接恢复后自动重试": "Retry when connected",
   "无法读取消息操作权限": "Unable to read message operation permissions",
   "无法读取用户资料": "Unable to read user information",
   "无法读取管理日志": "Unable to read management logs",

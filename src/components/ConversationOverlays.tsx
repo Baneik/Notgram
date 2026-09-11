@@ -31,6 +31,8 @@ import { useNativeContextMenu, type NativeContextMenuItem } from "../contextMenu
 import { ContextMenuPanel, ContextMenuSurface, type ContextMenuPoint } from "./ContextMenuSurface";
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useMessageActionPermissions } from "../hooks/useMessageActionPermissions";
+import type { TelegramState } from "../store/telegramStore.types";
 import type { Chat, Message } from "../telegram/types";
 import { MAX_QUICK_FORWARD_TARGETS } from "../store/conversationActivity";
 import {
@@ -96,7 +98,7 @@ export function SenderActionMenu({
 interface MessageActionMenuProps {
   position: { left: number; top: number };
   message: Message;
-  loading: boolean;
+  onLoadPermissions: TelegramState["loadMessageProperties"];
   keyboardNavigation?: boolean;
   onReply: () => void;
   onEdit: () => void;
@@ -121,7 +123,7 @@ interface MessageActionMenuProps {
 export function MessageActionMenu({
   position,
   message,
-  loading,
+  onLoadPermissions,
   keyboardNavigation = false,
   onReply,
   onEdit,
@@ -143,6 +145,9 @@ export function MessageActionMenu({
   onReport,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
+  const { status: permissionStatus, loading, retry: retryPermissions } = useMessageActionPermissions(message, onLoadPermissions);
+  const permissionLabel = permissionStatus === "unavailable" ? translate("连接恢复后自动重试")
+    : permissionStatus === "loading" ? translate("正在读取操作权限") : translate("无法读取操作权限");
   const menuRef = useRef<HTMLDivElement>(null);
   const [expandedForwardAction, setExpandedForwardAction] = useState<"forward" | "merge-forward">();
   const quickForwardTargets = forwardTargets.slice(0, MAX_QUICK_FORWARD_TARGETS);
@@ -198,21 +203,17 @@ export function MessageActionMenu({
     ...(onPlayInWindow ? [{ id: "play-window", label: translate("以小窗播放"), icon: "play-window" as const }] : []),
     ...(onReport ? [{ id: "report", label: translate("举报"), icon: "trash" as const, danger: true }] : []),
   ] : [
-    { id: "reply", label: translate("回复"), icon: "reply", disabled: true },
-    { id: "forward", label: translate("转发"), icon: "forward", disabled: true },
-    ...(onForwardAlbum
-      ? [{ id: "merge-forward", label: translate("合并转发"), icon: "forward" as const, disabled: true }]
-      : []),
-    ...(onRepeat ? [{ id: "repeat", label: translate("复读"), icon: "repeat" as const, disabled: true }] : []),
     { id: "copy", label: translate("复制"), icon: "copy" },
     ...(onSelect ? [{ id: "select", label: translate("选择"), icon: "check" as const }] : []),
     ...(onDownload ? [{ id: "download", label: translate("下载"), icon: "download" as const }] : []),
-    ...(message.content.kind === "text"
-      ? [{ id: "edit", label: translate("编辑"), icon: "edit" as const, disabled: true }]
-      : []),
-    { id: "delete", label: translate("删除"), icon: "trash", danger: true, disabled: true },
     ...(onPlayInWindow ? [{ id: "play-window", label: translate("以小窗播放"), icon: "play-window" as const }] : []),
-    ...(onReport ? [{ id: "report", label: translate("举报"), icon: "trash" as const, danger: true, disabled: true }] : []),
+    {
+      id: "permissions-status",
+      label: permissionLabel,
+      icon: permissionStatus === "loading" ? "loading" : "alert",
+      status: true,
+    },
+    ...(permissionStatus === "retryable" ? [{ id: "retry-permissions", label: translate("重试"), icon: "repeat" as const, keepOpen: true }] : []),
   ];
   const nativeMenu = useNativeContextMenu({
     label: translate("消息操作"),
@@ -220,7 +221,8 @@ export function MessageActionMenu({
     keyboardNavigation,
     items: nativeItems,
   }, { x: position.left, y: position.top }, (actionId) => {
-    if (actionId === "reply") onReply();
+    if (actionId === "retry-permissions") retryPermissions();
+    else if (actionId === "reply") onReply();
     else if (actionId === "forward") onForward();
     else if (actionId === "merge-forward") onForwardAlbum?.();
     else if (actionId.startsWith("quick-forward:")) {
@@ -246,6 +248,8 @@ export function MessageActionMenu({
   useContextMenuDismiss(menuRef, onDismiss);
   useEffect(() => {
     const timer = globalThis.setTimeout(() => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLButtonElement && !focused.disabled && menuRef.current?.contains(focused)) return;
       if (!focusFirstMenuButton(menuRef.current)) menuRef.current?.focus({ preventScroll: true });
     }, 0);
     return () => globalThis.clearTimeout(timer);
@@ -268,29 +272,31 @@ export function MessageActionMenu({
     >
       {!permissions ? (
         <>
-          <button type="button" role="menuitem" onClick={onCopy}>
+          <button key="copy" type="button" role="menuitem" onClick={onCopy}>
             <Copy size={16} strokeWidth={1.9} />
             <span>{translate("复制")}</span>
           </button>
           {onSelect && (
-            <button type="button" role="menuitem" onClick={onSelect}>
+            <button key="select" type="button" role="menuitem" onClick={onSelect}>
               <Check size={16} strokeWidth={1.9} />
               <span>{translate("选择")}</span>
             </button>
           )}
           {onDownload && (
-            <button type="button" role="menuitem" onClick={onDownload}>
+            <button key="download" type="button" role="menuitem" onClick={onDownload}>
               <Download size={16} strokeWidth={1.9} />
               <span>{translate("下载")}</span>
             </button>
           )}
           <div className="message-action-status" role="status">
-            {loading ? (
-              <><LoaderCircle className="spin" size={15} />{translate("正在读取操作权限")}</>
-            ) : (
-              <><AlertCircle size={15} />{translate("无法读取操作权限")}</>
-            )}
+            {permissionStatus === "loading" ? <LoaderCircle className="spin" size={15} /> : <AlertCircle size={15} />}
+            <span>{permissionLabel}</span>
           </div>
+          {permissionStatus === "retryable" && (
+            <button type="button" role="menuitem" onClick={retryPermissions}>
+              <Repeat2 size={16} />{translate("重试")}
+            </button>
+          )}
         </>
       ) : (
         <>
@@ -376,18 +382,18 @@ export function MessageActionMenu({
               <span>{translate("复读")}</span>
             </button>
           )}
-          <button type="button" role="menuitem" onClick={onCopy}>
+          <button key="copy" type="button" role="menuitem" onClick={onCopy}>
             <Copy size={16} strokeWidth={1.9} />
             <span>{translate("复制")}</span>
           </button>
           {onSelect && (
-            <button type="button" role="menuitem" onClick={onSelect}>
+            <button key="select" type="button" role="menuitem" onClick={onSelect}>
               <Check size={16} strokeWidth={1.9} />
               <span>{translate("选择")}</span>
             </button>
           )}
           {onDownload && (
-            <button type="button" role="menuitem" onClick={onDownload}>
+            <button key="download" type="button" role="menuitem" onClick={onDownload}>
               <Download size={16} strokeWidth={1.9} />
               <span>{translate("下载")}</span>
             </button>

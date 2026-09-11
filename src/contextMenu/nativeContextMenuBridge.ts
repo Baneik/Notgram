@@ -11,6 +11,8 @@ import {
 } from "./nativeContextMenuLayout";
 
 export type NativeContextMenuIcon =
+  | "alert"
+  | "loading"
   | "archive"
   | "at"
   | "check"
@@ -39,6 +41,8 @@ export interface NativeContextMenuItem {
   avatar?: Avatar;
   separatorBefore?: boolean;
   actionable?: boolean;
+  keepOpen?: boolean;
+  status?: boolean;
   children?: NativeContextMenuItem[];
 }
 
@@ -136,6 +140,7 @@ const showNativeContextMenu = async (
   signal: AbortSignal,
   registerUpdater: (updater?: DescriptorUpdater) => void,
   placement: NativeContextMenuPlacement,
+  onKeepOpenAction: (actionId: string) => void,
 ) => {
   const id = menuId();
   const geometry = calculateNativeContextMenuGeometry(
@@ -186,7 +191,11 @@ const showNativeContextMenu = async (
     if (message.type === "ready") {
       publishDescriptor();
     } else if (message.type === "action" && message.id === id) {
-      finish(message.actionId);
+      const item = descriptor.items.flatMap(item => [item, ...(item.children ?? [])])
+        .find(item => item.id === message.actionId);
+      if (!item || item.disabled || item.status) return;
+      if (item.keepOpen) onKeepOpenAction(message.actionId);
+      else finish(message.actionId);
     } else if (message.type === "closed" && message.id === id) {
       finish();
     }
@@ -262,6 +271,7 @@ export const useNativeContextMenu = (
       controller.signal,
       registerUpdater,
       options.placement ?? "cursor",
+      (actionId) => { if (!controller.signal.aborted) onActionRef.current(actionId); },
     )
       .then((actionId) => {
         if (controller.signal.aborted) return;
