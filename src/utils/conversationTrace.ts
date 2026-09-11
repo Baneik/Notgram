@@ -1,6 +1,6 @@
 import type { FlatIndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
-import { logPerformance, type PerformanceDetails } from "./performanceMonitor";
+import { isPerformanceMonitoringEnabled, logPerformance, type PerformanceDetails } from "./performanceMonitor";
 
 // Numeric codes and limits are documented in conversation-state-model.md.
 export const conversationTraceKind = {
@@ -68,13 +68,13 @@ export const createConversationTrace = (options: TraceOptions = {}) => {
     get run() { return run; },
     get active() { return startedAt !== undefined; },
     objectToken(value: object | undefined) {
-      if (!value) return 0;
+      if (disposed || !value) return 0;
       let token = objects.get(value);
       if (!token) { token = nextToken++; objects.set(value, token); }
       return token;
     },
     token(key: string | undefined) {
-      if (!key) return 0;
+      if (disposed || !key) return 0;
       const existing = tokens.get(key);
       if (existing) return existing;
       if (tokens.size >= conversationTraceLimits.identities) return 0;
@@ -164,7 +164,8 @@ export const registerConversationTrace = (list: HTMLElement, chatId: string, tra
     trace.dispose();
   };
 };
-export const conversationTraceFor = (list: HTMLElement | null | undefined) => list ? traces.get(list) : undefined;
+export const conversationTraceFor = (list: HTMLElement | null | undefined) =>
+  isPerformanceMonitoringEnabled() && list ? traces.get(list) : undefined;
 
 export const conversationMessageShape = (message?: Message): PerformanceDetails => ({
   contentKind: message ? ["text", "rich", "media", "file", "sticker", "service", "unsupported"].indexOf(message.content.kind) + 1 : 0,
@@ -181,6 +182,7 @@ export const conversationMessageShape = (message?: Message): PerformanceDetails 
 export const recordConversationMessage = (
   chatId: string, messageId: string, kind: number, message?: Message, details: PerformanceDetails = {},
 ) => {
+  if (!isPerformanceMonitoringEnabled()) return;
   for (const trace of chatTraces.get(chatId) ?? []) {
     trace.record(kind, {
       messageToken: trace.token(`message:${messageId}`),
@@ -198,9 +200,14 @@ export const recordConversationMessage = (
 // Preserve the existing assignment and browser clamping exactly. Unattributed
 // browser/Virtuoso movement is separately recorded by the passive scroll listener.
 export const writeConversationScrollTop = (list: HTMLElement, target: number, writerKind: number) => {
+  const trace = conversationTraceFor(list);
+  if (!trace) {
+    list.scrollTop = target;
+    return;
+  }
   const beforeTop = list.scrollTop;
   list.scrollTop = target;
-  conversationTraceFor(list)?.record(conversationTraceKind.write, {
+  trace.record(conversationTraceKind.write, {
     writerKind, beforeTop, requestedTop: target, actualTop: list.scrollTop,
   });
 };
@@ -217,6 +224,7 @@ export const traceConversationIndexScroll = (
 };
 
 export const recordConversationMeasurement = (element: HTMLElement, value: number, height: boolean) => {
+  if (!isPerformanceMonitoringEnabled()) return;
   const list = element.closest<HTMLElement>(".message-list");
   const trace = conversationTraceFor(list);
   trace?.record(conversationTraceKind.measure, {

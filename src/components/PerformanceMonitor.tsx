@@ -1,6 +1,7 @@
 import { currentLanguage, translate } from "../i18n";
-import { Activity, Gauge, Pause, Play, Trash2 } from "lucide-react";
+import { Activity, Gauge, Power, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { usePreferencesStore } from "../store/preferencesStore";
 import {
   clearPerformanceRecords,
   clearPersistedPerformanceRecords,
@@ -294,7 +295,8 @@ const formatRecordMetric = (record: PerformanceRecord) => record.event === "ui_l
 
 export function PerformanceMonitor() {
   const [records, setRecords] = useState(getPerformanceRecords);
-  const [live, setLive] = useState(true);
+  const enabled = usePreferencesStore(state => state.performanceMonitoringEnabled);
+  const setPreference = usePreferencesStore(state => state.setPreference);
   const [filter, setFilter] = useState<CategoryFilter>("all");
   const [expandedId, setExpandedId] = useState<number>();
   const [clearing, setClearing] = useState(false);
@@ -303,7 +305,7 @@ export function PerformanceMonitor() {
   useEffect(() => subscribeDisplayTiming(() => setDisplayTiming(getDisplayTiming())), []);
 
   useEffect(() => {
-    if (!live || clearing) return;
+    if (clearing) return;
     let active = true;
     const update = () => {
       if (active) setRecords(getPerformanceRecords());
@@ -313,14 +315,16 @@ export function PerformanceMonitor() {
     };
     update();
     refresh();
-    const interval = globalThis.setInterval(refresh, 750);
-    const unsubscribe = subscribePerformanceRecords(update);
+    const interval = enabled ? globalThis.setInterval(refresh, 750) : undefined;
+    const unsubscribe = enabled ? subscribePerformanceRecords(update) : undefined;
     return () => {
       active = false;
-      globalThis.clearInterval(interval);
-      unsubscribe();
+      if (interval !== undefined) globalThis.clearInterval(interval);
+      unsubscribe?.();
     };
-  }, [clearing, live]);
+  }, [clearing, enabled]);
+
+  const toggleMonitoring = () => setPreference("performanceMonitoringEnabled", !enabled);
 
   const filtered = useMemo(
     () => records.filter((record) => filter === "all" || record.category === filter).reverse(),
@@ -357,7 +361,8 @@ export function PerformanceMonitor() {
           <div>
             <h4 id="performance-overview-heading">{translate("实时会话")}</h4>
             <span>
-              {live ? translate("正在刷新") : translate("已暂停刷新")} · {displayTiming.refreshRateHz.toFixed(1)} Hz
+              {enabled ? translate("性能监控已开启") : translate("性能监控已关闭")}
+              {enabled ? ` · ${displayTiming.refreshRateHz.toFixed(1)} Hz` : null}
             </span>
           </div>
         </div>
@@ -383,11 +388,13 @@ export function PerformanceMonitor() {
           <button
             className="dialog-secondary"
             type="button"
-            aria-pressed={!live}
-            onClick={() => setLive((current) => !current)}
+            role="switch"
+            aria-label={translate("性能监控")}
+            aria-checked={enabled}
+            onClick={toggleMonitoring}
           >
-            {live ? <Pause size={16} /> : <Play size={16} />}
-            <span>{live ? translate("暂停刷新") : translate("继续刷新")}</span>
+            <Power size={16} />
+            <span>{enabled ? translate("关闭性能监控") : translate("开启性能监控")}</span>
           </button>
           <button
             className="icon-button"

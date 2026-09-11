@@ -76,10 +76,13 @@ const sampleDeletion = (page: Page, ids = ["p-4"], stagger = 0) => page.evaluate
   return { samples, results: await deleting };
 }, { ids, stagger });
 
-for (const mode of ["bottom", "top", "middle", "short", "narrow", "last", "batch", "consecutive", "reduced", "album"] as const) {
+for (const mode of ["bottom", "top", "middle", "short", "narrow", "last", "batch", "consecutive", "reduced", "album", "monitoring-off"] as const) {
   test(`deletion keeps lower messages fixed and smoothly drops upper messages (${mode})`, async ({ page }) => {
     if (mode === "narrow") await page.setViewportSize({ width: 390, height: 844 });
     if (mode === "reduced") await page.emulateMedia({ reducedMotion: "reduce" });
+    if (mode === "monitoring-off") await page.addInitScript(() => {
+      localStorage.setItem("notgram:preferences:v1", JSON.stringify({ performanceMonitoringEnabled: false }));
+    });
     await fixture(page, { short: mode === "short", middle: mode === "middle", last: mode === "last", top: mode === "top", album: mode.startsWith("album") });
     const { samples, results } = await sampleDeletion(page, mode === "album" ? ["p-tall", "p-5"] : mode === "batch" || mode === "consecutive" ? ["p-4", "p-2"] : ["p-4"], mode === "consecutive" ? 280 : 0);
     expect(results.every(Boolean)).toBe(true);
@@ -100,6 +103,13 @@ for (const mode of ["bottom", "top", "middle", "short", "narrow", "last", "batch
     expect(last.opacity).toBeUndefined();
     expect(last.settling).toBe(0);
     if (mode !== "middle" && mode !== "top") expect(Math.abs(last.distance)).toBeLessThanOrEqual(1);
+    if (mode === "monitoring-off") {
+      const records = await page.evaluate(async () => {
+        const monitor = await import("/src/utils/performanceMonitor.ts" as string) as typeof import("../../src/utils/performanceMonitor");
+        return monitor.getPerformanceRecords().length;
+      });
+      expect(records).toBe(0);
+    }
   });
 }
 

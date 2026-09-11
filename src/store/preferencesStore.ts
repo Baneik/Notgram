@@ -44,6 +44,7 @@ export interface AppPreferences {
   adBlockKeywords: string[];
   adBlockRegexRules: string[];
   developerMode: boolean;
+  performanceMonitoringEnabled: boolean;
   autoplayAnimations: boolean;
   autoDownloadImages: boolean;
   autoDownloadVideos: boolean;
@@ -88,6 +89,7 @@ const defaults: AppPreferences = {
   adBlockKeywords: [],
   adBlockRegexRules: [],
   developerMode: false,
+  performanceMonitoringEnabled: true,
   autoplayAnimations: true,
   autoDownloadImages: true,
   autoDownloadVideos: false,
@@ -150,6 +152,9 @@ const readPreferences = (): AppPreferences => {
         AD_BLOCK_REGEX_LENGTH_LIMIT,
       ),
       developerMode: stored.developerMode ?? defaults.developerMode,
+      performanceMonitoringEnabled: typeof stored.performanceMonitoringEnabled === "boolean"
+        ? stored.performanceMonitoringEnabled
+        : defaults.performanceMonitoringEnabled,
       autoplayAnimations: stored.autoplayAnimations ?? defaults.autoplayAnimations,
       autoDownloadImages: stored.autoDownloadImages ?? defaults.autoDownloadImages,
       autoDownloadVideos: stored.autoDownloadVideos ?? defaults.autoDownloadVideos,
@@ -311,6 +316,7 @@ preferencesStore.subscribe((state) => {
     adBlockKeywords: state.adBlockKeywords,
     adBlockRegexRules: state.adBlockRegexRules,
     developerMode: state.developerMode,
+    performanceMonitoringEnabled: state.performanceMonitoringEnabled,
     autoplayAnimations: state.autoplayAnimations,
     autoDownloadImages: state.autoDownloadImages,
     autoDownloadVideos: state.autoDownloadVideos,

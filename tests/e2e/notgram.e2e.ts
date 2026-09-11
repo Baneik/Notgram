@@ -656,9 +656,9 @@ test("performance monitor captures and inspects a WebView main-thread stall", as
   await expect(stallDetails).toContainText("当前帧预算");
   await expect(stallDetails).toContainText("真实界面卡顿");
 
-  const pause = page.getByRole("button", { name: "暂停刷新" });
-  await pause.click();
-  await expect(page.getByRole("button", { name: "继续刷新" })).toHaveAttribute("aria-pressed", "true");
+  const monitoring = page.getByRole("switch", { name: "性能监控", exact: true });
+  await monitoring.click();
+  await expect(monitoring).not.toBeChecked();
   await page.getByRole("button", { name: "清空性能记录" }).click();
   await expect(page.getByText("暂无性能采样")).toBeVisible();
   expect(await horizontalOverflow(page)).toBe(false);

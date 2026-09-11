@@ -124,6 +124,7 @@ import { useLocalUserBlocks } from "../store/localUserBlocks";
 import {
   isConversationSwitchActive,
   logPerformance,
+  isPerformanceMonitoringEnabled,
   markConversationSwitch,
 } from "../utils/performanceMonitor";
 import { messageEntranceFor } from "../utils/messageEntrance";
@@ -798,7 +799,7 @@ export function Conversation({
   const projectionIdentity = `${activeAccountId}:${conversationIdentity}:${pinnedViewOpen}`;
   const committedProjection = useRef<{ identity: string; blocks: VirtualMessageBlock[] } | undefined>(undefined);
   const messageProjection = useMemo(() => {
-    const startedAt = performance.now();
+    const startedAt = isPerformanceMonitoringEnabled() ? performance.now() : undefined;
     const blocks = virtualizeMessageTimeline(
       renderedMessages,
       pinnedViewOpen ? [] : sponsoredMessages,
@@ -809,7 +810,7 @@ export function Conversation({
         ? committedProjection.current.blocks
         : undefined,
     );
-    return { blocks, durationMs: performance.now() - startedAt };
+    return { blocks, durationMs: startedAt === undefined ? 0 : performance.now() - startedAt };
   }, [chat?.kind, pinnedViewOpen, projectionIdentity, renderedMessages, sponsoredMessages, sponsoredMessagesBetween]);
   useLayoutEffect(() => {
     committedProjection.current = { identity: projectionIdentity, blocks: messageProjection.blocks };
@@ -878,6 +879,7 @@ export function Conversation({
   }, [colorTheme, viewerPhotos]);
 
   useLayoutEffect(() => {
+    if (!isPerformanceMonitoringEnabled()) return;
     const tracing = isConversationSwitchActive(performanceTraceId);
     markConversationSwitch(performanceTraceId, "messageProjected", {
       durationMs: messageProjection.durationMs,

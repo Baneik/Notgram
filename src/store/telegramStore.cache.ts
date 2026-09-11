@@ -15,7 +15,7 @@ import type {
   User,
 } from "../telegram/types";
 import { normalizeIdentityText, sanitizeIdentityText } from "../telegram/identityText";
-import { logPerformance } from "../utils/performanceMonitor";
+import { isPerformanceMonitoringEnabled, logPerformance } from "../utils/performanceMonitor";
 import { channelDiscussionProjection } from "./telegramStore.messages";
 import type { TelegramState } from "./telegramStore.types";
 
@@ -493,7 +493,7 @@ export const cachedSnapshotFrom = (
   state: TelegramState,
   profiles: ChatProfile[] = [],
 ): CachedTelegramSnapshot => {
-  const startedAt = performance.now();
+  const startedAt = isPerformanceMonitoringEnabled() ? performance.now() : undefined;
   const snapshot: CachedTelegramSnapshot = {
     version: TELEGRAM_CACHE_VERSION,
     accountId: state.activeAccountId,
@@ -518,7 +518,7 @@ export const cachedSnapshotFrom = (
     forumTopics: forumTopicsForCache(state),
     lastForumTopicIds: lastForumTopicIdsForCache(state),
   };
-  const durationMs = performance.now() - startedAt;
+  const durationMs = startedAt === undefined ? 0 : performance.now() - startedAt;
   if (durationMs >= CACHE_SNAPSHOT_LOG_THRESHOLD_MS) {
     logPerformance("ui_cache_snapshot", {
       startTimeMs: startedAt,

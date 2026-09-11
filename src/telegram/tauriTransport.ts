@@ -68,6 +68,7 @@ import {
 import {
   getActiveConversationTraceId,
   logPerformance,
+  isPerformanceMonitoringEnabled,
 } from "../utils/performanceMonitor";
 import type { TelegramConnectOptions, TelegramEventListener, TelegramTransport } from "./transport";
 import type {
@@ -594,7 +595,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private handleUpdateBatch(updates: TdObject[]) {
     if (updates.length === 0) return;
-    const startedAt = performance.now();
+    const startedAt = isPerformanceMonitoringEnabled() ? performance.now() : undefined;
     const nestedBatch = this.handlingUpdateBatch;
     const shouldBatchFileUpdates = updates.length > 1;
     this.handlingUpdateBatch = nestedBatch || shouldBatchFileUpdates;
@@ -608,6 +609,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.handlingUpdateBatch = true;
       }
     }
+    if (startedAt === undefined || !isPerformanceMonitoringEnabled()) return;
     const durationMs = performance.now() - startedAt;
     if (durationMs >= 4 || updates.length >= 32) {
       const traceId = getActiveConversationTraceId();

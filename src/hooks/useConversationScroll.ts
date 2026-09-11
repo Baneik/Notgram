@@ -1416,7 +1416,7 @@ export const useConversationScroll = ({
     const element = messageListElement;
     return observeConversationRowSizes(element, (changes) => {
       const trace = conversationTraceFor(element);
-      for (const change of changes.slice(0, 16)) trace?.record(traceKind.resize, {
+      if (trace) for (const change of changes.slice(0, 16)) trace.record(traceKind.resize, {
         resizeDelta: change.delta,
         rowToken: trace.objectToken(change.element),
         blockIndex: Number((change.element as HTMLElement).dataset.index ?? -1),

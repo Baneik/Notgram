@@ -136,7 +136,13 @@ failures; ordinary frame-drop events alone cannot establish pixel movement.
 
 The diagnostic build also records `ui_conversation_trace`, `ui_conversation_row`, and
 `ui_conversation_member` through the existing numeric-only performance log and export pipeline.
-This is instrumentation, not a scroll behavior fix. It starts automatically for the current conversation.
+This is instrumentation, not a scroll behavior fix. It starts for the current conversation only while
+the persisted performance-monitoring switch is on (enabled by default for existing installations).
+The switch is shared across windows and also controls `ui_conversation_viewport`. Turning it off
+disposes diagnostic timers, animation frames, input/scroll listeners, and trace identity tables;
+hot-path hooks skip diagnostic layout reads and record construction. Pending records are discarded,
+while an already submitted native log batch may finish. Turning it on creates a fresh trace session
+without remounting the conversation or replaying activity from the disabled interval.
 No server message/chat/user IDs, text, URLs, button data, paths, or keyboard text are written.
 
 `traceSession` identifies one mounted conversation observer; `traceRun` identifies one burst within it.

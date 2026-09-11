@@ -221,6 +221,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const adBlockKeywords = usePreferencesStore((state) => state.adBlockKeywords);
   const adBlockRegexRules = usePreferencesStore((state) => state.adBlockRegexRules);
   const developerMode = usePreferencesStore((state) => state.developerMode);
+  const performanceMonitoringEnabled = usePreferencesStore((state) => state.performanceMonitoringEnabled);
   const autoplayAnimations = usePreferencesStore((state) => state.autoplayAnimations);
   const autoDownloadImages = usePreferencesStore((state) => state.autoDownloadImages);
   const autoDownloadVideos = usePreferencesStore((state) => state.autoDownloadVideos);
@@ -253,6 +254,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     adBlockKeywords,
     adBlockRegexRules,
     developerMode,
+    performanceMonitoringEnabled,
     autoplayAnimations,
     autoDownloadImages,
     autoDownloadVideos,

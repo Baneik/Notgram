@@ -1,4 +1,7 @@
-import { logPerformance, type PerformanceDetails } from "./performanceMonitor";
+import {
+  isPerformanceMonitoringEnabled, logPerformance, subscribePerformanceMonitoring,
+  type PerformanceDetails,
+} from "./performanceMonitor";
 import type { Message } from "../telegram/types";
 import {
   createConversationTrace, registerConversationTrace, conversationTraceKind as kind,
@@ -62,6 +65,26 @@ export const observeConversationViewportDiagnostics = (
   readControl: () => PerformanceDetails,
   options?: DiagnosticOptions,
 ) => {
+  let stop: (() => void) | undefined;
+  const sync = () => {
+    stop?.();
+    stop = isPerformanceMonitoringEnabled()
+      ? startConversationViewportDiagnostics(list, readControl, options)
+      : undefined;
+  };
+  const unsubscribe = subscribePerformanceMonitoring(sync);
+  sync();
+  return () => {
+    unsubscribe();
+    stop?.();
+  };
+};
+
+const startConversationViewportDiagnostics = (
+  list: HTMLElement,
+  readControl: () => PerformanceDetails,
+  options?: DiagnosticOptions,
+) => {
   const trace = options ? createConversationTrace() : undefined;
   const unregister = trace && options ? registerConversationTrace(list, options.chatId, trace) : undefined;
   let previousSignature: string | undefined;
@@ -79,7 +102,7 @@ export const observeConversationViewportDiagnostics = (
   let minimumHeight = Infinity, maximumHeight = -Infinity;
   let minimumDistance = Infinity, maximumDistance = -Infinity;
   let controlSignature = "";
-  const available = () => list.isConnected && document.visibilityState !== "hidden" && list.clientHeight > 0;
+  const available = () => !stopped && list.isConnected && document.visibilityState !== "hidden" && list.clientHeight > 0;
   const readFrame = () => {
     frame = undefined;
     if (stopped || !trace?.active || !available()) return;
@@ -159,7 +182,7 @@ export const observeConversationViewportDiagnostics = (
     logPerformance("ui_conversation_viewport", { ...details, ...(trace ? { traceSession: trace.session } : {}) });
   };
   const pulse = () => {
-    if (!trace) return;
+    if (stopped || !trace) return;
     if (!trace.active) { trace.flush(); return; }
     if (sampledRun !== trace.run) {
       sampledRun = trace.run;

@@ -67,6 +67,7 @@ import type {
 import {
   getActiveConversationTraceId,
   logPerformance,
+  isPerformanceMonitoringEnabled,
   markConversationSwitch,
 } from "../utils/performanceMonitor";
 import { markMessageEntrance, transferMessageEntrance } from "../utils/messageEntrance";
@@ -1245,7 +1246,11 @@ export const createTelegramStore = (
       },
       error: (error, topicId) => set({ operationError: errorMessage(error,
         topicId ? translate("无法加载话题消息") : translate("无法加载历史消息")) }),
-      diagnostic: (chatId, details) => logPerformance("ui_history_data", { ...details, chatHash: diagnosticChatHash(chatId) }),
+      diagnostic: (chatId, details) => {
+        if (isPerformanceMonitoringEnabled()) {
+          logPerformance("ui_history_data", { ...details, chatHash: diagnosticChatHash(chatId) });
+        }
+      },
     });
     const snapshotWithHistory = (...parameters: Parameters<typeof cachedSnapshotFrom>) => {
       const snapshot = cachedSnapshotFrom(...parameters);
@@ -2021,7 +2026,7 @@ export const createTelegramStore = (
 
       if (event.type === "messages.upserted") {
         if (event.messages.length === 0) return;
-        const mergeStartedAt = performance.now();
+        const mergeStartedAt = isPerformanceMonitoringEnabled() ? performance.now() : undefined;
         const messages = new Map(get().messages);
         const incomingByChat = new Map<string, typeof event.messages>();
         let beforeCount = 0;
@@ -2051,7 +2056,7 @@ export const createTelegramStore = (
         }
         set({ messages });
         publishMessageChange({ type: "upsert", messages: event.messages, liveMessages: [] });
-        logPerformance("ui_history_merge", {
+        if (mergeStartedAt !== undefined && isPerformanceMonitoringEnabled()) logPerformance("ui_history_merge", {
           durationMs: performance.now() - mergeStartedAt,
           batchCount: event.messages.length,
           beforeCount,

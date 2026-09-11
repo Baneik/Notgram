@@ -77,6 +77,7 @@ import {
   beginConversationSwitch,
   isConversationSwitchActive,
   logPerformance,
+  isPerformanceMonitoringEnabled,
   markConversationSwitch,
 } from "../utils/performanceMonitor";
 import { openSettingsWindow } from "../windows/settingsWindow";
@@ -1901,10 +1902,12 @@ export function App() {
           <Profiler
             id="conversation"
             onRender={(_id, phase, actualDuration, baseDuration, startTime) => {
+              if (!isPerformanceMonitoringEnabled()) return;
               const performanceTraceId = conversationScrollRequest?.chatId === activeChatId
                 ? conversationScrollRequest?.performanceTraceId
                 : undefined;
               queueMicrotask(() => {
+                if (!isPerformanceMonitoringEnabled()) return;
                 const tracing = isConversationSwitchActive(performanceTraceId);
                 markConversationSwitch(performanceTraceId, "reactCommitted", {
                   durationMs: actualDuration,

@@ -1,6 +1,7 @@
 import { translate } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { preferencesStore } from "../store/preferencesStore";
 
 export type PerformanceValue = number | boolean | undefined;
 export type PerformanceDetails = Record<string, PerformanceValue>;
@@ -198,6 +199,17 @@ const eventMetadata: Record<string, EventMetadata> = {
 };
 
 let monitoringInstalled = false;
+let monitoringEnabled = preferencesStore.getState().performanceMonitoringEnabled;
+let monitoringGeneration = 0;
+let monitoringSince = monitoringEnabled ? 0 : Infinity;
+const monitoringCleanups: Array<() => void> = [];
+const monitoringListeners = new Set<() => void>();
+
+export const isPerformanceMonitoringEnabled = () => monitoringEnabled;
+export const subscribePerformanceMonitoring = (listener: () => void) => {
+  monitoringListeners.add(listener);
+  return () => { monitoringListeners.delete(listener); };
+};
 let historyInteractionStartedAt = Number.NEGATIVE_INFINITY;
 let historyInteractionUntil = 0;
 let nextRecordId = 1;
@@ -596,20 +608,23 @@ const recordDuration = (event: string, details: Readonly<Record<string, number |
 };
 
 const flushNativePerformanceRecords = async () => {
-  if (nativeFlushInFlight || pendingNativeRecords.length === 0) return;
+  if (!monitoringEnabled || nativeFlushInFlight || pendingNativeRecords.length === 0) return;
   if (nativeFlushTimer !== undefined) {
     globalThis.clearTimeout(nativeFlushTimer);
     nativeFlushTimer = undefined;
   }
   const batch = pendingNativeRecords.splice(0, NATIVE_BATCH_SIZE);
   nativeFlushInFlight = true;
+  const generation = monitoringGeneration;
   try {
     await invoke("telegram_log_performance_batch", { records: batch });
   } catch {
-    appendRecord("ui_performance_log_drop", { droppedCount: batch.length });
+    if (monitoringEnabled && generation === monitoringGeneration) {
+      appendRecord("ui_performance_log_drop", { droppedCount: batch.length });
+    }
   } finally {
     nativeFlushInFlight = false;
-    if (pendingNativeRecords.length > 0) {
+    if (monitoringEnabled && pendingNativeRecords.length > 0) {
       if (pendingNativeRecords.length >= NATIVE_BATCH_SIZE) {
         void flushNativePerformanceRecords();
       } else {
@@ -745,10 +760,11 @@ export const mergePersistedPerformanceRecords = (
 
 export const refreshPersistedPerformanceRecords = async () => {
   if (!hasTauriRuntime()) return records;
+  const generation = monitoringGeneration;
   const persisted = await invoke<PersistedPerformanceRecord[]>(
     "telegram_read_performance_records",
   );
-  return mergePersistedPerformanceRecords(persisted);
+  return generation === monitoringGeneration ? mergePersistedPerformanceRecords(persisted) : records;
 };
 
 export const clearPersistedPerformanceRecords = async () => {
@@ -761,6 +777,7 @@ export const clearPersistedPerformanceRecords = async () => {
 };
 
 export const logPerformance = (event: string, details: PerformanceDetails) => {
+  if (!monitoringEnabled) return;
   const environment = currentPerformanceEnvironment();
   const attribution = performanceAttribution(event, details, environment);
   const normalized = roundedDetails({
@@ -913,6 +930,7 @@ export const beginConversationSwitch = (details: {
   viewTransition: boolean;
   navigationKind: number;
 }) => {
+  if (!monitoringEnabled) return undefined;
   if (activeConversationTraceId !== undefined) {
     const active = conversationSwitchTraces.get(activeConversationTraceId);
     if (active) finishConversationSwitch(active, { cancelled: true });
@@ -1028,6 +1046,7 @@ const attributeMainThreadStall = (
 };
 
 export const markHistoryInteraction = () => {
+  if (!monitoringEnabled) return;
   historyInteractionStartedAt = performance.now();
   historyInteractionUntil = historyInteractionStartedAt + HISTORY_CONTEXT_MS;
 };
@@ -1096,8 +1115,14 @@ const observe = (
   options: PerformanceObserverInit,
 ) => {
   try {
-    const observer = new PerformanceObserver((list) => callback(list.getEntries()));
+    const generation = monitoringGeneration;
+    const observer = new PerformanceObserver((list) => {
+      if (!monitoringEnabled || generation !== monitoringGeneration) return;
+      // Buffered entries from a disabled interval must not reappear on enable.
+      callback(list.getEntries().filter(entry => entry.startTime >= monitoringSince));
+    });
     observer.observe(options);
+    monitoringCleanups.push(() => observer.disconnect());
     return true;
   } catch {
     return false;
@@ -1221,6 +1246,10 @@ const installInteractionObserver = () => observe((entries) => {
 const installLayoutShiftObserver = () => {
   let aggregate: PerformanceDetails | undefined;
   let flushTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  monitoringCleanups.push(() => {
+    if (flushTimer !== undefined) globalThis.clearTimeout(flushTimer);
+    aggregate = undefined;
+  });
   const flush = () => {
     flushTimer = undefined;
     if (!aggregate) return;
@@ -1297,12 +1326,13 @@ const installLayoutShiftObserver = () => {
 };
 
 const startFrameGapMonitor = () => {
+  let stopped = false;
   let previousFrameAt = performance.now();
   let frame: number | undefined;
   const calibrationIntervals: number[] = [];
   const recentFrameGaps: number[] = [];
   const schedule = () => {
-    if (frame === undefined && document.visibilityState === "visible") {
+    if (!stopped && frame === undefined && document.visibilityState === "visible") {
       frame = requestAnimationFrame(sample);
     }
   };
@@ -1318,6 +1348,7 @@ const startFrameGapMonitor = () => {
   };
   function sample(now: number) {
     frame = undefined;
+    if (stopped) return;
     const frameGapMs = now - previousFrameAt;
     previousFrameAt = now;
     if (
@@ -1386,21 +1417,30 @@ const startFrameGapMonitor = () => {
     schedule();
   }
   document.addEventListener("visibilitychange", handleVisibilityChange);
+  monitoringCleanups.push(() => {
+    stopped = true;
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  });
   schedule();
 };
 
 const installNativeDisplayTiming = () => {
   if (!hasTauriRuntime()) return;
+  let stopped = false;
+  let unlistenMoved: (() => void) | undefined;
   let refreshTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
   const refresh = async () => {
+    if (stopped) return;
     try {
       const timing = await invoke<NativeDisplayTiming>("notgram_display_timing");
-      if (timing.native) updateDisplayTiming(timing.refreshRateHz, 1);
+      if (!stopped && timing.native) updateDisplayTiming(timing.refreshRateHz, 1);
     } catch {
       // rAF calibration remains available when the native display query fails.
     }
   };
   const scheduleRefresh = () => {
+    if (stopped) return;
     if (refreshTimer !== undefined) globalThis.clearTimeout(refreshTimer);
     refreshTimer = globalThis.setTimeout(() => {
       refreshTimer = undefined;
@@ -1409,7 +1449,16 @@ const installNativeDisplayTiming = () => {
   };
   void refresh();
   window.addEventListener("focus", scheduleRefresh);
-  void getCurrentWindow().onMoved(scheduleRefresh).catch(() => undefined);
+  void getCurrentWindow().onMoved(scheduleRefresh).then(unlisten => {
+    if (stopped) unlisten();
+    else unlistenMoved = unlisten;
+  }).catch(() => undefined);
+  monitoringCleanups.push(() => {
+    stopped = true;
+    if (refreshTimer !== undefined) globalThis.clearTimeout(refreshTimer);
+    window.removeEventListener("focus", scheduleRefresh);
+    unlistenMoved?.();
+  });
 };
 
 const logStartupTiming = () => {
@@ -1430,12 +1479,11 @@ const logStartupTiming = () => {
   });
 };
 
-export const installPerformanceMonitoring = () => {
-  if (monitoringInstalled || typeof window === "undefined") return;
-  monitoringInstalled = true;
-  window.addEventListener("pagehide", () => {
-    void flushNativePerformanceRecords();
-  });
+const startPerformanceMonitoring = () => {
+  monitoringSince = monitoringSince === 0 ? 0 : performance.now();
+  const onPageHide = () => { void flushNativePerformanceRecords(); };
+  window.addEventListener("pagehide", onPageHide);
+  monitoringCleanups.push(() => window.removeEventListener("pagehide", onPageHide));
   installNativeDisplayTiming();
   if (typeof PerformanceObserver !== "undefined") {
     installLongFrameObserver();
@@ -1443,6 +1491,49 @@ export const installPerformanceMonitoring = () => {
     installLayoutShiftObserver();
   }
   if (typeof requestAnimationFrame === "function") startFrameGapMonitor();
-  if (document.readyState === "complete") setTimeout(logStartupTiming, 0);
-  else window.addEventListener("load", () => setTimeout(logStartupTiming, 0), { once: true });
+  // Startup belongs only to a session that was enabled at application launch.
+  if (monitoringSince === 0) {
+    let startupTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+    const scheduleStartup = () => { startupTimer = globalThis.setTimeout(logStartupTiming, 0); };
+    if (document.readyState === "complete") scheduleStartup();
+    else window.addEventListener("load", scheduleStartup, { once: true });
+    monitoringCleanups.push(() => {
+      if (startupTimer !== undefined) globalThis.clearTimeout(startupTimer);
+      window.removeEventListener("load", scheduleStartup);
+    });
+  }
+};
+
+const stopPerformanceMonitoring = () => {
+  monitoringGeneration++;
+  monitoringSince = Infinity;
+  for (const cleanup of monitoringCleanups.splice(0)) cleanup();
+  // Submitted IPC can finish, but queued records and callbacks from this run are discarded.
+  if (nativeFlushTimer !== undefined) globalThis.clearTimeout(nativeFlushTimer);
+  nativeFlushTimer = undefined;
+  pendingNativeRecords.length = 0;
+  if (interactionFlushTimer !== undefined) globalThis.clearTimeout(interactionFlushTimer);
+  interactionFlushTimer = undefined;
+  pendingInteractions.clear();
+  for (const trace of conversationSwitchTraces.values()) globalThis.clearTimeout(trace.timeout);
+  conversationSwitchTraces.clear();
+  conversationTraceWindows.length = 0;
+  activeConversationTraceId = undefined;
+  historyInteractionStartedAt = Number.NEGATIVE_INFINITY;
+  historyInteractionUntil = 0;
+  lastFrameDropLogAt = lastVisualJitterLogAt = Number.NEGATIVE_INFINITY;
+};
+
+preferencesStore.subscribe(state => {
+  if (monitoringEnabled === state.performanceMonitoringEnabled) return;
+  monitoringEnabled = state.performanceMonitoringEnabled;
+  if (!monitoringEnabled) stopPerformanceMonitoring();
+  else if (monitoringInstalled) startPerformanceMonitoring();
+  for (const listener of monitoringListeners) listener();
+});
+
+export const installPerformanceMonitoring = () => {
+  if (monitoringInstalled || typeof window === "undefined") return;
+  monitoringInstalled = true;
+  if (monitoringEnabled) startPerformanceMonitoring();
 };
