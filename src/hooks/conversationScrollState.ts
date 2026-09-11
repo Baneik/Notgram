@@ -75,55 +75,41 @@ const VIRTUAL_ITEM_INDEX_BASE = 1_000_000;
 
 interface ConversationVirtualIndexState {
   firstItemIndex: number;
-  messageItemIndexes: ReadonlyMap<string, number>;
+  blockIds: readonly string[];
 }
 
 const conversationVirtualIndexes = new Map<string, ConversationVirtualIndexState>();
 
-// Virtuoso can retain measured geometry through prepends only while existing
-// blocks keep the same logical indexes.
+// firstItemIndex shifts Virtuoso's entire size cache. Only a complete prefix
+// insertion/removal has that meaning; a viewport anchor cannot determine it.
 export const resolveConversationVirtualIndex = (
   key: string,
-  messageItemIndexes: ReadonlyMap<string, number>,
-  preferredAnchorId?: string,
-  options: { edge?: "start" | "end"; commit?: boolean } = {},
+  blockIds: readonly string[],
+  options: { commit?: boolean } = {},
 ) => {
   const previous = conversationVirtualIndexes.get(key);
-  if (previous?.messageItemIndexes === messageItemIndexes) return previous.firstItemIndex;
+  if (previous?.blockIds === blockIds) return previous.firstItemIndex;
 
   let firstItemIndex = previous?.firstItemIndex ?? VIRTUAL_ITEM_INDEX_BASE;
-  if (previous && previous.messageItemIndexes.size > 0 && messageItemIndexes.size > 0) {
-    let sharedMessageId = preferredAnchorId &&
-      previous.messageItemIndexes.has(preferredAnchorId) &&
-      messageItemIndexes.has(preferredAnchorId)
-      ? preferredAnchorId
-      : undefined;
-    if (!sharedMessageId) {
-      const candidates = [...previous.messageItemIndexes.keys()];
-      if (options.edge === "end") candidates.reverse();
-      for (const messageId of candidates) {
-        if (!messageItemIndexes.has(messageId)) continue;
-        sharedMessageId = messageId;
-        break;
-      }
-    }
-    if (sharedMessageId) {
-      firstItemIndex += previous.messageItemIndexes.get(sharedMessageId)! -
-        messageItemIndexes.get(sharedMessageId)!;
-    } else {
-      firstItemIndex = VIRTUAL_ITEM_INDEX_BASE;
-    }
+  if (previous && previous.blockIds.length > 0 && blockIds.length > 0) {
+    const delta = blockIds.length - previous.blockIds.length;
+    const prepended = delta > 0 && previous.blockIds.every((id, index) => blockIds[index + delta] === id);
+    const removedPrefix = delta < 0 && blockIds.every((id, index) => previous.blockIds[index - delta] === id);
+    if (prepended || removedPrefix) firstItemIndex -= delta;
+    // Interior edits, repartitioning and window replacement keep the cache
+    // origin. Mounted rows remeasure in place; the viewport transaction owns
+    // bottom/reading-position correction, including mixed head/tail changes.
   }
   firstItemIndex = Math.max(0, firstItemIndex);
-  if (options.commit !== false) commitConversationVirtualIndex(key, firstItemIndex, messageItemIndexes);
+  if (options.commit !== false) commitConversationVirtualIndex(key, firstItemIndex, blockIds);
   return firstItemIndex;
 };
 
 export const commitConversationVirtualIndex = (
   key: string,
   firstItemIndex: number,
-  messageItemIndexes: ReadonlyMap<string, number>,
-) => conversationVirtualIndexes.set(key, { firstItemIndex, messageItemIndexes });
+  blockIds: readonly string[],
+) => conversationVirtualIndexes.set(key, { firstItemIndex, blockIds });
 
 let activeConversationScrollStateCapture: (() => void) | undefined;
 

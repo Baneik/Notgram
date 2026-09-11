@@ -82,6 +82,11 @@ Bottom following has one writer: the coordinator in `useConversationScroll`.
   Virtuoso measurement correction.
 - User upward intent, pointer control, a detached scroll mode, or a destination generation change
   cancels the request.
+- A passive scroll displacement can arrive after a tracking request has settled. While following,
+  a raw bottom distance greater than the existing 1px rounding tolerance requests another bounded
+  settlement. Preserve this tolerance: repeatedly correcting the last pixel can create a feedback loop.
+  It does not restart a pending settlement or override active user input/navigation. Passive events
+  describe movement, not its author; `isTrusted` alone never establishes user intent.
 - The viewport observer, composer resize callback, message-mount callback, and Virtuoso's
   `totalListHeightChanged` signal may report committed geometry, but only the coordinator may write
   `scrollTop`. Observer notifications coalesce into the active request.
@@ -104,6 +109,21 @@ Middle-button autoscroll outlives pointerup and the short wheel/key input timeou
 and total-height callbacks must yield detached anchoring for its entire lifetime, until explicit input
 or window blur ends it.
 
+### Virtual index origin and viewport anchors
+
+`firstItemIndex` is a size-cache origin, not a viewport anchor. Resolve it from the ordered stable
+virtual block IDs (including sponsored blocks), against the last committed render. Subtract the
+number of inserted blocks only when the entire old sequence is an unchanged suffix of the new one;
+add the number of removed blocks only for the inverse operation. Normal head pagination therefore
+retains the logical indexes of existing blocks.
+
+Interior insertions/deletions, tail edits, group splits/merges, mixed changes and independent history
+window replacements keep the origin. Mounted rows remeasure at their current indexes. Stable block
+identity survives a member deletion or a pending-message ID confirmation, so neither counts as a
+removed block. Bottom and detached reading positions remain owned by the existing before-mutation
+viewport capture and coordinator. Neither the tail message nor the preferred reading anchor may
+shift the global size cache. An abandoned render cannot commit a new origin or block sequence.
+
 `ui_conversation_viewport` provides numeric-only native evidence once per second while the current
 viewport is visible, and emits only when endpoint geometry or control state changes. It records the
 raw scroll maximum separately from the visible Footer/message gap, clipping by ancestors, row
@@ -112,7 +132,7 @@ visible viewport; `latestRowPresent` distinguishes the mounted tail from the act
 Sampling owns no scroll writes or resize reconciliation. These records diagnose persistent endpoint
 failures; ordinary frame-drop events alone cannot establish pixel movement.
 
-### Temporary conversation diagnostic branch
+### Conversation diagnostics
 
 The diagnostic build also records `ui_conversation_trace`, `ui_conversation_row`, and
 `ui_conversation_member` through the existing numeric-only performance log and export pipeline.

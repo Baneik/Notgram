@@ -37,53 +37,46 @@ describe("conversation scroll state capture", () => {
 });
 
 describe("conversation virtual indexes", () => {
-  it("protects the bottom range when history fills a hole after an older cached island", () => {
-    const key = "account:chat:hole";
-    const first = resolveConversationVirtualIndex(key, new Map([["island", 0], ["recent", 1], ["last", 2]]));
-    const next = resolveConversationVirtualIndex(key, new Map([["island", 0], ["fill", 1], ["recent", 2], ["last", 3]]), undefined, { edge: "end" });
-    expect(next + 3).toBe(first + 2);
+  it.each([
+    ["internal deletion", ["a", "b", "c"], ["a", "c"], 0],
+    ["internal history fill", ["island", "recent", "last"], ["island", "fill", "recent", "last"], 0],
+    ["tail append", ["a", "b"], ["a", "b", "c"], 0],
+    ["tail removal", ["a", "b", "c"], ["a", "b"], 0],
+    ["complete prepend", ["a", "b"], ["x", "y", "a", "b"], -2],
+    ["complete prefix removal", ["x", "y", "a", "b"], ["a", "b"], 2],
+    ["first block member removal or ID confirmation", ["partition-a", "b"], ["partition-a", "b"], 0],
+    ["group split", ["a", "b", "c"], ["a", "split-a", "b", "c"], 0],
+    ["group merge", ["a", "split-a", "b", "c"], ["a", "b", "c"], 0],
+    ["mixed head and tail insertion", ["a", "b"], ["x", "a", "b", "c"], 0],
+    ["mixed prefix removal and interior insertion", ["x", "a", "b"], ["a", "fill", "b"], 0],
+    ["reordering", ["a", "b", "c"], ["b", "a", "c"], 0],
+    ["independent window replacement", ["a", "b"], ["x", "y", "z"], 0],
+    ["empty window", ["a", "b"], [], 0],
+    ["initial population", [], ["a", "b"], 0],
+    ["sponsored prefix", ["a", "b"], ["sponsored:x", "a", "b"], -1],
+  ])("uses block-prefix semantics for %s", (name, before, after, delta) => {
+    const key = `account:chat:${name}`;
+    const first = resolveConversationVirtualIndex(key, before);
+    expect(resolveConversationVirtualIndex(key, after)).toBe(first + delta);
   });
 
   it("does not let an abandoned render change the committed origin", () => {
     const key = "account:chat:abandoned";
-    const initial = new Map([["a", 0], ["b", 1]]);
+    const initial = ["a", "b"];
     const first = resolveConversationVirtualIndex(key, initial);
-    const speculative = resolveConversationVirtualIndex(key, new Map([["x", 0], ["a", 1], ["b", 2]]), undefined, { commit: false });
+    const speculative = resolveConversationVirtualIndex(key, ["x", "a", "b"], { commit: false });
     expect(speculative).toBe(first - 1);
     expect(resolveConversationVirtualIndex(key, initial)).toBe(first);
-    commitConversationVirtualIndex(key, speculative, new Map([["x", 0], ["a", 1], ["b", 2]]));
+    commitConversationVirtualIndex(key, speculative, ["x", "a", "b"]);
     expect(resolveConversationVirtualIndex(key, initial)).toBe(first);
   });
-  it("keeps shared messages on the same logical index when history is prepended", () => {
-    const key = "account:chat:prepend";
-    const initial = resolveConversationVirtualIndex(key, new Map([
-      ["current-1", 0],
-      ["current-2", 1],
-    ]));
-    const prepended = resolveConversationVirtualIndex(key, new Map([
-      ["older-1", 0],
-      ["older-2", 1],
-      ["current-1", 2],
-      ["current-2", 3],
-    ]), "current-1");
-
-    expect(prepended).toBe(initial - 2);
-    expect(prepended + 2).toBe(initial);
-  });
-
-  it("does not shift the logical origin when messages are appended", () => {
-    const key = "account:chat:append";
-    const initial = resolveConversationVirtualIndex(key, new Map([
-      ["current-1", 0],
-      ["current-2", 1],
-    ]));
-    const appended = resolveConversationVirtualIndex(key, new Map([
-      ["current-1", 0],
-      ["current-2", 1],
-      ["new-1", 2],
-    ]));
-
-    expect(appended).toBe(initial);
+  it("isolates account/view origins across subsequent interior changes", () => {
+    const key = "account:chat:sequence";
+    const first = resolveConversationVirtualIndex(key, ["a", "c"]);
+    expect(resolveConversationVirtualIndex(key, ["x", "a", "c"])).toBe(first - 1);
+    expect(resolveConversationVirtualIndex(key, ["x", "a", "b", "c"])).toBe(first - 1);
+    expect(resolveConversationVirtualIndex(`${key}:pinned`, ["a", "c"])).toBe(first);
+    expect(resolveConversationVirtualIndex(key, ["a", "b", "c"])).toBe(first);
   });
 });
 

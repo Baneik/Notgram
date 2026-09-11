@@ -1532,18 +1532,23 @@ test("blank message viewport clicks never force a bottom correction", async ({ p
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await page.waitForTimeout(400);
 
-  const before = await messageList.evaluate((element) => {
-    const maximum = element.scrollHeight - element.clientHeight;
-    element.scrollTop = Math.max(0, maximum - 26);
-    return element.scrollTop;
-  });
+  // Establish the offset with user input. A script-only displacement while
+  // following latest now correctly requests a bounded bottom settlement.
+  await messageList.hover();
+  await page.mouse.wheel(0, -26);
+  await page.waitForTimeout(400);
+  const before = await messageList.evaluate(element => ({
+    top: element.scrollTop,
+    distance: element.scrollHeight - element.clientHeight - element.scrollTop,
+  }));
+  expect(before.distance).toBeGreaterThan(1);
   const bounds = await messageList.boundingBox();
   if (!bounds) throw new Error("Message viewport is not visible");
   await page.mouse.click(bounds.x + 3, bounds.y + bounds.height * 0.45);
   await page.waitForTimeout(120);
 
   await expect.poll(() => messageList.evaluate((element) => element.scrollTop))
-    .toBeCloseTo(before, 0);
+    .toBeCloseTo(before.top, 0);
 });
 
 test("middle mouse scrolling detaches instead of fighting bottom following", async ({ page }) => {

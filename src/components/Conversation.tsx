@@ -815,6 +815,7 @@ export function Conversation({
     committedProjection.current = { identity: projectionIdentity, blocks: messageProjection.blocks };
   }, [messageProjection, projectionIdentity]);
   const visibleMessageBlocks = messageProjection.blocks;
+  const virtualBlockIds = useMemo(() => visibleMessageBlocks.map(block => block.id), [visibleMessageBlocks]);
   const messageItemIndexes = useMemo(
     () => indexMessagesByVirtualBlock(visibleMessageBlocks),
     [visibleMessageBlocks],
@@ -1154,6 +1155,7 @@ export function Conversation({
     request: pinnedViewOpen ? undefined : scrollRequest,
     visibleMessages: renderedMessages,
     messageItemIndexes,
+    virtualBlockIds,
     virtualItemCount: visibleMessageBlocks.length,
     search: pinnedViewOpen ? "" : "",
     historyLoading: pinnedViewOpen ? false : historyLoading,

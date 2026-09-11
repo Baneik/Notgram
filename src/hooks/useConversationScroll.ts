@@ -200,6 +200,7 @@ interface ConversationScrollOptions {
   request?: ConversationScrollRequest;
   visibleMessages: Message[];
   messageItemIndexes: ReadonlyMap<string, number>;
+  virtualBlockIds: readonly string[];
   virtualItemCount: number;
   search: string;
   historyLoading: boolean;
@@ -218,6 +219,7 @@ export const useConversationScroll = ({
   request,
   visibleMessages,
   messageItemIndexes,
+  virtualBlockIds,
   virtualItemCount,
   search,
   historyLoading,
@@ -408,20 +410,13 @@ export const useConversationScroll = ({
   ].join(":");
   const virtuosoKey = `${currentScrollKey ?? scope}:${searchActive ? "search" : "conversation"}`;
   virtuosoKeyRef.current = virtuosoKey;
-  const pendingHistoryRestore = pendingHistoryRestoreRef.current;
-  let pendingHistoryAnchorId: string | undefined;
-  if (pendingHistoryRestore && pendingHistoryRestore.key === currentScrollKey) {
-    pendingHistoryAnchorId = pendingHistoryRestore.anchorMessageId;
-  }
   const virtuosoFirstItemIndex = resolveConversationVirtualIndex(
     virtuosoKey,
-    messageItemIndexes,
-    pendingHistoryAnchorId ?? (currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest === false
-      ? conversationScrollMemory.get(currentScrollKey)?.anchorMessageId : undefined),
-    { edge: currentScrollKey && conversationScrollMemory.get(currentScrollKey)?.followLatest === false ? "start" : "end", commit: false },
+    virtualBlockIds,
+    { commit: false },
   );
   useLayoutEffect(() => {
-    commitConversationVirtualIndex(virtuosoKey, virtuosoFirstItemIndex, messageItemIndexes);
+    commitConversationVirtualIndex(virtuosoKey, virtuosoFirstItemIndex, virtualBlockIds);
     diagnosticModelRef.current = { messages: visibleMessagesRef.current, indexes: messageItemIndexes, firstItemIndex: virtuosoFirstItemIndex };
     conversationTraceFor(messageListRef.current)?.record(traceKind.commitAfter, {
       firstItemIndex: virtuosoFirstItemIndex, blockCount: virtualItemCount, messageCount: messageItemIndexes.size,
@@ -434,7 +429,7 @@ export const useConversationScroll = ({
         messageItemIndexes,
       });
     }
-  }, [currentScrollKey, firstVisibleMessageId, lastVisibleMessageId, messageItemIndexes, virtualItemCount, virtuosoFirstItemIndex, virtuosoKey]);
+  }, [currentScrollKey, firstVisibleMessageId, lastVisibleMessageId, messageItemIndexes, virtualBlockIds, virtualItemCount, virtuosoFirstItemIndex, virtuosoKey]);
 
   if (initialLocationRef.current?.identity !== initialLocationIdentity ||
     (initialLocationRef.current.mode === "pending" && targetReady)) {
@@ -2858,12 +2853,14 @@ export const useConversationScroll = ({
       );
       if (
         followsLatest &&
-        pendingRequest?.identity === control.identity &&
-        pendingRequest.generation === control.generation &&
-        pendingRequest.mode !== "settle" &&
-        distanceFromBottom(element) > 0.5
+        distanceFromBottom(element) > BOTTOM_WHEEL_GUARD_PX &&
+        (!pendingRequest || (pendingRequest.identity === control.identity &&
+          pendingRequest.generation === control.generation && pendingRequest.mode !== "settle"))
       ) {
-        scheduleBottomPin(undefined, "track");
+        // Native/virtualizer corrections can arrive after a tracking pass has
+        // settled. Reuse the bounded coordinator without claiming user input
+        // or restarting an existing settlement on each passive scroll event.
+        scheduleBottomPin(undefined, pendingRequest ? "track" : "settle");
       }
       if (control.mode === "detached" && !contentAnchorOwnerRef.current && !revealTargetTokenRef.current) {
         // Record the final native/virtual scroll position as well as wheel
