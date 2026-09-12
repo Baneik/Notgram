@@ -159,11 +159,41 @@ The automated accessibility gate and native Windows checklist are documented in
 ## Architecture
 
 ```text
+windows/               Independent HTML entries for auxiliary windows
+src/windows/           Auxiliary window bootstraps and shared mounting
 src/components/        React UI, authorization, message/media, and settings screens
 src/store/             Application state, preferences, and ordered event reduction
 src/telegram/          Transport contract plus mock/Tauri adapters
 src-tauri/src/         TDLib dynamic loader, receive loop, and commands
+src-tauri/icons/       Windows packaging icons and the shared PNG source
+tests/e2e/             Headless, muted browser regression tests and snapshot baselines
+tests/fixtures/public/ Mock media served only with the mock transport
+scripts/               Development checks, TDLib tooling, and release commands
+docs/                  Maintained architecture contracts and operating guides
+docs/archive/          Historical audits tied to their original baselines
 ```
+
+`index.html` remains the main application entry. Auxiliary windows use
+`/windows/*-window.html` in both development and production; their entry paths
+must stay synchronized with the native window builders and browser bridges.
+The independent entries preserve separate loading for each window.
+
+Unit tests live beside their source and Vitest only collects tests under `src/`.
+Keep temporary baseline checkouts outside the repository. Git ignore rules do
+not define test discovery or development-server watch boundaries.
+
+Mock builds and browser development serve `tests/fixtures/public/` at the URL
+root. With `VITE_TELEGRAM_TRANSPORT=tauri`, Vite disables that public directory
+so native frontend builds omit the mock media. Keep production resources out of
+the mock fixture directory. Android and iOS icon sets are intentionally omitted
+while Windows is the release baseline.
+
+Generated output belongs in ignored directories: TypeScript build metadata in
+`node_modules/.cache/`, development and E2E server logs in `logs/`, test output
+in `test-results/`, and build or diagnostic evidence in `artifacts/`. Redirect
+ad hoc command logs into `logs/` instead of the repository root. Root manifests,
+tool configurations, and the local `project.md` and `.env` keep their existing
+locations.
 
 The native bridge uses TDLib's current `td_create_client_id`, `td_send`, and `td_receive` interface. One dedicated Rust thread owns `td_receive`; updates are copied immediately and emitted to the webview in the order received. Rust automatically answers `authorizationStateWaitTdlibParameters`, while user-facing authorization states remain in the TypeScript store.
 

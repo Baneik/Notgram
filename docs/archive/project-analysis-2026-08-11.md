@@ -1,5 +1,7 @@
 # Notgram 项目完整分析报告
 
+> Historical audit: findings apply to the dated baseline and may have been superseded. See the [current project overview](../../README.md#architecture) for the maintained structure.
+
 ## 1. 报告范围与结论
 
 报告基线为当前工作树 `main@16fd66a`，应用版本 `0.5.0-rc.2`，分析日期为 2026-08-11。分析依据包括源码、`project.md`、README、架构/发布文档、近期 Git 提交、测试配置和本地实际执行结果。

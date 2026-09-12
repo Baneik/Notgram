@@ -1,5 +1,7 @@
 # 频道帖子讨论区功能覆盖审计
 
+> Historical audit: findings apply to the dated baseline and may have been superseded. See the [current project overview](../../README.md#architecture) for the maintained structure.
+
 日期：2026-08-30
 
 ## 结论摘要
