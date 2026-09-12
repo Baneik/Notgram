@@ -108,6 +108,19 @@ that command measures against the row while the application endpoint includes th
 command is used only when it must mount an unrendered tail; the bounded bottom coordinator then owns
 the final raw maximum correction.
 
+Layout measurement must not temporarily shrink live content. Removing a wrapped
+metadata class and restoring it in the same task still lets a forced layout clamp
+the ancestor's scroll position. Restoring the class restores the height, not the
+offset. Folded quotes therefore choose their dedicated metadata row before any
+inline measurement; an already wrapped text/caption flow probes the alternative
+layout in a hidden, inert, fixed-position copy with the same CSS width. Text
+bubbles include their row's sizing context so a wider viewport can restore inline
+metadata; fixed-width captions only copy the flow. The copy is removed synchronously
+and cannot own scrolling or enter the virtual row model.
+This rule applies to text, photo captions, album captions, and discussion messages,
+including readers detached just above the bottom. Never compensate for a probing
+mutation by adding another scroll writer.
+
 Middle-button autoscroll outlives pointerup and the short wheel/key input timeout. Both row observers
 and total-height callbacks must yield detached anchoring for its entire lifetime, until explicit input
 or window blur ends it.
