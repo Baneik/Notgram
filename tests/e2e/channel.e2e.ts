@@ -6,7 +6,7 @@ test("discussion rendering failures keep the client and return action available"
     contentType: "application/javascript", body: 'export function ChannelDiscussionPanel() { throw new Error("synthetic discussion render failure"); }',
   }));
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
   await expect(page.locator(".channel-discussion-panel").getByRole("alert")).toContainText("留言加载失败");
   await page.getByRole("button", { name: "返回频道", exact: true }).click();
@@ -16,7 +16,7 @@ test("discussion rendering failures keep the client and return action available"
 
 test("discussion messages honor local blocking and only reveal for the current visit", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   await page.evaluate(async () => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
@@ -38,7 +38,7 @@ test("discussion messages honor local blocking and only reveal for the current v
 
 test("channel posting follows owner and administrator rights, including revoked access", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   for (const [status, allowed] of [["owner", true], ["administrator", true], ["administrator", false], ["member", false]] as const) {
     await page.evaluate(async ({ status, allowed }) => {
@@ -67,7 +67,7 @@ test("offline replies stay visible in the selected discussion and keep other thr
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   await page.evaluate(async () => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
@@ -105,7 +105,7 @@ test("discussion pagination deduplicates requests, retains comments on errors, a
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   await page.evaluate(async () => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
@@ -155,7 +155,7 @@ test("channel albums keep a shared caption, metadata, and one working discussion
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   await page.evaluate(async () => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
@@ -200,7 +200,7 @@ test("channel albums keep a shared caption, metadata, and one working discussion
 test("channel album reactions stay in the shared footer through caption and reaction updates", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   const album = page.locator('[data-media-album-id="reaction-album"]');
   const footer = album.locator(".media-album-footer");

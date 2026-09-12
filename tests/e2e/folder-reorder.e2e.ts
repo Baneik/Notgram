@@ -45,12 +45,12 @@ for (const width of [1080, 390]) {
       await page.mouse.up();
       await expect.poll(() => savedOrder(page)).toEqual(["folder:work", "main"]);
       await settled(page);
-      await expect(page.locator('[data-folder-id="main"]')).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator('.rail-actions [data-folder-id="main"]')).toHaveAttribute("aria-pressed", "true");
       await page.getByRole("button", { name: "工作", exact: true }).click();
-      await expect(page.locator('[data-folder-id="folder:work"]')).toHaveAttribute("aria-pressed", "true");
-      await page.locator('[data-folder-id="main"]').focus();
+      await expect(page.locator('.rail-actions [data-folder-id="folder:work"]')).toHaveAttribute("aria-pressed", "true");
+      await page.locator('.rail-actions [data-folder-id="main"]').focus();
       await page.keyboard.press("Enter");
-      await expect(page.locator('[data-folder-id="main"]')).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator('.rail-actions [data-folder-id="main"]')).toHaveAttribute("aria-pressed", "true");
     });
   }
 }

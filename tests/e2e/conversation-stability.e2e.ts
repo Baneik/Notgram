@@ -162,7 +162,7 @@ test("viewport diagnostics distinguish a reached scroll maximum from ancestor cl
 for (const width of [390, 1280]) {
   test(`late row resizes preserve every bottom frame across viewport changes (${width}px)`, async ({ page }) => {
     await ready(page);
-    await page.locator('.chat-row[data-chat-id="chat-product"]').click();
+    await page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-product"]').click();
     await page.setViewportSize({ width, height: 844 });
     const list = page.locator(".message-list");
     await expect(list).toBeVisible();
@@ -241,7 +241,7 @@ const traceViewport = (page: Page, chatId: string, messageId: string) => page.ev
   Object.assign(window, { stabilityFrames: frames, stopStabilityTrace: false });
   const sample = () => {
     const list = document.querySelector<HTMLElement>(".message-list");
-    if (list && document.querySelector<HTMLElement>('.chat-row[aria-current="true"]')?.dataset.chatId === chatId) {
+    if (list && document.querySelector<HTMLElement>('.chat-list[data-active=true] .chat-row[aria-current="true"]')?.dataset.chatId === chatId) {
       const bounds = list.getBoundingClientRect();
       const target = list.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
       const content = list.querySelector<HTMLElement>(".message-list-content") ?? list;
@@ -390,7 +390,7 @@ for (const delay of [180, 250, 600]) {
       telegramStore.setState({ chats });
     }, delay);
     const frames = await page.evaluate(async () => {
-      document.querySelector<HTMLElement>('[data-chat-id="chat-chen"]')!.click();
+      document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-chen"]')!.click();
       const frames = [];
       for (let frame = 0; frame < 100; frame++) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
@@ -488,7 +488,7 @@ test("a cold unread cursor outside the first page exposes only its settled viewp
     telegramStore.setState({ chats });
   });
   await traceViewport(page, "chat-chen", "c-old-8");
-  await page.locator('[data-chat-id="chat-chen"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-chen"]').click();
   await page.waitForFunction(() => Boolean((window as unknown as { releaseContext?: () => void }).releaseContext));
   await page.waitForTimeout(600);
   await page.evaluate(() => (window as unknown as { releaseContext: () => void }).releaseContext());

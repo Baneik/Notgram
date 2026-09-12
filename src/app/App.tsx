@@ -32,7 +32,7 @@ import { ChatManagementDialog } from "../components/ChatManagementDialog";
 import { AudioPlaybackHost } from "../components/AudioPlaybackHost";
 import { StickerSetPreview } from "../components/StickerSetPreview";
 import { senderNameForMessage } from "../components/conversationMessages";
-import { filterAndSortChats, telegramStore, useTelegramStore } from "../store/telegramStore";
+import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { localUserBlocksStore } from "../store/localUserBlocks";
 import { messageContentText } from "../telegram/messageContent";
@@ -169,7 +169,6 @@ export function App() {
   const accountSwitching = useTelegramStore((state) => state.accountSwitching);
   const chats = useTelegramStore((state) => state.chats);
   const chatListReady = useTelegramStore((state) => state.chatListReady);
-  const chatLists = useTelegramStore((state) => state.chatLists);
   const folders = useTelegramStore((state) => state.folders);
   const users = useTelegramStore((state) => state.users);
   const contacts = useTelegramStore((state) => state.contacts);
@@ -365,7 +364,7 @@ export function App() {
     setMobileChatOpen(false);
     requestAnimationFrame(() => {
       if (!chatId) return;
-      const row = [...document.querySelectorAll<HTMLElement>(".chat-row[data-chat-id]")]
+      const row = [...document.querySelectorAll<HTMLElement>('.chat-list[data-active="true"] .chat-row[data-chat-id]')]
         .find((candidate) => candidate.dataset.chatId === chatId);
       row?.focus({ preventScroll: true });
     });
@@ -1481,10 +1480,6 @@ export function App() {
     previewSidebarWidth(sidebarWidth);
   }, [previewSidebarWidth, sidebarWidth]);
 
-  const visibleChats = useMemo(
-    () => filterAndSortChats(chats.values(), chatFilter, searchQuery),
-    [chatFilter, chats, searchQuery],
-  );
   const forwardTargets = useMemo(() => [...chats.values()], [chats]);
   const chatSearchSenderOptions = useMemo<SidebarSearchSenderOption[]>(() => {
     if (!sidebarSearchChatId) return [];
@@ -1696,7 +1691,6 @@ export function App() {
       ? topicHistories.get(`${activeChatId}:topic:${activeTopicId}`)
       : histories.get(activeChatId)) ?? { loading: false, hasMore: true, initialized: false }
     : { loading: false, hasMore: false, initialized: false };
-  const activeChatList = chatLists.get(chatFilter) ?? { loading: false, hasMore: true };
 
   return (
     <>
@@ -1731,7 +1725,7 @@ export function App() {
           onSwitchAccount={switchAccount}
         />
         <ChatSidebar
-          chats={visibleChats}
+          key={activeAccountId}
           allChats={chats}
           users={users}
           accountId={activeAccountId}
@@ -1864,10 +1858,8 @@ export function App() {
             }
           }}
           onOpenLatest={(chatId) => openLatestConversation(chatId)}
-          loadingMore={activeChatList.loading}
-          hasMore={activeChatList.hasMore}
-          onLoadMore={() => loadMoreChats(chatFilter)}
-          onReorderPinned={(chatIds) => { void reorderPinnedChats(chatFilter, chatIds); }}
+          onLoadMore={loadMoreChats}
+          onReorderPinned={reorderPinnedChats}
           chatManagementPending={chatManagementPending}
           folderManagementPending={folderManagementPending}
           onSetPinned={setChatPinned}

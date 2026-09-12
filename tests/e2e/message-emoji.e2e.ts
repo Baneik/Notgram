@@ -123,7 +123,7 @@ test("editing between single emoji, multiple emoji and wrapping text recalculate
 
 test("channel emoji posts retain their dedicated metadata row", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   await showMessages(page, ["😂", "😂😂"], "markdown", false, "chat-release");
   for (let index = 0; index < 2; index += 1) {

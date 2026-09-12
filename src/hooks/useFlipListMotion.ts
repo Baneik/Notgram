@@ -7,6 +7,7 @@ interface UseFlipListMotionOptions {
   itemSelector: string;
   dependencies: readonly unknown[];
   resetKey?: unknown;
+  enabled?: boolean;
 }
 
 interface ListMotionBounds {
@@ -30,6 +31,7 @@ export const useFlipListMotion = ({
   itemSelector,
   dependencies,
   resetKey,
+  enabled = true,
 }: UseFlipListMotionOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const previousPositionRef = useRef(new Map<string, { left: number; top: number }>());
@@ -37,6 +39,10 @@ export const useFlipListMotion = ({
   const previousResetKeyRef = useRef(resetKey);
 
   useLayoutEffect(() => {
+    if (!enabled) {
+      previousPositionRef.current.clear();
+      return;
+    }
     const container = containerRef.current;
     if (!container) return;
     const items = [...container.querySelectorAll<HTMLElement>(itemSelector)];
@@ -92,5 +98,5 @@ export const useFlipListMotion = ({
     };
     // The caller owns the dependency values; they describe when list geometry changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerRef, itemSelector, reduceMotion, resetKey, ...dependencies]);
+  }, [containerRef, enabled, itemSelector, reduceMotion, resetKey, ...dependencies]);
 };

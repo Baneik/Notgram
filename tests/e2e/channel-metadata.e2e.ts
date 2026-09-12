@@ -30,7 +30,7 @@ async function showPost(page: Page, kind: PostKind, outgoing: boolean, reactions
 test("channel metadata keeps one neutral color across post layouts, ownership, reactions, and themes", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   for (const theme of ["notgram-light", "notgram-dark"] as const) {
     await page.evaluate(async theme => {
@@ -67,7 +67,7 @@ test("channel metadata keeps one neutral color across post layouts, ownership, r
 
 test("album status includes every item without turning its counters into delivery indicators", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   await showPost(page, "album", true, false);
   await page.evaluate(async () => {

@@ -7,6 +7,7 @@ export const useVisibleFile = <T extends Element>(
   enabled: boolean,
   priority: number,
   rootMargin: string,
+  eager = false,
 ) => {
   const targetRef = useRef<T>(null);
   const retryStateRef = useRef({ fileId: undefined as number | undefined, failures: 0, notBefore: 0 });
@@ -19,17 +20,24 @@ export const useVisibleFile = <T extends Element>(
       retryStateRef.current = { fileId, failures: 0, notBefore: 0 };
     }
 
+    const accountId = telegramStore.getState().activeAccountId;
+    let disposed = false;
     const request = createVisibleResourceRequest({
-      load: () => telegramStore.getState().cacheFile(fileId, priority),
+      load: () => {
+        const state = telegramStore.getState();
+        if (disposed || state.activeAccountId !== accountId) return Promise.resolve();
+        return state.cacheFile(fileId, priority);
+      },
       retryState: retryStateRef.current,
     });
     globalThis.addEventListener?.("online", request.retry);
     const dispose = () => {
+      disposed = true;
       request.dispose();
       globalThis.removeEventListener?.("online", request.retry);
     };
 
-    if (typeof IntersectionObserver === "undefined") {
+    if (eager || typeof IntersectionObserver === "undefined") {
       request.setVisible(true);
       return dispose;
     }
@@ -42,7 +50,7 @@ export const useVisibleFile = <T extends Element>(
       dispose();
       observer.disconnect();
     };
-  }, [enabled, fileId, priority, rootMargin]);
+  }, [eager, enabled, fileId, priority, rootMargin]);
 
   return targetRef;
 };

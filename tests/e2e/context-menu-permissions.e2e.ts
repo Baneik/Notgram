@@ -218,7 +218,7 @@ test("connection recovery replaces a pending request without allowing its late r
 
 test("discussion menus share connection recovery", async ({ page }) => {
   await prepare(page);
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
   await expect(page.locator('[data-message-id="release-comment-1"]')).toBeVisible();
   await setConnection(page, "offline");

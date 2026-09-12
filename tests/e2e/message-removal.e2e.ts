@@ -125,7 +125,7 @@ for (const interruption of ["scroll", "switch", "reduce"] as const) {
     const animations = await moving.evaluateAll(elements => elements.flatMap(element => element.getAnimations()).length);
     expect(animations).toBeGreaterThan(0);
     if (interruption === "scroll") await page.locator(".message-list").press("PageUp");
-    else if (interruption === "switch") await page.locator('[data-chat-id="chat-mia"]').click();
+    else if (interruption === "switch") await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
     else await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(moving).toHaveCount(0);
     await page.waitForTimeout(400);

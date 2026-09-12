@@ -18,7 +18,7 @@ test("forced colors preserve selection and custom switches without focus frames"
   await expect.poll(() => page.evaluate(() => matchMedia("(forced-colors: active)").matches))
     .toBe(true);
 
-  const activeChat = page.locator(".chat-row.is-active");
+  const activeChat = page.locator(".chat-list[data-active=true] .chat-row.is-active");
   await expect(activeChat).toBeVisible();
   await activeChat.focus();
   const focusStyle = await activeChat.evaluate((element) => {
@@ -134,7 +134,7 @@ test("presence transitions survive interrupted popover exits and finish toast ex
 test("long unbroken content remains contained on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 720 });
   await page.goto("/");
-  await page.locator(".chat-row").first().click();
+  await page.locator(".chat-list[data-active=true] .chat-row").first().click();
   await expect(page.locator(".conversation")).toBeVisible();
 
   const longToken = "NotgramLongUnbrokenText".repeat(24);
@@ -164,7 +164,7 @@ test("long unbroken content remains contained on a narrow viewport", async ({ pa
 
 test("primary workflows expose named controls in the accessibility tree", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator('.chat-row[aria-current="true"]')).toHaveCount(1);
+  await expect(page.locator('.chat-list[data-active=true] .chat-row[aria-current="true"]')).toHaveCount(1);
 
   const session = await page.context().newCDPSession(page);
   const initialTree = await session.send("Accessibility.getFullAXTree") as {

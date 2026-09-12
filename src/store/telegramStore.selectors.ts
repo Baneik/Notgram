@@ -1,4 +1,4 @@
-import type { Chat } from "../telegram/types";
+import type { Chat, ChatFolder } from "../telegram/types";
 import type { ChatFilter, TelegramState } from "./telegramStore.types";
 
 export const compareChats = (left: Chat, right: Chat) =>
@@ -60,3 +60,13 @@ export const filterAndSortChats = (
 
 export const selectVisibleChats = (state: TelegramState) =>
   filterAndSortChats(state.chats.values(), state.chatFilter, state.searchQuery);
+
+/** Share chat objects across independent folder views without rescanning all chats per folder. */
+export const groupChatsByFolder = (chats: Iterable<Chat>, folders: ChatFolder[]) => {
+  const grouped = new Map(folders.map((folder) => [folder.id, [] as Chat[]]));
+  for (const chat of chats) {
+    for (const folderId of new Set(chat.folderIds)) grouped.get(folderId)?.push(chat);
+  }
+  for (const [folderId, rows] of grouped) rows.sort(compareChatsInFolder(folderId));
+  return grouped;
+};

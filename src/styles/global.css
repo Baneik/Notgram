@@ -490,7 +490,12 @@ html.is-reordering-folders, html.is-reordering-folders * { cursor: grabbing !imp
 }
 .sidebar-search-scope .avatar-small { width: 32px; height: 32px; }
 .sidebar-search-scope > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
-.chat-list { min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.sidebar-list-stack { position: relative; min-height: 0; overflow: hidden; }
+.sidebar-list-stack > .chat-list { position: absolute; inset: 0; }
+.sidebar-list-stack > .chat-list[data-active="false"] { visibility: hidden; pointer-events: none; }
+.chat-list[data-active="false"] .stable-image { transition: none; }
+.sidebar-list-stack > .global-search-results-panel { height: 100%; }
+.chat-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .chat-list::-webkit-scrollbar { display: none; }
 .chat-list-loading {
   position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; height: 42px;

@@ -228,7 +228,7 @@ const expectStableFollowingGeometry = (
 
 test("forum groups reopen the last topic and expose compact horizontal navigation", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-forum"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]').click();
 
   await expect(page.getByRole("region", { name: "常规 话题 对话" })).toBeVisible();
   await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");
@@ -286,8 +286,8 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await expect.poll(async () => (await conversationSwitchRecords(page))
     .filter((record) => record.navigationKind === 4 && record.cancelled !== true).length).toBe(1);
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
-  await page.locator('[data-chat-id="chat-forum"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]').click();
   await expect(page.getByRole("region", { name: "构建与发布 话题 对话" })).toBeVisible();
   await expect(page.locator(".conversation-title strong")).toHaveText("Notgram 论坛");
   await expect(page.getByRole("button", { name: "返回话题列表" })).toHaveCount(0);
@@ -334,7 +334,7 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
 
 test("non-forum group conversations keep messages that belong to a message thread", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator('[data-message-id="product-thread-1"]')).toBeVisible();
   await expect(page.getByText("群组线程消息也应显示在主会话中。", { exact: true })).toBeVisible();
 });
@@ -533,7 +533,7 @@ test("account switcher keeps an interruptible exit transition", async ({ page })
 test("settings isolate wheel input from the covered conversation list", async ({ page }) => {
   await page.setViewportSize({ width: 1080, height: 520 });
   await page.goto("/");
-  const chatList = page.locator(".chat-list");
+  const chatList = page.locator(".chat-list[data-active=true]");
   await chatList.evaluate((element) => {
     (element as HTMLElement).style.height = "120px";
     element.scrollTop = 24;
@@ -573,7 +573,7 @@ test("standalone settings update the still-interactive main window", async ({ pa
   await settings.getByRole("spinbutton", { name: "消息字体大小" }).fill("19");
   await expect(page.locator(".message-rich-text").first()).toHaveCSS("font-size", "19px");
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await settings.close();
 });
@@ -670,7 +670,7 @@ test("performance monitor attributes a conversation switch to its slowest stage"
   const initialTitle = await title.innerText();
   const targetChatId = initialTitle === "产品讨论" ? "chat-mia" : "chat-product";
 
-  await page.locator(`.chat-row[data-chat-id="${targetChatId}"]`).click();
+  await page.locator(`.chat-list[data-active=true] .chat-row[data-chat-id="${targetChatId}"]`).click();
   await expect(title).not.toHaveText(initialTitle);
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: /性能监控/ }).click();
@@ -694,7 +694,7 @@ test("performance monitor attributes a conversation switch to its slowest stage"
 test("desktop messaging, context actions, and preferences remain usable", async ({ page }) => {
   await page.goto("/?blockedSenders=8");
   await expect(page.locator(".app-shell")).toBeVisible();
-  await expect(page.locator(".chat-row")).not.toHaveCount(0);
+  await expect(page.locator(".chat-list[data-active=true] .chat-row")).not.toHaveCount(0);
   await expect(page.locator(".message-bubble-shell")).not.toHaveCount(0);
 
   const visibleBubble = page.locator(".message-bubble-shell").last();
@@ -813,13 +813,13 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await page.goto("/?typing=group");
 
   const composer = page.getByRole("textbox", { name: "消息内容" });
-  const previewSender = page.locator('[data-chat-id="chat-product"] .chat-preview-sender');
+  const previewSender = page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"] .chat-preview-sender');
   await expect(page.locator(".conversation-header-status")).toHaveText("Jules 正在输入...");
-  await expect(page.locator('[data-chat-id="chat-product"] .chat-preview'))
+  await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"] .chat-preview'))
     .toContainText("Jules: 我把交互稿更新到最新版本了");
   await expect(previewSender).toHaveText("Jules:");
   await expect(previewSender).toHaveCSS("color", "rgb(55, 109, 153)");
-  await expect(page.locator('[data-chat-id="chat-mia"] .chat-preview-sender')).toHaveCount(0);
+  await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"] .chat-preview-sender')).toHaveCount(0);
   await page.evaluate(() => {
     document.documentElement.dataset.theme = "notgram-dark";
   });
@@ -845,7 +845,7 @@ test("composer keeps focus, typing status is visible, and previews name the send
 
 test("channel sponsored messages stay in an independent timeline block and can be disabled", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   const sponsored = page.locator('[data-sponsored-message-id="sponsored-release-1"]');
   await expect(sponsored).toHaveCount(0);
 
@@ -866,7 +866,7 @@ test("channel sponsored messages stay in an independent timeline block and can b
 
 test("channel owners can publish posts and toggle silent sending", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
 
   const composer = page.getByRole("textbox", { name: "消息内容" });
   await expect(composer).toBeVisible();
@@ -1112,7 +1112,7 @@ test("live messages animate without replaying history rows", async ({ page }) =>
 
 test("incoming messages do not wait for a bottom pin while reading away from latest", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect(page.getByRole("button", { name: /^跳到最新消息/ })).toBeVisible();
@@ -1246,7 +1246,7 @@ test("new messages stay pinned without viewport rebound", async ({ page }) => {
 
 test("incoming animated messages remain visible while following latest", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   const messageList = page.locator(".message-list");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
@@ -1959,7 +1959,7 @@ test("composer coalesces resizing and persists drafts without blocking input", a
 test("chat list shows draft previews only for inactive conversations", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });
-  const productPreview = page.locator('[data-chat-id="chat-product"] .chat-preview');
+  const productPreview = page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"] .chat-preview');
   const firstDraft = "只在离开会话后显示的草稿";
   const secondDraft = `${firstDraft}，第二版`;
 
@@ -1975,11 +1975,11 @@ test("chat list shows draft previews only for inactive conversations", async ({ 
   await expect(productPreview).not.toHaveClass(/is-draft/);
   await expect(productPreview).not.toContainText(firstDraft);
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(productPreview).toHaveClass(/is-draft/);
   await expect(productPreview).toContainText(`草稿：${firstDraft}`);
 
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(composer).toHaveValue(firstDraft);
   await expect(productPreview).not.toHaveClass(/is-draft/);
   await expect(productPreview).not.toContainText("草稿：");
@@ -1996,10 +1996,10 @@ test("chat list shows draft previews only for inactive conversations", async ({ 
   await expect(productPreview).not.toContainText(firstDraft);
   await expect(productPreview).not.toContainText(secondDraft);
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(productPreview).toContainText(`草稿：${secondDraft}`);
 
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(productPreview).not.toHaveClass(/is-draft/);
   await expect(productPreview).not.toContainText("草稿：");
   await composer.fill(" \n\t");
@@ -2011,7 +2011,7 @@ test("chat list shows draft previews only for inactive conversations", async ({ 
     };
     return storeModule.telegramStore.getState().drafts.get("chat-product")?.text;
   }, "/src/store/telegramStore.ts")).toBe(" \n\t");
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(productPreview).not.toHaveClass(/is-draft/);
   await expect(productPreview).not.toContainText("草稿：");
   await expect.poll(() => page.evaluate(async (modulePath) => {
@@ -2041,9 +2041,9 @@ test("member mentions stay in their chat and the resulting draft can be cleared"
   await expect(page.locator(".inline-query-panel")).toHaveCount(0);
   await expect(page.locator(".operation-error")).toHaveCount(0);
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(composer).toHaveValue("");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(composer).toHaveValue(mentionDraft);
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
@@ -2055,9 +2055,9 @@ test("member mentions stay in their chat and the resulting draft can be cleared"
   }, "/src/store/telegramStore.ts")).toMatchObject({ kind: "mentionName", userId: expect.any(String) });
 
   await composer.fill("");
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(composer).toHaveValue("");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(composer).toHaveValue("");
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
@@ -2153,7 +2153,7 @@ test("IME composition defers draft persistence and layout work until commit", as
 
 test("private chats show incoming typing state", async ({ page }) => {
   await page.goto("/?typing=direct");
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   const headerStatus = page.locator(".conversation-header-status");
   await expect(headerStatus).toHaveClass(/is-typing/);
   await expect(headerStatus).toHaveText("正在输入...");
@@ -2310,7 +2310,7 @@ test("a three-digit unread entry positions once without exposing intermediate ju
     if (chat) chats.set("chat-chen", { ...chat, unreadCount: 120 });
     storeModule.telegramStore.setState({ chats });
   }, "/src/store/telegramStore.ts");
-  const serverChat = page.locator('[data-chat-id="chat-chen"]');
+  const serverChat = page.locator('.chat-list[data-active=true] [data-chat-id="chat-chen"]');
   const unreadBadge = serverChat.locator(".unread-count");
   await expect(unreadBadge).toHaveText("120");
   await expect(unreadBadge).toHaveCSS("font-size", "11px");
@@ -2332,7 +2332,7 @@ test("a three-digit unread entry positions once without exposing intermediate ju
     const startedAt = performance.now();
     const sample = () => {
       const activeChatId = document.querySelector<HTMLElement>(
-        '.chat-row[aria-current="true"]',
+        '.chat-list[data-active=true] .chat-row[aria-current="true"]',
       )?.dataset.chatId;
       const list = document.querySelector<HTMLElement>(".message-list");
       const shell = document.querySelector<HTMLElement>(".message-list-shell");
@@ -2547,7 +2547,7 @@ test("read conversations settle behind a non-empty switch snapshot", async ({ pa
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
   const sampleChenSwitch = () => page.evaluate(async () => {
-    const row = document.querySelector<HTMLElement>('[data-chat-id="chat-chen"]')!;
+    const row = document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-chen"]')!;
     row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
     const samples: Array<{
       busy: string | null;
@@ -2561,7 +2561,7 @@ test("read conversations settle behind a non-empty switch snapshot", async ({ pa
     for (let frame = 0; frame < 120; frame += 1) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const activeChatId = document.querySelector<HTMLElement>(
-        '.chat-row[aria-current="true"]',
+        '.chat-list[data-active=true] .chat-row[aria-current="true"]',
       )?.dataset.chatId;
       const list = document.querySelector<HTMLElement>(".message-list");
       const shell = document.querySelector<HTMLElement>(".message-list-shell");
@@ -2597,7 +2597,7 @@ test("read conversations settle behind a non-empty switch snapshot", async ({ pa
 
   expectOnlyBottomFrames(await sampleChenSwitch());
   await expect(page.locator('[data-message-id="c-2"]')).toBeVisible();
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   expectOnlyBottomFrames(await sampleChenSwitch());
 });
@@ -2607,7 +2607,7 @@ test("conversation selection, header, and rows commit to one target", async ({ p
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
   const samples = await page.evaluate(async () => {
-    document.querySelector<HTMLElement>('[data-chat-id="chat-chen"]')?.click();
+    document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-chen"]')?.click();
     const frames: Array<{
       activeChatId?: string;
       title?: string;
@@ -2618,7 +2618,7 @@ test("conversation selection, header, and rows commit to one target", async ({ p
     for (let frame = 0; frame < 120; frame += 1) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const activeChatId = document.querySelector<HTMLElement>(
-        '.chat-row[aria-current="true"]',
+        '.chat-list[data-active=true] .chat-row[aria-current="true"]',
       )?.dataset.chatId;
       if (activeChatId !== "chat-chen") continue;
       const snapshot = document.querySelector<HTMLElement>(
@@ -2651,7 +2651,7 @@ test("conversation selection, header, and rows commit to one target", async ({ p
   expect(samples.some((sample) => sample.sourceRowsInTarget > 0), JSON.stringify(samples)).toBe(false);
 
   await page.evaluate(() => {
-    document.querySelector<HTMLElement>('[data-chat-id="chat-product"]')?.click();
+    document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-product"]')?.click();
     globalThis.dispatchEvent(new Event("resize"));
   });
   await expect(page.locator("[data-conversation-switch-snapshot]")).toHaveCount(0);
@@ -2660,10 +2660,10 @@ test("conversation selection, header, and rows commit to one target", async ({ p
 test("stalled background history never leaves source messages over the destination chat", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
-  await page.locator('[data-chat-id="chat-chen"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-chen"]').click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator('[data-message-id="c-2"]')).toBeVisible();
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
   await page.evaluate(async (modulePath) => {
@@ -2678,7 +2678,7 @@ test("stalled background history never leaves source messages over the destinati
     storeModule.telegramStore.setState({ histories });
   }, "/src/store/telegramStore.ts");
 
-  await page.locator('[data-chat-id="chat-chen"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-chen"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("陈默");
   await expect(page.locator("[data-conversation-switch-snapshot]")).toHaveCount(0, {
     timeout: 1_000,
@@ -2754,8 +2754,8 @@ test("initial history completion remounts the list at the latest message", async
 
 test("warm conversation switches reuse messages and reveal content promptly", async ({ page }) => {
   await page.goto("/");
-  const product = page.locator('[data-chat-id="chat-product"]');
-  const mia = page.locator('[data-chat-id="chat-mia"]');
+  const product = page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]');
+  const mia = page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]');
 
   await mia.click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
@@ -2779,7 +2779,7 @@ test("warm conversation switches reuse messages and reveal content promptly", as
   const beforeCounts = await messageCounts();
 
   const timing = await page.evaluate(async () => {
-    const row = document.querySelector<HTMLElement>('[data-chat-id="chat-mia"]')!;
+    const row = document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-mia"]')!;
     const startedAt = performance.now();
     row.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
     let headerMs: number | undefined;
@@ -2863,7 +2863,7 @@ test("warm conversation switches reuse messages and reveal content promptly", as
 
 test("notification routes select the destination before exact-message loading settles", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   const title = page.locator(".conversation-title strong");
   await expect(title).toHaveText("产品讨论");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
@@ -2922,7 +2922,7 @@ test("notification routes select the destination before exact-message loading se
   }, "/src/store/telegramStore.ts");
 
   await expect(title).toHaveText("Mia Chen", { timeout: 750 });
-  await expect(page.locator('[data-chat-id="chat-mia"]')).toHaveAttribute("aria-current", "true");
+  await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]')).toHaveAttribute("aria-current", "true");
   await expect.poll(() => page.evaluate(() => (
     window.sessionStorage.getItem("notgram.pending-notification-route")
   ))).toBeNull();
@@ -2936,8 +2936,8 @@ test("notification routes select the destination before exact-message loading se
 
 test("warm conversation switching coalesces message-list geometry checks", async ({ page }) => {
   await page.goto("/");
-  const product = page.locator('[data-chat-id="chat-product"]');
-  const mia = page.locator('[data-chat-id="chat-mia"]');
+  const product = page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]');
+  const mia = page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]');
 
   await mia.click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
@@ -2964,7 +2964,7 @@ test("warm conversation switching coalesces message-list geometry checks", async
     });
 
     try {
-      document.querySelector<HTMLElement>('[data-chat-id="chat-product"]')?.click();
+      document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-product"]')?.click();
       let stableFrames = 0;
       for (let frame = 0; frame < 120; frame += 1) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -3033,8 +3033,8 @@ test("idle bottom following remains motionless after geometry settles", async ({
 
 test("rapid alternating conversation clicks commit every latest intent without a cooldown", async ({ page }) => {
   await page.goto("/");
-  const product = page.locator('[data-chat-id="chat-product"]');
-  const mia = page.locator('[data-chat-id="chat-mia"]');
+  const product = page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]');
+  const mia = page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]');
   await mia.click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await product.click();
@@ -3044,12 +3044,12 @@ test("rapid alternating conversation clicks commit every latest intent without a
     const sequence = Array.from({ length: 24 }, (_, index) =>
       index % 2 === 0 ? "chat-mia" : "chat-product");
     return sequence.map((chatId) => {
-      document.querySelector<HTMLElement>(`[data-chat-id="${chatId}"]`)?.dispatchEvent(
+      document.querySelector<HTMLElement>(`.chat-list[data-active=true] [data-chat-id="${chatId}"]`)?.dispatchEvent(
         new MouseEvent("click", { bubbles: true, button: 0, detail: 1 }),
       );
       return {
         expected: chatId,
-        active: document.querySelector<HTMLElement>('.chat-row[aria-current="true"]')?.dataset.chatId,
+        active: document.querySelector<HTMLElement>('.chat-list[data-active=true] .chat-row[aria-current="true"]')?.dataset.chatId,
         transitionCovered: document.documentElement.classList.contains(
           "is-conversation-view-transition",
         ),
@@ -3070,7 +3070,7 @@ test("outgoing messages stay inside the conversation at narrow widths and interf
   ]) {
     await page.setViewportSize({ width: scenario.width, height: 620 });
     await page.goto("/");
-    await page.locator('[data-chat-id="chat-product"]').click();
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
     await expect(page.locator(".message-row.is-outgoing").last()).toBeVisible();
     await page.locator("html").evaluate((element, zoom) => { element.style.zoom = zoom; }, scenario.zoom);
 
@@ -3113,7 +3113,7 @@ test("outgoing messages stay inside the conversation at narrow widths and interf
 test("incoming virtual blocks preserve the sender avatar column", async ({ page }) => {
   await page.setViewportSize({ width: 525, height: 812 });
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".message-list")).toBeVisible();
   await page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
@@ -3314,7 +3314,7 @@ test("creates a public supergroup with initial members and permissions", async (
 
   await expect(dialog).toBeHidden();
   await expect(page.locator(".conversation-title strong")).toHaveText("Notgram QA Team");
-  await expect(page.locator('.chat-row[data-chat-id^="chat-created-"]')).toContainText("Notgram QA Team");
+  await expect(page.locator('.chat-list[data-active=true] .chat-row[data-chat-id^="chat-created-"]')).toContainText("Notgram QA Team");
   await page.locator(".conversation-profile-trigger").click();
   const profile = page.getByRole("dialog", { name: "资料" });
   await expect(profile).toContainText("桌面客户端验收协作");
@@ -3424,7 +3424,7 @@ test("suggests bot commands and sends paginated inline results", async ({ page }
   await inline.getByRole("button").filter({ hasText: "快速摘要" }).click();
   await expect(page.getByText("@notgram_bot: release", { exact: true })).toBeVisible();
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await composer.fill("/he");
   await composer.fill("/");
   await expect(suggestions.getByRole("option")).toHaveCount(3);
@@ -3472,7 +3472,7 @@ test("suggests group members for @ mentions without invoking inline bots", async
   await expect(mentions).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Inline 查询结果" })).toHaveCount(0);
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await composer.fill("@mia");
   await expect(mentions).toHaveCount(0);
 });
@@ -3657,9 +3657,9 @@ test("blocks users and reports chats or selected messages", async ({ page }) => 
   await expect(localBlockAction).toHaveText("屏蔽");
   await expect(localBlockAction).toHaveClass(/is-active/);
   expect(await localBlockAction.evaluate((element) => element.getBoundingClientRect().width)).toBe(localBlockWidth);
-  await expect(page.locator('[data-chat-id="chat-mia"] .chat-preview')).toHaveText("消息已屏蔽");
+  await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"] .chat-preview')).toHaveText("消息已屏蔽");
   await profile.getByRole("button", { name: "解除屏蔽", exact: true }).click();
-  await expect(page.locator('[data-chat-id="chat-mia"] .chat-preview')).toHaveText("那我们下午三点对一下细节");
+  await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"] .chat-preview')).toHaveText("那我们下午三点对一下细节");
   const blacklistAction = profile.locator(".profile-actions button").filter({ hasText: "黑名单" }).first();
   const blacklistWidth = await blacklistAction.evaluate((element) => element.getBoundingClientRect().width);
   await blacklistAction.click();
@@ -3709,7 +3709,7 @@ test("locally masks a group member and reveals messages at the requested scope",
   }, "notgram:local-user-blocks:v1");
 
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator('.message-list[aria-busy="false"]')).toBeVisible();
   await expect(page.locator(".message-bubble-shell.is-local-block-concealed").first()).toBeVisible();
 
@@ -4250,14 +4250,14 @@ test("middle-clicking forward repeats an incoming message directly to the curren
   await expect(menu.getByRole("menuitem", { name: "复读", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   const directIncoming = await revealVirtualMessage(page, "m-3");
   await directIncoming.locator(".message-bubble-shell").click({ button: "right" });
   menu = page.getByRole("menu", { name: "消息操作" });
   await expect(menu.getByRole("menuitem", { name: "复读", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
-  await page.locator('[data-chat-id="chat-forum"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]').click();
   const forumIncoming = await revealVirtualMessage(page, "forum-general-1");
   await forumIncoming.locator(".message-bubble-shell").click({ button: "right" });
   menu = page.getByRole("menu", { name: "消息操作" });
@@ -4419,10 +4419,10 @@ test("conversation navigation records only links opened inside a conversation", 
   await expect(page.getByRole("button", { name: "后退" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "前进" })).toHaveCount(0);
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
 
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
 
   await page.evaluate(() => {
@@ -4456,7 +4456,7 @@ test("conversation navigation records only links opened inside a conversation", 
   });
   await expect(page.locator(".conversation-title strong")).toHaveText("Release Notes");
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await page.evaluate(() => {
     window.dispatchEvent(new PointerEvent("pointerdown", {
@@ -4742,7 +4742,7 @@ test("message deletion keeps safety actions separate and exposes only allowed sc
   await dialog.getByRole("button", { name: "取消" }).click();
 
   await page.setViewportSize({ width: 390, height: 700 });
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   const mobileIncoming = await revealVirtualMessage(page, "p-4");
   await mobileIncoming.locator(".message-bubble-shell").click({ button: "right" });
   await page.getByRole("menu", { name: "消息操作" }).getByRole("menuitem", { name: "删除" }).click();
@@ -4797,7 +4797,7 @@ test("dark mode keeps interactive hover surfaces dark across the main UI", async
   };
 
   await assertDarkHover(page.locator(".rail-button").first());
-  await assertDarkHover(page.locator(".chat-row").first());
+  await assertDarkHover(page.locator(".chat-list[data-active=true] .chat-row").first());
   await assertDarkHover(page.locator(".conversation-profile-trigger"));
 
   const profile = page.getByRole("dialog", { name: "资料" });
@@ -4892,7 +4892,7 @@ test("channel posts expose views, forwards, and author metadata without a sync f
   await expect(linked.locator('[aria-label="22200 次观看"]')).toHaveText("22.2K");
   await expect(linked.locator(".message-channel-author")).toHaveText("Release editor");
 
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   const post = page.locator('[data-message-id="release-post-1"]');
   await expect(post).toBeVisible();
   await expect(post.locator('[aria-label="转发 23 次"]')).toHaveText("23");
@@ -4902,7 +4902,7 @@ test("channel posts expose views, forwards, and author metadata without a sync f
 
 test("channel post metadata and discussion messages keep shared conversation geometry", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   await page.evaluate(async ([storePath, preferencesPath]) => {
     type TestMessage = {
@@ -5143,7 +5143,7 @@ test("channel post metadata and discussion messages keep shared conversation geo
 
 test("channel posts integrate their comment action and load the linked discussion thread", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   const post = page.locator('[data-message-id="release-post-1"]');
   await expect(post).toBeVisible();
   // The mock account owns this channel; regular subscribers are covered separately.
@@ -5295,7 +5295,7 @@ test("channel posts integrate their comment action and load the linked discussio
 
 test("channel discussion actions use the linked group and preserve composer focus", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await page.evaluate(async (storePath) => {
     type TestMessage = {
       id: string;
@@ -5519,7 +5519,7 @@ test("channel discussion actions use the linked group and preserve composer focu
 
 test("channel discussions auto-load media and stickers with live file updates", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-release"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await expect(page.locator('[data-message-id="release-post-1"]')).toBeVisible();
   await page.evaluate(async ([storePath, preferencesPath]) => {
     type TestMessage = {
@@ -5768,7 +5768,7 @@ test("Telegram links navigate internally and incompatible routes stay in Notgram
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   expect(context.pages()).toHaveLength(initialPageCount);
 
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   const themeLink = page.locator('[data-message-id="p-rich-entities"]').getByRole("link", { name: "link" });
   await expect(themeLink).toBeVisible();
   await themeLink.click();
@@ -5887,7 +5887,7 @@ test("visible mentions follow nickname changes without changing their user targe
 
 test("chat list hides its scrollbar and the conversation title has no hover highlight", async ({ page }) => {
   await page.goto("/");
-  const chatList = page.locator(".chat-list");
+  const chatList = page.locator(".chat-list[data-active=true]");
   await expect(chatList).toHaveCSS("scrollbar-width", "none");
 
   const title = page.locator(".conversation-profile-trigger");
@@ -5899,7 +5899,7 @@ test("chat list hides its scrollbar and the conversation title has no hover high
 test("chat pagination indicator does not change the bottom scroll geometry", async ({ page }) => {
   await page.setViewportSize({ width: 760, height: 420 });
   await page.goto("/");
-  const chatList = page.locator(".chat-list");
+  const chatList = page.locator(".chat-list[data-active=true]");
   await expect.poll(() => chatList.evaluate((element) =>
     element.scrollHeight - element.clientHeight
   )).toBeGreaterThan(100);
@@ -5942,7 +5942,7 @@ test("chat pagination indicator does not change the bottom scroll geometry", asy
     element.scrollTop = element.scrollHeight - element.clientHeight;
   });
   const during = await chatList.evaluate((element) => {
-    const lastRow = element.querySelector<HTMLElement>(".chat-row:last-of-type");
+    const lastRow = element.querySelector<HTMLElement>(".chat-list[data-active=true] .chat-row:last-of-type");
     return {
       rowTop: lastRow?.getBoundingClientRect().top,
       scrollHeight: element.scrollHeight,
@@ -5963,7 +5963,7 @@ test("chat pagination indicator does not change the bottom scroll geometry", asy
 test("scrolled chat list stays visually stable during refreshes and context menus", async ({ page }) => {
   await page.setViewportSize({ width: 760, height: 420 });
   await page.goto("/");
-  const chatList = page.locator(".chat-list");
+  const chatList = page.locator(".chat-list[data-active=true]");
   await expect.poll(() => chatList.evaluate((element) =>
     element.scrollHeight - element.clientHeight
   )).toBeGreaterThan(100);
@@ -5981,7 +5981,7 @@ test("scrolled chat list stays visually stable during refreshes and context menu
 
   const anchor = await chatList.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
-    const row = [...element.querySelectorAll<HTMLElement>(".chat-row[data-chat-id]")]
+    const row = [...element.querySelectorAll<HTMLElement>(".chat-list[data-active=true] .chat-row[data-chat-id]")]
       .find((candidate) => {
         const rowBounds = candidate.getBoundingClientRect();
         return rowBounds.top >= bounds.top && rowBounds.bottom <= bounds.bottom;
@@ -5999,7 +5999,7 @@ test("scrolled chat list stays visually stable during refreshes and context menu
     const originalAnimate = Element.prototype.animate;
     diagnosticWindow.__notgramChatRowMotion = [];
     Element.prototype.animate = function (keyframes, options) {
-      if (this instanceof HTMLElement && this.matches(".chat-row[data-motion-key]")) {
+      if (this instanceof HTMLElement && this.matches(".chat-list[data-active=true] .chat-row[data-motion-key]")) {
         const frames = Array.isArray(keyframes) ? keyframes : [];
         diagnosticWindow.__notgramChatRowMotion?.push(String(frames[0]?.transform ?? ""));
       }
@@ -6007,7 +6007,7 @@ test("scrolled chat list stays visually stable during refreshes and context menu
     };
   });
 
-  const anchorRow = page.locator(`.chat-row[data-chat-id="${anchor.id}"]`);
+  const anchorRow = page.locator(`.chat-list[data-active=true] .chat-row[data-chat-id="${anchor.id}"]`);
   await anchorRow.click({ button: "right" });
   await expect(page.locator(".context-menu-surface")).toBeVisible();
   await page.evaluate(async (modulePath) => {
@@ -6535,10 +6535,10 @@ test("attachment entry points share classification, previews, spoilers, and loca
   await expect(preview.getByText("dropped-image.png", { exact: true })).toBeVisible();
   await expect(preview.getByRole("radio", { name: "媒体" })).toBeChecked();
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
-  await expect(page.locator('[data-chat-id="chat-product"] .chat-preview-message'))
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+  await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"] .chat-preview-message'))
     .toHaveText("草稿：1 个附件");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(preview.getByText("dropped-image.png", { exact: true })).toBeVisible();
 
   await preview.getByRole("checkbox", { name: "剧透" }).check();
@@ -7389,7 +7389,7 @@ test("chat switching and ordinary message interactions keep typing focus in the 
   const composer = page.getByRole("textbox", { name: "消息内容" });
   await expect(composer).toBeFocused();
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(composer).toBeFocused();
   await page.locator('[data-message-id="m-3"] .message-rich-text').click();
   await expect(composer).toBeFocused();
@@ -7401,7 +7401,7 @@ test("chat switching and ordinary message interactions keep typing focus in the 
 
 test("selecting message text is not interrupted by composer autofocus", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
 
   const composer = page.getByRole("textbox", { name: "消息内容" });
   const messageText = page.locator('[data-message-id="m-3"] .message-rich-text');
@@ -7480,7 +7480,7 @@ test("selecting message text is not interrupted by composer autofocus", async ({
 
 test("primary clicks outside selected message text clear the native selection", async ({ page }) => {
   await page.goto("/");
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
 
   const messageText = page.locator('[data-message-id="m-3"] .message-rich-text');
   await expect(messageText).toBeVisible();
@@ -7522,10 +7522,10 @@ test("primary clicks outside selected message text clear the native selection", 
   await expectSelectionCleared();
 
   await selectText();
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expectSelectionCleared();
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(messageText).toBeVisible();
   await selectText();
   await page.getByRole("textbox", { name: "消息内容" }).click();
@@ -7850,8 +7850,8 @@ test("canceling a draft reply removes the persisted reply target", async ({ page
     replyToMessageId: undefined,
   });
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".composer-context.is-replying")).toHaveCount(0);
   await expect(composer).toHaveValue("取消回复后仍是普通草稿");
   await page.getByRole("button", { name: "发送消息" }).click();
@@ -7885,7 +7885,7 @@ test("contacts are hidden from the navigation rail", async ({ page }) => {
 test("mobile chat switching has no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await page.locator(".chat-row").first().click();
+  await page.locator(".chat-list[data-active=true] .chat-row").first().click();
 
   await expect(page.locator(".conversation")).toBeVisible();
   await expect(page.locator(".mobile-back")).toBeVisible();
@@ -7901,7 +7901,7 @@ test("minimum window remains operable at Windows 125, 150, and 200 percent scali
     });
     const page = await context.newPage();
     await page.goto("/");
-    await page.locator(".chat-row").first().click();
+    await page.locator(".chat-list[data-active=true] .chat-row").first().click();
 
     await expect(page.locator(".conversation")).toBeVisible();
     await expect(page.locator(".mobile-back")).toBeVisible();
@@ -7922,12 +7922,12 @@ test("muted chats use a neutral unread badge", async ({ page }) => {
   await expect(mutedBadge).toHaveClass(/is-muted/);
   await expect(mutedBadge).toHaveCSS("background-color", "rgb(154, 167, 171)");
   await expect(regularBadge).not.toHaveCSS("background-color", "rgb(154, 167, 171)");
-  await expect(page.locator(".chat-row .lucide-volume-x")).toHaveCount(0);
+  await expect(page.locator(".chat-list[data-active=true] .chat-row .lucide-volume-x")).toHaveCount(0);
 });
 
 test("mention and reply unread counts use theme-specific attention colors", async ({ page }) => {
   await page.goto("/");
-  const badge = page.locator('[data-chat-id="chat-forum"] .unread-count');
+  const badge = page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"] .unread-count');
 
   await expect(badge).toHaveText("4");
   await expect(badge).toHaveClass(/has-attention/);
@@ -7945,7 +7945,7 @@ test("mention and reply unread counts use theme-specific attention colors", asyn
 
 test("chat settings move unread counters onto avatars and persist the choice", async ({ page }) => {
   await page.goto("/");
-  const releaseRow = page.locator('.chat-row[data-chat-id="chat-release"]');
+  const releaseRow = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-release"]');
   const rightBadge = releaseRow.locator(".chat-row-meta .unread-count");
   const rightBadgeGeometry = await rightBadge.boundingBox();
   await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -7961,7 +7961,7 @@ test("chat settings move unread counters onto avatars and persist the choice", a
 
   await page.reload();
   await expect(page.locator(
-    '.chat-row[data-chat-id="chat-release"] .chat-avatar-wrap .unread-count-avatar',
+    '.chat-list[data-active=true] .chat-row[data-chat-id="chat-release"] .chat-avatar-wrap .unread-count-avatar',
   )).toHaveText("8");
 });
 
@@ -8020,8 +8020,8 @@ test("video downloads share real progress and a usable file name across both vie
 
 test("pinned chats keep their per-folder order through dragging, folder switches, and restart", async ({ page }) => {
   await page.goto("/");
-  const product = page.locator('[data-chat-id="chat-product"]');
-  const mia = page.locator('[data-chat-id="chat-mia"]');
+  const product = page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]');
+  const mia = page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]');
 
   const source = await product.boundingBox();
   const target = await mia.boundingBox();
@@ -8035,24 +8035,24 @@ test("pinned chats keep their per-folder order through dragging, folder switches
   await expect(mia).toHaveClass(/drop-after/);
   await page.mouse.up();
 
-  await expect(page.locator(".chat-row").first()).toContainText("Mia Chen");
-  await expect(page.locator(".chat-row").nth(1)).toContainText("产品讨论");
+  await expect(page.locator(".chat-list[data-active=true] .chat-row").first()).toContainText("Mia Chen");
+  await expect(page.locator(".chat-list[data-active=true] .chat-row").nth(1)).toContainText("产品讨论");
   for (let index = 0; index < 5; index += 1) {
     await page.locator('.rail-actions [data-folder-id="folder:work"]').click();
-    await expect(page.locator(".chat-row").first()).toHaveAttribute("data-chat-id", "chat-product");
+    await expect(page.locator(".chat-list[data-active=true] .chat-row").first()).toHaveAttribute("data-chat-id", "chat-product");
     await expect(product).toHaveAttribute("data-pinned", "true");
     await page.locator('.rail-actions [data-folder-id="main"]').click();
-    await expect(page.locator(".chat-row").first()).toHaveAttribute("data-chat-id", "chat-mia");
+    await expect(page.locator(".chat-list[data-active=true] .chat-row").first()).toHaveAttribute("data-chat-id", "chat-mia");
     await expect(product).toHaveAttribute("data-pinned", "true");
     await expect(mia).toHaveAttribute("data-pinned", "true");
   }
   await page.reload();
-  await expect(page.locator(".chat-row").first()).toHaveAttribute("data-chat-id", "chat-mia");
-  await expect(page.locator(".chat-row").nth(1)).toHaveAttribute("data-chat-id", "chat-product");
+  await expect(page.locator(".chat-list[data-active=true] .chat-row").first()).toHaveAttribute("data-chat-id", "chat-mia");
+  await expect(page.locator(".chat-list[data-active=true] .chat-row").nth(1)).toHaveAttribute("data-chat-id", "chat-product");
   await expect(product).toHaveAttribute("data-pinned", "true");
   await expect(mia).toHaveAttribute("data-pinned", "true");
   await page.locator('.rail-actions [data-folder-id="folder:work"]').click();
-  await expect(page.locator(".chat-row").first()).toHaveAttribute("data-chat-id", "chat-product");
+  await expect(page.locator(".chat-list[data-active=true] .chat-row").first()).toHaveAttribute("data-chat-id", "chat-product");
   await expect(product).toHaveAttribute("data-pinned", "true");
 });
 
@@ -8907,7 +8907,7 @@ test("saved and direct messages align to the conversation edges", async ({ page 
   await expect(savedMessage).toBeVisible();
   await expect(savedMessage).toHaveClass(/is-outgoing/);
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator('[data-message-id="m-1"]')).toBeVisible();
@@ -9222,9 +9222,9 @@ test("manual bottom navigation and conversation switches clear reply jump histor
 
   await page.locator(".pinned-message-preview").click();
   await expect(page.getByRole("button", { name: "返回跳转前位置，可回退 1 次" })).toBeVisible();
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
 });
@@ -9239,7 +9239,7 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   const savedAnchor = await visibleMessageAnchor(page);
   expect(savedAnchor.id).toBeTruthy();
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await page.getByRole("button", { name: /产品讨论/ }).click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
@@ -9269,10 +9269,10 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
   await scrollAwayFromBottom(page);
-  await page.locator('[data-chat-id="chat-mia"]').click();
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 });
 
@@ -9284,7 +9284,7 @@ test("local reading anchor wins over an older unread cursor after switching conv
   const savedAnchor = await visibleMessageAnchor(page);
   expect(savedAnchor.id).toBeTruthy();
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
@@ -9325,7 +9325,7 @@ test("local reading anchor wins over an older unread cursor after switching conv
     module.telegramStore.setState({ chats, messages });
   }, "/src/store/telegramStore.ts");
 
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
   await expect.poll(async () => (await visibleMessageAnchor(page)).id).toBe(savedAnchor.id);
@@ -9343,7 +9343,7 @@ test("repeated virtual range changes do not restart detached anchor settlement",
   const savedAnchor = await visibleMessageAnchor(page);
   expect(savedAnchor.id).toBeTruthy();
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
   await expect(messageList).toHaveAttribute("aria-busy", "false");
 
@@ -9356,7 +9356,7 @@ test("repeated virtual range changes do not restart detached anchor settlement",
     ].join("\n");
     document.head.append(style);
 
-    document.querySelector<HTMLElement>('[data-chat-id="chat-product"]')?.click();
+    document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-product"]')?.click();
     let destinationFrame: number | undefined;
     let settledFrame: number | undefined;
     try {
@@ -9561,7 +9561,7 @@ test("visible attention is consumed only while focus is inside the conversation"
   const latestId = await page.locator(".message-list [data-message-id]").last()
     .getAttribute("data-message-id");
   expect(latestId).toBeTruthy();
-  await page.locator('[data-chat-id="chat-product"]').focus();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').focus();
   await page.evaluate(async ({ modulePath, messageId }) => {
     const module = await import(modulePath) as {
       telegramStore: {
@@ -9592,7 +9592,7 @@ test("visible attention is consumed only while focus is inside the conversation"
 test("attention button occupies the lower slot and animates when latest appears", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
-  await page.locator('[data-chat-id="chat-product"]').focus();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').focus();
   await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
       telegramStore: {
@@ -9769,7 +9769,7 @@ test("large emoji and sticker replies keep compact transparent geometry", async 
 test("a chat left at the latest position returns to the latest message", async ({ page }) => {
   await page.goto("/");
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
       telegramStore: {
@@ -9794,18 +9794,18 @@ test("a chat left at the latest position returns to the latest message", async (
     messages.set("chat-product", current);
     module.telegramStore.setState({ messages });
   }, "/src/store/telegramStore.ts");
-  await page.locator('[data-chat-id="chat-product"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.getByText("返回时仍在最新位置", { exact: true })).toBeVisible();
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 });
 
 test("clicking the selected conversation repeatedly converges to its latest message", async ({ page }) => {
   await page.goto("/");
-  const product = page.locator('[data-chat-id="chat-product"]');
+  const product = page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]');
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
 
-  await page.locator('[data-chat-id="chat-mia"]').click();
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await product.click();
   await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
   await product.click();
@@ -10153,7 +10153,7 @@ test("loading older messages preserves the visible message anchor", async ({ pag
 test("chat organization menu confirms pin, mute, and archive changes", async ({ page }) => {
   await page.goto("/");
   const moreButton = page.getByRole("button", { name: "更多操作" });
-  const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
+  const productRow = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-product"]');
 
   await moreButton.click();
   const menu = page.getByRole("menu", { name: "会话操作" });
@@ -10608,7 +10608,7 @@ test("native forwarding submenu shows avatars and scrolls after five visible row
 
 test("chat context menu manages folders, pinning, and group exit", async ({ page }) => {
   await page.goto("/");
-  const miaRow = page.locator('.chat-row[data-chat-id="chat-mia"]');
+  const miaRow = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-mia"]');
 
   await miaRow.click({ button: "right" });
   let menu = page.getByRole("menu", { name: "会话操作：Mia Chen" });
@@ -10637,7 +10637,7 @@ test("chat context menu manages folders, pinning, and group exit", async ({ page
     .getByRole("menuitem", { name: "置顶", exact: true }).click();
   await expect(miaRow).toHaveAttribute("data-pinned", "true");
 
-  const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
+  const productRow = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-product"]');
   await productRow.click({ button: "right" });
   await page.getByRole("menu", { name: "会话操作：产品讨论" })
     .getByRole("menuitem", { name: "退出群组" }).click();
@@ -10655,7 +10655,7 @@ test("nested context menus keep the primary anchor stable and leave transparent 
     content: ".chat-folder-submenu { height: min(360px, calc(100vh - 16px)); }",
   });
 
-  const releaseRow = page.locator('.chat-row[data-chat-id="chat-release"]');
+  const releaseRow = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-release"]');
   await releaseRow.scrollIntoViewIfNeeded();
   const releaseBounds = await releaseRow.boundingBox();
   expect(releaseBounds).not.toBeNull();
@@ -10690,14 +10690,14 @@ test("nested context menus keep the primary anchor stable and leave transparent 
   await page.addStyleTag({
     content: ".chat-folder-submenu { height: 360px; }",
   });
-  const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
+  const productRow = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-product"]');
   await productRow.click({ button: "right", position: { x: 50, y: 24 } });
   menu = page.getByRole("menu", { name: "会话操作：产品讨论" });
   await menu.getByRole("menuitem", { name: "分组" }).click();
   await expect(page.getByRole("menu", { name: "选择分组" })).toBeVisible();
   await expect(menu).toHaveAttribute("data-context-submenu-side", "right");
 
-  const chenName = page.locator('.chat-row[data-chat-id="chat-chen"] strong');
+  const chenName = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-chen"] strong');
   await chenName.click({ timeout: 1_000 });
   await expect(page.locator(".conversation-title strong")).toHaveText("陈默", { timeout: 1_000 });
   await expect(menu).toBeHidden();
@@ -10707,10 +10707,10 @@ test("sidebar context menus close when content outside them scrolls", async ({ p
   await page.setViewportSize({ width: 760, height: 420 });
   await page.goto("/");
   await page.addStyleTag({
-    content: ".chat-row { min-height: 92px; }",
+    content: ".chat-list[data-active=true] .chat-row { min-height: 92px; }",
   });
 
-  const chatList = page.locator(".chat-list");
+  const chatList = page.locator(".chat-list[data-active=true]");
   const scrollChatList = async () => {
     const metrics = await chatList.evaluate((element) => ({
       before: element.scrollTop,
@@ -10724,7 +10724,7 @@ test("sidebar context menus close when content outside them scrolls", async ({ p
       .not.toBe(metrics.before);
   };
 
-  const productRow = page.locator('.chat-row[data-chat-id="chat-product"]');
+  const productRow = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-product"]');
   await productRow.scrollIntoViewIfNeeded();
   await productRow.click({ button: "right" });
   let menu = page.locator(".context-menu-surface");
@@ -10781,13 +10781,13 @@ test("folder context menu edits, marks read, and deletes a custom folder", async
   await page.goto("/");
   const workButton = page.getByRole("button", { name: "工作", exact: true });
   await workButton.click();
-  await expect(page.locator('.chat-row[data-chat-id="chat-release"] .unread-count')).toHaveText("8");
+  await expect(page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-release"] .unread-count')).toHaveText("8");
 
   await workButton.click({ button: "right" });
   let menu = page.getByRole("menu", { name: "分组操作：工作" });
   await expect(menu.getByRole("menuitem", { name: "编辑文件夹" })).toBeVisible();
   await menu.getByRole("menuitem", { name: "标记为已读" }).click();
-  await expect(page.locator(".chat-list .unread-count")).toHaveCount(0);
+  await expect(page.locator(".chat-list[data-active=true] .unread-count")).toHaveCount(0);
 
   await workButton.click({ button: "right" });
   menu = page.getByRole("menu", { name: "分组操作：工作" });
@@ -10833,7 +10833,7 @@ test("folder buttons reorder by direct drag and stay fixed during chat organizat
   )).toEqual(reorderedNames);
 
   await mainButton.click();
-  const miaRow = page.locator('.chat-row[data-chat-id="chat-mia"]');
+  const miaRow = page.locator('.chat-list[data-active=true] .chat-row[data-chat-id="chat-mia"]');
   await miaRow.click({ button: "right" });
   await page.getByRole("menu", { name: "会话操作：Mia Chen" })
     .getByRole("menuitem", { name: "分组" }).click();
@@ -10874,7 +10874,7 @@ test("conversation list keeps an independent scroll position for each folder", a
   await page.addStyleTag({
     content: ".chat-list { height: 120px !important; min-height: 120px !important; max-height: 120px !important; }",
   });
-  const chatList = page.locator(".chat-list");
+  const chatList = page.locator(".chat-list[data-active=true]");
   await chatList.evaluate((element) => {
     const list = element as HTMLElement;
     list.scrollTop = 30;
@@ -10887,7 +10887,7 @@ test("conversation list keeps an independent scroll position for each folder", a
     const originalAnimate = Element.prototype.animate;
     diagnosticWindow.__notgramFolderSwitchMotion = [];
     Element.prototype.animate = function (keyframes, options) {
-      if (this instanceof HTMLElement && this.matches(".chat-row[data-motion-key]")) {
+      if (this instanceof HTMLElement && this.matches(".chat-list[data-active=true] .chat-row[data-motion-key]")) {
         const frames = Array.isArray(keyframes) ? keyframes : [];
         diagnosticWindow.__notgramFolderSwitchMotion?.push(String(frames[0]?.transform ?? ""));
       }
